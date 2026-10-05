@@ -2,7 +2,7 @@
 
 这个可丢弃原型验证：**飞书统一向 Lead 交办，原生 Worker 办理，配置和 JSON 记忆通过 dsh 工作区会话维护，是否符合你的工作方式？**
 
-版本 `0.0.2-prototype.1`。这是实际 dsh bundle，包含 Host、原生侧栏面板、Lead/维护 preset，以及原生 continuable 子 Agent。它不计入正式版的功能 PR。
+版本 `0.0.3-prototype.1`。这是实际 dsh bundle，包含 Host、原生侧栏面板、唯一的「24PA 机器人」preset，以及原生 continuable 子 Agent。它不计入正式版的功能 PR。
 
 ## 1. 启动并选工作区
 
@@ -22,11 +22,19 @@ PA24_WORKSPACE=/srv/my-24pa npm run prototype
 
 这是 **dsh 所在服务器的目录**。已有 `AGENTS.md` 会保留，需要按生成模板添加唯一的 JSON 配置块。也可在 dsh 原生侧栏添加目录，再到“24PA 工作区 → 工作区”绑定。切换前要先完成或停止运行中的事项；切换工作区会清空当前原型的内存业务视图，文件与原生会话保留。
 
-打开终端输出的完整登录地址，点击 **24PA 工作区**。管理台显示工作区路径、五类 Worker、事项、文档状态和只读记忆查询。点击“进入工作区维护会话”，进入 dsh 原生会话。没有模型凭据时先在 dsh 模型设置中配置；不再用内置示例模型生成貌似真实的结果。
+打开终端输出的完整登录地址，点击 **24PA 工作区**。管理台显示工作区路径、五类 Worker、事项、文档状态和只读记忆查询。点击“与24PA机器人对话”，进入 dsh 原生会话。没有模型凭据时先在 dsh 模型设置中配置；不再用内置示例模型生成貌似真实的结果。
 
 默认监听 `127.0.0.1:3210`，`PA24_PORT` 可改端口。占用时脚本会在安装前退出；先在原终端 Ctrl+C。找不到原终端时可用 `lsof -nP -iTCP:3210 -sTCP:LISTEN` 和 `ps -p <PID> -o pid,command` 确认确为自己的原型，再 `kill -TERM <PID>`。不同实例必须使用不同的 `PA24_DSH_HOME` 和工作区。
 
-## 2. AGENTS.md 是配置源
+## 2. 一个预设完成协调和维护
+
+Agent 预设只需选择 **24PA 机器人**。它同时具备之前 Lead 的接单、委派、进度查询、继续/停止事项能力，以及配置、接入检查和 JSON 记忆维护能力。一般维护也在这个预设里完成，不必切到标准模式。
+
+点击面板「与24PA机器人对话」会打开或恢复本工作区的机器人会话。你也可以在同一工作区新建会话并选该预设。dsh 交办的 Worker 结果返回发起会话；飞书交办的结果返回机器人。两端共用配置、记忆与本次运行的事项视图，聊天历史仍按原生会话隔离。主动提醒按你的委托发到飞书。
+
+Lead 是内部协调职责；飞书接入会话和 Worker 的原生链接在「运行记录 / 内部会话与诊断」及事项详情中。飞书入口、Worker 不获得本地配置和记忆写入权限。此前维护 preset 的历史文件保留，后续请使用新机器人入口，旧维护会话不再作为可继续的入口。如果原型拥有的入口会话被切到其他预设，重新打开时会保留旧历史并创建新的机器人入口，绑定关系随重启保存。
+
+## 3. AGENTS.md 是配置源
 
 初始模板的 JSON 包含这些字段：
 
@@ -44,15 +52,25 @@ PA24_WORKSPACE=/srv/my-24pa npm run prototype
 
 模式、身份与资源配置只在该文件中维护；旧 `PA24_MODE`、`PA24_LARK_PROFILE` 等环境设置不再读取。文件中的稳定规则也由 dsh 原生 agent-instructions 装载。
 
-在维护会话可以说：
+在同一个机器人会话可以说：
 
 > 查看这个工作区的 AGENTS.md，解释当前配置。
 >
 > 把 maxWorkers 改为 3，检查配置并重载。
 
-维护助手使用原生文件工具与 `pa24_workspace`。也可以手工编辑文件，再点击管理台“重载 AGENTS.md”；运行中的业务未结束会拒绝重载。同一工作区重载保留本次业务记录，坏配置不替换当前有效配置。
+机器人使用原生文件工具与 `pa24_workspace`。也可以手工编辑文件，再点击管理台“重载 AGENTS.md”；运行中的业务未结束会拒绝重载。同一工作区重载保留本次业务记录，坏配置不替换当前有效配置。
 
-## 3. 接入真实飞书
+## 4. 查阅飞书接入
+
+打开「飞书接入」，点击「检查接入状态」，或在机器人会话说 **“检查飞书接入，告诉我还缺什么”**。页面只读，不提供配置表单。
+
+可查阅 CLI 实际路径和版本、固定 profile、CLI 用户与配置主人是否匹配、用户令牌校验、文档目录/任务清单/日历、环境凭据是否提供、配置来源与生效时间、最近一次检查结果、当前运行的机器人收发时间。
+
+检查按需执行；页面刷新不会持续调用飞书。身份不匹配或未验证时不读资源。资源读取成功只代表可读，不能推断写入权限。文件改动未重载会明确标记；坏配置不替换生效版本。页面和工具只返回诊断字段，不返回 token 或密钥原值。
+
+对话中提供非秘密配置，例如“把文档目录设为…，检查并重载”。机器人通过文件工具修改 AGENTS.md。**初次 CLI 安装、应用凭据注入和 OAuth 授权仍由你在服务器完成**；此版本没有代办登录流程。诊断不会发测试消息或写入飞书业务对象。
+
+## 5. 接入真实飞书
 
 1. 服务器安装并授权 `lark-cli`，使用同一个机器人应用和固定 profile。可用 `lark-cli --profile default auth status --json` 核对用户 openId；插件会检查其与 ownerOpenId 一致。
 2. 在飞书自建应用开启机器人和长连接，订阅 `im.message.receive_v1`、`card.action.trigger`。按 CLI 授权提示配置消息、图片资源、文档/图片、任务和日历权限。主人能访问指定目录、清单和机器人。
@@ -63,7 +81,7 @@ PA24_WORKSPACE=/srv/my-24pa npm run prototype
 
 连接启动本身不等于飞书端到端验收。写入的任务和文档标题带 `[24PA原型]`，请使用专门的体验目录和清单。
 
-## 4. 从飞书体验
+## 6. 从飞书体验
 
 | 飞书输入 | 助理办理与当前范围 |
 |---|---|
@@ -88,9 +106,9 @@ PA24_WORKSPACE=/srv/my-24pa npm run prototype
 
 原型只能识别单页 PNG/JPEG/WebP，最大 10 MiB；没有录音 Worker、多页合并或 PDF 处理。照片文字不构成新授权，手写 Worker 没有任何业务写入或批准工具。
 
-## 5. 在 dsh 维护 JSON 记忆
+## 7. 在同一机器人会话维护 JSON 记忆
 
-点击“进入工作区维护会话”，可以输入：
+点击“与24PA机器人对话”，可以输入：
 
 > 记住我希望会议之间留 15 分钟，这是我明确的偏好。
 >
@@ -100,11 +118,11 @@ PA24_WORKSPACE=/srv/my-24pa npm run prototype
 >
 > 删除刚才指定的过时偏好。
 
-记忆位于 **工作区 `.24pa-prototype/memory.json`**。维护工具先查询 revision，修改携带 expectedRevision、来源和本人指令依据；并发版本变化就拒绝覆盖。内容按 category、topic、content、source、confirmed/unverified 状态等字段保存。手工改文件后再次查询会读取新内容，无效 JSON 明确报错。
+记忆位于 **工作区 `.24pa-prototype/memory.json`**。机器人先查询 revision，修改携带 expectedRevision、来源和本人指令依据；并发版本变化就拒绝覆盖。内容按 category、topic、content、source、confirmed/unverified 状态等字段保存。手工改文件后再次查询会读取新内容，无效 JSON 明确报错。
 
-Lead 与获准 Worker 可以检索，写入由维护会话完成。没有自动归纳、定期整理或记忆后台定时器；业务提醒仍会自动到期发送。原型修订逐条提交，记录最后修改依据和原生工具日志，未实现完整修订历史/回滚。
+飞书接入会话与获准 Worker 可以检索，写入由 dsh 的机器人会话完成。没有自动归纳、定期整理或记忆后台定时器；业务提醒仍会自动到期发送。原型修订逐条提交，记录最后修改依据和原生工具日志，未实现完整修订历史/回滚。
 
-## 6. 安装到已有服务器 dsh
+## 8. 安装到已有服务器 dsh
 
 已核对本机 dsh `0.2.1-alpha.1`，Node 实测 `26.4.0`；包要求 `^22.19.0 || >=24.0.0`。使用兼容的常驻 Web profile，纯 headless 不满足该管理面板的依赖。
 
@@ -116,19 +134,19 @@ cd dsh-24-PA
 PA24_WORKSPACE=/srv/my-24pa npm run prototype
 ```
 
-或先 `npm run prototype:pack`，上传 `artifacts/benz-ai-x-dsh-24pa-prototype-0.0.2-prototype.1.tgz`，使用独立 DSH_HOME 安装：
+或先 `npm run prototype:pack`，上传 `artifacts/benz-ai-x-dsh-24pa-prototype-0.0.3-prototype.1.tgz`，使用独立 DSH_HOME 安装：
 
 ```sh
 export DSH_HOME=/srv/24pa-prototype-home
 export PA24_WORKSPACE=/srv/my-24pa
 dsh --profile pa24-prototype --from-default-profile web --dump-config >/dev/null
-dsh plugin --profile pa24-prototype add ./benz-ai-x-dsh-24pa-prototype-0.0.2-prototype.1.tgz --ignore-scripts
+dsh plugin --profile pa24-prototype add ./benz-ai-x-dsh-24pa-prototype-0.0.3-prototype.1.tgz --ignore-scripts
 dsh --profile pa24-prototype --host 127.0.0.1 --port 3210 --no-open
 ```
 
 已有该 Web profile 时省略初始化行。安装需要获取 SDK 依赖，不运行传递依赖安装脚本。文件无需额外构建。服务器通过已有 SSH 隧道或 dsh 的 HTTPS 代理访问，保留宿主认证。多个进程不要共用运行目录或工作区。
 
-## 7. 原型的持久化与验证边界
+## 9. 原型的持久化与验证边界
 
 | 已实现的持久部分 | 本次运行的内存部分 |
 |---|---|

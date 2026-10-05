@@ -3,21 +3,8 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: pa24-prototype
-        name: 24PA Lead
-        description: 飞书私人助理的 Lead 与原生 Worker。
-        plugins:
-          - name: '@deepseek-ai/dsh-agent-instructions'
-            config:
-              maxBytes: 65536
-          - name: '@benz-ai-x/dsh-24pa-prototype/agent'
-            config:
-              role: lead
-    - id: pa24-maintenance-preset
-      name: '@deepseek-ai/dsh-agent-preset'
-      config:
-        id: pa24-maintenance
-        name: 24PA 工作区维护
-        description: 通过会话维护 AGENTS.md 和 JSON 记忆，手动发起整理。
+        name: 24PA 机器人
+        description: 协调助理事务，并在 dsh 会话中维护飞书配置和 JSON 记忆。
         plugins:
           - name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -27,8 +14,6 @@
             config:
               sampleOverCapGlobResults: false
           - name: '@benz-ai-x/dsh-24pa-prototype/agent'
-            config:
-              role: maintenance
     - id: pa24-prototype
       name: '@benz-ai-x/dsh-24pa-prototype'
       config:

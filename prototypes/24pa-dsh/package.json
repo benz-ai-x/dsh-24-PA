@@ -1,8 +1,8 @@
 {
   "name": "@benz-ai-x/dsh-24pa-prototype",
-  "version": "0.0.2-prototype.1",
+  "version": "0.0.3-prototype.1",
   "private": true,
-  "description": "24PA workspace prototype: Feishu Lead, native Workers and session-maintained JSON memory.",
+  "description": "24PA robot prototype: unified coordination and workspace maintenance with read-only Feishu diagnostics.",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

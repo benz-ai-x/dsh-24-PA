@@ -1,1 +1,6 @@
-{"meta": {"title": "24PA Workspace Prototype", "description": "A Feishu Lead, native specialist Workers, workspace maintenance and structured JSON memory."}}
+{
+  "meta": {
+    "title": "24PA Workspace Prototype",
+    "description": "One 24PA Robot preset for coordination, workspace configuration, Feishu diagnostics and JSON memory."
+  }
+}

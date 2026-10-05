@@ -1,1 +1,6 @@
-{"meta": {"title": "24PA 工作区原型", "description": "飞书 Lead、原生专业 Worker、工作区维护会话与 JSON 记忆。"}}
+{
+  "meta": {
+    "title": "24PA 工作区原型",
+    "description": "单一24PA机器人预设：事务协调、工作区配置、飞书只读诊断与 JSON 记忆。"
+  }
+}

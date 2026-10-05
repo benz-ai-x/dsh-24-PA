@@ -5,6 +5,7 @@ import { initialState, transition, QUESTION } from './model.js';
 import { FeishuGateway, hash, cli } from './feishu.js';
 import { WorkspaceStore, ROLES } from './workspace.js';
 import { perform, text } from './business.js';
+import { inspectConnection } from './connection.js';
 
 const texts = content => (content || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
 const running = job => ['queued','running'].includes(job.status);
@@ -14,6 +15,7 @@ export class PrototypeRuntime {
     this.state = initialState(); this.jobs = new Map(); this.originals = new Map();
     this.cards = new Map(); this.routes = new Map(); this.serial = Promise.resolve(); this.closed = false;
     this.connection = '正在加载工作区'; this.gateway = null;
+    this.sessionBindings = {};
     this.lifetime = new AbortController();
   }
   enqueue(work) { const result = this.serial.then(() => { if (this.closed) throw new Error('原型已卸载。'); return work(); }); this.serial = result.catch(() => {}); return result; }
@@ -21,7 +23,8 @@ export class PrototypeRuntime {
   report(error) { if (!this.closed) this.change({ type: 'notice', text: `未完成：${error.message || String(error)}` }); }
   snapshot() {
     return { ...this.state, question: QUESTION, mode: this.config.mode, connection: this.connection,
-      workspace: this.store ? { id: this.store.workspace.id, path: this.store.path, config: this.store.config, leadId: this.leadId } : null,
+      workspace: this.store ? { id: this.store.workspace.id, path: this.store.path, config: this.store.config, leadId: this.leadId, robotId: this.robotId, loadedAt: this.store.loadedAt } : null,
+      feishu: this.store ? this.connectionStatus() : null,
       availableWorkspaces: this.ctx.workspaceRegistry.list().map(w => ({ id: w.id, title: w.title, path: w.path })),
       workers: Object.entries(ROLES).map(([id, role]) => ({ id, name: role.name, enabled: this.config.enabledWorkers?.includes(id), running: [...this.jobs.values()].filter(j => j.role === id && running(j)).length })),
       jobs: [...this.jobs.values()].map(({ content, timer, ...job }) => job),
@@ -31,7 +34,7 @@ export class PrototypeRuntime {
   async start() {
     await mkdir(this.baseConfig.stateDirectory, { recursive: true });
     let saved;
-    try { saved = JSON.parse(await readFile(join(this.baseConfig.stateDirectory, 'workspace.json'), 'utf8')).path; }
+    try { const data=JSON.parse(await readFile(join(this.baseConfig.stateDirectory, 'workspace.json'), 'utf8')); saved=data.path; this.sessionBindings=data.sessions || {}; }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     await this.bind(this.baseConfig.workspacePath || saved || join(this.baseConfig.stateDirectory, 'workspace'), true);
     this.timer = setInterval(() => { void this.enqueue(() => this.tick()).catch(e => this.report(e)); }, this.config.reminderTickMs);
@@ -43,10 +46,27 @@ export class PrototypeRuntime {
     const sameWorkspace = this.store?.path === store.path;
     await this.gateway?.close(); this.gateway = null; this.liveReady = false;
     this.store = store; this.config = { ...this.baseConfig, ...store.config };
-    this.leadId = `pa24-${hash(store.path).slice(0,12)}-lead`;
+    this.leadId = this.sessionBindings[store.path]?.leadId || `pa24-${hash(store.path).slice(0,12)}-lead`;
+    this.robotId = this.sessionBindings[store.path]?.robotId || `pa24-${hash(store.path).slice(0,12)}-robot`;
+    this.diagnostics = null; this.lastReceivedAt = null; this.lastSentAt = null;
     if (!sameWorkspace) { this.state = initialState(this.config.larkProfile); this.jobs.clear(); this.cards.clear(); this.routes.clear(); this.originals.clear(); }
-    await writeFile(join(this.baseConfig.stateDirectory, 'workspace.json'), JSON.stringify({ path: store.path }), { mode: 0o600 });
+    await this.saveBinding();
     await this.ensureLead(); await this.connect();
+  }
+  async saveBinding() {
+    this.sessionBindings[this.store.path]={leadId:this.leadId,robotId:this.robotId};
+    await writeFile(join(this.baseConfig.stateDirectory,'workspace.json'),JSON.stringify({path:this.store.path,sessions:this.sessionBindings}),{mode:0o600});
+  }
+  async createOwnedSession(key) {
+    try { return await this.ctx.sessionController.create({sessionId:this[key],workspaceId:this.store.workspace.id,agentPreset:'pa24-prototype'}); }
+    catch(error) {
+      if(error.code!=='agent-preset/conflict')throw error;
+      const previous=this[key]; this[key]=`pa24-${hash(this.store.path).slice(0,12)}-${key==='leadId'?'lead':'robot'}-${randomUUID().slice(0,8)}`;
+      const created=await this.ctx.sessionController.create({sessionId:this[key],workspaceId:this.store.workspace.id,agentPreset:'pa24-prototype'});
+      await this.saveBinding();
+      this.change({type:'notice',text:`旧会话 ${previous} 已选择其他预设，历史保留；24PA 已建立新的${key==='leadId'?'飞书接入':'机器人'}会话。`});
+      return created;
+    }
   }
   async connect() {
     if (this.config.mode === 'demo') { this.connection = 'demo：未连接飞书，业务对象仅内存；Agent 调用真实 dsh 模型'; return; }
@@ -57,44 +77,68 @@ export class PrototypeRuntime {
     } catch (e) { this.connection = `飞书未就绪：${e.message}`; }
   }
   async ensureLead() {
-    const created = await this.ctx.sessionController.create({ sessionId: this.leadId, workspaceId: this.store.workspace.id, agentPreset: 'pa24-prototype' });
-    await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24PA · Lead（飞书入口）' });
+    const created = await this.createOwnedSession('leadId');
+    await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24PA · 飞书接入会话' });
     this.change({ type: 'session.bind', session: 'Lead', realId: created.sessionId });
     const resolved = await this.ctx.sessionController.resolveAgent(created.sessionId);
     if ('error' in resolved) throw resolved.error;
     this.lead = resolved.agent; return this.lead;
   }
-  async maintenance() {
-    const created = await this.ctx.sessionController.create({ workspaceId: this.store.workspace.id, agentPreset: 'pa24-maintenance' });
-    await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24PA · 工作区维护' });
+  async robot() {
+    const created = await this.createOwnedSession('robotId');
+    await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24PA 机器人' });
     return { sessionId: created.sessionId };
   }
   roleFor(agent) {
     if (agent?.session.header.cwd !== this.store?.path) return null;
     if (agent.id === this.leadId) return 'lead';
     const job = this.jobs.get(agent.id); if (job) return job.role;
-    if (agent.session.header.agentPreset === 'pa24-maintenance') return 'maintenance';
+    // Native child provenance is authoritative; an inherited preset is not maintenance authority.
+    const preset=agent.ctx ? this.ctx.agentPresets.composedPreset(agent.ctx) : agent.session.header.agentPreset;
+    if (!agent.parentAgent && agent.session.header.origin !== 'subagent' && preset === 'pa24-prototype') return 'robot';
     return null;
+  }
+  connectionStatus() {
+    const c = this.store.config;
+    return { profile:c.larkProfile, mode:c.mode, source:join(this.store.path,'AGENTS.md'), loadedAt:this.store.loadedAt,
+      config:{ownerOpenId:c.ownerOpenId,folderToken:c.folderToken,tasklistId:c.tasklistId,calendarId:c.calendarId,timeZone:c.timeZone},
+      credentials:[c.appIdEnv,c.appSecretEnv].map(name=>({name,present:!!process.env[name]})),
+      bot:{message:this.connection,started:!!this.liveReady,lastReceivedAt:this.lastReceivedAt,lastSentAt:this.lastSentAt},
+      checking:!!this.connectionCheck, check:this.diagnostics || null };
+  }
+  async checkConnection() {
+    if (this.connectionCheck) { await this.connectionCheck; return this.connectionStatus(); }
+    const store=this.store, config=this.config;
+    this.connectionCheck=inspectConnection(config,store).then(result=>{if(this.store===store)this.diagnostics=result;});
+    try { await this.connectionCheck; } finally { this.connectionCheck=null; }
+    return this.connectionStatus();
   }
   async admin(action) {
     if (action.type === 'workspace.bind') return this.enqueue(async () => { await this.bind(text(action.path, 4096), true); return this.snapshot(); });
     if (action.type === 'workspace.reload') return this.enqueue(async () => { await this.bind(this.store.path); return this.snapshot(); });
-    if (action.type === 'maintenance.open') return this.maintenance();
-    throw new Error('管理台只提供工作区绑定、配置重载与维护会话入口。');
+    if (action.type === 'robot.open') return this.robot();
+    if (action.type === 'connection.check') return this.checkConnection();
+    throw new Error('管理台只提供工作区绑定、配置重载、只读检查与机器人会话入口。');
   }
   async stop() {
     this.closed = true; this.lifetime.abort(); clearInterval(this.timer);
     for (const j of this.jobs.values()) clearTimeout(j.timer);
-    if (this.lead) await this.ctx.subagents.drainContinuableDescendants([this.lead]);
+    const parents = new Set([this.leadId,...[...this.jobs.values()].map(j=>j.parentSessionId)]);
+    const agents=[];
+    for(const id of parents) { if(!id)continue; const resolved=await this.ctx.sessionController.resolveAgent(id); if(!('error' in resolved))agents.push(resolved.agent); }
+    await this.ctx.subagents.drainContinuableDescendants(agents);
     await this.gateway?.close();
   }
   async notify(message, session = 'Lead', card, workId) {
+    const job = this.jobs.get(workId);
+    if (job?.parentSessionId && job.parentSessionId !== this.leadId) { this.change({type:'notice',text:message}); return; }
     this.change({ type: 'session.message', session: 'Lead', role: 'assistant', text: message });
-    if (this.liveReady) { const id = await this.gateway.send(`[24PA · Lead] ${message}`, card); this.routes.set(id, workId || null); }
+    if (this.liveReady) { const id = await this.gateway.send(`[24PA 机器人] ${message}`, card); this.lastSentAt=new Date().toISOString(); this.routes.set(id, workId || null); }
   }
   async receive(data) {
     return this.enqueue(async () => {
       const m = data.message, content = JSON.parse(m.content);
+      this.lastReceivedAt = new Date().toISOString();
       const reference = m.parent_id ? this.routes.get(m.parent_id) : null;
       if (m.parent_id && !this.routes.has(m.parent_id)) return this.notify('这条引用没有可恢复的事项记录，请告诉我事项名称或重新发送材料。');
       if (m.message_type === 'image') {
@@ -132,10 +176,10 @@ export class PrototypeRuntime {
     return id;
   }
   async delegate(args, exec) {
-    if (this.roleFor(exec.agent) !== 'lead') throw new Error('只有 Lead 可以委派 Worker。');
+    if (!['lead','robot'].includes(this.roleFor(exec.agent))) throw new Error('只有24PA机器人可以委派 Worker。');
     if (!this.config.enabledWorkers.includes(args.worker)) throw new Error('此 Worker 未启用。');
     const id = `pa24-worker-${args.worker}-${randomUUID()}`;
-    const job = { id, role: args.worker, title: text(args.title, 200), brief: text(args.instruction), status: 'queued', createdAt: new Date().toISOString(), noteId: args.imageId || null, progress: '等待执行', result: '', content: [] };
+    const job = { id, parentSessionId:exec.agent.id, origin:exec.agent.id===this.leadId?'feishu':'dsh', role: args.worker, title: text(args.title, 200), brief: text(args.instruction), status: 'queued', createdAt: new Date().toISOString(), noteId: args.imageId || null, progress: '等待执行', result: '', content: [] };
     if (args.worker === 'handwriting' && !this.originals.has(args.imageId)) throw new Error('需要本次运行已收到的图片编号。');
     if (args.imageId && [...this.jobs.values()].some(j => j.noteId === args.imageId)) throw new Error('这页笔记已有事项，请查看或继续原事项。');
     if (args.imageId && args.worker !== 'handwriting') throw new Error('纸质笔记只交给手写 Worker。');
@@ -153,8 +197,10 @@ export class PrototypeRuntime {
         if ([...this.jobs.values()].filter(j => j.status === 'running').length >= this.config.maxWorkers) break;
         job.status = 'running'; job.progress = 'Worker 正在处理';
         try {
+          const resolved = await this.ctx.sessionController.resolveAgent(job.parentSessionId);
+          if ('error' in resolved) throw resolved.error;
           await this.ctx.subagents.startContinuable({ provider: 'spawn', label: `${ROLES[job.role].name} · ${job.title}`, childId: job.id, signal: new AbortController().signal,
-            request: { parent: this.lead, prompt: job.content, persona: `你是 24PA 的 ${ROLES[job.role].name} Worker。${ROLES[job.role].brief} 将结果交回 Lead。`, toolFilter: { allow: job.role === 'handwriting' ? [] : ['pa24_work','pa24_memory'] }, maxDepth: 1, ...(this.config.workerModels[job.role] ? { agentOptions: this.config.workerModels[job.role] } : {}) } });
+            request: { parent: resolved.agent, prompt: job.content, persona: `你是 24PA 的 ${ROLES[job.role].name} Worker。${ROLES[job.role].brief} 将结果交回发起会话。`, toolFilter: { allow: job.role === 'handwriting' ? [] : ['pa24_work','pa24_memory'] }, maxDepth: 1, ...(this.config.workerModels[job.role] ? { agentOptions: this.config.workerModels[job.role] } : {}) } });
           job.content = [];
           job.started = true; this.armTimeout(job);
         } catch (e) { job.status = 'failed'; job.progress = e.message; await this.notify(`“${job.title}”未启动：${e.message}`, 'Lead', undefined, job.id); }
@@ -163,20 +209,20 @@ export class PrototypeRuntime {
   }
   armTimeout(job) {
     clearTimeout(job.timer);
-    job.timer = setTimeout(() => { if (job.status === 'running') { job.status = 'failed'; job.progress = '执行超时，需要核对后继续'; this.ctx.subagents.interrupt(job.id, { kind: 'user', parentSessionId: this.leadId }); void this.notify(`“${job.title}”处理超时，请核对已产生的结果后继续。`, 'Lead', undefined, job.id).catch(e => this.report(e)); void this.pump(); } }, this.config.modelTimeoutMs);
+    job.timer = setTimeout(() => { if (job.status === 'running') { job.status = 'failed'; job.progress = '执行超时，需要核对后继续'; this.ctx.subagents.interrupt(job.id, { kind: 'user', parentSessionId: job.parentSessionId }); void this.notify(`“${job.title}”处理超时，请核对已产生的结果后继续。`, 'Lead', undefined, job.id).catch(e => this.report(e)); void this.pump(); } }, this.config.modelTimeoutMs);
   }
   async control(args, exec) {
-    if (this.roleFor(exec.agent) !== 'lead') throw new Error('事项调度由 Lead 负责。');
+    if (!['lead','robot'].includes(this.roleFor(exec.agent))) throw new Error('事项调度由24PA机器人负责。');
     if (args.action === 'list') return { items: this.snapshot().jobs };
     const job = this.jobs.get(args.workId); if (!job) throw new Error('事项不存在；重启后的旧业务账本需要核对。');
     if (args.action === 'inspect') { const { timer, content, ...view } = job; return view; }
-    if (args.action === 'stop') { job.status = 'stopped'; job.progress = '本人要求停止；已完成操作保留'; clearTimeout(job.timer); this.ctx.subagents.interrupt(job.id, { kind: 'user', parentSessionId: this.leadId }); await this.pump(); }
+    if (args.action === 'stop') { job.status = 'stopped'; job.progress = '本人要求停止；已完成操作保留'; clearTimeout(job.timer); this.ctx.subagents.interrupt(job.id, { kind: 'user', parentSessionId: job.parentSessionId }); await this.pump(); }
     else if (args.action === 'continue') {
       if (!job.started) throw new Error('此事项尚无原生 Worker 会话，请核对失败原因后重新委派。');
       if (running(job)) throw new Error('事项正在运行；请等待结果或明确停止后再继续。');
       if ([...this.jobs.values()].filter(j => j.status === 'running').length >= this.config.maxWorkers) throw new Error('Worker 并发已满，请稍后继续。');
       job.status = 'running'; job.progress = '继续处理';
-      try { await this.ctx.subagents.sendMessage(exec.agent, job.id, [{ type: 'text', text: text(args.instruction) }], { signal: exec.signal }); this.armTimeout(job); }
+      try { const parent=await this.ctx.sessionController.resolveAgent(job.parentSessionId); if('error' in parent)throw parent.error; await this.ctx.subagents.sendMessage(parent.agent, job.id, [{ type: 'text', text: text(args.instruction) }], { signal: exec.signal }); this.armTimeout(job); }
       catch (e) { job.status = 'failed'; job.progress = e.message; throw e; }
     } else throw new Error('未知事项操作。');
     return { workId: job.id, status: job.status };
@@ -199,7 +245,7 @@ export class PrototypeRuntime {
   }
   async memory(args, exec) {
     const role = this.roleFor(exec.agent); if (!role) throw new Error('记忆仅对绑定的 24PA 工作区会话开放。');
-    return this.store.memory(args, role === 'maintenance' ? exec.agent.id : null, this.ctx.fs, exec.signal);
+    return this.store.memory(args, role === 'robot' ? exec.agent.id : null, this.ctx.fs, exec.signal);
   }
   async onTurn(session, event) {
     if (this.closed) return;

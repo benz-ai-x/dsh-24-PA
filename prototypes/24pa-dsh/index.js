@@ -22,5 +22,5 @@ export function apply(ctx, config) {
       throw new Error('未知管理接口。');
     }catch(e){ return respond({ok:false,error:{message:e.message}}); }
   }}));
-  ctx.effect(()=>{ void runtime.start().catch(e=>runtime.report(e)); return ()=>runtime.stop(); });
+  ctx.effect(()=>{ void runtime.start().catch(e=>{runtime.connection=`工作区未就绪：${e.message}`;runtime.report(e);}); return ()=>runtime.stop(); });
 }
