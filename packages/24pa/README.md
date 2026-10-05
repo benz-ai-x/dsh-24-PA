@@ -33,6 +33,12 @@ dsh --profile <你的 profile>
 - 项目/个人清单：`project_create` / `project_adopt`（本人采纳后才创建真实飞书任务并关联）/ `project_progress`（进展取自实际任务状态；不订票、付款或对外提交）。
 - 本地表：`pa24.task`（飞书为权威的投影，含 due/planned/estimate 与同步时间）、`pa24.project`、`pa24.project_task`。平台无任务删除接口：取消以修改＋说明处理，如实告知。
 
+## F04 增量（日程与会议安排）
+
+- calendar Worker 正式可用：`calendar_query`/`calendar_busy`（先同步授权日历到 `pa24.calendar_event` 投影，报告 syncedAt/窗口/新鲜度与冲突；同步失败返回“投影可能过期”而非“没有会议”）、`calendar_create`/`calendar_update`/`calendar_cancel`（staged 幂等、平台回执、写后回填投影，取消落投影）。
+- `meeting_schedule`：参会人取明确 open_id 或已确认记忆联系人（`联系人：姓名` 主题）；同名/缺失必须澄清，未发出任何邀请；邀请仅凭本人明确指令（instruction 依据）。
+- 同步水位在 `pa24.calendar_sync_state`（窗口、complete、last_error）；查询窗口上限 62 天。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |

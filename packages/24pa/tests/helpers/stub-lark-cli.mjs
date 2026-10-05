@@ -11,6 +11,7 @@ const statePath = process.env.PA24_LARK_STUB_STATE;
 const docsPath = `${statePath}.docs.jsonl`;
 const callsPath = `${statePath}.calls.jsonl`;
 const tasksPath = `${statePath}.tasks.jsonl`;
+const eventsPath = `${statePath}.events.jsonl`;
 const args = process.argv.slice(2);
 // Skip flag values (--profile <name>) the same way the real CLI parses.
 const plain = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--profile');
@@ -32,6 +33,19 @@ const readTasks = async () => {
     for (const line of lines) {
       const record = JSON.parse(line);
       latest.set(record.guid, record);
+    }
+    return [...latest.values()];
+  } catch {
+    return [];
+  }
+};
+const readEvents = async () => {
+  try {
+    const lines = (await readFile(eventsPath, 'utf8')).split('\n').filter(Boolean);
+    const latest = new Map();
+    for (const line of lines) {
+      const record = JSON.parse(line);
+      latest.set(record.event_id, record);
     }
     return [...latest.values()];
   } catch {
@@ -62,6 +76,7 @@ await appendFile(callsPath, JSON.stringify({ at: new Date().toISOString(), args 
 const state = await readState();
 const docs = await readDocs();
 const tasks = await readTasks();
+const events = await readEvents();
 const argOf = name => {
   const i = args.indexOf(name);
   return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
@@ -138,6 +153,41 @@ if (plain[0] === 'task' && plain[1] === '+search') {
   const query = argOf('--query') ?? '';
   const matched = tasks.filter(t => !query || t.summary.includes(query.replace(/^\[24PA\] /, '').slice(0, 20)) || t.summary.includes(query));
   ok({ tasks: matched.map(t => ({ guid: t.guid, summary: t.summary, completed: t.status === 'completed', status: t.status })) });
+}
+if (plain[0] === 'calendar' && plain[1] === '+agenda') {
+  if (state.failNext?.command === 'calendar.agenda') {
+    await writeState({ ...state, failNext: null });
+    fail(state.failNext.error ?? 'agenda injected failure');
+  }
+  const start = argOf('--start');
+  const end = argOf('--end');
+  const inWindow = events.filter(e => e.status !== 'canceled' && e.start.slice(0, 10) >= start && e.end.slice(0, 10) <= end);
+  ok({ events: inWindow.map(e => ({ event_id: e.event_id, summary: e.summary, start_time: e.start, end_time: e.end, is_all_day: e.all_day === true, status: e.status, url: e.url, attendees: e.attendees ?? [] })) });
+}
+if (plain[0] === 'calendar' && plain[1] === '+create') {
+  const summary = argOf('--summary');
+  const start = argOf('--start');
+  const end = argOf('--end');
+  const attendeeIds = argOf('--attendee-ids');
+  const event_id = `evtstub-${events.length + 1}`;
+  const record = { event_id, summary, start, end, status: 'active', all_day: false, url: `https://example.feishu.cn/calendar/event/${event_id}`, attendees: attendeeIds ? attendeeIds.split(',').map(id => ({ open_id: id })) : [] };
+  await appendFile(eventsPath, JSON.stringify(record) + '\n');
+  ok({ event: { event_id, url: record.url, summary } });
+}
+if (plain[0] === 'calendar' && plain[1] === '+update') {
+  const event_id = argOf('--event-id');
+  const event = [...events].reverse().find(e => e.event_id === event_id);
+  if (!event) fail(`日程不存在：${event_id}`);
+  const next = { ...event, summary: argOf('--summary') ?? event.summary, start: argOf('--start') ?? event.start, end: argOf('--end') ?? event.end };
+  await appendFile(eventsPath, JSON.stringify(next) + '\n');
+  ok({ event: { event_id, summary: next.summary, start: next.start, end: next.end } });
+}
+if (plain[0] === 'calendar' && plain[1] === '+delete') {
+  const event_id = argOf('--event-id');
+  const event = [...events].reverse().find(e => e.event_id === event_id);
+  if (!event) fail(`日程不存在：${event_id}`);
+  await appendFile(eventsPath, JSON.stringify({ ...event, status: 'canceled' }) + '\n');
+  ok({ event: { event_id, status: 'canceled' } });
 }
 if (plain[0] === 'drive' && plain[1] === 'files' && plain[2] === 'list') ok({ files: [{ token: 'fld_test', name: '体验目录', type: 'folder' }] });
 if (plain[0] === 'task' && plain[1] === 'tasklists' && plain[2] === 'get') ok({ tasklist: { guid: 'tl_test', name: '体验清单' } });
