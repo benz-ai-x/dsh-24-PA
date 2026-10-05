@@ -167,6 +167,24 @@ describe('F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历）',
     expect((await cluster.query(`select count(*) from pa24.calendar_event where status='active'`)).trim()).toBe('2');
   });
 
+  it('P10：同步失败时明确报告投影可能过期，不冒充空日历', async () => {
+    const stateRaw = JSON.parse(await readFile(stubStatePath, 'utf8'));
+    stateRaw.failNext = { command: 'calendar.agenda', error: '注入的日历读取失败' };
+    await writeFile(stubStatePath, JSON.stringify(stateRaw));
+    await writeScript({
+      mode: 'dispatch',
+      delegate: { worker: 'calendar', title: '降级查询', instruction: '查询后天安排（预期同步失败）' },
+      leadReply: '已安排查询。',
+      workerAction: { action: 'calendar_query', from: '2026-10-08T00:00:00+08:00', to: '2026-10-09T00:00:00+08:00' },
+      workerReply: '已查询。',
+    });
+    await inject(ownerEvent('evt-cal-6', '再查一下后天的安排'));
+    await waitWorkItem('降级查询', '降级查询完成');
+    const payload = await waitToolResult('可能过期', '降级回执');
+    expect(payload).toContain('同步失败');
+    expect((await cluster.query(`select coalesce(last_error,'') from pa24.calendar_sync_state`)).trim()).toContain('注入');
+  });
+
   it('P12：明确指令的会议邀请按记忆解析联系人；歧义拒绝且不发邀请', async () => {
     // 先写入联系人记忆（本地维护会话）
     await writeScript({

@@ -155,6 +155,10 @@ if (plain[0] === 'task' && plain[1] === '+search') {
   ok({ tasks: matched.map(t => ({ guid: t.guid, summary: t.summary, completed: t.status === 'completed', status: t.status })) });
 }
 if (plain[0] === 'calendar' && plain[1] === '+agenda') {
+  if (state.failNext?.command === 'calendar.agenda') {
+    await writeState({ ...state, failNext: null });
+    fail(state.failNext.error ?? 'agenda injected failure');
+  }
   const start = argOf('--start');
   const end = argOf('--end');
   const inWindow = events.filter(e => e.status !== 'canceled' && e.start.slice(0, 10) >= start && e.end.slice(0, 10) <= end);

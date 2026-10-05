@@ -601,7 +601,7 @@ export class CalendarRepo {
     await this.db.query(
       `update pa24.calendar_event set status = 'canceled', synced_at = now()
        where calendar_id = $1 and status = 'active'
-         and not (end_time < $2 or start_time > $3)
+         and not (end_time <= $2 or start_time >= $3)
          and event_id <> all($4::text[])`,
       [calendarId, windowStart, windowEnd, liveEventIds],
     );
@@ -617,20 +617,30 @@ export class CalendarRepo {
     return result.rows;
   }
 
-  async getEvent(eventId: string): Promise<CalendarEventRow | null> {
+  async markCanceled(eventId: string): Promise<void> {
+    await this.db.query(`update pa24.calendar_event set status = 'canceled', synced_at = now() where event_id = $1`, [eventId]);
+  }
+
+  async findEvent(eventId: string): Promise<CalendarEventRow | null> {
     const result = await this.db.query<CalendarEventRow>('select * from pa24.calendar_event where event_id = $1', [eventId]);
     return result.rows[0] ?? null;
   }
 
+  /**
+   * Persist sync state. A failed sync advances the error/complete flags but
+   * must NOT advance last_synced_at: that timestamp means "data current as
+   * of", and a failure provides no such guarantee.
+   */
   async saveSync(row: Omit<CalendarSyncRow, 'last_synced_at' | 'last_error'> & { lastError?: string }): Promise<void> {
+    const ok = row.complete && !row.lastError;
     await this.db.query(
       `insert into pa24.calendar_sync_state (calendar_id, window_start, window_end, complete, last_synced_at, last_error)
-       values ($1,$2,$3,$4,now(),$5)
+       values ($1,$2,$3,$4,${ok ? 'now()' : 'null'},$5)
        on conflict (calendar_id) do update set
          window_start = excluded.window_start,
          window_end = excluded.window_end,
          complete = excluded.complete,
-         last_synced_at = now(),
+         last_synced_at = coalesce(excluded.last_synced_at, pa24.calendar_sync_state.last_synced_at),
          last_error = excluded.last_error`,
       [row.calendar_id, row.window_start, row.window_end, row.complete, row.lastError ?? null],
     );

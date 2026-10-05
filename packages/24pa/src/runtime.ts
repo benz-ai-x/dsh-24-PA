@@ -1274,8 +1274,15 @@ export class PaRuntime {
     if (kind !== 'create' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询）。');
     if (kind === 'update' && !summary && !start && !end) throw new Error('需要至少一项修改（summary/start/end）。');
     const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
-    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}`;
-    const staged = await this.stagedTaskOperation(item, `calendar.${kind}`, paramsKey, { calendarId, kind, eventId, summary, start, end });
+    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}`;
+    return this.gate(`calendar-event:${eventId || 'new'}`, async () => {
+    const staged = await this.stagedOperation(
+      item,
+      `calendar.${kind}`,
+      paramsKey,
+      { calendarId, kind, eventId, summary, start, end },
+      '请先用 calendar_query 重新同步窗口核对日程实际状态，确认后再继续。',
+    );
     if (!staged.created && staged.row.status === 'succeeded') {
       return { operationId: staged.row.id, reused: true, ...(staged.row.receipt ?? {}), message: '此日程操作此前已提交，未重复写入。' };
     }
@@ -1297,23 +1304,35 @@ export class PaRuntime {
       const newEventId = String(event?.event_id ?? event?.eventId ?? eventId);
       const url = event?.url ? String(event.url) : null;
       if (newEventId && (kind === 'create' || kind === 'update')) {
-        await this.repos!.calendar.upsertEvent({
-          event_id: newEventId,
-          calendar_id: calendarId,
-          summary: summary ?? String(event?.summary ?? ''),
-          start_time: start ?? new Date(),
-          end_time: end ?? new Date(),
-          is_all_day: false,
-          timezone: null,
-          status: 'active',
-          recurring: false,
-          attendees,
-          url,
-          raw: event,
-        });
+        // Merge with the prior projection and the platform receipt; never
+        // fabricate times that neither the request nor the receipt provided.
+        const prior = await this.repos!.calendar.findEvent(newEventId);
+        const receiptStart = Date.parse(String(event?.start_time ?? event?.start ?? '')) ? new Date(String(event.start_time ?? event.start)) : null;
+        const receiptEnd = Date.parse(String(event?.end_time ?? event?.end ?? '')) ? new Date(String(event.end_time ?? event.end)) : null;
+        const startTime = start ?? receiptStart ?? prior?.start_time;
+        const endTime = end ?? receiptEnd ?? prior?.end_time;
+        if (!startTime || !endTime) {
+          // No trustworthy time source: refresh the window instead of guessing.
+          await this.syncCalendarWindow(calendarId, new Date(Date.now() - 24 * 3600 * 1000), new Date(Date.now() + 7 * 24 * 3600 * 1000)).catch(() => {});
+        } else {
+          await this.repos!.calendar.upsertEvent({
+            event_id: newEventId,
+            calendar_id: calendarId,
+            summary: summary ?? String(event?.summary ?? prior?.summary ?? ''),
+            start_time: startTime,
+            end_time: endTime,
+            is_all_day: prior?.is_all_day ?? false,
+            timezone: prior?.timezone ?? null,
+            status: 'active',
+            recurring: prior?.recurring ?? false,
+            attendees: attendees ?? prior?.attendees ?? null,
+            url: url ?? prior?.url ?? null,
+            raw: event,
+          });
+        }
       }
       if (kind === 'cancel' && eventId) {
-        await this.dbRef.query(`update pa24.calendar_event set status = 'canceled', synced_at = now() where event_id = $1`, [eventId]).catch(() => {});
+        await this.repos!.calendar.markCanceled(eventId).catch(() => {});
       }
       await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
       return {
@@ -1326,6 +1345,7 @@ export class PaRuntime {
       await this.failStaged(staged.row.id, error);
       throw error;
     }
+    });
   }
 
   /**
@@ -1384,8 +1404,14 @@ export class PaRuntime {
         '--start', from.toISOString().slice(0, 10), '--end', to.toISOString().slice(0, 10),
       ]);
       const raw = (data?.events ?? data?.items ?? data ?? []);
+      // An unrecognized response shape means the full window is unknown;
+      // never run destructive cancellation marking in that case.
+      if (!Array.isArray(raw)) {
+        await this.repos!.calendar.saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: false, lastError: '同步返回形状无法识别' });
+        return { ok: false, error: '同步返回形状无法识别' };
+      }
       const live: string[] = [];
-      for (const rawEvent of Array.isArray(raw) ? raw : []) {
+      for (const rawEvent of raw) {
         const mapped = mapRemoteEvent(rawEvent);
         if (!mapped) continue;
         await this.repos!.calendar.upsertEvent({
@@ -1444,18 +1470,19 @@ export class PaRuntime {
     await this.repos!.operations.update(operationId, { status: outcome, error: (error as Error).message });
   }
 
-  private async stagedTaskOperation(
+  private async stagedOperation(
     item: WorkItemRow,
     kind: string,
     paramsKey: string,
     params: Record<string, unknown>,
+    reconcileHint = '请先核对远端实际对象，确认后再继续，不自动重试。',
   ): Promise<{ created: boolean; row: ActionOperationRow }> {
     const operationId = `${kind}:${item.id}:${hash(paramsKey)}`;
     const { created, row } = await this.repos!.operations.begin({ id: operationId, workItemId: item.id, action: kind, params });
     if (!created) {
       if (row.status === 'succeeded') return { created: false, row };
       if (row.status === 'unknown') {
-        throw new Error('上次任务操作结果未知（超时或响应丢失）；请先用 task_get 核对飞书实际对象，确认后再继续，不自动重试。');
+        throw new Error(`上次操作结果未知（超时或响应丢失）；${reconcileHint}`);
       }
     }
     await this.repos!.operations.update(operationId, { status: 'running' });
@@ -1470,7 +1497,7 @@ export class PaRuntime {
     const estimateMinutes = args.estimateMinutes == null ? null : Number(args.estimateMinutes);
     if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
     const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : ''
-    const staged = await this.stagedTaskOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
+    const staged = await this.stagedOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
       tasklistId: this.config!.tasklistId,
       summary,
       due: dueArg,
@@ -1531,7 +1558,7 @@ export class PaRuntime {
       if (!stale) throw new Error('任务不存在；请先用 task_list 查看。');
       await this.refreshTaskFromRemote(stale);
       const task = (await this.repos!.tasks.get(taskRef.id)) ?? stale;
-      const staged = await this.stagedTaskOperation(item, 'task.update', `${task.task_guid}\n${summary ?? ''}\n${dueArg ?? ''}`, { guid: task.task_guid, summary, due: dueArg });
+      const staged = await this.stagedOperation(item, 'task.update', `${task.task_guid}\n${summary ?? ''}\n${dueArg ?? ''}`, { guid: task.task_guid, summary, due: dueArg });
       if (!staged.created && staged.row.status === 'succeeded') {
         return { operationId: staged.row.id, reused: true, guid: task.task_guid, url: task.url, message: '此修改此前已提交，未重复写入。' };
       }
@@ -1572,7 +1599,7 @@ export class PaRuntime {
         return { guid: refreshed.task_guid, status: 'completed', reused: true, message: '任务此前已是完成状态（含远端核对）。' };
       }
       const task = refreshed;
-      const staged = await this.stagedTaskOperation(item, 'task.complete', task.task_guid, { guid: task.task_guid });
+      const staged = await this.stagedOperation(item, 'task.complete', task.task_guid, { guid: task.task_guid });
       if (!staged.created && staged.row.status === 'succeeded') {
         await this.repos!.tasks.save({ ...task, status: 'completed' });
         return { operationId: staged.row.id, guid: task.task_guid, status: 'completed', reused: true, message: '此前已完成，未重复提交。' };

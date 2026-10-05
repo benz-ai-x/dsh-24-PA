@@ -253,7 +253,13 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     await waitDb(`select recovery_gen from pa24.work_item where id='wip-crash-1'`, '1', '恢复代次递增');
     const progress = await cluster.query(`select progress from pa24.work_item where id='wip-crash-1'`);
     expect(progress).toContain('重启恢复');
-    await waitDb(`select status from pa24.inbox where event_id='evt-crash-1'`, 'received', 'processing 收件重派');
+    // 重派后可能已被派发器处理（该种子行无正文 → rejected 空消息）；断言它不再卡在 processing
+    for (let i = 0; i < 120; i++) {
+      const status = (await cluster.query(`select status from pa24.inbox where event_id='evt-crash-1'`)).trim();
+      if (status !== 'processing') break;
+      await new Promise(r => setTimeout(r, 500));
+    }
+    expect((await cluster.query(`select status from pa24.inbox where event_id='evt-crash-1'`)).trim()).not.toBe('processing');
     const stopped = await cluster.query(`select status from pa24.work_item where id='wip-stopped-1'`);
     expect(stopped.trim()).toBe('stopped');
     await cluster.query(`delete from pa24.work_item where id in ('wip-crash-1','wip-stopped-1')`);
