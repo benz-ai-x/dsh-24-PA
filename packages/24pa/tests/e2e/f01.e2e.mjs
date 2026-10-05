@@ -96,7 +96,7 @@ afterAll(async () => {
 describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () => {
   it('P01：宿主启动，面板就绪状态区分配置/账本/接入', async () => {
     const snap = await host.waitUntil(
-      s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace,
+      s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace && s.transport?.connected === true,
       { label: '插件就绪' },
     );
     const byId = Object.fromEntries(snap.readiness.items.map(i => [i.id, i]));
@@ -239,7 +239,7 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
     await host.stop({ keepRoot: true });
     host = await bootHost({ root: hostRoot, env: bootEnv });
     await host.waitUntil(
-      s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace,
+      s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace && s.transport?.connected === true,
       { label: '重启后插件就绪' },
     );
     const after = await host.api('snapshot');

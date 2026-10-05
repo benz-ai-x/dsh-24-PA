@@ -19,7 +19,13 @@ const inject = event => host.api('action', { type: 'test.inject', event });
 const ownerEvent = (eventId, text, extra = {}) => ({ eventId, senderOpenId: 'ou_test_owner', appId: 'cli_test_app', text, ...extra });
 const readTasks = async () => {
   try {
-    return (await readFile(`${stubStatePath}.tasks.jsonl`, 'utf8')).split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const lines = (await readFile(`${stubStatePath}.tasks.jsonl`, 'utf8')).split('\n').filter(Boolean);
+    const latest = new Map();
+    for (const line of lines) {
+      const record = JSON.parse(line);
+      latest.set(record.guid, record);
+    }
+    return [...latest.values()];
   } catch {
     return [];
   }
@@ -74,7 +80,7 @@ beforeAll(async () => {
     PATH: `${binDir}:${process.env.PATH}`,
   };
   host = await bootHost({ env: bootEnv });
-  await host.waitUntil(s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace, { label: '插件就绪' });
+  await host.waitUntil(s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace && s.transport?.connected === true, { label: '插件就绪' });
 }, 600_000);
 
 afterAll(async () => {
@@ -155,18 +161,6 @@ describe('F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任�
   });
 
   it('P17：目标拆解采纳后建立真实任务与项目关联，进展来自实际状态', async () => {
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'tasks', title: '发布项目准备', instruction: '按本人采纳的拆解建立项目任务' },
-      leadReply: '已安排项目采纳。',
-      workerAction: {
-        action: 'project_adopt',
-        projectId: '',
-        tasks: [],
-      },
-      workerReply: '已采纳。',
-    });
-    // 先建项目（第一个 worker 调用 project_create），再采纳
     await writeScript({
       mode: 'dispatch',
       delegate: { worker: 'tasks', title: '建立发布项目', instruction: '建立项目：发布 v1' },

@@ -26,7 +26,14 @@ const readState = async () => {
 const readTasks = async () => {
   try {
     const lines = (await readFile(tasksPath, 'utf8')).split('\n').filter(Boolean);
-    return lines.map(line => JSON.parse(line));
+    // Append-only journal: the last record per guid is current, so parallel
+    // appends never lose updates.
+    const latest = new Map();
+    for (const line of lines) {
+      const record = JSON.parse(line);
+      latest.set(record.guid, record);
+    }
+    return [...latest.values()];
   } catch {
     return [];
   }
@@ -117,19 +124,14 @@ if (plain[0] === 'task' && plain[1] === '+update') {
   if (!task) fail(`任务不存在：${guid}`);
   const summary = argOf('--summary');
   const due = argOf('--due');
-  const next = { ...task, summary: summary ?? task.summary, due: due ?? task.due };
-  const kept = tasks.filter(t => t.guid !== guid);
-  kept.push(next);
-  await writeFile(tasksPath, kept.map(t => JSON.stringify(t)).join('\n') + '\n');
-  ok({ task: { guid, url: task.url, summary: next.summary } });
+  await appendFile(tasksPath, JSON.stringify({ ...task, summary: summary ?? task.summary, due: due ?? task.due, revision: (task.revision ?? 0) + 1 }) + '\n');
+  ok({ task: { guid, url: task.url, summary: summary ?? task.summary, due: due ?? task.due } });
 }
 if (plain[0] === 'task' && plain[1] === '+complete') {
   const guid = argOf('--task-id');
   const task = [...tasks].reverse().find(t => t.guid === guid);
   if (!task) fail(`任务不存在：${guid}`);
-  const kept = tasks.filter(t => t.guid !== guid);
-  kept.push({ ...task, status: 'completed' });
-  await writeFile(tasksPath, kept.map(t => JSON.stringify(t)).join('\n') + '\n');
+  await appendFile(tasksPath, JSON.stringify({ ...task, status: 'completed', revision: (task.revision ?? 0) + 1 }) + '\n');
   ok({ task: { guid, status: 'completed' } });
 }
 if (plain[0] === 'task' && plain[1] === '+search') {

@@ -153,13 +153,22 @@ export class PaRuntime {
       id: 'tasks',
       name: '待办管理',
       persona: '你是 24私助的待办管理 Worker。创建、修改、完成本人明确委托的飞书任务并按主题/项目跟踪；截止时间、计划投入时间与估时分开记录。完成任务必须有本人明确动作或飞书实际状态，不从对话结束推断。飞书任务是权威对象；网络结果未知时先核对，不盲目重试。结果交回发起会话。',
-      brief: '待办与项目：task_create/task_update/task_complete/task_get/task_list 维护飞书任务（幂等、先核对），project_create/project_adopt/project_progress 拆解目标并按实际任务状态汇报进展。',
+      brief: '待办与项目：task_create/task_update/task_complete/task_get/task_list/task_cancel 维护飞书任务（幂等、先核对、取消按平台能力如实说明），project_create/project_adopt/project_progress 拆解目标并按实际任务状态汇报进展。',
       available: true,
       actions: {
         task_create: async (args, item) => this.taskCreate(item, args),
         task_update: async (args, item) => this.taskUpdate(item, args),
         task_complete: async (args, item) => this.taskComplete(item, args),
         task_get: async args => this.taskGet(args),
+        task_cancel: async args => {
+          const task = await this.resolveTask(args);
+          if (!String(args.reason ?? '').trim()) throw new Error('取消需要说明本人的理由，用于记录与后续核对。');
+          return {
+            guid: task.task_guid,
+            url: task.url,
+            message: '飞书任务平台不提供删除/取消接口。按平台真实能力：可用 task_update 在标题中标注取消原因，或 task_complete 归档；未执行任何写入。',
+          };
+        },
         task_list: async args => this.taskList(args),
         project_create: async args => this.projectCreate(args),
         project_adopt: async (args, item) => this.projectAdopt(item, args),
@@ -1155,6 +1164,33 @@ export class PaRuntime {
 
   // ---- tasks & projects (F03) ----------------------------------------------
 
+  /** Best-effort remote refresh folded into the projection; returns the fresh row or null. */
+  private async refreshTaskFromRemote(task: TaskRow): Promise<TaskRow | null> {
+    try {
+      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+        'task', '+search', '--as', 'user', '--query', task.summary.replace(/^\[24PA\] /, '').slice(0, 20),
+      ]);
+      const remote = (data?.tasks ?? data?.items ?? []).find((t: any) => String(t.guid ?? t.task_guid) === task.task_guid);
+      if (!remote) return null;
+      const status = remote.completed === true || remote.status === 'completed' ? 'completed' : 'open';
+      return await this.repos!.tasks.save({
+        ...task,
+        summary: typeof remote.summary === 'string' && remote.summary ? remote.summary : task.summary,
+        status,
+        last_synced_at: new Date(),
+        external_updated_at: new Date(),
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  /** Record a staged operation's failure with the unknown/failed distinction. */
+  private async failStaged(operationId: string, error: unknown): Promise<void> {
+    const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
+    await this.repos!.operations.update(operationId, { status: outcome, error: (error as Error).message });
+  }
+
   private async stagedTaskOperation(
     item: WorkItemRow,
     kind: string,
@@ -1213,8 +1249,7 @@ export class PaRuntime {
       await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: external.guid, url: external.url, summary } });
       return { operationId: staged.row.id, guid: external.guid, url: external.url, dueAt: isoDate(task.due_at), plannedAt: isoDate(task.planned_at), estimateMinutes: task.estimate_minutes, message: '任务已创建（飞书为权威对象）。' };
     } catch (error) {
-      const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
-      await this.repos!.operations.update(staged.row.id, { status: outcome, error: (error as Error).message });
+      await this.failStaged(staged.row.id, error);
       throw error;
     }
   }
@@ -1227,11 +1262,22 @@ export class PaRuntime {
   }
 
   private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const task = await this.resolveTask(args);
+    const taskRef = await this.resolveTask(args);
     const summary = args.summary == null ? null : text(args.summary, 500);
     const { dueAt, dueHasTime, dueArg } = parseDue(args.due === undefined ? null : args.due);
-    if (!summary && args.due === undefined) throw new Error('需要说明要修改的内容（summary 或 due）。');
-    return this.gate(`task:${task.task_guid}`, async () => {
+    const plannedAt = args.plannedAt === undefined ? undefined : args.plannedAt === null ? null : new Date(String(args.plannedAt));
+    if (plannedAt && Number.isNaN(plannedAt.getTime())) throw new Error('计划投入时间无法解析。');
+    const estimateMinutes = args.estimateMinutes === undefined ? undefined : args.estimateMinutes === null ? null : Number(args.estimateMinutes);
+    if (!summary && args.due === undefined && plannedAt === undefined && estimateMinutes === undefined) {
+      throw new Error('需要说明要修改的内容（summary、due、plannedAt 或 estimateMinutes）。');
+    }
+    return this.gate(`task:${taskRef.task_guid}`, async () => {
+      // Re-read inside the gate and refresh from the remote so a stale
+      // projection never overwrites another worker's or the owner's changes.
+      const stale = await this.repos!.tasks.get(taskRef.id);
+      if (!stale) throw new Error('任务不存在；请先用 task_list 查看。');
+      await this.refreshTaskFromRemote(stale);
+      const task = (await this.repos!.tasks.get(taskRef.id)) ?? stale;
       const staged = await this.stagedTaskOperation(item, 'task.update', `${task.task_guid}\n${summary ?? ''}\n${dueArg ?? ''}`, { guid: task.task_guid, summary, due: dueArg });
       if (!staged.created && staged.row.status === 'succeeded') {
         return { operationId: staged.row.id, reused: true, guid: task.task_guid, url: task.url, message: '此修改此前已提交，未重复写入。' };
@@ -1247,6 +1293,8 @@ export class PaRuntime {
           summary: summary ?? task.summary,
           due_at: dueArg !== null ? dueAt : task.due_at,
           due_has_time: dueArg !== null ? dueHasTime : task.due_has_time,
+          planned_at: plannedAt === undefined ? task.planned_at : plannedAt,
+          estimate_minutes: estimateMinutes === undefined ? task.estimate_minutes : estimateMinutes == null ? null : Math.round(estimateMinutes),
           external_updated_at: new Date(),
           last_synced_at: new Date(),
           url: external.url ?? task.url,
@@ -1254,19 +1302,23 @@ export class PaRuntime {
         await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, summary: updated.summary } });
         return { operationId: staged.row.id, guid: task.task_guid, url: updated.url, summary: updated.summary, dueAt: isoDate(updated.due_at), message: '任务已按本人指令修改；截止与计划/估时分别记录。' };
       } catch (error) {
-        const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
-        await this.repos!.operations.update(staged.row.id, { status: outcome, error: (error as Error).message });
+        await this.failStaged(staged.row.id, error);
         throw error;
       }
     });
   }
 
   private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const task = await this.resolveTask(args);
-    if (task.status === 'completed') {
-      return { guid: task.task_guid, status: 'completed', reused: true, message: '任务此前已是完成状态。' };
-    }
-    return this.gate(`task:${task.task_guid}`, async () => {
+    const taskRef = await this.resolveTask(args);
+    return this.gate(`task:${taskRef.task_guid}`, async () => {
+      // Idempotency check inside the gate, against the freshest remote state.
+      const local = await this.repos!.tasks.get(taskRef.id);
+      if (!local) throw new Error('任务不存在；请先用 task_list 查看。');
+      const refreshed = (await this.refreshTaskFromRemote(local)) ?? local;
+      if (refreshed.status === 'completed') {
+        return { guid: refreshed.task_guid, status: 'completed', reused: true, message: '任务此前已是完成状态（含远端核对）。' };
+      }
+      const task = refreshed;
       const staged = await this.stagedTaskOperation(item, 'task.complete', task.task_guid, { guid: task.task_guid });
       if (!staged.created && staged.row.status === 'succeeded') {
         await this.repos!.tasks.save({ ...task, status: 'completed' });
@@ -1278,8 +1330,7 @@ export class PaRuntime {
         await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, status: 'completed' } });
         return { operationId: staged.row.id, guid: updated.task_guid, url: updated.url, status: 'completed', message: '任务已完成（以飞书实际状态为准）。' };
       } catch (error) {
-        const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
-        await this.repos!.operations.update(staged.row.id, { status: outcome, error: (error as Error).message });
+        await this.failStaged(staged.row.id, error);
         throw error;
       }
     });
@@ -1287,24 +1338,7 @@ export class PaRuntime {
 
   private async taskGet(args: Record<string, unknown>): Promise<unknown> {
     const task = await this.resolveTask(args);
-    // Best-effort remote refresh: failures keep the local view and mark it.
-    let refreshed: TaskRow | null = null;
-    try {
-      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-        'task', '+search', '--as', 'user', '--query', task.summary.replace(/^\[24PA\] /, '').slice(0, 20),
-      ]);
-      const remote = (data?.tasks ?? data?.items ?? []).find((t: any) => String(t.guid ?? t.task_guid) === task.task_guid);
-      if (remote) {
-        refreshed = await this.repos!.tasks.save({
-          ...task,
-          status: remote.completed === true || remote.status === 'completed' ? 'completed' : 'open',
-          last_synced_at: new Date(),
-          external_updated_at: new Date(),
-        });
-      }
-    } catch {
-      // Remote refresh is best effort; the caller still sees the projection.
-    }
+    const refreshed = await this.refreshTaskFromRemote(task);
     const view = refreshed ?? task;
     return {
       guid: view.task_guid,
@@ -1314,8 +1348,9 @@ export class PaRuntime {
       plannedAt: isoDate(view.planned_at),
       estimateMinutes: view.estimate_minutes,
       status: view.status,
-      stale: !view.last_synced_at,
-      message: refreshed ? '已按飞书最新状态刷新。' : view.last_synced_at ? '本地投影（此前已同步）。' : '本地投影（远端核对未完成，状态可能滞后）。',
+      // stale = 本次未能核对到远端最新状态（刷新失败或未命中）
+      stale: !refreshed,
+      message: refreshed ? '已按飞书最新状态刷新。' : view.last_synced_at ? '本次远端核对未完成，展示此前同步的投影。' : '本地投影（远端核对未完成，状态可能滞后）。',
     };
   }
 
@@ -1465,8 +1500,7 @@ export class PaRuntime {
         message: live && external.docId ? '备忘已保存为飞书文档并回读确认。' : '演示模式：备忘已入账本（PostgreSQL），未创建飞书文档。',
       };
     } catch (error) {
-      const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
-      await this.repos!.operations.update(operationId, { status: outcome, error: (error as Error).message });
+      await this.failStaged(operationId, error);
       throw error;
     }
   }
