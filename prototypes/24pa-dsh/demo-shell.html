@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>24PA · 离线状态演练</title>
+<style>
+body{margin:0;background:#f4f6f6;color:#18302e;font:16px/1.6 system-ui}main{max-width:1000px;margin:40px auto;padding:0 24px}h1{font-size:28px}h2{font-size:20px;margin:0 0 12px}section{background:white;padding:22px;border:1px solid #d5dfde;border-radius:12px;margin:18px 0}.row{display:flex;gap:8px;flex-wrap:wrap}button{font:inherit;color:inherit;background:white;border:1px solid #a6bcba;padding:8px 13px;border-radius:8px;cursor:pointer}button[aria-selected=true]{background:#d8f2ed;border-color:#138875}button:disabled{opacity:.45;cursor:default}.muted{color:#576e6b;font-size:14px}textarea{width:100%;box-sizing:border-box;min-height:70px;padding:10px;font:inherit}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}li{margin:8px 0}#error{color:#a13131}dl{display:grid;grid-template-columns:150px 1fr;gap:9px}dd{margin:0}.log{white-space:pre-wrap;border-top:1px solid #d5dfde;padding-top:10px}
+</style>
+<main><h1>24PA · 离线状态演练</h1><p id="question"></p><p class="muted">可丢弃原型：所有操作只改变本页内存。这里没有连接 dsh、飞书或识别模型；真实插件请运行仓库中的 npm run prototype。</p>
+<section><h2>此刻的助理</h2><dl id="state"></dl><p id="change"></p><p id="error" role="alert"></p></section>
+<section><h2>自由体验</h2><div class="row" id="sessions"></div><p><textarea id="input" placeholder="输入待办、备忘或笔记修订内容"></textarea></p><div class="row" id="actions"></div></section>
+<section><h2>逐步演练</h2><div class="row" id="tabs"></div><p id="description"></p><button id="start">开始此情景（重置本页状态）</button><ol id="steps"></ol></section>
+<section><h2>笔记与会话记录</h2><div id="details"></div><details><summary>查看完整状态</summary><pre id="json"></pre></details></section>
+<p class="muted">正式版仍采用 PostgreSQL；本原型没有引入 SQLite，也不验证重启恢复。</p></main>
+<script>
+/* INLINE_PORTABLE_MODEL */
+</script>
+<script>
+let state=initialState('离线演示身份'), scenario='route', step=-1, stamp=null, counter=0;
+const $=id=>document.getElementById(id), labels={pending:'待本人审核',approved:'本人已审核本版',rejected:'已退回',unknown:'尚未核验',sent:'通道已接受',triggered:'已触发',cancelled:'已取消'};
+const scenes={
+route:{name:'会话切换',description:'A 的结果到达时，输入焦点仍应留在 B。',steps:['切到 A','切到 B','A 的结果到达','仅查看 A（不切换）']},
+review:{name:'修改后重新审核',description:'旧版本批准按钮不能批准新的内容。',steps:['载入 v1','本人批准 v1','保存修订 v2','再次批准旧 v1（应拒绝）']},
+authority:{name:'审核与执行分开',description:'通过内容审核后，创建任务仍需本人单独授权。',steps:['载入待审稿','执行未审稿（应拒绝）','本人批准本版','单独授权创建任务']},
+reminder:{name:'提醒不切会话',description:'在 A 设置提醒，切到 B 后仍由 A 送达；不推断已读。',steps:['切到 A','设置提醒','切到 B','模拟时间到期']},
+};
+function action(a){state=transition(state,{at:new Date().toISOString(),actor:'human',reviewer:'离线操作者',...a});render();}
+function run(fn){$('error').textContent='';try{fn();}catch(e){$('error').textContent=e.message;}render();}
+function button(text,fn){const b=document.createElement('button');b.textContent=text;b.onclick=()=>run(fn);return b;}
+function add(parent,tag,text,cls){const e=document.createElement(tag);e.textContent=text;if(cls)e.className=cls;parent.append(e);return e;}
+const latest=()=>{const n=state.notes.at(-1);if(!n)throw Error('请先载入一份示例整理稿。');return n;};
+const body=()=>{const s=$('input').value.trim();if(!s)throw Error('请先输入内容。');return s;};
+function sample(){action({type:'note.create',id:'N-'+(++counter),title:'示例稿（未运行识别）',text:'忠实转写：周五前提交 Q3 方案。预算【待核对】。\n候选行动：确认预算（尚未创建）。',hash:'demo-v1-'+counter});const n=latest();stamp={id:n.id,version:n.version,hash:n.hash};}
+function approve(old=false){const n=old?stamp:latest();if(!n)throw Error('还没有旧版审核按钮。');action({type:'note.approve',id:n.id,version:n.version,hash:n.hash});}
+function revise(value){const n=latest();action({type:'note.revise',id:n.id,text:value,hash:'demo-v'+(n.version+1)+'-'+counter});}
+function execute(){const n=latest();action({type:'note.action',id:n.id,hash:n.hash,authorized:true,title:'确认预算（演示任务）',taskId:'T-'+(++counter)});}
+function remind(){action({type:'reminder.add',id:'R-'+(++counter),text:'会议准备',dueAt:Date.now()+30000});}
+function deliver(){const r=state.reminders.find(r=>r.status==='pending');if(!r)throw Error('请先设置提醒。');action({type:'reminder.fire',id:r.id});action({type:'session.message',session:r.session,role:'assistant',text:'提醒：'+r.text});action({type:'reminder.receipt',id:r.id,accepted:true});}
+function guide(){const actions={route:[()=>action({type:'session.switch',session:'A'}),()=>action({type:'session.switch',session:'B'}),()=>action({type:'session.message',session:'A',role:'assistant',text:'A 的整理工作完成。'}),()=>action({type:'notice',text:'正在查看 A 的结果，当前输入仍会进入 '+state.active+'。'})],review:[sample,()=>approve(),()=>revise('本人修订：截止日期改为下周二。'),()=>approve(true)],authority:[sample,execute,()=>approve(),execute],reminder:[()=>action({type:'session.switch',session:'A'}),remind,()=>action({type:'session.switch',session:'B'}),deliver]};try{actions[scenario][step]();}finally{step++;render();}}
+function render(){
+$('question').textContent=QUESTION;$('change').textContent=state.lastChange;$('state').replaceChildren();const n=state.notes.at(-1);
+for(const [k,v] of [['当前输入进入',state.active],['固定身份',state.profile],['待办',state.tasks.filter(t=>!t.done).length+' 项未完成'],['备忘',state.memos.length+' 条'],['提醒',state.reminders.map(r=>r.session+' · '+(labels[r.status]||r.status)).join('；')||'无'],['当前笔记',n?n.id+' v'+n.version+' · '+labels[n.status]:'无'],['来源审核',n?.review?'v'+n.review.version+' · '+labels[n.review.decision]:'无']]){add($('state'),'dt',k);add($('state'),'dd',v);}
+$('sessions').replaceChildren(...state.sessions.map(s=>{const b=button('切换 '+s.key,()=>action({type:'session.switch',session:s.key}));b.setAttribute('aria-selected',String(s.key===state.active));return b;}));
+$('tabs').replaceChildren(...Object.entries(scenes).map(([id,s])=>{const b=button(s.name,()=>{scenario=id;step=-1;});b.setAttribute('aria-selected',String(id===scenario));return b;}));$('description').textContent=scenes[scenario].description;
+$('steps').replaceChildren(...scenes[scenario].steps.map((label,i)=>{const li=document.createElement('li');const b=button(label,guide);b.disabled=i!==step;li.append(b);if(step>i)add(li,'span',' ✓');return li;}));
+$('details').replaceChildren();if(n){add($('details'),'p',n.id+' v'+n.version+' · '+labels[n.status]);add($('details'),'p',n.text,'log');}
+for(const s of state.sessions)if(s.messages.length)add($('details'),'p',s.key+'：'+s.messages.map(m=>m.text).join('\n'),'log');
+for(const t of state.tasks)add($('details'),'p',(t.done?'✓':'○')+' '+t.title);
+for(const m of state.memos)add($('details'),'p','备忘：'+m.text);$('json').textContent=JSON.stringify(state,null,2);
+}
+$('actions').append(...[
+['创建待办',()=>action({type:'task.add',id:'T-'+(++counter),title:body()})],['保存备忘',()=>action({type:'memo.add',id:'M-'+(++counter),text:body()})],['完成首项待办',()=>{const t=state.tasks.find(t=>!t.done);if(!t)throw Error('没有未完成的任务。');action({type:'task.complete',id:t.id});}],['设置提醒',remind],['模拟提醒到期',deliver],['载入示例笔记',sample],['本人批准本版',()=>approve()],['保存修订为新版',()=>revise(body())],['点击旧审核按钮',()=>approve(true)],['单独授权创建行动',execute],['返回上一会话',()=>action({type:'session.back'})]
+].map(([name,fn])=>button(name,fn)));
+$('start').onclick=()=>run(()=>{state=initialState('离线演示身份');stamp=null;step=0;});render();
+</script></html>

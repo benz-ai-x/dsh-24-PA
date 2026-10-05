@@ -1,0 +1,64 @@
+{
+  "name": "@benz-ai-x/dsh-24pa-prototype",
+  "version": "0.0.1-prototype.1",
+  "private": true,
+  "description": "Disposable 24PA prototype: Feishu assistant, dsh sessions and version-specific human review.",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./agent": "./agent.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./agent/locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./agent/icon": "./icon.svg"
+  },
+  "files": [
+    "*.js",
+    "*.yml",
+    "demo.html",
+    "README.md",
+    ".env.example",
+    "icon.svg",
+    "locale/*.json"
+  ],
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.74.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "0.2.1-alpha.1",
+    "@deepseek-ai/cordis": "4.0.5-alpha.1",
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1",
+    "@deepseek-ai/dsh-schedule": "0.2.1-alpha.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    },
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-schedule": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
+}

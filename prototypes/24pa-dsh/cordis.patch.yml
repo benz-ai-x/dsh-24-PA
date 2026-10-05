@@ -1,0 +1,24 @@
+- insert:
+    - id: pa24-prototype-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: pa24-prototype
+        name: 24PA 原型
+        description: 可丢弃的私人助理体验，只有受控的原型工具。
+        plugins:
+          - name: '@benz-ai-x/dsh-24pa-prototype/agent'
+    - id: pa24-prototype
+      name: '@benz-ai-x/dsh-24pa-prototype'
+      config:
+        mode: !!js process.env.PA24_MODE || 'demo'
+        larkProfile: !!js process.env.PA24_LARK_PROFILE || ''
+        ownerOpenId: !!js process.env.PA24_OWNER_OPEN_ID || ''
+        folderToken: !!js process.env.PA24_FOLDER_TOKEN || ''
+        tasklistId: !!js process.env.PA24_TASKLIST_ID || ''
+        timeZone: Asia/Shanghai
+        sessionPrefix: pa24-prototype
+        appIdEnv: PA24_FEISHU_APP_ID
+        appSecretEnv: PA24_FEISHU_APP_SECRET
+        reminderTickMs: 1000
+        maxImageBytes: 10485760
+        modelTimeoutMs: 180000

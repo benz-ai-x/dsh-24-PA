@@ -1,0 +1,9 @@
+node_modules/
+.pnpm-store/
+.prototype-runtime/
+artifacts/
+*.tgz
+.env
+.env.*
+!.env.example
+.DS_Store
