@@ -186,8 +186,15 @@ export class PaRuntime {
     if (this.roles.hasRegistered(definition.id)) {
       throw new Error(`角色已注册：${definition.id}；如需更新请先移除并处理在途事项。`);
     }
+    // Validate every action binding before touching the registry so a bad
+    // name cannot leave a half-registered, unpersisted role behind.
+    const bindings: [string, WorkerActionHandler][] = actionNames.map(name => {
+      const handler = this.builtInActions[name];
+      if (!handler) throw new Error(`未提供该动作实现：${name}。`);
+      return [name, handler];
+    });
     this.roles.register(definition);
-    if (actionNames.length > 0) this.registerRoleActions(definition.id, actionNames);
+    for (const [name, handler] of bindings) this.bindRoleAction(definition.id, name, handler);
     await this.persistRegisteredRoles();
   }
 
