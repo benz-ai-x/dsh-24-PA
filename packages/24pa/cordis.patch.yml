@@ -1,0 +1,23 @@
+# 24私助（24PA）formal bundle: one assistant preset plus the host plugin row.
+- insert:
+    - id: pa24-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: pa24
+        name: 24私助
+        description: 统一承接日常事务交办与工作区维护的私人助理。
+        plugins:
+          - name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - name: '@deepseek-ai/dsh-tool-fs'
+          - name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - name: '@benz-ai-x/dsh-24pa/agent'
+    - id: pa24
+      name: '@benz-ai-x/dsh-24pa'
+      config:
+        stateDirectory: !!js dshHomePath('24pa')
+        workspacePath: !!js process.env.PA24_WORKSPACE || ''
+        larkCliBin: lark-cli
