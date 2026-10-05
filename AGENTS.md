@@ -4,7 +4,7 @@
 
 ## Product baseline
 
-需求、界面、权限、数据归属或规格变更前，先读 `docs/agents/product.md`；其中说明文档同步、原型与正式版边界，以及仓库 AGENTS.md 和助理工作区 AGENTS.md 的不同用途。
+正式实现或需求、界面、权限、数据归属、规格变更前，先读 `docs/agents/product.md`；其中说明先调研后实现、文档同步、原型与正式版边界，以及两种 AGENTS.md 的用途。
 
 ## Agent skills
 
