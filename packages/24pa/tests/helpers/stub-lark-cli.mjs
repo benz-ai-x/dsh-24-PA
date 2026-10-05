@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 // Stub lark-cli for tests: speaks the same fixed-argv + `--json` envelope as
-// the real CLI. Behavior and recorded side effects live in a JSON state file
-// (PA24_LARK_STUB_STATE); failure injection is available via state.failNext.
+// the real CLI. Docs and call records use append-only JSONL so parallel
+// invocations never lose updates; behavior flags (ownerOpenId, failNext)
+// live in a small state file that tests set before triggering the stub.
 // The plugin still spawns a real process and parses real stdout, so only the
 // Feishu network side is replaced.
-import { readFile, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 
 const statePath = process.env.PA24_LARK_STUB_STATE;
+const docsPath = `${statePath}.docs.jsonl`;
+const callsPath = `${statePath}.calls.jsonl`;
 const args = process.argv.slice(2);
 // Skip flag values (--profile <name>) the same way the real CLI parses.
 const plain = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--profile');
@@ -16,7 +19,15 @@ const readState = async () => {
   try {
     return JSON.parse(await readFile(statePath, 'utf8'));
   } catch {
-    return { docs: [], calls: [], ownerOpenId: 'ou_test_owner' };
+    return { ownerOpenId: 'ou_test_owner' };
+  }
+};
+const readDocs = async () => {
+  try {
+    const lines = (await readFile(docsPath, 'utf8')).split('\n').filter(Boolean);
+    return lines.map(line => JSON.parse(line));
+  } catch {
+    return [];
   }
 };
 const writeState = async state => writeFile(statePath, JSON.stringify(state, null, 2));
@@ -31,13 +42,11 @@ const fail = message => {
   process.exit(1);
 };
 
+await appendFile(callsPath, JSON.stringify({ at: new Date().toISOString(), args }) + '\n').catch(() => {});
 const state = await readState();
-state.calls.push({ at: new Date().toISOString(), args });
-await writeState(state);
+const docs = await readDocs();
 
-const docIndex = () => state.docs.length + 1;
-
-if (plain[0] === undefined && args.includes('--version')) {
+if (args.includes('--version')) {
   console.log('stub-lark-cli 1.0.87-test');
   process.exit(0);
 }
@@ -61,15 +70,13 @@ if (plain[0] === 'docs' && plain[1] === '+create') {
     process.stdin.on('end', () => resolveStdin(data));
     process.stdin.on('error', () => resolveStdin(data));
   });
-  const id = `docstub-${docIndex()}`;
-  const doc = { id, content: stdin, revision: 1 };
-  state.docs.push(doc);
-  await writeState({ ...state, docs: state.docs });
+  const id = `docstub-${docs.length + 1}`;
+  await appendFile(docsPath, JSON.stringify({ id, content: stdin, revision: 1 }) + '\n');
   ok({ document: { document_id: id, url: `https://example.feishu.cn/wiki/${id}`, revision_id: 1 }, warnings: [] });
 }
 if (plain[0] === 'docs' && plain[1] === '+fetch') {
   const docArg = args[args.indexOf('--doc') + 1];
-  const doc = state.docs.find(d => d.id === docArg);
+  const doc = [...docs].reverse().find(d => d.id === docArg);
   if (!doc) fail(`文档不存在：${docArg}`);
   ok({ document: { document_id: doc.id, url: `https://example.feishu.cn/wiki/${doc.id}`, content: doc.content, revision_id: doc.revision, reference_map: {} } });
 }

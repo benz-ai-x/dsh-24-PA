@@ -20,11 +20,19 @@ dsh --profile <你的 profile>
 
 首次绑定目录若没有 `AGENTS.md` 会生成模板；已有文件不覆盖。AGENTS.md 中唯一的 json 块是配置源：`mode`（demo/feishu）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`timeZone`、`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`。凭据与连接串只写环境变量名。
 
+## F02 增量（并行事项与记忆维护）
+
+- 五类专业角色注册于 `src/roles.ts`：memo 可用；calendar/tasks/reminders/handwriting 已注册、未交付前委派时明确拒绝。维护者可经管理端点注册新职责（如 digest 资料摘要），沿用统一 WorkItem/并发/回传/恢复边界。
+- 飞书回复旧消息固定路由到原事项（`pa24.message_route` 持久路由）；未知引用明确告知，不回退新工作。
+- 重启对账：`processing` 收件重派（requestId 幂等）、`admitted` 未交付行提示重发、运行中事项按恢复代次（`work_item.recovery_gen`）续办、已停止事项不复活。
+- JSON 记忆权威：工作区 `.24pa/memory.json`（schemaVersion/revision/records）＋审计 `memory-log.jsonl`＋可撤销变更集 `.24pa/changesets/`；写入/整理/撤销仅限本地24私助会话（expectedRevision 原子提交），检索对所有角色开放；无任何定时/后台整理。面板「结构化记忆」页展示正文、来源、筛选与分页。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |
 |---|---|
-| 业务账本（收件/事项/操作/Outbox/绑定/备忘） | PostgreSQL `pa24` schema |
+| 业务账本（收件/事项/操作/Outbox/绑定/备忘/消息路由） | PostgreSQL `pa24` schema |
+| 长期记忆权威、审计与变更集 | 工作区 `.24pa/`（memory.json / memory-log.jsonl / changesets/） |
 | 工作区规则与配置 | 工作区 `AGENTS.md` |
 | 原生会话日志与附件 | dsh `$DSH_HOME/sessions`（原生 JSONL，不使用 SQLite） |
 

@@ -30,6 +30,23 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           const payload = body.payload ?? {};
           if (endpoint === 'snapshot') return respond({ ok: true, value: await snapshot(runtime) });
           if (endpoint === 'action') return respond({ ok: true, value: await action(runtime, payload) });
+          if (endpoint === 'memory') {
+            if (!runtime.memory) throw new Error('尚未绑定工作区。');
+            return respond({
+              ok: true,
+              value: await runtime.memory.search({
+                query: str(payload.query),
+                category: str(payload.category),
+                topic: str(payload.topic),
+                status: str(payload.status),
+                limit: Number(payload.limit ?? 20),
+                offset: Number(payload.offset ?? 0),
+              }),
+            });
+          }
+          if (endpoint === 'roles') {
+            return respond({ ok: true, value: { roles: runtime.listRoles() } });
+          }
           if (endpoint === 'memo') {
             const memos = runtime.repos
               ? await runtime.repos.memos.search({
@@ -75,6 +92,21 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
   if (type === 'workspace.reload') return runtime.reloadWorkspace().then(() => snapshot(runtime));
   if (type === 'connection.check') return runtime.checkAccess();
   if (type === 'robot.open') return { sessionId: await runtime.openLocalSession() };
+  if (type === 'role.register') {
+    const definition = payload.definition as Record<string, unknown> | undefined;
+    if (!definition || typeof definition !== 'object') throw new Error('缺少角色定义。');
+    runtime.registerRole({
+      id: String(definition.id ?? ''),
+      name: String(definition.name ?? ''),
+      persona: String(definition.persona ?? ''),
+      brief: String(definition.brief ?? ''),
+      available: definition.available === true,
+      actions: {},
+    });
+    const actionNames = Array.isArray(definition.actionNames) ? definition.actionNames.map(String) : [];
+    if (actionNames.length > 0) runtime.registerRoleActions(String(definition.id ?? ''), actionNames);
+    return { roles: runtime.listRoles() };
+  }
   if (type === 'work.list') {
     return { items: runtime.repos ? await runtime.repos.workItems.list(undefined, 100) : [] };
   }

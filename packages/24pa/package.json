@@ -22,7 +22,7 @@
     "build": "tsc -p tsconfig.json",
     "postinstall": "node scripts/link-peer.mjs",
     "test": "vitest run",
-    "test:unit": "vitest run --dir tests/unit"
+    "test:unit": "vitest run tests/unit"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.74.0",

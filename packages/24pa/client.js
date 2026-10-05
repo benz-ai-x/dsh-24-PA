@@ -119,54 +119,126 @@ window.__ModuleLoader__.load({
           const tabItems = [['work', 'grid', 'teal'], ['feishu', 'plug', 'blue'], ['workspace', 'folder', 'teal']];
           let content;
           if (tab === 'work') {
-            content = h('div', null,
-              h('div', { className: 'pa24-stats' },
-                [['pulse', 'blue', '正在处理', active.length, '含排队事项'], ['check', 'teal', '已完成', items.filter(j => j.status === 'completed').length, '历史事项'], ['note', 'violet', '备忘已保存', (state.memos ?? items.filter(j => j.role === 'memo' && j.status === 'completed')).length, '随手记与资料']].map(([name, tone, label, value, hint]) =>
-                  h('div', { key: label, className: 'pa24-stat' }, tile(name, tone), h('div', null, h('div', { className: 'pa24-stat-label' }, label), h('strong', null, value), h('small', null, hint)))),
-              h('section', { className: 'pa24-card' }, sectionHead('tasks', '正在办理的事项', '委托、进度与结果，在这里一目了然。', badge('PostgreSQL 业务账本', 'neutral', 'shield')),
-                items.length ? items.map(j => h('article', { className: 'pa24-job', key: j.id },
+            const roleNames = { memo: '备忘整理' };
+            const readyItems = (state.readiness?.items || []).map(item => {
+              const labels = { host: '宿主', config: '配置', postgres: 'PostgreSQL', workspace: '工作区', feishu: '飞书接入', sessions: '固定会话' };
+              const stateLabel = item.state === 'ok' ? '正常' : item.state === 'error' ? '需要处理' : '待核验';
+              const iconName = item.state === 'ok' ? 'check' : item.state === 'error' ? 'alert' : 'clock';
+              return h('div', { key: item.id, className: 'pa24-ready-item pa24-tone-' + toneOf(item) },
+                icon(iconName, { width: 17, height: 17 }),
+                h('div', null,
+                  h('div', { className: 'pa24-row pa24-between' }, h('strong', null, labels[item.id] || item.id), badge(stateLabel, toneOf(item))),
+                  h('p', { className: 'pa24-meta' }, item.message)));
+            });
+            const stats = [
+              ['pulse', 'blue', '正在处理', active.length, '含排队事项'],
+              ['check', 'teal', '已完成', items.filter(j => j.status === 'completed').length, '历史事项'],
+              ['note', 'violet', '备忘已保存', (state.memos ?? items.filter(j => j.role === 'memo' && j.status === 'completed')).length, '随手记与资料'],
+            ];
+            const jobCards = items.length
+              ? items.map(j => h('article', { className: 'pa24-job', key: j.id },
                   h('div', { className: 'pa24-row pa24-between' }, h('h3', null, j.title), badgeOf(j.status)),
-                  h('p', { className: 'pa24-meta' }, (j.origin === 'local' ? 'dsh 会话' : '飞书') + ' · ' + ({ memo: '备忘整理' }[j.role] || j.role)),
+                  h('p', { className: 'pa24-meta' }, (j.origin === 'local' ? 'dsh 会话' : '飞书') + ' · ' + (roleNames[j.role] || j.role)),
                   j.progress && h('p', { className: 'pa24-note' }, j.progress),
                   j.result && h('details', null, h('summary', null, '查看处理结果'), h('div', { className: 'pa24-note' }, j.result)),
                   j.child_session_id && button('external', '查看 Worker 会话', () => ctx.uiWorkspace.openSession({ childSessionId: j.child_session_id, parentSessionId: j.parent_session_id, mode: 'continuable' }), { className: 'pa24-quiet' }),
                   h('p', { className: 'pa24-meta' }, '事项编号：' + j.id)))
-                  : h(React.Fragment, null, empty('chat', 'teal', '下一件事，交给24私助', '在飞书或这里发一段话，机器人会安排合适的 Worker，并把进度与结果带回来。',
+              : [h(React.Fragment, { key: 'empty' },
+                  empty('chat', 'teal', '下一件事，交给24私助', '在飞书或这里发一段话，机器人会安排合适的 Worker，并把进度与结果带回来。',
                     [button('chat', '与24私助对话', openRobot, { key: 'chat', className: 'pa24-primary', disabled: busy || !workspace })]),
-                    h('div', { className: 'pa24-example' }, icon('info', { width: 16, height: 16 }), '可以说：“记一下：下周讨论新的合作方向。”'))),
+                  h('div', { className: 'pa24-example' }, icon('info', { width: 16, height: 16 }), '可以说：“记一下：下周讨论新的合作方向。”'))];
+            content = h('div', null,
+              h('div', { className: 'pa24-stats' },
+                stats.map(([name, tone, label, value, hint]) =>
+                  h('div', { key: label, className: 'pa24-stat' }, tile(name, tone), h('div', null, h('div', { className: 'pa24-stat-label' }, label), h('strong', null, value), h('small', null, hint))))),
+              h('section', { className: 'pa24-card' }, sectionHead('tasks', '正在办理的事项', '委托、进度与结果，在这里一目了然。', badge('PostgreSQL 业务账本', 'neutral', 'shield')), jobCards),
               h('section', { className: 'pa24-card' }, sectionHead('pulse', '运行就绪', '配置、账本与接入的真实状态；不把进程在线当作全部就绪。'),
-                h('div', { className: 'pa24-ready' }, (state.readiness?.items || []).map(item => h('div', { key: item.id, className: 'pa24-ready-item pa24-tone-' + toneOf(item) },
-                  icon(item.state === 'ok' ? 'check' : item.state === 'error' ? 'alert' : 'clock', { width: 17, height: 17 }),
-                  h('div', null, h('div', { className: 'pa24-row pa24-between' }, h('strong', null, ({ host: '宿主', config: '配置', postgres: 'PostgreSQL', workspace: '工作区', feishu: '飞书接入', sessions: '固定会话' }[item.id] || item.id)), badge(item.state === 'ok' ? '正常' : item.state === 'error' ? '需要处理' : '待核验', toneOf(item))), h('p', { className: 'pa24-meta' }, item.message))))));
+                h('div', { className: 'pa24-ready' }, readyItems)));
           } else if (tab === 'feishu') {
-            const check = state.diagnostics, cli = check?.cli, auth = check?.auth;
-            const diagnosis = (item, fallback = '尚未检查') => !item ? badge(fallback, 'neutral', 'clock') : item.state === 'ok' ? badge('检查通过', 'teal', 'check') : ['error', 'mismatch'].includes(item.state) ? badge('需要处理', 'rose', 'alert') : badge(item.state === 'missing' ? '待配置' : '待核验', 'amber', 'info');
+            const check = state.diagnostics;
+            const cli = check ? check.cli : null;
+            const auth = check ? check.auth : null;
+            const diagnosis = (item, fallback = '尚未检查') => !item
+              ? badge(fallback, 'neutral', 'clock')
+              : item.state === 'ok'
+                ? badge('检查通过', 'teal', 'check')
+                : ['error', 'mismatch'].includes(item.state)
+                  ? badge('需要处理', 'rose', 'alert')
+                  : badge(item.state === 'missing' ? '待配置' : '待核验', 'amber', 'info');
+            const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + ' 条（持久 Outbox）';
+            const resourceRows = [['folder', '文档目录', config ? config.folderToken : null, 'folder'], ['tasklist', '任务清单', config ? config.tasklistId : null, 'tasks'], ['calendar', '本人日历', config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
+              const resource = check && check.resources ? check.resources.find(r => r.id === id) : null;
+              return h('div', { key: id, className: 'pa24-resource' },
+                h('div', { className: 'pa24-row' },
+                  h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, label), h('p', null, value || '尚未配置')),
+                  diagnosis(resource, value ? '尚未检查' : '待配置')),
+                resource ? h('p', null, resource.message) : null);
+            });
             content = h('div', { className: 'pa24-grid' },
-              h('section', { className: 'pa24-card' }, sectionHead('plug', '飞书接入', '用自然语言配置，在这里查阅接入情况。',
-                h('div', { className: 'pa24-row' }, button('refresh', busy ? '检查中…' : '检查接入状态', () => rpc('action', { type: 'connection.check' }), { className: 'pa24-primary' }), button('chat', '通过对话配置', openRobot)), 'blue'),
-                fields([['固定 CLI profile', badge(config?.larkProfile || '未配置', 'blue')], ['接入模式', config?.mode === 'feishu' ? '飞书模式' : '体验模式 · 未连接飞书'], ['上次检查', check ? date(check.checkedAt, tz) : '尚未检查，点击右上方按钮开始']]),
+              h('section', { className: 'pa24-card' },
+                sectionHead('plug', '飞书接入', '用自然语言配置，在这里查阅接入情况。',
+                  h('div', { className: 'pa24-row' },
+                    button('refresh', busy ? '检查中…' : '检查接入状态', () => rpc('action', { type: 'connection.check' }), { className: 'pa24-primary' }),
+                    button('chat', '通过对话配置', openRobot)), 'blue'),
+                fields([
+                  ['固定 CLI profile', badge(config ? config.larkProfile : '未配置', 'blue')],
+                  ['接入模式', config && config.mode === 'feishu' ? '飞书模式' : '体验模式 · 未连接飞书'],
+                  ['上次检查', check ? date(check.checkedAt, tz) : '尚未检查，点击右上方按钮开始'],
+                ]),
                 h('div', { className: 'pa24-helper' }, '可以说：“检查飞书接入，告诉我还缺什么。” 检查只读取，不创建飞书对象。')),
-              h('section', { className: 'pa24-card' }, h('div', { className: 'pa24-row pa24-between' }, h('h2', null, '机器人连接'), badge(state.transport?.connected ? '长连接已启动' : '未启动', state.transport?.connected ? 'blue' : 'neutral', 'plug')),
-                fields([['连接状态', state.transport?.message || '未启动'], ['最近收到本人消息', date(state.transport?.lastReceivedAt, tz)], ['最近发送获平台确认', date(state.transport?.lastSentAt, tz)], ['待发消息', String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + ' 条（持久 Outbox）')]]),
+              h('section', { className: 'pa24-card' },
+                h('div', { className: 'pa24-row pa24-between' }, h('h2', null, '机器人连接'), badge(state.transport && state.transport.connected ? '长连接已启动' : '未启动', state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
+                fields([
+                  ['连接状态', (state.transport && state.transport.message) || '未启动'],
+                  ['最近收到本人消息', date(state.transport ? state.transport.lastReceivedAt : null, tz)],
+                  ['最近发送获平台确认', date(state.transport ? state.transport.lastSentAt : null, tz)],
+                  ['待发消息', pendingOutbox],
+                ]),
                 h('p', { className: 'pa24-helper' }, '在飞书发送 /24pa 并收到回复后，再核对收发记录。长连接启动不代表端到端可用。')),
-              h('section', { className: 'pa24-card' }, h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与用户授权'), diagnosis(auth)),
-                fields([['安装状态', cli?.message || '尚未检查'], ['CLI 版本', cli?.version || '尚未检查'], ['用户授权', auth?.message || '尚未检查'], ['CLI 用户', auth?.userName || '尚未取得'], ['用户令牌', auth?.tokenStatus || '尚未确认']]),
-                h('details', null, h('summary', null, '路径与身份明细'), fields([['CLI 路径', cli?.path || '尚未检查'], ['CLI open_id', auth?.openId || '尚未取得'], ['配置主人', config?.ownerOpenId || '未配置']]))),
-              h('section', { className: 'pa24-card' }, sectionHead('folder', '使用的飞书资源', '检查结果仅代表可读性；写入由实际任务回执验证。'),
-                [['folder', '文档目录', config?.folderToken], ['tasklist', '任务清单', config?.tasklistId], ['calendar', '本人日历', config?.calendarId]].map(([id, label, value]) => {
-                  const resource = check?.resources?.find(r => r.id === id);
-                  return h('div', { key: id, className: 'pa24-resource' }, h('div', { className: 'pa24-row' }, h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, label), h('p', null, value || '尚未配置')), diagnosis(resource, value ? '尚未检查' : '待配置')), resource && h('p', null, resource.message));
-                }),
-                h('details', null, h('summary', null, '配置来源与生效时间'), fields([['配置来源', (workspace?.path || '') + '/AGENTS.md'], ['生效时间', date(workspace?.loadedAt, tz)], ['文件与生效版本', check?.source?.message || '尚未检查']]))));
+              h('section', { className: 'pa24-card' },
+                h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与用户授权'), diagnosis(auth)),
+                fields([
+                  ['安装状态', cli ? cli.message : '尚未检查'],
+                  ['CLI 版本', cli ? cli.version : '尚未检查'],
+                  ['用户授权', auth ? auth.message : '尚未检查'],
+                  ['CLI 用户', auth ? auth.userName : '尚未取得'],
+                  ['用户令牌', auth ? auth.tokenStatus : '尚未确认'],
+                ]),
+                h('details', null, h('summary', null, '路径与身份明细'),
+                  fields([['CLI 路径', cli ? cli.path : '尚未检查'], ['CLI open_id', auth ? auth.openId : '尚未取得'], ['配置主人', config ? config.ownerOpenId : '未配置']]))),
+              h('section', { className: 'pa24-card' },
+                sectionHead('folder', '使用的飞书资源', '检查结果仅代表可读性；写入由实际任务回执验证。'),
+                resourceRows,
+                h('details', null, h('summary', null, '配置来源与生效时间'),
+                  fields([['配置来源', (workspace ? workspace.path : '') + '/AGENTS.md'], ['生效时间', date(workspace ? workspace.loadedAt : null, tz)], ['文件与生效版本', check && check.source ? check.source.message : '尚未检查']]))));
+          } else if (tab === 'memory') {
+            content = workspace && h(MemoryView, { key: workspace.path, workspace, openRobot: () => void run(openRobot) });
           } else if (tab === 'workspace') {
+            const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: '备忘整理' }[w] || w)).join('、') || '无';
             content = h('div', { className: 'pa24-grid' },
-              h('section', { className: 'pa24-card' }, sectionHead('folder', '当前工作区', '在 dsh 添加服务器目录，再选择绑定。空目录首次绑定时生成 AGENTS.md。'),
-                h('label', { style: { display: 'block', margin: '18px 0 12px' } }, h('span', { className: 'pa24-meta' }, '选择 dsh 工作区'), h('select', { value: path, onChange: e => setPath(e.target.value), style: { marginTop: 6 } }, h('option', { value: '' }, '选择一个工作区…'), (state.availableWorkspaces || []).map(w => h('option', { value: w.path, key: w.id }, w.title + ' · ' + w.path)))),
+              h('section', { className: 'pa24-card' },
+                sectionHead('folder', '当前工作区', '在 dsh 添加服务器目录，再选择绑定。空目录首次绑定时生成 AGENTS.md。'),
+                h('label', { style: { display: 'block', margin: '18px 0 12px' } },
+                  h('span', { className: 'pa24-meta' }, '选择 dsh 工作区'),
+                  h('select', { value: path, onChange: e => setPath(e.target.value), style: { marginTop: 6 } },
+                    h('option', { value: '' }, '选择一个工作区…'),
+                    (state.availableWorkspaces || []).map(w => h('option', { value: w.path, key: w.id }, w.title + ' · ' + w.path)))),
                 button('folder', '绑定所选工作区', () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path }),
-                h('div', { className: 'pa24-helper' }, '当前目录', h('p', { className: 'pa24-meta' }, workspace?.path || '未绑定'))),
-              h('section', { className: 'pa24-card' }, sectionHead('code', '当前生效配置', '配置源是工作区 AGENTS.md；凭据值由服务器环境或 CLI 授权保存。', h('div', { className: 'pa24-row' }, button('chat', '通过对话修改配置', openRobot), button('refresh', '重载 AGENTS.md', () => rpc('action', { type: 'workspace.reload' }), { className: 'pa24-quiet' })), 'blue'),
-                workspace && fields([['固定飞书 profile', config?.larkProfile], ['时区', config?.timeZone], ['同时处理数', config?.maxWorkers], ['已启用 Worker', (config?.enabledWorkers || []).map(w => ({ memo: '备忘整理' }[w] || w)).join('、') || '无'], ['飞书接入会话', workspace.accessSessionId || '未建立'], ['本地助理会话', workspace.localSessionId || '未建立']]),
-                workspace?.configError && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, '当前生效配置保留上一有效版本'), h('p', null, workspace.configError)),
+                h('div', { className: 'pa24-helper' }, '当前目录', h('p', { className: 'pa24-meta' }, workspace ? workspace.path : '未绑定'))),
+              h('section', { className: 'pa24-card' },
+                sectionHead('code', '当前生效配置', '配置源是工作区 AGENTS.md；凭据值由服务器环境或 CLI 授权保存。',
+                  h('div', { className: 'pa24-row' },
+                    button('chat', '通过对话修改配置', openRobot),
+                    button('refresh', '重载 AGENTS.md', () => rpc('action', { type: 'workspace.reload' }), { className: 'pa24-quiet' })), 'blue'),
+                workspace && fields([
+                  ['固定飞书 profile', config ? config.larkProfile : null],
+                  ['时区', config ? config.timeZone : null],
+                  ['同时处理数', config ? config.maxWorkers : null],
+                  ['已启用 Worker', enabledNames],
+                  ['飞书接入会话', workspace.accessSessionId || '未建立'],
+                  ['本地助理会话', workspace.localSessionId || '未建立'],
+                ]),
+                workspace && workspace.configError && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, '当前生效配置保留上一有效版本'), h('p', null, workspace.configError)),
                 h('details', null, h('summary', null, '查看完整配置 JSON'), h('pre', null, JSON.stringify(config, null, 2)))));
           }
           return h('main', { className: 'pa24', ref: main }, h('style', null, style), h('div', { className: 'pa24-wrap' },

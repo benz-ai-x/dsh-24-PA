@@ -25,8 +25,9 @@ export interface PaConfig {
   appSecretEnv: string;
   pgDsnEnv: string;
   maxWorkers: number;
-  enabledWorkers: WorkerRole[];
-  workerModels: Partial<Record<WorkerRole, WorkerModelRoute>>;
+  /** Role ids; runtime-registered roles are valid beyond the built-in set. */
+  enabledWorkers: string[];
+  workerModels: Partial<Record<string, WorkerModelRoute>>;
 }
 
 export class ConfigError extends Error {
@@ -90,13 +91,19 @@ export function validateConfig(raw: unknown): PaConfig {
     throw new ConfigError(`timeZone 无效：${input.timeZone}`);
   }
   const enabledWorkers = input.enabledWorkers;
-  if (!Array.isArray(enabledWorkers) || enabledWorkers.length === 0 || enabledWorkers.some(x => !(WORKER_ROLES as readonly string[]).includes(x)) || new Set(enabledWorkers).size !== enabledWorkers.length) {
-    throw new ConfigError(`enabledWorkers 必须是已注册且不重复的 Worker：${WORKER_ROLES.join(', ')}。`);
+  const ROLE_ID = /^[a-z][a-z0-9_]{1,30}$/;
+  if (
+    !Array.isArray(enabledWorkers) ||
+    enabledWorkers.length === 0 ||
+    enabledWorkers.some(x => typeof x !== 'string' || !ROLE_ID.test(x)) ||
+    new Set(enabledWorkers).size !== enabledWorkers.length
+  ) {
+    throw new Error(`enabledWorkers 必须是不重复的角色 id（如 ${WORKER_ROLES.join(', ')}；运行时注册的角色亦可）。`);
   }
   const workerModels = input.workerModels;
   if (!workerModels || Array.isArray(workerModels) || typeof workerModels !== 'object') throw new ConfigError('workerModels 必须是对象。');
   for (const [role, route] of Object.entries(workerModels)) {
-    if (!(WORKER_ROLES as readonly string[]).includes(role)) throw new ConfigError(`workerModels 引用未注册的 Worker：${role}。`);
+    if (!/^[a-z][a-z0-9_]{1,30}$/.test(role)) throw new ConfigError(`workerModels 角色 id 无效：${role}。`);
     if (!route || typeof route !== 'object' || typeof (route as any).provider !== 'string' || typeof (route as any).model !== 'string' || Object.keys(route).some(k => !['provider', 'model'].includes(k))) {
       throw new ConfigError('Worker 模型配置只接受 provider、model 字段。');
     }
@@ -114,7 +121,7 @@ export function validateConfig(raw: unknown): PaConfig {
     appSecretEnv: input.appSecretEnv as string,
     pgDsnEnv: input.pgDsnEnv as string,
     maxWorkers: maxWorkers as number,
-    enabledWorkers: enabledWorkers as WorkerRole[],
+    enabledWorkers: enabledWorkers as string[],
     workerModels: workerModels as PaConfig['workerModels'],
   };
   if (config.mode === 'feishu') {
