@@ -149,6 +149,35 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       )`,
     ],
   },
+  {
+    version: 4,
+    statements: [
+      `create table if not exists pa24.calendar_event (
+        event_id text primary key,
+        calendar_id text not null,
+        summary text not null,
+        start_time timestamptz not null,
+        end_time timestamptz not null,
+        is_all_day boolean not null default false,
+        timezone text,
+        status text not null default 'active',
+        recurring boolean not null default false,
+        attendees jsonb,
+        url text,
+        raw jsonb,
+        synced_at timestamptz not null default now()
+      )`,
+      `create index if not exists calendar_event_window_idx on pa24.calendar_event (calendar_id, start_time, end_time)`,
+      `create table if not exists pa24.calendar_sync_state (
+        calendar_id text primary key,
+        window_start timestamptz not null,
+        window_end timestamptz not null,
+        complete boolean not null default false,
+        last_synced_at timestamptz,
+        last_error text
+      )`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

@@ -34,6 +34,38 @@ function parseDue(value: unknown): { dueAt: Date | null; dueHasTime: boolean; du
 
 const isoDate = (value: Date | string | null): string | null => (value == null ? null : new Date(value).toISOString());
 
+function parseZonedRange(args: Record<string, unknown>): { from: Date; to: Date } {
+  const from = new Date(String(args.from ?? ''));
+  const to = new Date(String(args.to ?? ''));
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
+    throw new Error('需要明确的时间范围（from/to，ISO 格式，to 晚于 from）。');
+  }
+  if (to.getTime() - from.getTime() > 62 * 24 * 3600 * 1000) {
+    throw new Error('单次查询范围不能超过 62 天；请分段查询。');
+  }
+  return { from, to };
+}
+
+function mapRemoteEvent(raw: any): { eventId: string; summary: string; start: Date; end: Date; isAllDay: boolean; timezone: string | null; canceled: boolean; recurring: boolean; attendees: unknown; url: string | null } | null {
+  const eventId = String(raw?.event_id ?? raw?.eventId ?? raw?.id ?? '');
+  const summary = String(raw?.summary ?? raw?.title ?? '');
+  const start = new Date(String(raw?.start_time ?? raw?.start ?? raw?.startTime ?? ''));
+  const end = new Date(String(raw?.end_time ?? raw?.end ?? raw?.endTime ?? ''));
+  if (!eventId || !summary || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return {
+    eventId,
+    summary,
+    start,
+    end,
+    isAllDay: raw?.is_all_day === true || raw?.allDay === true,
+    timezone: raw?.timezone ? String(raw.timezone) : null,
+    canceled: raw?.status === 'canceled' || raw?.canceled === true,
+    recurring: !!(raw?.rrule ?? raw?.recurrence?.length),
+    attendees: raw?.attendees ?? raw?.attendee_ids ?? null,
+    url: raw?.url ? String(raw.url) : raw?.meeting_url ? String(raw.meeting_url) : null,
+  };
+}
+
 function taskExternal(data: any): { guid: string; url: string | null } {
   const task = data?.task ?? data;
   const guid = task?.guid ?? task?.task_guid ?? task?.taskId;
@@ -207,8 +239,22 @@ export class PaRuntime {
         },
       },
     });
+    this.roles.register({
+      id: 'calendar',
+      name: '日程编排',
+      persona: '你是 24私助的日程编排 Worker。只读写配置授权的本人日历；时间必须带时区；查询先经同步投影并报告新鲜度，读不到就说明资料缺失而不是“没有会议”。创建/改期/取消仅凭本人明确指令，变更前展示范围，写后以平台回执为准。邀请他人须本人明确邀请指令，同名或不明确的联系人先澄清；不臆造忙闲。结果交回发起会话。',
+      brief: '日程与会议：calendar_query/calendar_busy 查询（同步水位、冲突、新鲜度），calendar_create/update/cancel 维护本人日程（staged 幂等、写后回执），meeting_schedule 解析参会人并按明确指令邀请。',
+      available: true,
+      actions: {
+        calendar_query: async args => this.calendarQuery(args),
+        calendar_busy: async args => this.calendarBusy(args),
+        calendar_create: async (args, item) => this.calendarWrite(item, 'create', args),
+        calendar_update: async (args, item) => this.calendarWrite(item, 'update', args),
+        calendar_cancel: async (args, item) => this.calendarWrite(item, 'cancel', args),
+        meeting_schedule: async (args, item) => this.meetingSchedule(item, args),
+      },
+    });
     const planned: [string, string, string][] = [
-      ['calendar', '日程编排', 'F04 日程与会议安排'],
       ['reminders', '事项提醒', 'F05 个人提醒与免打扰'],
       ['handwriting', '手写笔记', 'F06 手写笔记整理与人工审核'],
     ];
@@ -1160,6 +1206,213 @@ export class PaRuntime {
       return this.memory.undo(String(args.changesetId ?? ''), { expectedRevision, actor, reason: String(args.reason) });
     }
     throw new Error('未知记忆操作。');
+  }
+
+  // ---- calendar (F04) -------------------------------------------------------
+
+  private async calendarQuery(args: Record<string, unknown>): Promise<unknown> {
+    const calendarId = String(args.calendarId ?? this.config!.calendarId);
+    const { from, to } = parseZonedRange(args);
+    const sync = await this.syncCalendarWindow(calendarId, from, to);
+    const events = await this.repos!.calendar.eventsIn(calendarId, from, to);
+    const conflicts: { a: string; b: string }[] = [];
+    for (let i = 0; i < events.length; i++) {
+      for (let j = i + 1; j < events.length; j++) {
+        if (events[i]!.end_time > events[j]!.start_time && events[j]!.end_time > events[i]!.start_time) {
+          conflicts.push({ a: events[i]!.event_id, b: events[j]!.event_id });
+        }
+      }
+    }
+    const state = await this.repos!.calendar.getSync(calendarId);
+    return {
+      calendarId,
+      from: isoDate(from),
+      to: isoDate(to),
+      fresh: sync.ok,
+      syncedAt: isoDate(state?.last_synced_at ?? null),
+      message: sync.ok
+        ? `共 ${events.length} 个日程（不含已取消）；冲突 ${conflicts.length} 处。`
+        : `本次同步失败（${sync.error}）；以下为投影数据，可能过期，不视为完整日历。`,
+      conflicts: conflicts.map(c => ({
+        a: events.find(e => e.event_id === c.a)!.summary,
+        b: events.find(e => e.event_id === c.b)!.summary,
+      })),
+      events: events.map(e => ({
+        eventId: e.event_id,
+        summary: e.summary,
+        start: isoDate(e.start_time),
+        end: isoDate(e.end_time),
+        allDay: e.is_all_day,
+        timezone: e.timezone,
+        recurring: e.recurring,
+        url: e.url,
+      })),
+    };
+  }
+
+  private async calendarBusy(args: Record<string, unknown>): Promise<unknown> {
+    const calendarId = String(args.calendarId ?? this.config!.calendarId);
+    const { from, to } = parseZonedRange(args);
+    const sync = await this.syncCalendarWindow(calendarId, from, to);
+    const events = await this.repos!.calendar.eventsIn(calendarId, from, to);
+    return {
+      fresh: sync.ok,
+      message: sync.ok ? `该时段忙闲如下（${events.length} 项）。` : `本次同步失败（${sync.error}）；展示投影，可能过期。`,
+      busy: events.map(e => ({ summary: e.summary, start: isoDate(e.start_time), end: isoDate(e.end_time), allDay: e.is_all_day })),
+    };
+  }
+
+  private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown> {
+    const calendarId = String(args.calendarId ?? this.config!.calendarId);
+    const summary = kind === 'cancel' ? null : args.summary === undefined ? null : text(args.summary, 500);
+    const start = args.start !== undefined ? new Date(String(args.start)) : null;
+    const end = args.end !== undefined ? new Date(String(args.end)) : null;
+    if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) throw new Error('日程时间需为可解析的 ISO 时间。');
+    if (start && end && end <= start) throw new Error('结束时间须晚于开始时间。');
+    if (kind === 'create' && (!summary || !start || !end)) throw new Error('创建需要 summary、start、end。');
+    const eventId = kind === 'create' ? '' : String(args.eventId ?? '');
+    if (kind !== 'create' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询）。');
+    if (kind === 'update' && !summary && !start && !end) throw new Error('需要至少一项修改（summary/start/end）。');
+    const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
+    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}`;
+    const staged = await this.stagedTaskOperation(item, `calendar.${kind}`, paramsKey, { calendarId, kind, eventId, summary, start, end });
+    if (!staged.created && staged.row.status === 'succeeded') {
+      return { operationId: staged.row.id, reused: true, ...(staged.row.receipt ?? {}), message: '此日程操作此前已提交，未重复写入。' };
+    }
+    try {
+      const cliArgs = ['calendar', kind === 'create' ? '+create' : kind === 'update' ? '+update' : '+delete', '--as', 'user', '--calendar-id', calendarId];
+      if (kind === 'create') {
+        cliArgs.push('--summary', `[24PA] ${summary}`, '--start', start!.toISOString(), '--end', end!.toISOString());
+        if (attendees && attendees.length > 0) cliArgs.push('--attendee-ids', attendees.join(','));
+      } else if (kind === 'update') {
+        cliArgs.push('--event-id', eventId);
+        if (summary) cliArgs.push('--summary', `[24PA] ${summary}`);
+        if (start) cliArgs.push('--start', start.toISOString());
+        if (end) cliArgs.push('--end', end.toISOString());
+      } else {
+        cliArgs.push('--event-id', eventId);
+      }
+      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), cliArgs);
+      const event = data?.event ?? data;
+      const newEventId = String(event?.event_id ?? event?.eventId ?? eventId);
+      const url = event?.url ? String(event.url) : null;
+      if (newEventId && (kind === 'create' || kind === 'update')) {
+        await this.repos!.calendar.upsertEvent({
+          event_id: newEventId,
+          calendar_id: calendarId,
+          summary: summary ?? String(event?.summary ?? ''),
+          start_time: start ?? new Date(),
+          end_time: end ?? new Date(),
+          is_all_day: false,
+          timezone: null,
+          status: 'active',
+          recurring: false,
+          attendees,
+          url,
+          raw: event,
+        });
+      }
+      if (kind === 'cancel' && eventId) {
+        await this.dbRef.query(`update pa24.calendar_event set status = 'canceled', synced_at = now() where event_id = $1`, [eventId]).catch(() => {});
+      }
+      await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
+      return {
+        operationId: staged.row.id,
+        eventId: newEventId,
+        url,
+        message: kind === 'create' ? '日程已创建（以平台回执为准）。' : kind === 'update' ? '日程已修改（以平台回执为准）。' : '日程已取消（以平台回执为准）。',
+      };
+    } catch (error) {
+      await this.failStaged(staged.row.id, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Meeting scheduling with explicit-invitation semantics (P12): attendees
+   * come from explicit open ids or memory contact records; ambiguity must be
+   * clarified before anything is sent.
+   */
+  private async meetingSchedule(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const title = text(args.title, 200);
+    const start = new Date(String(args.start ?? ''));
+    const end = new Date(String(args.end ?? ''));
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) throw new Error('会议需要明确的开始/结束时间（ISO，含时区）。');
+    const attendeeInputs = Array.isArray(args.attendees) ? (args.attendees as Record<string, unknown>[]) : [];
+    if (attendeeInputs.length === 0) throw new Error('需要提供参会人；没有参会人时用 calendar_create 建个人日程。');
+    if (!String(args.instruction ?? '').trim()) throw new Error('缺少本人明确的邀请指令依据（instruction）。');
+    const resolved: { name: string; openId: string }[] = [];
+    const unresolved: string[] = [];
+    for (const attendee of attendeeInputs) {
+      const name = String(attendee.name ?? '').trim();
+      const openId = String(attendee.openId ?? '').trim();
+      if (openId) {
+        resolved.push({ name: name || openId, openId });
+        continue;
+      }
+      if (!name) {
+        unresolved.push('未提供姓名或 openId 的参会人');
+        continue;
+      }
+      const memory = await this.memory!.search({ query: name, limit: 50 });
+      const contactRecords = memory.records.filter(r => (r.topic === `联系人：${name}` || r.content.includes(`联系人 ${name}：`)) && r.status === 'confirmed');
+      const ids = [...new Set(contactRecords.flatMap(r => r.content.match(/ou_[A-Za-z0-9_]+/g) ?? []))];
+      if (ids.length === 1) resolved.push({ name, openId: ids[0]! });
+      else unresolved.push(`${name}（${ids.length === 0 ? '记忆中没有对应 open_id' : `记忆中有 ${ids.length} 位候选`}）`);
+    }
+    if (unresolved.length > 0) {
+      throw new Error(`以下参会人无法唯一确定，请先澄清后再邀请：${unresolved.join('；')}。未发出任何邀请。`);
+    }
+    const result = (await this.calendarWrite(item, 'create', {
+      summary: title,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      attendees: resolved.map(r => r.openId),
+      calendarId: args.calendarId,
+    })) as Record<string, unknown>;
+    return {
+      ...result,
+      attendees: resolved,
+      message: `已按本人明确指令创建会议并邀请 ${resolved.length} 位参会人（${resolved.map(r => r.name).join('、')}）；结果以平台回执为准。`,
+    };
+  }
+
+  private async syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+        'calendar', '+agenda', '--as', 'user', '--calendar-id', calendarId,
+        '--start', from.toISOString().slice(0, 10), '--end', to.toISOString().slice(0, 10),
+      ]);
+      const raw = (data?.events ?? data?.items ?? data ?? []);
+      const live: string[] = [];
+      for (const rawEvent of Array.isArray(raw) ? raw : []) {
+        const mapped = mapRemoteEvent(rawEvent);
+        if (!mapped) continue;
+        await this.repos!.calendar.upsertEvent({
+          event_id: mapped.eventId,
+          calendar_id: calendarId,
+          summary: mapped.summary,
+          start_time: mapped.start,
+          end_time: mapped.end,
+          is_all_day: mapped.isAllDay,
+          timezone: mapped.timezone,
+          status: mapped.canceled ? 'canceled' : 'active',
+          recurring: mapped.recurring,
+          attendees: mapped.attendees,
+          url: mapped.url,
+          raw: rawEvent,
+        });
+        live.push(mapped.eventId);
+      }
+      await this.repos!.calendar.markCanceledExcept(calendarId, live, from, to);
+      await this.repos!.calendar.saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: true });
+      return { ok: true };
+    } catch (error) {
+      await this.repos!.calendar
+        .saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: false, lastError: (error as Error).message })
+        .catch(() => {});
+      return { ok: false, error: (error as Error).message };
+    }
   }
 
   // ---- tasks & projects (F03) ----------------------------------------------
