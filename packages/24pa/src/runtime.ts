@@ -11,6 +11,7 @@ import { runLarkCli } from './lark.js';
 import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import { MemoryStore, type MemoryChange } from './memory.js';
+import { ReminderEngine, ReminderError, type SilencePolicy } from './reminders.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const nowIso = () => new Date().toISOString();
@@ -103,6 +104,7 @@ export interface RuntimeOptions {
   cliTimeoutMs: number;
   dispatchTickMs: number;
   outboxTickMs: number;
+  reminderTickMs: number;
   env?: Record<string, string | undefined>;
 }
 
@@ -129,6 +131,7 @@ export class PaRuntime {
 
   readonly roles = new RoleRegistry();
   memory: MemoryStore | null = null;
+  reminders: ReminderEngine | null = null;
   workspace: (WorkspaceInfo & { statePath: string }) | null = null;
   private accessSessionId: string | null = null;
   private localSessionId: string | null = null;
@@ -254,8 +257,37 @@ export class PaRuntime {
         meeting_schedule: async (args, item) => this.meetingSchedule(item, args),
       },
     });
+    this.roles.register({
+      id: 'reminders',
+      name: '事项提醒',
+      persona: '你是 24私助的事项提醒 Worker。创建提醒前确认时间、时区与内容；时间计算由宿主的 dsh-schedule 公开函数完成，不自行推算。提醒由 PostgreSQL 发生实例和 Outbox 投递，模型离线也能发出。完成/稍后/取消都绑定原规则与实例，重复请求不产生多份。只报告平台接受状态，不推断已读。',
+      brief: '提醒：reminder_create（once/every/daily/weekly）、reminder_list、reminder_cancel/pause/resume、reminder_skip、reminder_snooze、reminder_status（实例与平台接受状态）。',
+      available: true,
+      actions: {
+        reminder_create: async args => {
+          const result = await this.reminders!.create({
+            kind: String(args.kind ?? 'once') as any,
+            text: text(args.text, 500),
+            afterSeconds: args.afterSeconds == null ? undefined : Number(args.afterSeconds),
+            at: args.at == null ? undefined : String(args.at),
+            everySeconds: args.everySeconds == null ? undefined : Number(args.everySeconds),
+            time: args.time == null ? undefined : String(args.time),
+            weekdays: Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined,
+            timeZone: String(args.timeZone ?? this.config!.timeZone),
+            source: args.source ? text(args.source, 500) : undefined,
+          });
+          return result;
+        },
+        reminder_list: async () => this.reminders!.list(),
+        reminder_cancel: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'stopped', String(args.reason ?? '')),
+        reminder_pause: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')),
+        reminder_resume: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')),
+        reminder_skip: async args => this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')),
+        reminder_snooze: async args => this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')),
+        reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
+      },
+    });
     const planned: [string, string, string][] = [
-      ['reminders', '事项提醒', 'F05 个人提醒与免打扰'],
       ['handwriting', '手写笔记', 'F06 手写笔记整理与人工审核'],
     ];
     for (const [id, name, feature] of planned) {
@@ -429,6 +461,8 @@ export class PaRuntime {
 
   /** Release every acquired resource; safe to call again after a late start(). */
   private async cleanup(): Promise<void> {
+    this.reminders?.stop();
+    this.reminders = null;
     await this.transport?.close().catch(() => {});
     this.transport = null;
     await this.db?.close().catch(() => {});
@@ -526,6 +560,22 @@ export class PaRuntime {
     this.workspace = { ...workspace, statePath: real };
     this.memory = new MemoryStore(real, this.ctx);
     await this.restoreRegisteredRoles();
+    this.reminders = new ReminderEngine(
+      this.dbRef,
+      {
+        notify: async (dedupKey, text) => {
+          await this.notifyOwner(dedupKey, text);
+        },
+        outboxState: async dedupKey => {
+          if (!this.repos) return null;
+          const rows = await this.repos.outbox.recent(200);
+          const row = rows.find(r => r.dedup_key === dedupKey);
+          return row ? { status: row.status, messageId: row.message_id } : null;
+        },
+      },
+      this.silencePolicy,
+    );
+    this.reminders.start(this.options.reminderTickMs);
     await this.loadConfig();
     await this.repos!.workspaceState.save(real, { feishuSessionId: this.accessSessionId, localSessionId: this.localSessionId });
     await this.establishSessions();
@@ -690,6 +740,44 @@ export class PaRuntime {
   getTransport(): FeishuTransport | null {
     return this.transport;
   }
+
+  /** Quiet hours / vacation read from the memory authority at dispatch time. */
+  private readonly silencePolicy: SilencePolicy = {
+    silentUntil: async () => {
+      try {
+        const now = new Date();
+        const vacation = await this.memory!.search({ topic: '休假', limit: 20 });
+        for (const record of vacation.records) {
+          if (record.status !== 'confirmed') continue;
+          const end = record.validUntil ? new Date(record.validUntil) : null;
+          if (!end || Number.isNaN(end.getTime())) continue;
+          if (end.getTime() > now.getTime()) return end;
+        }
+        const quiet = await this.memory!.search({ topic: '通知偏好', limit: 20 });
+        const tz = this.config?.timeZone ?? 'Asia/Shanghai';
+        for (const record of quiet.records) {
+          if (record.status !== 'confirmed') continue;
+          const match = record.content.match(/安静时段\s*(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})/);
+          if (!match) continue;
+          const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' });
+          const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
+          const minutesNow = Number(parts.hour) * 60 + Number(parts.minute);
+          const start = Number(match[1]) * 60 + Number(match[2]);
+          const endMin = Number(match[3]) * 60 + Number(match[4]);
+          const inWindow = start <= endMin ? minutesNow >= start && minutesNow < endMin : minutesNow >= start || minutesNow < endMin;
+          if (!inWindow) continue;
+          const end = new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
+          return end;
+        }
+        return null;
+      } catch (error) {
+        // Fail open, but visibly: a broken preference must not silently
+        // garble reminders without a trace.
+        console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${(error as Error).message}`);
+        return null;
+      }
+    },
+  };
 
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
