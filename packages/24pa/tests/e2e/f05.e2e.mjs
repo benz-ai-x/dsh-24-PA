@@ -195,6 +195,45 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
     expect(row.message_id).toMatch(/^fake-/);
   });
 
+  it('P20：暂停扣住不取消，恢复后照常发出', async () => {
+    await writeScript({
+      mode: 'dispatch',
+      delegate: { worker: 'reminders', title: '设暂停用提醒', instruction: '4 秒后提醒缴费' },
+      leadReply: '已设置。',
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 4, text: '缴费' },
+      workerReply: '已设置。',
+    });
+    await inject(ownerEvent('evt-rmd-8', '四秒后提醒我缴费'));
+    await waitWorkItem('设暂停用提醒', '暂停用提醒创建');
+    const created = await waitToolResult('ruleId', '创建回执6');
+    const ruleId = (created.match(/(rmd-[a-z0-9-]+)/) || [])[1];
+    await writeScript({
+      mode: 'dispatch',
+      delegate: { worker: 'reminders', title: '暂停缴费提醒', instruction: '暂停缴费提醒' },
+      leadReply: '已暂停。',
+      workerAction: { action: 'reminder_pause', ruleId, reason: '本人暂停' },
+      workerReply: '已暂停。',
+    });
+    await inject(ownerEvent('evt-rmd-9', '缴费提醒先暂停一下'));
+    await waitWorkItem('暂停缴费提醒', '暂停完成');
+    await waitToolResult('已暂停', '暂停回执');
+    await new Promise(r => setTimeout(r, 6000));
+    // 暂停期间不发也不取消
+    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}' and status='sent'`)).trim()).toBe('0');
+    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}' and status='canceled'`)).trim()).toBe('0');
+    await writeScript({
+      mode: 'dispatch',
+      delegate: { worker: 'reminders', title: '恢复缴费提醒', instruction: '恢复缴费提醒' },
+      leadReply: '已恢复。',
+      workerAction: { action: 'reminder_resume', ruleId, reason: '本人恢复' },
+      workerReply: '已恢复。',
+    });
+    await inject(ownerEvent('evt-rmd-10', '恢复缴费提醒'));
+    await waitWorkItem('恢复缴费提醒', '恢复完成');
+    const row = await waitOutbox(`reminder:${ruleId}:`, '恢复后发出', 30_000);
+    expect(row.message_id).toMatch(/^fake-/);
+  });
+
   it('P15/P21：临时休假把到期提醒扣住不放，到期后补发', async () => {
     const nowIso = new Date().toISOString();
     const vacationEnd = new Date(Date.now() + 4000).toISOString();

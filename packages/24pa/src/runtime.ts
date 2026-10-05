@@ -759,7 +759,7 @@ export class PaRuntime {
           if (record.status !== 'confirmed') continue;
           const match = record.content.match(/安静时段\s*(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})/);
           if (!match) continue;
-          const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+          const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' });
           const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
           const minutesNow = Number(parts.hour) * 60 + Number(parts.minute);
           const start = Number(match[1]) * 60 + Number(match[2]);
@@ -770,11 +770,13 @@ export class PaRuntime {
           return end;
         }
         return null;
-      } catch {
+      } catch (error) {
+        // Fail open, but visibly: a broken preference must not silently
+        // garble reminders without a trace.
+        console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${(error as Error).message}`);
         return null;
       }
     },
-    reason: async () => null,
   };
 
   /** One durable owner notification with a stable dedup key. */

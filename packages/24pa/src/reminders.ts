@@ -20,7 +20,6 @@ import { ReminderRepo, type ReminderRuleRow } from './repo.js';
 
 export interface SilencePolicy {
   silentUntil(): Promise<Date | null>;
-  reason(): Promise<string | null>;
 }
 
 export interface ReminderEngineHooks {
@@ -200,9 +199,12 @@ export class ReminderEngine {
     if (status !== 'active') {
       await this.db.query(
         `update pa24.reminder_occurrence set status = 'canceled', updated_at = now()
-         where rule_id = $1 and status = 'pending'`,
+         where rule_id = $1 and status = 'pending' and (deferred_until is null or deferred_until > now())`,
         [ruleId],
       );
+      // Already-claimed (in dispatch) occurrences are canceled via the guarded
+      // path below when their dispatch completes; cancel() from pending here
+      // keeps the race from sending after a stop only for unclaimed rows.
     }
     const next = status === 'active' && rule.kind !== 'once' ? await this.recomputeNext(rule, Date.now()) : rule.next_due_at;
     const updated = await this.repo.updateRule(ruleId, { status, next_due_at: next });
@@ -223,7 +225,7 @@ export class ReminderEngine {
     if (!rule || rule.status !== 'active') throw new ReminderError('提醒不存在或未处于活动状态。');
     await this.ensurePendingOccurrence(rule);
     const next = await this.repo.nextPendingOccurrence(ruleId);
-    if (next) await this.repo.updateOccurrence(next.id, { status: 'skipped' });
+    if (next) await this.repo.updateOccurrence(next.id, { status: 'skipped' }, 'pending');
     const advanced = rule.kind === 'once' ? null : await this.recomputeNext(rule, Date.now());
     await this.repo.updateRule(ruleId, { next_due_at: advanced });
     return { ruleId, skippedOccurrence: next?.id ?? null, message: '已跳过本次；周期规则按计划继续。' };
@@ -238,7 +240,7 @@ export class ReminderEngine {
     const next = await this.repo.nextPendingOccurrence(ruleId);
     if (!next) throw new ReminderError('没有待发送的提醒实例。');
     if (next.origin_occurrence_id) throw new ReminderError('该实例已是稍后实例；请勿重复延后。');
-    await this.repo.updateOccurrence(next.id, { status: 'snoozed' });
+    await this.repo.updateOccurrence(next.id, { status: 'snoozed' }, 'pending');
     // Linked follow-up: idempotent per (origin, target) so repeated requests
     // never create a pile of deferred copies (P18).
     const target = new Date(Date.now() + seconds * 1000);
@@ -326,8 +328,19 @@ export class ReminderEngine {
         continue;
       }
       const dedupKey = `reminder:${occurrence.id}`;
-      await this.hooks.notify(dedupKey, `提醒：${rule.text}`);
-      await this.repo.updateOccurrence(occurrence.id, { status: 'sent', outbox_dedup_key: dedupKey, deferred_until: null });
+      try {
+        await this.hooks.notify(dedupKey, `提醒：${rule.text}`);
+      } catch (error) {
+        // Bounded backoff instead of immediate retry; attempts grows per claim.
+        const backoffSeconds = Math.min(60 * occurrence.attempts, 900);
+        await this.repo.updateOccurrence(occurrence.id, {
+          status: 'pending',
+          deferred_until: new Date(now.getTime() + backoffSeconds * 1000),
+          last_error: (error as Error).message,
+        });
+        continue;
+      }
+      await this.repo.updateOccurrence(occurrence.id, { status: 'sent', outbox_dedup_key: dedupKey, deferred_until: null }, 'pending');
     }
   }
 }

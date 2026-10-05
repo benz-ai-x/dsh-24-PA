@@ -750,14 +750,32 @@ export class ReminderRepo {
     return result.rows;
   }
 
-  async updateOccurrence(id: string, patch: Partial<Pick<ReminderOccurrenceRow, 'status' | 'deferred_until' | 'outbox_dedup_key' | 'last_error'>>): Promise<void> {
-    const sets = ['updated_at = now()'];
+  /**
+   * Update an occurrence. When `fromStatus` is given the update is guarded on
+   * that status: terminal/control transitions (sent/skipped/snoozed/canceled)
+   * only apply from pending, so an in-flight dispatch can never overwrite a
+   * cancel/skip that landed first, and vice versa.
+   */
+  async updateOccurrence(
+    id: string,
+    patch: Partial<Pick<ReminderOccurrenceRow, 'status' | 'deferred_until' | 'outbox_dedup_key' | 'last_error'>>,
+    fromStatus?: string,
+  ): Promise<void> {
+    const sets: string[] = ['updated_at = now()'];
     const values: unknown[] = [id];
     let n = 2;
     for (const [key, value] of Object.entries(patch)) {
       sets.push(`${key} = $${n}`);
       values.push(value ?? null);
       n += 1;
+    }
+    if (fromStatus) {
+      values.push(fromStatus);
+      await this.db.query(
+        `update pa24.reminder_occurrence set ${sets.join(', ')} where id = $1 and status = $${n}::text`,
+        values,
+      );
+      return;
     }
     await this.db.query(`update pa24.reminder_occurrence set ${sets.join(', ')} where id = $1`, values);
   }
