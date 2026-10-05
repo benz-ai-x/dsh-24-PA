@@ -53,7 +53,7 @@ if (!existsSync(join(env.DSH_HOME, 'profiles/pa24-prototype/package.json'))) {
   run(command, [...prefix, '--profile', 'pa24-prototype', '--from-default-profile', 'web', '--dump-config'], root, true);
 }
 run(command, [...prefix, 'plugin', '--profile', 'pa24-prototype', 'add', bundle, '--ignore-scripts', '--store-dir', join(root, '.pnpm-store')]);
-console.log(`24PA 可丢弃原型 · 独立 DSH_HOME: ${env.DSH_HOME}\n模式: ${env.PA24_MODE || 'demo'} · Ctrl+C 停止。`);
+console.log(`24PA 可丢弃原型 · 独立 DSH_HOME: ${env.DSH_HOME}\n接入模式与飞书身份以工作区 AGENTS.md 为准 · Ctrl+C 停止。`);
 const child = spawn(command, [...prefix, '--profile', 'pa24-prototype', '--host', host, '--port', port, '--no-open'], { env, cwd: root, stdio: 'inherit' });
 child.on('error', error => { console.error(error.message); process.exitCode = 1; });
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));

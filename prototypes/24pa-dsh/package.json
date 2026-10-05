@@ -1,8 +1,8 @@
 {
   "name": "@benz-ai-x/dsh-24pa-prototype",
-  "version": "0.0.1-prototype.1",
+  "version": "0.0.2-prototype.1",
   "private": true,
-  "description": "Disposable 24PA prototype: Feishu assistant, dsh sessions and version-specific human review.",
+  "description": "24PA workspace prototype: Feishu Lead, native Workers and session-maintained JSON memory.",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
@@ -19,7 +19,6 @@
   "files": [
     "*.js",
     "*.yml",
-    "demo.html",
     "README.md",
     ".env.example",
     "icon.svg",
@@ -57,7 +56,8 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
   }

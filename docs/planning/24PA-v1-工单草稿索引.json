@@ -1,5 +1,5 @@
 {
-  "status": "awaiting-breakdown-approval",
+  "status": "needs-recalibration-to-spec-1.1",
   "parent_url": "https://github.com/benz-ai-x/dsh-24-PA/issues/1",
   "parent_body_sha256": "aaea68bc98137fa2d0a54d95154082f6101d2e7e62dbe2d379105439b29e00be",
   "parent_comment_count": 0,
@@ -1315,5 +1315,8 @@
     ],
     "release_acceptance_issue": "P40",
     "release_acceptance_pr": null
-  }
+  },
+  "source_spec_version": "1.0",
+  "target_spec_version": "1.1",
+  "recalibration_note": "旧 A–E 指针票失效；补齐工作区、Lead/Worker、JSON 记忆、手工维护与新场景后再审核发布。"
 }

@@ -1,18 +1,18 @@
 // THROWAWAY PROTOTYPE. Pure state transitions; adapters supply ids, clocks and external results.
-export const QUESTION = '在一个飞书入口中切换多个 dsh 会话，并将手写内容交给本人按版本审核，是否清楚、顺手？';
-export function initialState(profile = '演示身份') {
+export const QUESTION = '飞书统一对接 Lead，专业 Worker 并行办理；在 dsh 工作区维护配置和结构化记忆。';
+export function initialState(profile = 'default') {
   return {
-    prototype: true, storage: 'memory', profile, active: 'A', previous: null,
-    sessions: 'ABCDE'.split('').map((key, i) => ({ key, title: ['日常助理', '项目推进', '会议准备', '手写笔记', '个人事务'][i], realId: null, running: false, messages: [] })),
+    prototype: true, storage: 'memory', profile, active: 'Lead',
+    sessions: [{ key: 'Lead', title: '24PA Lead', realId: null, running: false, messages: [] }],
     tasks: [], memos: [], reminders: [], notes: [], notifications: [], audit: [],
-    lastChange: '原型已就绪。业务状态只在本次运行中保存。',
+    lastChange: '工作区原型已就绪。',
   };
 }
 export function transition(before, action) {
   const state = structuredClone(before);
   const session = () => {
     const found = state.sessions.find(x => x.key === (action.session || state.active));
-    if (!found) throw new Error('会话不存在。请选择 A–E。');
+    if (!found) throw new Error('Lead 会话不存在。');
     return found;
   };
   const note = () => {
@@ -22,21 +22,11 @@ export function transition(before, action) {
   };
   switch (action.type) {
     case 'session.bind': session().realId = action.realId; break;
-    case 'session.switch': {
-      const target = session().key;
-      if (target !== state.active) { state.previous = state.active; state.active = target; }
-      state.lastChange = `现在输入会进入 ${target}；其他会话继续原来的工作。`; break;
-    }
-    case 'session.back': {
-      if (!state.previous) throw new Error('还没有上一个会话。');
-      const old = state.active; state.active = state.previous; state.previous = old;
-      state.lastChange = `已返回 ${state.active}。`; break;
-    }
     case 'session.message': {
       const target = session();
       target.messages.push({ role: action.role, text: action.text, at: action.at });
       target.messages = target.messages.slice(-30);
-      state.lastChange = `${target.key} 收到${action.role === 'assistant' ? '工作结果' : '消息'}，当前仍是 ${state.active}。`; break;
+      state.lastChange = `${target.key} 收到${action.role === 'assistant' ? '工作结果' : '消息'}。`; break;
     }
     case 'session.running': session().running = action.running; break;
     case 'task.add':
@@ -63,7 +53,7 @@ export function transition(before, action) {
       if (!reminder || reminder.status !== 'pending') return before;
       reminder.status = 'triggered';
       state.notifications.push({ id: action.id, text: reminder.text, session: reminder.session, at: action.at });
-      state.lastChange = `${reminder.session} 的提醒已到期，当前仍是 ${state.active}。`; break;
+      state.lastChange = `${reminder.session} 的提醒已到期。`; break;
     }
     case 'reminder.receipt': {
       const r = state.reminders.find(x => x.id === action.id);

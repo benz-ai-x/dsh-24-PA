@@ -4,7 +4,6 @@
   "type": "module",
   "scripts": {
     "prototype": "node scripts/prototype.mjs",
-    "prototype:pack": "node scripts/prototype.mjs --pack",
-    "prototype:demo": "node scripts/build-demo.mjs"
+    "prototype:pack": "node scripts/prototype.mjs --pack"
   }
 }
