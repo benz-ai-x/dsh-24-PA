@@ -3,6 +3,8 @@ node_modules/
 .prototype-runtime/
 artifacts/
 *.tgz
+packages/*/lib/
+*.tsbuildinfo
 .env
 .env.*
 !.env.example

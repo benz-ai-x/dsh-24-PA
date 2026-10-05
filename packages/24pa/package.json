@@ -1,0 +1,68 @@
+{
+  "name": "@benz-ai-x/dsh-24pa",
+  "version": "0.1.0",
+  "private": true,
+  "description": "24私助（24PA）: Feishu-backed personal assistant as a dsh workspace bundle.",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./agent": "./lib/tools.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "postinstall": "node scripts/link-peer.mjs",
+    "test": "vitest run",
+    "test:unit": "vitest run --dir tests/unit"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.74.0",
+    "pg": "8.23.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": "0.2.1-alpha.1",
+    "@deepseek-ai/cordis": "4.0.5-alpha.1",
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    },
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/schemastery": "file:../../../deepseek-harness/vendor/schemastery",
+    "@types/node": "^22.10.0",
+    "@types/pg": "8.11.10",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace"
+      ]
+    }
+  }
+}
