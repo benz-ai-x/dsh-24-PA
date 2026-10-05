@@ -3,7 +3,7 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: pa24-prototype
-        name: 24PA 机器人
+        name: 24私助
         description: 协调助理事务，并在 dsh 会话中维护飞书配置和 JSON 记忆。
         plugins:
           - name: '@deepseek-ai/dsh-agent-instructions'

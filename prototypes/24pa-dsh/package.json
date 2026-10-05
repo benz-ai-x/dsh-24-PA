@@ -1,8 +1,8 @@
 {
   "name": "@benz-ai-x/dsh-24pa-prototype",
-  "version": "0.0.4-prototype.2",
+  "version": "0.0.4-prototype.3",
   "private": true,
-  "description": "24PA robot prototype: unified coordination and workspace maintenance with read-only Feishu diagnostics.",
+  "description": "24PA assistant prototype: unified coordination and workspace maintenance with read-only Feishu diagnostics.",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "24PA Workspace Prototype",
-    "description": "One 24PA Robot preset for coordination, workspace configuration, Feishu diagnostics and JSON memory."
+    "description": "One 24PA preset for coordination, workspace configuration, Feishu diagnostics and JSON memory."
   }
 }

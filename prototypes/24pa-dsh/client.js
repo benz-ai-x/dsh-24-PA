@@ -4,13 +4,13 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react'), h = React.createElement;
     const zh = {
-      panel: '24PA 工作区', title: '24PA 机器人', work: '事项总览', feishu: '飞书接入',
+      panel: '24私助工作区', title: '24私助', work: '事项总览', feishu: '飞书接入',
       memory: '结构化记忆', notes: '手写审核', workspace: '工作区', logs: '运行记录',
       pending: '等待本人审核', approved: '本人已审核此版本', rejected: '已退回修改', unknown: '需要重新核验',
       queued: '排队中', running: '处理中', completed: '已完成', waiting_review: '等待本人审核',
       needs_revision: '待修改', failed: '未完成', stopped: '已停止',
     };
-    const en = {...zh, panel: '24PA Workspace', title: '24PA Assistant', work: 'Overview', memory: 'Memory', workspace: 'Workspace'};
+    const en = {...zh, panel: '24PA Workspace', title: '24PA', work: 'Overview', memory: 'Memory', workspace: 'Workspace'};
     // One consistent 24 × 24 stroke vocabulary, with no external icon/font requests.
     const paths = {
       bot: ['M9 4h6M12 4V2', 'M6 7h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3Z', 'M8 12v2m8-2v2m-7 3h6M1 12v4m22-4v4'],
@@ -187,8 +187,8 @@ window.__ModuleLoader__.load({
                 j.result && h('details', null, h('summary', null, '查看处理结果'), h('div', {className: 'pa24-note'}, j.result)),
                 j.started && button('external', '查看 Worker 会话', () => ctx.uiWorkspace.openSession({childSessionId: j.id, parentSessionId: j.parentSessionId || workspace.leadId, mode: 'continuable'}), {className: 'pa24-quiet'}),
                 h('p', {className: 'pa24-meta'}, '事项编号：' + j.id))) :
-              h(React.Fragment, null, empty('chat', 'teal', '下一件事，交给 24PA', '在飞书发一段话，或拍一张手写笔记。机器人会安排合适的 Worker，并把进度与结果带回来。',
-                [button('chat', '与24PA机器人对话', openRobot, {key: 'chat', className: 'pa24-primary', disabled: busy || !workspace}), h('button', {key: 'connect', type: 'button', onClick: () => selectTab('feishu'), className: 'pa24-quiet'}, '查看飞书接入', icon('arrow', {width: 16, height: 16}))]),
+              h(React.Fragment, null, empty('chat', 'teal', '下一件事，交给24私助', '在飞书发一段话，或拍一张手写笔记。机器人会安排合适的 Worker，并把进度与结果带回来。',
+                [button('chat', '与24私助对话', openRobot, {key: 'chat', className: 'pa24-primary', disabled: busy || !workspace}), h('button', {key: 'connect', type: 'button', onClick: () => selectTab('feishu'), className: 'pa24-quiet'}, '查看飞书接入', icon('arrow', {width: 16, height: 16}))]),
                 h('div', {className: 'pa24-example'}, icon('info', {width: 16, height: 16}), '可以说：“帮我记个待办，周五前完成方案初稿。”'))),
             sectionHead('grid', '各有所长，一起为你办事', '由同一个机器人协调，无需切换 Agent。', badge('专业 Worker', 'neutral')),
             h('div', {className: 'pa24-workers'}, state.workers.map(w => {
@@ -241,16 +241,16 @@ window.__ModuleLoader__.load({
               h('div', {className: 'pa24-example'}, icon('pen', {width: 16, height: 16}), '支持中文为主、中英混写、待办与简单图示；疑字会标记为待核对。')));
           else if (tab === 'logs') content = h('section', {className: 'pa24-card'}, sectionHead('pulse', '运行记录', '查看本次运行的活动与处理线索。', badge('最近 30 条', 'neutral')),
             state.audit.length ? h('ol', {className: 'pa24-timeline'}, state.audit.slice(-30).reverse().map((a, i) => h('li', {key: i}, h('time', {className: 'pa24-meta', dateTime: a.at}, date(a.at, workspace?.config.timeZone)), h('p', null, a.message)))) : empty('pulse', 'blue', '还没有运行记录', '机器人开始处理事务后，活动会记录在这里。'),
-            h('details', null, h('summary', null, '内部会话与诊断'), h('p', {className: 'pa24-meta'}, 'Lead 是机器人内部的协调职责，日常交互和维护都使用同一个24PA机器人。'), workspace && button('external', '查看飞书接入会话', () => ctx.uiWorkspace.openSession(workspace.leadId), {className: 'pa24-quiet'})),
+            h('details', null, h('summary', null, '内部会话与诊断'), h('p', {className: 'pa24-meta'}, 'Lead 是机器人内部的协调职责，日常交互和维护都使用同一个24私助。'), workspace && button('external', '查看飞书接入会话', () => ctx.uiWorkspace.openSession(workspace.leadId), {className: 'pa24-quiet'})),
             h('details', null, h('summary', null, '完整原型状态'), h('pre', null, JSON.stringify(state, null, 2))));
           return h('main', {className: 'pa24', ref: main}, h('style', null, style), h('div', {className: 'pa24-wrap'},
             h('header', {className: 'pa24-header'},
               h('div', {className: 'pa24-identity'}, tile('bot', 'teal', 'pa24-brand'), h('div', null, h('div', {className: 'pa24-eyebrow'}, 'YOUR PERSONAL ASSISTANT'), h('h1', null, t('title')), h('p', {className: 'pa24-tagline'}, '日常交给我，重要的事由你决定。'))),
-              h('div', {className: 'pa24-row'}, button('chat', '与24PA机器人对话', openRobot, {className: 'pa24-primary', disabled: busy || !workspace}), button('refresh', '刷新', () => { setMemoryReload(v => v + 1); return refresh(); }, {className: 'pa24-quiet'}))),
+              h('div', {className: 'pa24-row'}, button('chat', '与24私助对话', openRobot, {className: 'pa24-primary', disabled: busy || !workspace}), button('refresh', '刷新', () => { setMemoryReload(v => v + 1); return refresh(); }, {className: 'pa24-quiet'}))),
             h('div', {className: 'pa24-workspace-strip'}, icon('folder', {width: 17, height: 17}), h('span', {className: 'pa24-path', title: workspace?.path}, workspace?.path || '尚未绑定工作区'), badge('工作区', 'neutral'), h('button', {type: 'button', className: 'pa24-quiet', onClick: () => selectTab('workspace')}, '查看配置', icon('chevron', {width: 14, height: 14}))),
             state.mode === 'demo' && h('div', {className: 'pa24-notice pa24-tone-amber'}, icon('info', {width: 18, height: 18}), h('div', null, h('strong', null, '体验模式'), ' · 飞书未连接，业务为模拟；对话使用 dsh 的实际模型。'), h('button', {type: 'button', onClick: () => selectTab('feishu')}, '查看接入', icon('arrow', {width: 14, height: 14}))),
             (error || connectionError) && h('div', {role: 'alert', className: 'pa24-error'}, h('strong', null, connectionError ? '连接暂时中断，以下为上次读取的状态' : '操作未完成'), h('p', null, error || connectionError)),
-            h('nav', {className: 'pa24-tabs', role: 'tablist', 'aria-label': '24PA 工作区导航'}, tabItems.map(([id, name, tone], index) => h('button', {key: id, id: 'pa24-tab-' + id, type: 'button', role: 'tab', className: 'pa24-tone-' + tone, 'aria-selected': tab === id, 'aria-controls': 'pa24-content', tabIndex: tab === id ? 0 : -1, onClick: () => selectTab(id), onKeyDown: e => {
+            h('nav', {className: 'pa24-tabs', role: 'tablist', 'aria-label': '24私助工作区导航'}, tabItems.map(([id, name, tone], index) => h('button', {key: id, id: 'pa24-tab-' + id, type: 'button', role: 'tab', className: 'pa24-tone-' + tone, 'aria-selected': tab === id, 'aria-controls': 'pa24-content', tabIndex: tab === id ? 0 : -1, onClick: () => selectTab(id), onKeyDown: e => {
               const next = e.key === 'ArrowRight' ? (index + 1) % tabItems.length : e.key === 'ArrowLeft' ? (index + tabItems.length - 1) % tabItems.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabItems.length - 1 : null;
               if (next === null) return; e.preventDefault(); selectTab(tabItems[next][0]); e.currentTarget.parentElement.querySelectorAll('[role=tab]')[next].focus();
             }}, icon(name, {width: 17, height: 17}), t(id), id === 'notes' && pendingNotes.length > 0 && h('span', {className: 'pa24-count'}, pendingNotes.length)))),

@@ -64,7 +64,7 @@ export class PrototypeRuntime {
       const previous=this[key]; this[key]=`pa24-${hash(this.store.path).slice(0,12)}-${key==='leadId'?'lead':'robot'}-${randomUUID().slice(0,8)}`;
       const created=await this.ctx.sessionController.create({sessionId:this[key],workspaceId:this.store.workspace.id,agentPreset:'pa24-prototype'});
       await this.saveBinding();
-      this.change({type:'notice',text:`旧会话 ${previous} 已选择其他预设，历史保留；24PA 已建立新的${key==='leadId'?'飞书接入':'机器人'}会话。`});
+      this.change({type:'notice',text:`旧会话 ${previous} 已选择其他预设，历史保留；24私助已建立新的${key==='leadId'?'飞书接入':'机器人'}会话。`});
       return created;
     }
   }
@@ -78,7 +78,7 @@ export class PrototypeRuntime {
   }
   async ensureLead() {
     const created = await this.createOwnedSession('leadId');
-    await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24PA · 飞书接入会话' });
+    await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24私助 · 飞书接入会话' });
     this.change({ type: 'session.bind', session: 'Lead', realId: created.sessionId });
     const resolved = await this.ctx.sessionController.resolveAgent(created.sessionId);
     if ('error' in resolved) throw resolved.error;
@@ -86,7 +86,7 @@ export class PrototypeRuntime {
   }
   async robot() {
     const created = await this.createOwnedSession('robotId');
-    await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24PA 机器人' });
+    await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24私助' });
     return { sessionId: created.sessionId };
   }
   roleFor(agent) {
@@ -133,7 +133,7 @@ export class PrototypeRuntime {
     const job = this.jobs.get(workId);
     if (job?.parentSessionId && job.parentSessionId !== this.leadId) { this.change({type:'notice',text:message}); return; }
     this.change({ type: 'session.message', session: 'Lead', role: 'assistant', text: message });
-    if (this.liveReady) { const id = await this.gateway.send(`[24PA 机器人] ${message}`, card); this.lastSentAt=new Date().toISOString(); this.routes.set(id, workId || null); }
+    if (this.liveReady) { const id = await this.gateway.send(`[24私助] ${message}`, card); this.lastSentAt=new Date().toISOString(); this.routes.set(id, workId || null); }
   }
   async receive(data) {
     return this.enqueue(async () => {
@@ -176,7 +176,7 @@ export class PrototypeRuntime {
     return id;
   }
   async delegate(args, exec) {
-    if (!['lead','robot'].includes(this.roleFor(exec.agent))) throw new Error('只有24PA机器人可以委派 Worker。');
+    if (!['lead','robot'].includes(this.roleFor(exec.agent))) throw new Error('只有24私助可以委派 Worker。');
     if (!this.config.enabledWorkers.includes(args.worker)) throw new Error('此 Worker 未启用。');
     const id = `pa24-worker-${args.worker}-${randomUUID()}`;
     const job = { id, parentSessionId:exec.agent.id, origin:exec.agent.id===this.leadId?'feishu':'dsh', role: args.worker, title: text(args.title, 200), brief: text(args.instruction), status: 'queued', createdAt: new Date().toISOString(), noteId: args.imageId || null, progress: '等待执行', result: '', content: [] };
@@ -200,7 +200,7 @@ export class PrototypeRuntime {
           const resolved = await this.ctx.sessionController.resolveAgent(job.parentSessionId);
           if ('error' in resolved) throw resolved.error;
           await this.ctx.subagents.startContinuable({ provider: 'spawn', label: `${ROLES[job.role].name} · ${job.title}`, childId: job.id, signal: new AbortController().signal,
-            request: { parent: resolved.agent, prompt: job.content, persona: `你是 24PA 的 ${ROLES[job.role].name} Worker。${ROLES[job.role].brief} 将结果交回发起会话。`, toolFilter: { allow: job.role === 'handwriting' ? [] : ['pa24_work','pa24_memory'] }, maxDepth: 1, ...(this.config.workerModels[job.role] ? { agentOptions: this.config.workerModels[job.role] } : {}) } });
+            request: { parent: resolved.agent, prompt: job.content, persona: `你是 24私助的 ${ROLES[job.role].name} Worker。${ROLES[job.role].brief} 将结果交回发起会话。`, toolFilter: { allow: job.role === 'handwriting' ? [] : ['pa24_work','pa24_memory'] }, maxDepth: 1, ...(this.config.workerModels[job.role] ? { agentOptions: this.config.workerModels[job.role] } : {}) } });
           job.content = [];
           job.started = true; this.armTimeout(job);
         } catch (e) { job.status = 'failed'; job.progress = e.message; await this.notify(`“${job.title}”未启动：${e.message}`, 'Lead', undefined, job.id); }
@@ -212,7 +212,7 @@ export class PrototypeRuntime {
     job.timer = setTimeout(() => { if (job.status === 'running') { job.status = 'failed'; job.progress = '执行超时，需要核对后继续'; this.ctx.subagents.interrupt(job.id, { kind: 'user', parentSessionId: job.parentSessionId }); void this.notify(`“${job.title}”处理超时，请核对已产生的结果后继续。`, 'Lead', undefined, job.id).catch(e => this.report(e)); void this.pump(); } }, this.config.modelTimeoutMs);
   }
   async control(args, exec) {
-    if (!['lead','robot'].includes(this.roleFor(exec.agent))) throw new Error('事项调度由24PA机器人负责。');
+    if (!['lead','robot'].includes(this.roleFor(exec.agent))) throw new Error('事项调度由24私助负责。');
     if (args.action === 'list') return { items: this.snapshot().jobs };
     const job = this.jobs.get(args.workId); if (!job) throw new Error('事项不存在；重启后的旧业务账本需要核对。');
     if (args.action === 'inspect') { const { timer, content, ...view } = job; return view; }
@@ -244,7 +244,7 @@ export class PrototypeRuntime {
     return { mode: this.config.mode, message, tasks: this.state.tasks, memos: this.state.memos, reminders: this.state.reminders };
   }
   async memory(args, exec) {
-    const role = this.roleFor(exec.agent); if (!role) throw new Error('记忆仅对绑定的 24PA 工作区会话开放。');
+    const role = this.roleFor(exec.agent); if (!role) throw new Error('记忆仅对绑定的 24私助工作区会话开放。');
     return this.store.memory(args, role === 'robot' ? exec.agent.id : null, this.ctx.fs, exec.signal);
   }
   async onTurn(session, event) {

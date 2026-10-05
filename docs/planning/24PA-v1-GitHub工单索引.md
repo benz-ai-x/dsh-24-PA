@@ -1,6 +1,6 @@
-# 24PA v1 GitHub 工单索引
+# 24私助（24PA） v1 GitHub 工单索引
 
-2026-10-05 · 规格 1.1 · 44 张工单，12 个功能 PR。
+2026-10-05 · 规格 1.2 · 44 张工单，12 个功能 PR。
 
 父规格：[Issue #1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)。工单统一标记 `ready-for-agent`，正式开发与生产部署按用户另行授权执行。
 

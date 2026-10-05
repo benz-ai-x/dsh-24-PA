@@ -34,12 +34,12 @@ try {
 } catch (error) {
   if (error.code === 'EADDRINUSE') {
     const browserHost = host === '0.0.0.0' ? '127.0.0.1' : host;
-    console.error(`24PA 未启动：${host}:${port} 端口已被占用。`);
+    console.error(`24私助未启动：${host}:${port} 端口已被占用。`);
     console.error(`如果是之前启动的原型，可继续打开 http://${browserHost}:${port}/ 使用。`);
     console.error('需要重启时，先在原启动终端按 Ctrl+C，再运行 npm run prototype。');
     console.error('若是其他程序占用，请设置 PA24_PORT；若要同时运行另一个原型，还须设置不同的 PA24_DSH_HOME。');
   } else {
-    console.error(`24PA 无法监听 ${host}:${port}：${error.message}`);
+    console.error(`24私助无法监听 ${host}:${port}：${error.message}`);
   }
   process.exit(1);
 }
@@ -53,7 +53,7 @@ if (!existsSync(join(env.DSH_HOME, 'profiles/pa24-prototype/package.json'))) {
   run(command, [...prefix, '--profile', 'pa24-prototype', '--from-default-profile', 'web', '--dump-config'], root, true);
 }
 run(command, [...prefix, 'plugin', '--profile', 'pa24-prototype', 'add', bundle, '--ignore-scripts', '--store-dir', join(root, '.pnpm-store')]);
-console.log(`24PA 可丢弃原型 · 独立 DSH_HOME: ${env.DSH_HOME}\n接入模式与飞书身份以工作区 AGENTS.md 为准 · Ctrl+C 停止。`);
+console.log(`24私助（24PA）可丢弃原型 · 独立 DSH_HOME: ${env.DSH_HOME}\n接入模式与飞书身份以工作区 AGENTS.md 为准 · Ctrl+C 停止。`);
 const child = spawn(command, [...prefix, '--profile', 'pa24-prototype', '--host', host, '--port', port, '--no-open'], { env, cwd: root, stdio: 'inherit' });
 child.on('error', error => { console.error(error.message); process.exitCode = 1; });
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));

@@ -1,14 +1,14 @@
-# 24PA v1 PR 交付计划
+# 24私助（24PA）v1 PR 交付计划
 
-更新：2026-10-05。用户已确定“一个 PR 交付一个可以实际使用的功能，可以包含多个 Issue”，本轮进一步明确执行 to-tickets 并写入 GitHub Issues。工单按 [规格 1.1](../24PA-v1-SPEC.md) 和 [父规格 #1](https://github.com/benz-ai-x/dsh-24-PA/issues/1) 重新校准；当前已发布 44/44 张。
+更新：2026-10-05。用户已确定“一个 PR 交付一个可以实际使用的功能，可以包含多个 Issue”，已发布的工单按本轮命名与原型反馈同步到 [规格 1.2](../24PA-v1-SPEC.md) 和 [父规格 #1](https://github.com/benz-ai-x/dsh-24-PA/issues/1) 重新校准；当前已发布 44/44 张。
 
 本次只发布实施计划，正式实现和生产部署仍按用户后续授权执行。可丢弃原型及其证据见 [原型验收记录](../prototypes/24PA-原型验收记录.md)，不计入下面 12 个生产功能 PR。
 
 ## 校准结果与交付单位
 
-旧 P01–P40 的正文与映射已全部校准到规格 1.1；删除全局 A–E 当前指针，采用工作区、顶层 Lead、按事项隔离的原生 Worker、JSON 记忆和本人发起的维护。新增 P41 配置维护、P42 JSON 条目维护、P43 手工整理与撤销、P44 Worker 注册，使 101–110 故事及 T17–T19 有独立可验收归属。
+P01–P44 的稳定编号、分组与依赖继续保留，正文和覆盖映射校准到规格 1.2。中文名为24私助，英文名为24PA；统一预设同时承接本地交办和维护，Worker 按实际父会话与入口隔离。只读飞书接入、记忆正文展示、六页导航与 UI/UX 验收分配到原有功能，补齐故事 111–118、场景 S27–S30 和 T20。
 
-共 **44 张工单**：43 张实施票组合成 **12 个功能 PR**，P40 跟踪整体发布验收，不预设独立 PR。P 编号为稳定规划编号，不表示执行顺序；GitHub 编号是实际事项。完整依赖顺序、验收与 110 条故事/26 场景/19 测试组映射见 [工单清单](24PA-v1-工单拆分草案.md)。
+共 **44 张工单**：43 张实施票组合成 **12 个功能 PR**，P40 跟踪整体发布验收，不预设独立 PR。P 编号为稳定规划编号，不表示执行顺序；GitHub 编号是实际事项。完整依赖顺序、验收与 118 条故事/30 场景/20 测试组映射见 [工单清单](24PA-v1-工单拆分草案.md)。
 
 Issue 描述一次独立工作上下文可完成的完整流程；持久化、授权、操作回执与恢复随首个使用它的业务一起交付。PR 汇集同一可用功能所需的 Issue、迁移、配置和验证。完成一张票不触发新建 PR；数量仅在实现证据证明需要时调整，拆分后仍必须独立可用。
 
@@ -18,22 +18,22 @@ Issue 描述一次独立工作上下文可完成的完整流程；持久化、�
 
 | 功能 PR | 包含的工单 | 前置 PR | 合并后可以完成的操作 |
 |---|---|---|---|
-| F01 工作区助理与随手记 | [P01 / #3](https://github.com/benz-ai-x/dsh-24-PA/issues/3)、[P02 / #4](https://github.com/benz-ai-x/dsh-24-PA/issues/4)、[P03 / #5](https://github.com/benz-ai-x/dsh-24-PA/issues/5)、[P14 / #6](https://github.com/benz-ai-x/dsh-24-PA/issues/6)、[P41 / #7](https://github.com/benz-ai-x/dsh-24-PA/issues/7) | 无 | 选择目录、校验工作区规则与配置，通过原生维护会话修改/重载；飞书向 Lead 交办，备忘 Worker 保存真实文档并返回出处。 |
-| F02 并行事项与记忆维护 | [P04 / #8](https://github.com/benz-ai-x/dsh-24-PA/issues/8)、[P05 / #9](https://github.com/benz-ai-x/dsh-24-PA/issues/9)、[P06 / #10](https://github.com/benz-ai-x/dsh-24-PA/issues/10)、[P07 / #11](https://github.com/benz-ai-x/dsh-24-PA/issues/11)、[P42 / #12](https://github.com/benz-ai-x/dsh-24-PA/issues/12)、[P36 / #13](https://github.com/benz-ai-x/dsh-24-PA/issues/13)、[P43 / #14](https://github.com/benz-ai-x/dsh-24-PA/issues/14)、[P44 / #15](https://github.com/benz-ai-x/dsh-24-PA/issues/15) | F01 | Lead 委派至少五项原生 Worker 工作；按事项查看、继续、停止及恢复；维护会话 CRUD/手工整理 JSON，业务 Agent 按需读取；注册新专业职责。 |
+| F01 工作区助理与随手记 | [P01 / #3](https://github.com/benz-ai-x/dsh-24-PA/issues/3)、[P02 / #4](https://github.com/benz-ai-x/dsh-24-PA/issues/4)、[P03 / #5](https://github.com/benz-ai-x/dsh-24-PA/issues/5)、[P14 / #6](https://github.com/benz-ai-x/dsh-24-PA/issues/6)、[P41 / #7](https://github.com/benz-ai-x/dsh-24-PA/issues/7) | 无 | 选择目录，通过统一24私助预设交办并维护配置；只读查阅飞书接入和按需诊断；飞书或本地发起备忘，Worker 保存真实文档并向原入口返回出处。 |
+| F02 并行事项与记忆维护 | [P04 / #8](https://github.com/benz-ai-x/dsh-24-PA/issues/8)、[P05 / #9](https://github.com/benz-ai-x/dsh-24-PA/issues/9)、[P06 / #10](https://github.com/benz-ai-x/dsh-24-PA/issues/10)、[P07 / #11](https://github.com/benz-ai-x/dsh-24-PA/issues/11)、[P42 / #12](https://github.com/benz-ai-x/dsh-24-PA/issues/12)、[P36 / #13](https://github.com/benz-ai-x/dsh-24-PA/issues/13)、[P43 / #14](https://github.com/benz-ai-x/dsh-24-PA/issues/14)、[P44 / #15](https://github.com/benz-ai-x/dsh-24-PA/issues/15) | F01 | 按实际发起会话委派至少五项原生 Worker 工作，查看、继续、停止及恢复；在同一助理会话 CRUD/手工整理 JSON，面板直接展示正文、筛选和修订信息；注册新专业职责。 |
 | F03 任务与项目清单 | [P08 / #16](https://github.com/benz-ai-x/dsh-24-PA/issues/16)、[P09 / #17](https://github.com/benz-ai-x/dsh-24-PA/issues/17)、[P17 / #18](https://github.com/benz-ai-x/dsh-24-PA/issues/18) | F02 | 创建、完成、调整任务，拆解项目和个人事务，查看实际进展；多个 Worker 修改同一任务得到一致结果。 |
 | F04 日程与会议安排 | [P10 / #19](https://github.com/benz-ai-x/dsh-24-PA/issues/19)、[P11 / #20](https://github.com/benz-ai-x/dsh-24-PA/issues/20)、[P12 / #21](https://github.com/benz-ai-x/dsh-24-PA/issues/21) | F03 | 查询忙闲与关联任务影响、安排本人日程、邀请指定参会人，随后改期或取消并获得真实回执。 |
-| F05 个人提醒与免打扰 | [P15 / #22](https://github.com/benz-ai-x/dsh-24-PA/issues/22)、[P18 / #23](https://github.com/benz-ai-x/dsh-24-PA/issues/23)、[P20 / #24](https://github.com/benz-ai-x/dsh-24-PA/issues/24)、[P21 / #25](https://github.com/benz-ai-x/dsh-24-PA/issues/25) | F02 | 在维护会话设置偏好；飞书设置单次或周期提醒，主动收到通知，支持稍后、停止、静默和休假；固定提醒在模型不可用时仍运行。 |
+| F05 个人提醒与免打扰 | [P15 / #22](https://github.com/benz-ai-x/dsh-24-PA/issues/22)、[P18 / #23](https://github.com/benz-ai-x/dsh-24-PA/issues/23)、[P20 / #24](https://github.com/benz-ai-x/dsh-24-PA/issues/24)、[P21 / #25](https://github.com/benz-ai-x/dsh-24-PA/issues/25) | F02 | 在本地24私助会话设置偏好；飞书设置单次或周期提醒，主动收到通知，支持稍后、停止、静默和休假；固定提醒在模型不可用时仍运行。 |
 | F06 手写笔记整理与人工审核 | [P28 / #26](https://github.com/benz-ai-x/dsh-24-PA/issues/26)、[P29 / #27](https://github.com/benz-ai-x/dsh-24-PA/issues/27)、[P31 / #28](https://github.com/benz-ai-x/dsh-24-PA/issues/28)、[P32 / #29](https://github.com/benz-ai-x/dsh-24-PA/issues/29) | F02 | 通过飞书 App 拍照提交一页笔记，得到待审文档，批准或退回指定版本；修改后重新审核，文档显示真实审核状态。 |
-| F07 多页笔记与集中复核 | [P30 / #30](https://github.com/benz-ai-x/dsh-24-PA/issues/30)、[P33 / #31](https://github.com/benz-ai-x/dsh-24-PA/issues/31) | F05、F06 | 整理多页、小字及图示，按原稿定位疑点，通过待审队列和有节制的提醒完成批量复核。 |
+| F07 多页笔记与集中复核 | [P30 / #30](https://github.com/benz-ai-x/dsh-24-PA/issues/30)、[P33 / #31](https://github.com/benz-ai-x/dsh-24-PA/issues/31) | F05、F06 | 整理多页、小字及图示，按原稿定位疑点，通过待审队列和有节制的提醒完成批量复核；dsh 只读审核页展示版本和真实状态，批准仍通过本人飞书确认。 |
 | F08 事项交办与持续跟进 | [P13 / #32](https://github.com/benz-ai-x/dsh-24-PA/issues/32)、[P19 / #33](https://github.com/benz-ai-x/dsh-24-PA/issues/33)、[P22 / #34](https://github.com/benz-ai-x/dsh-24-PA/issues/34)、[P23 / #35](https://github.com/benz-ai-x/dsh-24-PA/issues/35) | F04、F05 | 明确授权交办或发信，持续跟踪等待项和周期事项；任务、会议改期取消会更新提醒，催办默认提醒本人。 |
 | F09 每日规划与定期回顾 | [P16 / #36](https://github.com/benz-ai-x/dsh-24-PA/issues/36)、[P24 / #37](https://github.com/benz-ai-x/dsh-24-PA/issues/37)、[P25 / #38](https://github.com/benz-ai-x/dsh-24-PA/issues/38) | F08 | 开启晨报、规划时间块、处理插单、进行晚间及每周回顾；智能周期工作通过原生 Schedule 唤醒顶层 Lead 后委派。 |
 | F10 会议资料与纪要行动 | [P26 / #39](https://github.com/benz-ai-x/dsh-24-PA/issues/39)、[P27 / #40](https://github.com/benz-ai-x/dsh-24-PA/issues/40) | F09 | 会前收到有出处的资料包，会后把文字材料整理成纪要，选择行动创建任务或日程。 |
 | F11 审核笔记的行动与综合查询 | [P34 / #41](https://github.com/benz-ai-x/dsh-24-PA/issues/41)、[P35 / #42](https://github.com/benz-ai-x/dsh-24-PA/issues/42) | F07、F10 | 从已审核笔记中单独授权执行行动，查询可信历史决定，并在今日概览和晨报中看到等待及待审事项。 |
-| F12 运行维护与数据恢复 | [P37 / #43](https://github.com/benz-ai-x/dsh-24-PA/issues/43)、[P38 / #44](https://github.com/benz-ai-x/dsh-24-PA/issues/44)、[P39 / #45](https://github.com/benz-ai-x/dsh-24-PA/issues/45) | F11 | 查看健康和预算、处理会话归档及计划，完成配置/JSON/PG/会话/原稿/审核快照联合备份恢复；明确发现缺失数据、授权失效和能力降级。 |
+| F12 运行维护与数据恢复 | [P37 / #43](https://github.com/benz-ai-x/dsh-24-PA/issues/43)、[P38 / #44](https://github.com/benz-ai-x/dsh-24-PA/issues/44)、[P39 / #45](https://github.com/benz-ai-x/dsh-24-PA/issues/45) | F11 | 完善已交付运行页的健康和预算诊断、处理会话归档及计划，完成配置/JSON/PG/会话/原稿/审核快照联合备份恢复；明确发现缺失数据、授权失效和能力降级。 |
 
 F06 是最早可实际使用的手写完整流程：收图、识别、写文档、待审通知、本人批准/退回、修改失效均交付；F02 合并后可与任务/日程/提醒分支并行推进。F07 增加多页增强和集中复核。常规助理和全部手写能力均属于 v1。
 
-F04 使用 F03 的实际任务查询呈现日程变更的关联影响，外部操作底座由 F01 的备忘流程建立。F09 的周回顾读取 F08 等待项；F10 会前准备复用 F09 智能 Schedule。F12 汇总运维能力，各早期功能仍须自行交付基础迁移和恢复说明，不把可靠性拖到最后。
+F04 使用 F03 的实际任务查询呈现日程变更的关联影响，外部操作底座由 F01 的备忘流程建立。F09 的周回顾读取 F08 等待项；F10 会前准备复用 F09 智能 Schedule。F12 汇总运维能力，各早期功能仍须自行交付基础迁移和恢复说明，不把可靠性拖到最后。管理页和共同视觉规范同样随功能交付：F01 建立统一入口、SVG/主题/键盘基础和只读接入页，F02 交付事项与记忆内容，F07 补齐审核查阅，F12 扩展健康与日志。F12 的 T20 是全量复核，不是届时才开发全部界面。
 
 ## 实施与依赖判定
 
@@ -50,17 +50,18 @@ F04 使用 F03 的实际任务查询呈现日程变更的关联影响，外部�
 - 说明用户原来的问题、合并后能完成的操作，以及覆盖哪些 Issue；可以用输入、执行结果和实际对象链接演示完整流程。
 - 包含该功能所需的迁移、配置、用户入口、结果反馈与使用说明；基础设置只要求已合并的前置功能。
 - 通过真实 dsh Loader、Session 和隔离 PostgreSQL 的业务验证；模型、外部网络、时钟可以替换。该功能涉及的超时、重复、重启和未知结果随本 PR 验收。
+- 涉及界面时执行该功能对应的 T20：SVG 与状态文字、空/加载/错误/离线状态、明暗主题、窄屏和键盘操作；配置与记忆由对话维护，界面不伪造成功或样本。
 - 记录对应真实飞书验证的结果和边界。全量 30–50 页手写评测及完整试运行由 P40 汇总，各功能自己的验证仍在合并前完成。
 - 合并到默认分支后，该功能无需等待其他未合并 PR 才能工作。数据库升级与恢复方式随相应变更交付，避免把数据恢复能力留作口头承诺。
 
 ## 发布验收 P40
 
-F01–F12 全部合并并通过各自验收后，[P40 / #46](https://github.com/benz-ai-x/dsh-24-PA/issues/46) 汇总真实服务器安装、飞书兼容性、S01–S26、30–50 页手写样本及至少覆盖一次周回顾的试运行结果。检查工作区配置与 JSON 维护、至少五项真实 Worker、版本审核、固定 profile、无 SQLite I/O、模型不可用时固定提醒及联合恢复。
+F01–F12 全部合并并通过各自验收后，[P40 / #46](https://github.com/benz-ai-x/dsh-24-PA/issues/46) 汇总真实服务器安装、飞书兼容性、S01–S30、30–50 页手写样本及至少覆盖一次周回顾的试运行结果。检查单一24私助预设、按实际父会话回传、只读接入与记忆展示、UI/UX、工作区配置与 JSON 维护、至少五项真实 Worker、版本审核、固定 profile、无 SQLite I/O、模型不可用时固定提醒及联合恢复。
 
 该票没有预设独立 PR；验收中的代码缺陷按受影响功能修复。各功能从自身 PR 起交付安装包和说明；全量验收不用于补齐前面缺失的功能。缺少真实凭据、授权或样本时明确未验证，原型边界模型结果不能替代真机验收。
 
 ## GitHub 发布与推进
 
-工单统一标记 ready-for-agent，关联父规格 #1 并建立原生阻塞关系。父规格正文、状态与评论保持不变；其历史阶段的“暂不发布工单”已由用户本次直接发布要求取代，其他实施/部署边界继续有效。
+工单已关联父规格 #1 并建立原生阻塞关系。本轮按用户要求更新 #1 和工单正文至规格 1.2；保留原有状态、标签、评论、编号和阻塞关系。现有 ready-for-agent 表示工单内容可实施，不代表正式开发或部署已获授权。
 
 每张实施票只有一个主交付功能 PR，正文写明组别与同组/跨组推进规则；真实 PR 建立后再补 PR 链接。工作从无技术前置的 P01 开始，但仅在正式开发另行获准后领取；发布工单不会自动领取、开分支或创建 PR。

@@ -3,7 +3,7 @@ export const QUESTION = '飞书统一对接 Lead，专业 Worker 并行办理；
 export function initialState(profile = 'default') {
   return {
     prototype: true, storage: 'memory', profile, active: 'Lead',
-    sessions: [{ key: 'Lead', title: '24PA Lead', realId: null, running: false, messages: [] }],
+    sessions: [{ key: 'Lead', title: '24私助 · 飞书接入', realId: null, running: false, messages: [] }],
     tasks: [], memos: [], reminders: [], notes: [], notifications: [], audit: [],
     lastChange: '工作区原型已就绪。',
   };

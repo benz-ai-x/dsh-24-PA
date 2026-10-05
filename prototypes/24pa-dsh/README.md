@@ -1,8 +1,8 @@
-# 24PA：工作区与助理团队原型
+# 24私助（24PA）：工作区与助理团队原型
 
-这个可丢弃原型验证：**飞书统一向 Lead 交办，原生 Worker 办理，配置和 JSON 记忆通过 dsh 工作区会话维护，是否符合你的工作方式？**
+这个可丢弃原型验证：**飞书统一向 Lead 交办，原生 Worker 办理，配置和 JSON 记忆通过 dsh 工作区会话维护，同一个助理会话也能交办事务，这是否符合你的工作方式？**
 
-版本 `0.0.4-prototype.2`。这是实际 dsh bundle，包含 Host、原生侧栏面板、唯一的「24PA 机器人」preset，以及原生 continuable 子 Agent。它不计入正式版的功能 PR。
+中文名 **24私助**，英文名 **24PA**；版本 `0.0.4-prototype.3`。本轮统一展示名称，不迁移技术 ID，也不覆盖已有工作区文件。历史截图、文档和会话可能保留旧称。这是实际 dsh bundle，包含 Host、原生侧栏面板「24私助工作区」、唯一的「24私助」preset，以及原生 continuable 子 Agent。它不计入正式版的功能 PR。
 
 ## 1. 启动并选工作区
 
@@ -20,17 +20,17 @@ npm run prototype
 PA24_WORKSPACE=/srv/my-24pa npm run prototype
 ```
 
-这是 **dsh 所在服务器的目录**。已有 `AGENTS.md` 会保留，需要按生成模板添加唯一的 JSON 配置块。也可在 dsh 原生侧栏添加目录，再到“24PA 工作区 → 工作区”绑定。切换前要先完成或停止运行中的事项；切换工作区会清空当前原型的内存业务视图，文件与原生会话保留。
+这是 **dsh 所在服务器的目录**。已有 `AGENTS.md` 会保留，需要按生成模板添加唯一的 JSON 配置块。也可在 dsh 原生侧栏添加目录，再到“24私助工作区 → 工作区”绑定。切换前要先完成或停止运行中的事项；切换工作区会清空当前原型的内存业务视图，文件与原生会话保留。
 
-打开终端输出的完整登录地址，点击 **24PA 工作区**。管理台显示工作区路径、五类 Worker、事项、文档状态和只读记忆查询。点击“与24PA机器人对话”，进入 dsh 原生会话。没有模型凭据时先在 dsh 模型设置中配置；不再用内置示例模型生成貌似真实的结果。
+打开终端输出的完整登录地址，点击 **24私助工作区**。管理台显示工作区路径、五类 Worker、事项、文档状态和只读记忆查询。点击“与24私助对话”，进入 dsh 原生会话。没有模型凭据时先在 dsh 模型设置中配置；不再用内置示例模型生成貌似真实的结果。
 
 默认监听 `127.0.0.1:3210`，`PA24_PORT` 可改端口。占用时脚本会在安装前退出；先在原终端 Ctrl+C。找不到原终端时可用 `lsof -nP -iTCP:3210 -sTCP:LISTEN` 和 `ps -p <PID> -o pid,command` 确认确为自己的原型，再 `kill -TERM <PID>`。不同实例必须使用不同的 `PA24_DSH_HOME` 和工作区。
 
 ## 2. 一个预设完成协调和维护
 
-Agent 预设只需选择 **24PA 机器人**。它同时具备之前 Lead 的接单、委派、进度查询、继续/停止事项能力，以及配置、接入检查和 JSON 记忆维护能力。一般维护也在这个预设里完成，不必切到标准模式。
+Agent 预设只需选择 **24私助**。它同时具备之前 Lead 的接单、委派、进度查询、继续/停止事项能力，以及配置、接入检查和 JSON 记忆维护能力。一般维护也在这个预设里完成，不必切到标准模式。
 
-点击面板「与24PA机器人对话」会打开或恢复本工作区的机器人会话。你也可以在同一工作区新建会话并选该预设。dsh 交办的 Worker 结果返回发起会话；飞书交办的结果返回机器人。两端共用配置、记忆与本次运行的事项视图，聊天历史仍按原生会话隔离。主动提醒按你的委托发到飞书。
+点击面板「与24私助对话」会打开或恢复本工作区的机器人会话。你也可以在同一工作区新建会话并选该预设。dsh 交办的 Worker 结果返回发起会话；飞书交办的结果返回机器人。两端共用配置、记忆与本次运行的事项视图，聊天历史仍按原生会话隔离。主动提醒按你的委托发到飞书。
 
 管理面板按「事项总览、飞书接入、结构化记忆、手写审核、工作区、运行记录」组织。SVG 图标与彩色标签区分日程、待办、提醒、备忘和手写能力；状态同时提供文字和图标。总览计数取自本次运行的实际事项，记忆正文直接来自工作区 JSON，不注入演示记录。原始 JSON、长路径与内部诊断放在可展开的详情中。
 
@@ -116,7 +116,7 @@ Lead 是内部协调职责；飞书接入会话和 Worker 的原生链接在「�
 
 当前没有保存记录时会显示明确的空状态；文件格式错误会显示读取失败，而不会伪装成没有记忆。切换工作区后重新读取对应文件。页面保持只读，通过机器人会话进行维护；会话修改后点「刷新记忆」即可看到更新。
 
-点击“与24PA机器人对话”，可以输入：
+点击“与24私助对话”，可以输入：
 
 > 记住我希望会议之间留 15 分钟，这是我明确的偏好。
 >
@@ -142,13 +142,13 @@ cd dsh-24-PA
 PA24_WORKSPACE=/srv/my-24pa npm run prototype
 ```
 
-或先 `npm run prototype:pack`，上传 `artifacts/benz-ai-x-dsh-24pa-prototype-0.0.4-prototype.2.tgz`，使用独立 DSH_HOME 安装：
+或先 `npm run prototype:pack`，上传 `artifacts/benz-ai-x-dsh-24pa-prototype-0.0.4-prototype.3.tgz`，使用独立 DSH_HOME 安装：
 
 ```sh
 export DSH_HOME=/srv/24pa-prototype-home
 export PA24_WORKSPACE=/srv/my-24pa
 dsh --profile pa24-prototype --from-default-profile web --dump-config >/dev/null
-dsh plugin --profile pa24-prototype add ./benz-ai-x-dsh-24pa-prototype-0.0.4-prototype.2.tgz --ignore-scripts
+dsh plugin --profile pa24-prototype add ./benz-ai-x-dsh-24pa-prototype-0.0.4-prototype.3.tgz --ignore-scripts
 dsh --profile pa24-prototype --host 127.0.0.1 --port 3210 --no-open
 ```
 
