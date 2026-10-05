@@ -110,7 +110,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     host = await bootHost({ env: bootEnv });
     hostRoot = host.root;
     const snap0 = await host.waitUntil(
-      s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace,
+      s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace && s.transport?.connected === true,
       { label: '插件就绪' },
     );
     localSessionId = snap0.workspace.localSessionId;
@@ -248,7 +248,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
 
     await host.stop({ keepRoot: true });
     host = await bootHost({ root: hostRoot, env: bootEnv });
-    await host.waitUntil(s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace, { label: '重启就绪' });
+    await host.waitUntil(s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace && s.transport?.connected === true, { label: '重启就绪' });
 
     await waitDb(`select recovery_gen from pa24.work_item where id='wip-crash-1'`, '1', '恢复代次递增');
     const progress = await cluster.query(`select progress from pa24.work_item where id='wip-crash-1'`);
@@ -312,7 +312,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     // 注册持久化：重启后角色与动作仍在，可继续委派（P44 重启可续办）
     await host.stop({ keepRoot: true });
     host = await bootHost({ root: hostRoot, env: bootEnv });
-    await host.waitUntil(s2 => (s2.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s2.workspace, { label: '重启就绪' });
+    await host.waitUntil(s2 => (s2.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s2.workspace && s2.transport?.connected === true, { label: '重启就绪' });
     roles = await host.api('roles');
     expect(roles.roles.find(r => r.id === 'digest')?.available).toBe(true);
   });

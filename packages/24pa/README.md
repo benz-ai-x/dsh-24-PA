@@ -27,6 +27,12 @@ dsh --profile <你的 profile>
 - 重启对账：`processing` 收件重派（requestId 幂等）、`admitted` 未交付行提示重发、运行中事项按恢复代次（`work_item.recovery_gen`）续办、已停止事项不复活。
 - JSON 记忆权威：工作区 `.24pa/memory.json`（schemaVersion/revision/records）＋审计 `memory-log.jsonl`＋可撤销变更集 `.24pa/changesets/`；写入/整理/撤销仅限本地24私助会话（expectedRevision 原子提交），检索对所有角色开放；无任何定时/后台整理。面板「结构化记忆」页展示正文、来源、筛选与分页。
 
+## F03 增量（任务与项目清单）
+
+- tasks Worker 正式可用：`task_create`（幂等键＋staged 操作，结果未知不自动重试）、`task_update`（截止时间与计划投入/估时分开记录，每任务串行门）、`task_complete`（明确动作，不从对话推断）、`task_get`（尽力远端刷新投影）、`task_list`。
+- 项目/个人清单：`project_create` / `project_adopt`（本人采纳后才创建真实飞书任务并关联）/ `project_progress`（进展取自实际任务状态；不订票、付款或对外提交）。
+- 本地表：`pa24.task`（飞书为权威的投影，含 due/planned/estimate 与同步时间）、`pa24.project`、`pa24.project_task`。平台无任务删除接口：取消以修改＋说明处理，如实告知。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |
