@@ -13,6 +13,7 @@ export const Config = z.object({
   cliTimeoutMs: z.natural().min(1000).default(90000),
   dispatchTickMs: z.natural().min(50).default(400),
   outboxTickMs: z.natural().min(250).default(1000),
+  reminderTickMs: z.natural().min(250).default(1000),
 });
 
 export function apply(ctx: DshContext, config: any) {
@@ -23,6 +24,7 @@ export function apply(ctx: DshContext, config: any) {
     cliTimeoutMs: config.cliTimeoutMs,
     dispatchTickMs: config.dispatchTickMs,
     outboxTickMs: config.outboxTickMs,
+    reminderTickMs: config.reminderTickMs,
   });
   ctx.reflect.provide('pa24', runtime);
   ctx.on('session/event', (session, event) => runtime.onSessionEvent(session, event));

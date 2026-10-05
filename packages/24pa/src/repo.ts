@@ -652,6 +652,135 @@ export class CalendarRepo {
   }
 }
 
+export interface ReminderRuleRow {
+  id: string;
+  kind: string;
+  text: string;
+  record: any;
+  status: string;
+  next_due_at: Date | null;
+  time_zone: string;
+  origin_expression: string | null;
+  source: string | null;
+  work_item_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ReminderOccurrenceRow {
+  id: string;
+  rule_id: string;
+  due_at: Date;
+  status: string;
+  deferred_until: Date | null;
+  origin_occurrence_id: string | null;
+  outbox_dedup_key: string | null;
+  attempts: number;
+  last_error: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export class ReminderRepo {
+  constructor(private readonly db: PaDatabase) {}
+
+  async insertRule(row: Omit<ReminderRuleRow, 'created_at' | 'updated_at'>): Promise<ReminderRuleRow> {
+    const result = await this.db.query<ReminderRuleRow>(
+      `insert into pa24.reminder_rule (id, kind, text, record, status, next_due_at, time_zone, origin_expression, source, work_item_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
+      [row.id, row.kind, row.text, JSON.stringify(row.record), row.status, row.next_due_at, row.time_zone, row.origin_expression, row.source, row.work_item_id],
+    );
+    return result.rows[0]!;
+  }
+
+  async updateRule(id: string, patch: Partial<Pick<ReminderRuleRow, 'status' | 'next_due_at' | 'record'>>): Promise<ReminderRuleRow | null> {
+    const sets = ['updated_at = now()'];
+    const values: unknown[] = [id];
+    let n = 2;
+    for (const [key, value] of Object.entries(patch)) {
+      sets.push(`${key} = $${n}`);
+      values.push(key === 'record' ? JSON.stringify(value) : value ?? null);
+      n += 1;
+    }
+    const result = await this.db.query<ReminderRuleRow>(`update pa24.reminder_rule set ${sets.join(', ')} where id = $1 returning *`, values);
+    return result.rows[0] ?? null;
+  }
+
+  async getRule(id: string): Promise<ReminderRuleRow | null> {
+    const result = await this.db.query<ReminderRuleRow>('select * from pa24.reminder_rule where id = $1', [id]);
+    return result.rows[0] ?? null;
+  }
+
+  async listRules(status?: string): Promise<ReminderRuleRow[]> {
+    const result = status
+      ? await this.db.query<ReminderRuleRow>('select * from pa24.reminder_rule where status = $1 order by next_due_at nulls last limit 100', [status])
+      : await this.db.query<ReminderRuleRow>('select * from pa24.reminder_rule order by next_due_at nulls last limit 100');
+    return result.rows;
+  }
+
+  async dueRuleIds(now: Date, lookaheadMs: number): Promise<ReminderRuleRow[]> {
+    const result = await this.db.query<ReminderRuleRow>(
+      `select * from pa24.reminder_rule where status = 'active' and next_due_at is not null and next_due_at <= $1::timestamptz + make_interval(secs => $2)`,
+      [now, lookaheadMs / 1000],
+    );
+    return result.rows;
+  }
+
+  /** Idempotent occurrence materialization (unique PK per rule+instant). */
+  async insertOccurrence(row: { id: string; ruleId: string; dueAt: Date; originOccurrenceId?: string }): Promise<boolean> {
+    const result = await this.db.query(
+      `insert into pa24.reminder_occurrence (id, rule_id, due_at, origin_occurrence_id)
+       values ($1,$2,$3,$4) on conflict (id) do nothing`,
+      [row.id, row.ruleId, row.dueAt, row.originOccurrenceId ?? null],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async claimDueOccurrences(now: Date, limit: number): Promise<ReminderOccurrenceRow[]> {
+    const result = await this.db.query<ReminderOccurrenceRow>(
+      `update pa24.reminder_occurrence set attempts = attempts + 1
+       where id in (
+         select id from pa24.reminder_occurrence
+         where status = 'pending' and due_at <= $1
+           and (deferred_until is null or deferred_until <= $1)
+         order by due_at limit $2 for update skip locked
+       ) returning *`,
+      [now, limit],
+    );
+    return result.rows;
+  }
+
+  async updateOccurrence(id: string, patch: Partial<Pick<ReminderOccurrenceRow, 'status' | 'deferred_until' | 'outbox_dedup_key' | 'last_error'>>): Promise<void> {
+    const sets = ['updated_at = now()'];
+    const values: unknown[] = [id];
+    let n = 2;
+    for (const [key, value] of Object.entries(patch)) {
+      sets.push(`${key} = $${n}`);
+      values.push(value ?? null);
+      n += 1;
+    }
+    await this.db.query(`update pa24.reminder_occurrence set ${sets.join(', ')} where id = $1`, values);
+  }
+
+  async nextPendingOccurrence(ruleId: string): Promise<ReminderOccurrenceRow | null> {
+    const result = await this.db.query<ReminderOccurrenceRow>(
+      `select * from pa24.reminder_occurrence where rule_id = $1 and status = 'pending' order by due_at limit 1`,
+      [ruleId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async occurrence(id: string): Promise<ReminderOccurrenceRow | null> {
+    const result = await this.db.query<ReminderOccurrenceRow>('select * from pa24.reminder_occurrence where id = $1', [id]);
+    return result.rows[0] ?? null;
+  }
+
+  async recentOccurrences(limit = 50): Promise<ReminderOccurrenceRow[]> {
+    const result = await this.db.query<ReminderOccurrenceRow>('select * from pa24.reminder_occurrence order by updated_at desc limit $1', [limit]);
+    return result.rows;
+  }
+}
+
 export interface MessageRouteRow {
   message_id: string;
   channel: string;
@@ -691,6 +820,7 @@ export interface Repos {
   tasks: TaskRepo;
   projects: ProjectRepo;
   calendar: CalendarRepo;
+  reminders: ReminderRepo;
 }
 
 export function createRepos(db: PaDatabase): Repos {
@@ -706,5 +836,6 @@ export function createRepos(db: PaDatabase): Repos {
     tasks: new TaskRepo(db),
     projects: new ProjectRepo(db),
     calendar: new CalendarRepo(db),
+    reminders: new ReminderRepo(db),
   };
 }

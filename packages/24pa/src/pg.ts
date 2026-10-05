@@ -178,6 +178,40 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       )`,
     ],
   },
+  {
+    version: 5,
+    statements: [
+      `create table if not exists pa24.reminder_rule (
+        id text primary key,
+        kind text not null,
+        text text not null,
+        record jsonb not null,
+        status text not null default 'active',
+        next_due_at timestamptz,
+        time_zone text not null,
+        origin_expression text,
+        source text,
+        work_item_id text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists reminder_rule_due_idx on pa24.reminder_rule (status, next_due_at)`,
+      `create table if not exists pa24.reminder_occurrence (
+        id text primary key,
+        rule_id text not null,
+        due_at timestamptz not null,
+        status text not null default 'pending',
+        deferred_until timestamptz,
+        origin_occurrence_id text,
+        outbox_dedup_key text,
+        attempts int not null default 0,
+        last_error text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists reminder_occurrence_due_idx on pa24.reminder_occurrence (status, due_at)`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

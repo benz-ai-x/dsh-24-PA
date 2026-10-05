@@ -39,6 +39,12 @@ dsh --profile <你的 profile>
 - `meeting_schedule`：参会人取明确 open_id 或已确认记忆联系人（`联系人：姓名` 主题）；同名/缺失必须澄清，未发出任何邀请；邀请仅凭本人明确指令（instruction 依据）。
 - 同步水位在 `pa24.calendar_sync_state`（窗口、complete、last_error）；查询窗口上限 62 天。
 
+## F05 增量（个人提醒与免打扰）
+
+- reminders Worker 正式可用：`reminder_create`（once afterSeconds/at、every、daily/weekly 本地时间＋IANA 时区；时间计算复用 dsh-schedule 公开函数，cron 未支持时如实拒绝）、`reminder_list`、`reminder_cancel/pause/resume`（停止一并取消未发送实例）、`reminder_skip`（跳过本次）、`reminder_snooze`（关联原实例的唯一稍后实例）、`reminder_status`（实例状态＋Outbox 平台接受状态，不推断已读）。
+- 机制：规则与发生实例在 `pa24.reminder_rule`/`pa24.reminder_occurrence`（唯一键幂等，SKIP LOCKED 领取）；发送经持久 Outbox（模型离线仍能发出）；周期规则只补最近一次错过的发生；单 Host 内每 tick 失败不致命。
+- 免打扰/休假（P15/P21）：派发时读记忆权威——主题「休假」（confirmed＋validUntil）或「通知偏好」（内容含 `安静时段 HH:mm-HH:mm`，按工作区时区）；到期实例被扣住（pending+deferred_until）而非丢弃，窗口结束后补发。偏好仅在本地24私助会话经 pa24_memory 维护。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |
