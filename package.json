@@ -1,0 +1,9 @@
+{
+  "name": "dsh-24-pa-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prototype": "node scripts/prototype.mjs",
+    "prototype:pack": "node scripts/prototype.mjs --pack"
+  }
+}

@@ -1,0 +1,24 @@
+- insert:
+    - id: pa24-prototype-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: pa24-prototype
+        name: 24私助
+        description: 协调助理事务，并在 dsh 会话中维护飞书配置和 JSON 记忆。
+        plugins:
+          - name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - name: '@deepseek-ai/dsh-tool-fs'
+          - name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - name: '@benz-ai-x/dsh-24pa-prototype/agent'
+    - id: pa24-prototype
+      name: '@benz-ai-x/dsh-24pa-prototype'
+      config:
+        stateDirectory: !!js dshHomePath('24pa-prototype')
+        workspacePath: !!js process.env.PA24_WORKSPACE || ''
+        reminderTickMs: 1000
+        maxImageBytes: 10485760
+        modelTimeoutMs: 180000
