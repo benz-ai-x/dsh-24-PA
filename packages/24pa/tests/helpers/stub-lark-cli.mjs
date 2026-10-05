@@ -10,6 +10,7 @@ import { appendFile, readFile, writeFile } from 'node:fs/promises';
 const statePath = process.env.PA24_LARK_STUB_STATE;
 const docsPath = `${statePath}.docs.jsonl`;
 const callsPath = `${statePath}.calls.jsonl`;
+const tasksPath = `${statePath}.tasks.jsonl`;
 const args = process.argv.slice(2);
 // Skip flag values (--profile <name>) the same way the real CLI parses.
 const plain = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--profile');
@@ -20,6 +21,14 @@ const readState = async () => {
     return JSON.parse(await readFile(statePath, 'utf8'));
   } catch {
     return { ownerOpenId: 'ou_test_owner' };
+  }
+};
+const readTasks = async () => {
+  try {
+    const lines = (await readFile(tasksPath, 'utf8')).split('\n').filter(Boolean);
+    return lines.map(line => JSON.parse(line));
+  } catch {
+    return [];
   }
 };
 const readDocs = async () => {
@@ -45,6 +54,11 @@ const fail = message => {
 await appendFile(callsPath, JSON.stringify({ at: new Date().toISOString(), args }) + '\n').catch(() => {});
 const state = await readState();
 const docs = await readDocs();
+const tasks = await readTasks();
+const argOf = name => {
+  const i = args.indexOf(name);
+  return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+};
 
 if (args.includes('--version')) {
   console.log('stub-lark-cli 1.0.87-test');
@@ -79,6 +93,49 @@ if (plain[0] === 'docs' && plain[1] === '+fetch') {
   const doc = [...docs].reverse().find(d => d.id === docArg);
   if (!doc) fail(`文档不存在：${docArg}`);
   ok({ document: { document_id: doc.id, url: `https://example.feishu.cn/wiki/${doc.id}`, content: doc.content, revision_id: doc.revision, reference_map: {} } });
+}
+if (plain[0] === 'task' && plain[1] === '+create') {
+  if (state.failNext?.command === 'task.create') {
+    await writeState({ ...state, failNext: null });
+    fail(state.failNext.error ?? 'task create injected failure');
+  }
+  const summary = argOf('--summary');
+  const due = argOf('--due');
+  const idempotencyKey = argOf('--idempotency-key');
+  const existing = idempotencyKey ? tasks.find(t => t.idempotencyKey === idempotencyKey) : undefined;
+  if (existing) {
+    ok({ task: { guid: existing.guid, url: existing.url, idempotent: true } });
+  }
+  const guid = `tskstub-${tasks.length + 1}`;
+  const record = { guid, url: `https://example.feishu.cn/task/${guid}`, summary, due: due ?? null, status: 'open', idempotencyKey: idempotencyKey ?? null };
+  await appendFile(tasksPath, JSON.stringify(record) + '\n');
+  ok({ task: { guid, url: record.url } });
+}
+if (plain[0] === 'task' && plain[1] === '+update') {
+  const guid = argOf('--task-id');
+  const task = [...tasks].reverse().find(t => t.guid === guid);
+  if (!task) fail(`任务不存在：${guid}`);
+  const summary = argOf('--summary');
+  const due = argOf('--due');
+  const next = { ...task, summary: summary ?? task.summary, due: due ?? task.due };
+  const kept = tasks.filter(t => t.guid !== guid);
+  kept.push(next);
+  await writeFile(tasksPath, kept.map(t => JSON.stringify(t)).join('\n') + '\n');
+  ok({ task: { guid, url: task.url, summary: next.summary } });
+}
+if (plain[0] === 'task' && plain[1] === '+complete') {
+  const guid = argOf('--task-id');
+  const task = [...tasks].reverse().find(t => t.guid === guid);
+  if (!task) fail(`任务不存在：${guid}`);
+  const kept = tasks.filter(t => t.guid !== guid);
+  kept.push({ ...task, status: 'completed' });
+  await writeFile(tasksPath, kept.map(t => JSON.stringify(t)).join('\n') + '\n');
+  ok({ task: { guid, status: 'completed' } });
+}
+if (plain[0] === 'task' && plain[1] === '+search') {
+  const query = argOf('--query') ?? '';
+  const matched = tasks.filter(t => !query || t.summary.includes(query.replace(/^\[24PA\] /, '').slice(0, 20)) || t.summary.includes(query));
+  ok({ tasks: matched.map(t => ({ guid: t.guid, summary: t.summary, completed: t.status === 'completed', status: t.status })) });
 }
 if (plain[0] === 'drive' && plain[1] === 'files' && plain[2] === 'list') ok({ files: [{ token: 'fld_test', name: '体验目录', type: 'folder' }] });
 if (plain[0] === 'task' && plain[1] === 'tasklists' && plain[2] === 'get') ok({ tasklist: { guid: 'tl_test', name: '体验清单' } });

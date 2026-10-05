@@ -115,6 +115,40 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       `alter table pa24.work_item add column if not exists recovery_gen int not null default 0`,
     ],
   },
+  {
+    version: 3,
+    statements: [
+      `create table if not exists pa24.task (
+        id text primary key,
+        work_item_id text,
+        task_guid text not null unique,
+        url text,
+        summary text not null,
+        due_at timestamptz,
+        due_has_time boolean not null default false,
+        planned_at timestamptz,
+        estimate_minutes int,
+        status text not null default 'open',
+        external_updated_at timestamptz,
+        last_synced_at timestamptz,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists task_status_idx on pa24.task (status)`,
+      `create table if not exists pa24.project (
+        id text primary key,
+        name text not null,
+        goal text not null default '',
+        status text not null default 'open',
+        created_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.project_task (
+        project_id text not null references pa24.project (id),
+        task_id text not null references pa24.task (id),
+        adopted_at timestamptz not null default now(),
+        primary key (project_id, task_id)
+      )`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

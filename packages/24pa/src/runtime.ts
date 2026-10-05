@@ -4,7 +4,7 @@ import { mkdir, realpath, stat, readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
-import { createRepos, type Repos, type WorkItemRow } from './repo.js';
+import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock, HostAlreadyActive } from './lock.js';
 import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
 import { runLarkCli } from './lark.js';
@@ -22,6 +22,24 @@ const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
 
 let BUILTIN_ROLE_IDS: string[] = [];
+
+function parseDue(value: unknown): { dueAt: Date | null; dueHasTime: boolean; dueArg: string | null } {
+  if (value == null || value === '') return { dueAt: null, dueHasTime: false, dueArg: null };
+  const raw = String(value).trim();
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) throw new Error(`截止时间无法解析：${raw}`);
+  const dueHasTime = /[:T]/.test(raw) || raw.toLowerCase().startsWith('+');
+  return { dueAt: date, dueHasTime, dueArg: raw };
+}
+
+const isoDate = (value: Date | string | null): string | null => (value == null ? null : new Date(value).toISOString());
+
+function taskExternal(data: any): { guid: string; url: string | null } {
+  const task = data?.task ?? data;
+  const guid = task?.guid ?? task?.task_guid ?? task?.taskId;
+  if (!guid) throw new Error('未取得真实任务 ID；请先核对飞书任务清单，不要盲目重试。');
+  return { guid: String(guid), url: task?.url ? String(task.url) : null };
+}
 
 const WORKER_PERSONAS: Record<string, { name: string; persona: string; brief: string }> = {
   memo: {
@@ -132,6 +150,23 @@ export class PaRuntime {
 
   private registerBuiltInRoles(): void {
     this.roles.register({
+      id: 'tasks',
+      name: '待办管理',
+      persona: '你是 24私助的待办管理 Worker。创建、修改、完成本人明确委托的飞书任务并按主题/项目跟踪；截止时间、计划投入时间与估时分开记录。完成任务必须有本人明确动作或飞书实际状态，不从对话结束推断。飞书任务是权威对象；网络结果未知时先核对，不盲目重试。结果交回发起会话。',
+      brief: '待办与项目：task_create/task_update/task_complete/task_get/task_list 维护飞书任务（幂等、先核对），project_create/project_adopt/project_progress 拆解目标并按实际任务状态汇报进展。',
+      available: true,
+      actions: {
+        task_create: async (args, item) => this.taskCreate(item, args),
+        task_update: async (args, item) => this.taskUpdate(item, args),
+        task_complete: async (args, item) => this.taskComplete(item, args),
+        task_get: async args => this.taskGet(args),
+        task_list: async args => this.taskList(args),
+        project_create: async args => this.projectCreate(args),
+        project_adopt: async (args, item) => this.projectAdopt(item, args),
+        project_progress: async args => this.projectProgress(args),
+      },
+    });
+    this.roles.register({
       id: 'memo',
       name: '备忘整理',
       persona: WORKER_PERSONAS.memo!.persona,
@@ -165,7 +200,6 @@ export class PaRuntime {
     });
     const planned: [string, string, string][] = [
       ['calendar', '日程编排', 'F04 日程与会议安排'],
-      ['tasks', '待办管理', 'F03 任务与项目清单'],
       ['reminders', '事项提醒', 'F05 个人提醒与免打扰'],
       ['handwriting', '手写笔记', 'F06 手写笔记整理与人工审核'],
     ];
@@ -1117,6 +1151,240 @@ export class PaRuntime {
       return this.memory.undo(String(args.changesetId ?? ''), { expectedRevision, actor, reason: String(args.reason) });
     }
     throw new Error('未知记忆操作。');
+  }
+
+  // ---- tasks & projects (F03) ----------------------------------------------
+
+  private async stagedTaskOperation(
+    item: WorkItemRow,
+    kind: string,
+    paramsKey: string,
+    params: Record<string, unknown>,
+  ): Promise<{ created: boolean; row: ActionOperationRow }> {
+    const operationId = `${kind}:${item.id}:${hash(paramsKey)}`;
+    const { created, row } = await this.repos!.operations.begin({ id: operationId, workItemId: item.id, action: kind, params });
+    if (!created) {
+      if (row.status === 'succeeded') return { created: false, row };
+      if (row.status === 'unknown') {
+        throw new Error('上次任务操作结果未知（超时或响应丢失）；请先用 task_get 核对飞书实际对象，确认后再继续，不自动重试。');
+      }
+    }
+    await this.repos!.operations.update(operationId, { status: 'running' });
+    return { created: true, row };
+  }
+
+  private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const summary = text(args.summary, 500);
+    const { dueAt, dueHasTime, dueArg } = parseDue(args.due);
+    const plannedAt = args.plannedAt ? new Date(String(args.plannedAt)) : null;
+    if (plannedAt && Number.isNaN(plannedAt.getTime())) throw new Error('计划投入时间无法解析。');
+    const estimateMinutes = args.estimateMinutes == null ? null : Number(args.estimateMinutes);
+    if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
+    const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : ''
+    const staged = await this.stagedTaskOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
+      tasklistId: this.config!.tasklistId,
+      summary,
+      due: dueArg,
+    });
+    if (!staged.created && staged.row.status === 'succeeded') {
+      const existing = await this.repos!.tasks.get(staged.row.id);
+      return { operationId: staged.row.id, reused: true, guid: existing?.task_guid ?? staged.row.receipt?.guid, url: existing?.url ?? staged.row.receipt?.url ?? null, message: '此任务此前已创建，未重复写入飞书。' };
+    }
+    try {
+      const cliArgs = ['task', '+create', '--as', 'user', '--summary', `[24PA] ${summary}`, '--tasklist-id', this.config!.tasklistId, '--idempotency-key', staged.row.id];
+      if (dueArg) cliArgs.push('--due', dueArg);
+      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), cliArgs);
+      const external = taskExternal(data);
+      const task = await this.repos!.tasks.save({
+        id: staged.row.id,
+        work_item_id: item.id,
+        task_guid: external.guid,
+        url: external.url,
+        summary,
+        due_at: dueAt,
+        due_has_time: dueHasTime,
+        planned_at: plannedAt,
+        estimate_minutes: estimateMinutes == null ? null : Math.round(estimateMinutes),
+        status: 'open',
+        external_updated_at: new Date(),
+        last_synced_at: new Date(),
+      });
+      if (args.projectId) await this.repos!.projects.link(String(args.projectId), task.id);
+      await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: external.guid, url: external.url, summary } });
+      return { operationId: staged.row.id, guid: external.guid, url: external.url, dueAt: isoDate(task.due_at), plannedAt: isoDate(task.planned_at), estimateMinutes: task.estimate_minutes, message: '任务已创建（飞书为权威对象）。' };
+    } catch (error) {
+      const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
+      await this.repos!.operations.update(staged.row.id, { status: outcome, error: (error as Error).message });
+      throw error;
+    }
+  }
+
+  private async resolveTask(args: Record<string, unknown>) {
+    const key = String(args.taskId ?? args.guid ?? '');
+    const task = (await this.repos!.tasks.byGuid(key)) ?? (await this.repos!.tasks.get(key));
+    if (!task) throw new Error('任务不存在；请先用 task_list 查看当前任务。');
+    return task;
+  }
+
+  private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const task = await this.resolveTask(args);
+    const summary = args.summary == null ? null : text(args.summary, 500);
+    const { dueAt, dueHasTime, dueArg } = parseDue(args.due === undefined ? null : args.due);
+    if (!summary && args.due === undefined) throw new Error('需要说明要修改的内容（summary 或 due）。');
+    return this.gate(`task:${task.task_guid}`, async () => {
+      const staged = await this.stagedTaskOperation(item, 'task.update', `${task.task_guid}\n${summary ?? ''}\n${dueArg ?? ''}`, { guid: task.task_guid, summary, due: dueArg });
+      if (!staged.created && staged.row.status === 'succeeded') {
+        return { operationId: staged.row.id, reused: true, guid: task.task_guid, url: task.url, message: '此修改此前已提交，未重复写入。' };
+      }
+      try {
+        const cliArgs = ['task', '+update', '--as', 'user', '--task-id', task.task_guid];
+        if (summary) cliArgs.push('--summary', `[24PA] ${summary}`);
+        if (dueArg) cliArgs.push('--due', dueArg);
+        const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), cliArgs);
+        const external = taskExternal({ task: { guid: task.task_guid, url: task.url, ...(data?.task ?? {}) } });
+        const updated = await this.repos!.tasks.save({
+          ...task,
+          summary: summary ?? task.summary,
+          due_at: dueArg !== null ? dueAt : task.due_at,
+          due_has_time: dueArg !== null ? dueHasTime : task.due_has_time,
+          external_updated_at: new Date(),
+          last_synced_at: new Date(),
+          url: external.url ?? task.url,
+        });
+        await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, summary: updated.summary } });
+        return { operationId: staged.row.id, guid: task.task_guid, url: updated.url, summary: updated.summary, dueAt: isoDate(updated.due_at), message: '任务已按本人指令修改；截止与计划/估时分别记录。' };
+      } catch (error) {
+        const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
+        await this.repos!.operations.update(staged.row.id, { status: outcome, error: (error as Error).message });
+        throw error;
+      }
+    });
+  }
+
+  private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const task = await this.resolveTask(args);
+    if (task.status === 'completed') {
+      return { guid: task.task_guid, status: 'completed', reused: true, message: '任务此前已是完成状态。' };
+    }
+    return this.gate(`task:${task.task_guid}`, async () => {
+      const staged = await this.stagedTaskOperation(item, 'task.complete', task.task_guid, { guid: task.task_guid });
+      if (!staged.created && staged.row.status === 'succeeded') {
+        await this.repos!.tasks.save({ ...task, status: 'completed' });
+        return { operationId: staged.row.id, guid: task.task_guid, status: 'completed', reused: true, message: '此前已完成，未重复提交。' };
+      }
+      try {
+        await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), ['task', '+complete', '--as', 'user', '--task-id', task.task_guid]);
+        const updated = await this.repos!.tasks.save({ ...task, status: 'completed', last_synced_at: new Date(), external_updated_at: new Date() });
+        await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, status: 'completed' } });
+        return { operationId: staged.row.id, guid: updated.task_guid, url: updated.url, status: 'completed', message: '任务已完成（以飞书实际状态为准）。' };
+      } catch (error) {
+        const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
+        await this.repos!.operations.update(staged.row.id, { status: outcome, error: (error as Error).message });
+        throw error;
+      }
+    });
+  }
+
+  private async taskGet(args: Record<string, unknown>): Promise<unknown> {
+    const task = await this.resolveTask(args);
+    // Best-effort remote refresh: failures keep the local view and mark it.
+    let refreshed: TaskRow | null = null;
+    try {
+      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+        'task', '+search', '--as', 'user', '--query', task.summary.replace(/^\[24PA\] /, '').slice(0, 20),
+      ]);
+      const remote = (data?.tasks ?? data?.items ?? []).find((t: any) => String(t.guid ?? t.task_guid) === task.task_guid);
+      if (remote) {
+        refreshed = await this.repos!.tasks.save({
+          ...task,
+          status: remote.completed === true || remote.status === 'completed' ? 'completed' : 'open',
+          last_synced_at: new Date(),
+          external_updated_at: new Date(),
+        });
+      }
+    } catch {
+      // Remote refresh is best effort; the caller still sees the projection.
+    }
+    const view = refreshed ?? task;
+    return {
+      guid: view.task_guid,
+      url: view.url,
+      summary: view.summary,
+      dueAt: isoDate(view.due_at),
+      plannedAt: isoDate(view.planned_at),
+      estimateMinutes: view.estimate_minutes,
+      status: view.status,
+      stale: !view.last_synced_at,
+      message: refreshed ? '已按飞书最新状态刷新。' : view.last_synced_at ? '本地投影（此前已同步）。' : '本地投影（远端核对未完成，状态可能滞后）。',
+    };
+  }
+
+  private async taskList(args: Record<string, unknown>): Promise<unknown> {
+    const projectId = args.projectId ? String(args.projectId) : null;
+    const tasks = projectId ? await this.repos!.projects.tasksOf(projectId) : await this.repos!.tasks.list(args.status ? String(args.status) : undefined);
+    return {
+      count: tasks.length,
+      tasks: tasks.map(t => ({ id: t.id, guid: t.task_guid, summary: t.summary, url: t.url, status: t.status, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
+    };
+  }
+
+  private async projectCreate(args: Record<string, unknown>): Promise<unknown> {
+    const name = text(args.name, 200);
+    const goal = args.goal == null ? '' : text(args.goal, 2000);
+    const id = `prj-${hash(`${this.workspace!.statePath}\n${name}`).slice(0, 16)}`;
+    const project = await this.repos!.projects.create({ id, name, goal });
+    return { projectId: project.id, name: project.name, goal: project.goal, message: '项目（或个人清单）已建立；子任务经本人采纳后用 project_adopt 入账。' };
+  }
+
+  private async projectAdopt(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const projectId = String(args.projectId ?? '');
+    const project = await this.repos!.projects.get(projectId);
+    if (!project) throw new Error('项目不存在；请先用 project_create 建立。');
+    const tasks = Array.isArray(args.tasks) ? (args.tasks as Record<string, unknown>[]) : [];
+    if (tasks.length === 0) throw new Error('需要提供要采纳的子任务列表。');
+    const results = [];
+    for (const [index, task] of tasks.entries()) {
+      try {
+        const created = await this.taskCreate(item, {
+          summary: task.summary,
+          due: task.due,
+          plannedAt: task.plannedAt,
+          estimateMinutes: task.estimateMinutes,
+          projectId,
+          opSuffix: `adopt-${projectId}-${index}`,
+        });
+        results.push({ index, ok: true, ...(created as object) });
+      } catch (error) {
+        results.push({ index, ok: false, error: (error as Error).message });
+      }
+    }
+    const failed = results.filter(r => !r.ok).length;
+    return {
+      projectId,
+      adopted: results.length - failed,
+      failed,
+      results,
+      message: failed === 0 ? '全部子任务已按本人采纳创建为真实飞书任务并关联项目。' : `已采纳 ${results.length - failed} 项，${failed} 项失败（见明细）；失败项可核对后重试。`,
+    };
+  }
+
+  private async projectProgress(args: Record<string, unknown>): Promise<unknown> {
+    const projectId = String(args.projectId ?? '');
+    const project = await this.repos!.projects.get(projectId);
+    if (!project) throw new Error('项目不存在。');
+    const tasks = await this.repos!.projects.tasksOf(projectId);
+    const open = tasks.filter(t => t.status !== 'completed');
+    const completed = tasks.filter(t => t.status === 'completed');
+    return {
+      projectId,
+      name: project.name,
+      goal: project.goal,
+      total: tasks.length,
+      completed: completed.length,
+      remaining: open.map(t => ({ guid: t.task_guid, summary: t.summary, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
+      next: open[0] ? { guid: open[0]!.task_guid, summary: open[0]!.summary, dueAt: isoDate(open[0]!.due_at) } : null,
+      message: open.length === 0 ? '项目全部任务已完成（以飞书任务状态为准）。' : `剩余 ${open.length} 项；下一步：${open[0]!.summary}`,
+    };
   }
 
   /**
