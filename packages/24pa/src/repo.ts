@@ -103,6 +103,7 @@ export interface WorkItemRow {
   parent_session_id: string;
   child_session_id: string | null;
   delivery: string;
+  recovery_gen?: number;
   status: WorkItemStatus;
   progress: string | null;
   result: string | null;
@@ -444,6 +445,33 @@ export class MemoRepo {
   }
 }
 
+export interface MessageRouteRow {
+  message_id: string;
+  channel: string;
+  kind: string;
+  work_item_id: string | null;
+  inbox_event_id: string | null;
+  created_at: Date;
+}
+
+export class MessageRouteRepo {
+  constructor(private readonly db: PaDatabase) {}
+
+  /** Durable platform-message → work item / inbox routing (P05). */
+  async record(messageId: string, route: { kind: 'workitem' | 'reply' | 'status' | 'notice'; workItemId?: string; inboxEventId?: string }): Promise<void> {
+    await this.db.query(
+      `insert into pa24.message_route (message_id, channel, kind, work_item_id, inbox_event_id)
+       values ($1, 'feishu', $2, $3, $4) on conflict (message_id) do nothing`,
+      [messageId, route.kind, route.workItemId ?? null, route.inboxEventId ?? null],
+    );
+  }
+
+  async lookup(messageId: string): Promise<MessageRouteRow | null> {
+    const result = await this.db.query<MessageRouteRow>('select * from pa24.message_route where message_id = $1', [messageId]);
+    return result.rows[0] ?? null;
+  }
+}
+
 export interface Repos {
   inbox: InboxRepo;
   workItems: WorkItemRepo;
@@ -452,6 +480,7 @@ export interface Repos {
   bindings: BindingRepo;
   workspaceState: WorkspaceStateRepo;
   memos: MemoRepo;
+  messageRoutes: MessageRouteRepo;
 }
 
 export function createRepos(db: PaDatabase): Repos {
@@ -463,5 +492,6 @@ export function createRepos(db: PaDatabase): Repos {
     bindings: new BindingRepo(db),
     workspaceState: new WorkspaceStateRepo(db),
     memos: new MemoRepo(db),
+    messageRoutes: new MessageRouteRepo(db),
   };
 }

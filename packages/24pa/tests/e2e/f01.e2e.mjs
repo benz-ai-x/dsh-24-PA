@@ -141,7 +141,7 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
         return (
           item &&
           item.status === 'completed' &&
-          (s.outbox ?? []).some(o => o.dedup_key === `workitem:${item.id}:result` && o.status === 'sent')
+          (s.outbox ?? []).some(o => o.dedup_key.startsWith(`workitem:${item.id}:result`) && o.status === 'sent')
         );
       },
       { timeoutMs: 180_000, label: '备忘事项完成并回传' },
@@ -151,14 +151,14 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
     expect(item.parent_session_id).toBe(snap.workspace.accessSessionId);
     expect(item.result).toContain('备忘已保存');
 
-    const stub = JSON.parse(await readFile(stubStatePath, 'utf8'));
-    expect(stub.docs).toHaveLength(1);
-    expect(stub.docs[0].content).toContain('下周讨论新的合作方向');
+    const docLines = (await readFile(`${stubStatePath}.docs.jsonl`, 'utf8')).split('\n').filter(Boolean);
+    expect(docLines).toHaveLength(1);
+    expect(JSON.parse(docLines[0]).content).toContain('下周讨论新的合作方向');
 
     expect((await cluster.query(`select count(*) from pa24.memo where topic='合作方向'`)).trim()).toBe('1');
     expect((await cluster.query(`select count(*) from pa24.action_operation where status='succeeded'`)).trim()).toBe('1');
     expect(snap.outbox.some(o => o.dedup_key.startsWith('reply:evt-memo-1'))).toBe(true);
-    const resultRow = snap.outbox.find(o => o.dedup_key === `workitem:${item.id}:result`);
+    const resultRow = snap.outbox.find(o => o.dedup_key.startsWith(`workitem:${item.id}:result`));
     expect(JSON.stringify(resultRow.content)).toContain('docstub-1');
   });
 

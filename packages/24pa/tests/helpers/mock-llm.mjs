@@ -65,9 +65,17 @@ export async function startMockLlm({ scriptPath, logPath }) {
       if (isNotice) {
         step = { text: script.leadReport ?? '事项已有结果，已记录并汇报。' };
       } else if (tools.includes('pa24_delegate')) {
-        step = isContinuation ? { text: script.leadReply ?? '已安排。' } : { tool: { name: 'pa24_delegate', input: script.delegate } };
+        step = isContinuation
+          ? { text: script.leadReply ?? '已安排。' }
+          : script.leadTool
+            ? { tool: { name: script.leadTool.name, input: script.leadTool.input } }
+            : { tools: [].concat(script.delegate ?? []).map(d => ({ name: 'pa24_delegate', input: d })) };
       } else if (tools.includes('pa24_work')) {
-        step = isContinuation ? { text: script.workerReply ?? '已完成。' } : { tool: { name: 'pa24_work', input: script.workerAction } };
+        step = isContinuation
+          ? { text: script.workerReply ?? '已完成。' }
+          : script.workerTool
+            ? { tool: { name: script.workerTool.name, input: script.workerTool.input } }
+            : { tool: { name: 'pa24_work', input: script.workerAction } };
       } else {
         step = { text: script.defaultReply ?? '（mock 默认回复）' };
       }
@@ -82,11 +90,14 @@ export async function startMockLlm({ scriptPath, logPath }) {
     const send = payload => res.write(`event: ${payload.type}\ndata: ${JSON.stringify(payload)}\n\n`);
     send({ type: 'message_start', message: { id: `msg_mock_${turn}`, type: 'message', role: 'assistant', model: body.model ?? 'mock', content: [], stop_reason: null, usage: { input_tokens: 10, output_tokens: 1 } } });
     let blockIndex = 0;
-    if (step.tool) {
-      send({ type: 'content_block_start', index: blockIndex, content_block: { type: 'tool_use', id: `toolu_mock_${turn}`, name: step.tool.name, input: {} } });
-      send({ type: 'content_block_delta', index: blockIndex, delta: { type: 'input_json_delta', partial_json: JSON.stringify(step.tool.input ?? {}) } });
+    const toolCalls = step.tools ?? (step.tool ? [step.tool] : []);
+    let toolIndex = 0;
+    for (const call of toolCalls) {
+      send({ type: 'content_block_start', index: blockIndex, content_block: { type: 'tool_use', id: `toolu_mock_${turn}_${toolIndex}`, name: call.name, input: {} } });
+      send({ type: 'content_block_delta', index: blockIndex, delta: { type: 'input_json_delta', partial_json: JSON.stringify(call.input ?? {}) } });
       send({ type: 'content_block_stop', index: blockIndex });
       blockIndex += 1;
+      toolIndex += 1;
     }
     const text = step.text ?? '';
     if (text) {
@@ -94,7 +105,7 @@ export async function startMockLlm({ scriptPath, logPath }) {
       send({ type: 'content_block_delta', index: blockIndex, delta: { type: 'text_delta', text } });
       send({ type: 'content_block_stop', index: blockIndex });
     }
-    send({ type: 'message_delta', delta: { stop_reason: step.tool ? 'tool_use' : 'end_turn' }, usage: { output_tokens: 5 } });
+    send({ type: 'message_delta', delta: { stop_reason: toolCalls.length > 0 ? 'tool_use' : 'end_turn' }, usage: { output_tokens: 5 } });
     send({ type: 'message_stop' });
     res.end();
   });

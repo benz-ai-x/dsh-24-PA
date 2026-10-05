@@ -101,6 +101,20 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       `create index if not exists memo_occurred_idx on pa24.memo (occurred_on)`,
     ],
   },
+  {
+    version: 2,
+    statements: [
+      `create table if not exists pa24.message_route (
+        message_id text primary key,
+        channel text not null,
+        kind text not null,
+        work_item_id text,
+        inbox_event_id text,
+        created_at timestamptz not null default now()
+      )`,
+      `alter table pa24.work_item add column if not exists recovery_gen int not null default 0`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

@@ -6,9 +6,11 @@ import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo } fr
 import { PaDatabase, resolveDsn } from './pg.js';
 import { createRepos, type Repos, type WorkItemRow } from './repo.js';
 import { acquireHostLock, type HostLock, HostAlreadyActive } from './lock.js';
-import { parseAgentsMd, template, ConfigError, type PaConfig, WORKER_ROLES, type WorkerRole } from './config.js';
+import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
 import { runLarkCli } from './lark.js';
 import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
+import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
+import { MemoryStore, type MemoryChange } from './memory.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const nowIso = () => new Date().toISOString();
@@ -19,10 +21,12 @@ const text = (value: unknown, max = 12000): string => {
 const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
 
-const WORKER_PERSONAS: Record<WorkerRole, { name: string; persona: string; brief: string }> = {
+let BUILTIN_ROLE_IDS: string[] = [];
+
+const WORKER_PERSONAS: Record<string, { name: string; persona: string; brief: string }> = {
   memo: {
     name: '备忘整理',
-    persona: '你是 24私助的备忘整理 Worker。把收到的想法、资料链接和文字材料整理保存，返回出处；不执行其他业务，不产生新授权。结果交回发起会话。',
+    persona: '你是 24私助的备忘整理 Worker。把收到的想法、资料链接和文字材料整理保存，返回出处；需要背景时用 pa24_memory 检索（只读）。不执行其他业务，不产生新授权。结果交回发起会话。',
     brief: '整理随手想法和文字材料：调用 memo_save 保存到配置的飞书目录（演示模式仅入账本），用 memo_find 按主题/日期/关键词找回。',
   },
 };
@@ -62,6 +66,10 @@ export class PaRuntime {
 
   private lock: HostLock | null = null;
   private db: PaDatabase | null = null;
+  private get dbRef(): PaDatabase {
+    if (!this.db) throw new Error('PostgreSQL 业务账本未连接。');
+    return this.db;
+  }
   repos: Repos | null = null;
   config: PaConfig | null = null;
   private instructions = '';
@@ -69,6 +77,8 @@ export class PaRuntime {
   private loadedAt: string | null = null;
   private configError: string | null = null;
 
+  readonly roles = new RoleRegistry();
+  memory: MemoryStore | null = null;
   workspace: (WorkspaceInfo & { statePath: string }) | null = null;
   private accessSessionId: string | null = null;
   private localSessionId: string | null = null;
@@ -93,6 +103,167 @@ export class PaRuntime {
     this.ctx = ctx;
     this.options = options;
     this.env = options.env ?? process.env;
+    this.registerBuiltInRoles();
+    BUILTIN_ROLE_IDS = this.roles.list().map(r => r.id);
+  }
+
+  /** Built-in, auditable action implementations a registered role may bind (P44). */
+  private readonly builtInActions: Record<string, WorkerActionHandler> = {
+    digest_summarize: async (args, item) => {
+      const topic = text(args.topic, 200);
+      const content = text(args.content, 60000);
+      const source = text(args.source ?? `资料摘要事项 ${item.id}`, 500);
+      const summary = content.length > 400 ? `${content.slice(0, 400)}…（共 ${content.length} 字，已入库）` : content;
+      const memo = await this.repos!.memos.insert({
+        id: `digest:${item.id}:${hash(summary).slice(0, 12)}`,
+        work_item_id: item.id,
+        topic,
+        content: summary,
+        doc_url: null,
+        doc_id: null,
+        doc_revision: null,
+        source,
+        occurred_on: new Date().toISOString().slice(0, 10),
+      });
+      await this.repos!.workItems.update(item.id, { result_ref: { memoId: memo.id, operationId: `digest:${item.id}` } });
+      return { memoId: memo.id, topic, message: '资料摘要已保存入账本（PostgreSQL），可按主题检索。' };
+    },
+  };
+
+  private registerBuiltInRoles(): void {
+    this.roles.register({
+      id: 'memo',
+      name: '备忘整理',
+      persona: WORKER_PERSONAS.memo!.persona,
+      brief: WORKER_PERSONAS.memo!.brief,
+      available: true,
+      actions: {
+        memo_save: async (args, item) => this.saveMemo(item, args),
+        memo_find: async args => {
+          const memos = await this.repos!.memos.search({
+            topic: args.topic ? text(args.topic, 200) : undefined,
+            query: args.query ? text(args.query, 200) : undefined,
+            from: args.from ? String(args.from) : undefined,
+            to: args.to ? String(args.to) : undefined,
+            limit: 20,
+          });
+          return {
+            count: memos.length,
+            memos: memos.map(m => ({
+              id: m.id,
+              topic: m.topic,
+              content: m.content,
+              url: m.doc_url,
+              source: m.source,
+              // pg returns DATE columns as Date objects; tool output must stay
+              // lossless JSON.
+              date: m.occurred_on == null ? null : String(m.occurred_on).slice(0, 10),
+            })),
+          };
+        },
+      },
+    });
+    const planned: [string, string, string][] = [
+      ['calendar', '日程编排', 'F04 日程与会议安排'],
+      ['tasks', '待办管理', 'F03 任务与项目清单'],
+      ['reminders', '事项提醒', 'F05 个人提醒与免打扰'],
+      ['handwriting', '手写笔记', 'F06 手写笔记整理与人工审核'],
+    ];
+    for (const [id, name, feature] of planned) {
+      this.roles.register({
+        id,
+        name,
+        persona: `你是 24私助的${name} Worker。该职责已注册但业务能力尚未交付（${feature}）。收到委托时说明该能力尚未可用，不要臆造结果。`,
+        brief: `该职责将在 ${feature} 交付；当前不可委派。`,
+        actions: {},
+        available: false,
+      });
+    }
+  }
+
+  /** Maintainer-facing role registration (P44); duplicates and invalid definitions are refused, keeping the old set. */
+  async registerRole(definition: WorkerRoleDefinition, actionNames: readonly string[] = []): Promise<void> {
+    if (this.roles.hasRegistered(definition.id)) {
+      throw new Error(`角色已注册：${definition.id}；如需更新请先移除并处理在途事项。`);
+    }
+    // Validate every action binding before touching the registry so a bad
+    // name cannot leave a half-registered, unpersisted role behind.
+    const bindings: [string, WorkerActionHandler][] = actionNames.map(name => {
+      const handler = this.builtInActions[name];
+      if (!handler) throw new Error(`未提供该动作实现：${name}。`);
+      return [name, handler];
+    });
+    this.roles.register(definition);
+    for (const [name, handler] of bindings) this.bindRoleAction(definition.id, name, handler);
+    await this.persistRegisteredRoles();
+  }
+
+  /** Registered dynamic roles survive restarts (P44 重启可续办). */
+  private async persistRegisteredRoles(): Promise<void> {
+    if (!this.workspace) return;
+    const { writeFile } = await import('node:fs/promises');
+    const declared = this.roles
+      .list()
+      .filter(r => !BUILTIN_ROLE_IDS.includes(r.id))
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        persona: r.persona,
+        brief: r.brief,
+        available: r.available,
+        actionNames: Object.keys(r.actions),
+      }));
+    await writeFile(join(this.workspace.statePath, '.24pa', 'roles.json'), JSON.stringify(declared, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+  }
+
+  private async restoreRegisteredRoles(): Promise<void> {
+    if (!this.workspace) return;
+    try {
+      const raw = JSON.parse(await readFile(join(this.workspace.statePath, '.24pa', 'roles.json'), 'utf8'));
+      for (const def of Array.isArray(raw) ? raw : []) {
+        this.roles.register({
+          id: String(def.id),
+          name: String(def.name),
+          persona: String(def.persona),
+          brief: String(def.brief),
+          available: def.available === true,
+          actions: {},
+        });
+        const actionNames = Array.isArray(def.actionNames) ? def.actionNames.map(String) : [];
+        for (const name of actionNames) {
+          const handler = this.builtInActions[name];
+          if (handler) this.bindRoleAction(String(def.id), name, handler);
+        }
+      }
+    } catch {
+      // No persisted roles yet, or an unreadable file is ignored; built-ins
+      // are always present.
+    }
+  }
+
+  private bindRoleAction(roleId: string, action: string, handler: WorkerActionHandler): void {
+    const role = this.roles.get(roleId);
+    if (!role) return;
+    this.roles.register({ ...role, actions: { ...role.actions, [action]: handler } });
+  }
+
+  /**
+   * Declarative registration surface: bind built-in action implementations by
+   * name (the P44 digest demonstration) without shipping executable code over
+   * the panel.
+   */
+  registerRoleActions(roleId: string, actionNames: readonly string[]): void {
+    const role = this.roles.get(roleId);
+    if (!role) throw new Error(`角色未注册：${roleId}。`);
+    for (const name of actionNames) {
+      const handler = this.builtInActions[name];
+      if (!handler) throw new Error(`未提供该动作实现：${name}。`);
+      this.bindRoleAction(roleId, name, handler);
+    }
+  }
+
+  listRoles(): { id: string; name: string; available: boolean }[] {
+    return this.roles.list().map(r => ({ id: r.id, name: r.name, available: r.available }));
   }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -131,6 +302,7 @@ export class PaRuntime {
       return;
     }
     await this.restoreActiveWork();
+    await this.reconcileAfterRestart();
     this.dispatchTimer = setInterval(() => void this.kickDispatcher(), this.options.dispatchTickMs);
     this.outboxTimer = setInterval(() => void this.kickOutbox(), this.options.outboxTickMs);
     this.dispatchTimer.unref?.();
@@ -179,6 +351,61 @@ export class PaRuntime {
 
   // ---- workspace binding & config -----------------------------------------
 
+  /**
+   * Post-restart reconciliation (P07): claims die with the process, unfinished
+   * work resumes on the same native children with a new generation counter,
+   * and user-stopped items stay stopped.
+   */
+  private async reconcileAfterRestart(): Promise<void> {
+    if (!this.repos) return;
+    // Inbox rows claimed but never processed run again (admission is
+    // idempotent through the stable requestId).
+    await this.dbRef
+      .query(`update pa24.inbox set status = 'received' where status = 'processing'`)
+      .catch(() => {});
+    // Admitted-but-undelivered rows cannot be attributed to a turn across a
+    // crash: surface them instead of guessing an outcome.
+    const orphaned = await this.dbRef.query<{ event_id: string; payload: any }>(
+      `select event_id, payload from pa24.inbox where status = 'admitted'`,
+    );
+    for (const row of orphaned.rows) {
+      await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '重启中断；请重新发送该消息' });
+      if (this.config?.ownerOpenId) {
+        await this.notifyOwner(
+          `reconcile:${row.event_id}`,
+          '服务重启前有一条消息正在处理但未完成；如仍需要请重新发送。',
+        );
+      }
+    }
+    // Running children get an explicit recovery input; queued/accepted items
+    // start through the normal pump on the next delegation/event.
+    const interrupted = await this.repos.workItems.list(['running'], 50);
+    for (const item of interrupted) {
+      if (!item.child_session_id) continue;
+      const gen = (item.recovery_gen ?? 0) + 1;
+      await this.repos.workItems.update(item.id, { progress: `重启恢复（第 ${gen} 代）；等待 Worker 核对后续办` } as any);
+      await this.dbRef
+        .query(`update pa24.work_item set recovery_gen = $2 where id = $1`, [item.id, gen])
+        .catch(() => {});
+      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id).catch(() => null);
+      if (!parent || 'error' in parent) continue;
+      await this.ctx.subagents
+        .sendMessage(
+          parent.agent,
+          item.child_session_id,
+          [
+            {
+              type: 'text',
+              text: `[恢复 第${gen}代] 服务重启。请先核对已完成步骤与外部结果（账本操作编号见工具回执），再继续未完成部分；已成功的操作不要重复执行。`,
+            },
+          ],
+          { signal: this.lifetime.signal },
+        )
+        .catch(() => {});
+    }
+    if (interrupted.length > 0 || orphaned.rows.length > 0) void this.pump();
+  }
+
   /** After a restart, re-attach the in-memory role map from the durable ledger. */
   private async restoreActiveWork(): Promise<void> {
     if (!this.repos) return;
@@ -208,6 +435,8 @@ export class PaRuntime {
     }
     const workspace = await this.ctx.workspaceRegistry.create(real, '24私助');
     this.workspace = { ...workspace, statePath: real };
+    this.memory = new MemoryStore(real, this.ctx);
+    await this.restoreRegisteredRoles();
     await this.loadConfig();
     await this.repos!.workspaceState.save(real, { feishuSessionId: this.accessSessionId, localSessionId: this.localSessionId });
     await this.establishSessions();
@@ -502,6 +731,24 @@ export class PaRuntime {
       await this.repos.inbox.mark(row.event_id, { status: 'delivered', requestId: `status:${event.eventId}` });
       return;
     }
+    // A reply to one of our messages is pinned to its original target
+    // (work item / object); it never falls back to a fresh delegation.
+    if (event.parentMessageId) {
+      const route = await this.repos.messageRoutes.lookup(event.parentMessageId);
+      if (!route) {
+        await this.notifyOwner(
+          `route-unknown:${event.eventId}`,
+          '这条引用没有可恢复的事项记录；请直接说明需要办理什么，或告诉我事项名称。',
+        );
+        await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '引用目标未知' });
+        return;
+      }
+      if (route.work_item_id) {
+        await this.followUpWorkItem(route.work_item_id, input, row.event_id);
+        return;
+      }
+      // reply/status routes point at the access session conversation itself
+    }
     // Regular delegation: durable admission into the fixed access session.
     await this.establishSessions();
     const requestId = `feishu:${event.eventId}`;
@@ -514,6 +761,49 @@ export class PaRuntime {
     await this.gate(this.accessSessionId!, () =>
       this.submitToSession(this.accessSessionId!, requestId, content, this.config!.timeZone, row.event_id),
     );
+  }
+
+  /** Pin a follow-up to its original work item: resume the same native child. */
+  private async followUpWorkItem(workItemId: string, input: string, inboxEventId: string): Promise<void> {
+    const item = await this.repos!.workItems.get(workItemId);
+    if (!item) {
+      await this.notifyOwner(`route-missing:${inboxEventId}`, '引用的事项已不存在；请直接说明需要办理什么。');
+      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '引用事项不存在' });
+      return;
+    }
+    if (!item.child_session_id) {
+      await this.notifyOwner(`route-notstarted:${inboxEventId}`, `「${item.title}」尚无原生 Worker 会话，无法续办；请重新委派。`);
+      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项未启动' });
+      return;
+    }
+    if (item.status === 'stopped') {
+      // User-stopped items stay stopped (P07); a reply must not resurrect them.
+      await this.notifyOwner(`route-stopped:${inboxEventId}`, `「${item.title}」已按你的要求停止；如需继续请明确说明“继续 ${item.title}”。`);
+      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
+      return;
+    }
+    const previousStatus = item.status;
+    if (['running', 'queued', 'accepted'].includes(item.status)) {
+      // Running children receive the supplement at the nearest step boundary.
+      await this.repos!.workItems.update(item.id, { progress: '收到补充输入，等待 Worker 处理' });
+    } else {
+      await this.repos!.workItems.update(item.id, { status: 'running', progress: '按引用继续处理' });
+    }
+    try {
+      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
+      if ('error' in parent) throw parent.error;
+      await this.ctx.subagents.sendMessage(
+        parent.agent,
+        item.child_session_id,
+        [{ type: 'text', text: `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]` }],
+        { signal: this.lifetime.signal },
+      );
+    } catch (error) {
+      // Never leave the item dangling in running without a listener.
+      await this.repos!.workItems.update(item.id, { status: previousStatus as any, progress: `补充输入未送达：${(error as Error).message}` });
+      throw error;
+    }
+    await this.repos!.inbox.mark(inboxEventId, { status: 'admitted', targetSession: item.child_session_id, requestId: `followup:${inboxEventId}` });
   }
 
   private async submitToSession(sessionId: string, requestId: string, content: ContentBlock[], timeZone: string, inboxId: string): Promise<void> {
@@ -576,7 +866,7 @@ export class PaRuntime {
         status: 'failed',
         progress: failure?.message ?? 'Worker 未产生结果',
       });
-      await this.deliverWorkItemResult(item.id, `「${fresh.title}」未完成：${failure?.message ?? 'Worker 未产生结果'}`);
+      await this.deliverWorkItemResult(item.id, `「${fresh.title}」未完成：${failure?.message ?? 'Worker 未产生结果'}`, turn);
       return;
     }
     await this.repos.workItems.update(item.id, {
@@ -584,17 +874,24 @@ export class PaRuntime {
       result: output,
       progress: 'Worker 已完成，结果已交回',
     });
-    await this.deliverWorkItemResult(item.id, output);
+    await this.deliverWorkItemResult(item.id, output, turn);
+    // Follow-up inputs routed to this child are settled by this turn.
+    await this.dbRef
+      .query(
+        `update pa24.inbox set status = 'delivered', processed_at = now() where target_session = $1 and status = 'admitted'`,
+        [item.id],
+      )
+      .catch(() => {});
   }
 
-  private async deliverWorkItemResult(workItemId: string, output: string): Promise<void> {
+  private async deliverWorkItemResult(workItemId: string, output: string, turn?: number): Promise<void> {
     if (!this.repos || !this.config) return;
     const item = await this.repos.workItems.get(workItemId);
     if (!item) return;
     if (item.origin === 'feishu') {
       const ref = item.result_ref as { docUrl?: string; operationId?: string } | null;
       const source = ref?.docUrl ? `\n出处：${ref.docUrl}\n操作编号：${ref.operationId}` : '';
-      await this.notifyOwner(`workitem:${workItemId}:result`, `「${item.title}」已完成：\n${output}${source}`);
+      await this.notifyOwner(`workitem:${workItemId}:result:t${turn ?? 'n'}`, `「${item.title}」已完成：\n${output}${source}`);
       return;
     }
     // Local origin: report back inside the originating 24私助 session.
@@ -622,13 +919,17 @@ export class PaRuntime {
     const role = this.roleFor(agent);
     if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
     const config = this.config!;
-    if (!(WORKER_ROLES as readonly string[]).includes(args.worker)) throw new Error('未注册的 Worker 类型。');
-    if (!config.enabledWorkers.includes(args.worker as WorkerRole)) throw new Error('此 Worker 未启用。');
+    const roleDef = this.roles.get(String(args.worker));
+    if (!roleDef) {
+      throw new Error(`未注册的 Worker 类型：${args.worker}。已注册：${this.roles.list().map(r => r.id).join(', ')}。`);
+    }
+    if (!roleDef.available) throw new Error(`「${roleDef.name}」已注册但业务能力尚未交付（${roleDef.brief}）`);
+    if (!config.enabledWorkers.includes(String(args.worker))) throw new Error('此 Worker 未在配置中启用（enabledWorkers）。');
     const title = text(args.title, 200);
     const instruction = text(args.instruction);
     const origin: 'feishu' | 'local' = agent.id === this.accessSessionId ? 'feishu' : 'local';
     const id = `pa24-work-${args.worker}-${randomUUID()}`;
-    const persona = WORKER_PERSONAS[args.worker as WorkerRole];
+    const persona = { name: roleDef.name, persona: roleDef.persona, brief: roleDef.brief };
     const item = await this.repos!.workItems.insert({
       id,
       title,
@@ -661,9 +962,10 @@ export class PaRuntime {
       try {
         const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
         if ('error' in parent) throw parent.error;
-        const persona = WORKER_PERSONAS[item.role as WorkerRole];
-        if (!persona) throw new Error(`Worker 类型未注册：${item.role}`);
-        const modelRoute = this.config.workerModels[item.role as WorkerRole];
+        const roleDef = this.roles.get(item.role);
+        if (!roleDef) throw new Error(`Worker 类型未注册：${item.role}`);
+        const persona = { name: roleDef.name, persona: roleDef.persona, brief: roleDef.brief };
+        const modelRoute = this.config.workerModels[item.role];
         await this.ctx.subagents.startContinuable({
           provider: 'spawn',
           label: `${persona.name} · ${item.title}`,
@@ -676,7 +978,7 @@ export class PaRuntime {
             // send_message arrives as an adjacent-agent scoped tool and is
             // unaffected by global restrict(); the child can still report to
             // its parent through the native continuation channel.
-            toolFilter: { allow: ['pa24_work'] },
+            toolFilter: { allow: ['pa24_work', 'pa24_memory', ...(roleDef.tools ?? [])] },
             maxDepth: 1,
             ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } as any } : {}),
           },
@@ -732,36 +1034,89 @@ export class PaRuntime {
     // for the live status instead of a cached snapshot.
     if (!this.repos) throw new Error('业务账本未就绪。');
     const item = await this.repos.workItems.get(agent.id);
-    if (!item || item.role !== 'memo' || item.status !== 'running') {
+    if (!item || item.status !== 'running') {
       throw new Error('此会话不是运行中的 Worker，或事项已停止。');
     }
-    const action = String(args.action ?? '');
-    if (action === 'memo_find') {
-      const memos = await this.repos!.memos.search({
-        topic: args.topic ? text(args.topic, 200) : undefined,
-        query: args.query ? text(args.query, 200) : undefined,
-        from: args.from ? String(args.from) : undefined,
-        to: args.to ? String(args.to) : undefined,
-        limit: 20,
+    const role = this.roles.get(item.role);
+    const handler = role?.actions[String(args.action ?? '')];
+    if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
+    return handler(args, item, this);
+  }
+
+  /**
+   * pa24_memory: search is open to every workspace role; writes, maintenance
+   * and undo require the local top-level 24私助 session (P42/P43).
+   */
+  async memoryTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
+    const role = this.roleFor(agent);
+    if (!role || !this.memory || !this.workspace) throw new Error('记忆仅对绑定的 24私助 工作区会话开放。');
+    const action = String(args.action ?? 'search');
+    const readOnly: Record<string, boolean> = {
+      search: true,
+      put: false,
+      delete: false,
+      inspect: true,
+      apply: false,
+      undo: false,
+      changesets: true,
+    };
+    if (!(action in readOnly)) throw new Error('未知记忆操作。');
+    if (!readOnly[action] && role !== 'local-robot') {
+      throw new Error('记忆写入与整理仅限 dsh 的24私助本地会话；飞书接入与 Worker 只能检索。');
+    }
+    const actor = agent.id;
+    if (action === 'search') {
+      return this.memory.search({
+        query: args.query ? String(args.query) : undefined,
+        category: args.category ? String(args.category) : undefined,
+        topic: args.topic ? String(args.topic) : undefined,
+        status: args.status ? String(args.status) : undefined,
+        limit: Number(args.limit ?? 20),
+        offset: Number(args.offset ?? 0),
       });
-      return {
-        count: memos.length,
-        memos: memos.map(m => ({
-          id: m.id,
-          topic: m.topic,
-          content: m.content,
-          url: m.doc_url,
-          source: m.source,
-          // pg returns DATE columns as Date objects; tool output must stay
-          // lossless JSON.
-          date: m.occurred_on == null ? null : String(m.occurred_on).slice(0, 10),
-        })),
-      };
     }
-    if (action === 'memo_save') {
-      return this.saveMemo(item, args);
+    if (action === 'inspect') {
+      return this.memory.inspect(args.topic ? { topic: String(args.topic) } : undefined);
     }
-    throw new Error('未知业务操作。');
+    if (action === 'changesets') {
+      return { changesets: await this.memory.listChangesets() };
+    }
+    if (action === 'put') {
+      const expectedRevision = requireRevision(args.expectedRevision);
+      if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
+      return this.memory.put(
+        {
+          id: args.id ? String(args.id) : undefined,
+          category: requireCategory(args.category),
+          topic: String(args.topic ?? ''),
+          content: text(args.content),
+          source: text(args.source, 500),
+          sourceVersion: args.sourceVersion ? String(args.sourceVersion) : undefined,
+          status: requireStatus(args.status),
+          validUntil: args.validUntil ? String(args.validUntil) : null,
+          reason: String(args.reason),
+        },
+        { expectedRevision, actor, reason: String(args.reason) },
+      );
+    }
+    if (action === 'delete') {
+      const expectedRevision = requireRevision(args.expectedRevision);
+      if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
+      return this.memory.remove(String(args.id ?? ''), { expectedRevision, actor, reason: String(args.reason) });
+    }
+    if (action === 'apply') {
+      const expectedRevision = requireRevision(args.expectedRevision);
+      if (!String(args.reason ?? '').trim()) throw new Error('记忆整理需说明本人的指令依据。');
+      const changes = Array.isArray(args.changes) ? (args.changes as MemoryChange[]) : [];
+      if (changes.length === 0) throw new Error('变更集为空；请先通过 inspect 查看候选并让本人确认。');
+      return this.memory.applyChangeset(changes, { expectedRevision, actor, reason: String(args.reason) });
+    }
+    if (action === 'undo') {
+      const expectedRevision = requireRevision(args.expectedRevision);
+      if (!String(args.reason ?? '').trim()) throw new Error('撤销需说明本人的指令依据。');
+      return this.memory.undo(String(args.changesetId ?? ''), { expectedRevision, actor, reason: String(args.reason) });
+    }
+    throw new Error('未知记忆操作。');
   }
 
   /**
@@ -878,6 +1233,18 @@ export class PaRuntime {
     return { revision: readback.data.document.revision_id != null ? String(readback.data.document.revision_id) : null };
   }
 
+  /** Map a sent platform message to the work item / inbox it answers (P05). */
+  private async recordMessageRoute(dedupKey: string, messageId: string): Promise<void> {
+    if (!messageId) return;
+    if (dedupKey.startsWith('workitem:')) {
+      const workItemId = dedupKey.slice('workitem:'.length).split(':')[0];
+      await this.repos!.messageRoutes.record(messageId, { kind: 'workitem', workItemId });
+    } else if (dedupKey.startsWith('reply:')) {
+      const inboxEventId = dedupKey.slice('reply:'.length).split(':')[0];
+      await this.repos!.messageRoutes.record(messageId, { kind: 'reply', inboxEventId });
+    }
+  }
+
   // ---- outbox worker --------------------------------------------------------
 
   private kickOutbox(): void {
@@ -902,6 +1269,7 @@ export class PaRuntime {
               : await this.transport.sendText(row.target, String(row.content?.text ?? ''), uuid);
           this.lastSentAt = nowIso();
           await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
+          await this.recordMessageRoute(row.dedup_key, sent.messageId);
         } catch (error) {
           const unknown = (error as any)?.outcome === 'unknown';
           const attempts = row.attempts;
@@ -1010,6 +1378,24 @@ export class PaRuntime {
       diagnostics: this.diagnostics,
     };
   }
+}
+
+function requireRevision(value: unknown): number {
+  const revision = Number(value);
+  if (!Number.isInteger(revision) || revision < 0) throw new Error('需携带查询得到的 revision（expectedRevision）。');
+  return revision;
+}
+
+function requireCategory(value: unknown): 'preference' | 'fact' | 'project' | 'decision' {
+  const category = String(value ?? '');
+  if (!['preference', 'fact', 'project', 'decision'].includes(category)) throw new Error('记忆类别无效。');
+  return category as any;
+}
+
+function requireStatus(value: unknown): 'confirmed' | 'unverified' {
+  const status = String(value ?? '');
+  if (!['confirmed', 'unverified'].includes(status)) throw new Error('记忆状态无效。');
+  return status as any;
 }
 
 /** Cached dependency versions surfaced by readiness (P01). */

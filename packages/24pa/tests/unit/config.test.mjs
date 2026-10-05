@@ -25,13 +25,16 @@ describe('AGENTS.md 配置校验', () => {
   it('校验 maxWorkers 与 enabledWorkers', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, maxWorkers: 0 })).toThrow(/maxWorkers/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, maxWorkers: 9 })).toThrow(/maxWorkers/);
-    expect(() => validateConfig({ ...DEFAULT_CONFIG, enabledWorkers: ['calendar'] })).toThrow(/enabledWorkers/);
+    // 运行时注册的角色合法；只拒绝非法 id 格式与重复项
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, enabledWorkers: ['calendar'] })).not.toThrow();
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, enabledWorkers: ['BAD ID'] })).toThrow(/enabledWorkers/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, enabledWorkers: ['memo', 'memo'] })).toThrow(/enabledWorkers/);
   });
 
-  it('workerModels 只接受 provider/model 且角色必须已注册', () => {
+  it('workerModels 只接受合法角色 id 与 provider/model 字段', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, workerModels: { memo: { provider: 'p', model: 'm', x: 1 } } })).toThrow(/模型配置/);
-    expect(() => validateConfig({ ...DEFAULT_CONFIG, workerModels: { ghost: { provider: 'p', model: 'm' } } })).toThrow(/未注册/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, workerModels: { 'BAD!': { provider: 'p', model: 'm' } } })).toThrow(/workerModels/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, workerModels: { digest: { provider: 'p', model: 'm' } } })).not.toThrow();
     expect(() => validateConfig({ ...DEFAULT_CONFIG, workerModels: { memo: { provider: 'p', model: 'm' } } })).not.toThrow();
   });
 
