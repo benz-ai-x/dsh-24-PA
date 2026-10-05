@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DshContext, FsTarget } from './host.js';
+import type { DshContext, FsTarget, FsWriteIntent } from './host.js';
 
 // The single editable memory authority is the workspace JSON file. Writes go
 // through the host fs service with a version guard; every mutation appends an
@@ -101,7 +101,6 @@ export class MemoryStore {
   private readonly dir: string;
   private readonly ctx: DshContext;
   private serial: Promise<unknown> = Promise.resolve();
-  private cached: { file: MemoryFile; version: unknown } | null = null;
   private targets: { file: FsTarget; log: string; changesets: string } | null = null;
 
   constructor(workspacePath: string, ctx: DshContext) {
@@ -131,11 +130,11 @@ export class MemoryStore {
 
   private async write(next: MemoryFile, expectedVersion: unknown, existed: boolean): Promise<unknown> {
     const targets = await this.ensureTargets();
-    const intent = existed ? { kind: 'replaceIfVersion', version: expectedVersion } : { kind: 'createIfAbsent' };
+    const intent: FsWriteIntent = existed ? { kind: 'replaceIfVersion', version: expectedVersion } : { kind: 'createIfAbsent' };
     const outcome = await this.ctx.fs.writeText(
       targets.file,
       JSON.stringify(next, null, 2) + '\n',
-      intent as any,
+      intent,
       undefined,
       { mode: 'workspace-write', workspaceRoot: this.dir },
     );
@@ -144,8 +143,8 @@ export class MemoryStore {
 
   private async appendAudit(line: Record<string, unknown>): Promise<void> {
     const targets = await this.ensureTargets();
-    const { appendFile } = await import('node:fs/promises');
-    await appendFile(targets.log, JSON.stringify({ at: new Date().toISOString(), ...line }) + '\n', { encoding: 'utf8' });
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(targets.log, JSON.stringify({ at: new Date().toISOString(), ...line }) + '\n', { encoding: 'utf8', flag: 'a', mode: 0o600 });
   }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -164,7 +163,6 @@ export class MemoryStore {
   }): Promise<{ revision: number; total: number; matched: number; offset: number; limit: number; records: MemoryRecord[] }> {
     return this.enqueue(async () => {
       const { file } = await this.read();
-      this.cached = null;
       const query = (filter.query ?? '').trim().toLowerCase();
       const now = Date.now();
       const visible = file.records.filter(r => !r.validUntil || Date.parse(r.validUntil) >= now);
@@ -173,7 +171,7 @@ export class MemoryStore {
           (!filter.category || r.category === filter.category) &&
           (!filter.topic || r.topic === filter.topic) &&
           (!filter.status || r.status === filter.status) &&
-          (!query || JSON.stringify(r).toLowerCase().includes(query)),
+          (!query || `${r.topic}\n${r.content}\n${r.source}`.toLowerCase().includes(query)),
       );
       const limit = Math.min(Math.max(filter.limit ?? 20, 1), 100);
       const maxOffset = Math.max(0, Math.ceil(matched.length / limit) - 1) * limit;
@@ -244,13 +242,16 @@ export class MemoryStore {
           after,
         };
       }
-      await this.write(next, version, existed);
-      await this.appendAudit({ revision: next.revision, actor, changesetId: changeset?.id ?? null, changes: changes.map(c => ({ op: c.op, id: c.id ?? c.record?.id, reason: c.reason })) });
+      // Persist the changeset BEFORE the memory file: an applied revision is
+      // then always undoable; an orphan changeset (later write failed) is
+      // harmlessly refused by the undo guard instead of the reverse.
       if (changeset) {
         const targets = await this.ensureTargets();
         const { writeFile } = await import('node:fs/promises');
         await writeFile(join(targets.changesets, `${changeset.id}.json`), JSON.stringify(changeset, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
       }
+      await this.write(next, version, existed);
+      await this.appendAudit({ revision: next.revision, actor, changesetId: changeset?.id ?? null, changes: changes.map(c => ({ op: c.op, id: c.id ?? c.record?.id, reason: c.reason })) });
       return { revision: next.revision, changeset };
     });
   }
@@ -274,6 +275,7 @@ export class MemoryStore {
     duplicates: { topic: string; ids: string[] }[];
     conflicts: { topic: string; ids: string[] }[];
     expired: { id: string; topic: string; validUntil: string }[];
+    kept: { id: string; topic: string }[];
   }> {
     return this.enqueue(async () => {
       const { file } = await this.read();
@@ -302,7 +304,9 @@ export class MemoryStore {
       const expired = scoped
         .filter(r => r.validUntil && Date.parse(r.validUntil) < now)
         .map(r => ({ id: r.id, topic: r.topic, validUntil: r.validUntil! }));
-      return { revision: file.revision, duplicates, conflicts, expired };
+      const flagged = new Set([...duplicates.flatMap(d => d.ids), ...conflicts.flatMap(c => c.ids), ...expired.map(e => e.id)]);
+      const kept = scoped.filter(r => !flagged.has(r.id)).map(r => ({ id: r.id, topic: r.topic }));
+      return { revision: file.revision, duplicates, conflicts, expired, kept };
     });
   }
 
@@ -328,6 +332,7 @@ export class MemoryStore {
 
   async undo(changesetId: string, options: { expectedRevision: number; actor: string; reason: string }): Promise<{ revision: number }> {
     const targets = await this.ensureTargets();
+    if (!/^CS-\d+$/.test(changesetId)) throw new MemoryError(`变更集编号无效：${changesetId}`);
     let changeset: AppliedChangeset;
     try {
       changeset = JSON.parse(await readFile(join(targets.changesets, `${changesetId}.json`), 'utf8')) as AppliedChangeset;

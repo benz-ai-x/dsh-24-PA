@@ -122,10 +122,10 @@ describe('MemoryStore（JSON 记忆权威）', () => {
     const log = await readFile(join(dir, '.24pa/memory-log.jsonl'), 'utf8');
     expect(log.split('\n').filter(Boolean).length).toBeGreaterThan(3);
     const current = JSON.parse(await readFile(join(dir, '.24pa/memory.json'), 'utf8'));
-    current.records.push(record('manual-1', { updatedAt: new Date().toISOString(), updatedBy: '本人手工' }));
+    current.records.push(record('manual-1', { content: '手工加入的备忘 manual entry', updatedAt: new Date().toISOString(), updatedBy: '本人手工' }));
     current.revision += 1;
     await writeFile(join(dir, '.24pa/memory.json'), JSON.stringify(current));
-    expect((await store.search({ query: 'manual' })).matched).toBe(1);
+    expect((await store.search({ query: '手工' })).matched).toBe(1);
   });
 
   it('有效期到达后不再出现在检索结果', async () => {

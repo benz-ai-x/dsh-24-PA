@@ -6,7 +6,7 @@ import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo } fr
 import { PaDatabase, resolveDsn } from './pg.js';
 import { createRepos, type Repos, type WorkItemRow } from './repo.js';
 import { acquireHostLock, type HostLock, HostAlreadyActive } from './lock.js';
-import { parseAgentsMd, template, ConfigError, type PaConfig, WORKER_ROLES as LEGACY_WORKER_ROLES, type WorkerRole } from './config.js';
+import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
 import { runLarkCli } from './lark.js';
 import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
@@ -20,6 +20,8 @@ const text = (value: unknown, max = 12000): string => {
 };
 const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
+
+let BUILTIN_ROLE_IDS: string[] = [];
 
 const WORKER_PERSONAS: Record<string, { name: string; persona: string; brief: string }> = {
   memo: {
@@ -102,6 +104,7 @@ export class PaRuntime {
     this.options = options;
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
+    BUILTIN_ROLE_IDS = this.roles.list().map(r => r.id);
   }
 
   /** Built-in, auditable action implementations a registered role may bind (P44). */
@@ -178,9 +181,63 @@ export class PaRuntime {
     }
   }
 
-  /** Maintainer-facing role registration (P44); invalid definitions keep the old set. */
-  registerRole(definition: WorkerRoleDefinition): void {
+  /** Maintainer-facing role registration (P44); duplicates and invalid definitions are refused, keeping the old set. */
+  async registerRole(definition: WorkerRoleDefinition, actionNames: readonly string[] = []): Promise<void> {
+    if (this.roles.hasRegistered(definition.id)) {
+      throw new Error(`角色已注册：${definition.id}；如需更新请先移除并处理在途事项。`);
+    }
     this.roles.register(definition);
+    if (actionNames.length > 0) this.registerRoleActions(definition.id, actionNames);
+    await this.persistRegisteredRoles();
+  }
+
+  /** Registered dynamic roles survive restarts (P44 重启可续办). */
+  private async persistRegisteredRoles(): Promise<void> {
+    if (!this.workspace) return;
+    const { writeFile } = await import('node:fs/promises');
+    const declared = this.roles
+      .list()
+      .filter(r => !BUILTIN_ROLE_IDS.includes(r.id))
+      .map(r => ({
+        id: r.id,
+        name: r.name,
+        persona: r.persona,
+        brief: r.brief,
+        available: r.available,
+        actionNames: Object.keys(r.actions),
+      }));
+    await writeFile(join(this.workspace.statePath, '.24pa', 'roles.json'), JSON.stringify(declared, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+  }
+
+  private async restoreRegisteredRoles(): Promise<void> {
+    if (!this.workspace) return;
+    try {
+      const raw = JSON.parse(await readFile(join(this.workspace.statePath, '.24pa', 'roles.json'), 'utf8'));
+      for (const def of Array.isArray(raw) ? raw : []) {
+        this.roles.register({
+          id: String(def.id),
+          name: String(def.name),
+          persona: String(def.persona),
+          brief: String(def.brief),
+          available: def.available === true,
+          actions: {},
+        });
+        const actionNames = Array.isArray(def.actionNames) ? def.actionNames.map(String) : [];
+        for (const name of actionNames) {
+          const handler = this.builtInActions[name];
+          if (handler) this.bindRoleAction(String(def.id), name, handler);
+        }
+      }
+    } catch {
+      // No persisted roles yet, or an unreadable file is ignored; built-ins
+      // are always present.
+    }
+  }
+
+  private bindRoleAction(roleId: string, action: string, handler: WorkerActionHandler): void {
+    const role = this.roles.get(roleId);
+    if (!role) return;
+    this.roles.register({ ...role, actions: { ...role.actions, [action]: handler } });
   }
 
   /**
@@ -191,13 +248,11 @@ export class PaRuntime {
   registerRoleActions(roleId: string, actionNames: readonly string[]): void {
     const role = this.roles.get(roleId);
     if (!role) throw new Error(`角色未注册：${roleId}。`);
-    const actions: Record<string, WorkerActionHandler> = {};
     for (const name of actionNames) {
       const handler = this.builtInActions[name];
       if (!handler) throw new Error(`未提供该动作实现：${name}。`);
-      actions[name] = handler;
+      this.bindRoleAction(roleId, name, handler);
     }
-    this.roles.register({ ...role, actions });
   }
 
   listRoles(): { id: string; name: string; available: boolean }[] {
@@ -374,6 +429,7 @@ export class PaRuntime {
     const workspace = await this.ctx.workspaceRegistry.create(real, '24私助');
     this.workspace = { ...workspace, statePath: real };
     this.memory = new MemoryStore(real, this.ctx);
+    await this.restoreRegisteredRoles();
     await this.loadConfig();
     await this.repos!.workspaceState.save(real, { feishuSessionId: this.accessSessionId, localSessionId: this.localSessionId });
     await this.establishSessions();
@@ -713,20 +769,33 @@ export class PaRuntime {
       await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项未启动' });
       return;
     }
+    if (item.status === 'stopped') {
+      // User-stopped items stay stopped (P07); a reply must not resurrect them.
+      await this.notifyOwner(`route-stopped:${inboxEventId}`, `「${item.title}」已按你的要求停止；如需继续请明确说明“继续 ${item.title}”。`);
+      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
+      return;
+    }
+    const previousStatus = item.status;
     if (['running', 'queued', 'accepted'].includes(item.status)) {
       // Running children receive the supplement at the nearest step boundary.
       await this.repos!.workItems.update(item.id, { progress: '收到补充输入，等待 Worker 处理' });
     } else {
       await this.repos!.workItems.update(item.id, { status: 'running', progress: '按引用继续处理' });
     }
-    const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
-    if ('error' in parent) throw parent.error;
-    await this.ctx.subagents.sendMessage(
-      parent.agent,
-      item.child_session_id,
-      [{ type: 'text', text: `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]` }],
-      { signal: this.lifetime.signal },
-    );
+    try {
+      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
+      if ('error' in parent) throw parent.error;
+      await this.ctx.subagents.sendMessage(
+        parent.agent,
+        item.child_session_id,
+        [{ type: 'text', text: `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]` }],
+        { signal: this.lifetime.signal },
+      );
+    } catch (error) {
+      // Never leave the item dangling in running without a listener.
+      await this.repos!.workItems.update(item.id, { status: previousStatus as any, progress: `补充输入未送达：${(error as Error).message}` });
+      throw error;
+    }
     await this.repos!.inbox.mark(inboxEventId, { status: 'admitted', targetSession: item.child_session_id, requestId: `followup:${inboxEventId}` });
   }
 
@@ -889,7 +958,7 @@ export class PaRuntime {
         const roleDef = this.roles.get(item.role);
         if (!roleDef) throw new Error(`Worker 类型未注册：${item.role}`);
         const persona = { name: roleDef.name, persona: roleDef.persona, brief: roleDef.brief };
-        const modelRoute = this.config.workerModels[item.role as WorkerRole];
+        const modelRoute = this.config.workerModels[item.role];
         await this.ctx.subagents.startContinuable({
           provider: 'spawn',
           label: `${persona.name} · ${item.title}`,

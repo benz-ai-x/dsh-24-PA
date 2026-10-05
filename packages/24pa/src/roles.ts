@@ -39,12 +39,12 @@ export class RoleRegistry {
     this.roles.set(definition.id, definition);
   }
 
-  has(id: string): boolean {
-    return this.roles.has(id);
-  }
-
   get(id: string): WorkerRoleDefinition | undefined {
     return this.roles.get(id);
+  }
+
+  hasRegistered(id: string): boolean {
+    return this.roles.has(id);
   }
 
   list(): WorkerRoleDefinition[] {
@@ -56,12 +56,3 @@ export class RoleRegistry {
     return this.list().filter(r => r.available);
   }
 }
-
-const unavailable = (id: string, name: string, feature: string): WorkerRoleDefinition => ({
-  id,
-  name,
-  persona: `你是 24私助的${name} Worker。该职责已注册但业务能力尚未交付（${feature}）。收到委托时说明该能力尚未可用，不要臆造结果。`,
-  brief: `该职责将在 ${feature} 交付；当前不可委派。`,
-  actions: {},
-  available: false,
-});

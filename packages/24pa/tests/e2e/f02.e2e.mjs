@@ -299,11 +299,21 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     expect(item.origin).toBe('feishu');
     expect((await cluster.query(`select count(*) from pa24.memo where topic='季度资料'`)).trim()).toBe('1');
 
-    // 无效注册被拒绝且保留既有注册
+    // 无效注册被拒绝；重复注册被拒绝且保留既有注册
     await expect(
       host.api('action', { type: 'role.register', definition: { id: 'BAD ID', name: 'x', persona: '短', brief: 'x', available: true } }),
     ).rejects.toThrow();
-    const roles = await host.api('roles');
-    expect(roles.roles.find(r => r.id === 'digest')).toBeTruthy();
+    await expect(
+      host.api('action', { type: 'role.register', definition: { id: 'digest', name: '重复', persona: '这是重复注册应当被拒绝的定义内容', brief: 'x', available: true } }),
+    ).rejects.toThrow(/已注册/);
+    let roles = await host.api('roles');
+    expect(roles.roles.find(r => r.id === 'digest')?.name).toBe('资料摘要');
+
+    // 注册持久化：重启后角色与动作仍在，可继续委派（P44 重启可续办）
+    await host.stop({ keepRoot: true });
+    host = await bootHost({ root: hostRoot, env: bootEnv });
+    await host.waitUntil(s2 => (s2.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s2.workspace, { label: '重启就绪' });
+    roles = await host.api('roles');
+    expect(roles.roles.find(r => r.id === 'digest')?.available).toBe(true);
   });
 });

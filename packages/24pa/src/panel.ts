@@ -39,8 +39,8 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
                 category: str(payload.category),
                 topic: str(payload.topic),
                 status: str(payload.status),
-                limit: Number(payload.limit ?? 20),
-                offset: Number(payload.offset ?? 0),
+                limit: Number.isFinite(Number(payload.limit)) ? Number(payload.limit) : 20,
+                offset: Number.isFinite(Number(payload.offset)) ? Number(payload.offset) : 0,
               }),
             });
           }
@@ -95,16 +95,17 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
   if (type === 'role.register') {
     const definition = payload.definition as Record<string, unknown> | undefined;
     if (!definition || typeof definition !== 'object') throw new Error('缺少角色定义。');
-    runtime.registerRole({
-      id: String(definition.id ?? ''),
-      name: String(definition.name ?? ''),
-      persona: String(definition.persona ?? ''),
-      brief: String(definition.brief ?? ''),
-      available: definition.available === true,
-      actions: {},
-    });
-    const actionNames = Array.isArray(definition.actionNames) ? definition.actionNames.map(String) : [];
-    if (actionNames.length > 0) runtime.registerRoleActions(String(definition.id ?? ''), actionNames);
+    await runtime.registerRole(
+      {
+        id: String(definition.id ?? ''),
+        name: String(definition.name ?? ''),
+        persona: String(definition.persona ?? ''),
+        brief: String(definition.brief ?? ''),
+        available: definition.available === true,
+        actions: {},
+      },
+      Array.isArray(definition.actionNames) ? definition.actionNames.map(String) : [],
+    );
     return { roles: runtime.listRoles() };
   }
   if (type === 'work.list') {

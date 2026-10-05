@@ -98,7 +98,7 @@ export function validateConfig(raw: unknown): PaConfig {
     enabledWorkers.some(x => typeof x !== 'string' || !ROLE_ID.test(x)) ||
     new Set(enabledWorkers).size !== enabledWorkers.length
   ) {
-    throw new Error(`enabledWorkers 必须是不重复的角色 id（如 ${WORKER_ROLES.join(', ')}；运行时注册的角色亦可）。`);
+    throw new ConfigError(`enabledWorkers 必须是不重复的角色 id（如 ${WORKER_ROLES.join(', ')}；运行时注册的角色亦可）。`);
   }
   const workerModels = input.workerModels;
   if (!workerModels || Array.isArray(workerModels) || typeof workerModels !== 'object') throw new ConfigError('workerModels 必须是对象。');

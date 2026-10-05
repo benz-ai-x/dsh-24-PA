@@ -6,11 +6,12 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react'), h = React.createElement;
     const zh = {
-      panel: '24私助工作区', title: '24私助', work: '事项总览', feishu: '飞书接入', workspace: '工作区',
+      panel: '24私助工作区', title: '24私助', work: '事项总览', feishu: '飞书接入', memory: '结构化记忆', workspace: '工作区',
       queued: '排队中', running: '处理中', completed: '已完成', accepted: '已接纳',
       waiting_input: '等待补充', failed: '未完成', stopped: '已停止', needs_reconciliation: '需核对',
     };
     const paths = {
+      memory: ['M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Z', 'M8 7v10m8-10v10M8 9h4a3 3 0 0 1 0 6H8m8-6h-1'],
       bot: ['M9 4h6M12 4V2', 'M6 7h12a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-8a3 3 0 0 1 3-3Z', 'M8 12v2m8-2v2m-7 3h6M1 12v4m22-4v4'],
       chat: ['M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5A8.5 8.5 0 0 1 10.5 3H13a8 8 0 0 1 8 8.5Z', 'M7 10h10M7 14h6'],
       grid: ['M3 3h7v7H3ZM14 3h7v7h-7ZM3 14h7v7H3ZM14 14h7v7h-7Z'],
@@ -62,6 +63,8 @@ window.__ModuleLoader__.load({
       .pa24-example{display:flex;align-items:center;gap:9px;padding:12px 16px;background:var(--pa-soft);border-radius:10px;font-size:12px;color:var(--pa-muted)}
       .pa24-dl{margin:0}.pa24-field{display:grid;grid-template-columns:130px minmax(0,1fr);gap:16px;padding:10px 0;border-bottom:1px solid var(--pa-line)}.pa24-field:last-child{border-bottom:0}.pa24-field dt{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-field dd{margin:0;font-size:13px;overflow-wrap:anywhere}
       .pa24-helper{border-radius:10px;padding:12px 14px;background:var(--pa-soft);color:var(--pa-muted);font-size:12px;margin-top:16px}
+      .pa24-searchbar{display:flex;gap:8px;align-items:center;padding:14px;background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:12px;margin-bottom:14px}.pa24-search{position:relative;flex:1;min-width:120px}.pa24-search>svg{position:absolute;left:12px;top:12px;color:var(--pa-muted);width:18px;height:18px}.pa24-search input{padding-left:38px;background:var(--pa-soft);font-size:13px}
+      .pa24-result-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 15px;font-size:12px;color:var(--pa-muted)}.pa24-memory-list{display:grid;gap:14px}.pa24-memory-card{background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:14px;overflow:hidden}.pa24-memory-body{padding:20px 22px}.pa24-memory-heading{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}.pa24-memory-heading h3{overflow-wrap:anywhere}.pa24-memory-card .pa24-note{margin:15px 0;font-size:14px}.pa24-memory-source{display:flex;gap:6px;align-items:flex-start;font-size:11px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-memory-footer{padding:10px 22px;background:var(--pa-soft);border-top:1px solid var(--pa-line)}.pa24-memory-footer details{border:0;margin:0;padding:0}.pa24-memory-footer summary{min-height:26px;padding:0;font-size:11px}.pa24-page-nav{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:22px;font-size:12px;color:var(--pa-muted)}.pa24-page-nav button:first-child svg{transform:rotate(180deg)}
       .pa24-job{padding:18px 0;border-top:1px solid var(--pa-line)}.pa24-job:first-of-type{border-top:0;padding-top:0}.pa24-job .pa24-note{margin:10px 0}.pa24-job .pa24-meta{margin:6px 0}
       .pa24-ready{display:grid;gap:10px}.pa24-ready-item{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1px solid var(--pa-line);border-radius:12px}.pa24-ready-item>svg{margin-top:2px;color:var(--tone)}.pa24-ready-item>div{flex:1;min-width:0}
       .pa24-resource{padding:15px 0;border-bottom:1px solid var(--pa-line)}.pa24-resource:last-child{border:0;padding-bottom:0}.pa24-resource:first-child{padding-top:0}.pa24-resource p{margin-top:5px;font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}
@@ -91,6 +94,51 @@ window.__ModuleLoader__.load({
         const sectionHead = (name, title, description, action, tone = 'teal') => h('div', { className: 'pa24-section-head' }, h('div', null, h('div', { className: 'pa24-section-title' }, h('span', { className: 'pa24-tone-' + tone, style: { color: 'var(--tone)' } }, icon(name)), h('h2', null, title)), description && h('p', { className: 'pa24-section-desc' }, description)), action);
         const empty = (name, tone, title, description, actions) => h('div', { className: 'pa24-empty' }, tile(name, tone), h('h3', null, title), h('p', null, description), actions && h('div', { className: 'pa24-row' }, actions));
 
+        function MemoryView({ workspace, openRobot }) {
+          const [draft, setDraft] = React.useState(''), [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0), [retry, setRetry] = React.useState(0);
+          const [view, setView] = React.useState({ status: 'loading', data: null, error: '' });
+          React.useEffect(() => {
+            const abort = new AbortController();
+            setView({ status: 'loading', data: null, error: '' });
+            void rpc('memory', { query, offset }, abort.signal).then(data => {
+              if (!abort.signal.aborted) setView({ status: 'ready', data, error: '' });
+            }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
+            return () => abort.abort();
+          }, [workspace.path, query, offset, retry]);
+          const categories = { preference: ['个人偏好', 'violet'], fact: ['事实', 'blue'], project: ['项目', 'teal'], decision: ['决定', 'amber'] };
+          const search = () => { setOffset(0); setQuery(draft.trim()); setRetry(v => v + 1); };
+          const clear = () => { setDraft(''); setQuery(''); setOffset(0); };
+          const data = view.data;
+          const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
+          return h('section', null,
+            sectionHead('memory', '结构化记忆', '记住你的偏好与背景，让每次交办更有默契。',
+              h('div', { className: 'pa24-row' }, button('refresh', '刷新记忆', () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', '通过对话维护记忆', openRobot)), 'violet'),
+            h('div', { className: 'pa24-searchbar' },
+              h('div', { className: 'pa24-search' }, icon('search'), h('input', { value: draft, placeholder: '搜索正文、主题或来源…', 'aria-label': '筛选记忆', onChange: e => setDraft(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) search(); } })),
+              button('search', '筛选', search), (draft || query) && button('close', '查看全部', clear, { className: 'pa24-quiet' })),
+            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取记忆内容…'),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '记忆读取失败')), h('p', null, view.error), h('p', null, '请在 dsh 的24私助会话中检查记忆文件，修复后重试。'), button('refresh', '重试读取', () => setRetry(v => v + 1))),
+            data && h('div', null,
+              h('div', { className: 'pa24-result-meta', role: 'status' }, h('span', null, '共 ' + data.total + ' 条记忆' + (query ? ' · 匹配 ' + data.matched + ' 条' : '')), h('span', null, '记忆版本 ' + data.revision)),
+              data.total === 0 ? h('div', { className: 'pa24-card' }, empty('memory', 'violet', '从「记住这件事」开始', '还没有保存的记忆。在 dsh 的24私助会话告诉它你的偏好或项目背景，保存后会直接显示在这里。',
+                button('chat', '告诉24私助我的偏好', openRobot, { className: 'pa24-primary' })),
+                h('div', { className: 'pa24-example' }, icon('chat', { width: 16, height: 16 }), '试着说：“记住，我希望会议之间留 15 分钟。”')) :
+              data.matched === 0 ? h('div', { className: 'pa24-card' }, empty('search', 'violet', '没有找到匹配的记忆', '试试更短的关键词，或清空筛选查看所有记忆。', button('close', '清空筛选', clear))) :
+              h('div', { className: 'pa24-memory-list' }, data.records.map(r => {
+                const [category, tone] = categories[r.category] || [r.category, 'neutral'];
+                return h('article', { key: r.id, className: 'pa24-memory-card' },
+                  h('div', { className: 'pa24-memory-body' },
+                    h('div', { className: 'pa24-memory-heading' }, h('div', { className: 'pa24-row' }, badge(category, tone), h('h3', null, r.topic || '未设置主题')), badge(r.status === 'confirmed' ? '已确认' : '待核实', r.status === 'confirmed' ? 'teal' : 'amber', r.status === 'confirmed' ? 'check' : 'clock')),
+                    h('div', { className: 'pa24-note' }, r.content),
+                    h('div', { className: 'pa24-row pa24-between' },
+                      h('div', { className: 'pa24-memory-source' }, icon('note', { width: 13, height: 13 }), h('span', null, '来源：' + r.source)),
+                      h('time', { className: 'pa24-meta', dateTime: r.updatedAt }, date(r.updatedAt, workspace.config ? workspace.config.timeZone : 'Asia/Shanghai')))),
+                  h('div', { className: 'pa24-memory-footer' }, h('details', null, h('summary', null, '修订依据与 JSON'), h('p', { className: 'pa24-meta' }, '修订依据：' + r.reason), h('p', { className: 'pa24-meta' }, '修改会话：' + r.updatedBy), r.validUntil && h('p', { className: 'pa24-meta' }, '有效期至：' + r.validUntil), h('pre', null, JSON.stringify(r, null, 2)))));
+              })),
+              data.matched > data.limit && h('nav', { className: 'pa24-page-nav', 'aria-label': '记忆分页' }, button('chevron', '上一页', () => setOffset(Math.max(0, data.offset - data.limit)), { disabled: data.offset === 0 }), h('span', null, '第 ' + (Math.floor(data.offset / data.limit) + 1) + ' / ' + Math.ceil(data.matched / data.limit) + ' 页'), button('chevron', '下一页', () => setOffset(data.offset + data.limit), { disabled: data.offset + data.limit >= data.matched }))),
+            h('details', null, h('summary', null, '存储位置与维护方式'), h('p', { className: 'pa24-meta' }, (workspace.path || '') + '/.24pa/memory.json'), h('p', { className: 'pa24-meta' }, '通过 dsh 的24私助会话新增、更正、删除和整理（变更集可撤销）；整理仅由你发起。')));
+        }
+
         function Panel() {
           const [state, setState] = React.useState(null), [error, setError] = React.useState(''), [connError, setConnError] = React.useState(''), [busy, setBusy] = React.useState(false);
           const [tab, setTab] = React.useState('work'), [path, setPath] = React.useState('');
@@ -116,7 +164,7 @@ window.__ModuleLoader__.load({
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
           const items = state.work || [];
           const active = items.filter(j => ['accepted', 'queued', 'running'].includes(j.status));
-          const tabItems = [['work', 'grid', 'teal'], ['feishu', 'plug', 'blue'], ['workspace', 'folder', 'teal']];
+          const tabItems = [['work', 'grid', 'teal'], ['feishu', 'plug', 'blue'], ['memory', 'memory', 'violet'], ['workspace', 'folder', 'teal']];
           let content;
           if (tab === 'work') {
             const roleNames = { memo: '备忘整理' };

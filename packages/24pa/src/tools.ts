@@ -74,7 +74,7 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_delegate',
-    `将明确的本人委托交给专业 Worker。当前可委派：${runtime.roles.available().map(r => `${r.id}=${r.name}`).join('、') || '（无）'}。一段输入含多件事时分别委派。返回接纳编号；接纳不代表完成。`,
+    '将明确的本人委托交给专业 Worker（内置 memo=备忘整理，运行时还可注册新职责；可用性以运行时校验为准，不可用会明确报错）。一段输入含多件事时分别委派。返回接纳编号；接纳不代表完成。',
     { worker: string, title: string, instruction: string },
     ['worker', 'title', 'instruction'],
     (args, exec) => runtime.delegate(args, exec.agent!),
