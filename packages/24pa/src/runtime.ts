@@ -375,10 +375,11 @@ export class PaRuntime {
 
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
+    if (!this.config?.ownerOpenId) return; // unbound/demo: nothing to address yet
     await this.repos!.outbox.enqueue({
       dedupKey,
       channel: 'feishu',
-      target: this.config!.ownerOpenId,
+      target: this.config.ownerOpenId,
       kind: 'text',
       content: { text },
     });

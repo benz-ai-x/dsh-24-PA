@@ -329,10 +329,11 @@ export class BindingRepo {
     return result.rows[0] ?? null;
   }
 
-  /** Tenants already bound for this app+owner; used to refuse a foreign tenant. */
+  /** Tenants already bound for this app+owner; used to refuse a foreign tenant. Placeholder rows written before any real tenant key are ignored. */
   async tenantsFor(appId: string, ownerOpenId: string): Promise<string[]> {
     const result = await this.db.query<{ tenant_key: string }>(
-      'select distinct tenant_key from pa24.binding where app_id = $1 and owner_open_id = $2',
+      `select distinct tenant_key from pa24.binding
+       where app_id = $1 and owner_open_id = $2 and tenant_key <> 'unknown'`,
       [appId, ownerOpenId],
     );
     return result.rows.map(r => r.tenant_key);
@@ -386,9 +387,20 @@ export class MemoRepo {
   constructor(private readonly db: PaDatabase) {}
 
   async insert(row: Omit<MemoRow, 'created_at'>): Promise<MemoRow> {
+    // Idempotent upsert keyed by operation id: a crash between the memo write
+    // and the operation's success update must not make the retry unrecoverable.
     const result = await this.db.query<MemoRow>(
       `insert into pa24.memo (id, work_item_id, topic, content, doc_url, doc_id, doc_revision, source, occurred_on)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       on conflict (id) do update set
+         topic = excluded.topic,
+         content = excluded.content,
+         doc_url = excluded.doc_url,
+         doc_id = excluded.doc_id,
+         doc_revision = excluded.doc_revision,
+         source = excluded.source,
+         occurred_on = excluded.occurred_on
+       returning *`,
       [row.id, row.work_item_id, row.topic, row.content, row.doc_url, row.doc_id, row.doc_revision, row.source, row.occurred_on],
     );
     return result.rows[0]!;

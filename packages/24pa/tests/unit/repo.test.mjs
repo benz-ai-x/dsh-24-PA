@@ -106,5 +106,10 @@ describe('PostgreSQL 业务账本', () => {
     expect((await repos.memos.search({ query: '合作' })).map(m => m.id)).toEqual(['m1']);
     expect((await repos.memos.search({ from: '2026-10-05' })).map(m => m.id)).toEqual(['m1']);
     expect((await repos.memos.search({})).map(m => m.id).sort()).toEqual(['m1', 'm2']);
+    // 同一操作键重放不炸：崩溃在 memo 写入与操作成功标记之间后，重试应更新而非冲突
+    await repos.memos.insert({ id: 'm1', work_item_id: 'wip-1', topic: '合作方向', content: '下周讨论新的合作方向（更新）', doc_url: 'https://x/1b', doc_id: 'd1b', doc_revision: '2', source: 'wip-1', occurred_on: '2026-10-06' });
+    const updated = await repos.memos.get('m1');
+    expect(updated.content).toContain('（更新）');
+    expect((await repos.memos.search({})).length).toBe(2);
   });
 });
