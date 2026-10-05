@@ -2,7 +2,7 @@
 
 这个可丢弃原型验证：**飞书统一向 Lead 交办，原生 Worker 办理，配置和 JSON 记忆通过 dsh 工作区会话维护，是否符合你的工作方式？**
 
-版本 `0.0.3-prototype.1`。这是实际 dsh bundle，包含 Host、原生侧栏面板、唯一的「24PA 机器人」preset，以及原生 continuable 子 Agent。它不计入正式版的功能 PR。
+版本 `0.0.3-prototype.2`。这是实际 dsh bundle，包含 Host、原生侧栏面板、唯一的「24PA 机器人」preset，以及原生 continuable 子 Agent。它不计入正式版的功能 PR。
 
 ## 1. 启动并选工作区
 
@@ -106,7 +106,11 @@ Lead 是内部协调职责；飞书接入会话和 Worker 的原生链接在「�
 
 原型只能识别单页 PNG/JPEG/WebP，最大 10 MiB；没有录音 Worker、多页合并或 PDF 处理。照片文字不构成新授权，手写 Worker 没有任何业务写入或批准工具。
 
-## 7. 在同一机器人会话维护 JSON 记忆
+## 7. 查阅与维护 JSON 记忆
+
+打开「结构化记忆」即自动读取已保存的内容，无需先查询。每条卡片展示主题、类别、确认状态、完整正文、来源和更新时间；展开「修订依据与 JSON」可查看具体字段。支持关键词筛选、查看全部、分页和刷新，超过 20 条可翻页继续查看。
+
+当前没有保存记录时会显示明确的空状态；文件格式错误会显示读取失败，而不会伪装成没有记忆。切换工作区后重新读取对应文件。页面保持只读，通过机器人会话进行维护；会话修改后点「刷新记忆」即可看到更新。
 
 点击“与24PA机器人对话”，可以输入：
 
@@ -134,13 +138,13 @@ cd dsh-24-PA
 PA24_WORKSPACE=/srv/my-24pa npm run prototype
 ```
 
-或先 `npm run prototype:pack`，上传 `artifacts/benz-ai-x-dsh-24pa-prototype-0.0.3-prototype.1.tgz`，使用独立 DSH_HOME 安装：
+或先 `npm run prototype:pack`，上传 `artifacts/benz-ai-x-dsh-24pa-prototype-0.0.3-prototype.2.tgz`，使用独立 DSH_HOME 安装：
 
 ```sh
 export DSH_HOME=/srv/24pa-prototype-home
 export PA24_WORKSPACE=/srv/my-24pa
 dsh --profile pa24-prototype --from-default-profile web --dump-config >/dev/null
-dsh plugin --profile pa24-prototype add ./benz-ai-x-dsh-24pa-prototype-0.0.3-prototype.1.tgz --ignore-scripts
+dsh plugin --profile pa24-prototype add ./benz-ai-x-dsh-24pa-prototype-0.0.3-prototype.2.tgz --ignore-scripts
 dsh --profile pa24-prototype --host 127.0.0.1 --port 3210 --no-open
 ```
 

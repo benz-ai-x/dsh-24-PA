@@ -18,7 +18,7 @@ export function apply(ctx, config) {
       const {endpoint,payload}=await request.json();
       if(endpoint==='snapshot') return respond({ok:true,value:runtime.snapshot()});
       if(endpoint==='action') return respond({ok:true,value:await runtime.admin(payload)});
-      if(endpoint==='memory') return respond({ok:true,value:await runtime.store.memory({action:'search',query:String(payload?.query||'')},null)});
+      if(endpoint==='memory') return respond({ok:true,value:await runtime.store.memory({action:'search',query:String(payload?.query||'').trim(),offset:payload?.offset,limit:20},null)});
       throw new Error('未知管理接口。');
     }catch(e){ return respond({ok:false,error:{message:e.message}}); }
   }}));

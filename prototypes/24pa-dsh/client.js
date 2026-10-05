@@ -22,10 +22,46 @@ window.__ModuleLoader__.load({
       inject:['slots','locale','layout','connection','uiWorkspace'],
       apply(ctx) {
         ctx.effect(()=>ctx.locale.register('pa24',{zh,en})); const t=ctx.locale.bind('pa24');
-        const rpc=async(endpoint,payload={})=>{ const response=await fetch('./api/24pa-prototype',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint,payload})}); if(!response.ok)throw new Error(`dsh HTTP ${response.status}`);const result=await response.json();if(!result.ok)throw new Error(result.error.message);return result.value; };
+        const rpc=async(endpoint,payload={},signal)=>{ const response=await fetch('./api/24pa-prototype',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint,payload}),signal}); if(!response.ok)throw new Error(`dsh HTTP ${response.status}`);const result=await response.json();if(!result.ok)throw new Error(result.error.message);return result.value; };
+        function MemoryView({workspace,reload,openRobot}) {
+          const [draft,setDraft]=React.useState(''),[query,setQuery]=React.useState(''),[offset,setOffset]=React.useState(0),[retry,setRetry]=React.useState(0);
+          const [view,setView]=React.useState({status:'loading',data:null,error:''});
+          React.useEffect(()=>{
+            const abort=new AbortController();
+            setView({status:'loading',data:null,error:''});
+            void rpc('memory',{query,offset},abort.signal).then(data=>{
+              if(!abort.signal.aborted)setView({status:'ready',data,error:''});
+            }).catch(error=>{if(!abort.signal.aborted)setView({status:'error',data:null,error:error.message});});
+            return()=>abort.abort();
+          },[workspace.path,query,offset,reload,retry]);
+          const categories={preference:'个人偏好',fact:'事实',project:'项目',decision:'决定'};
+          const search=()=>{setOffset(0);setQuery(draft.trim());setRetry(v=>v+1);};
+          const clear=()=>{setDraft('');setQuery('');setOffset(0);};
+          const data=view.data;
+          const button=(label,onClick,disabled=false)=>h('button',{type:'button',onClick,disabled},label);
+          return h('section',{className:'pa24-card'},h('h2',null,t('memory')),
+            h('p',null,'这里直接展示已保存的记忆。通过机器人对话新增、更正、删除或整理；会话修改后可刷新查看。'),
+            h('div',{className:'pa24-row',style:{margin:'12px 0'}},
+              button('刷新记忆',()=>setRetry(v=>v+1),view.status==='loading'),button('通过对话维护记忆',openRobot)),
+            h('div',{className:'pa24-row'},h('input',{value:draft,placeholder:'筛选正文、主题或来源', 'aria-label':'筛选记忆',style:{flex:'1 1 240px',width:'auto'},onChange:e=>setDraft(e.target.value),onKeyDown:e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing)search();}}),
+              button('筛选',search), (draft||query)&&button('查看全部',clear)),
+            h('p',{className:'pa24-meta'},`记忆文件：${workspace.path}/.24pa-prototype/memory.json`),
+            view.status==='loading'&&h('p',{role:'status'},'正在读取记忆内容…'),
+            view.status==='error'&&h('div',{role:'alert',className:'pa24-error'},h('strong',null,'记忆读取失败'),h('p',null,view.error),h('p',null,'请通过机器人会话检查记忆文件，修复后重试。'),button('重试读取',()=>setRetry(v=>v+1))),
+            data&&h('div',null,
+              h('p',{role:'status',className:'pa24-meta'},`共 ${data.total} 条记忆${query?` · 匹配 ${data.matched} 条`:''} · 记忆版本 ${data.revision}`),
+              data.total===0?h('div',{className:'pa24-card'},h('h3',null,'还没有保存的记忆'),h('p',null,'在24PA机器人会话中明确告诉它需要记住什么，保存后就会显示在这里。'),h('p',{className:'pa24-meta'},'例如：“记住我希望会议之间留15分钟，这是我的偏好。”')):
+                data.matched===0?h('p',null,'没有匹配的记忆。清空筛选可查看全部内容。'):
+                data.records.map(r=>h('article',{key:r.id,className:'pa24-card',style:{marginTop:14}},
+                  h('div',{className:'pa24-row'},h('strong',null,r.topic||'未设置主题'),h('span',{className:'pa24-meta'},categories[r.category]||r.category),h('span',null,r.status==='confirmed'?'已确认':'待核实')),
+                  h('div',{className:'pa24-note',style:{margin:'12px 0'}},r.content),
+                  h('p',{className:'pa24-meta'},`来源：${r.source}`),h('p',{className:'pa24-meta'},`更新时间：${new Date(r.updatedAt).toLocaleString()}`),
+                  h('details',null,h('summary',null,'修订依据与 JSON'),h('p',null,`修订依据：${r.reason}`),h('p',{className:'pa24-meta'},`修改会话：${r.updatedBy}`),h('pre',null,JSON.stringify(r,null,2))))),
+              data.matched>data.limit&&h('div',{className:'pa24-row'},button('上一页',()=>setOffset(Math.max(0,data.offset-data.limit)),data.offset===0),h('span',null,`第 ${Math.floor(data.offset/data.limit)+1} / ${Math.ceil(data.matched/data.limit)} 页`),button('下一页',()=>setOffset(data.offset+data.limit),data.offset+data.limit>=data.matched))));
+        }
         function Panel() {
           const [state,setState]=React.useState(null),[error,setError]=React.useState(''),[busy,setBusy]=React.useState(false);
-          const [tab,setTab]=React.useState('work'),[path,setPath]=React.useState(''),[query,setQuery]=React.useState(''),[memory,setMemory]=React.useState(null);
+          const [tab,setTab]=React.useState('work'),[path,setPath]=React.useState(''),[memoryReload,setMemoryReload]=React.useState(0);
           const refresh=async()=>{const s=await rpc('snapshot');setState(s);return s;};
           React.useEffect(()=>{let live=true;const load=()=>void rpc('snapshot').then(s=>{if(live)setState(s);}).catch(e=>{if(live)setError(e.message);});load();const timer=setInterval(load,2000);return()=>{live=false;clearInterval(timer);};},[]);
           const run=async(fn)=>{setBusy(true);setError('');try{await fn();await refresh();}catch(e){setError(e.message);}finally{setBusy(false);}};
@@ -55,11 +91,11 @@ window.__ModuleLoader__.load({
                 check?rows(check.resources,r=>h('p',{key:r.id},`${r.label}：${r.message}`)):h('p',{className:'pa24-meta'},'尚未检查。身份未验证或与主人不一致时，不读取配置的资源。'),h('p',{className:'pa24-meta'},'读取通过只证明可读性；写入权限需要实际任务回执验证。初次 CLI 授权仍需在服务器完成。')));
           }
           else if(tab==='workspace') content=h('div',null,card(t('workspace'),h('p',null,t('readme')),h('label',null,t('choose'),h('select',{value:path,onChange:e=>setPath(e.target.value),style:{width:'100%',padding:12,margin:'10px 0',background:'var(--dsw-alias-bg-base)',color:'inherit'}},h('option',{value:''},'—'),state.availableWorkspaces.map(w=>h('option',{value:w.path,key:w.id},`${w.title} · ${w.path}`)))),b(t('bind'),()=>rpc('action',{type:'workspace.bind',path}),{disabled:busy||!path}),h('p',{className:'pa24-meta'},t('configHint'))),card(t('config'),workspace?h('pre',null,JSON.stringify(workspace.config,null,2)):t('loading'),b(t('reload'),()=>rpc('action',{type:'workspace.reload'}))));
-          else if(tab==='memory') content=card(t('memory'),h('p',null,t('memoryHint')),h('p',{className:'pa24-meta'},workspace?`${workspace.path}/.24pa-prototype/memory.json`:''),h('input',{value:query,placeholder:t('query'),onChange:e=>setQuery(e.target.value)}),b(t('search'),async()=>setMemory(await rpc('memory',{query}))),memory&&h('p',null,`revision ${memory.revision}`),rows(memory?.records,r=>h('div',{key:r.id,className:'pa24-item'},h('strong',null,`${r.category} · ${r.topic||r.id}`),h('p',null,r.content),h('p',{className:'pa24-meta'},`${r.status} · ${r.source} · ${r.updatedAt}`))));
+          else if(tab==='memory') content=workspace?h(MemoryView,{key:workspace.path,workspace,reload:memoryReload,openRobot:()=>void run(async()=>{const result=await rpc('action',{type:'robot.open'});ctx.uiWorkspace.openSession(result.sessionId);})}):h('p',null,t('loading'));
           else if(tab==='notes') content=card(t('notes'),h('p',null,t('reviewHint')),rows(state.notes,n=>h('div',{key:n.id,className:'pa24-item'},h('strong',null,`${n.title} · ${n.id} · v${n.version} · ${t(n.status)}`),h('p',null,ext(n)),h('details',null,h('summary',null,'整理内容'),h('div',{className:'pa24-note'},n.text)))));
           else content=card(t('logs'),h('details',null,h('summary',null,'内部会话与诊断'),h('p',null,'Lead 是机器人内部的协调职责。日常交互使用24PA机器人，无需选择另一个维护预设。'),workspace&&b(t('lead'),()=>ctx.uiWorkspace.openSession(workspace.leadId))),rows(state.audit.slice(-30).reverse(),(a,i)=>h('div',{key:i,className:'pa24-item'},h('span',{className:'pa24-meta'},a.at),h('p',null,a.message))),h('details',null,h('summary',null,'完整原型状态'),h('pre',null,JSON.stringify(state,null,2))));
           return h('main',{className:'pa24'},h('style',null,style),h('div',{className:'pa24-wrap'},h('p',{className:'pa24-meta'},t('subtitle')),h('h1',null,t('title')),h('p',null,t('maintenanceHint')),
-            card(workspace?workspace.path:t('workspace'),h('div',{className:'pa24-row'},b(t('maintain'),async()=>{const result=await rpc('action',{type:'robot.open'});ctx.uiWorkspace.openSession(result.sessionId);},{disabled:busy||!workspace}),b(t('refresh'),refresh)),h('p',null,state.connection),h('p',{className:'pa24-meta'},t('commands'))),
+            card(workspace?workspace.path:t('workspace'),h('div',{className:'pa24-row'},b(t('maintain'),async()=>{const result=await rpc('action',{type:'robot.open'});ctx.uiWorkspace.openSession(result.sessionId);},{disabled:busy||!workspace}),b(t('refresh'),()=>{setMemoryReload(v=>v+1);return refresh();})),h('p',null,state.connection),h('p',{className:'pa24-meta'},t('commands'))),
             state.mode==='demo'&&h('p',{className:'pa24-card'},t('demo')),error&&h('p',{role:'alert',className:'pa24-error'},error),h('nav',{className:'pa24-row pa24-tabs'},['work','feishu','workspace','memory','notes','logs'].map(id=>b(t(id),()=>setTab(id),{key:id,'aria-selected':tab===id}))),content,h('p',{className:'pa24-meta'},state.limits)));
         }
         const Icon=()=>h('span',{'aria-hidden':true,style:{fontWeight:700,fontSize:12}},'24');

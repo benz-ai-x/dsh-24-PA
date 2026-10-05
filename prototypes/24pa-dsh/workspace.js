@@ -72,7 +72,13 @@ export class WorkspaceStore {
         ids.add(record.id);
       }
       const query = String(args.query || '').toLocaleLowerCase();
-      if (args.action === 'search') return { revision: data.revision, records: data.records.filter(r => (!args.category || r.category === args.category) && (!args.topic || r.topic === args.topic) && (!args.status || r.status === args.status) && (!query || JSON.stringify(r).toLocaleLowerCase().includes(query))).slice(0, 100) };
+      if (args.action === 'search') {
+        const records = data.records.filter(r => (!args.category || r.category === args.category) && (!args.topic || r.topic === args.topic) && (!args.status || r.status === args.status) && (!query || JSON.stringify(r).toLocaleLowerCase().includes(query)));
+        const limit = Number.isSafeInteger(args.limit) ? Math.max(1, Math.min(100, args.limit)) : 100;
+        const requested = Number.isSafeInteger(args.offset) && args.offset >= 0 ? args.offset : 0;
+        const offset = Math.min(requested, Math.max(0, Math.ceil(records.length / limit) - 1) * limit);
+        return { revision: data.revision, total: data.records.length, matched: records.length, offset, limit, records: records.slice(offset, offset + limit) };
+      }
       if (!writer) throw new Error('记忆写入请在 dsh 的24PA机器人会话中明确发起。');
       if (args.expectedRevision !== data.revision) throw new Error('记忆已变化，请重新查询后提交修订。');
       if (!String(args.reason || '').trim()) throw new Error('记忆修订需说明本人的指令依据。');

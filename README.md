@@ -2,7 +2,7 @@
 
 24PA 是一个 dsh 工作区中的飞书私人助理。你在飞书交办日程、待办、提醒、备忘或拍照发手写笔记；Lead 理解并委派专业 Worker，统一汇报。配置放在工作区 `AGENTS.md`，长期记忆以 JSON 保存，通过 dsh 的「24PA 机器人」会话修改与整理；同一个预设也能交办和协调事务。
 
-当前是 **`prototype/24pa-dsh` 可丢弃原型**，版本 `0.0.3-prototype.1`。正式版使用 PostgreSQL；原型的业务队列与审核凭证仍只保留本次运行。
+当前是 **`prototype/24pa-dsh` 可丢弃原型**，版本 `0.0.3-prototype.2`。正式版使用 PostgreSQL；原型的业务队列与审核凭证仍只保留本次运行。
 
 ```sh
 npm run prototype
