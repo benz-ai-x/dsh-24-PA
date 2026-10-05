@@ -122,10 +122,12 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
 
     await inject({ ...ownerEvent('evt-foreign-1', '/24pa'), senderOpenId: 'ou_someone_else' });
     await inject({ ...ownerEvent('evt-wrongapp-1', '/24pa'), appId: 'cli_other_app' });
+    // 错租户：已按 (app, owner) 绑定租户后，其他租户的同主人事件被拒绝
+    await inject({ ...ownerEvent('evt-wrongtenant-1', '/24pa'), tenantKey: 'tenant_intruder' });
     await waitDb(
-      `select count(*) from pa24.inbox where event_id in ('evt-foreign-1','evt-wrongapp-1') and status='rejected'`,
-      '2',
-      '未绑定主体被拒绝',
+      `select count(*) from pa24.inbox where event_id in ('evt-foreign-1','evt-wrongapp-1','evt-wrongtenant-1') and status='rejected'`,
+      '3',
+      '未绑定主体/错租户被拒绝',
     );
     const sentToOwner = (await host.api('snapshot')).outbox.filter(o => o.status === 'sent');
     expect(sentToOwner.some(o => o.dedup_key.startsWith('status:evt-foreign-1'))).toBe(false);

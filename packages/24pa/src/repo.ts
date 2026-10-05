@@ -44,6 +44,15 @@ export class InboxRepo {
     return { inserted: true, row: result.rows[0]! };
   }
 
+  /** Atomically record an event that will never be processed (wrong sender, app, or tenant). */
+  async insertRejected(row: NewInbox, reason: string): Promise<void> {
+    await this.db.query(
+      `insert into pa24.inbox (event_id, source, kind, payload, status, error, processed_at)
+       values ($1, $2, $3, $4, 'rejected', $5, now()) on conflict (event_id) do nothing`,
+      [row.eventId, row.source, row.kind, JSON.stringify({ ...(row.payload as object), rejected: reason }), reason],
+    );
+  }
+
   /** Claim queued rows for the single dispatcher; SKIP LOCKED keeps future workers safe. */
   async claim(limit: number): Promise<InboxRow[]> {
     const result = await this.db.query<InboxRow>(
@@ -319,6 +328,15 @@ export class BindingRepo {
     );
     return result.rows[0] ?? null;
   }
+
+  /** Tenants already bound for this app+owner; used to refuse a foreign tenant. */
+  async tenantsFor(appId: string, ownerOpenId: string): Promise<string[]> {
+    const result = await this.db.query<{ tenant_key: string }>(
+      'select distinct tenant_key from pa24.binding where app_id = $1 and owner_open_id = $2',
+      [appId, ownerOpenId],
+    );
+    return result.rows.map(r => r.tenant_key);
+  }
 }
 
 export interface WorkspaceStateRow {
@@ -374,6 +392,11 @@ export class MemoRepo {
       [row.id, row.work_item_id, row.topic, row.content, row.doc_url, row.doc_id, row.doc_revision, row.source, row.occurred_on],
     );
     return result.rows[0]!;
+  }
+
+  async get(id: string): Promise<MemoRow | null> {
+    const result = await this.db.query<MemoRow>('select * from pa24.memo where id = $1', [id]);
+    return result.rows[0] ?? null;
   }
 
   async search(filter: { topic?: string; query?: string; from?: string; to?: string; limit?: number }): Promise<MemoRow[]> {

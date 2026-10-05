@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo } from './host.js';
@@ -114,17 +115,20 @@ export class PaRuntime {
 
   async start(): Promise<void> {
     await mkdir(this.options.stateDirectory, { recursive: true });
-    try {
-      this.lock = await acquireHostLock(this.options.stateDirectory);
-    } catch (error) {
-      if (error instanceof HostAlreadyActive) throw error;
-      throw error;
+    this.lock = await acquireHostLock(this.options.stateDirectory);
+    if (this.closed) {
+      await this.cleanup();
+      return;
     }
     const requested = this.options.workspacePath || (await this.readSavedWorkspacePath());
     if (requested) {
       await this.bind(requested, true);
     } else {
       this.configError = '尚未选择24私助工作区目录；请在「24私助工作区」面板绑定。';
+    }
+    if (this.closed) {
+      await this.cleanup();
+      return;
     }
     await this.restoreActiveWork();
     this.dispatchTimer = setInterval(() => void this.kickDispatcher(), this.options.dispatchTickMs);
@@ -158,13 +162,19 @@ export class PaRuntime {
         if (agents.length > 0) await this.ctx.subagents.drainContinuableDescendants(agents).catch(() => {});
       }
     } finally {
-      await this.transport?.close().catch(() => {});
-      this.transport = null;
-      await this.db?.close().catch(() => {});
-      this.db = null;
-      await this.lock?.release().catch(() => {});
-      this.lock = null;
+      await this.cleanup();
     }
+  }
+
+  /** Release every acquired resource; safe to call again after a late start(). */
+  private async cleanup(): Promise<void> {
+    await this.transport?.close().catch(() => {});
+    this.transport = null;
+    await this.db?.close().catch(() => {});
+    this.db = null;
+    this.repos = null;
+    await this.lock?.release().catch(() => {});
+    this.lock = null;
   }
 
   // ---- workspace binding & config -----------------------------------------
@@ -178,9 +188,13 @@ export class PaRuntime {
 
   async bind(path: string, initialize = false): Promise<void> {
     if (!isAbsolute(path)) throw new Error('工作区必须是服务器上的绝对目录。');
-    if (initialize) await mkdir(path, { recursive: true });
-    const real = await realpath(path);
+    const real = await realpath(await (initialize ? mkdir(path, { recursive: true }).then(() => path) : path));
     if (!(await stat(real)).isDirectory()) throw new Error('请选择目录。');
+    // Switching the bound workspace while work is in flight would orphan the
+    // running ledger; require the operator to finish or stop first.
+    if (this.workspace && this.workspace.statePath !== real && (await this.hasActiveWork())) {
+      throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
+    }
 
     await this.openDatabaseFor(real);
     const saved = await this.repos!.workspaceState.get(real);
@@ -262,9 +276,11 @@ export class PaRuntime {
 
   private async hasActiveWork(): Promise<boolean> {
     if (!this.repos) return false;
-    const count = await this.repos.workItems.countByStatus('running');
-    const queued = await this.repos.workItems.countByStatus('queued');
-    return count + queued > 0;
+    let count = 0;
+    for (const status of ['accepted', 'queued', 'running', 'waiting_input'] as const) {
+      count += await this.repos.workItems.countByStatus(status);
+    }
+    return count > 0;
   }
 
   private async connectTransport(): Promise<void> {
@@ -311,13 +327,10 @@ export class PaRuntime {
       this[key] = `pa24-${hash(this.workspace!.statePath).slice(0, 12)}-${kind}-${randomUUID().slice(0, 8)}`;
       await create(this[key]!);
       await this.repos!.workspaceState.save(this.workspace!.statePath, kind === 'feishu' ? { feishuSessionId: this[key]! } : { localSessionId: this[key]! });
-      await this.repos!.outbox.enqueue({
-        dedupKey: `notice:session-rebound:${this[key]}`,
-        channel: 'feishu',
-        target: this.config?.ownerOpenId || 'unbound',
-        kind: 'text',
-        content: { text: `旧会话 ${previous} 已选择其他预设，历史保留；24私助已建立新的${kind === 'feishu' ? '飞书接入' : '本地助理'}会话。` },
-      });
+      await this.notifyOwner(
+        `notice:session-rebound:${this[key]}`,
+        `旧会话 ${previous} 已选择其他预设，历史保留；24私助已建立新的${kind === 'feishu' ? '飞书接入' : '本地助理'}会话。`,
+      );
     }
     return this[key]!;
   }
@@ -348,11 +361,27 @@ export class PaRuntime {
 
   private readonly workItemByChild = new Map<string, WorkItemRow>();
   private trackWorkItem(item: WorkItemRow): void {
+    if (this.workItemByChild.size > 500) {
+      for (const [id, row] of this.workItemByChild) {
+        if (['completed', 'failed', 'stopped'].includes(row.status)) this.workItemByChild.delete(id);
+      }
+    }
     this.workItemByChild.set(item.id, item);
   }
 
   getTransport(): FeishuTransport | null {
     return this.transport;
+  }
+
+  /** One durable owner notification with a stable dedup key. */
+  private async notifyOwner(dedupKey: string, text: string): Promise<void> {
+    await this.repos!.outbox.enqueue({
+      dedupKey,
+      channel: 'feishu',
+      target: this.config!.ownerOpenId,
+      kind: 'text',
+      content: { text },
+    });
   }
 
   // ---- inbound: durable inbox before ACK -----------------------------------
@@ -362,14 +391,14 @@ export class PaRuntime {
     if (!config || !this.repos) throw new Error('24私助尚未就绪。');
     this.lastReceivedAt = nowIso();
     const expectedApp = this.env[config.appIdEnv] ?? '';
+    const appId = event.appId || expectedApp;
+    // Rejections are written atomically: a 'received' row could otherwise be
+    // claimed by the dispatcher between insert and mark.
     const reject = async (reason: string): Promise<void> => {
-      await this.repos!.inbox.insert({
-        eventId: event.eventId,
-        source: 'feishu',
-        kind: event.kind === 'card' ? 'card' : 'message',
-        payload: { ...event, rejected: reason },
-      });
-      await this.repos!.inbox.mark(event.eventId, { status: 'rejected', error: reason });
+      await this.repos!.inbox.insertRejected(
+        { eventId: event.eventId, source: 'feishu', kind: event.kind === 'card' ? 'card' : 'message', payload: event },
+        reason,
+      );
     };
 
     if (event.kind === 'message' && event.chatType !== 'p2p') {
@@ -384,6 +413,13 @@ export class PaRuntime {
       await reject('事件来自另一个应用，不属于本24私助。');
       return;
     }
+    if (appId && event.tenantKey) {
+      const tenants = await this.repos.bindings.tenantsFor(appId, config.ownerOpenId);
+      if (tenants.length > 0 && !tenants.includes(event.tenantKey)) {
+        await reject('事件来自另一个租户，与已绑定的主人身份不一致。');
+        return;
+      }
+    }
     const { inserted } = await this.repos.inbox.insert({
       eventId: event.eventId,
       source: 'feishu',
@@ -396,7 +432,7 @@ export class PaRuntime {
     }
     if (config.mode === 'feishu') {
       await this.repos.bindings.upsert({
-        appId: event.appId || expectedApp,
+        appId,
         tenantKey: event.tenantKey || 'unknown',
         ownerOpenId: config.ownerOpenId,
         larkProfile: config.larkProfile,
@@ -433,24 +469,15 @@ export class PaRuntime {
     if (!this.config || !this.repos) return;
     const event = row.payload as InboundEvent;
     if (row.kind === 'card') {
-      await this.repos.outbox.enqueue({
-        dedupKey: `card-unsupported:${event.eventId}`,
-        channel: 'feishu',
-        target: this.config.ownerOpenId,
-        kind: 'text',
-        content: { text: '卡片操作尚未在此版本启用（手写审核随后交付）；请直接回复文字说明需要办理什么。' },
-      });
+      await this.notifyOwner(
+        `card-unsupported:${event.eventId}`,
+        '卡片操作尚未在此版本启用（手写审核随后交付）；请直接回复文字说明需要办理什么。',
+      );
       await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '卡片暂不支持' });
       return;
     }
     if (event.messageType === 'image') {
-      await this.repos.outbox.enqueue({
-        dedupKey: `image-unsupported:${event.eventId}`,
-        channel: 'feishu',
-        target: this.config.ownerOpenId,
-        kind: 'text',
-        content: { text: '已收到图片。手写笔记整理在后续版本交付；当前版本请用文字描述需要记录的内容。' },
-      });
+      await this.notifyOwner(`image-unsupported:${event.eventId}`, '已收到图片。手写笔记整理在后续版本交付；当前版本请用文字描述需要记录的内容。');
       await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '图片暂不支持' });
       return;
     }
@@ -462,20 +489,15 @@ export class PaRuntime {
     if (input === '/24pa' || input === '/帮助') {
       const ready = this.readiness();
       const pg = ready.items.find(i => i.id === 'postgres');
-      await this.repos.outbox.enqueue({
-        dedupKey: `status:${event.eventId}`,
-        channel: 'feishu',
-        target: this.config.ownerOpenId,
-        kind: 'text',
-        content: {
-          text: [
-            '24私助已收到你的消息。',
-            `绑定：${this.config.ownerOpenId ? '已按配置绑定主人' : '尚未在配置中绑定主人'}`,
-            `业务账本（PostgreSQL）：${pg?.state === 'ok' ? '正常' : pg?.message ?? '未知'}`,
-            '直接告诉我需要办理什么；也可以说“查看正在处理的事”。配置与记忆维护请到 dsh 的24私助会话。',
-          ].join('\n'),
-        },
-      });
+      await this.notifyOwner(
+        `status:${event.eventId}`,
+        [
+          '24私助已收到你的消息。',
+          `绑定：${this.config.ownerOpenId ? '已按配置绑定主人' : '尚未在配置中绑定主人'}`,
+          `业务账本（PostgreSQL）：${pg?.state === 'ok' ? '正常' : pg?.message ?? '未知'}`,
+          '直接告诉我需要办理什么；也可以说“查看正在处理的事”。配置与记忆维护请到 dsh 的24私助会话。',
+        ].join('\n'),
+      );
       await this.repos.inbox.mark(row.event_id, { status: 'delivered', requestId: `status:${event.eventId}` });
       return;
     }
@@ -535,13 +557,7 @@ export class PaRuntime {
         ? `本轮未完成：${failure.code === 'MISSING_CREDENTIAL' ? 'dsh 尚未配置模型，请先在模型设置中配置。' : failure.message ?? '模型执行失败'}`
         : output || '（本轮没有产生回复）';
       if (pending) {
-        await this.repos.outbox.enqueue({
-          dedupKey: `reply:${pending.inboxId}:${turn}`,
-          channel: 'feishu',
-          target: this.config.ownerOpenId,
-          kind: 'text',
-          content: { text: reply },
-        });
+        await this.notifyOwner(`reply:${pending.inboxId}:${turn}`, reply);
         await this.repos.inbox.mark(pending.inboxId, {
           status: failure ? 'rejected' : 'delivered',
           error: failure?.message,
@@ -577,13 +593,7 @@ export class PaRuntime {
     if (item.origin === 'feishu') {
       const ref = item.result_ref as { docUrl?: string; operationId?: string } | null;
       const source = ref?.docUrl ? `\n出处：${ref.docUrl}\n操作编号：${ref.operationId}` : '';
-      await this.repos.outbox.enqueue({
-        dedupKey: `workitem:${workItemId}:result`,
-        channel: 'feishu',
-        target: this.config.ownerOpenId,
-        kind: 'text',
-        content: { text: `「${item.title}」已完成：\n${output}${source}` },
-      });
+      await this.notifyOwner(`workitem:${workItemId}:result`, `「${item.title}」已完成：\n${output}${source}`);
       return;
     }
     // Local origin: report back inside the originating 24私助 session.
@@ -753,6 +763,12 @@ export class PaRuntime {
     throw new Error('未知业务操作。');
   }
 
+  /**
+   * memo_save as a staged operation: create (CLI) is recorded the moment the
+   * platform returns a document id, so a retry resumes from the read-back
+   * instead of creating a second document. Outcome-unknown attempts are never
+   * auto-retried; they require reconciliation first.
+   */
   private async saveMemo(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const topic = text(args.topic, 200);
     const content = text(args.content);
@@ -764,21 +780,41 @@ export class PaRuntime {
       action: 'memo.save_doc',
       params: { topic, contentHash: hash(content) },
     });
-    if (!created && operation.status === 'succeeded') {
-      const memo = await this.repos!.memos.search({ topic, limit: 1 });
-      return {
-        operationId,
-        reused: true,
-        message: '此备忘此前已保存，未重复创建文档。',
-        docUrl: memo[0]?.doc_url ?? operation.receipt?.docUrl ?? null,
-      };
+    if (!created) {
+      if (operation.status === 'succeeded') {
+        const memo = await this.repos!.memos.get(operationId);
+        return {
+          operationId,
+          reused: true,
+          message: '此备忘此前已保存，未重复创建文档。',
+          docUrl: memo?.doc_url ?? operation.receipt?.docUrl ?? null,
+        };
+      }
+      if (operation.status === 'unknown') {
+        throw new Error('上次保存的结果未知（超时或响应丢失）；请先核对飞书目录是否已生成文档，确认后再继续，不会自动重试。');
+      }
     }
     await this.repos!.operations.update(operationId, { status: 'running' });
     const live = this.transport !== null;
     try {
-      let external: { docId: string | null; url: string | null; revision: string | null } = { docId: null, url: null, revision: null };
-      if (live && this.config!.mode === 'feishu') {
+      let external: { docId: string | null; url: string | null; revision: string | null; warnings: string[] } = {
+        docId: (operation.receipt?.docId as string | undefined) ?? null,
+        url: (operation.receipt?.docUrl as string | undefined) ?? null,
+        revision: null,
+        warnings: [],
+      };
+      if (live && this.config!.mode === 'feishu' && !external.docId) {
         external = await this.createMemoDocument(item, topic, content);
+        // Persist the created document id before anything else can fail, so
+        // a retry resumes instead of duplicating the external write.
+        await this.repos!.operations.update(operationId, {
+          status: 'running',
+          receipt: { docId: external.docId, docUrl: external.url, stage: 'created' },
+        });
+      }
+      if (external.docId && live && this.config!.mode === 'feishu') {
+        const readback = await this.readMemoDocument(external.docId);
+        external = { ...external, revision: readback.revision };
       }
       const memo = await this.repos!.memos.insert({
         id: operationId,
@@ -793,7 +829,7 @@ export class PaRuntime {
       });
       await this.repos!.operations.update(operationId, {
         status: 'succeeded',
-        receipt: { docId: external.docId, url: external.url, revision: external.revision, memoId: memo.id, demo: !live },
+        receipt: { docId: external.docId, url: external.url, revision: external.revision, warnings: external.warnings, memoId: memo.id, demo: !live },
       });
       await this.repos!.workItems.update(item.id, {
         result_ref: { operationId, docUrl: external.url, demo: !live },
@@ -811,7 +847,7 @@ export class PaRuntime {
     }
   }
 
-  private async createMemoDocument(item: WorkItemRow, topic: string, content: string): Promise<{ docId: string; url: string; revision: string | null }> {
+  private async createMemoDocument(item: WorkItemRow, topic: string, content: string): Promise<{ docId: string | null; url: string | null; revision: string | null; warnings: string[] }> {
     const config = this.config!;
     const xml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
     const paragraphs = content
@@ -823,17 +859,22 @@ export class PaRuntime {
     const { data } = await runLarkCli(cliOptions(config, this.options.larkCliBin, this.options.cliTimeoutMs), [
       'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', config.folderToken, '--content', '-',
     ], body);
-    if (data?.warnings?.length) {
-      throw new Error(`飞书文档创建带有警告，请检查目录中的文档：${data.warnings.map((x: unknown) => String(x)).join('；')}`);
-    }
     const doc = data?.document;
-    if (!doc?.document_id || !doc?.url) throw new Error('未取得文档标识；请先核对体验目录，不要盲目重试。');
-    // Read back: creation counts only once the real document content is confirmed.
-    const readback = await runLarkCli(cliOptions(config, this.options.larkCliBin, this.options.cliTimeoutMs), [
-      'docs', '+fetch', '--as', 'user', '--doc', doc.document_id, '--doc-format', 'xml', '--detail', 'full',
+    const warnings = Array.isArray(data?.warnings) ? data.warnings.map((x: unknown) => String(x)) : [];
+    // A returned document id wins even with warnings: the external object
+    // exists, so the failure must not orphan it — read back and record it.
+    if (!doc?.document_id || !doc?.url) {
+      throw new Error(warnings.length ? `文档创建未完成（${warnings.join('；')}）；请先核对体验目录，不要盲目重试。` : '未取得文档标识；请先核对体验目录，不要盲目重试。');
+    }
+    return { docId: doc.document_id, url: doc.url, revision: null, warnings };
+  }
+
+  private async readMemoDocument(docId: string): Promise<{ revision: string | null }> {
+    const readback = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+      'docs', '+fetch', '--as', 'user', '--doc', docId, '--doc-format', 'xml', '--detail', 'full',
     ]);
     if (!readback.data?.document?.content) throw new Error('文档回读不完整，保存结果未确认。');
-    return { docId: doc.document_id, url: doc.url, revision: readback.data.document.revision_id != null ? String(readback.data.document.revision_id) : null };
+    return { revision: readback.data.document.revision_id != null ? String(readback.data.document.revision_id) : null };
   }
 
   // ---- outbox worker --------------------------------------------------------
@@ -897,6 +938,7 @@ export class PaRuntime {
   readiness(): { startedAt: string | null; items: ReadinessItem[] } {
     const items: ReadinessItem[] = [];
     const config = this.config;
+    const versions = resolveVersions();
     items.push({
       id: 'host',
       state: this.startupError ? 'error' : this.closed ? 'error' : 'ok',
@@ -904,7 +946,7 @@ export class PaRuntime {
         ? `启动未完成：${this.startupError.message}`
         : this.closed
           ? '插件已停止'
-          : `24私助 Host 运行中（Node ${process.version}）`,
+          : `24私助 Host 运行中（Node ${process.version}，dsh ${versions.dsh}，飞书 SDK ${versions.sdk}）`,
     });
     items.push({
       id: 'config',
@@ -967,6 +1009,22 @@ export class PaRuntime {
       diagnostics: this.diagnostics,
     };
   }
+}
+
+/** Cached dependency versions surfaced by readiness (P01). */
+let cachedVersions: { dsh: string; sdk: string } | null = null;
+function resolveVersions(): { dsh: string; sdk: string } {
+  if (cachedVersions) return cachedVersions;
+  const require = createRequire(import.meta.url);
+  const read = (name: string): string => {
+    try {
+      return String(require(`${name}/package.json`).version ?? '未知');
+    } catch {
+      return '未解析';
+    }
+  };
+  cachedVersions = { dsh: read('@deepseek-ai/dsh'), sdk: read('@larksuiteoapi/node-sdk') };
+  return cachedVersions;
 }
 
 /** In-process fake used by tests and demo mode to exercise the real pipeline. */

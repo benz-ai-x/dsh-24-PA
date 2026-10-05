@@ -111,11 +111,13 @@ export function apply(ctx: DshContext) {
       const role = runtime.roleFor(exec.agent!);
       if (role !== 'local-robot') throw new Error('请在 dsh 的24私助会话中操作。');
       if (args.action === 'reload') await runtime.reloadWorkspace();
+      const snapshot = runtime.snapshot() as any;
       return {
-        path: runtime.workspace?.statePath,
-        config: runtime.config,
-        loadedAt: runtime.workspace ? runtime.snapshot().workspace : null,
-        configError: runtime.config ? null : (runtime.snapshot().workspace as any)?.configError,
+        path: snapshot.workspace?.path ?? null,
+        config: snapshot.workspace?.config ?? null,
+        loadedAt: snapshot.workspace?.loadedAt ?? null,
+        configError: snapshot.workspace?.configError ?? null,
+        memoryNote: '长期记忆与整理功能在后续功能组交付；当前版本先完成配置维护。',
       };
     },
   );
