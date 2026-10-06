@@ -3129,6 +3129,13 @@ export class PaRuntime {
       tasks: args.scopeTasks === false ? false : true,
       minutes: args.scopeMinutes === false ? false : true,
     };
+    const active = (await this.dbRef
+      .query<{ id: string }>(
+        `select id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1 limit 1`,
+        [eventId],
+      )
+      .catch(() => ({ rows: [] as { id: string }[] }))).rows;
+    if (active.length > 0) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；不要重复设置，如需调整请先停止原计划。`);
     const id = `prep-${randomUUID().slice(0, 12)}`;
     const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: new Date(event.start_time).toISOString(), scope };
     const created = await schedule.create(this.accessSessionId!, {
@@ -3291,7 +3298,7 @@ export class PaRuntime {
       event_id: eventId,
       topic,
       memo_id: memoRow?.id ?? null,
-      doc_url: memoRow?.doc_url ?? (saved as { docUrl?: string }).docUrl ?? null,
+      doc_url: memoRow?.doc_url ?? saved.docUrl ?? null,
       candidates,
       status: 'draft',
     });
