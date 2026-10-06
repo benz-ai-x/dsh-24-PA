@@ -178,6 +178,31 @@ window.__ModuleLoader__.load({
                   h('p', { className: 'pa24-meta' }, '需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。')))));
         }
 
+        function HealthBlock() {
+          const [view, setView] = React.useState({ status: 'idle', data: null, error: '' });
+          const load = () => {
+            setView({ status: 'loading', data: null, error: '' });
+            void rpc('health', {}).then(data => setView({ status: 'ready', data, error: '' })).catch(error => setView({ status: 'error', data: null, error: error.message }));
+          };
+          const badgeOfCap = c => badge(c.state === 'ok' ? '正常' : c.state === 'warn' ? '需注意' : c.state === 'error' ? '异常' : '说明', c.state === 'ok' ? 'teal' : c.state === 'warn' ? 'amber' : c.state === 'error' ? 'rose' : 'neutral', c.state === 'ok' ? 'check' : c.state === 'warn' ? 'info' : 'alert');
+          return h('section', null,
+            sectionHead('pulse', '健康与预算', '能力可用性、同步新鲜度与本 Host 的投入统计；凭据不进入诊断。',
+              h('div', { className: 'pa24-row' }, button('refresh', view.status === 'idle' ? '读取健康状态' : '刷新', load, { disabled: view.status === 'loading', className: view.status === 'idle' ? 'pa24-primary' : 'pa24-quiet' })), 'blue'),
+            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取健康状态…'),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '健康状态读取失败')), h('p', null, view.error), button('refresh', '重试', load)),
+            view.status === 'ready' && h('div', { className: 'pa24-card' },
+              h('div', { className: 'pa24-ready' }, (view.data.capabilities ?? []).map(c => h('div', { key: c.id, className: 'pa24-ready-item pa24-tone-' + (c.state === 'ok' ? 'teal' : c.state === 'warn' ? 'amber' : 'rose') }, icon(c.state === 'ok' ? 'check' : 'alert', { width: 17, height: 17 }), h('div', null, h('div', { className: 'pa24-row pa24-between' }, h('strong', null, c.id), badgeOfCap(c)), h('p', { className: 'pa24-meta' }, c.message))))),
+              view.data.usage && h('div', { style: { marginTop: 14 } }, fields([
+                ['模型轮次', view.data.usage.modelTurns], ['输入笔记页', view.data.usage.notePagesInput], ['生成裁片', view.data.usage.noteCrops],
+                ['发送队列', view.data.usage.outboxQueued], ['结果未知', (view.data.usage.outboxUnknown ?? 0) + (view.data.usage.operationsUnknown ?? 0)],
+                ['发送延迟 p50/p95', (view.data.usage.outboxLatencyMs?.p50 ?? '—') + ' / ' + (view.data.usage.outboxLatencyMs?.p95 ?? '—') + ' ms'],
+              ]), h('p', { className: 'pa24-meta' }, view.data.usage.note)),
+              view.data.dataFlow && h('details', null, h('summary', null, '数据流与保留披露'), fields([
+                ['模型输入', view.data.dataFlow.modelInput], ['额外日志', view.data.dataFlow.extraLogs], ['保留期限', view.data.dataFlow.retention], ['凭据', view.data.dataFlow.secrets],
+              ])),
+              view.data.degraded && h('div', { className: 'pa24-example' }, icon('info', { width: 16, height: 16 }), view.data.degraded.modelDown + ' ' + view.data.degraded.pgDown)));
+        }
+
         function Panel() {
           const [state, setState] = React.useState(null), [error, setError] = React.useState(''), [connError, setConnError] = React.useState(''), [busy, setBusy] = React.useState(false);
           const [tab, setTab] = React.useState('work'), [path, setPath] = React.useState('');
@@ -305,6 +330,7 @@ window.__ModuleLoader__.load({
           } else if (tab === 'workspace') {
             const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: '备忘整理' }[w] || w)).join('、') || '无';
             content = h('div', { className: 'pa24-grid' },
+              h(HealthBlock),
               h('section', { className: 'pa24-card' },
                 sectionHead('folder', '当前工作区', '在 dsh 添加服务器目录，再选择绑定。空目录首次绑定时生成 AGENTS.md。'),
                 h('label', { style: { display: 'block', margin: '18px 0 12px' } },

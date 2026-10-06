@@ -48,6 +48,18 @@ export interface CreateReminderInput {
   link?: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string };
 }
 
+/**
+ * First occurrence for a fresh record. resolveRecurringOccurrence refuses
+ * dispatches before scheduledAt; in that window the first fire IS scheduledAt.
+ */
+function firstOccurrence(record: RecurringScheduleRecord, now: number): Date {
+  try {
+    return new Date(resolveRecurringOccurrence(record, now).occurrenceAt);
+  } catch {
+    return new Date((record as { scheduledAt?: string }).scheduledAt ?? now);
+  }
+}
+
 export class ReminderError extends Error {
   constructor(message: string) {
     super(message);
@@ -121,15 +133,13 @@ export class ReminderEngine {
       if (!Number.isInteger(seconds)) throw new ReminderError('every 需要 everySeconds 整数秒。');
       // dsh-schedule enforces its own minimum; surface its error verbatim.
       record = createEveryScheduleRecord(ScheduleId(ruleId), text, seconds, now, text.slice(0, 100));
-      const occurrence = resolveRecurringOccurrence(record as RecurringScheduleRecord, now);
-      nextDueAt = new Date(occurrence.occurrenceAt);
+      nextDueAt = firstOccurrence(record as RecurringScheduleRecord, now);
       kind = 'every';
       originExpression = `every ${seconds}s`;
     } else if (input.kind === 'daily') {
       if (!/^\d{2}:\d{2}:\d{2}$/.test(String(input.time ?? ''))) throw new ReminderError('daily 需要本地时间 HH:mm:ss。');
       record = createDailyScheduleRecord(ScheduleId(ruleId), text, { time: input.time!, time_zone: timeZone }, now, text.slice(0, 100));
-      const occurrence = resolveRecurringOccurrence(record as RecurringScheduleRecord, now);
-      nextDueAt = new Date(occurrence.occurrenceAt);
+      nextDueAt = firstOccurrence(record as RecurringScheduleRecord, now);
       kind = 'daily';
       originExpression = `daily ${input.time} ${timeZone}`;
     } else if (input.kind === 'weekly') {
@@ -138,8 +148,7 @@ export class ReminderEngine {
         throw new ReminderError('weekly 需要 weekdays（ISO 1–7，周一=1）。');
       }
       record = createWeeklyScheduleRecord(ScheduleId(ruleId), text, { time: input.time!, time_zone: timeZone, weekdays: [...new Set(input.weekdays)].sort() }, now, text.slice(0, 100));
-      const occurrence = resolveRecurringOccurrence(record as RecurringScheduleRecord, now);
-      nextDueAt = new Date(occurrence.occurrenceAt);
+      nextDueAt = firstOccurrence(record as RecurringScheduleRecord, now);
       kind = 'weekly';
       originExpression = `weekly ${input.time} ${input.weekdays.join(',')} ${timeZone}`;
     } else {

@@ -45,6 +45,9 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
               }),
             });
           }
+          if (endpoint === 'health') {
+            return respond({ ok: true, value: await runtime.maintenanceHealth() });
+          }
           if (endpoint === 'notes.queue') {
             return respond({ ok: true, value: await runtime.reviewQueue() });
           }

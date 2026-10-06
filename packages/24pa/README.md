@@ -84,6 +84,12 @@ dsh --profile <你的 profile>
 - 修订影响（P34）：发布新版本时对旧版本已建的行动对象发**变更建议**（`noteimpact` 通知，逐版本去重；"是否调整由你决定"，绝不静默删除/覆盖）。
 - 可信检索（P35）：`notes_search {query}` 只读检索，逐条**重新核验当前有效性**——matches（可作为已确认事实引用）/changed/unknown（含原因）/unreviewed 明确标注，多版本各自成行、不因曾通过而继承；返回可打开的文档链接。今日概览与晨报新增 reviewedNotes（当前仍匹配的已审版本，带版本/审核时间/链接）；待审读取失败显示"无法读取（不按零处理）"；会话历史不默认拼接。
 
+## F12 增量（运行维护与数据恢复）
+
+- 归档检查/执行（P37）：`pa24_maintenance archive_check` 盘点运行中事项、**原生 Schedule**（digest/prep 计划）与 **PG 外部提醒**（reminder_rule/review_reminder，单独展示不与原生计划混同）及未确认发送；`archive_execute` 需 `confirmStop:true`——停止 Worker（用户停止不复活）→ 逐个删除原生计划并回读（部分失败逐项说明）→ 外部提醒默认保留、`stopRules:true` 才停止；恢复不自动重建已删计划；取消零副作用。dsh 原生归档闸（active Schedule 阻止归档）仍是权威兜底。
+- 联合备份（P38）：`backup_create {targetDir}` 产出 `pg_dump --schema=pa24`＋工作区（AGENTS.md/.24pa 记忆/修订/原稿/裁片）清单＋dsh 状态清单＋`backup-manifest.json`（各部分 sha256、PG schema 版本与行数水位、凭据**引用名**清单——凭据值永不入备份）；`backup_verify` 校验摘要并报告缺失部分（未完整恢复的能力不可假装就绪）。恢复顺序与旧 Outbox/飞书对象对账规则见下方「数据与备份/恢复」。
+- 健康/预算（P39）：`pa24_maintenance health`＋面板「工作区」页健康区块——能力状态（视觉路由/日历同步新鲜度）、本 Host 投入统计（模型轮次/输入页/裁片/发送队列/结果未知/发送延迟 p50/p95；进程内计数重启清零，费用口径声明）、数据流披露（模型输入范围/日志/保留期/凭据不出现在诊断）、降级语义（模型断→仅模型工作暂停固定提醒继续；PG 断→停止接纳）。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |

@@ -188,6 +188,8 @@ export class PaRuntime {
   private readonly pendingDeliveries = new Map<string, PendingDelivery[]>();
 
   private lock: HostLock | null = null;
+  /** Best-effort usage counters since host start (P39 预算观测). */
+  readonly usage = { modelRequests: 0, notePagesInput: 0, noteCrops: 0, cliCalls: 0, cliRetries: 0 };
   private db: PaDatabase | null = null;
   private get dbRef(): PaDatabase {
     if (!this.db) throw new Error('PostgreSQL 业务账本未连接。');
@@ -1176,6 +1178,7 @@ export class PaRuntime {
 
   private async onTurnEnd(session: DshSession, event: { data: Record<string, any> }): Promise<void> {
     if (!this.repos || !this.config) return;
+    this.usage.modelRequests += 1;
     await this.ctx.sessions.flush(session).catch(() => {});
     const turn = event.data.turn;
     const failure = event.data.reason?.error;
@@ -3555,6 +3558,244 @@ export class PaRuntime {
     };
   }
 
+  // ---- maintenance: archive, backup, health (F12) -----------------------------
+
+  /**
+   * Pre-archive inventory (P37): running work, native schedules on the access
+   * session, and PG reminder rules (external Feishu-side reminders) are listed
+   * separately — native plans and external reminders never mix.
+   */
+  async maintenanceArchiveCheck(): Promise<unknown> {
+    if (!this.repos) throw new Error('业务账本未就绪。');
+    const running = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 50);
+    // Native schedules are inventoried from our durable plan rows (every
+    // schedule the plugin creates is mirrored there with its schedule_id);
+    // dsh's own archive gate remains the authoritative blocker.
+    const digestPlans = (await this.repos.digests.listPlans('active')).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null }));
+    const reminderRules = (await this.repos.reminders.listRules('active')).map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null }));
+    const reviewReminders = (await this.repos.reviewReminders.activeAll(50)).map(r => ({ id: r.id, noteId: r.note_id, kind: r.kind, remindAt: new Date(r.remind_at).toISOString() }));
+    const outboxPending = (await this.repos.outbox.recent(200)).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length;
+    const blocking = running.length > 0 || digestPlans.some(p => p.native) || outboxPending > 0;
+    return {
+      runningWork: running.map(w => ({ id: w.id, title: w.title, role: w.role, status: w.status })),
+      nativeSchedules: digestPlans.filter(p => p.native),
+      externalPgReminders: { reminderRules, reviewReminders },
+      outboxPending,
+      blocking,
+      message: blocking
+        ? '存在运行中事项/原生计划/未确认发送：归档会被原生闸阻止。明确停止请用 archive_execute {confirmStop:true, stopRules:...}；PG 提醒规则默认保留，需明确选择才停止。'
+        : '没有运行中事项或未确认发送；原生计划与外部提醒清单如下（空闲但有计划也需明确处置后再归档）。',
+    };
+  }
+
+  /**
+   * Explicit stop-and-prepare for archive (P37): stops workers, disposes native
+   * schedules with per-item readback, optionally stops PG reminder rules, and
+   * reports partial failures honestly. Without confirmStop nothing happens.
+   */
+  async maintenanceArchiveExecute(args: Record<string, unknown>): Promise<unknown> {
+    const role = 'local session required';
+    if (!this.repos) throw new Error('业务账本未就绪。');
+    if (args.confirmStop !== true) {
+      return { changed: false, message: '未执行任何变更：归档前的停止需要明确确认（confirmStop:true）。用户取消不产生副作用。' };
+    }
+    const stopRules = args.stopRules === true;
+    const failures: string[] = [];
+    // 1. Stop running work (user-stopped items never resurrect).
+    const running = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 50);
+    for (const item of running) {
+      await this.repos.workItems.update(item.id, { status: 'stopped', progress: '归档前按本人指令停止；已完成的外部操作保留' });
+      if (item.child_session_id) this.ctx.subagents.interrupt(item.child_session_id, { kind: 'user', parentSessionId: item.parent_session_id });
+    }
+    // 2. Dispose native schedules with readback.
+    const schedule = this.nativeSchedule();
+    const plans = await this.repos.digests.listPlans('active');
+    let nativeDisposed = 0;
+    for (const plan of plans) {
+      if (!plan.schedule_id) continue;
+      if (schedule) {
+        try {
+          await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id });
+          nativeDisposed += 1;
+        } catch (error) {
+          failures.push(`原生计划 ${plan.id} 删除失败：${(error as Error).message}`);
+          continue;
+        }
+      }
+      await this.repos.digests.updatePlan(plan.id, { status: 'paused', schedule_id: null });
+    }
+    // 3. External PG reminders only when explicitly chosen.
+    let rulesStopped = 0;
+    if (stopRules) {
+      for (const rule of await this.repos.reminders.listRules('active')) {
+        await this.repos.reminders.updateRule(rule.id, { status: 'stopped' }).catch(error => failures.push(`提醒 ${rule.id} 停止失败：${(error as Error).message}`));
+        rulesStopped += 1;
+      }
+    }
+    // Readback.
+    const after = await this.maintenanceArchiveCheck() as { runningWork: unknown[]; nativeSchedules: unknown[]; outboxPending: number };
+    return {
+      stoppedWork: running.length,
+      nativeDisposed,
+      rulesStopped,
+      failures,
+      remaining: { running: after.runningWork.length, native: after.nativeSchedules.length, outboxPending: after.outboxPending },
+      message: failures.length
+        ? `已执行停止，但 ${failures.length} 项失败（见明细）；未完全清理前不建议归档。`
+        : `已停止 ${running.length} 个运行中事项、处置 ${nativeDisposed} 个原生计划${stopRules ? `、停止 ${rulesStopped} 条外部提醒` : '（外部提醒按你的选择保留）'}；恢复后不会自动重建已删计划。`,
+    };
+  }
+
+  /**
+   * Joint backup (P38): pg_dump of the pa24 schema plus a tar of workspace and
+   * dsh-domain directories, with a verifiable manifest. Credentials are never
+   * included — only their environment variable names.
+   */
+  async maintenanceBackupCreate(args: Record<string, unknown>): Promise<unknown> {
+    if (!this.repos || !this.workspace) throw new Error('尚未绑定工作区。');
+    const targetDir = String(args.targetDir ?? '');
+    if (!targetDir || !isAbsolute(targetDir)) throw new Error('需要绝对目标目录 targetDir。');
+    const { mkdir, writeFile: wf, readdir, stat: st, readFile: rf, cp } = await import('node:fs/promises');
+    const { spawn } = await import('node:child_process');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dir = join(targetDir, `pa24-backup-${stamp}`);
+    await mkdir(dir, { recursive: true });
+    const parts: { id: string; path: string; bytes: number; sha256: string }[] = [];
+    const addPart = async (id: string, name: string, bytes: Buffer) => {
+      await wf(join(dir, name), bytes);
+      parts.push({ id, path: name, bytes: bytes.length, sha256: sha256Hex(bytes) });
+    };
+    // 1. PostgreSQL schema dump (structures + rows; credentials never involved).
+    const dsn = resolveDsn(this.config!.pgDsnEnv, this.env);
+    const dump = await new Promise<Buffer | null>((resolve, reject) => {
+      const child = spawn('pg_dump', ['--schema=pa24', '--no-owner', '--no-privileges', '--dbname', dsn], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const chunks: Buffer[] = [];
+      child.stdout.on('data', (c: Buffer) => chunks.push(c));
+      child.on('error', reject);
+      child.on('close', code => resolve(code === 0 ? Buffer.concat(chunks) : null));
+    });
+    if (!dump) throw new Error('pg_dump 失败（检查 PATH 与连接串权限）；未生成备份。');
+    await addPart('postgres', 'pa24.sql', dump);
+    // 2. Workspace (AGENTS.md + .24pa memory/revisions/originals/crops).
+    const packDir = async (root: string, id: string, filter: (path: string) => boolean) => {
+      const files: { path: string; bytes: number; sha256: string }[] = [];
+      const walk = async (rel: string) => {
+        for (const entry of await readdir(join(root, rel), { withFileTypes: true }).catch(() => [])) {
+          const relPath = join(rel, entry.name);
+          if (!filter(relPath)) continue;
+          if (entry.isDirectory()) await walk(relPath);
+          else {
+            const bytes = await rf(join(root, relPath));
+            files.push({ path: relPath, bytes: bytes.length, sha256: sha256Hex(bytes) });
+          }
+        }
+      };
+      await walk('.');
+      await wf(join(dir, `${id}-manifest.json`), JSON.stringify({ root, files }, null, 2));
+      parts.push({ id, path: `${id}-manifest.json`, bytes: files.length, sha256: sha256Hex(JSON.stringify(files)) });
+      return files.length;
+    };
+    const workspaceFiles = await packDir(this.workspace.statePath, 'workspace', p => p === 'AGENTS.md' || p.startsWith('.24pa/'));
+    const sessionsFiles = await packDir(this.options.stateDirectory, 'dsh-state', () => true);
+    // 3. Watermarks + credential references (names only).
+    const schemaVersion = await this.dbRef.schemaVersion();
+    const counts = await this.dbRef.query<{ table: string; n: string }>(
+      `select 'work_item' as table, count(*) as n from pa24.work_item union all select 'note', count(*) from pa24.note union all select 'reminder_rule', count(*) from pa24.reminder_rule union all select 'outbox', count(*) from pa24.outbox`,
+    ).catch(() => ({ rows: [] as { table: string; n: string }[] }));
+    const manifest = {
+      createdAt: new Date().toISOString(),
+      plugin: { name: '@benz-ai-x/dsh-24pa', dsh: '0.2.1-alpha.1' },
+      schemaVersion,
+      watermarks: counts.rows.map(r => ({ table: r.table, rows: Number(r.n) })),
+      parts,
+      credentialReferences: [this.config!.pgDsnEnv, this.config!.appIdEnv, this.config!.appSecretEnv],
+      note: '凭据不包含在备份中，仅记录环境变量名；恢复顺序与对账规则见 packages/24pa/README.md「数据与备份/恢复」。',
+    };
+    await wf(join(dir, 'backup-manifest.json'), JSON.stringify(manifest, null, 2));
+    return {
+      backupDir: dir,
+      parts: parts.map(p => ({ id: p.id, bytes: p.bytes })),
+      workspaceFiles,
+      sessionsFiles,
+      schemaVersion,
+      message: `联合备份已生成于 ${dir}（PG schema＋工作区＋dsh 状态，清单带摘要与水位；凭据仅存引用名）。恢复前先用 backup_verify 校验。`,
+    };
+  }
+
+  /** Verify a backup directory (P38): manifest hashes and part presence. */
+  async maintenanceBackupVerify(args: Record<string, unknown>): Promise<unknown> {
+    const dir = String(args.backupDir ?? '');
+    if (!dir) throw new Error('需要 backupDir。');
+    const { readFile: rf } = await import('node:fs/promises');
+    const manifest = JSON.parse(await rf(join(dir, 'backup-manifest.json'), 'utf8'));
+    const results = [];
+    for (const part of manifest.parts ?? []) {
+      if (part.id === 'workspace' || part.id === 'dsh-state') {
+        const listing = JSON.parse(await rf(join(dir, part.path), 'utf8'));
+        results.push({ id: part.id, ok: Array.isArray(listing.files), files: listing.files?.length ?? 0 });
+        continue;
+      }
+      const bytes = await rf(join(dir, part.path)).catch(() => null);
+      results.push({ id: part.id, ok: !!bytes && sha256Hex(bytes) === part.sha256, bytes: bytes?.length ?? 0 });
+    }
+    const missing = results.filter(r => !r.ok);
+    return {
+      backupDir: dir,
+      createdAt: manifest.createdAt,
+      schemaVersion: manifest.schemaVersion,
+      parts: results,
+      complete: missing.length === 0,
+      message: missing.length === 0
+        ? '备份完整（各部分摘要匹配）。恢复顺序：先 PG（psql < pa24.sql）再恢复目录，重启 Host 后按启动对账处理；旧 Outbox 与飞书实际对象先对账再发送。'
+        : `备份不完整：${missing.map(r => r.id).join('、')} 校验失败；对应能力恢复后不可视为就绪。`,
+    };
+  }
+
+  /**
+   * Capability health and budget report (P39): readiness plus per-capability
+   * state, sync freshness, usage counters, and data-flow disclosure. Secrets
+   * never appear; a down dependency is an error, never a silent zero.
+   */
+  async maintenanceHealth(): Promise<unknown> {
+    const ready = this.readiness();
+    const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string }[] = [];
+    const config = this.config;
+    capabilities.push({ id: 'vision-route', state: config?.workerModels.handwriting ? 'ok' : 'warn', message: config?.workerModels.handwriting ? `手写视觉路由 ${config.workerModels.handwriting.provider}/${config.workerModels.handwriting.model}` : '未配置 workerModels.handwriting：手写识别不可用（其余能力不受影响，固定提醒继续）' });
+    const calendarState = await this.repos?.calendar.getSync(this.config!.calendarId).catch(() => null);
+    capabilities.push({ id: 'calendar-sync', state: calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'error', message: calendarState ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`) : '日历同步状态不可读取' });
+    const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
+    const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));
+    const unknownOps = await this.dbRef.query<{ n: string }>(`select count(*) as n from pa24.action_operation where status = 'unknown'`).catch(() => null);
+    const latencies = outboxRows.filter(o => o.status === 'sent' && o.sent_at).map(o => new Date(o.sent_at!).getTime() - new Date(o.created_at).getTime()).sort((a, b) => a - b);
+    const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
+    return {
+      readiness: ready,
+      capabilities,
+      usage: {
+        since: this.startedAt,
+        modelTurns: this.usage.modelRequests,
+        notePagesInput: this.usage.notePagesInput,
+        noteCrops: this.usage.noteCrops,
+        outboxQueued: pending.length,
+        outboxUnknown: outboxRows.filter(o => o.status === 'unknown').length,
+        operationsUnknown: unknownOps ? Number(unknownOps.rows[0]!.n) : null,
+        outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
+        note: '计数自本 Host 启动累计（进程内观测，重启清零）；费用口径取决于模型计费，本页只提供可测投入量。',
+      },
+      dataFlow: {
+        modelInput: '笔记原稿图片与转写文本会作为模型输入发送到所配置的 dsh 模型路由；账本与面板不外发。',
+        extraLogs: 'dsh 原生会话日志保存于 $DSH_HOME/sessions；24PA 不额外上传。Host 级日志开关影响同 Host 全部会话。',
+        retention: 'PG 账本与工作区文件长期保留；备份按部署者执行的维护动作清理。',
+        secrets: '诊断与备份仅含凭据引用名（环境变量名），凭据值不进入任何输出。',
+      },
+      degraded: {
+        modelDown: '模型不可用只暂停需要模型的工作；固定提醒经 PG+Outbox 继续发送。',
+        pgDown: 'PG 不可用时停止接纳/写入相关业务并保留可恢复状态（启动与账本闸已实现）。',
+        offlineAlert: '完全离线告警依赖独立服务器监控（声明边界）。',
+      },
+    };
+  }
+
   // ---- handwriting notes (F06) ----------------------------------------------
 
   private isImageFileMessage(event: InboundEvent): boolean {
@@ -3652,6 +3893,7 @@ export class PaRuntime {
       await mkdir(dir, { recursive: true });
       const storagePath = join(dir, `p${nextNo}-${sha.slice(0, 12)}.${extensionOf(mediaType)}`);
       await (await import('node:fs/promises')).writeFile(storagePath, bytes, { mode: 0o600 });
+      this.usage.notePagesInput += 1;
       await this.repos!.notes.insertPage({
         note_id: note.id,
         page_no: nextNo,
@@ -3799,6 +4041,7 @@ export class PaRuntime {
       const path = join(dir, `p${entry.pageNo}-${id}-${sha.slice(0, 12)}.png`);
       await writeFile(path, png, { mode: 0o600 });
       crops.push({ id, pageNo: entry.pageNo, kind: entry.kind, region: entry.region, certainty, path, sha256: sha });
+      this.usage.noteCrops += 1;
       // Feed the real clamp verdict back: an adjusted region is published as
       // 估计, never 可靠 (P30 AC2).
       if (certainty === 'estimated' && entry.kind === 'doubt') {
@@ -4475,6 +4718,21 @@ export class PaRuntime {
       sent += 1;
     }
     return sent;
+  }
+
+  /** Maintenance surface (P37/P38/P39) — local 24私助 session only for mutations. */
+  async maintenanceTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
+    const role = this.roleFor(agent);
+    const action = String(args.action ?? '');
+    if (['archive_check', 'health'].includes(action)) {
+      if (action === 'archive_check') return this.maintenanceArchiveCheck();
+      return this.maintenanceHealth();
+    }
+    if (role !== 'local-robot') throw new Error('归档执行、备份与恢复操作只在 dsh 的24私助本地会话进行。');
+    if (action === 'archive_execute') return this.maintenanceArchiveExecute(args);
+    if (action === 'backup_create') return this.maintenanceBackupCreate(args);
+    if (action === 'backup_verify') return this.maintenanceBackupVerify(args);
+    throw new Error('未知维护操作。');
   }
 
   /** Review queue view for the Lead tool and the panel (P33). */

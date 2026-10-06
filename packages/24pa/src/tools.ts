@@ -11,8 +11,8 @@ export const inject = ['tools', 'systemPrompt', 'pa24'];
 export const Config = z.object({});
 
 const ROLE_TOOLS: Record<string, string[]> = {
-  'feishu-access': ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory'],
-  'local-robot': ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_workspace', 'pa24_connection', 'read', 'write', 'edit', 'glob', 'grep'],
+  'feishu-access': ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance'],
+  'local-robot': ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_workspace', 'pa24_connection', 'read', 'write', 'edit', 'glob', 'grep'],
   worker: ['pa24_work', 'pa24_memory'],
 };
 
@@ -183,6 +183,20 @@ export function apply(ctx: DshContext) {
     },
     ['action'],
     (args, exec) => runtime.memoryTool(args, exec.agent!),
+  );
+
+  register(
+    'pa24_maintenance',
+    '运行维护（本地24私助会话）：archive_check 盘点运行事项/原生计划/外部提醒/未确认发送（归档前的安全检查，只读）；archive_execute 需 confirmStop 明确停止并处置原生计划（外部 PG 提醒默认保留、stopRules 才停止，部分失败逐项说明，取消不产生副作用）；backup_create/backup_verify 联合备份与校验（PG＋工作区＋dsh 状态，清单带摘要水位，凭据只存引用名）；health 汇总能力健康、同步新鲜度、预算统计与数据流披露（任何入口可读）。',
+    {
+      action: { type: 'string', enum: ['archive_check', 'archive_execute', 'backup_create', 'backup_verify', 'health'] },
+      confirmStop: { type: 'boolean' },
+      stopRules: { type: 'boolean' },
+      targetDir: string,
+      backupDir: string,
+    },
+    ['action'],
+    (args, exec) => runtime.maintenanceTool(args, exec.agent!),
   );
 
   register(
