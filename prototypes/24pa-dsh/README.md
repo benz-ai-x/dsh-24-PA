@@ -2,7 +2,7 @@
 
 这个可丢弃原型验证：**飞书统一向 Lead 交办，原生 Worker 办理，配置和 JSON 记忆通过 dsh 工作区会话维护，同一个助理会话也能交办事务，这是否符合你的工作方式？**
 
-中文名 **24私助**，英文名 **24PA**；版本 `0.0.4-prototype.3`。本轮统一展示名称，不迁移技术 ID，也不覆盖已有工作区文件。历史截图、文档和会话可能保留旧称。这是实际 dsh bundle，包含 Host、原生侧栏面板「24私助工作区」、唯一的「24私助」preset，以及原生 continuable 子 Agent。它不计入正式版的功能 PR。
+中文名 **24私助**，英文名 **24PA**；版本 `0.0.4-prototype.4`。本轮将视觉系统收敛为蓝色主色与中性灰阶，仅待处理和异常状态使用提示色；不迁移技术 ID，也不覆盖已有工作区文件。历史截图、文档和会话可能保留旧称。这是实际 dsh bundle，包含 Host、原生侧栏面板「24私助工作区」、唯一的「24私助」preset，以及原生 continuable 子 Agent。它不计入正式版的功能 PR。
 
 ## 1. 启动并选工作区
 
@@ -32,7 +32,7 @@ Agent 预设只需选择 **24私助**。它同时具备之前 Lead 的接单、�
 
 点击面板「与24私助对话」会打开或恢复本工作区的机器人会话。你也可以在同一工作区新建会话并选该预设。dsh 交办的 Worker 结果返回发起会话；飞书交办的结果返回机器人。两端共用配置、记忆与本次运行的事项视图，聊天历史仍按原生会话隔离。主动提醒按你的委托发到飞书。
 
-管理面板按「事项总览、飞书接入、结构化记忆、手写审核、工作区、运行记录」组织。SVG 图标与彩色标签区分日程、待办、提醒、备忘和手写能力；状态同时提供文字和图标。总览计数取自本次运行的实际事项，记忆正文直接来自工作区 JSON，不注入演示记录。原始 JSON、长路径与内部诊断放在可展开的详情中。
+管理面板按「事项总览、飞书接入、结构化记忆、手写审核、工作区、运行记录」组织。SVG 图标区分日程、待办、提醒、备忘和手写能力，能力和记忆类别统一使用中性灰阶。主按钮、机器人标识与选中导航采用蓝色，琥珀仅提示待审核/待处理，红色仅提示异常；状态同时提供文字和图标。总览计数取自本次运行的实际事项，记忆正文直接来自工作区 JSON，不注入演示记录。原始 JSON、长路径与内部诊断放在可展开的详情中。
 
 界面跟随 dsh 的明暗主题，窄窗口下卡片自动换列，导航可横向滚动；键盘左右方向键及 Home/End 可切换页签。飞书配置与记忆维护继续通过对话进行。
 
@@ -142,13 +142,13 @@ cd dsh-24-PA
 PA24_WORKSPACE=/srv/my-24pa npm run prototype
 ```
 
-或先 `npm run prototype:pack`，上传 `artifacts/benz-ai-x-dsh-24pa-prototype-0.0.4-prototype.3.tgz`，使用独立 DSH_HOME 安装：
+或先 `npm run prototype:pack`，上传 `artifacts/benz-ai-x-dsh-24pa-prototype-0.0.4-prototype.4.tgz`，使用独立 DSH_HOME 安装：
 
 ```sh
 export DSH_HOME=/srv/24pa-prototype-home
 export PA24_WORKSPACE=/srv/my-24pa
 dsh --profile pa24-prototype --from-default-profile web --dump-config >/dev/null
-dsh plugin --profile pa24-prototype add ./benz-ai-x-dsh-24pa-prototype-0.0.4-prototype.3.tgz --ignore-scripts
+dsh plugin --profile pa24-prototype add ./benz-ai-x-dsh-24pa-prototype-0.0.4-prototype.4.tgz --ignore-scripts
 dsh --profile pa24-prototype --host 127.0.0.1 --port 3210 --no-open
 ```
 

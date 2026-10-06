@@ -1,0 +1,116 @@
+[
+  {
+    "brand": "#3764ab",
+    "documentWidth": 390,
+    "page": "事项总览",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "dark",
+    "viewport": 390,
+    "workerColumns": "142.5px 142.5px"
+  },
+  {
+    "brand": "#3764ab",
+    "documentWidth": 390,
+    "page": "飞书接入",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "dark",
+    "viewport": 390,
+    "workerColumns": null
+  },
+  {
+    "brand": "#3764ab",
+    "documentWidth": 390,
+    "page": "结构化记忆",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "dark",
+    "viewport": 390,
+    "workerColumns": null
+  },
+  {
+    "brand": "#3764ab",
+    "documentWidth": 390,
+    "page": "手写审核",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "dark",
+    "viewport": 390,
+    "workerColumns": null
+  },
+  {
+    "brand": "#3764ab",
+    "documentWidth": 390,
+    "page": "工作区",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "dark",
+    "viewport": 390,
+    "workerColumns": null
+  },
+  {
+    "brand": "#3764ab",
+    "documentWidth": 390,
+    "page": "运行记录",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "dark",
+    "viewport": 390,
+    "workerColumns": null
+  },
+  {
+    "brand": "#2b5da8",
+    "documentWidth": 390,
+    "page": "事项总览",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "light",
+    "viewport": 390
+  },
+  {
+    "brand": "#2b5da8",
+    "documentWidth": 390,
+    "page": "飞书接入",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "light",
+    "viewport": 390
+  },
+  {
+    "brand": "#2b5da8",
+    "documentWidth": 390,
+    "page": "结构化记忆",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "light",
+    "viewport": 390
+  },
+  {
+    "brand": "#2b5da8",
+    "documentWidth": 390,
+    "page": "手写审核",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "light",
+    "viewport": 390
+  },
+  {
+    "brand": "#2b5da8",
+    "documentWidth": 390,
+    "page": "工作区",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "light",
+    "viewport": 390
+  },
+  {
+    "brand": "#2b5da8",
+    "documentWidth": 390,
+    "page": "运行记录",
+    "panel": 329,
+    "scrollWidth": 329,
+    "theme": "light",
+    "viewport": 390
+  }
+]
