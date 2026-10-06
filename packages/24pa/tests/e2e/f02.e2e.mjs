@@ -270,7 +270,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     const registered = await host.api('action', {
       type: 'role.register',
       definition: {
-        id: 'digest',
+        id: 'clipping',
         name: '资料摘要',
         persona: '你是 24私助的资料摘要 Worker，把收到的资料整理为带来源的摘要并入库，不执行其他业务。',
         brief: '汇总资料并保存摘要。',
@@ -278,13 +278,13 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
         actionNames: ['digest_summarize'],
       },
     });
-    expect(registered.roles.find(r => r.id === 'digest')?.available).toBe(true);
-    await writeConfig({ enabledWorkers: ['memo', 'digest'] });
+    expect(registered.roles.find(r => r.id === 'clipping')?.available).toBe(true);
+    await writeConfig({ enabledWorkers: ['memo', 'clipping'] });
     await host.api('action', { type: 'workspace.reload' });
 
     await writeScript({
       mode: 'dispatch',
-      delegate: { worker: 'digest', title: '摘要季度资料', instruction: '把这份季度资料整理为摘要' },
+      delegate: { worker: 'clipping', title: '摘要季度资料', instruction: '把这份季度资料整理为摘要' },
       leadReply: '已安排资料摘要。',
       workerAction: { action: 'digest_summarize', topic: '季度资料', content: '第一季度完成三项交付，客户满意度上升。', source: '主人提供的资料' },
       workerReply: '摘要已保存。',
@@ -292,7 +292,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     await inject(ownerEvent('evt-digest-1', '帮我摘要这份季度资料'));
     const snap = await host.waitUntil(
       s => {
-        const item = (s.work ?? []).find(w => w.role === 'digest');
+        const item = (s.work ?? []).find(w => w.role === 'clipping');
         return (
           item &&
           item.status === 'completed' &&
@@ -301,7 +301,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
       },
       { timeoutMs: 180_000, label: '摘要事项完成并回传' },
     );
-    const item = snap.work.find(w => w.role === 'digest');
+    const item = snap.work.find(w => w.role === 'clipping');
     expect(item.origin).toBe('feishu');
     expect((await cluster.query(`select count(*) from pa24.memo where topic='季度资料'`)).trim()).toBe('1');
 
@@ -310,16 +310,16 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
       host.api('action', { type: 'role.register', definition: { id: 'BAD ID', name: 'x', persona: '短', brief: 'x', available: true } }),
     ).rejects.toThrow();
     await expect(
-      host.api('action', { type: 'role.register', definition: { id: 'digest', name: '重复', persona: '这是重复注册应当被拒绝的定义内容', brief: 'x', available: true } }),
+      host.api('action', { type: 'role.register', definition: { id: 'clipping', name: '重复', persona: '这是重复注册应当被拒绝的定义内容', brief: 'x', available: true } }),
     ).rejects.toThrow(/已注册/);
     let roles = await host.api('roles');
-    expect(roles.roles.find(r => r.id === 'digest')?.name).toBe('资料摘要');
+    expect(roles.roles.find(r => r.id === 'clipping')?.name).toBe('资料摘要');
 
     // 注册持久化：重启后角色与动作仍在，可继续委派（P44 重启可续办）
     await host.stop({ keepRoot: true });
     host = await bootHost({ root: hostRoot, env: bootEnv });
     await host.waitUntil(s2 => (s2.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s2.workspace && s2.transport?.connected === true, { label: '重启就绪' });
     roles = await host.api('roles');
-    expect(roles.roles.find(r => r.id === 'digest')?.available).toBe(true);
+    expect(roles.roles.find(r => r.id === 'clipping')?.available).toBe(true);
   });
 });

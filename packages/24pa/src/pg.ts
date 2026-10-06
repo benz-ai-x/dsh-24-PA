@@ -367,6 +367,38 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       `create index if not exists waiting_item_due_idx on pa24.waiting_item (status, checkpoint_at)`,
     ],
   },
+  {
+    version: 9,
+    statements: [
+      `create table if not exists pa24.digest_plan (
+        id text primary key,
+        kind text not null,
+        title text not null,
+        schedule_id text,
+        session_id text not null,
+        schedule_spec jsonb not null,
+        status text not null default 'active',
+        last_window text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.digest_occurrence (
+        id text primary key,
+        plan_id text not null,
+        window_key text not null,
+        status text not null default 'delivering',
+        report jsonb,
+        outbox_key text,
+        delivered_at timestamptz,
+        completed_at timestamptz,
+        error text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        unique (plan_id, window_key)
+      )`,
+      `create index if not exists digest_occurrence_plan_idx on pa24.digest_occurrence (plan_id, created_at)`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {
