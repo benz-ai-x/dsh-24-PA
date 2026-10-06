@@ -2565,12 +2565,14 @@ export class PaRuntime {
   private digestWindowKey(kind: string, timeZone: string, now = new Date()): string {
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
     if (kind === 'weekly') {
-      // ISO 8601 week (Monday-based, Thursday decides the year): one window
-      // per calendar week, not per day.
-      const jan4 = new Date(Date.UTC(now.getUTCFullYear(), 0, 4));
-      const week = Math.ceil(((now.getTime() - jan4.getTime()) / 86400000 + jan4.getUTCDay() + 1) / 7);
-      const isoYear = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric' }).format(now);
-      return `${isoYear}-W${String(week).padStart(2, '0')}`;
+      // ISO 8601 week: Thursday decides the owning year, Monday starts the
+      // week; computed from the local date so year boundaries stay correct.
+      const local = new Date(now.toLocaleString('en-US', { timeZone }));
+      const day = local.getDay() || 7;
+      const thursday = new Date(local.getFullYear(), local.getMonth(), local.getDate() + (4 - day));
+      const jan1 = new Date(thursday.getFullYear(), 0, 1);
+      const week = Math.round((thursday.getTime() - jan1.getTime()) / (7 * 86400000)) + 1;
+      return `${thursday.getFullYear()}-W${String(week).padStart(2, '0')}`;
     }
     return parts;
   }
