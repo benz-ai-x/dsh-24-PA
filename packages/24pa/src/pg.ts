@@ -305,6 +305,68 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       `create index if not exists review_reminder_due_idx on pa24.review_reminder (status, remind_at)`,
     ],
   },
+  {
+    version: 8,
+    statements: [
+      `alter table pa24.reminder_rule add column if not exists link_source_type text`,
+      `alter table pa24.reminder_rule add column if not exists link_source_id text`,
+      `alter table pa24.reminder_rule add column if not exists link_fingerprint text`,
+      `create index if not exists reminder_rule_link_idx on pa24.reminder_rule (link_source_type, link_source_id)`,
+      `create table if not exists pa24.outreach (
+        id text primary key,
+        work_item_id text,
+        kind text not null,
+        target_open_id text not null,
+        target_name text not null,
+        content text not null,
+        instruction text not null,
+        status text not null,
+        message_id text,
+        task_guid text,
+        error text,
+        created_at timestamptz not null default now(),
+        sent_at timestamptz
+      )`,
+      `create table if not exists pa24.task_template (
+        id text primary key,
+        title text not null,
+        tasklist_id text not null,
+        schedule jsonb not null,
+        origin_expression text,
+        status text not null default 'active',
+        next_due_at timestamptz,
+        time_zone text not null,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.task_template_instance (
+        id text primary key,
+        template_id text not null,
+        due_at timestamptz not null,
+        status text not null default 'pending',
+        task_id text,
+        error text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists task_template_instance_due_idx on pa24.task_template_instance (status, due_at)`,
+      `create table if not exists pa24.waiting_item (
+        id text primary key,
+        title text not null,
+        detail text not null default '',
+        source_desc text not null default '',
+        dedup_key text,
+        checkpoint_at timestamptz,
+        status text not null default 'waiting',
+        result text,
+        ask_count int not null default 0,
+        last_asked_at timestamptz,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists waiting_item_due_idx on pa24.waiting_item (status, checkpoint_at)`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

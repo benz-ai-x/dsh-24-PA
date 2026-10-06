@@ -72,7 +72,8 @@ const fail = message => {
   process.exit(1);
 };
 
-await appendFile(callsPath, JSON.stringify({ at: new Date().toISOString(), args }) + '\n').catch(() => {});
+const callRecord = { at: new Date().toISOString(), args, ok: true };
+await appendFile(callsPath, JSON.stringify(callRecord) + '\n').catch(() => {});
 const state = await readState();
 const docs = await readDocs();
 const tasks = await readTasks();
@@ -228,6 +229,39 @@ if (plain[0] === 'calendar' && plain[1] === '+delete') {
   if (!event) fail(`日程不存在：${event_id}`);
   await appendFile(eventsPath, JSON.stringify({ ...event, status: 'canceled' }) + '\n');
   ok({ event: { event_id, status: 'canceled' } });
+}
+if (plain[0] === 'im' && plain[1] === '+messages-send') {
+  if (state.failNext?.command === 'im.send') {
+    await writeState({ ...state, failNext: null });
+    fail(state.failNext.error ?? 'im send injected failure');
+  }
+  const userId = argOf('--user-id');
+  const body = argOf('--text');
+  const key = argOf('--idempotency-key');
+  const sendsPath = `${statePath}.sends.jsonl`;
+  let sends = [];
+  try {
+    sends = (await readFile(sendsPath, 'utf8')).split('\n').filter(Boolean).map(l => JSON.parse(l));
+  } catch {}
+  const existing = key ? sends.find(s => s.key === key) : undefined;
+  if (existing) ok({ message: { message_id: existing.messageId }, idempotent: true });
+  if (!userId || body === undefined) fail('缺少 --user-id 或 --text');
+  const messageId = `omstub-${sends.length + 1}`;
+  await appendFile(sendsPath, JSON.stringify({ key: key ?? null, userId, messageId }) + '\n');
+  ok({ message: { message_id: messageId } });
+}
+if (plain[0] === 'task' && plain[1] === '+assign') {
+  if (state.failNext?.command === 'task.assign') {
+    await writeState({ ...state, failNext: null });
+    fail(state.failNext.error ?? 'task assign injected failure');
+  }
+  const taskId = argOf('--task-id');
+  const add = argOf('--add');
+  const task = [...tasks].reverse().find(t => t.guid === taskId);
+  if (!task) fail(`任务不存在：${taskId}`);
+  if (!add) fail('缺少 --add');
+  await appendFile(tasksPath, JSON.stringify({ ...task, assignees: [...(task.assignees ?? []), ...add.split(',')] }) + '\n');
+  ok({ task: { guid: taskId, assignees: add.split(',') } });
 }
 if (plain[0] === 'drive' && plain[1] === 'files' && plain[2] === 'list') ok({ files: [{ token: 'fld_test', name: '体验目录', type: 'folder' }] });
 if (plain[0] === 'task' && plain[1] === 'tasklists' && plain[2] === 'get') ok({ tasklist: { guid: 'tl_test', name: '体验清单' } });

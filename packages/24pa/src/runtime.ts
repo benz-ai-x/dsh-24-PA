@@ -13,6 +13,14 @@ import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } fro
 import { MemoryStore, type MemoryChange } from './memory.js';
 import { ReminderEngine, ReminderError, type SilencePolicy } from './reminders.js';
 import {
+  createEveryScheduleRecord,
+  createDailyScheduleRecord,
+  createWeeklyScheduleRecord,
+  resolveRecurringOccurrence,
+  ScheduleId,
+  type RecurringScheduleRecord,
+} from '@deepseek-ai/dsh-schedule';
+import {
   cropBox,
   detectImageMediaType,
   extensionOf,
@@ -97,6 +105,20 @@ function taskExternal(data: any): { guid: string; url: string | null } {
   const guid = task?.guid ?? task?.task_guid ?? task?.taskId;
   if (!guid) throw new Error('未取得真实任务 ID；请先核对飞书任务清单，不要盲目重试。');
   return { guid: String(guid), url: task?.url ? String(task.url) : null };
+}
+
+/**
+ * Next occurrence for a template schedule. resolveRecurringOccurrence refuses
+ * dispatches before the record's scheduledAt (the first fire); in that window
+ * the next occurrence IS scheduledAt.
+ */
+function nextTemplateOccurrence(record: RecurringScheduleRecord, now: number): Date {
+  try {
+    const resolved = resolveRecurringOccurrence(record, now);
+    return new Date(resolved.nextScheduledAt ?? resolved.occurrenceAt);
+  } catch {
+    return new Date((record as { scheduledAt?: string }).scheduledAt ?? Date.now() + 60_000);
+  }
 }
 
 const WORKER_PERSONAS: Record<string, { name: string; persona: string; brief: string }> = {
@@ -219,7 +241,7 @@ export class PaRuntime {
       id: 'tasks',
       name: '待办管理',
       persona: '你是 24私助的待办管理 Worker。创建、修改、完成本人明确委托的飞书任务并按主题/项目跟踪；截止时间、计划投入时间与估时分开记录。完成任务必须有本人明确动作或飞书实际状态，不从对话结束推断。飞书任务是权威对象；网络结果未知时先核对，不盲目重试。结果交回发起会话。',
-      brief: '待办与项目：task_create/task_update/task_complete/task_get/task_list/task_cancel 维护飞书任务（幂等、先核对、取消按平台能力如实说明），project_create/project_adopt/project_progress 拆解目标并按实际任务状态汇报进展。',
+      brief: '待办与项目：task_create/task_update/task_complete/task_get/task_list/task_cancel 维护飞书任务（幂等、先核对、取消按平台能力如实说明），project_create/project_adopt/project_progress 拆解目标并按实际任务状态汇报进展；outreach_send/task_assign 按本人明确指令对外发信或分派任务（需 instruction 依据，草稿不发送）；task_repeat_* 周期任务模板（跳过本次/停止以后）；waiting_* 等待事项与检查点（只提醒本人，不自动催办他人）。',
       available: true,
       actions: {
         task_create: async (args, item) => this.taskCreate(item, args),
@@ -239,6 +261,16 @@ export class PaRuntime {
         project_create: async args => this.projectCreate(args),
         project_adopt: async (args, item) => this.projectAdopt(item, args),
         project_progress: async args => this.projectProgress(args),
+        outreach_send: async (args, item) => this.outreachSend(item, args),
+        task_assign: async (args, item) => this.taskAssign(item, args),
+        task_repeat_create: async args => this.taskRepeatCreate(args),
+        task_repeat_list: async () => this.taskRepeatList(),
+        task_repeat_skip: async args => this.taskRepeatSkip(args),
+        task_repeat_stop: async args => this.taskRepeatStop(args),
+        task_repeat_update: async args => this.taskRepeatUpdate(args),
+        waiting_create: async args => this.waitingCreate(args),
+        waiting_list: async args => this.waitingList(args),
+        waiting_control: async args => this.waitingControl(args),
       },
     });
     this.roles.register({
@@ -292,10 +324,22 @@ export class PaRuntime {
       id: 'reminders',
       name: '事项提醒',
       persona: '你是 24私助的事项提醒 Worker。创建提醒前确认时间、时区与内容；时间计算由宿主的 dsh-schedule 公开函数完成，不自行推算。提醒由 PostgreSQL 发生实例和 Outbox 投递，模型离线也能发出。完成/稍后/取消都绑定原规则与实例，重复请求不产生多份。只报告平台接受状态，不推断已读。',
-      brief: '提醒：reminder_create（once/every/daily/weekly）、reminder_list、reminder_cancel/pause/resume、reminder_skip、reminder_snooze、reminder_status（实例与平台接受状态）。',
+      brief: '提醒：reminder_create（once/every/daily/weekly，可 linkTaskGuid/linkEventId 跟随任务或日程——来源改期/取消后旧提醒停发并更正）、reminder_list、reminder_cancel/pause/resume、reminder_skip、reminder_snooze、reminder_status（实例与平台接受状态）。',
       available: true,
       actions: {
         reminder_create: async args => {
+          let link: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string } | undefined;
+          if (args.linkTaskGuid || args.linkEventId) {
+            if (args.linkTaskGuid && args.linkEventId) throw new Error('一次只能跟随一个来源（任务或日程）。');
+            if (args.linkTaskGuid) {
+              const task = await this.resolveTask({ taskId: args.linkTaskGuid, guid: args.linkTaskGuid });
+              link = { sourceType: 'task', sourceId: task.task_guid, fingerprint: hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`) };
+            } else {
+              const event = await this.repos!.calendar.findEvent(String(args.linkEventId));
+              if (!event) throw new Error('日程不存在；请先 calendar_query 同步并取得 event_id。');
+              link = { sourceType: 'calendar', sourceId: event.event_id, fingerprint: hash(`${event.event_id}\n${event.summary}\n${isoDate(event.start_time) ?? ''}`) };
+            }
+          }
           const result = await this.reminders!.create({
             kind: String(args.kind ?? 'once') as any,
             text: text(args.text, 500),
@@ -306,6 +350,7 @@ export class PaRuntime {
             weekdays: Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined,
             timeZone: String(args.timeZone ?? this.config!.timeZone),
             source: args.source ? text(args.source, 500) : undefined,
+            link,
           });
           return result;
         },
@@ -459,7 +504,10 @@ export class PaRuntime {
     // are subscribed, so pending candidates are re-verified at a capped cadence
     // and every check persists its result and time on the version row.
     this.noteVerifyTimer = setInterval(() => void this.noteVerifyTick(), this.options.noteVerifyTickMs);
-    this.reviewReminderTimer = setInterval(() => void this.reviewReminderTick(), this.options.reviewReminderTickMs);
+    this.reviewReminderTimer = setInterval(() => {
+      void this.reviewReminderTick();
+      this.followupTick();
+    }, this.options.reviewReminderTickMs);
     this.dispatchTimer.unref?.();
     this.outboxTimer.unref?.();
     this.noteVerifyTimer.unref?.();
@@ -619,6 +667,9 @@ export class PaRuntime {
           const row = rows.find(r => r.dedup_key === dedupKey);
           return row ? { status: row.status, messageId: row.message_id } : null;
         },
+        // P19 pre-send check: the followed task/meeting must still match the
+        // fingerprint captured when the reminder was bound.
+        sourceValid: async rule => this.sourceVerdict(rule.link_source_type!, rule.link_source_id!, rule.link_fingerprint),
       },
       this.silencePolicy,
     );
@@ -1545,6 +1596,10 @@ export class PaRuntime {
         await this.repos!.calendar.markCanceled(eventId).catch(() => {});
       }
       await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
+      if (kind === 'update' && summary) {
+        const prior = await this.repos!.calendar.findEvent(newEventId);
+        await this.notifySourceChanged('calendar', newEventId, hash(`${newEventId}\n${prior?.summary ?? summary}\n${isoDate(prior?.start_time ?? start) ?? ''}`));
+      }
       return {
         operationId: staged.row.id,
         eventId: newEventId,
@@ -1624,6 +1679,12 @@ export class PaRuntime {
       for (const rawEvent of raw) {
         const mapped = mapRemoteEvent(rawEvent);
         if (!mapped) continue;
+        const existing = await this.repos!.calendar.findEvent(mapped.eventId);
+        if (existing) {
+          const beforeFp = hash(`${existing.event_id}\n${existing.summary}\n${isoDate(existing.start_time) ?? ''}`);
+          const afterFp = hash(`${mapped.eventId}\n${mapped.summary}\n${isoDate(mapped.start) ?? ''}`);
+          if (beforeFp !== afterFp) await this.notifySourceChanged('calendar', mapped.eventId, afterFp);
+        }
         await this.repos!.calendar.upsertEvent({
           event_id: mapped.eventId,
           calendar_id: calendarId,
@@ -1790,6 +1851,7 @@ export class PaRuntime {
           url: external.url ?? task.url,
         });
         await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, summary: updated.summary } });
+        await this.notifySourceChanged('task', task.task_guid, hash(`${task.task_guid}\n${updated.summary}\n${isoDate(updated.due_at) ?? ''}`));
         return { operationId: staged.row.id, guid: task.task_guid, url: updated.url, summary: updated.summary, dueAt: isoDate(updated.due_at), message: '任务已按本人指令修改；截止与计划/估时分别记录。' };
       } catch (error) {
         await this.failStaged(staged.row.id, error);
@@ -2023,6 +2085,406 @@ export class PaRuntime {
     ]);
     if (!readback.data?.document?.content) throw new Error('文档回读不完整，保存结果未确认。');
     return { revision: readback.data.document.revision_id != null ? String(readback.data.document.revision_id) : null };
+  }
+
+  // ---- outreach, recurring tasks, waiting items (F08) ------------------------
+
+  /** Resolve a collaborator: explicit open_id or a unique confirmed memory contact. */
+  private async resolveCollaborator(input: Record<string, unknown>): Promise<{ name: string; openId: string } | { clarify: string }> {
+    const name = String(input.name ?? '').trim();
+    const openId = String(input.openId ?? '').trim();
+    if (openId) return { name: name || openId, openId };
+    if (!name) return { clarify: '未提供姓名或 open_id' };
+    const memory = await this.memory!.search({ query: name, limit: 50 });
+    const contactRecords = memory.records.filter(r => (r.topic === `联系人：${name}` || r.content.includes(`联系人 ${name}：`)) && r.status === 'confirmed');
+    const ids = [...new Set(contactRecords.flatMap(r => r.content.match(/ou_[A-Za-z0-9_]+/g) ?? []))];
+    if (ids.length === 1) return { name, openId: ids[0]! };
+    return { clarify: `${name}（${ids.length === 0 ? '记忆中没有对应 open_id' : `记忆中有 ${ids.length} 位候选`}）` };
+  }
+
+  /**
+   * Send one outbound message under an explicit owner instruction (P13).
+   * Draft-only requests never reach the platform; retries are idempotent.
+   */
+  private async outreachSend(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const content = text(args.content, 4000);
+    const instruction = String(args.instruction ?? '').trim();
+    if (!instruction) {
+      throw new Error('对外发信必须携带本人明确的指令依据（instruction）；当前请求看起来是草稿——草稿不发送，请向本人确认后再执行。');
+    }
+    const resolved = await this.resolveCollaborator(args);
+    if ('clarify' in resolved) {
+      throw new Error(`收件人无法唯一确定（${resolved.clarify}）；请先与本人澄清，未发送任何消息。`);
+    }
+    this.assertFeishuLive('对外发信');
+    const id = `out:${item.id}:${hash(`${resolved.openId}\n${content}`)}`;
+    const { inserted, row } = await this.repos!.outreach.insert({
+      id,
+      work_item_id: item.id,
+      kind: 'message',
+      target_open_id: resolved.openId,
+      target_name: resolved.name,
+      content,
+      instruction,
+      status: 'pending',
+    });
+    if (!inserted && row.status === 'succeeded') {
+      return { operationId: id, reused: true, messageId: row.message_id, message: '这条消息此前已发送，未重复发送。' };
+    }
+    if (!inserted && row.status === 'unknown') {
+      await this.repos!.outreach.mark(id, { status: 'failed', error: '上次发送结果未知' });
+      throw new Error('上次发送结果未知（超时或响应丢失）；请先核对飞书是否已送达，确认后再继续。');
+    }
+    try {
+      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+        'im', '+messages-send', '--as', 'user', '--user-id', resolved.openId, '--text', content, '--idempotency-key', id,
+      ]);
+      const messageId = String(data?.message?.message_id ?? data?.message_id ?? '');
+      if (!messageId) throw new Error('平台未返回消息标识；请先核对飞书是否已送达，不要盲目重试。');
+      await this.repos!.outreach.mark(id, { status: 'succeeded', messageId });
+      await this.repos!.outreach.mark(id, { status: 'succeeded', messageId });
+      return { operationId: id, messageId, target: resolved, message: `已按本人明确指令发送给 ${resolved.name}（以平台回执为准）。` };
+    } catch (error) {
+      const unknown = (error as any)?.outcome === 'unknown';
+      await this.repos!.outreach.mark(id, { status: unknown ? 'unknown' : 'failed', error: (error as Error).message });
+      throw error;
+    }
+  }
+
+  /** Assign an existing task to a collaborator under an explicit instruction (P13). */
+  private async taskAssign(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const taskRef = await this.resolveTask(args);
+    const instruction = String(args.instruction ?? '').trim();
+    if (!instruction) throw new Error('分派任务必须携带本人明确的指令依据（instruction）；未执行任何分派。');
+    const resolved = await this.resolveCollaborator(args);
+    if ('clarify' in resolved) {
+      throw new Error(`被分派人无法唯一确定（${resolved.clarify}）；请先与本人澄清，未执行任何分派。`);
+    }
+    this.assertFeishuLive('任务分派');
+    const id = `assign:${item.id}:${hash(`${taskRef.task_guid}\n${resolved.openId}`)}`;
+    const staged = await this.stagedOperation(item, 'task.assign', id, {
+      taskGuid: taskRef.task_guid,
+      assignee: resolved.openId,
+    });
+    if (!staged.created && staged.row.status === 'succeeded') {
+      return { operationId: staged.row.id, reused: true, guid: taskRef.task_guid, message: '此分派此前已提交，未重复执行。' };
+    }
+    try {
+      await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+        'task', '+assign', '--as', 'user', '--task-id', taskRef.task_guid, '--add', resolved.openId, '--idempotency-key', staged.row.id,
+      ]);
+      const { inserted } = await this.repos!.outreach.insert({
+        id: staged.row.id,
+        work_item_id: item.id,
+        kind: 'assign',
+        target_open_id: resolved.openId,
+        target_name: resolved.name,
+        content: `分派任务 ${taskRef.task_guid}`,
+        instruction,
+        status: 'pending',
+      });
+      if (inserted) await this.repos!.outreach.mark(staged.row.id, { status: 'succeeded', taskGuid: taskRef.task_guid });
+      await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: taskRef.task_guid, assignee: resolved.openId } });
+      return { operationId: staged.row.id, guid: taskRef.task_guid, assignee: resolved, message: `已把任务分派给 ${resolved.name}（以平台回执为准）。` };
+    } catch (error) {
+      await this.failStaged(staged.row.id, error);
+      await this.repos!.outreach.mark(staged.row.id, { status: (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed', error: (error as Error).message, taskGuid: taskRef.task_guid });
+      throw error;
+    }
+  }
+
+  /** Current fingerprint of a followed source, or null when it cannot be read. */
+  private async sourceVerdict(sourceType: 'task' | 'calendar', sourceId: string, expected: string | null): Promise<{ valid: boolean; reason?: string }> {
+    try {
+      if (sourceType === 'task') {
+        const task = (await this.repos!.tasks.byGuid(sourceId)) ?? (await this.repos!.tasks.get(sourceId));
+        if (!task) return { valid: false, reason: '任务已不存在' };
+        const fingerprint = hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`);
+        return fingerprint === expected ? { valid: true } : { valid: false, reason: '任务内容或截止已变化' };
+      }
+      const event = await this.repos!.calendar.findEvent(sourceId);
+      if (!event || event.status === 'canceled') return { valid: false, reason: event ? '日程已取消' : '日程已不存在' };
+      const fingerprint = hash(`${event.event_id}\n${event.summary}\n${isoDate(event.start_time) ?? ''}`);
+      return fingerprint === expected ? { valid: true } : { valid: false, reason: '日程内容或时间已变化' };
+    } catch (error) {
+      return { valid: false, reason: `来源核对失败：${(error as Error).message}` };
+    }
+  }
+
+  /**
+   * A followed source changed (detected on task edit or calendar sync): stop
+   * its linked rules and send one correction for reminders already delivered
+   * under the old fingerprint (P19 竞态更正).
+   */
+  private async notifySourceChanged(sourceType: 'task' | 'calendar', sourceId: string, currentFingerprint: string | null): Promise<void> {
+    if (!this.repos) return;
+    const rules = await this.repos.reminders.rulesLinkedTo(sourceType, sourceId);
+    for (const rule of rules) {
+      if (rule.link_fingerprint === currentFingerprint) continue;
+      const counts = await this.dbRef
+        .query<{ sent: string; pending: string }>(
+          `select count(*) filter (where status = 'sent') as sent, count(*) filter (where status = 'pending') as pending from pa24.reminder_occurrence where rule_id = $1`,
+          [rule.id],
+        )
+        .catch(() => null);
+      await this.repos.reminders.updateRule(rule.id, { status: 'stopped' }).catch(() => {});
+      await this.dbRef
+        .query(`update pa24.reminder_occurrence set status = 'canceled', updated_at = now() where rule_id = $1 and status = 'pending'`, [rule.id])
+        .catch(() => {});
+      if (counts && Number(counts.rows[0]!.pending) > 0) {
+        // Unsent occurrences die with their source; the owner is told the
+        // reminder was dropped, not left wondering (P19).
+        await this.notifyOwner(
+          `remindsrc:${rule.id}:${hash(currentFingerprint ?? 'gone')}`,
+          `提醒「${rule.text}」已取消：关联的${sourceType === 'task' ? '任务' : '日程'}已变更。如仍需要，请按最新安排重新设置。`,
+        );
+      }
+      if (counts && Number(counts.rows[0]!.sent) > 0) {
+        await this.notifyOwner(
+          `srccorr:${rule.id}:${hash(currentFingerprint ?? 'gone')}`,
+          `更正：此前按旧安排发给你的提醒「${rule.text}」对应的${sourceType === 'task' ? '任务' : '日程'}已经变化；请以最新安排为准，旧提醒不再有效。`,
+        );
+      }
+    }
+  }
+
+  /** Recurring task templates (P22): dsh-schedule records + PG-unique instances. */
+  private async taskRepeatCreate(args: Record<string, unknown>): Promise<unknown> {
+    const title = text(args.title, 500);
+    const timeZone = String(args.timeZone ?? this.config!.timeZone);
+    const now = Date.now();
+    const id = `ttpl-${hash(`${this.workspace!.statePath}\n${title}\n${String(args.kind ?? '')}\n${String(args.time ?? '')}${String(args.everySeconds ?? '')}`).slice(0, 16)}`;
+    let schedule: unknown;
+    let nextDueAt: Date;
+    let origin: string;
+    if (args.kind === 'every') {
+      const seconds = Number(args.everySeconds);
+      if (!Number.isInteger(seconds) || seconds < 60) throw new Error('周期任务模板 every 需要 ≥60 秒的整数间隔（dsh-schedule 下限）。');
+      schedule = createEveryScheduleRecord(ScheduleId(id), title, seconds, now, title.slice(0, 100));
+      origin = `every ${seconds}s`;
+    } else if (args.kind === 'daily' || args.kind === 'weekly') {
+      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new Error('周期任务模板需要本地时间 HH:mm:ss。');
+      const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined;
+      if (args.kind === 'weekly' && (!weekdays?.length || weekdays.some(d => !Number.isInteger(d) || d < 1 || d > 7))) {
+        throw new Error('weekly 模板需要 weekdays（ISO 1–7）。');
+      }
+      schedule = args.kind === 'daily'
+        ? createDailyScheduleRecord(ScheduleId(id), title, { time: String(args.time), time_zone: timeZone }, now, title.slice(0, 100))
+        : createWeeklyScheduleRecord(ScheduleId(id), title, { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays!)].sort() }, now, title.slice(0, 100));
+      origin = `${args.kind} ${args.time} ${timeZone}${weekdays ? ` ${weekdays.join(',')}` : ''}`;
+    } else {
+      throw new Error('模板类型：every（≥60s）或 daily/weekly（本地时间）。飞书任务 CLI 未暴露原生重复规则，按模板＋唯一实例实现（如实说明）。');
+    }
+    nextDueAt = nextTemplateOccurrence(schedule as RecurringScheduleRecord, now);
+    const template = await this.repos!.taskTemplates.insert({
+      id,
+      title,
+      tasklist_id: this.config!.tasklistId,
+      schedule,
+      origin_expression: origin,
+      status: 'active',
+      next_due_at: nextDueAt,
+      time_zone: timeZone,
+    });
+    return { templateId: template.id, nextDueAt: template.next_due_at?.toISOString() ?? null, message: `周期任务模板已建立（${origin}）；每次发生生成一个真实飞书任务，支持跳过本次/停止以后。` };
+  }
+
+  private async taskRepeatList(): Promise<unknown> {
+    const templates = await this.repos!.taskTemplates.list();
+    const view = [];
+    for (const template of templates) {
+      const instances = await this.repos!.taskTemplates.instancesOf(template.id, 8);
+      view.push({
+        templateId: template.id,
+        title: template.title,
+        status: template.status,
+        expression: template.origin_expression,
+        nextDueAt: template.next_due_at?.toISOString() ?? null,
+        recentInstances: instances.map(i => ({ dueAt: new Date(i.due_at).toISOString(), status: i.status, taskId: i.task_id })),
+      });
+    }
+    return { templates: view };
+  }
+
+  private async taskRepeatSkip(args: Record<string, unknown>): Promise<unknown> {
+    const template = await this.requireTemplate(args);
+    const instances = (await this.repos!.taskTemplates.instancesOf(template.id, 50)).filter(i => ['pending', 'failed'].includes(i.status)).sort((a, b) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
+    const target = instances[0];
+    if (!target) throw new Error('没有可跳过的未生成实例；下一次发生后才会出现。');
+    await this.repos!.taskTemplates.updateInstance(target.id, { status: 'skipped' });
+    return { templateId: template.id, skippedDueAt: new Date(target.due_at).toISOString(), message: '已跳过本次（不生成任务）；模板按计划继续。' };
+  }
+
+  private async taskRepeatStop(args: Record<string, unknown>): Promise<unknown> {
+    const template = await this.requireTemplate(args);
+    await this.repos!.taskTemplates.update(template.id, { status: 'stopped' });
+    await this.dbRef.query(
+      `update pa24.task_template_instance set status = 'skipped', updated_at = now() where template_id = $1 and status = 'pending'`,
+      [template.id],
+    );
+    return { templateId: template.id, status: 'stopped', message: '已停止以后的生成；已生成的任务与历史保留。' };
+  }
+
+  private async taskRepeatUpdate(args: Record<string, unknown>): Promise<unknown> {
+    const template = await this.requireTemplate(args);
+    const title = args.title ? text(args.title, 500) : null;
+    if (!title && args.kind === undefined) throw new Error('需要新的标题或新的周期（kind/time/everySeconds/weekdays）。');
+    if (args.kind !== undefined) {
+      const recreated = await this.taskRepeatCreate({ title: title ?? template.title, kind: args.kind, time: args.time, everySeconds: args.everySeconds, weekdays: args.weekdays, timeZone: args.timeZone ?? template.time_zone });
+      await this.repos!.taskTemplates.update(template.id, { status: 'stopped' });
+      await this.dbRef.query(`update pa24.task_template_instance set status = 'skipped', updated_at = now() where template_id = $1 and status = 'pending'`, [template.id]);
+      return { ...recreated as object, oldTemplateStopped: template.id, message: `已按新周期重建模板（旧模板 ${template.id} 停止，只影响以后）。` };
+    }
+    const updated = await this.repos!.taskTemplates.update(template.id, { ...(title ? { title } : {}) });
+    return { templateId: template.id, title: updated?.title, message: '已修改以后生成的任务标题；已生成任务不受影响。' };
+  }
+
+  private async requireTemplate(args: Record<string, unknown>) {
+    const template = await this.repos!.taskTemplates.get(String(args.templateId ?? ''));
+    if (!template) throw new Error('模板不存在；请先用 task_repeat_create 建立。');
+    return template;
+  }
+
+  /** Bounded materialization of due template instances into real tasks (P22). */
+  private async materializeTemplateInstances(): Promise<number> {
+    if (!this.repos || this.config?.mode !== 'feishu') return 0;
+    let generated = 0;
+    for (;;) {
+      const due = await this.repos.taskTemplates.claimDueInstances(new Date(), 5);
+      if (due.length === 0) break;
+      for (const instance of due) {
+        const template = await this.repos.taskTemplates.get(instance.template_id);
+        if (!template || template.status !== 'active') {
+          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'skipped' });
+          continue;
+        }
+        const operationId = `ttask:${instance.id}`;
+        const { created, row } = await this.repos.operations.begin({ id: operationId, workItemId: 'pa24-system-templates', action: 'task.repeat_generate', params: { instanceId: instance.id, title: template.title } });
+        if (!created && row.status === 'succeeded') {
+          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: (row.receipt?.guid as string) ?? null });
+          continue;
+        }
+        try {
+          await this.repos.operations.update(operationId, { status: 'running' });
+          const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+            'task', '+create', '--as', 'user', '--summary', `[24PA] ${template.title}`, '--tasklist-id', template.tasklist_id, '--idempotency-key', operationId,
+          ]);
+          const external = taskExternal(data);
+          await this.repos.tasks.save({
+            id: operationId,
+            work_item_id: null,
+            task_guid: external.guid,
+            url: external.url,
+            summary: template.title,
+            due_at: null,
+            due_has_time: false,
+            planned_at: null,
+            estimate_minutes: null,
+            status: 'open',
+            external_updated_at: new Date(),
+            last_synced_at: new Date(),
+          });
+          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: operationId });
+          await this.repos.operations.update(operationId, { status: 'succeeded', receipt: { guid: external.guid, url: external.url } });
+          generated += 1;
+        } catch (error) {
+          await this.failStaged(operationId, error);
+          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'failed', error: (error as Error).message });
+        }
+        // Advance the template's schedule exactly like the reminder engine:
+        // only the latest missed occurrence is materialized (no backlog flood).
+        const nextAt = nextTemplateOccurrence(template.schedule as RecurringScheduleRecord, Date.now());
+        await this.repos.taskTemplates.update(template.id, { next_due_at: nextAt });
+        await this.repos.taskTemplates.insertInstance({ id: `${template.id}:${nextAt.toISOString()}`, templateId: template.id, dueAt: nextAt });
+      }
+    }
+    return generated;
+  }
+
+  /** Waiting items (P23): the checkpoint asks the OWNER, never nudges others. */
+  private async waitingCreate(args: Record<string, unknown>): Promise<unknown> {
+    const title = text(args.title, 200);
+    const detail = args.detail ? text(args.detail, 2000) : '';
+    const sourceDesc = args.sourceDesc ? text(args.sourceDesc, 500) : '';
+    const dedupKey = args.dedupKey ? String(args.dedupKey) : null;
+    if (dedupKey) {
+      const existing = await this.repos!.waiting.byDedupKey(dedupKey);
+      if (existing) return { waitingId: existing.id, reused: true, status: existing.status, message: `已有同源等待事项（${existing.id}），不重复建立。` };
+    }
+    let checkpointAt: Date | null = null;
+    if (args.checkpointInSeconds) {
+      const seconds = Number(args.checkpointInSeconds);
+      if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new Error('检查点需为 1 秒–365 天。');
+      checkpointAt = new Date(Date.now() + seconds * 1000);
+    } else if (args.checkpointAt) {
+      checkpointAt = new Date(String(args.checkpointAt));
+      if (Number.isNaN(checkpointAt.getTime())) throw new Error('checkpointAt 需为可解析的 ISO 时间。');
+    }
+    const id = `wt-${randomUUID().slice(0, 12)}`;
+    const row = await this.repos!.waiting.insert({ id, title, detail, sourceDesc, ...(dedupKey ? { dedupKey } : {}), ...(checkpointAt ? { checkpointAt } : {}) });
+    const notice = checkpointAt
+      ? `已建立等待事项「${title}」；到点只会来问你是否收到，不会自动向对方催办。没有可自动读取的回复来源时，以你的答复为准。`
+      : `已建立等待事项「${title}」（未设检查点）；需要跟进时再设时间。`;
+    return { waitingId: row.id, checkpointAt: row.checkpoint_at?.toISOString() ?? null, message: notice };
+  }
+
+  private async waitingList(args: Record<string, unknown>): Promise<unknown> {
+    const items = await this.repos!.waiting.list(args.status ? String(args.status) : undefined);
+    return { items: items.map(w => ({ id: w.id, title: w.title, status: w.status, checkpointAt: w.checkpoint_at?.toISOString() ?? null, asked: w.ask_count, source: w.source_desc })) };
+  }
+
+  private async waitingControl(args: Record<string, unknown>): Promise<unknown> {
+    const op = String(args.op ?? '');
+    const item = await this.repos!.waiting.get(String(args.waitingId ?? ''));
+    if (!item) throw new Error('等待事项不存在。');
+    if (op === 'received') {
+      if (item.status !== 'waiting') throw new Error(`该等待事项当前状态为 ${item.status}。`);
+      await this.repos!.waiting.update(item.id, { status: 'received', result: args.note ? text(args.note, 500) : '本人确认已收到', checkpoint_at: null });
+      return { waitingId: item.id, status: 'received', message: '已标记收到，后续检查点停止询问。' };
+    }
+    if (op === 'cancel') {
+      await this.repos!.waiting.update(item.id, { status: 'canceled', result: args.note ? text(args.note, 500) : '本人取消' });
+      return { waitingId: item.id, status: 'canceled', message: '等待事项已取消。' };
+    }
+    if (op === 'reschedule') {
+      const seconds = Number(args.inSeconds ?? 0);
+      if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new Error('改期需要 inSeconds（1 秒–365 天）。');
+      const next = new Date(Date.now() + seconds * 1000);
+      await this.repos!.waiting.update(item.id, { status: 'waiting', checkpoint_at: next });
+      return { waitingId: item.id, checkpointAt: next.toISOString(), message: '检查点已调整，到点再来问你。' };
+    }
+    if (op === 'keep') {
+      await this.repos!.waiting.update(item.id, { status: 'waiting' });
+      return { waitingId: item.id, status: 'waiting', message: '继续等待；需要时再设检查点。' };
+    }
+    throw new Error('未知等待操作（received/cancel/reschedule/keep）。');
+  }
+
+  /** One bounded follow-up tick: template instances + waiting checkpoints. */
+  private followupTick(): void {
+    if (this.closed || !this.repos || !this.config) return;
+    void this.materializeTemplateInstances().catch(() => {});
+    void this.dispatchWaitingCheckpoints().catch(() => {});
+  }
+
+  private async dispatchWaitingCheckpoints(): Promise<number> {
+    if (!this.config?.ownerOpenId || this.config.mode !== 'feishu') return 0;
+    const due = await this.repos!.waiting.claimDue(new Date(), 5);
+    for (const item of due) {
+      const silentUntil = await this.silencePolicy.silentUntil();
+      if (silentUntil && silentUntil.getTime() > Date.now()) {
+        await this.repos!.waiting.update(item.id, { checkpoint_at: silentUntil, ask_count: item.ask_count - 1 });
+        continue;
+      }
+      await this.repos!.outbox.enqueue({
+        dedupKey: `waiting:${item.id}:${item.ask_count}`,
+        channel: 'feishu',
+        target: this.config.ownerOpenId,
+        kind: 'text',
+        content: { text: `等待跟进：「${item.title}」到检查点了${item.source_desc ? `（来源：${item.source_desc}）` : ''}——收到了吗？回复让助理记录（收到 / 继续等 / 改时间 / 取消）；不会自动向对方催办。` },
+      });
+    }
+    return due.length;
   }
 
   // ---- handwriting notes (F06) ----------------------------------------------
