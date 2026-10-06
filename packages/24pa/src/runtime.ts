@@ -107,6 +107,18 @@ function taskExternal(data: any): { guid: string; url: string | null } {
   return { guid: String(guid), url: task?.url ? String(task.url) : null };
 }
 
+const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', calendar: '日程' };
+
+/** Stable fingerprint of a followed task: identity + content + due (P19). */
+function taskFingerprint(task: { task_guid: string; summary: string; due_at: Date | null }): string {
+  return hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`);
+}
+
+/** Stable fingerprint of a followed calendar event: identity + summary + start. */
+function eventFingerprint(event: { event_id: string; summary: string; start_time: Date }): string {
+  return hash(`${event.event_id}\n${event.summary}\n${isoDate(event.start_time) ?? ''}`);
+}
+
 /**
  * Next occurrence for a template schedule. resolveRecurringOccurrence refuses
  * dispatches before the record's scheduledAt (the first fire); in that window
@@ -333,11 +345,11 @@ export class PaRuntime {
             if (args.linkTaskGuid && args.linkEventId) throw new Error('一次只能跟随一个来源（任务或日程）。');
             if (args.linkTaskGuid) {
               const task = await this.resolveTask({ taskId: args.linkTaskGuid, guid: args.linkTaskGuid });
-              link = { sourceType: 'task', sourceId: task.task_guid, fingerprint: hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`) };
+              link = { sourceType: 'task', sourceId: task.task_guid, fingerprint: taskFingerprint(task) };
             } else {
               const event = await this.repos!.calendar.findEvent(String(args.linkEventId));
               if (!event) throw new Error('日程不存在；请先 calendar_query 同步并取得 event_id。');
-              link = { sourceType: 'calendar', sourceId: event.event_id, fingerprint: hash(`${event.event_id}\n${event.summary}\n${isoDate(event.start_time) ?? ''}`) };
+              link = { sourceType: 'calendar', sourceId: event.event_id, fingerprint: eventFingerprint(event) };
             }
           }
           const result = await this.reminders!.create({
@@ -1594,11 +1606,12 @@ export class PaRuntime {
       }
       if (kind === 'cancel' && eventId) {
         await this.repos!.calendar.markCanceled(eventId).catch(() => {});
+        await this.notifySourceChanged('calendar', eventId, null);
       }
       await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
       if (kind === 'update' && summary) {
         const prior = await this.repos!.calendar.findEvent(newEventId);
-        await this.notifySourceChanged('calendar', newEventId, hash(`${newEventId}\n${prior?.summary ?? summary}\n${isoDate(prior?.start_time ?? start) ?? ''}`));
+        await this.notifySourceChanged('calendar', newEventId, eventFingerprint({ event_id: newEventId, summary: prior?.summary ?? summary ?? '', start_time: prior?.start_time ?? start! }));
       }
       return {
         operationId: staged.row.id,
@@ -1681,9 +1694,8 @@ export class PaRuntime {
         if (!mapped) continue;
         const existing = await this.repos!.calendar.findEvent(mapped.eventId);
         if (existing) {
-          const beforeFp = hash(`${existing.event_id}\n${existing.summary}\n${isoDate(existing.start_time) ?? ''}`);
-          const afterFp = hash(`${mapped.eventId}\n${mapped.summary}\n${isoDate(mapped.start) ?? ''}`);
-          if (beforeFp !== afterFp) await this.notifySourceChanged('calendar', mapped.eventId, afterFp);
+          const afterFp = eventFingerprint({ event_id: mapped.eventId, summary: mapped.summary, start_time: mapped.start });
+          if (eventFingerprint(existing) !== afterFp) await this.notifySourceChanged('calendar', mapped.eventId, afterFp);
         }
         await this.repos!.calendar.upsertEvent({
           event_id: mapped.eventId,
@@ -1702,6 +1714,11 @@ export class PaRuntime {
         live.push(mapped.eventId);
       }
       await this.repos!.calendar.markCanceledExcept(calendarId, live, from, to);
+      // Remote cancellations surface through linked reminders too: any linked
+      // event in this window that is no longer live gets its correction (P19).
+      for (const eventId of await this.linkedEventIdsIn('calendar', from, to)) {
+        if (!live.includes(eventId)) await this.notifySourceChanged('calendar', eventId, null);
+      }
       await this.repos!.calendar.saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: true });
       return { ok: true };
     } catch (error) {
@@ -1851,7 +1868,7 @@ export class PaRuntime {
           url: external.url ?? task.url,
         });
         await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, summary: updated.summary } });
-        await this.notifySourceChanged('task', task.task_guid, hash(`${task.task_guid}\n${updated.summary}\n${isoDate(updated.due_at) ?? ''}`));
+        await this.notifySourceChanged('task', task.task_guid, taskFingerprint(updated));
         return { operationId: staged.row.id, guid: task.task_guid, url: updated.url, summary: updated.summary, dueAt: isoDate(updated.due_at), message: '任务已按本人指令修改；截止与计划/估时分别记录。' };
       } catch (error) {
         await this.failStaged(staged.row.id, error);
@@ -2132,8 +2149,7 @@ export class PaRuntime {
       return { operationId: id, reused: true, messageId: row.message_id, message: '这条消息此前已发送，未重复发送。' };
     }
     if (!inserted && row.status === 'unknown') {
-      await this.repos!.outreach.mark(id, { status: 'failed', error: '上次发送结果未知' });
-      throw new Error('上次发送结果未知（超时或响应丢失）；请先核对飞书是否已送达，确认后再继续。');
+      throw new Error('上次发送结果未知（超时或响应丢失）；请先核对飞书是否已送达（操作号见回执），确认后让本人明确要求重发。');
     }
     try {
       const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
@@ -2141,7 +2157,6 @@ export class PaRuntime {
       ]);
       const messageId = String(data?.message?.message_id ?? data?.message_id ?? '');
       if (!messageId) throw new Error('平台未返回消息标识；请先核对飞书是否已送达，不要盲目重试。');
-      await this.repos!.outreach.mark(id, { status: 'succeeded', messageId });
       await this.repos!.outreach.mark(id, { status: 'succeeded', messageId });
       return { operationId: id, messageId, target: resolved, message: `已按本人明确指令发送给 ${resolved.name}（以平台回执为准）。` };
     } catch (error) {
@@ -2199,16 +2214,31 @@ export class PaRuntime {
       if (sourceType === 'task') {
         const task = (await this.repos!.tasks.byGuid(sourceId)) ?? (await this.repos!.tasks.get(sourceId));
         if (!task) return { valid: false, reason: '任务已不存在' };
-        const fingerprint = hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`);
+        const fingerprint = taskFingerprint(task);
         return fingerprint === expected ? { valid: true } : { valid: false, reason: '任务内容或截止已变化' };
       }
       const event = await this.repos!.calendar.findEvent(sourceId);
       if (!event || event.status === 'canceled') return { valid: false, reason: event ? '日程已取消' : '日程已不存在' };
-      const fingerprint = hash(`${event.event_id}\n${event.summary}\n${isoDate(event.start_time) ?? ''}`);
+      const state = await this.repos!.calendar.getSync(this.config!.calendarId);
+      if (state && (!state.complete || state.last_error)) {
+        return { valid: false, reason: `日历同步异常（${state.last_error ?? '窗口未完成'}），投影可能过期；请先重新查询日历` };
+      }
+      const fingerprint = eventFingerprint(event);
       return fingerprint === expected ? { valid: true } : { valid: false, reason: '日程内容或时间已变化' };
     } catch (error) {
       return { valid: false, reason: `来源核对失败：${(error as Error).message}` };
     }
+  }
+
+  private async linkedEventIdsIn(sourceType: 'task' | 'calendar', from: Date, to: Date): Promise<string[]> {
+    if (!this.repos) return [];
+    const result = await this.dbRef
+      .query<{ link_source_id: string }>(
+        `select distinct link_source_id from pa24.reminder_rule where link_source_type = $1`,
+        [sourceType],
+      )
+      .catch(() => ({ rows: [] as { link_source_id: string }[] }));
+    return result.rows.map(r => r.link_source_id);
   }
 
   /**
@@ -2221,28 +2251,25 @@ export class PaRuntime {
     const rules = await this.repos.reminders.rulesLinkedTo(sourceType, sourceId);
     for (const rule of rules) {
       if (rule.link_fingerprint === currentFingerprint) continue;
-      const counts = await this.dbRef
-        .query<{ sent: string; pending: string }>(
-          `select count(*) filter (where status = 'sent') as sent, count(*) filter (where status = 'pending') as pending from pa24.reminder_occurrence where rule_id = $1`,
-          [rule.id],
-        )
-        .catch(() => null);
+      const counts = await this.repos.reminders.occurrenceCounts(rule.id);
+      // A rule with anything still ahead (materialized occurrence or an
+      // upcoming next_due_at) owes the owner a drop notice; timing between
+      // materialization and this check must not decide visibility.
+      const upcoming = rule.next_due_at != null;
       await this.repos.reminders.updateRule(rule.id, { status: 'stopped' }).catch(() => {});
-      await this.dbRef
-        .query(`update pa24.reminder_occurrence set status = 'canceled', updated_at = now() where rule_id = $1 and status = 'pending'`, [rule.id])
-        .catch(() => {});
-      if (counts && Number(counts.rows[0]!.pending) > 0) {
+      await this.repos.reminders.cancelPendingOccurrences(rule.id).catch(() => {});
+      if ((counts && counts.pending > 0) || upcoming) {
         // Unsent occurrences die with their source; the owner is told the
         // reminder was dropped, not left wondering (P19).
         await this.notifyOwner(
           `remindsrc:${rule.id}:${hash(currentFingerprint ?? 'gone')}`,
-          `提醒「${rule.text}」已取消：关联的${sourceType === 'task' ? '任务' : '日程'}已变更。如仍需要，请按最新安排重新设置。`,
+          `提醒「${rule.text}」已取消：关联的${SOURCE_LABELS[sourceType]}已变更。如仍需要，请按最新安排重新设置。`,
         );
       }
-      if (counts && Number(counts.rows[0]!.sent) > 0) {
+      if (counts && counts.sent > 0) {
         await this.notifyOwner(
           `srccorr:${rule.id}:${hash(currentFingerprint ?? 'gone')}`,
-          `更正：此前按旧安排发给你的提醒「${rule.text}」对应的${sourceType === 'task' ? '任务' : '日程'}已经变化；请以最新安排为准，旧提醒不再有效。`,
+          `更正：此前按旧安排发给你的提醒「${rule.text}」对应的${SOURCE_LABELS[sourceType]}已经变化；请以最新安排为准，旧提醒不再有效。`,
         );
       }
     }
@@ -2286,6 +2313,8 @@ export class PaRuntime {
       next_due_at: nextDueAt,
       time_zone: timeZone,
     });
+    // The first occurrence must exist as a row before any tick can claim it.
+    await this.repos!.taskTemplates.insertInstance({ id: `${template.id}:${nextDueAt.toISOString()}`, templateId: template.id, dueAt: nextDueAt });
     return { templateId: template.id, nextDueAt: template.next_due_at?.toISOString() ?? null, message: `周期任务模板已建立（${origin}）；每次发生生成一个真实飞书任务，支持跳过本次/停止以后。` };
   }
 
@@ -2318,10 +2347,7 @@ export class PaRuntime {
   private async taskRepeatStop(args: Record<string, unknown>): Promise<unknown> {
     const template = await this.requireTemplate(args);
     await this.repos!.taskTemplates.update(template.id, { status: 'stopped' });
-    await this.dbRef.query(
-      `update pa24.task_template_instance set status = 'skipped', updated_at = now() where template_id = $1 and status = 'pending'`,
-      [template.id],
-    );
+    await this.repos!.taskTemplates.skipPendingInstances(template.id);
     return { templateId: template.id, status: 'stopped', message: '已停止以后的生成；已生成的任务与历史保留。' };
   }
 
@@ -2332,7 +2358,7 @@ export class PaRuntime {
     if (args.kind !== undefined) {
       const recreated = await this.taskRepeatCreate({ title: title ?? template.title, kind: args.kind, time: args.time, everySeconds: args.everySeconds, weekdays: args.weekdays, timeZone: args.timeZone ?? template.time_zone });
       await this.repos!.taskTemplates.update(template.id, { status: 'stopped' });
-      await this.dbRef.query(`update pa24.task_template_instance set status = 'skipped', updated_at = now() where template_id = $1 and status = 'pending'`, [template.id]);
+      await this.repos!.taskTemplates.skipPendingInstances(template.id);
       return { ...recreated as object, oldTemplateStopped: template.id, message: `已按新周期重建模板（旧模板 ${template.id} 停止，只影响以后）。` };
     }
     const updated = await this.repos!.taskTemplates.update(template.id, { ...(title ? { title } : {}) });
@@ -2361,7 +2387,12 @@ export class PaRuntime {
         const operationId = `ttask:${instance.id}`;
         const { created, row } = await this.repos.operations.begin({ id: operationId, workItemId: 'pa24-system-templates', action: 'task.repeat_generate', params: { instanceId: instance.id, title: template.title } });
         if (!created && row.status === 'succeeded') {
-          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: (row.receipt?.guid as string) ?? null });
+          // Reconcile keeps the same stable link: the task row id (operationId).
+          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: operationId });
+          continue;
+        }
+        if (!created && row.status === 'unknown') {
+          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'failed', error: '生成结果未知；请先核对飞书任务清单是否已生成，确认后再继续。' });
           continue;
         }
         try {
@@ -2376,8 +2407,8 @@ export class PaRuntime {
             task_guid: external.guid,
             url: external.url,
             summary: template.title,
-            due_at: null,
-            due_has_time: false,
+            due_at: instance.due_at,
+            due_has_time: true,
             planned_at: null,
             estimate_minutes: null,
             status: 'open',
@@ -2483,6 +2514,9 @@ export class PaRuntime {
         kind: 'text',
         content: { text: `等待跟进：「${item.title}」到检查点了${item.source_desc ? `（来源：${item.source_desc}）` : ''}——收到了吗？回复让助理记录（收到 / 继续等 / 改时间 / 取消）；不会自动向对方催办。` },
       });
+      // One ask per checkpoint: without an answer the next ask backs off an
+      // hour instead of nagging every tick (P23 到点询问).
+      await this.repos!.waiting.update(item.id, { checkpoint_at: new Date(Date.now() + 3600 * 1000) });
     }
     return due.length;
   }

@@ -72,7 +72,7 @@ const baseConfig = {
   version: 1, mode: 'feishu', larkProfile: 'default', ownerOpenId: 'ou_test_owner',
   folderToken: 'fld_test', tasklistId: 'tl_test', calendarId: 'primary', timeZone: 'Asia/Shanghai',
   appIdEnv: 'PA24_FEISHU_APP_ID', appSecretEnv: 'PA24_FEISHU_APP_SECRET', pgDsnEnv: 'PA24_PG_DSN',
-  maxWorkers: 3, enabledWorkers: ['memo', 'tasks', 'reminders'], workerModels: {},
+  maxWorkers: 3, enabledWorkers: ['memo', 'tasks', 'reminders', 'calendar'], workerModels: {},
 };
 const tasksScript = (title, workerAction, worker = 'tasks') => ({
   mode: 'dispatch',
@@ -253,6 +253,9 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     await waitWorkItem('建模板', '模板建立');
     const created = await waitToolResult('pa24_work', 'templateId', '模板回执', 60_000, before);
     const templateId = (created.match(/"templateId":"(ttpl-[^"]+)"/) || [])[1];
+    const nextDue = (created.match(/"nextDueAt":"([^"]+)"/) || [])[1];
+    // 创建即播种首个计划实例（否则模板永不触发）
+    expect((await rows(`select count(*)::int as n from pa24.task_template_instance where id='${templateId}:${nextDue}' and status='pending'`))[0].n).toBe(1);
 
     // 预置一个已到期的历史实例（模拟“错过最近一次”），tick 应生成真实任务
     await cluster.query(`insert into pa24.task_template_instance (id, template_id, due_at) values ('${templateId}:seed', '${templateId}', now() - interval '5 seconds')`);
@@ -286,6 +289,13 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     await inject(ownerEvent('evt-tp-1', { text: '检查账单这轮跳过' }));
     await waitWorkItem('跳过本次', '跳过完成');
     await waitToolResult('pa24_work', '已跳过本次', '跳过回执', 60_000, before);
+
+    // 修改以后：改标题影响后续生成
+    await writeScript(tasksScript('改模板标题', { action: 'task_repeat_update', templateId, title: '检查账单并回执' }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-tp-3', { text: '检查账单以后改叫检查账单并回执' }));
+    await waitWorkItem('改模板标题', '改标题完成');
+    await waitToolResult('pa24_work', '已修改以后', '改标题回执', 60_000, before);
 
     // 停止以后：剩余 pending 实例全部跳过，模板停止
     await writeScript(tasksScript('停止模板', { action: 'task_repeat_stop', templateId }));
@@ -322,6 +332,15 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     await waitWorkItem('重复等待', '重复等待完成');
     await waitToolResult('pa24_work', '不重复建立', '去重回执', 60_000, before);
 
+    // 改时间：检查点调整且继续等待
+    await writeScript(tasksScript('改等待时间', { action: 'waiting_control', waitingId, op: 'reschedule', inSeconds: 3600 }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-wt-3', { text: '一小时后还没收到再问我' }));
+    await waitWorkItem('改等待时间', '改等待完成');
+    const rescheduled = await waitToolResult('pa24_work', '检查点已调整', '改等待回执', 60_000, before);
+    const nextCheckpoint = new Date((rescheduled.match(/"checkpointAt":"([^"]+)"/) || [])[1]);
+    expect(nextCheckpoint.getTime()).toBeGreaterThan(Date.now() + 3000_000);
+
     // 标记收到 → 不再询问
     await writeScript(tasksScript('收到材料', { action: 'waiting_control', waitingId, op: 'received', note: '李雷已回数字' }));
     before = llm.log.length;
@@ -333,4 +352,31 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     await new Promise(r => setTimeout(r, 3000));
     expect((await rows(`select ask_count from pa24.waiting_item where id='${waitingId}'`))[0].ask_count).toBe(asked.ask_count);
   });
+
+  it('P19：跟随日程的提醒在日程取消后拦截并告知', async () => {
+    await writeScript(tasksScript('建日程供跟随', { action: 'calendar_create', summary: '评审会', start: '2026-10-09T10:00:00+08:00', end: '2026-10-09T10:30:00+08:00' }, 'calendar'));
+    let before = llm.log.length;
+    await inject(ownerEvent('evt-ev-0', { text: '建一个日程：10 月 9 日 10 点评审会半小时' }));
+    await waitWorkItem('建日程供跟随', '日程建立');
+    const created = await waitToolResult('pa24_work', 'eventId', '日历回执', 60_000, before);
+    const eventId = (created.match(/"eventId":"(evtstub-[^"]+)"/) || [])[1];
+
+    await writeScript(tasksScript('设日程跟随提醒', { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: '评审会即将开始', linkEventId: eventId }, 'reminders'));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-ev-1', { text: '开会前一分钟提醒我评审会' }));
+    await waitWorkItem('设日程跟随提醒', '日程提醒建立');
+    await waitToolResult('pa24_work', 'ruleId', '日程提醒回执', 60_000, before);
+    const linked = (await rows(`select id from pa24.reminder_rule where link_source_id='${eventId}'`))[0];
+    expect(linked).toBeTruthy();
+
+    // 日程取消 → 跟随提醒拦截并告知（未到期的实例取消）
+    await writeScript(tasksScript('取消评审会', { action: 'calendar_cancel', eventId }, 'calendar'));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-ev-2', { text: '评审会取消了' }));
+    await waitWorkItem('取消评审会', '日程取消完成');
+    await waitOutbox('remindsrc:', '日程取消告知', 30_000);
+    expect((await rows(`select status from pa24.reminder_rule where id='${linked.id}'`))[0].status).toBe('stopped');
+    expect((await rows(`select count(*)::int as n from pa24.reminder_occurrence where rule_id='${linked.id}' and status='sent'`))[0].n).toBe(0);
+  });
 });
+

@@ -721,6 +721,24 @@ export class ReminderRepo {
     return result.rows;
   }
 
+  /** Cancel not-yet-sent occurrences of one rule (source-change path, P19). */
+  async cancelPendingOccurrences(ruleId: string): Promise<number> {
+    const result = await this.db.query(
+      `update pa24.reminder_occurrence set status = 'canceled', updated_at = now() where rule_id = $1 and status = 'pending'`,
+      [ruleId],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  /** Sent/pending occurrence counts for one rule (correction decision, P19). */
+  async occurrenceCounts(ruleId: string): Promise<{ sent: number; pending: number } | null> {
+    const result = await this.db.query<{ sent: string; pending: string }>(
+      `select count(*) filter (where status = 'sent') as sent, count(*) filter (where status = 'pending') as pending from pa24.reminder_occurrence where rule_id = $1`,
+      [ruleId],
+    ).catch(() => null);
+    return result ? { sent: Number(result.rows[0]!.sent), pending: Number(result.rows[0]!.pending) } : null;
+  }
+
   async getRule(id: string): Promise<ReminderRuleRow | null> {
     const result = await this.db.query<ReminderRuleRow>('select * from pa24.reminder_rule where id = $1', [id]);
     return result.rows[0] ?? null;
@@ -1290,15 +1308,6 @@ export class OutreachRepo {
     );
   }
 
-  async get(id: string): Promise<OutreachRow | null> {
-    const result = await this.db.query<OutreachRow>('select * from pa24.outreach where id = $1', [id]);
-    return result.rows[0] ?? null;
-  }
-
-  async recent(limit = 20): Promise<OutreachRow[]> {
-    const result = await this.db.query<OutreachRow>('select * from pa24.outreach order by created_at desc limit $1', [limit]);
-    return result.rows;
-  }
 }
 
 export interface TaskTemplateRow {
@@ -1370,9 +1379,13 @@ export class TaskTemplateRepo {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async instance(id: string): Promise<TaskTemplateInstanceRow | null> {
-    const result = await this.db.query<TaskTemplateInstanceRow>('select * from pa24.task_template_instance where id = $1', [id]);
-    return result.rows[0] ?? null;
+  /** Skip every not-yet-generated instance (stop/change-future path, P22). */
+  async skipPendingInstances(templateId: string): Promise<number> {
+    const result = await this.db.query(
+      `update pa24.task_template_instance set status = 'skipped', updated_at = now() where template_id = $1 and status = 'pending'`,
+      [templateId],
+    );
+    return result.rowCount ?? 0;
   }
 
   async updateInstance(id: string, patch: Partial<Pick<TaskTemplateInstanceRow, 'status' | 'task_id' | 'error'>>): Promise<void> {
