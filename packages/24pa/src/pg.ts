@@ -286,6 +286,25 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       `alter table pa24.message_route add column if not exists note_id text`,
     ],
   },
+  {
+    version: 7,
+    statements: [
+      `create table if not exists pa24.review_reminder (
+        id text primary key,
+        note_id text not null,
+        version_id text not null,
+        kind text not null,
+        remind_at timestamptz not null,
+        status text not null default 'pending',
+        sent_count int not null default 0,
+        last_sent_at timestamptz,
+        reason text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists review_reminder_due_idx on pa24.review_reminder (status, remind_at)`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

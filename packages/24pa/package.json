@@ -26,7 +26,8 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.74.0",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "sharp": "0.35.3"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh": "0.2.1-alpha.1",

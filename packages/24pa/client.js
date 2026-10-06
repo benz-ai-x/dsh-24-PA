@@ -7,6 +7,9 @@ window.__ModuleLoader__.load({
     const React = require('react'), h = React.createElement;
     const zh = {
       panel: '24私助工作区', title: '24私助', work: '事项总览', feishu: '飞书接入', memory: '结构化记忆', workspace: '工作区',
+      review: '手写审核', awaiting_review: '待审核', needs_rereview: '需重新审核', returned: '已退回', collecting: '收集中',
+      collected: '已收齐', approved: '已通过', pending_review: '待审核', stale: '已失效', superseded: '已取代',
+      reminderOnce: '单次', reminderDaily: '每日', reminderPaused: '已暂停', reminderCanceled: '已取消', reminderDone: '已结束',
       queued: '排队中', running: '处理中', completed: '已完成', accepted: '已接纳',
       waiting_input: '等待补充', failed: '未完成', stopped: '已停止', needs_reconciliation: '需核对',
     };
@@ -139,6 +142,42 @@ window.__ModuleLoader__.load({
             h('details', null, h('summary', null, '存储位置与维护方式'), h('p', { className: 'pa24-meta' }, (workspace.path || '') + '/.24pa/memory.json'), h('p', { className: 'pa24-meta' }, '通过 dsh 的24私助会话新增、更正、删除和整理（变更集可撤销）；整理仅由你发起。')));
         }
 
+        function ReviewView({ workspace, openRobot }) {
+          const [view, setView] = React.useState({ status: 'loading', data: null, error: '' });
+          const [retry, setRetry] = React.useState(0);
+          React.useEffect(() => {
+            const abort = new AbortController();
+            setView({ status: 'loading', data: null, error: '' });
+            void rpc('notes.queue', {}, abort.signal).then(data => {
+              if (!abort.signal.aborted) setView({ status: 'ready', data, error: '' });
+            }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
+            return () => abort.abort();
+          }, [workspace.path, retry]);
+          const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
+          const tz = workspace.config ? workspace.config.timeZone : 'Asia/Shanghai';
+          const verifyBadge = v => {
+            if (!v || !v.verifyResult) return badge('尚未核验', 'neutral', 'info');
+            if (v.verifyResult === 'matches') return badge('内容一致', 'teal', 'check');
+            if (v.verifyResult === 'changed') return badge('文档已修改', 'amber', 'alert');
+            return badge('核验异常', 'rose', 'alert');
+          };
+          return h('section', null,
+            sectionHead('pen', '手写审核', '拍照笔记的待审版本、疑点定位与催办都在这里；批准或退回请在飞书审核卡上完成。',
+              button('refresh', '刷新队列', () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'rose'),
+            h('div', { className: 'pa24-example' }, icon('shield', { width: 16, height: 16 }), '审核裁决只由你在飞书卡片上作出；本页面为只读查阅，不提供网页批准按钮。'),
+            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取审核队列…'),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '审核队列读取失败')), h('p', null, view.error), button('refresh', '重试读取', () => setRetry(v => v + 1))),
+            view.status === 'ready' && (view.data.count === 0
+              ? h('div', { className: 'pa24-card' }, empty('check', 'teal', '没有等待审核的笔记', '拍照整理后的待审版本会出现在这里；审核完成或退回后自动移出。', button('chat', '与24私助对话', openRobot)))
+              : view.data.items.map(item => h('article', { key: item.noteId, className: 'pa24-job' },
+                  h('div', { className: 'pa24-row pa24-between' }, h('h3', null, item.title || item.noteId), badge(t(item.noteStatus) || item.noteStatus, ...(item.noteStatus === 'awaiting_review' ? ['amber', 'clock'] : item.noteStatus === 'needs_rereview' ? ['rose', 'alert'] : ['neutral', 'pen']))),
+                  item.latestVersion && h('div', { className: 'pa24-row' }, badge('v' + item.latestVersion.version + ' ' + (t(item.latestVersion.status) || item.latestVersion.status), item.latestVersion.status === 'pending_review' ? 'amber' : 'neutral', 'shield'), verifyBadge(item.latestVersion)),
+                  h('p', { className: 'pa24-meta' }, item.pages + ' 页原稿 · 指纹 ' + (item.latestVersion ? item.latestVersion.fingerprint : '—') + (item.latestVersion && item.latestVersion.verifiedAt ? ' · 上次核验 ' + date(item.latestVersion.verifiedAt, tz) : '')),
+                  item.reminders.length > 0 && h('p', { className: 'pa24-meta' }, '催办：' + item.reminders.map(r => (t('reminder' + (r.kind === 'daily' ? 'Daily' : 'Once')) || r.kind) + ' ' + (t('reminder' + r.status.charAt(0).toUpperCase() + r.status.slice(1)) || r.status) + (r.status === 'pending' ? '，下次 ' + date(r.remindAt, tz) : '')).join('；')),
+                  item.latestVersion && item.latestVersion.docUrl && h('a', { className: 'pa24-link-button', href: item.latestVersion.docUrl, target: '_blank', rel: 'noreferrer' }, icon('external'), '打开飞书文档'),
+                  h('p', { className: 'pa24-meta' }, '需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。')))));
+        }
+
         function Panel() {
           const [state, setState] = React.useState(null), [error, setError] = React.useState(''), [connError, setConnError] = React.useState(''), [busy, setBusy] = React.useState(false);
           const [tab, setTab] = React.useState('work'), [path, setPath] = React.useState('');
@@ -164,9 +203,11 @@ window.__ModuleLoader__.load({
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
           const items = state.work || [];
           const active = items.filter(j => ['accepted', 'queued', 'running'].includes(j.status));
-          const tabItems = [['work', 'grid', 'teal'], ['feishu', 'plug', 'blue'], ['memory', 'memory', 'violet'], ['workspace', 'folder', 'teal']];
+          const tabItems = [['work', 'grid', 'teal'], ['feishu', 'plug', 'blue'], ['memory', 'memory', 'violet'], ['review', 'pen', 'rose'], ['workspace', 'folder', 'teal']];
           let content;
-          if (tab === 'work') {
+          if (tab === 'review') {
+            content = h(ReviewView, { workspace, openRobot });
+          } else if (tab === 'work') {
             const roleNames = { memo: '备忘整理' };
             const readyItems = (state.readiness?.items || []).map(item => {
               const labels = { host: '宿主', config: '配置', postgres: 'PostgreSQL', workspace: '工作区', feishu: '飞书接入', sessions: '固定会话' };
