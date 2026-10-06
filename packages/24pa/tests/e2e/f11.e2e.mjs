@@ -211,21 +211,37 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     expect(search).toContain(`"${noteId}:v2"`);
     expect(search).toContain('changed'); // v1 因文档已改而失效
     expect(search).toContain('不因曾通过而继承');
+
+    // 再次修订（v3）：新的变更建议（逐版本），带差异概述
+    await writeFile(stubStatePath, JSON.stringify({ ownerOpenId: 'ou_test_owner', docEdits: { [docId]: '<p>补充：改为 C 稿并抄送李总</p>' } }));
+    await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_notes', input: { action: 'republish', noteId } }, leadReply: '已重发。' });
+    before = llm.log.length;
+    await inject(ownerEvent('evt-b1b', { text: `再修订一次 ${noteId}` }));
+    await waitToolResult('pa24_notes', 'addedLines', '重发 v3', 60_000, before);
+    const impact3 = await waitOutbox(`noteimpact:${noteId}:v3`, 'v3 变更建议', 30_000);
+    expect(impact3.content?.text ?? '').toContain('差异');
+    expect(impact3.content?.text ?? '').toContain('不会静默删除或覆盖');
   });
 
   it('P35：晨报/概览包含已审核笔记与等待/待审（缺数据明示）', async () => {
-    // v2 审核 → 成为已确认事实
-    const noteId2 = (await rows(`select note_id from pa24.note_version where version=2 limit 1`))[0].note_id;
-    const [v2Token] = (await rows(`select token from pa24.review_token where version_id='${noteId2}:v2' and action='approve'`)).map(r => r.token);
-    await clickCard('evt-b3', v2Token);
-    await waitOutbox(`review:${v2Token.slice(0, 12)}:`, 'v2 批准', 30_000);
+    // 批准当前候选 v3（v2 已被 v3 修订取代，旧批准按设计不再当作当前事实）
+    const noteId2 = (await rows(`select note_id from pa24.note_version where version=3 limit 1`))[0].note_id;
+    const [v3Token] = (await rows(`select token from pa24.review_token where version_id='${noteId2}:v3' and action='approve'`)).map(r => r.token);
+    await clickCard('evt-b3', v3Token);
+    await waitOutbox(`review:${v3Token.slice(0, 12)}:`, 'v3 批准', 30_000);
 
     await writeScript({ mode: 'dispatch', delegate: { worker: 'calendar', title: '今日概览', instruction: '概览' }, leadReply: 'ok', workerAction: { action: 'overview_today' }, workerReply: 'ok' });
     let before = llm.log.length;
     await inject(ownerEvent('evt-b4', { text: '看看今天的概览' }));
     await waitWorkItem('今日概览', '概览完成');
     const overview = await waitToolResult('pa24_work', 'reviewedNotes', '概览回执', 60_000, before);
-    expect(overview).toContain('"version":2');
+    expect(overview).toContain('"version":3');
     expect(overview).toContain('docUrl');
+    // 全类事项汇总：任务/日历/等待/待审均在，未读取范围明示
+    expect(overview).toContain('"calendar"');
+    expect(overview).toContain('"tasks"');
+    expect(overview).toContain('"waiting"');
+    expect(overview).toContain('"reviewQueue"');
+    expect(overview).toContain('"missing"');
   });
 });

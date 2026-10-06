@@ -41,6 +41,7 @@ import {
   type CropSpec,
   type DoubtSpec,
   type DiagramSpec,
+  type NoteCandidate,
   type RecognizedNote,
   type Region,
 } from './handwriting.js';
@@ -1833,12 +1834,14 @@ export class PaRuntime {
     if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
     const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : ''
     const overrideId = args._operationId ? String(args._operationId) : null;
+    const authorization = args._instruction ? { instruction: text(args._instruction, 500) } : {};
     const staged = overrideId
-      ? await this.stagedOperationWithId(overrideId, item, 'task.create', { tasklistId: this.config!.tasklistId, summary, due: dueArg })
+      ? await this.stagedOperationWithId(overrideId, item, 'task.create', { tasklistId: this.config!.tasklistId, summary, due: dueArg, ...authorization })
       : await this.stagedOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
           tasklistId: this.config!.tasklistId,
           summary,
           due: dueArg,
+          ...authorization,
         });
     if (!staged.created && staged.row.status === 'succeeded') {
       const existing = await this.repos!.tasks.get(staged.row.id);
@@ -2791,10 +2794,19 @@ export class PaRuntime {
     const reviewedNotes: { noteId: string; version: number; summary: string; docUrl: string | null; reviewedAt: string | null }[] = [];
     try {
       const recent = await this.dbRef.query<any>(
-        `select id, note_id, version, content, doc_url, decided_at from pa24.note_version where status = 'approved' order by decided_at desc nulls last limit 5`,
+        `select id, note_id, version, fingerprint, doc_id, content, doc_url, decided_at from pa24.note_version where status = 'approved' order by decided_at desc nulls last limit 5`,
       );
       for (const row of recent.rows) {
         if (reviewedNotes.length >= 3) break;
+        // Overview facts must be currently valid: re-verify the live document
+        // so an externally edited note stops being presented as confirmed (P35).
+        try {
+          const live = await this.currentFingerprint(row.note_id, row.doc_id, row);
+          if (live !== row.fingerprint) continue;
+        } catch (error) {
+          missing.push(`已审笔记 ${row.note_id} v${row.version} 暂无法核验（${(error as Error).message}），未列入概览`);
+          continue;
+        }
         reviewedNotes.push({
           noteId: row.note_id,
           version: row.version,
@@ -2804,7 +2816,7 @@ export class PaRuntime {
         });
       }
     } catch {
-      // reviewed-notes section stays absent; missing data is stated, not zero-filled
+      missing.push('已审笔记列表读取失败；概览未包含该部分，不按零处理');
     }
     const projectRows = (await this.dbRef
       .query<{ id: string; name: string }>('select id, name from pa24.project')
@@ -3431,7 +3443,7 @@ export class PaRuntime {
     if (liveFingerprint !== version.fingerprint) {
       throw new Error('文档内容与已审核版本不一致（已修改）；旧批准不覆盖新内容，请先重新发布候选并审核。');
     }
-    const candidates = (Array.isArray(version.content?.candidates) ? version.content.candidates : []) as { summary?: string; sourceQuote?: string; due?: string | null }[];
+    const candidates = (Array.isArray(version.content?.candidates) ? version.content.candidates : []) as NoteCandidate[];
     const wanted = Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [];
     if (wanted.length === 0) throw new Error('需要提供选择的候选编号（indexes[]）。');
     const results = [];
@@ -3441,15 +3453,31 @@ export class PaRuntime {
         results.push({ index, ok: false, error: `候选 ${index} 不存在或无摘要。` });
         continue;
       }
+      // Action identity = (note, version, index): repeats from any session
+      // return the existing object (P27 contract reused for notes). The
+      // owner's instruction is persisted with the operation so authorization
+      // and content approval stay separate records (P34).
+      const operationId = `note.action:${noteId}:v${version.version}:${index}`;
       try {
-        // Action identity = (note, version, index): repeats from any session
-        // return the existing object (P27 contract reused for notes).
-        const created = await this.taskCreate(item, {
-          summary: candidate.summary,
-          due: candidate.due ?? undefined,
-          _operationId: `note.action:${noteId}:v${version.version}:${index}`,
-        });
-        results.push({ index, ok: true, kind: 'task', sourceQuote: candidate.sourceQuote ?? null, dueRaw: candidate.due ?? null, ...(created as object) });
+        if (candidate.start && candidate.end) {
+          const staged = await this.stagedOperationWithId(operationId, item, 'calendar.create', { noteId, versionId, index, summary: candidate.summary, start: candidate.start, end: candidate.end, instruction });
+          if (!staged.created && staged.row.status === 'succeeded') {
+            const receipt = staged.row.receipt as { eventId?: string; url?: string | null } | null;
+            results.push({ index, ok: true, kind: 'calendar', reused: true, eventId: receipt?.eventId ?? null, url: receipt?.url ?? null });
+            continue;
+          }
+          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end }, operationId)) as { eventId?: string; url?: string | null };
+          await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, noteId, versionId, index, instruction } });
+          results.push({ index, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
+        } else {
+          const created = await this.taskCreate(item, {
+            summary: candidate.summary,
+            due: candidate.due ?? undefined,
+            _operationId: operationId,
+            _instruction: instruction,
+          });
+          results.push({ index, ok: true, kind: 'task', sourceQuote: candidate.sourceQuote ?? null, dueRaw: candidate.due ?? null, ...(created as object) });
+        }
       } catch (error) {
         results.push({ index, ok: false, error: (error as Error).message });
       }
@@ -3716,6 +3744,8 @@ export class PaRuntime {
         summary: text(String(record.summary ?? ''), 500),
         ...(record.sourceQuote ? { sourceQuote: text(record.sourceQuote, 300) } : {}),
         ...(record.due != null && record.due !== '' ? { due: String(record.due) } : {}),
+        ...(record.start ? { start: String(record.start) } : {}),
+        ...(record.end ? { end: String(record.end) } : {}),
       };
     }).filter(c => c.summary);
     const recognized: RecognizedNote = {
@@ -3892,9 +3922,13 @@ export class PaRuntime {
           .catch(() => ({ rows: [] as { id: string; params: any; status: string }[] }))).rows
           .filter(op => !op.id.startsWith(`note.action:${note.id}:v${version}:`));
         if (affected.length > 0 && this.config?.ownerOpenId) {
+          const diff = diffNormalized(String(latest.normalized_text ?? ''), normalized);
+          const diffNote = diff.added.length || diff.removed.length
+            ? `主要差异：新增 ${diff.added.length} 行${diff.added.length ? `（如「${diff.added[0]!.slice(0, 40)}」）` : ''}，删除 ${diff.removed.length} 行${diff.removed.length ? `（如「${diff.removed[0]!.slice(0, 40)}」）` : ''}。`
+            : '两版本正文无文本差异（可能仅原稿/结构变化）。';
           await this.notifyOwner(
             `noteimpact:${note.id}:v${version}`,
-            `笔记 ${note.id} 已发布 v${version} 候选。此前按旧版本创建的 ${affected.length} 个行动对象可能需要调整：${affected.map(op => String(op.params?.summary ?? op.id)).join('、')}。是否修改由你决定，助理不会静默删除或覆盖。`,
+            `笔记 ${note.id} 已发布 v${version} 候选。${diffNote}此前按旧版本创建的 ${affected.length} 个行动对象可能需要调整：${affected.map(op => String(op.params?.summary ?? op.id)).join('、')}。是否修改由你决定，助理不会静默删除或覆盖。`,
           );
         }
       }

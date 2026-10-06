@@ -78,6 +78,9 @@ export interface NoteCandidate {
   sourceQuote?: string;
   /** Raw date phrase as written; parsing happens at adoption time. */
   due?: string;
+  /** Optional explicit time block: routes the action to a calendar event (P34). */
+  start?: string;
+  end?: string;
 }
 
 export interface RecognizedNote {
@@ -178,7 +181,7 @@ export function noteDocumentXml(
   const status = pendingReviewLine(noteId, version);
   const lines = (items: string[], tag = 'p') => items.map(item => `<${tag}>${xml(item)}</${tag}>`).join('\n');
   const candidateText = (candidate: NoteCandidate) =>
-    `${candidate.summary}${candidate.sourceQuote ? `（原文：${candidate.sourceQuote}）` : ''}${candidate.due ? `（日期原话：${candidate.due}）` : ''}`;
+    `${candidate.summary}${candidate.sourceQuote ? `（原文：${candidate.sourceQuote}）` : ''}${candidate.due ? `（日期原话：${candidate.due}）` : ''}${candidate.start && candidate.end ? `（时间块 ${candidate.start} → ${candidate.end}）` : ''}`;
   const pages = recognized.pages?.length
     ? recognized.pages
         .map(p => `<h2>第 ${p.pageNo} 页 转写</h2>\n<p>${xml(p.transcript)}</p>`)
