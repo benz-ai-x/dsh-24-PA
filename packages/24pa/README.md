@@ -45,12 +45,20 @@ dsh --profile <你的 profile>
 - 机制：规则与发生实例在 `pa24.reminder_rule`/`pa24.reminder_occurrence`（唯一键幂等，SKIP LOCKED 领取）；发送经持久 Outbox（模型离线仍能发出）；周期规则只补最近一次错过的发生；单 Host 内每 tick 失败不致命。
 - 免打扰/休假（P15/P21）：派发时读记忆权威——主题「休假」（confirmed＋validUntil）或「通知偏好」（内容含 `安静时段 HH:mm-HH:mm`，按工作区时区）；到期实例被扣住（pending+deferred_until）而非丢弃，窗口结束后补发。偏好仅在本地24私助会话经 pa24_memory 维护。
 
+## F06 增量（手写笔记整理与人工审核）
+
+- 收集（P28）：飞书拍照或发送 JPEG/PNG/WebP 图片文件 → 稳定笔记编号（`pa24.note`/`pa24.note_page`）；原稿字节＋sha256 存工作区 `.24pa/originals/`，页序与消息来源入账本。回答回执消息继续发图＝追加页；不按时间窗自动合并；重复原稿（同 sha）拒绝重复保存；未知格式/超 10 MiB/超 50 页记为缺页并反馈。
+- 识别（P29）：handwriting Worker 正式可用，委派必须带 `noteId` 且要求 `workerModels.handwriting` 视觉路由（缺配置明确报错）；原稿图片经 dsh 附件服务真实进入子 Agent 与模型请求。Worker 仅提交结构化候选（`note_submit`：转写/摘要/AI建议/疑点/候选行动/相对日期分离），发布为 `docs +create` 模板文档（含【24PA·系统】状态块＋原稿图片）＋回读全文＋指纹（`pa24.note_version` 不可变快照）；staged 操作保证重试不重复建文档。本版仅识别单页笔记，多页如实拒绝（F07 交付）。
+- 审核（P31）：待审版本经 Outbox 发交互卡片，按钮只携带不透明令牌（`pa24.review_token` 绑定主人/笔记/版本/指纹/7 天有效期）；点击时服务端重新核验文档指纹一致才受理，裁决（approve/return）在 PG 事务内落 `pa24.review_decision`＋版本/笔记状态，文档状态块随后同步（失败＝凭证已保存、同步中）。重复点击返回原结果；Worker 没有任何批准或外部行动工具。
+- 失效与重审（P32）：指纹覆盖正文（系统状态块排除在外）、结构顺序与原稿资源摘要；`pa24_notes verify` 有界核验 matches/changed/unknown，changed → 版本转 stale、笔记转 needs_rereview 并通知（旧批准保留为历史凭证）；`pa24_notes republish` 以当前文档为 v(n+1) 候选重发审核卡（含行级差异），批准前不继承旧结论。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |
 |---|---|
-| 业务账本（收件/事项/操作/Outbox/绑定/备忘/消息路由） | PostgreSQL `pa24` schema |
+| 业务账本（收件/事项/操作/Outbox/绑定/备忘/消息路由/任务/日程/提醒/手写笔记与审核凭证） | PostgreSQL `pa24` schema |
 | 长期记忆权威、审计与变更集 | 工作区 `.24pa/`（memory.json / memory-log.jsonl / changesets/） |
+| 手写原稿（不可变字节与派生副本） | 工作区 `.24pa/originals/` |
 | 工作区规则与配置 | 工作区 `AGENTS.md` |
 | 原生会话日志与附件 | dsh `$DSH_HOME/sessions`（原生 JSONL，不使用 SQLite） |
 

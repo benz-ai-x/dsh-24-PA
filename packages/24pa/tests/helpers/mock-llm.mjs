@@ -37,6 +37,10 @@ export async function startMockLlm({ scriptPath, logPath }) {
       .flatMap(m => (m.role === 'user' ? m.content ?? [] : []))
       .filter(b => b.type === 'tool_result')
       .map(b => (typeof b.content === 'string' ? b.content : JSON.stringify(b.content ?? '')));
+    const images = (body.messages ?? [])
+      .flatMap(m => (Array.isArray(m.content) ? m.content : []))
+      .filter(b => b.type === 'image' && b.source?.type === 'base64')
+      .length;
     const lastUserText = (body.messages ?? [])
       .filter(m => m.role === 'user')
       .flatMap(m => m.content ?? [])
@@ -44,7 +48,7 @@ export async function startMockLlm({ scriptPath, logPath }) {
       .map(b => b.text)
       .join('\n')
       .slice(-2000);
-    requests.push({ at: new Date().toISOString(), model: body.model, tools, toolResults, lastUserText });
+    requests.push({ at: new Date().toISOString(), model: body.model, tools, toolResults, images, lastUserText });
     await writeFile(logPath, JSON.stringify(requests, null, 2)).catch(() => {});
 
     const script = await readJson(scriptPath, {});

@@ -24,6 +24,8 @@ export interface InboundEvent {
   messageType?: string;
   text?: string;
   imageKey?: string;
+  fileKey?: string;
+  fileName?: string;
   parentMessageId?: string;
   cardAction?: { value?: Record<string, unknown>; message?: string };
 }
@@ -33,7 +35,7 @@ export interface FeishuTransport {
   start(onEvent: (event: InboundEvent) => Promise<void>): Promise<void>;
   sendText(openId: string, text: string, uuid: string): Promise<{ messageId: string }>;
   sendCard(openId: string, card: unknown, uuid: string): Promise<{ messageId: string }>;
-  downloadImage(messageId: string, imageKey: string): Promise<Buffer>;
+  downloadImage(messageId: string, imageKey: string, type?: 'image' | 'file'): Promise<Buffer>;
   close(): Promise<void>;
 }
 
@@ -90,10 +92,10 @@ export class SdkFeishuTransport implements FeishuTransport {
     return { messageId: result.data.message_id as string };
   }
 
-  async downloadImage(messageId: string, imageKey: string): Promise<Buffer> {
+  async downloadImage(messageId: string, imageKey: string, type: 'image' | 'file' = 'image'): Promise<Buffer> {
     const response = await this.assertClient().im.messageResource.get({
       path: { message_id: messageId, file_key: imageKey },
-      params: { type: 'image' },
+      params: { type },
     });
     const chunks: Buffer[] = [];
     for await (const chunk of response.getReadableStream()) chunks.push(Buffer.from(chunk));
@@ -115,6 +117,8 @@ function mapMessageEvent(data: any): InboundEvent | null {
   if (!message?.message_id || !sender?.open_id) return null;
   let text: string | undefined;
   let imageKey: string | undefined;
+  let fileKey: string | undefined;
+  let fileName: string | undefined;
   if (message.message_type === 'text') {
     try {
       text = String(JSON.parse(message.content ?? '{}').text ?? '');
@@ -126,6 +130,14 @@ function mapMessageEvent(data: any): InboundEvent | null {
       imageKey = String(JSON.parse(message.content ?? '{}').image_key ?? '');
     } catch {
       imageKey = '';
+    }
+  } else if (message.message_type === 'file') {
+    try {
+      const parsed = JSON.parse(message.content ?? '{}');
+      fileKey = String(parsed.file_key ?? '');
+      fileName = String(parsed.file_name ?? '');
+    } catch {
+      fileKey = '';
     }
   }
   return {
@@ -140,6 +152,8 @@ function mapMessageEvent(data: any): InboundEvent | null {
     messageType: String(message.message_type ?? ''),
     text,
     imageKey,
+    fileKey,
+    fileName,
     parentMessageId: message.parent_id ? String(message.parent_id) : undefined,
   };
 }
