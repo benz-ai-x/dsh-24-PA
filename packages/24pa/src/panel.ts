@@ -91,6 +91,7 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
   }
   if (type === 'workspace.reload') return runtime.reloadWorkspace().then(() => snapshot(runtime));
   if (type === 'connection.check') return runtime.checkAccess();
+  if (type === 'notes.poll') return { verified: await runtime.pollPendingNotes() };
   if (type === 'robot.open') return { sessionId: await runtime.openLocalSession() };
   if (type === 'role.register') {
     const definition = payload.definition as Record<string, unknown> | undefined;

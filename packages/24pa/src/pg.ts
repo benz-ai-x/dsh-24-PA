@@ -235,6 +235,7 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
         byte_size int not null,
         sha256 text not null,
         storage_path text not null,
+        source_type text not null default 'image',
         quality text,
         status text not null default 'saved',
         created_at timestamptz not null default now(),
@@ -252,6 +253,9 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
         content jsonb not null,
         doc_snapshot text not null,
         status text not null default 'pending_review',
+        verified_at timestamptz,
+        verify_result text,
+        verify_fingerprint text,
         created_at timestamptz not null default now(),
         decided_at timestamptz,
         unique (note_id, version)

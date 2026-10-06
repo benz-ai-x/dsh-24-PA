@@ -20,8 +20,6 @@ export interface RecognizedNote {
   relativeDates: { original: string; interpretation: string }[];
 }
 
-const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-
 export function sha256Hex(data: Buffer | string): string {
   return createHash('sha256').update(data).digest('hex');
 }
@@ -106,7 +104,7 @@ export function normalizeDocument(docXml: string): string {
 
 /** Fingerprint covers normalized body text plus the original-resource hashes (P31). */
 export function fingerprintOf(normalizedText: string, pageSha256s: readonly string[]): string {
-  return hash(`${normalizedText}\n#原稿\n${pageSha256s.join('\n')}`);
+  return sha256Hex(`${normalizedText}\n#原稿\n${pageSha256s.join('\n')}`);
 }
 
 export interface NoteDiff {

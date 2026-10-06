@@ -14,6 +14,7 @@ export const Config = z.object({
   dispatchTickMs: z.natural().min(50).default(400),
   outboxTickMs: z.natural().min(250).default(1000),
   reminderTickMs: z.natural().min(250).default(1000),
+  noteVerifyTickMs: z.natural().min(1000).default(60_000),
 });
 
 export function apply(ctx: DshContext, config: any) {
@@ -25,6 +26,7 @@ export function apply(ctx: DshContext, config: any) {
     dispatchTickMs: config.dispatchTickMs,
     outboxTickMs: config.outboxTickMs,
     reminderTickMs: config.reminderTickMs,
+    noteVerifyTickMs: config.noteVerifyTickMs,
   });
   ctx.reflect.provide('pa24', runtime);
   ctx.on('session/event', (session, event) => runtime.onSessionEvent(session, event));

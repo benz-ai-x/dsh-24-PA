@@ -144,6 +144,10 @@ if (plain[0] === 'docs' && plain[1] === '+update') {
   ok({ document: { document_id: doc.id, revision_id: doc.revision + 1 } });
 }
 if (plain[0] === 'docs' && plain[1] === '+media-insert') {
+  if (state.failNext?.command === 'docs.media-insert') {
+    await writeState({ ...state, failNext: null });
+    fail(state.failNext.error ?? 'media insert injected failure');
+  }
   const docArg = argOf('--doc');
   const file = argOf('--file');
   const doc = [...docs].reverse().find(d => d.id === docArg);

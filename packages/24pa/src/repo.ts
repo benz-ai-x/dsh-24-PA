@@ -855,6 +855,8 @@ export interface NotePageRow {
   byte_size: number;
   sha256: string;
   storage_path: string;
+  /** 'image' = platform-compressed photo, 'file' = uploaded file original (P28). */
+  source_type: 'image' | 'file' | string;
   quality: string | null;
   status: 'saved' | 'rejected' | string;
   created_at: Date;
@@ -872,6 +874,10 @@ export interface NoteVersionRow {
   content: any;
   doc_snapshot: string;
   status: NoteVersionStatus | string;
+  /** Last bounded verification of the live document (P32: matches/changed/unknown + when). */
+  verified_at: Date | null;
+  verify_result: 'matches' | 'changed' | 'unknown' | null;
+  verify_fingerprint: string | null;
   created_at: Date;
   decided_at: Date | null;
 }
@@ -953,8 +959,8 @@ export class NoteRepo {
   async insertPage(row: Omit<NotePageRow, 'id' | 'created_at'>): Promise<{ inserted: boolean; row: NotePageRow }> {
     const id = `${row.note_id}:p${row.page_no}`;
     const result = await this.db.query<NotePageRow>(
-      `insert into pa24.note_page (id, note_id, page_no, message_id, image_key, media_type, byte_size, sha256, storage_path, quality, status)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `insert into pa24.note_page (id, note_id, page_no, message_id, image_key, media_type, byte_size, sha256, storage_path, source_type, quality, status)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        on conflict (note_id, page_no) do update set
          message_id = excluded.message_id,
          image_key = excluded.image_key,
@@ -962,10 +968,11 @@ export class NoteRepo {
          byte_size = excluded.byte_size,
          sha256 = excluded.sha256,
          storage_path = excluded.storage_path,
+         source_type = excluded.source_type,
          quality = excluded.quality,
          status = excluded.status
        returning *`,
-      [id, row.note_id, row.page_no, row.message_id, row.image_key, row.media_type, row.byte_size, row.sha256, row.storage_path, row.quality, row.status],
+      [id, row.note_id, row.page_no, row.message_id, row.image_key, row.media_type, row.byte_size, row.sha256, row.storage_path, row.source_type ?? 'image', row.quality, row.status],
     );
     return { inserted: true, row: result.rows[0]! };
   }
@@ -995,7 +1002,7 @@ export class NoteRepo {
     return result.rows;
   }
 
-  async insertVersion(row: Omit<NoteVersionRow, 'created_at' | 'decided_at'>): Promise<NoteVersionRow> {
+  async insertVersion(row: Omit<NoteVersionRow, 'created_at' | 'decided_at' | 'verified_at' | 'verify_result' | 'verify_fingerprint'>): Promise<NoteVersionRow> {
     const result = await this.db.query<NoteVersionRow>(
       `insert into pa24.note_version (id, note_id, version, doc_id, doc_url, doc_revision, fingerprint, normalized_text, content, doc_snapshot, status)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
@@ -1005,7 +1012,7 @@ export class NoteRepo {
     return result.rows[0]!;
   }
 
-  async updateVersion(id: string, patch: Partial<Pick<NoteVersionRow, 'status' | 'decided_at' | 'doc_revision'>>): Promise<NoteVersionRow | null> {
+  async updateVersion(id: string, patch: Partial<Pick<NoteVersionRow, 'status' | 'decided_at' | 'doc_revision' | 'verified_at' | 'verify_result' | 'verify_fingerprint'>>): Promise<NoteVersionRow | null> {
     const sets: string[] = [];
     const values: unknown[] = [id];
     let n = 2;
@@ -1066,6 +1073,55 @@ export class NoteRepo {
       `update pa24.review_decision set doc_sync_status = $2, doc_sync_error = $3 where id = $1`,
       [id, patch.docSyncStatus, patch.error ?? null],
     );
+  }
+
+  async failedSyncDecisions(noteId: string): Promise<ReviewDecisionRow[]> {
+    const result = await this.db.query<ReviewDecisionRow>(
+      `select * from pa24.review_decision where note_id = $1 and doc_sync_status = 'failed' order by decided_at`,
+      [noteId],
+    );
+    return result.rows;
+  }
+
+  /**
+   * Transactional review decision (P31): credential, version state, note state
+   * and the owner-notification intent commit together on one client.
+   */
+  async decideVersion(client: any, row: {
+    decisionId: string;
+    noteId: string;
+    versionId: string;
+    versionStatus: 'approved' | 'returned';
+    noteStatus: 'approved' | 'returned';
+    decision: 'approve' | 'return';
+    reviewerOpenId: string;
+    token: string;
+    fingerprint: string;
+    notifyDedupKey: string;
+    notifyTarget: string;
+    notifyText: string;
+  }): Promise<void> {
+    await client.query(
+      `insert into pa24.review_decision (id, note_id, version_id, decision, reviewer_open_id, token, fingerprint)
+       values ($1,$2,$3,$4,$5,$6,$7)`,
+      [row.decisionId, row.noteId, row.versionId, row.decision, row.reviewerOpenId, row.token, row.fingerprint],
+    );
+    await client.query(`update pa24.note_version set status = $2, decided_at = now() where id = $1`, [row.versionId, row.versionStatus]);
+    await client.query(`update pa24.note set status = $2, updated_at = now() where id = $1`, [row.noteId, row.noteStatus]);
+    await client.query(
+      `insert into pa24.outbox (dedup_key, channel, target, kind, content, status)
+       values ($1, 'feishu', $2, 'text', $3::jsonb, 'pending') on conflict (dedup_key) do nothing`,
+      [row.notifyDedupKey, row.notifyTarget, JSON.stringify({ text: row.notifyText })],
+    );
+  }
+
+  /** Pending-review versions for the bounded polling loop (P32). */
+  async pendingReviewVersions(limit: number): Promise<NoteVersionRow[]> {
+    const result = await this.db.query<NoteVersionRow>(
+      `select * from pa24.note_version where status = 'pending_review' order by created_at limit $1`,
+      [limit],
+    );
+    return result.rows;
   }
 }
 

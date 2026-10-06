@@ -40,9 +40,21 @@ const waitOutbox = async (prefix, label, timeoutMs = 30_000) => {
     if (row) return row;
     await new Promise(r => setTimeout(r, 500));
   }
-  throw new Error(`等待发送（${label}）超时`);
+  const inbox = await rows(`select event_id, kind, status, error from pa24.inbox order by created_at desc limit 6`);
+  const versions = await rows(`select id, status, verify_result from pa24.note_version order by created_at desc limit 4`);
+  throw new Error(`等待发送（${label}）超时；inbox=${JSON.stringify(inbox)} versions=${JSON.stringify(versions)}`);
 };
 const rows = async (sql) => JSON.parse(await cluster.query(`select coalesce(json_agg(t), '[]'::json) as v from (${sql}) t`));
+const noteIdOfAck = ack => ack.dedup_key.slice('noteack:'.length).split(':')[0];
+const waitAck = async (eventId, timeoutMs = 30_000) => {
+  for (let i = 0; i < timeoutMs / 500; i++) {
+    const snap = await host.api('snapshot');
+    const row = (snap.outbox ?? []).find(o => o.dedup_key.startsWith('noteack:') && o.dedup_key.endsWith(`:${eventId}`) && o.status === 'sent');
+    if (row) return row;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  throw new Error(`等待回执（${eventId}）超时`);
+};
 // Real, decodable PNGs: the dsh attachment admission decodes every image, so
 // magic bytes alone would be rejected before the child ever starts.
 let CRC_TABLE;
@@ -210,7 +222,8 @@ describe('F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG）',
     // 图片文件消息（PNG 文件，非拍照）→ 新笔记 N-2
     await inject(ownerEvent('evt-file-1', { messageType: 'file', fileKey: 'img-file-1', fileName: 'note.png', imageData: b64(png(5)) }));
     const ack = await waitOutbox('noteack:N-2:p1:', '图片文件回执');
-    expect((await rows(`select media_type from pa24.note_page where note_id='N-2'`))[0].media_type).toBe('image/png');
+    expect((await rows(`select media_type, source_type from pa24.note_page where note_id='N-2'`))[0]).toEqual({ media_type: 'image/png', source_type: 'file' });
+    expect((await rows(`select source_type from pa24.note_page where note_id='N-1' and page_no=1`))[0].source_type).toBe('image');
 
     // 未配置视觉路由：委派被明确拒绝
     await writeScript(recognizeScript('N-2', submitAction('N-2')));
@@ -239,10 +252,32 @@ describe('F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG）',
     const doc = [...stubDocs].reverse().find(d => d.id === versions[0].doc_id);
     expect(doc.content).toContain('<img src=');
     expect(doc.content).toContain('待本人审核 N-2 v1');
+    // 视觉模型版本随版本存档（P29 AC4）
+    const model = (await rows(`select content->'model' as model from pa24.note_version where id='N-2:v1'`))[0].model;
+    expect(model).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' });
+    // 有界轮询：待审版本的核验结果与时间持久化（P32 AC1；面板触发同一有界入口）
+    await host.api('action', { type: 'notes.poll' });
+    let polled;
+    for (let i = 0; i < 30 && !polled; i++) {
+      const v = await rows(`select verify_result, (verified_at is not null) as checked from pa24.note_version where id='N-2:v1'`);
+      if (v[0].verify_result === 'matches') polled = v[0];
+      else await new Promise(r => setTimeout(r, 500));
+    }
+    expect(polled?.checked).toBe(true);
   });
 
-  it('P31：主人批准指定版本，重复点击返回原结果，状态块更新不改变指纹', async () => {
+  it('P31：非主人点击被拒绝，主人批准指定版本，重复点击返回原结果', async () => {
     const [approveToken] = (await rows(`select token from pa24.review_token where version_id='N-2:v1' and action='approve'`)).map(r => r.token);
+    // 非主人操作：入口层直接拒绝，不产生任何裁决
+    await inject({ eventId: 'evt-card-foreign', appId: 'cli_test_app', kind: 'card', senderOpenId: 'ou_someone_else', chatType: 'p2p', cardAction: { value: { pa24: 'review', token: approveToken } } });
+    let foreign;
+    for (let i = 0; i < 30 && !foreign; i++) {
+      const r = await rows(`select status from pa24.inbox where event_id='evt-card-foreign'`);
+      if (r[0]?.status === 'rejected') foreign = r[0];
+      else await new Promise(r2 => setTimeout(r2, 500));
+    }
+    expect(foreign?.status).toBe('rejected');
+    expect((await rows(`select count(*)::int as n from pa24.review_decision`))[0].n).toBe(0);
     await clickCard('evt-card-1', approveToken);
     await waitOutbox(`review:${approveToken.slice(0, 12)}:`, '批准通知', 30_000);
     expect((await rows(`select decision from pa24.review_decision where version_id='N-2:v1'`))).toEqual([{ decision: 'approve' }]);
@@ -312,13 +347,68 @@ describe('F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG）',
     expect(decisions).toEqual([{ version_id: 'N-2:v1', decision: 'approve' }, { version_id: 'N-2:v2', decision: 'approve' }]);
   });
 
+  it('P31/P32：状态同步失败时凭证仍保存，核验后补同步；结束批次后不再追加页', async () => {
+    // 新笔记：识别 → 批准时文档状态更新失败
+    await inject(ownerEvent('evt-img-30', { messageType: 'image', imageKey: 'img-30', imageData: b64(png(11)) }));
+    const ack = await waitAck('evt-img-30');
+    const noteA = noteIdOfAck(ack);
+    await writeScript(recognizeScript(noteA, submitAction(noteA)));
+    await inject(ownerEvent('evt-org-5', { text: '整理这份笔记', parentMessageId: ack.message_id }));
+    await waitWorkItem(`整理 ${noteA}`, '识别完成');
+    const [approveToken] = (await rows(`select token from pa24.review_token where version_id='${noteA}:v1' and action='approve'`)).map(r => r.token);
+    await setStubState({ failNext: { command: 'docs.update', error: '注入的文档更新失败' } });
+    await clickCard('evt-card-5', approveToken);
+    await waitOutbox(`reviewsync:${approveToken.slice(0, 12)}:evt-card-5`, '同步失败通知', 30_000);
+    // 凭证已保存；同步标记为 failed（凭证已保存、标识同步中）
+    const decision = (await rows(`select decision, doc_sync_status from pa24.review_decision where version_id='${noteA}:v1'`))[0];
+    expect(decision.decision).toBe('approve');
+    expect(decision.doc_sync_status).toBe('failed');
+    expect((await rows(`select status from pa24.note_version where id='${noteA}:v1'`))[0].status).toBe('approved');
+    // 核验一致后自动补同步（恢复路径）
+    await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_notes', input: { action: 'verify', noteId: noteA } }, leadReply: '已核验。' });
+    await inject(ownerEvent('evt-verify-5', { text: `核验笔记 ${noteA}` }));
+    const result = await waitToolResult('pa24_notes', '补同步', '核验并补同步');
+    expect(result).toContain('matches');
+    expect((await rows(`select doc_sync_status from pa24.review_decision where version_id='${noteA}:v1'`))[0].doc_sync_status).toBe('synced');
+
+    // 结束批次：collected 之后不再追加页（P28 AC1 显式结束）
+    await inject(ownerEvent('evt-img-31', { messageType: 'image', imageKey: 'img-31', imageData: b64(png(12)) }));
+    const ack2 = await waitAck('evt-img-31');
+    const noteB = noteIdOfAck(ack2);
+    expect(noteB).not.toBe(noteA);
+    await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_notes', input: { action: 'finish', noteId: noteB } }, leadReply: '已结束批次。' });
+    await inject(ownerEvent('evt-finish-6', { text: '结束这批笔记' }));
+    const finished = await waitToolResult('pa24_notes', '批次已结束', '结束批次');
+    expect(finished).toContain(noteB);
+    expect((await rows(`select status from pa24.note where id='${noteB}'`))[0].status).toBe('collected');
+    await inject(ownerEvent('evt-img-32', { messageType: 'image', imageKey: 'img-32', imageData: b64(png(13)), parentMessageId: ack2.message_id }));
+    await waitOutbox('noteinfo:evt-img-32', '结束后拒绝追加', 30_000);
+    expect((await rows(`select count(*)::int as n from pa24.note_page where note_id='${noteB}' and status='saved'`))[0].n).toBe(1);
+  });
+
+  it('P29：媒体插入失败不发送待审链接，操作保留可恢复回执', async () => {
+    await inject(ownerEvent('evt-img-40', { messageType: 'image', imageKey: 'img-40', imageData: b64(png(14)) }));
+    const ack = await waitAck('evt-img-40');
+    const noteC = noteIdOfAck(ack);
+    await setStubState({ failNext: { command: 'docs.media-insert', error: '注入的媒体插入失败' } });
+    await writeScript(recognizeScript(noteC, submitAction(noteC)));
+    await inject(ownerEvent('evt-org-7', { text: '整理这份笔记', parentMessageId: ack.message_id }));
+    await waitToolResult('pa24_work', '媒体插入失败', '媒体插入失败');
+    // 未生成版本、未发送审核卡；staged 操作保留 docId 回执可恢复
+    expect((await rows(`select count(*)::int as n from pa24.note_version where note_id='${noteC}'`))[0].n).toBe(0);
+    const op = (await rows(`select status, (receipt->>'docId') is not null as has_doc from pa24.action_operation where action='note.publish' and params->>'noteId'='${noteC}'`))[0];
+    expect(op.status).toBe('failed');
+    expect(op.has_doc).toBe(true);
+  });
+
   it('P31/P29：识别 Worker 没有任何批准或外部行动工具', async () => {
     await inject(ownerEvent('evt-img-20', { messageType: 'image', imageKey: 'img-20', imageData: b64(png(9)) }));
-    const ack = await waitOutbox('noteack:N-4:p1:', 'N-4 回执');
-    await writeScript(recognizeScript('N-4', { action: 'note_approve', noteId: 'N-4', decision: 'approve' }));
+    const ack = await waitAck('evt-img-20');
+    const noteD = noteIdOfAck(ack);
+    await writeScript(recognizeScript(noteD, { action: 'note_approve', noteId: noteD, decision: 'approve' }));
     await inject(ownerEvent('evt-org-4', { text: '整理这份笔记', parentMessageId: ack.message_id }));
     await waitToolResult('pa24_work', '没有执行这项操作的权限', 'Worker 无批准工具');
     // 未产生任何审核裁决
-    expect((await rows(`select count(*)::int as n from pa24.review_decision where note_id='N-4'`))[0].n).toBe(0);
+    expect((await rows(`select count(*)::int as n from pa24.review_decision where note_id='${noteD}'`))[0].n).toBe(0);
   });
 });
