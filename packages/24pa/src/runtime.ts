@@ -1716,7 +1716,7 @@ export class PaRuntime {
       await this.repos!.calendar.markCanceledExcept(calendarId, live, from, to);
       // Remote cancellations surface through linked reminders too: any linked
       // event in this window that is no longer live gets its correction (P19).
-      for (const eventId of await this.linkedEventIdsIn('calendar', from, to)) {
+      for (const eventId of await this.linkedEventIdsInWindow(from, to)) {
         if (!live.includes(eventId)) await this.notifySourceChanged('calendar', eventId, null);
       }
       await this.repos!.calendar.saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: true });
@@ -2230,12 +2230,17 @@ export class PaRuntime {
     }
   }
 
-  private async linkedEventIdsIn(sourceType: 'task' | 'calendar', from: Date, to: Date): Promise<string[]> {
+  /** Linked calendar events whose projection overlaps the synced window: only
+   * these can be judged gone by this sync — events outside the window were
+   * never observed and must not be falsely canceled. */
+  private async linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]> {
     if (!this.repos) return [];
     const result = await this.dbRef
       .query<{ link_source_id: string }>(
-        `select distinct link_source_id from pa24.reminder_rule where link_source_type = $1`,
-        [sourceType],
+        `select distinct r.link_source_id from pa24.reminder_rule r
+         join pa24.calendar_event e on e.event_id = r.link_source_id
+         where r.link_source_type = 'calendar' and not (e.end_time <= $1 or e.start_time >= $2)`,
+        [from, to],
       )
       .catch(() => ({ rows: [] as { link_source_id: string }[] }));
     return result.rows.map(r => r.link_source_id);
