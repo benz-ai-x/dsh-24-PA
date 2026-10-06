@@ -1,6 +1,8 @@
 # 24私助（24PA）正式插件
 
-`@benz-ai-x/dsh-24pa` 是 24私助的正式 dsh bundle：一个「24私助」预设同时承接事务交办与工作区维护，业务账本使用 PostgreSQL，飞书接入采用官方 SDK 长连接＋受控 lark-cli 执行器。
+`@benz-ai-x/dsh-24pa` 是 24私助的正式 dsh bundle：一个「24私助」预设同时承接事务交办、工作区维护与标准模式完整编程能力（F13 起），业务账本使用 PostgreSQL，飞书接入采用官方 SDK 长连接＋受控 lark-cli 执行器。
+
+预设携带标准预设的插件全集（persona 已并入助理身份、bash/pwsh、文件与检索、jobs、skill、goal、plan-mode、压缩、subagent/subagent_fork、workflow、ralph、ask-user、todo、web、present）＋ pa24 业务插件；各入口实际可见工具由角色白名单决定：本地24私助会话获得标准编程工具全集，飞书接入会话与 Worker 维持业务白名单。`tool-schedule` 不并入——提醒统一经 PostgreSQL 账本。外部 CLI 委派（`subagent_codex`/`subagent_claude_code`）的工具行已启用，但需先向 profile 安装对应 provider 包（`@deepseek-ai/dsh-subagent-codex` / `-claude-code`）并在 AGENTS.md `extraLocalTools` 中显式列出后才对本地会话生效。
 
 ## 安装与启动
 
@@ -18,7 +20,7 @@ dsh --profile <你的 profile>
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | 飞书自建应用凭据（feishu 模式） |
 | `PA24_WORKSPACE` | 首次启动时绑定的工作区绝对目录（也可在面板选择） |
 
-首次绑定目录若没有 `AGENTS.md` 会生成模板；已有文件不覆盖。AGENTS.md 中唯一的 json 块是配置源：`mode`（demo/feishu）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`timeZone`、`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`。凭据与连接串只写环境变量名。
+首次绑定目录若没有 `AGENTS.md` 会生成模板；已有文件不覆盖。AGENTS.md 中唯一的 json 块是配置源：`mode`（demo/feishu）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`timeZone`、`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraLocalTools`。凭据与连接串只写环境变量名。
 
 ## F02 增量（并行事项与记忆维护）
 
@@ -89,6 +91,13 @@ dsh --profile <你的 profile>
 - 归档检查/执行（P37）：`pa24_maintenance archive_check` 盘点运行中事项、**原生 Schedule**（digest/prep 计划）与 **PG 外部提醒**（reminder_rule/review_reminder，单独展示不与原生计划混同）及未确认发送；`archive_execute` 需 `confirmStop:true`——停止 Worker（用户停止不复活）→ 逐个删除原生计划并回读（部分失败逐项说明）→ 外部提醒默认保留、`stopRules:true` 才停止；恢复不自动重建已删计划；取消零副作用。dsh 原生归档闸（active Schedule 阻止归档）仍是权威兜底。
 - 联合备份（P38）：`backup_create {targetDir}` 产出 `pg_dump --schema=pa24`＋工作区（AGENTS.md/.24pa 记忆/修订/原稿/裁片）清单＋dsh 状态清单＋`backup-manifest.json`（各部分 sha256、PG schema 版本与行数水位、凭据**引用名**清单——凭据值永不入备份）；`backup_verify` 校验摘要并报告缺失部分（未完整恢复的能力不可假装就绪）。恢复顺序与旧 Outbox/飞书对象对账规则见下方「数据与备份/恢复」。
 - 健康/预算（P39）：`pa24_maintenance health`＋面板「工作区」页健康区块——能力状态（视觉路由/日历同步新鲜度）、本 Host 投入统计（模型轮次/输入页/裁片/发送队列/结果未知/发送延迟 p50/p95；进程内计数重启清零，费用口径声明）、数据流披露（模型输入范围/日志/保留期/凭据不出现在诊断）、降级语义（模型断→仅模型工作暂停固定提醒继续；PG 断→停止接纳）。
+
+## F13 增量（预设并入标准模式能力）
+
+- 预设组装：`cordis.patch.yml` 的 `pa24-preset` 行携带标准预设插件全集（persona 文案并入助理身份）＋`pa24-agent`；`tool-schedule` 不并入（提醒统一走账本），subagent 行的 schedule deny 过滤随之移除。
+- 角色白名单（`src/tools.ts` `STANDARD_CODING_TOOLS`）：本地24私助会话额外获得 bash/pwsh（按平台择一）、read/write/edit/read_image/glob/grep、job_*、skill、goal、exit_plan_mode、ask_user_question、todo_write、web_fetch/web_search、present、subagent/subagent_fork、interrupt_agent/send_message/list_agents、workflow、ralph；飞书接入会话与 Worker 白名单不变。
+- `extraLocalTools`（封闭枚举 `subagent_codex`/`subagent_claude_code`）：安装对应 provider 包后在 AGENTS.md 显式列出，本地会话才获得外部 CLI 委派工具；restrict() 要求名单内工具真实存在，故该能力不能默认开启。
+- 验收：`tests/e2e/f13.e2e.mjs` 经真实 Loader 断言三个角色的实际工具面（本地全集、飞书白名单、Worker 仅 pa24_work＋只读记忆）。
 
 ## 数据与备份/恢复
 

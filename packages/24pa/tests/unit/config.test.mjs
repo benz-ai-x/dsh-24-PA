@@ -38,6 +38,16 @@ describe('AGENTS.md 配置校验', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, workerModels: { memo: { provider: 'p', model: 'm' } } })).not.toThrow();
   });
 
+  it('extraLocalTools 只接受封闭枚举且不重复，缺省为空', () => {
+    expect(validateConfig({ ...DEFAULT_CONFIG }).extraLocalTools).toEqual([]);
+    expect(
+      () => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['subagent_codex', 'subagent_claude_code'] }),
+    ).not.toThrow();
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['subagent_codex', 'subagent_codex'] })).toThrow(/extraLocalTools/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['bash'] })).toThrow(/extraLocalTools/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: 'subagent_codex' })).toThrow(/extraLocalTools/);
+  });
+
   it('feishu 模式必须提供主人与资源', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, mode: 'feishu' })).toThrow(/ownerOpenId/);
     expect(
