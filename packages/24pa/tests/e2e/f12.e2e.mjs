@@ -187,6 +187,8 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     expect(health).toContain('modelTurns');
     expect(health).toContain('dataFlow');
     expect(health).toContain('凭据');
+    expect(health).toContain('ledgerRetries');
+    expect(health).toContain('quota');
     // 面板同源
     const panelHealth = await host.api('health', {});
     expect(panelHealth.capabilities.length).toBeGreaterThan(0);
