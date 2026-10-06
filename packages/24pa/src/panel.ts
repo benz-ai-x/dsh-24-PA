@@ -116,7 +116,7 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
     if (!transport || typeof (transport as FakeFeishuTransport).inject !== 'function') {
       throw new Error('test.inject 仅在显式启用 fake 通道（PA24_TRANSPORT=fake）时可用。');
     }
-    const event = payload.event as Partial<InboundEvent> | undefined;
+    const event = payload.event as (Partial<InboundEvent> & { imageData?: string }) | undefined;
     if (!event || typeof event !== 'object') throw new Error('缺少事件内容。');
     const inbound: InboundEvent = {
       eventId: String(event.eventId ?? `test-${randomUUID()}`),
@@ -130,9 +130,12 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
       messageType: event.messageType ?? 'text',
       text: event.text !== undefined ? String(event.text) : undefined,
       imageKey: event.imageKey ? String(event.imageKey) : undefined,
+      fileKey: event.fileKey ? String(event.fileKey) : undefined,
+      fileName: event.fileName ? String(event.fileName) : undefined,
       parentMessageId: event.parentMessageId ? String(event.parentMessageId) : undefined,
+      ...(event.cardAction ? { cardAction: event.cardAction as { value?: Record<string, unknown>; message?: string } } : {}),
     };
-    await (transport as FakeFeishuTransport).inject(inbound);
+    await (transport as FakeFeishuTransport).inject(inbound, event.imageData ? String(event.imageData) : undefined);
     return { injected: true, eventId: inbound.eventId };
   }
   throw new Error('管理台只提供工作区绑定、配置重载、只读检查、事项查询与测试注入。');

@@ -212,6 +212,76 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       `create index if not exists reminder_occurrence_due_idx on pa24.reminder_occurrence (status, due_at)`,
     ],
   },
+  {
+    version: 6,
+    statements: [
+      `create sequence if not exists pa24.note_seq start 1`,
+      `create table if not exists pa24.note (
+        id text primary key,
+        title text not null,
+        status text not null default 'collecting',
+        origin text not null default 'feishu',
+        work_item_id text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.note_page (
+        id text primary key,
+        note_id text not null,
+        page_no int not null,
+        message_id text not null,
+        image_key text,
+        media_type text not null,
+        byte_size int not null,
+        sha256 text not null,
+        storage_path text not null,
+        quality text,
+        status text not null default 'saved',
+        created_at timestamptz not null default now(),
+        unique (note_id, page_no)
+      )`,
+      `create table if not exists pa24.note_version (
+        id text primary key,
+        note_id text not null,
+        version int not null,
+        doc_id text,
+        doc_url text,
+        doc_revision text,
+        fingerprint text not null,
+        normalized_text text not null,
+        content jsonb not null,
+        doc_snapshot text not null,
+        status text not null default 'pending_review',
+        created_at timestamptz not null default now(),
+        decided_at timestamptz,
+        unique (note_id, version)
+      )`,
+      `create table if not exists pa24.review_token (
+        token text primary key,
+        note_id text not null,
+        version_id text not null,
+        action text not null,
+        owner_open_id text not null,
+        fingerprint text not null,
+        expires_at timestamptz not null,
+        used_at timestamptz,
+        result jsonb
+      )`,
+      `create table if not exists pa24.review_decision (
+        id text primary key,
+        note_id text not null,
+        version_id text not null,
+        decision text not null,
+        reviewer_open_id text not null,
+        token text not null,
+        fingerprint text not null,
+        decided_at timestamptz not null default now(),
+        doc_sync_status text not null default 'pending',
+        doc_sync_error text
+      )`,
+      `alter table pa24.message_route add column if not exists note_id text`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

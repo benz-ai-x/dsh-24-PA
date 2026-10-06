@@ -114,7 +114,43 @@ if (plain[0] === 'docs' && plain[1] === '+fetch') {
   const docArg = args[args.indexOf('--doc') + 1];
   const doc = [...docs].reverse().find(d => d.id === docArg);
   if (!doc) fail(`文档不存在：${docArg}`);
-  ok({ document: { document_id: doc.id, url: `https://example.feishu.cn/wiki/${doc.id}`, content: doc.content, revision_id: doc.revision, reference_map: {} } });
+  // Simulates owner-side edits configured by tests (P32 changed-detection).
+  const edit = state.docEdits?.[docArg];
+  const content = edit ? `${doc.content}\n${edit}` : doc.content;
+  ok({ document: { document_id: doc.id, url: `https://example.feishu.cn/wiki/${doc.id}`, content, revision_id: doc.revision + (edit ? 100 : 0), reference_map: {} } });
+}
+if (plain[0] === 'docs' && plain[1] === '+update') {
+  if (state.failNext?.command === 'docs.update') {
+    await writeState({ ...state, failNext: null });
+    fail(state.failNext.error ?? 'docs update injected failure');
+  }
+  const docArg = argOf('--doc');
+  const doc = [...docs].reverse().find(d => d.id === docArg);
+  if (!doc) fail(`文档不存在：${docArg}`);
+  const command = argOf('--command');
+  const pattern = argOf('--pattern');
+  const content = argOf('--content');
+  const edited = state.docEdits?.[docArg];
+  let base = edited ? `${doc.content}\n${edited}` : doc.content;
+  if (command === 'str_replace') {
+    if (!base.includes(pattern)) fail(`str_replace 未找到匹配文本：${pattern.slice(0, 60)}`);
+    base = base.replace(pattern, content ?? '');
+  } else {
+    fail(`stub-lark-cli 未实现的 docs +update 命令：${command}`);
+  }
+  delete state.docEdits?.[docArg];
+  await writeState(state);
+  await appendFile(docsPath, JSON.stringify({ ...doc, content: base, revision: doc.revision + 1 }) + '\n');
+  ok({ document: { document_id: doc.id, revision_id: doc.revision + 1 } });
+}
+if (plain[0] === 'docs' && plain[1] === '+media-insert') {
+  const docArg = argOf('--doc');
+  const file = argOf('--file');
+  const doc = [...docs].reverse().find(d => d.id === docArg);
+  if (!doc) fail(`文档不存在：${docArg}`);
+  if (!file) fail('缺少 --file');
+  await appendFile(docsPath, JSON.stringify({ ...doc, content: `${doc.content}\n<img src="${file}"/>`, revision: doc.revision + 1 }) + '\n');
+  ok({ block: { block_id: `imgstub-${doc.revision + 1}` } });
 }
 if (plain[0] === 'task' && plain[1] === '+create') {
   if (state.failNext?.command === 'task.create') {
