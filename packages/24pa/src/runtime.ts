@@ -302,6 +302,8 @@ export class PaRuntime {
       available: true,
       actions: {
         memo_save: async (args, item) => this.saveMemo(item, args),
+        minutes_build: async (args, item) => this.minutesBuild(item, args),
+        minutes_adopt_actions: async (args, item) => this.minutesAdoptActions(item, args),
         memo_find: async args => {
           const memos = await this.repos!.memos.search({
             topic: args.topic ? text(args.topic, 200) : undefined,
@@ -351,6 +353,8 @@ export class PaRuntime {
         calendar_cancel: async (args, item) => this.calendarWrite(item, 'cancel', args),
         meeting_schedule: async (args, item) => this.meetingSchedule(item, args),
         plan_today: async args => this.planToday(args),
+        meeting_prep_enable: async args => this.meetingPrepEnable(args),
+        meeting_prep_build: async (args, item) => this.meetingPrepBuild(item, args),
         plan_preview: async args => this.planPreview(args),
         plan_adopt: async (args, item) => this.planAdopt(item, args),
         overview_today: async () => this.overviewToday(),
@@ -1562,7 +1566,7 @@ export class PaRuntime {
     };
   }
 
-  private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown> {
+  private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
     const calendarId = String(args.calendarId ?? this.config!.calendarId);
     const summary = kind === 'cancel' ? null : args.summary === undefined ? null : text(args.summary, 500);
     const start = args.start !== undefined ? new Date(String(args.start)) : null;
@@ -1576,13 +1580,15 @@ export class PaRuntime {
     const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
     const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}`;
     return this.gate(`calendar-event:${eventId || 'new'}`, async () => {
-    const staged = await this.stagedOperation(
-      item,
-      `calendar.${kind}`,
-      paramsKey,
-      { calendarId, kind, eventId, summary, start, end },
-      '请先用 calendar_query 重新同步窗口核对日程实际状态，确认后再继续。',
-    );
+    const staged = operationIdOverride
+      ? await this.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end })
+      : await this.stagedOperation(
+          item,
+          `calendar.${kind}`,
+          paramsKey,
+          { calendarId, kind, eventId, summary, start, end },
+          '请先用 calendar_query 重新同步窗口核对日程实际状态，确认后再继续。',
+        );
     if (!staged.created && staged.row.status === 'succeeded') {
       return { operationId: staged.row.id, reused: true, ...(staged.row.receipt ?? {}), message: '此日程操作此前已提交，未重复写入。' };
     }
@@ -1636,7 +1642,9 @@ export class PaRuntime {
         await this.notifySourceChanged('calendar', eventId, null);
       }
       await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
-      if (kind === 'update' && summary) {
+      if (kind === 'update') {
+        // Any successful update may have moved the source: linked reminders
+        // and prep plans re-derive their validity from the new fingerprint.
         const prior = await this.repos!.calendar.findEvent(newEventId);
         await this.notifySourceChanged('calendar', newEventId, eventFingerprint({ event_id: newEventId, summary: prior?.summary ?? summary ?? '', start_time: prior?.start_time ?? start! }));
       }
@@ -1804,6 +1812,16 @@ export class PaRuntime {
     return { created: true, row };
   }
 
+  /** Staged operation under a caller-chosen stable id (minutes candidates). */
+  private async stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }> {
+    const { created, row } = await this.repos!.operations.begin({ id: operationId, workItemId: item.id, action, params });
+    if (!created && row.status === 'unknown') {
+      throw new Error(`上次操作结果未知（超时或响应丢失）；请先核对远端实际对象，确认后再继续，不自动重试。`);
+    }
+    if (created || row.status !== 'succeeded') await this.repos!.operations.update(operationId, { status: 'running' });
+    return { created, row };
+  }
+
   private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const summary = text(args.summary, 500);
     const { dueAt, dueHasTime, dueArg } = parseDue(args.due);
@@ -1812,11 +1830,14 @@ export class PaRuntime {
     const estimateMinutes = args.estimateMinutes == null ? null : Number(args.estimateMinutes);
     if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
     const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : ''
-    const staged = await this.stagedOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
-      tasklistId: this.config!.tasklistId,
-      summary,
-      due: dueArg,
-    });
+    const overrideId = args._operationId ? String(args._operationId) : null;
+    const staged = overrideId
+      ? await this.stagedOperationWithId(overrideId, item, 'task.create', { tasklistId: this.config!.tasklistId, summary, due: dueArg })
+      : await this.stagedOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
+          tasklistId: this.config!.tasklistId,
+          summary,
+          due: dueArg,
+        });
     if (!staged.created && staged.row.status === 'succeeded') {
       const existing = await this.repos!.tasks.get(staged.row.id);
       return { operationId: staged.row.id, reused: true, guid: existing?.task_guid ?? staged.row.receipt?.guid, url: existing?.url ?? staged.row.receipt?.url ?? null, message: '此任务此前已创建，未重复写入飞书。' };
@@ -2305,6 +2326,26 @@ export class PaRuntime {
         );
       }
     }
+    if (sourceType === 'calendar') {
+      // Prep packages bound to this meeting stop too (P26): no stale packages.
+      const preps = (await this.dbRef
+        .query<{ id: string; schedule_id: string | null; session_id: string }>(
+          `select id, schedule_id, session_id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1`,
+          [sourceId],
+        )
+        .catch(() => ({ rows: [] as { id: string; schedule_id: string | null; session_id: string }[] }))).rows;
+      const schedule = this.nativeSchedule();
+      for (const prep of preps) {
+        if (prep.schedule_id && schedule) {
+          try {
+            await schedule.delete({ sessionId: prep.session_id, id: prep.schedule_id });
+          } catch (error) {
+            console.warn(`[pa24] 停止会前准备时移除原生计划失败（build 时仍会复查会议状态）：${(error as Error).message}`);
+          }
+        }
+        await this.repos!.digests.updatePlan(prep.id, { status: 'stopped', schedule_id: null });
+      }
+    }
   }
 
   /** Recurring task templates (P22): dsh-schedule records + PG-unique instances. */
@@ -2783,6 +2824,7 @@ export class PaRuntime {
     const planId = String(args.planId ?? '');
     const plan = await this.repos!.digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    if (plan.kind === 'meeting_prep') throw new Error('会前准备计划请用 meeting_prep_build 生成准备包。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
     const windowKey = this.digestWindowKey(plan.kind === 'evening' ? 'evening' : plan.kind, this.config!.timeZone);
     const { created, row } = await this.repos!.digests.claimOccurrence({ planId: plan.id, windowKey });
@@ -3065,6 +3107,271 @@ export class PaRuntime {
       message: failed === 0
         ? `已按你的选择写入 ${results.length} 个时间块（写入前重新同步${sync.ok ? '确认无冲突' : '失败，已按投影复核'}；回执见各块 eventId/url）。`
         : `已采纳 ${results.length - failed} 项，${failed} 项未写入（明细含复核冲突与错误）；失败项核对后可重试。`,
+    };
+  }
+
+  // ---- meeting prep & minutes (F10) -------------------------------------------
+
+  /** Bind a prep package to a meeting: a once digest firing at start-lead (P26). */
+  private async meetingPrepEnable(args: Record<string, unknown>): Promise<unknown> {
+    const schedule = this.nativeSchedule();
+    if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务，无法安排会前准备。');
+    const eventId = String(args.eventId ?? '');
+    const event = await this.repos!.calendar.findEvent(eventId);
+    if (!event || event.status === 'canceled') throw new Error('日程不存在或已取消；请先 calendar_query 同步并确认 event_id。');
+    const leadMinutes = Number(args.leadMinutes ?? 15);
+    if (!Number.isInteger(leadMinutes) || leadMinutes < 1 || leadMinutes > 24 * 60) throw new Error('提前量需为 1–1440 分钟。');
+    const fireAt = new Date(new Date(event.start_time).getTime() - leadMinutes * 60_000);
+    if (fireAt.getTime() <= Date.now()) throw new Error(`提前 ${leadMinutes} 分钟已错过（该时间在过去）；如需立即准备请直接让我现在生成。`);
+    const scope = {
+      memo: args.scopeMemo === false ? false : true,
+      memory: args.scopeMemory === false ? false : true,
+      tasks: args.scopeTasks === false ? false : true,
+      minutes: args.scopeMinutes === false ? false : true,
+    };
+    const active = (await this.dbRef
+      .query<{ id: string }>(
+        `select id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1 limit 1`,
+        [eventId],
+      )
+      .catch(() => ({ rows: [] as { id: string }[] }))).rows;
+    if (active.length > 0) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；不要重复设置，如需调整请先停止原计划。`);
+    const id = `prep-${randomUUID().slice(0, 12)}`;
+    const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: new Date(event.start_time).toISOString(), scope };
+    const created = await schedule.create(this.accessSessionId!, {
+      at: fireAt.toISOString(),
+      title: `[24PA] 会前准备 ${eventId}`,
+      prompt: this.digestPrompt(id, `会前准备（${event.summary}）`),
+    });
+    await this.repos!.digests.insertPlan({
+      id,
+      kind: 'meeting_prep',
+      title: `会前准备：${event.summary}`,
+      schedule_id: String(created.id),
+      session_id: this.accessSessionId!,
+      schedule_spec: spec,
+      status: 'active',
+      last_window: null,
+    });
+    return {
+      planId: id,
+      eventId,
+      fireAt: fireAt.toISOString(),
+      message: `会前准备已安排：开始前 ${leadMinutes} 分钟生成资料包（绑定该日程；日程取消/改期会自动停止，不会发送过时准备包）。`,
+    };
+  }
+
+  /**
+   * Assemble the prep package (P26): re-check the meeting first, then gather
+   * authorized materials with sources; missing material is stated, not invented.
+   */
+  private async meetingPrepBuild(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const plan = await this.repos!.digests.getPlan(String(args.planId ?? ''));
+    if (!plan || plan.kind !== 'meeting_prep') throw new Error('会前准备计划不存在。');
+    if (plan.status === 'stopped') return { planId: plan.id, skipped: 'plan_stopped', message: '该准备计划已停止（会议可能已变化）；如需准备请按最新安排重设。' };
+    const eventId = String(plan.schedule_spec?.eventId ?? '');
+    // Pre-send meeting re-check: canceled/moved meetings never ship a stale package.
+    const event = await this.repos!.calendar.findEvent(eventId);
+    if (!event || event.status === 'canceled') {
+      await this.repos!.digests.updatePlan(plan.id, { status: 'stopped', schedule_id: null });
+      return { planId: plan.id, skipped: 'meeting_gone', message: `会议已取消或不存在，准备包不发送；如需为新安排准备请重新设置。` };
+    }
+    const storedStart = plan.schedule_spec?.eventStart ?? null;
+    if (storedStart && new Date(event.start_time).toISOString() !== storedStart) {
+      await this.repos!.digests.updatePlan(plan.id, { status: 'stopped', schedule_id: null });
+      return { planId: plan.id, skipped: 'meeting_moved', message: `会议时间已变化（${isoDate(event.start_time)}），本准备包按旧时间不发送；请按新时间重设。` };
+    }
+    const { created, row } = await this.repos!.digests.claimOccurrence({ planId: plan.id, windowKey: eventId });
+    if (!created && row.status === 'model_done') {
+      return { planId: plan.id, reused: true, message: '本会议的准备包已生成，不重复发送。' };
+    }
+    // Authorized materials only, each scoped by the plan's allowed sources.
+    const scope = (plan.schedule_spec?.scope ?? {}) as { memo?: boolean; memory?: boolean; tasks?: boolean; minutes?: boolean };
+    const keyword = event.summary.slice(0, 12);
+    const materials: { topic: string; url: string | null; date: string }[] = [];
+    if (scope.memo !== false) {
+      const memos = await this.repos!.memos.search({ query: keyword, limit: 5 }).catch(() => []);
+      const recent = await this.repos!.memos.search({ limit: 5 }).catch(() => []);
+      const seen = new Set<string>();
+      for (const memo of [...memos, ...recent]) {
+        if (seen.has(memo.id)) continue;
+        seen.add(memo.id);
+        if (materials.length >= 6) break;
+        materials.push({ topic: memo.topic, url: memo.doc_url, date: String(memo.occurred_on ?? '').slice(0, 10) });
+      }
+    }
+    let lastMinutes: { topic: string; url: string | null; actions: string[] } | null = null;
+    if (scope.minutes !== false) {
+      const rows = await this.dbRef
+        .query<{ id: string; topic: string; doc_url: string | null; candidates: any }>(
+          `select id, topic, doc_url, candidates from pa24.minutes order by created_at desc limit 3`,
+        )
+        .catch(() => ({ rows: [] as never[] }));
+      const match = rows.rows.find(m => m.topic.includes(keyword.slice(0, 4))) ?? rows.rows[0] ?? null;
+      if (match) lastMinutes = { topic: match.topic, url: match.doc_url, actions: (Array.isArray(match.candidates) ? match.candidates : []).map((c: { summary: string }) => c.summary).slice(0, 5) };
+    }
+    let memoryFacts: string[] = [];
+    if (scope.memory !== false) {
+      try {
+        const memory = await this.memory!.search({ query: keyword, limit: 5 });
+        memoryFacts = memory.records.filter(r => r.status === 'confirmed').map(r => `${r.topic}：${r.content.slice(0, 60)}（来源：${r.source}）`);
+      } catch {
+        memoryFacts = [];
+      }
+    }
+    // Only tasks sharing a token with the meeting count as related; otherwise
+    // the section stays absent rather than pretending relevance.
+    // CJK summaries rarely use separators: match on 2-character sliding
+    // windows so 季度评审会第二轮 still relates to 季度评审材料打包.
+    const rawTokens = event.summary.split(/[\s:：,，、/]+/).filter(t => t.length >= 2);
+    const tokens = new Set<string>();
+    for (const token of rawTokens) {
+      if (token.length <= 3) tokens.add(token);
+      for (let i = 0; i + 2 <= token.length; i++) tokens.add(token.slice(i, i + 2));
+    }
+    const openTasks = scope.tasks === false ? [] : (await this.repos!.tasks.list('open').catch(() => []))
+      .filter(t => [...tokens].some(token => t.summary.includes(token)))
+      .slice(0, 5)
+      .map(t => t.summary);
+    const lines: string[] = [];
+    lines.push(`【会前准备】${event.summary}`);
+    lines.push(`时间：${isoDate(event.start_time)} → ${isoDate(event.end_time)}（发送前已复查会议状态）`);
+    lines.push('');
+    if (materials.length || memoryFacts.length || openTasks.length || lastMinutes) {
+      lines.push('一、资料（授权范围内，带出处）');
+      for (const m of materials) lines.push(`· 备忘「${m.topic}」${m.date ? `（${m.date}）` : ''}${m.url ? ` ${m.url}` : ''}`);
+      for (const fact of memoryFacts) lines.push(`· 记忆：${fact}`);
+      if (lastMinutes) {
+        lines.push(`· 上次纪要「${lastMinutes.topic}」${lastMinutes.url ? ` ${lastMinutes.url}` : ''}${lastMinutes.actions.length ? `；候选行动：${lastMinutes.actions.join('、')}` : ''}`);
+      }
+      if (openTasks.length) lines.push(`· 相关未完成任务：${openTasks.join('、')}`);
+    } else {
+      lines.push('一、资料：没有找到与该会议相关的备忘、记忆、纪要或任务——请直接补充材料，本包不编造议程。');
+    }
+    lines.push('');
+    lines.push('二、建议议程与问题清单（建议，供你确认）');
+    lines.push('· 建议先确认上次行动项进展（如有）');
+    lines.push(materials.length ? '· 针对上述资料列出待确认问题后带出处提问' : '· 没有材料，建议先明确本次会议要决定的 1–3 件事');
+    lines.push('');
+    lines.push(`来源：会议投影（${event.event_id}）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：${item.id}`);
+    const report = lines.join('\n');
+    await this.repos!.digests.updateOccurrence(row.id, { status: 'model_done', report: { report }, completed_at: new Date() });
+    if (this.config!.ownerOpenId) {
+      await this.repos!.outbox.enqueue({
+        dedupKey: `digest:${row.id}`,
+        channel: 'feishu',
+        target: this.config!.ownerOpenId,
+        kind: 'text',
+        content: { text: report },
+      });
+    }
+    await this.repos!.workItems.update(item.id, { result_ref: { planId: plan.id, eventId, outboxKey: `digest:${row.id}` } });
+    return { planId: plan.id, eventId, message: '会前准备包已生成并入发送队列（发送前复查过会议状态）。' };
+  }
+
+  /**
+   * Post-meeting minutes (P27): the owner's material becomes a Feishu document
+   * plus separately stored candidate actions; generating minutes never
+   * executes anything.
+   */
+  private async minutesBuild(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const topic = text(args.topic, 200);
+    const content = text(args.content, 60000);
+    const eventId = args.eventId ? String(args.eventId) : null;
+    const candidates = (Array.isArray(args.candidates) ? args.candidates : []).slice(0, 30).map((entry: Record<string, unknown>, index: number) => ({
+      index,
+      summary: text(entry.summary, 300),
+      sourceQuote: entry.sourceQuote ? text(entry.sourceQuote, 300) : '（出处未标注）',
+      owner: entry.owner ? text(entry.owner, 100) : null,
+      due: entry.due ? String(entry.due) : null,
+      start: entry.start ? String(entry.start) : null,
+      end: entry.end ? String(entry.end) : null,
+      unknown: entry.unknown ? text(entry.unknown, 200) : null,
+    }));
+    const id = `min-${randomUUID().slice(0, 12)}`;
+    // Save the minutes document through the memo pipeline (create + readback).
+    const saved = (await this.saveMemo(item, { topic: `会议纪要：${topic}`, content, source: `会后纪要（事项 ${item.id}${eventId ? `，会议 ${eventId}` : ''}）` })) as { operationId: string; docUrl?: string | null };
+    const memoRow = (await this.repos!.memos.get(saved.operationId)) ?? null;
+    const minutes = await this.repos!.minutes.insert({
+      id,
+      work_item_id: item.id,
+      event_id: eventId,
+      topic,
+      memo_id: memoRow?.id ?? null,
+      doc_url: memoRow?.doc_url ?? saved.docUrl ?? null,
+      candidates,
+      status: 'draft',
+    });
+    return {
+      minutesId: minutes.id,
+      docUrl: minutes.doc_url,
+      candidates: minutes.candidates,
+      message: `纪要已保存为飞书文档并回读确认；候选行动 ${candidates.length} 项仅列出（带出处），未执行任何行动。需要执行时用 minutes_adopt_actions 选择编号。`,
+    };
+  }
+
+  /**
+   * Execute only the selected, sufficiently-specified candidates (P27; the
+   * selection/execution contract the handwriting chain reuses). Idempotent per
+   * candidate: repeats return the existing object, unknown outcomes refuse a
+   * blind retry.
+   */
+  private async minutesAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const minutes = await this.repos!.minutes.get(String(args.minutesId ?? ''));
+    if (!minutes) throw new Error('纪要不存在；请先用 minutes_build 生成。');
+    if (!String(args.instruction ?? '').trim()) throw new Error('执行候选行动需要本人明确的指令依据（instruction）。');
+    const wanted = Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [];
+    if (wanted.length === 0) throw new Error('需要提供选择的候选编号（indexes[]）。');
+    const results = [];
+    for (const index of wanted) {
+      const candidate = (minutes.candidates ?? []).find((c: { index: number }) => c.index === index);
+      if (!candidate) {
+        results.push({ index, ok: false, error: `候选 ${index} 不存在。` });
+        continue;
+      }
+      if (candidate.unknown) {
+        results.push({ index, ok: false, error: `候选 ${index} 含未知项（${candidate.unknown}），信息不足不执行；请先补齐。` });
+        continue;
+      }
+      try {
+        if (candidate.start && candidate.end) {
+          // Minutes-scoped idempotency for calendar candidates too: repeated
+          // selections from any session return the existing event (P27).
+          const operationId = `minutes.action:${minutes.id}:${index}`;
+          const staged = await this.stagedOperationWithId(operationId, item, 'calendar.create', { minutesId: minutes.id, index, summary: candidate.summary, start: candidate.start, end: candidate.end });
+          if (!staged.created && staged.row.status === 'succeeded') {
+            const receipt = staged.row.receipt as { eventId?: string; url?: string | null } | null;
+            results.push({ index, ok: true, kind: 'calendar', reused: true, eventId: receipt?.eventId ?? null, url: receipt?.url ?? null, message: '该候选此前已执行，返回已有日程。' });
+            continue;
+          }
+          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end }, operationId)) as { eventId?: string; url?: string | null; operationId?: string };
+          await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, minutesId: minutes.id, index } });
+          results.push({ index, ok: true, kind: 'calendar', ...(created as object), minutesId: minutes.id });
+        } else {
+          // Minutes-scoped idempotency: the stable key is (minutes, index), not
+          // the delegating work item, so a repeated selection from any session
+          // returns the same task instead of creating a second one (P27).
+          const created = await this.taskCreate(item, {
+            summary: candidate.summary,
+            due: candidate.due ?? undefined,
+            _operationId: `minutes.action:${minutes.id}:${index}`,
+          });
+          results.push({ index, ok: true, kind: 'task', ...(created as object) });
+        }
+      } catch (error) {
+        results.push({ index, ok: false, error: (error as Error).message });
+      }
+    }
+    const failed = results.filter(r => !r.ok).length;
+    if (failed === 0) await this.repos!.minutes.update(minutes.id, { status: 'actions_taken' });
+    return {
+      minutesId: minutes.id,
+      executed: results.length - failed,
+      failed,
+      results,
+      message: failed === 0
+        ? `已按你的选择执行 ${results.length} 项（幂等：重复选择同一编号返回已有对象）。`
+        : `执行 ${results.length - failed} 项，${failed} 项未执行（见明细：信息不足/失败逐项列出）；纪要生成不等于行动已执行。`,
     };
   }
 
