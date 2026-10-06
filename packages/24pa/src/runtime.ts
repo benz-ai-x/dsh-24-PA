@@ -13,6 +13,7 @@ import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } fro
 import { MemoryStore, type MemoryChange } from './memory.js';
 import { ReminderEngine, ReminderError, type SilencePolicy } from './reminders.js';
 import {
+  cropBox,
   detectImageMediaType,
   extensionOf,
   fingerprintOf,
@@ -22,14 +23,18 @@ import {
   normalizeDocument,
   noteDocumentXml,
   pendingReviewLine,
+  RECOGNITION_PAGE_LIMIT,
   REVIEW_TOKEN_TTL_MS,
   reviewCard,
   sha256Hex,
   systemLine,
   diffNormalized,
+  type DoubtSpec,
+  type DiagramSpec,
   type RecognizedNote,
+  type Region,
 } from './handwriting.js';
-import type { NoteRow, NotePageRow } from './repo.js';
+import type { NoteRow, NotePageRow, ReviewReminderRow } from './repo.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const nowIso = () => new Date().toISOString();
@@ -124,6 +129,7 @@ export interface RuntimeOptions {
   outboxTickMs: number;
   reminderTickMs: number;
   noteVerifyTickMs: number;
+  reviewReminderTickMs: number;
   env?: Record<string, string | undefined>;
 }
 
@@ -165,6 +171,8 @@ export class PaRuntime {
   private dispatchTimer: NodeJS.Timeout | null = null;
   private outboxTimer: NodeJS.Timeout | null = null;
   private noteVerifyTimer: NodeJS.Timeout | null = null;
+  private reviewReminderTimer: NodeJS.Timeout | null = null;
+  private reviewReminding = false;
   private dispatching = false;
   private outboxSending = false;
   private noteVerifying = false;
@@ -449,9 +457,11 @@ export class PaRuntime {
     // are subscribed, so pending candidates are re-verified at a capped cadence
     // and every check persists its result and time on the version row.
     this.noteVerifyTimer = setInterval(() => void this.noteVerifyTick(), this.options.noteVerifyTickMs);
+    this.reviewReminderTimer = setInterval(() => void this.reviewReminderTick(), this.options.reviewReminderTickMs);
     this.dispatchTimer.unref?.();
     this.outboxTimer.unref?.();
     this.noteVerifyTimer.unref?.();
+    this.reviewReminderTimer.unref?.();
     this.startedAt = nowIso();
   }
 
@@ -487,6 +497,8 @@ export class PaRuntime {
   private async cleanup(): Promise<void> {
     if (this.noteVerifyTimer) clearInterval(this.noteVerifyTimer);
     this.noteVerifyTimer = null;
+    if (this.reviewReminderTimer) clearInterval(this.reviewReminderTimer);
+    this.reviewReminderTimer = null;
     this.reminders?.stop();
     this.reminders = null;
     await this.transport?.close().catch(() => {});
@@ -1173,7 +1185,9 @@ export class PaRuntime {
       }
       const saved = (await this.repos!.notes.pagesOf(note.id)).filter(p => p.status === 'saved');
       if (saved.length === 0) throw new Error(`笔记 ${note.id} 没有已保存的原稿页；请重新拍照收集。`);
-      if (saved.length > 1) throw new Error(`笔记 ${note.id} 有 ${saved.length} 页原稿；多页识别在后续版本交付，当前请逐页单独发送并整理单页笔记。`);
+      if (saved.length > RECOGNITION_PAGE_LIMIT) {
+        throw new Error(`笔记 ${note.id} 有 ${saved.length} 页，超过单次识别预算（${RECOGNITION_PAGE_LIMIT} 页）；请把批次拆成多份笔记分别整理（已完成页与原稿都会保留）。`);
+      }
       // Recognition needs a real vision route; the host default model cannot be
       // assumed to accept images (capability gap must fail loudly, P29).
       if (!config.workerModels.handwriting) throw new Error('手写识别需要单独配置视觉模型路由（AGENTS.md workerModels.handwriting：provider/model）；主助理模型与识别模型分开配置。');
@@ -2136,7 +2150,7 @@ export class PaRuntime {
     }
   }
 
-  /** Worker-side structured recognition result → publish the pending version (P29). */
+  /** Worker-side structured recognition result → publish the pending version (P29/P30). */
   private async noteSubmit(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const notes = this.repos!.notes;
     const note = await notes.noteByWorkItem(item.id);
@@ -2146,6 +2160,46 @@ export class PaRuntime {
       if (list.length > limit) throw new Error(`列表条目超过 ${limit} 条上限。`);
       return list;
     };
+    const savedPages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
+    const savedPageNos = new Set(savedPages.map(p => p.page_no));
+    const region = (value: unknown): Region | undefined => {
+      if (!value || typeof value !== 'object') return undefined;
+      const r = value as Record<string, unknown>;
+      const parsed = { x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h) };
+      if (Object.values(parsed).some(v => !Number.isFinite(v) || v < 0 || v > 1)) {
+        throw new Error('疑点/图示区域必须是 0–1 的归一化坐标（x/y/w/h）。');
+      }
+      return parsed;
+    };
+    const pages = (Array.isArray(args.pages) ? args.pages : []).slice(0, MAX_PAGES_PER_NOTE).map((entry: Record<string, unknown>, index: number) => {
+      const pageNo = Number(entry.pageNo);
+      if (!Number.isInteger(pageNo) || !savedPageNos.has(pageNo)) {
+        throw new Error(`逐页转写第 ${index + 1} 项的页号 ${String(entry.pageNo)} 不在已保存页中（已保存：${[...savedPageNos].sort((a, b) => a - b).join(', ')}）；缺页如实留空，不要臆造。`);
+      }
+      return { pageNo, transcript: text(entry.transcript, 20000) };
+    });
+    if (new Set(pages.map(p => p.pageNo)).size !== pages.length) throw new Error('逐页转写存在重复页号。');
+    if (pages.length > 0 && pages.length !== savedPages.length) {
+      throw new Error(`逐页转写需覆盖全部已保存页（已保存 ${savedPages.length} 页，收到 ${pages.length} 页）；缺失页请明确标注无法辨认。`);
+    }
+    const doubts: DoubtSpec[] = (Array.isArray(args.doubts) ? args.doubts : []).slice(0, 100).map((entry: Record<string, unknown>, index: number) => {
+      const pageNo = Number(entry.pageNo);
+      if (!savedPageNos.has(pageNo)) throw new Error(`疑点第 ${index + 1} 项引用了未保存的页号 ${String(entry.pageNo)}。`);
+      const specifiedRegion = region(entry.region);
+      return {
+        pageNo,
+        kind: String(entry.kind ?? 'unclear'),
+        quote: text(entry.quote, 300),
+        region: specifiedRegion,
+        certainty: (specifiedRegion ? 'reliable' : 'page') as DoubtSpec['certainty'],
+        note: entry.note ? text(entry.note, 300) : undefined,
+      };
+    });
+    const diagrams: DiagramSpec[] = (Array.isArray(args.diagrams) ? args.diagrams : []).slice(0, 50).map((entry: Record<string, unknown>) => {
+      const pageNo = Number(entry.pageNo);
+      if (!savedPageNos.has(pageNo)) throw new Error(`图示引用了未保存的页号 ${String(entry.pageNo)}。`);
+      return { pageNo, description: text(entry.description, 1000), region: region(entry.region) };
+    });
     const recognized: RecognizedNote = {
       transcript: text(args.transcript, 20000),
       summary: text(args.summary ?? '（无摘要）', 2000),
@@ -2156,8 +2210,50 @@ export class PaRuntime {
         original: text(entry.original, 200),
         interpretation: text(entry.interpretation, 500),
       })),
+      ...(pages.length ? { pages } : {}),
+      ...(doubts.length ? { doubts } : {}),
+      ...(diagrams.length ? { diagrams } : {}),
     };
-    return this.publishNoteVersion(item, note, recognized, null);
+    // Regioned doubts/diagrams become durable crops before publishing (P30).
+    const crops = await this.generateCrops(note.id, savedPages, doubts, diagrams);
+    return this.publishNoteVersion(item, note, recognized, null, crops);
+  }
+
+  /**
+   * Produce zoom crops for regioned doubts/diagrams from the saved originals
+   * (P30): normalized regions map through the page's intrinsic size with
+   * clamping; each crop keeps its transform record and sha256.
+   */
+  private async generateCrops(noteId: string, pages: NotePageRow[], doubts: DoubtSpec[], diagrams: DiagramSpec[]): Promise<{ id: string; pageNo: number; kind: 'doubt' | 'diagram'; region: Region; certainty: 'reliable' | 'estimated'; path: string; sha256: string }[]> {
+    const entries: { kind: 'doubt' | 'diagram'; pageNo: number; region: Region }[] = [];
+    for (const doubt of doubts) if (doubt.region) entries.push({ kind: 'doubt', pageNo: doubt.pageNo, region: doubt.region });
+    for (const diagram of diagrams) if (diagram.region) entries.push({ kind: 'diagram', pageNo: diagram.pageNo, region: diagram.region });
+    if (entries.length === 0) return [];
+    let sharp: any;
+    try {
+      sharp = (await import('sharp')).default;
+    } catch (error) {
+      throw new Error(`生成疑点裁片需要 sharp（${(error as Error).message}）；请先不带区域提交，区域定位随后补充。`);
+    }
+    const { mkdir } = await import('node:fs/promises');
+    const dir = join(this.workspace!.statePath, '.24pa', 'crops', noteId);
+    await mkdir(dir, { recursive: true });
+    const crops: { id: string; pageNo: number; kind: 'doubt' | 'diagram'; region: Region; certainty: 'reliable' | 'estimated'; path: string; sha256: string }[] = [];
+    for (const [index, entry] of entries.entries()) {
+      const page = pages.find(p => p.page_no === entry.pageNo);
+      if (!page) continue;
+      const meta = await sharp(page.storage_path).metadata();
+      if (!meta.width || !meta.height) throw new Error(`无法读取第 ${entry.pageNo} 页原稿尺寸，不能生成裁片。`);
+      const { box, certainty } = cropBox(entry.region, meta.width, meta.height);
+      const png = await sharp(page.storage_path).extract(box).png().toBuffer();
+      const sha = sha256Hex(png);
+      const id = `C${index + 1}`;
+      const path = join(dir, `p${entry.pageNo}-${id}-${sha.slice(0, 12)}.png`);
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(path, png, { mode: 0o600 });
+      crops.push({ id, pageNo: entry.pageNo, kind: entry.kind, region: entry.region, certainty, path, sha256: sha });
+    }
+    return crops;
   }
 
   /**
@@ -2172,6 +2268,7 @@ export class PaRuntime {
     note: NoteRow,
     recognized: RecognizedNote | null,
     republishFromDoc: { docId: string; docUrl: string | null; normalized: string; snapshot: string; revision: string | null } | null,
+    crops: { id: string; pageNo: number; kind: 'doubt' | 'diagram'; region: Region; certainty: 'reliable' | 'estimated'; path: string; sha256: string }[] = [],
   ): Promise<unknown> {
     const notes = this.repos!.notes;
     const pages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
@@ -2198,7 +2295,7 @@ export class PaRuntime {
       let docUrl = (staged.row.receipt?.docUrl as string | undefined) ?? republishFromDoc?.docUrl ?? null;
       if (!docId) {
         if (!recognized) throw new Error('发布新版本需要结构化识别结果。');
-        const xmlBody = noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size })));
+        const xmlBody = noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size, sourceType: p.source_type })));
         const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
           'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', this.config!.folderToken, '--content', '-',
         ], xmlBody);
@@ -2212,26 +2309,27 @@ export class PaRuntime {
       // here leaves the operation resumable at the read-back stage.
       const insertedMedia = staged.row.receipt?.mediaInserted === true;
       if (!republishFromDoc && !insertedMedia) {
-        for (const page of pages) {
+        const mediaFiles = [...pages.map(p => p.storage_path), ...crops.map(c => c.path)];
+        for (const file of mediaFiles) {
           await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-            'docs', '+media-insert', '--as', 'user', '--doc', docId, '--type', 'image', '--file', page.storage_path,
+            'docs', '+media-insert', '--as', 'user', '--doc', docId, '--type', 'image', '--file', file,
           ]);
         }
         await this.repos!.operations.update(staged.row.id, { status: 'running', receipt: { docId, docUrl, stage: 'media', mediaInserted: true } });
       }
       const readback = await this.fetchNoteDocument(docId);
-      // Resource completeness: every saved page's original must be present in
-      // the read-back before the review link may go out (P29 AC3).
+      // Resource completeness: every saved page's original and every crop must
+      // be present in the read-back before the review link may go out (P29/P30).
       const imageCount = (readback.content.match(/<img\b/g) ?? []).length;
-      if (imageCount < pages.length) {
-        throw new Error(`文档回读不完整：仅见到 ${imageCount} 张原稿图片（应有 ${pages.length} 页）；不发送待审链接，请核对文档。`);
+      if (imageCount < pages.length + crops.length) {
+        throw new Error(`文档回读不完整：仅见到 ${imageCount} 张图片（应有 ${pages.length} 页原稿 + ${crops.length} 张裁片）；不发送待审链接，请核对文档。`);
       }
       const normalized = normalizeDocument(readback.content);
-      const fingerprint = fingerprintOf(normalized, pages.map(p => p.sha256));
+      const fingerprint = fingerprintOf(normalized, pages.map(p => p.sha256), crops.map(c => c.sha256));
       const snapshot = republishFromDoc?.snapshot ?? readback.content;
       const finalRecognized = republishFromDoc
         ? { ...(latest?.content ?? {}), republishedFromDoc: true, previousVersion: latest?.version ?? null }
-        : { ...recognized, model: visionRoute ? { provider: visionRoute.provider, model: visionRoute.model } : null };
+        : { ...recognized, model: visionRoute ? { provider: visionRoute.provider, model: visionRoute.model } : null, crops };
       await notes.insertVersion({
         id: versionId,
         note_id: note.id,
@@ -2246,6 +2344,8 @@ export class PaRuntime {
         status: 'pending_review',
       });
       await notes.supersedeOlder(note.id, version);
+      // A new candidate supersedes the old version: its nags must stop (P33).
+      if (latest) await this.repos!.reviewReminders.cancelForVersion(latest.id).catch(() => {});
       await notes.updateNote(note.id, { status: 'awaiting_review' });
       await this.repos!.operations.update(staged.row.id, {
         status: 'succeeded',
@@ -2429,10 +2529,12 @@ export class PaRuntime {
   }
 
   /** Fingerprint of the live document for one note (shared verification path). */
-  private async currentFingerprint(noteId: string, docId: string): Promise<string> {
+  private async currentFingerprint(noteId: string, docId: string, versionRow?: { id: string; content: any } | null): Promise<string> {
     const pages = (await this.repos!.notes.pagesOf(noteId)).filter(p => p.status === 'saved');
+    const version = versionRow ?? (await this.repos!.notes.latestVersion(noteId));
+    const cropShas = (Array.isArray(version?.content?.crops) ? version.content.crops : []).map((c: { sha256: string }) => c.sha256);
     const readback = await this.fetchNoteDocument(docId);
-    return fingerprintOf(normalizeDocument(readback.content), pages.map(p => p.sha256));
+    return fingerprintOf(normalizeDocument(readback.content), pages.map(p => p.sha256), cropShas);
   }
 
   /** Assert the Feishu transport is live; every note write path needs it. */
@@ -2536,13 +2638,14 @@ export class PaRuntime {
       return { noteId, result: 'unchanged', message: `当前文档与 v${latest.version} 一致，无需重发候选。` };
     }
     const diff = diffNormalized(latest.normalized_text, normalized);
+    const carriedCrops = (Array.isArray(latest.content?.crops) ? latest.content.crops : []) as { id: string; pageNo: number; kind: 'doubt' | 'diagram'; region: Region; certainty: 'reliable' | 'estimated'; path: string; sha256: string }[];
     const result = (await this.publishNoteVersion(item, note, null, {
       docId: latest.doc_id!,
       docUrl: latest.doc_url,
       normalized,
       snapshot: readback.content,
       revision: readback.revision,
-    })) as Record<string, unknown>;
+    }, carriedCrops)) as Record<string, unknown>;
     // Point the document's status line at the new candidate version; the
     // system line is fingerprint-excluded, so this never invalidates it.
     try {
@@ -2573,6 +2676,9 @@ export class PaRuntime {
     const notes = this.repos!.notes;
     const action = String(args.action ?? 'list');
     const noteId = args.noteId ? String(args.noteId) : '';
+    if (action === 'queue') {
+      return this.reviewQueue();
+    }
     if (action === 'list') {
       const rows = await notes.listNotes(args.status ? String(args.status) : undefined, 20);
       const view = [];
@@ -2619,6 +2725,66 @@ export class PaRuntime {
       if (pages.length === 0) throw new Error('该笔记还没有已保存原稿，不能结束为可整理批次。');
       await notes.updateNote(noteId, { status: 'collected' });
       return { noteId, status: 'collected', pages: pages.length, message: `批次已结束（共 ${pages.length} 页）；现在可以委派 handwriting 整理，之后不再追加页。` };
+    }
+    if (action === 'remind') {
+      if (!noteId) throw new Error('需要 noteId。');
+      const latest = await notes.latestVersion(noteId);
+      if (!latest || latest.status !== 'pending_review') {
+        throw new Error(`笔记 ${noteId} 当前没有待审版本（${latest ? latest.status : '尚无版本'}），提醒绑定待审版本；请先发布候选。`);
+      }
+      const kind = args.kind === 'daily' ? 'daily' : 'once';
+      let remindAt: Date;
+      if (args.at) {
+        remindAt = new Date(String(args.at));
+        if (Number.isNaN(remindAt.getTime())) throw new Error('at 需为可解析的 ISO 时间。');
+      } else {
+        const seconds = Number(args.inSeconds ?? 0);
+        if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new Error('remind 需要 inSeconds（1 秒–365 天）或绝对时间 at。');
+        remindAt = new Date(Date.now() + seconds * 1000);
+      }
+      const id = `nrm-${randomUUID().slice(0, 12)}`;
+      await this.repos!.reviewReminders.insert({ id, noteId, versionId: latest.id, kind, remindAt, reason: args.reason ? text(args.reason, 300) : undefined });
+      return { reminderId: id, noteId, versionId: latest.id, kind, remindAt: remindAt.toISOString(), message: `已为 ${noteId} v${latest.version} 设置审核提醒（${kind}）；版本完成审核后自动取消。` };
+    }
+    if (action === 'remind_control') {
+      const op = String(args.op ?? '');
+      const byId = args.reminderId ? String(args.reminderId) : '';
+      let targets: ReviewReminderRow[];
+      if (byId) {
+        const row = await this.repos!.reviewReminders.get(byId);
+        if (!row) throw new Error('提醒不存在。');
+        targets = [row];
+      } else {
+        if (!noteId) throw new Error('需要 reminderId 或 noteId。');
+        targets = await this.repos!.reviewReminders.activeForNote(noteId);
+        if (targets.length === 0) throw new Error(`笔记 ${noteId} 没有在途提醒。`);
+      }
+      const results = [];
+      for (const reminder of targets) {
+        if (!['pending', 'paused'].includes(reminder.status)) {
+          results.push({ id: reminder.id, status: reminder.status, message: '该提醒已结束，操作无效。' });
+          continue;
+        }
+        if (op === 'snooze') {
+          const seconds = Number(args.inSeconds ?? 0);
+          if (!Number.isInteger(seconds) || seconds < 1 || seconds > 7 * 24 * 3600) throw new Error('snooze 需要 inSeconds（1 秒–7 天）。');
+          const next = new Date(Date.now() + seconds * 1000);
+          await this.repos!.reviewReminders.update(reminder.id, { status: 'pending', remind_at: next });
+          results.push({ id: reminder.id, status: 'pending', remindAt: next.toISOString(), message: `已稍后 ${seconds} 秒提醒（仍绑定原版本）。` });
+        } else if (op === 'pause') {
+          await this.repos!.reviewReminders.update(reminder.id, { status: 'paused' });
+          results.push({ id: reminder.id, status: 'paused', message: '提醒已暂停；审核状态未变。' });
+        } else if (op === 'resume') {
+          await this.repos!.reviewReminders.update(reminder.id, { status: 'pending' });
+          results.push({ id: reminder.id, status: 'pending', message: '提醒已恢复。' });
+        } else if (op === 'cancel') {
+          await this.repos!.reviewReminders.update(reminder.id, { status: 'canceled' });
+          results.push({ id: reminder.id, status: 'canceled', message: '提醒已取消；审核状态未变。' });
+        } else {
+          throw new Error('未知提醒操作（snooze/pause/resume/cancel）。');
+        }
+      }
+      return { results };
     }
     if (action === 'republish') {
       if (!noteId) throw new Error('需要 noteId。');
@@ -2680,6 +2846,88 @@ export class PaRuntime {
     const versions = await this.repos.notes.pendingReviewVersions(5);
     await Promise.all(versions.map(version => this.verifyNote(version.note_id).catch(() => {})));
     return versions.length;
+  }
+
+  private reviewReminderTick(): void {
+    if (this.reviewReminding || this.closed) return;
+    this.reviewReminding = true;
+    void this.dispatchReviewReminders()
+      .catch(() => {})
+      .finally(() => {
+        this.reviewReminding = false;
+      });
+  }
+
+  /**
+   * Send due review nagging (P33): every reminder re-checks its version is
+   * still pending review (old versions never nag), reuses the quiet-hours
+   * hold, and sends through the durable outbox. once → done; daily advances
+   * with a 6h floor and a 3/day cap.
+   */
+  async dispatchReviewReminders(): Promise<number> {
+    if (!this.repos || !this.config || this.config.mode !== 'feishu' || !this.config.ownerOpenId) return 0;
+    const due = await this.repos.reviewReminders.claimDue(new Date(), 10);
+    let sent = 0;
+    for (const reminder of due) {
+      const version = await this.repos.notes.getVersion(reminder.version_id);
+      if (!version || version.status !== 'pending_review') {
+        await this.repos.reviewReminders.update(reminder.id, { status: 'canceled' });
+        continue;
+      }
+      const silentUntil = await this.silencePolicy.silentUntil();
+      if (silentUntil && silentUntil.getTime() > Date.now()) {
+        await this.repos.reviewReminders.update(reminder.id, { remind_at: silentUntil });
+        continue;
+      }
+      await this.repos!.outbox.enqueue({
+        dedupKey: `noteremind:${reminder.id}:${reminder.sent_count + 1}`,
+        channel: 'feishu',
+        target: this.config.ownerOpenId,
+        kind: 'text',
+        content: { text: `手写笔记待审核提醒：${reminder.note_id} v${version.version} 仍在等待你的审核${version.doc_url ? `（${version.doc_url}）` : ''}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。` },
+      });
+      const sentCount = reminder.sent_count + 1;
+      if (reminder.kind === 'once') {
+        await this.repos.reviewReminders.update(reminder.id, { status: 'sent', sent_count: sentCount, last_sent_at: new Date() });
+      } else if (sentCount >= 3) {
+        // Frequency cap: a daily nag stops after three sends until re-armed.
+        await this.repos.reviewReminders.update(reminder.id, { status: 'done', sent_count: sentCount, last_sent_at: new Date() });
+      } else {
+        const next = new Date(Date.now() + 6 * 3600 * 1000);
+        await this.repos.reviewReminders.update(reminder.id, { remind_at: next, sent_count: sentCount, last_sent_at: new Date() });
+      }
+      sent += 1;
+    }
+    return sent;
+  }
+
+  /** Review queue view for the Lead tool and the panel (P33). */
+  async reviewQueue(): Promise<unknown> {
+    if (!this.repos) throw new Error('业务账本未就绪。');
+    const queue = await this.repos.notes.reviewQueue();
+    const reminders = await this.repos.reviewReminders.activeAll();
+    return {
+      count: queue.length,
+      items: queue.map(note => ({
+        noteId: note.id,
+        noteStatus: note.status,
+        title: note.title,
+        pages: note.pages,
+        latestVersion: note.latest
+          ? {
+              version: note.latest.version,
+              status: note.latest.status,
+              docUrl: note.latest.doc_url,
+              fingerprint: note.latest.fingerprint.slice(0, 12) + '…',
+              verifiedAt: isoDate(note.latest.verified_at),
+              verifyResult: note.latest.verify_result,
+            }
+          : null,
+        reminders: reminders
+          .filter(r => r.note_id === note.id)
+          .map(r => ({ id: r.id, kind: r.kind, status: r.status, remindAt: new Date(r.remind_at).toISOString(), sent: r.sent_count })),
+      })),
+    };
   }
 
   // ---- outbox worker --------------------------------------------------------

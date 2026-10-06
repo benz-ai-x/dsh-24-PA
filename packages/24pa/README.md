@@ -52,13 +52,19 @@ dsh --profile <你的 profile>
 - 审核（P31）：待审版本经 Outbox 发交互卡片，按钮只携带不透明令牌（`pa24.review_token` 绑定主人/笔记/版本/指纹/7 天有效期）；点击时服务端重新核验文档指纹一致才受理，裁决（approve/return）在 PG 事务内落 `pa24.review_decision`＋版本/笔记状态，文档状态块随后同步（失败＝凭证已保存、同步中）。重复点击返回原结果；Worker 没有任何批准或外部行动工具。
 - 失效与重审（P32）：指纹覆盖正文（系统状态块排除在外）、结构顺序与原稿资源摘要；`pa24_notes verify` 有界核验 matches/changed/unknown，changed → 版本转 stale、笔记转 needs_rereview 并通知（旧批准保留为历史凭证）；`pa24_notes republish` 以当前文档为 v(n+1) 候选重发审核卡（含行级差异），批准前不继承旧结论。
 
+## F07 增量（多页笔记与集中复核）
+
+- 多页识别（P30）：单次委派识别整份笔记（≤20 页/批次，超出如实要求分批）；`note_submit` 支持 `pages[]` 逐页转写（页号必须精确对应已保存页，缺页如实留空不臆造）、`doubts[]`（数字/人名/缩写/日期/否定/勾选/不清七类重点复核，带 0–1 归一化区域）、`diagrams[]`（保留原图＋文字说明，不做矢量重绘）。区域疑点/图示由 sharp 从保真原稿生成 PNG 裁片（`.24pa/crops/`，坐标变换与 certainty 随版本存档），经 `docs +media-insert` 插入文档；回读完整性检查为 图片数 ≥ 页数＋裁片数；指纹第三组输入＝裁片 sha（页序/疑点坐标/裁片内容任一变化都会换指纹）。单页基线与多页增强共用同一视觉路由与审核管线。
+- 审核队列（P33）：`pa24_notes queue` 与面板「手写审核」页集中列出待审/需重审/已退回对象（最新版本、指纹、上次核验结果与时间、页数、在途催办、打开飞书文档）；页面只读，无网页批准按钮；空队列/读取失败分别显示。
+- 审核提醒（P33）：`pa24_notes remind`（once/daily，绑定当前待审版本）与 `remind_control`（snooze/pause/resume/cancel，只动提醒不动审核）；派发复用 Outbox 与 F05 静默扣留，6 小时最小间隔、daily 3 次封顶；版本完成审核或被新候选取代时在途催办同事务自动取消——旧版本不再催审；重启后按账本继续。面板 `notes.poll` / `notes.remind-poll` 暴露有界核对与派发入口。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |
 |---|---|
 | 业务账本（收件/事项/操作/Outbox/绑定/备忘/消息路由/任务/日程/提醒/手写笔记与审核凭证） | PostgreSQL `pa24` schema |
 | 长期记忆权威、审计与变更集 | 工作区 `.24pa/`（memory.json / memory-log.jsonl / changesets/） |
-| 手写原稿（不可变字节与派生副本） | 工作区 `.24pa/originals/` |
+| 手写原稿与疑点裁片（不可变字节与派生副本） | 工作区 `.24pa/originals/`、`.24pa/crops/` |
 | 工作区规则与配置 | 工作区 `AGENTS.md` |
 | 原生会话日志与附件 | dsh `$DSH_HOME/sessions`（原生 JSONL，不使用 SQLite） |
 

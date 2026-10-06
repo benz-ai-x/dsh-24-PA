@@ -1113,12 +1113,119 @@ export class NoteRepo {
        values ($1, 'feishu', $2, 'text', $3::jsonb, 'pending') on conflict (dedup_key) do nothing`,
       [row.notifyDedupKey, row.notifyTarget, JSON.stringify({ text: row.notifyText })],
     );
+    // Decided versions stop nagging immediately, in the same transaction (P33).
+    await client.query(
+      `update pa24.review_reminder set status = 'canceled', updated_at = now() where version_id = $1 and status in ('pending', 'paused')`,
+      [row.versionId],
+    );
+  }
+
+  /** Review queue: notes awaiting action with their latest version state (P33). */
+  async reviewQueue(limit = 50): Promise<(NoteRow & { latest: NoteVersionRow | null; pages: number })[]> {
+    const result = await this.db.query<NoteRow>(
+      `select * from pa24.note where status in ('awaiting_review', 'needs_rereview', 'returned') order by updated_at desc limit $1`,
+      [limit],
+    );
+    const rows = [] as (NoteRow & { latest: NoteVersionRow | null; pages: number })[];
+    for (const note of result.rows) {
+      const latest = await this.latestVersion(note.id);
+      const pages = await this.db.query<{ count: string }>(
+        `select count(*) as count from pa24.note_page where note_id = $1 and status = 'saved'`,
+        [note.id],
+      );
+      rows.push({ ...note, latest, pages: Number(pages.rows[0]!.count) });
+    }
+    return rows;
   }
 
   /** Pending-review versions for the bounded polling loop (P32). */
   async pendingReviewVersions(limit: number): Promise<NoteVersionRow[]> {
     const result = await this.db.query<NoteVersionRow>(
       `select * from pa24.note_version where status = 'pending_review' order by created_at limit $1`,
+      [limit],
+    );
+    return result.rows;
+  }
+}
+
+export interface ReviewReminderRow {
+  id: string;
+  note_id: string;
+  version_id: string;
+  kind: 'once' | 'daily' | string;
+  remind_at: Date;
+  status: 'pending' | 'paused' | 'sent' | 'done' | 'canceled' | string;
+  sent_count: number;
+  last_sent_at: Date | null;
+  reason: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export class ReviewReminderRepo {
+  constructor(private readonly db: PaDatabase) {}
+
+  async insert(row: { id: string; noteId: string; versionId: string; kind: 'once' | 'daily'; remindAt: Date; reason?: string }): Promise<ReviewReminderRow> {
+    const result = await this.db.query<ReviewReminderRow>(
+      `insert into pa24.review_reminder (id, note_id, version_id, kind, remind_at, reason)
+       values ($1,$2,$3,$4,$5,$6) returning *`,
+      [row.id, row.noteId, row.versionId, row.kind, row.remindAt, row.reason ?? null],
+    );
+    return result.rows[0]!;
+  }
+
+  async get(id: string): Promise<ReviewReminderRow | null> {
+    const result = await this.db.query<ReviewReminderRow>('select * from pa24.review_reminder where id = $1', [id]);
+    return result.rows[0] ?? null;
+  }
+
+  /** Due, unpaused reminders; claimed with SKIP LOCKED so one Host sends once. */
+  async claimDue(now: Date, limit: number): Promise<ReviewReminderRow[]> {
+    const result = await this.db.query<ReviewReminderRow>(
+      `update pa24.review_reminder set updated_at = now()
+       where id in (
+         select id from pa24.review_reminder
+         where status = 'pending' and remind_at <= $1
+         order by remind_at limit $2 for update skip locked
+       ) returning *`,
+      [now, limit],
+    );
+    return result.rows;
+  }
+
+  async update(id: string, patch: Partial<Pick<ReviewReminderRow, 'status' | 'remind_at' | 'sent_count' | 'last_sent_at'>>): Promise<ReviewReminderRow | null> {
+    const sets = ['updated_at = now()'];
+    const values: unknown[] = [id];
+    let n = 2;
+    for (const [key, value] of Object.entries(patch)) {
+      sets.push(`${key} = $${n}`);
+      values.push(value ?? null);
+      n += 1;
+    }
+    const result = await this.db.query<ReviewReminderRow>(`update pa24.review_reminder set ${sets.join(', ')} where id = $1 returning *`, values);
+    return result.rows[0] ?? null;
+  }
+
+  /** Cancel every in-flight nag for a version (decision/supersede path). */
+  async cancelForVersion(versionId: string, client?: any): Promise<number> {
+    const query = client ?? this.db;
+    const result = await query.query
+      ? query.query(`update pa24.review_reminder set status = 'canceled', updated_at = now() where version_id = $1 and status in ('pending', 'paused')`, [versionId])
+      : await this.db.query(`update pa24.review_reminder set status = 'canceled', updated_at = now() where version_id = $1 and status in ('pending', 'paused')`, [versionId]);
+    return result.rowCount ?? 0;
+  }
+
+  async activeForNote(noteId: string): Promise<ReviewReminderRow[]> {
+    const result = await this.db.query<ReviewReminderRow>(
+      `select * from pa24.review_reminder where note_id = $1 and status in ('pending', 'paused') order by remind_at`,
+      [noteId],
+    );
+    return result.rows;
+  }
+
+  async activeAll(limit = 50): Promise<ReviewReminderRow[]> {
+    const result = await this.db.query<ReviewReminderRow>(
+      `select * from pa24.review_reminder where status in ('pending', 'paused') order by remind_at limit $1`,
       [limit],
     );
     return result.rows;
@@ -1139,6 +1246,7 @@ export interface Repos {
   calendar: CalendarRepo;
   reminders: ReminderRepo;
   notes: NoteRepo;
+  reviewReminders: ReviewReminderRepo;
 }
 
 export function createRepos(db: PaDatabase): Repos {
@@ -1156,5 +1264,6 @@ export function createRepos(db: PaDatabase): Repos {
     calendar: new CalendarRepo(db),
     reminders: new ReminderRepo(db),
     notes: new NoteRepo(db),
+    reviewReminders: new ReviewReminderRepo(db),
   };
 }

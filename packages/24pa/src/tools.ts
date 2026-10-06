@@ -93,8 +93,18 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_notes',
-    '查阅与核验手写笔记：list 列出笔记，inspect 查看页/版本/审核凭证，verify 有界核验文档当前内容与发布指纹是否一致（matches/changed/unknown，改动会标记需重新审核），republish 以当前文档刷新候选并发新审核卡，finish 结束收集批次（之后不再追加页）。审核裁决本身只能由本人在飞书审核卡上完成。',
-    { action: { type: 'string', enum: ['list', 'inspect', 'verify', 'republish', 'finish'] }, noteId: string, status: string },
+    '查阅与核验手写笔记：list 列出笔记，queue 集中查看待审/需重审/已退回队列，inspect 查看页/版本/审核凭证，verify 有界核验文档当前内容与发布指纹是否一致（matches/changed/unknown，改动会标记需重新审核），republish 以当前文档刷新候选并发新审核卡，finish 结束收集批次，remind 为当前待审版本设置审核提醒（inSeconds/at，kind once|daily，绑定版本：审核完成自动取消），remind_control 稍后/暂停/恢复/取消提醒（只动提醒不动审核）。审核裁决本身只能由本人在飞书审核卡上完成。',
+    {
+      action: { type: 'string', enum: ['list', 'queue', 'inspect', 'verify', 'republish', 'finish', 'remind', 'remind_control'] },
+      noteId: string,
+      status: string,
+      inSeconds: { type: 'integer', minimum: 1 },
+      at: string,
+      kind: { type: 'string', enum: ['once', 'daily'] },
+      reminderId: string,
+      op: { type: 'string', enum: ['snooze', 'pause', 'resume', 'cancel'] },
+      reason: string,
+    },
     ['action'],
     (args, exec) => runtime.notesTool(args, exec.agent!),
   );

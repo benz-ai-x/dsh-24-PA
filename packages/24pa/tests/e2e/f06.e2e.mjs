@@ -212,10 +212,7 @@ describe('F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG）',
     const originals = await readdir(join(workspace, '.24pa', 'originals', 'N-1'));
     expect(originals.filter(f => f.startsWith('p') && f.endsWith('.png'))).toHaveLength(3);
 
-    // 多页笔记在本版明确拒绝识别（F07 交付多页增强），不臆造结果
-    await writeScript(recognizeScript('N-1', submitAction('N-1')));
-    await inject(ownerEvent('evt-org-multi', { text: '整理这份笔记', parentMessageId: ack2.message_id }));
-    await waitToolResult('pa24_delegate', '多页识别', '多页拒绝');
+    // F07 起多页识别可用；本用例不再注入多页整理（由 f07.e2e 覆盖）。
   });
 
   it('P29：视觉路由缺失时明确报错；配置重载后识别请求真的携带图片并发布待审文档', async () => {
