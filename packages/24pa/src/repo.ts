@@ -1114,10 +1114,7 @@ export class NoteRepo {
       [row.notifyDedupKey, row.notifyTarget, JSON.stringify({ text: row.notifyText })],
     );
     // Decided versions stop nagging immediately, in the same transaction (P33).
-    await client.query(
-      `update pa24.review_reminder set status = 'canceled', updated_at = now() where version_id = $1 and status in ('pending', 'paused')`,
-      [row.versionId],
-    );
+    await client.query(new ReviewReminderRepo(this.db).cancelForVersionSql, [row.versionId]);
   }
 
   /** Review queue: notes awaiting action with their latest version state (P33). */
@@ -1207,12 +1204,15 @@ export class ReviewReminderRepo {
   }
 
   /** Cancel every in-flight nag for a version (decision/supersede path). */
-  async cancelForVersion(versionId: string, client?: any): Promise<number> {
-    const query = client ?? this.db;
-    const result = await query.query
-      ? query.query(`update pa24.review_reminder set status = 'canceled', updated_at = now() where version_id = $1 and status in ('pending', 'paused')`, [versionId])
-      : await this.db.query(`update pa24.review_reminder set status = 'canceled', updated_at = now() where version_id = $1 and status in ('pending', 'paused')`, [versionId]);
+  cancelForVersionSql = `update pa24.review_reminder set status = 'canceled', updated_at = now() where version_id = $1 and status in ('pending', 'paused')`;
+
+  async cancelForVersion(versionId: string): Promise<number> {
+    const result = await this.db.query(this.cancelForVersionSql, [versionId]);
     return result.rowCount ?? 0;
+  }
+
+  async cancelForVersionOn(client: any, versionId: string): Promise<void> {
+    await client.query(this.cancelForVersionSql, [versionId]);
   }
 
   async activeForNote(noteId: string): Promise<ReviewReminderRow[]> {

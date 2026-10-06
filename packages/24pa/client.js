@@ -8,8 +8,8 @@ window.__ModuleLoader__.load({
     const zh = {
       panel: '24私助工作区', title: '24私助', work: '事项总览', feishu: '飞书接入', memory: '结构化记忆', workspace: '工作区',
       review: '手写审核', awaiting_review: '待审核', needs_rereview: '需重新审核', returned: '已退回', collecting: '收集中',
-      collected: '已收齐', approved: '已通过', pending_review: '待审核', stale: '已失效', superseded: '已取代', sent2: '已发送',
-      paused2: '已暂停', canceled2: '已取消', done2: '已结束',
+      collected: '已收齐', approved: '已通过', pending_review: '待审核', stale: '已失效', superseded: '已取代',
+      reminderOnce: '单次', reminderDaily: '每日', reminderPaused: '已暂停', reminderCanceled: '已取消', reminderDone: '已结束',
       queued: '排队中', running: '处理中', completed: '已完成', accepted: '已接纳',
       waiting_input: '等待补充', failed: '未完成', stopped: '已停止', needs_reconciliation: '需核对',
     };
@@ -173,7 +173,7 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'pa24-row pa24-between' }, h('h3', null, item.title || item.noteId), badge(t(item.noteStatus) || item.noteStatus, ...(item.noteStatus === 'awaiting_review' ? ['amber', 'clock'] : item.noteStatus === 'needs_rereview' ? ['rose', 'alert'] : ['neutral', 'pen']))),
                   item.latestVersion && h('div', { className: 'pa24-row' }, badge('v' + item.latestVersion.version + ' ' + (t(item.latestVersion.status) || item.latestVersion.status), item.latestVersion.status === 'pending_review' ? 'amber' : 'neutral', 'shield'), verifyBadge(item.latestVersion)),
                   h('p', { className: 'pa24-meta' }, item.pages + ' 页原稿 · 指纹 ' + (item.latestVersion ? item.latestVersion.fingerprint : '—') + (item.latestVersion && item.latestVersion.verifiedAt ? ' · 上次核验 ' + date(item.latestVersion.verifiedAt, tz) : '')),
-                  item.reminders.length > 0 && h('p', { className: 'pa24-meta' }, '催办：' + item.reminders.map(r => (t(r.kind) || r.kind) + ' ' + (t(r.status) || r.status) + (r.status === 'pending' ? '，下次 ' + date(r.remindAt, tz) : '')).join('；')),
+                  item.reminders.length > 0 && h('p', { className: 'pa24-meta' }, '催办：' + item.reminders.map(r => (t('reminder' + (r.kind === 'daily' ? 'Daily' : 'Once')) || r.kind) + ' ' + (t('reminder' + r.status.charAt(0).toUpperCase() + r.status.slice(1)) || r.status) + (r.status === 'pending' ? '，下次 ' + date(r.remindAt, tz) : '')).join('；')),
                   item.latestVersion && item.latestVersion.docUrl && h('a', { className: 'pa24-link-button', href: item.latestVersion.docUrl, target: '_blank', rel: 'noreferrer' }, icon('external'), '打开飞书文档'),
                   h('p', { className: 'pa24-meta' }, '需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。')))));
         }

@@ -29,6 +29,8 @@ import {
   sha256Hex,
   systemLine,
   diffNormalized,
+  advanceReminder,
+  type CropSpec,
   type DoubtSpec,
   type DiagramSpec,
   type RecognizedNote,
@@ -2179,6 +2181,9 @@ export class PaRuntime {
       return { pageNo, transcript: text(entry.transcript, 20000) };
     });
     if (new Set(pages.map(p => p.pageNo)).size !== pages.length) throw new Error('逐页转写存在重复页号。');
+    for (let i = 1; i < pages.length; i++) {
+      if (pages[i]!.pageNo <= pages[i - 1]!.pageNo) throw new Error(`逐页转写必须按页号升序提交（第 ${i + 1} 项 ${pages[i]!.pageNo} ≤ 前项 ${pages[i - 1]!.pageNo}）；段落顺序以页序为准。`);
+    }
     if (pages.length > 0 && pages.length !== savedPages.length) {
       throw new Error(`逐页转写需覆盖全部已保存页（已保存 ${savedPages.length} 页，收到 ${pages.length} 页）；缺失页请明确标注无法辨认。`);
     }
@@ -2224,7 +2229,7 @@ export class PaRuntime {
    * (P30): normalized regions map through the page's intrinsic size with
    * clamping; each crop keeps its transform record and sha256.
    */
-  private async generateCrops(noteId: string, pages: NotePageRow[], doubts: DoubtSpec[], diagrams: DiagramSpec[]): Promise<{ id: string; pageNo: number; kind: 'doubt' | 'diagram'; region: Region; certainty: 'reliable' | 'estimated'; path: string; sha256: string }[]> {
+  private async generateCrops(noteId: string, pages: NotePageRow[], doubts: DoubtSpec[], diagrams: DiagramSpec[]): Promise<CropSpec[]> {
     const entries: { kind: 'doubt' | 'diagram'; pageNo: number; region: Region }[] = [];
     for (const doubt of doubts) if (doubt.region) entries.push({ kind: 'doubt', pageNo: doubt.pageNo, region: doubt.region });
     for (const diagram of diagrams) if (diagram.region) entries.push({ kind: 'diagram', pageNo: diagram.pageNo, region: diagram.region });
@@ -2235,10 +2240,10 @@ export class PaRuntime {
     } catch (error) {
       throw new Error(`生成疑点裁片需要 sharp（${(error as Error).message}）；请先不带区域提交，区域定位随后补充。`);
     }
-    const { mkdir } = await import('node:fs/promises');
+    const { mkdir, writeFile } = await import('node:fs/promises');
     const dir = join(this.workspace!.statePath, '.24pa', 'crops', noteId);
     await mkdir(dir, { recursive: true });
-    const crops: { id: string; pageNo: number; kind: 'doubt' | 'diagram'; region: Region; certainty: 'reliable' | 'estimated'; path: string; sha256: string }[] = [];
+    const crops: CropSpec[] = [];
     for (const [index, entry] of entries.entries()) {
       const page = pages.find(p => p.page_no === entry.pageNo);
       if (!page) continue;
@@ -2249,9 +2254,14 @@ export class PaRuntime {
       const sha = sha256Hex(png);
       const id = `C${index + 1}`;
       const path = join(dir, `p${entry.pageNo}-${id}-${sha.slice(0, 12)}.png`);
-      const { writeFile } = await import('node:fs/promises');
       await writeFile(path, png, { mode: 0o600 });
       crops.push({ id, pageNo: entry.pageNo, kind: entry.kind, region: entry.region, certainty, path, sha256: sha });
+      // Feed the real clamp verdict back: an adjusted region is published as
+      // 估计, never 可靠 (P30 AC2).
+      if (certainty === 'estimated' && entry.kind === 'doubt') {
+        const target = doubts.find(d => d.pageNo === entry.pageNo && d.region === entry.region);
+        if (target) target.certainty = 'estimated';
+      }
     }
     return crops;
   }
@@ -2268,7 +2278,7 @@ export class PaRuntime {
     note: NoteRow,
     recognized: RecognizedNote | null,
     republishFromDoc: { docId: string; docUrl: string | null; normalized: string; snapshot: string; revision: string | null } | null,
-    crops: { id: string; pageNo: number; kind: 'doubt' | 'diagram'; region: Region; certainty: 'reliable' | 'estimated'; path: string; sha256: string }[] = [],
+    crops: CropSpec[] = [],
   ): Promise<unknown> {
     const notes = this.repos!.notes;
     const pages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
@@ -2345,7 +2355,11 @@ export class PaRuntime {
       });
       await notes.supersedeOlder(note.id, version);
       // A new candidate supersedes the old version: its nags must stop (P33).
-      if (latest) await this.repos!.reviewReminders.cancelForVersion(latest.id).catch(() => {});
+      if (latest) {
+        await this.repos!.reviewReminders.cancelForVersion(latest.id).catch(error => {
+          console.warn(`[pa24] 取消旧版本催办失败（派发时会再核对版本状态）：${(error as Error).message}`);
+        });
+      }
       await notes.updateNote(note.id, { status: 'awaiting_review' });
       await this.repos!.operations.update(staged.row.id, {
         status: 'succeeded',
@@ -2638,7 +2652,7 @@ export class PaRuntime {
       return { noteId, result: 'unchanged', message: `当前文档与 v${latest.version} 一致，无需重发候选。` };
     }
     const diff = diffNormalized(latest.normalized_text, normalized);
-    const carriedCrops = (Array.isArray(latest.content?.crops) ? latest.content.crops : []) as { id: string; pageNo: number; kind: 'doubt' | 'diagram'; region: Region; certainty: 'reliable' | 'estimated'; path: string; sha256: string }[];
+    const carriedCrops = (Array.isArray(latest.content?.crops) ? latest.content.crops : []) as CropSpec[];
     const result = (await this.publishNoteVersion(item, note, null, {
       docId: latest.doc_id!,
       docUrl: latest.doc_url,
@@ -2887,15 +2901,14 @@ export class PaRuntime {
         content: { text: `手写笔记待审核提醒：${reminder.note_id} v${version.version} 仍在等待你的审核${version.doc_url ? `（${version.doc_url}）` : ''}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。` },
       });
       const sentCount = reminder.sent_count + 1;
-      if (reminder.kind === 'once') {
-        await this.repos.reviewReminders.update(reminder.id, { status: 'sent', sent_count: sentCount, last_sent_at: new Date() });
-      } else if (sentCount >= 3) {
-        // Frequency cap: a daily nag stops after three sends until re-armed.
-        await this.repos.reviewReminders.update(reminder.id, { status: 'done', sent_count: sentCount, last_sent_at: new Date() });
-      } else {
-        const next = new Date(Date.now() + 6 * 3600 * 1000);
-        await this.repos.reviewReminders.update(reminder.id, { remind_at: next, sent_count: sentCount, last_sent_at: new Date() });
-      }
+      const next = advanceReminder(reminder.kind === 'daily' ? 'daily' : 'once', sentCount, Date.now());
+      await this.repos.reviewReminders.update(reminder.id, {
+        status: next.status,
+        // remind_at stays NOT NULL: completed reminders keep their last due time.
+        ...(next.remindAt ? { remind_at: next.remindAt } : {}),
+        sent_count: sentCount,
+        last_sent_at: new Date(),
+      });
       sent += 1;
     }
     return sent;

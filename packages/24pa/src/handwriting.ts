@@ -50,6 +50,28 @@ export interface DiagramSpec {
   region?: Region;
 }
 
+/** Durable crop derived from a page original (P30): identity, transform, bytes. */
+export interface CropSpec {
+  id: string;
+  pageNo: number;
+  kind: 'doubt' | 'diagram';
+  region: Region;
+  certainty: 'reliable' | 'estimated';
+  path: string;
+  sha256: string;
+}
+
+/** Reminder pacing (P33 限频): once sends immediately; daily keeps a floor
+ * interval and stops after the cap without a fresh instruction. */
+export const REMINDER_DAILY_MIN_INTERVAL_MS = 6 * 3600 * 1000;
+export const REMINDER_DAILY_MAX_SENDS = 3;
+
+export function advanceReminder(kind: 'once' | 'daily', sentCount: number, now: number): { status: 'sent' | 'done' | 'pending'; remindAt: Date | null } {
+  if (kind === 'once') return { status: 'sent', remindAt: null };
+  if (sentCount >= REMINDER_DAILY_MAX_SENDS) return { status: 'done', remindAt: null };
+  return { status: 'pending', remindAt: new Date(now + REMINDER_DAILY_MIN_INTERVAL_MS) };
+}
+
 export interface RecognizedNote {
   transcript: string;
   summary: string;
@@ -152,15 +174,19 @@ export function noteDocumentXml(
         .map(p => `<h2>第 ${p.pageNo} 页 转写</h2>\n<p>${xml(p.transcript)}</p>`)
         .join('\n')
     : `<h2>第 ${pageInfos[0]?.pageNo ?? 1} 页 转写</h2>\n<p>${xml(recognized.transcript)}</p>`;
-  const doubts = (recognized.doubts ?? []).map((doubt, index) => {
+  // Crop ids number regioned entries only (doubts first, then diagrams), the
+  // same rule generateCrops uses, so document citations match stored crops.
+  let cropNo = 0;
+  const nextCropId = () => `C${(cropNo += 1)}`;
+  const doubts = (recognized.doubts ?? []).map(doubt => {
     const kind = DOUBT_KIND_LABELS[doubt.kind as DoubtKind] ?? String(doubt.kind);
     const where = doubt.region
-      ? `${regionText(doubt.region)}（${doubt.certainty}，裁片 C${index + 1}）`
+      ? `${regionText(doubt.region)}（${doubt.certainty}，裁片 ${nextCropId()}）`
       : `整页引用（${doubt.certainty}）`;
     return `<li>第 ${doubt.pageNo} 页【${kind}】“${xml(doubt.quote)}”${doubt.note ? `；${xml(doubt.note)}` : ''}；${where}</li>`;
   });
-  const diagrams = (recognized.diagrams ?? []).map((diagram, index) => {
-    const where = diagram.region ? `${regionText(diagram.region)}（裁片 C${(recognized.doubts?.length ?? 0) + index + 1}）` : '见该页原图';
+  const diagrams = (recognized.diagrams ?? []).map(diagram => {
+    const where = diagram.region ? `${regionText(diagram.region)}（裁片 ${nextCropId()}）` : '见该页原图';
     return `<li>第 ${diagram.pageNo} 页 图示：${xml(diagram.description)}；${where}（保留原图，不做矢量重绘）</li>`;
   });
   const relative = recognized.relativeDates.length
@@ -198,7 +224,7 @@ ${pageInfos.map(p => `<p>第 ${p.pageNo} 页：${p.mediaType}，${p.byteSize} �
  */
 export function normalizeDocument(docXml: string): string {
   const withoutTitle = docXml.replace(/<title>[\s\S]*?<\/title>/g, '');
-  const segments = withoutTitle.split(/<\/?(?:p|h1|h2|h3|li|img|table|tr|td|th|ul|ol)\b[^>]*>/);
+  const segments = withoutTitle.split(/<\/?(?:p|h1|h2|li|img|table|tr|td|th|ul|ol)\b[^>]*>/);
   const lines: string[] = [];
   for (const segment of segments) {
     const text = segment

@@ -96,8 +96,8 @@ describe('F07 多页与集中复核', () => {
     ...recognized,
     pages: [
       { pageNo: 1, transcript: '第一页：预算讨论' },
-      { pageNo: 3, transcript: '第三页：行动项' },
       { pageNo: 2, transcript: '第二页：联系人' },
+      { pageNo: 3, transcript: '第三页：行动项' },
     ],
     doubts: [
       { pageNo: 2, kind: 'name', quote: '王小明', region: { x: 0.1, y: 0.2, w: 0.3, h: 0.1 }, certainty: 'reliable' },
@@ -106,7 +106,33 @@ describe('F07 多页与集中复核', () => {
     diagrams: [{ pageNo: 1, description: '流程图：申请→审批→归档', region: { x: 0.5, y: 0.5, w: 0.4, h: 0.4 }, certainty: 'reliable' }],
   };
 
-  it('多页模板：逐页转写按提交顺序、疑点带页码区域与裁片编号、图示保留原图说明', () => {
+  it('裁片编号只数带区域的条目：无区域疑点在前不占号（与 generateCrops 一致）', () => {
+    const fixture = {
+      ...recognized,
+      doubts: [
+        { pageNo: 1, kind: 'number', quote: '12万', certainty: 'page' },
+        { pageNo: 2, kind: 'name', quote: '王小明', region: { x: 0.1, y: 0.2, w: 0.3, h: 0.1 }, certainty: 'reliable' },
+      ],
+      diagrams: [{ pageNo: 1, description: '流程图', region: { x: 0.4, y: 0.4, w: 0.4, h: 0.4 }, certainty: 'reliable' }],
+    };
+    const xml = noteDocumentXml('N-8', 1, fixture, [page(1, 'a'), page(2, 'b')]);
+    expect(xml).toContain('第 1 页【数字】“12万”');
+    expect(xml).not.toContain('裁片 C1”');
+    expect(xml).toContain('第 2 页【人名】“王小明”');
+    expect(xml).toMatch(/人名.*裁片 C1/s);
+    expect(xml).toMatch(/流程图.*裁片 C2/s);
+  });
+
+  it('advanceReminder：单次即止；每日保底间隔且累计 3 次封顶', async () => {
+    const { advanceReminder, REMINDER_DAILY_MAX_SENDS } = await import('../../lib/handwriting.js');
+    expect(advanceReminder('once', 1, 1000)).toEqual({ status: 'sent', remindAt: null });
+    const first = advanceReminder('daily', 1, 1000);
+    expect(first.status).toBe('pending');
+    expect(first.remindAt.getTime()).toBe(1000 + 6 * 3600 * 1000);
+    expect(advanceReminder('daily', REMINDER_DAILY_MAX_SENDS, 1000).status).toBe('done');
+  });
+
+  it('多页模板：逐页转写按页序、疑点带页码区域与裁片编号、图示保留原图说明', () => {
     const xml = noteDocumentXml('N-9', 1, multi, [page(1, 'a'), page(2, 'b'), page(3, 'c')]);
     expect(xml).toContain('第 1 页 转写');
     expect(xml).toContain('第一页：预算讨论');
