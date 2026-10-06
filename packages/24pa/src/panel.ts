@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DshContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
+import { DIGEST_UNCONFIRMED_GRACE_MS } from './runtime.js';
 import { FakeFeishuTransport } from './runtime.js';
 import type { InboundEvent } from './feishu.js';
 
@@ -98,7 +99,7 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
   if (type === 'notes.remind-poll') return { sent: await runtime.dispatchReviewReminders() };
   if (type === 'digest.supervise') {
     const graceMs = Number(payload.graceMs);
-    return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : 10 * 60 * 1000);
+    return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : DIGEST_UNCONFIRMED_GRACE_MS);
   }
   if (type === 'robot.open') return { sessionId: await runtime.openLocalSession() };
   if (type === 'role.register') {

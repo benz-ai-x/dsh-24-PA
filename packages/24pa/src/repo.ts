@@ -1525,6 +1525,13 @@ export interface DigestOccurrenceRow {
   updated_at: Date;
 }
 
+function digestPatch(setsOut: string[], valuesOut: unknown[], patch: Record<string, unknown>, jsonKeys: readonly string[] = []): void {
+  for (const [key, value] of Object.entries(patch)) {
+    setsOut.push(`${key} = $${valuesOut.length + 1}`);
+    valuesOut.push(jsonKeys.includes(key) ? JSON.stringify(value) : value ?? null);
+  }
+}
+
 export class DigestRepo {
   constructor(private readonly db: PaDatabase) {}
 
@@ -1545,12 +1552,7 @@ export class DigestRepo {
   async updatePlan(id: string, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'last_window' | 'title'>>): Promise<DigestPlanRow | null> {
     const sets = ['updated_at = now()'];
     const values: unknown[] = [id];
-    let n = 2;
-    for (const [key, value] of Object.entries(patch)) {
-      sets.push(`${key} = $${n}`);
-      values.push(key === 'schedule_spec' ? JSON.stringify(value) : value ?? null);
-      n += 1;
-    }
+    digestPatch(sets, values, patch, ['schedule_spec']);
     const result = await this.db.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 returning *`, values);
     return result.rows[0] ?? null;
   }
@@ -1578,12 +1580,7 @@ export class DigestRepo {
   async updateOccurrence(id: string, patch: Partial<Pick<DigestOccurrenceRow, 'status' | 'report' | 'outbox_key' | 'completed_at' | 'error'>>): Promise<void> {
     const sets = ['updated_at = now()'];
     const values: unknown[] = [id];
-    let n = 2;
-    for (const [key, value] of Object.entries(patch)) {
-      sets.push(`${key} = $${n}`);
-      values.push(key === 'report' ? JSON.stringify(value) : value ?? null);
-      n += 1;
-    }
+    digestPatch(sets, values, patch, ['report']);
     await this.db.query(`update pa24.digest_occurrence set ${sets.join(', ')} where id = $1`, values);
   }
 

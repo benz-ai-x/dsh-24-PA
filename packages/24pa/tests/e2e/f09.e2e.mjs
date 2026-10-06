@@ -174,6 +174,70 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     expect(adopt).toContain('eventId');
     const created = (await rows(`select summary from pa24.calendar_event where summary like '%专注时间%'`));
     expect(created).toHaveLength(1);
+
+    // 外部同时改期：采纳另一块前，外部先占掉该时段 → 复核拒绝写入
+    await writeScript(calScript('外部占位', { action: 'calendar_create', summary: '外部插入的客户会', start: `${tomorrow}T16:00:00+08:00`, end: `${tomorrow}T17:00:00+08:00` }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-p6', { text: '外部先占了明天下午四点，我这边也要采纳那一段试试' }));
+    await waitWorkItem('外部占位', '外部占位完成');
+    await waitToolResult('pa24_work', 'eventId', '外部占位回执', 60_000, before);
+    await writeScript(calScript('采纳冲突块', { action: 'plan_adopt', blocks: [{ summary: '另一专注块', start: `${tomorrow}T16:00:00+08:00`, end: `${tomorrow}T16:30:00+08:00` }] }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-p7', { text: '再采纳下午四点到四点半那块' }));
+    await waitWorkItem('采纳冲突块', '冲突采纳完成');
+    const conflict = await waitToolResult('pa24_work', '复核发现与现有安排', '冲突拒绝', 60_000, before);
+    expect(conflict).toContain('外部插入的客户会');
+    expect((await rows(`select count(*)::int as n from pa24.calendar_event where summary like '%另一专注块%'`))[0].n).toBe(0);
+  });
+
+  it('P25：晚间回顾呈现完成/等待/逾期，不自动延期、不写记忆', async () => {
+    // 先完成一项任务、留一项逾期，供晚间回顾呈现事实
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'tasks', title: '建并完成收尾任务', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'task_create', summary: '已完成的收尾任务' }, workerReply: 'ok' });
+    let beforeSeed = llm.log.length;
+    await inject(ownerEvent('evt-e0a', { text: '建一个今天要完成的收尾任务' }));
+    await waitWorkItem('建并完成收尾任务', '收尾任务建立');
+    const createdTask = await waitToolResult('pa24_work', '"guid"', '收尾任务回执', 60_000, beforeSeed);
+    const doneGuid = (createdTask.match(/"guid":"(tskstub-[^"]+)"/) || [])[1];
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'tasks', title: '完成收尾任务', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'task_complete', guid: doneGuid }, workerReply: 'ok' });
+    beforeSeed = llm.log.length;
+    await inject(ownerEvent('evt-e0b', { text: '收尾任务完成了' }));
+    await waitWorkItem('完成收尾任务', '收尾任务完成');
+
+    await writeScript(rmdScript('开启晚间回顾', { action: 'digest_enable', kind: 'evening', time: '20:30:00' }));
+    let before = llm.log.length;
+    await inject(ownerEvent('evt-e1', { text: '开启每天 20 点 30 分的晚间回顾' }));
+    await waitWorkItem('开启晚间回顾', '晚间回顾开启');
+    const enabled = await waitToolResult('pa24_work', 'planId', '晚间回执', 60_000, before);
+    const planId = (enabled.match(/"planId":"(dig-[^"]+)"/) || [])[1];
+    // 直接委派一次 digest_build（不等 20:30，验证内容渲染与幂等键）
+    await writeScript({
+      mode: 'dispatch',
+      delegate: { worker: 'digest', title: '立即出一期晚间回顾', instruction: '立即生成', planId },
+      leadReply: '已生成。',
+      workerAction: { action: 'digest_build', planId },
+      workerReply: '已发出。',
+    });
+    before = llm.log.length;
+    await inject(ownerEvent('evt-e2', { text: '现在就出一期晚间回顾' }));
+    await waitWorkItem('立即出一期晚间回顾', '晚间回顾生成', 180_000);
+    const out = await waitOutbox(`digest:${planId}:`, '晚间回顾发送', 60_000);
+    const text = out.content?.text ?? '';
+    expect(text).toContain('一、事实');
+    expect(text).toContain('近 24 小时内同步到完成状态');
+    expect(text).toContain('二、建议');
+    expect(text).toContain('逾期');
+    expect(text).toContain('未自动修改任何任务、日程或记忆');
+    // 不写记忆
+    const memory = await host.api('memory', {});
+    expect(memory.revision).toBe(1);
+    // 调整计划（同计划换时间，历史保留）
+    await writeScript(rmdScript('调整晚间回顾', { action: 'digest_control', planId, op: 'adjust', kind: 'evening', time: '21:00:00' }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-e3', { text: '晚间回顾改到 21 点' }));
+    await waitWorkItem('调整晚间回顾', '调整完成');
+    const adjusted = await waitToolResult('pa24_work', '已按新安排调整', '调整回执', 60_000, before);
+    expect(adjusted).toContain(planId);
+    expect((await rows(`select count(*)::int as n from pa24.digest_plan where id='${planId}'`))[0].n).toBe(1);
   });
 
   it('P24/P25：once 晨报经原生 Schedule 唤醒 Lead→digest Worker→Outbox，事实与建议分离', async () => {
@@ -195,11 +259,11 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
       workerReply: '晨报已发出。',
     });
     await waitWorkItem('生成晨报', '简报生成完成', 180_000);
-    const built = await waitToolResult('pa24_work', '简报已生成并发送', '简报回执', 60_000, before);
+    const built = await waitToolResult('pa24_work', '入发送队列', '简报回执', 60_000, before);
     const windowKey = (built.match(/"windowKey":"([^"]+)"/) || [])[1];
     expect(windowKey).toBeTruthy();
     const report = (await rows(`select status, (report is not null) as has_report from pa24.digest_occurrence where id='${planId}:${windowKey}'`))[0];
-    expect(report.status).toBe('sent');
+    expect(report.status).toBe('model_done');
     expect(report.has_report).toBe(true);
     const out = await waitOutbox(`digest:${planId}:${windowKey}`, '晨报发送');
     const text = out.content?.text ?? '';

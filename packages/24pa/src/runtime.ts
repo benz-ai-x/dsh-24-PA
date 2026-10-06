@@ -109,6 +109,9 @@ function taskExternal(data: any): { guid: string; url: string | null } {
 
 const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', calendar: '日程' };
 
+/** Bounded grace before an unattributable delivery pauses its digest plan (P24). */
+export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
+
 /** Stable fingerprint of a followed task: identity + content + due (P19). */
 function taskFingerprint(task: { task_guid: string; summary: string; due_at: Date | null }): string {
   return hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`);
@@ -171,7 +174,6 @@ export interface RuntimeOptions {
 
 export interface NativeScheduleService {
   create(sessionId: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<{ id: string; scheduledAt?: string } & Record<string, unknown>>;
-  list(request: { sessionId: string }): Promise<{ id: string }[]>;
   delete(request: { sessionId: string; id: string }): Promise<unknown>;
   history(request: { sessionId: string; id: string; limit: number }): Promise<{ records?: unknown[] } & Record<string, unknown>>;
 }
@@ -2526,7 +2528,7 @@ export class PaRuntime {
     if (this.closed || !this.repos || !this.config) return;
     void this.materializeTemplateInstances().catch(() => {});
     void this.dispatchWaitingCheckpoints().catch(() => {});
-    void this.superviseDigests(10 * 60 * 1000).catch(() => {});
+    void this.superviseDigests().catch(() => {});
   }
 
   private async dispatchWaitingCheckpoints(): Promise<number> {
@@ -2561,14 +2563,21 @@ export class PaRuntime {
 
   /** Local-date window key for a plan kind (morning/evening share the date, weekly uses ISO week). */
   private digestWindowKey(kind: string, timeZone: string, now = new Date()): string {
-    const local = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
     if (kind === 'weekly') {
-      const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(now);
-      const jan1 = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
-      const week = Math.ceil(((now.getTime() - jan1.getTime()) / 86400000 + jan1.getUTCDay() + 1) / 7);
-      return `${local}-W${String(week).padStart(2, '0')}-${weekday}`;
+      // ISO 8601 week (Monday-based, Thursday decides the year): one window
+      // per calendar week, not per day.
+      const jan4 = new Date(Date.UTC(now.getUTCFullYear(), 0, 4));
+      const week = Math.ceil(((now.getTime() - jan4.getTime()) / 86400000 + jan4.getUTCDay() + 1) / 7);
+      const isoYear = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric' }).format(now);
+      return `${isoYear}-W${String(week).padStart(2, '0')}`;
     }
-    return local;
+    return parts;
+  }
+
+  /** Delegation prompt handed to the Lead when a digest window fires (P24). */
+  private digestPrompt(planId: string, title: string): string {
+    return `[24PA计划 ${planId}] 到达${title}窗口：请委派 digest Worker（pa24_delegate worker=digest）执行 digest_build {planId:"${planId}"}，把简报发给本人；不要执行其他业务。`;
   }
 
   /**
@@ -2602,8 +2611,7 @@ export class PaRuntime {
         ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays!)].sort() }, title: `[24PA] ${title}` }
         : { daily: { time: String(args.time), time_zone: timeZone }, title: `[24PA] ${title}` };
     }
-    const prompt = `[24PA计划 ${id}] 到达${title}窗口：请委派 digest Worker（pa24_delegate worker=digest）执行 digest_build {planId:"${id}"}，把简报发给本人；不要执行其他业务。`;
-    const created = await schedule.create(this.accessSessionId!, { ...request, prompt });
+    const created = await schedule.create(this.accessSessionId!, { ...request, prompt: this.digestPrompt(id, title) });
     const plan = await this.repos!.digests.insertPlan({
       id,
       kind,
@@ -2628,9 +2636,22 @@ export class PaRuntime {
     const op = String(args.op ?? '');
     const schedule = this.nativeSchedule();
     if (op === 'pause' || op === 'stop') {
-      if (schedule && plan.schedule_id) await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id }).catch(() => {});
+      let nativeWarning: string | null = null;
+      if (schedule && plan.schedule_id) {
+        try {
+          await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id });
+        } catch (error) {
+          nativeWarning = `原生计划移除失败（${(error as Error).message}）；请核对后重试暂停，期间触发会被计划状态拒绝。`;
+          console.warn(`[pa24] ${nativeWarning}`);
+        }
+      }
       await this.repos!.digests.updatePlan(plan.id, { status: op === 'pause' ? 'paused' : 'stopped', schedule_id: null });
-      return { planId: plan.id, status: op === 'pause' ? 'paused' : 'stopped', message: op === 'pause' ? '计划已暂停（原生 Schedule 已移除，业务历史保留）。' : '计划已停止。' };
+      return {
+        planId: plan.id,
+        status: op === 'pause' ? 'paused' : 'stopped',
+        nativeWarning,
+        message: `${op === 'pause' ? '计划已暂停' : '计划已停止'}（业务历史保留）${nativeWarning ? `；注意：${nativeWarning}` : ''}。`,
+      };
     }
     if (op === 'resume') {
       if (plan.status !== 'paused') throw new Error(`计划当前状态为 ${plan.status}，无法恢复。`);
@@ -2641,8 +2662,34 @@ export class PaRuntime {
       return { planId: plan.id, scheduleId: String(created.id), message: '计划已恢复（重新入队）。' };
     }
     if (op === 'adjust') {
-      // Adjust = stop + re-enable with the new spec; history stays on the plan row.
-      return this.digestEnable({ ...args, kind: plan.kind, planId: plan.id });
+      // Adjust swaps the spec on the SAME plan row: remove the old native
+      // schedule, create the new one, keep id and history stable (P24 修改).
+      if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务。');
+      const kind = String(args.kind ?? plan.kind);
+      if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('调整后的计划类型无效。');
+      const timeZone = String(args.timeZone ?? this.config!.timeZone);
+      let request: Record<string, unknown>;
+      if (kind === 'once') {
+        const seconds = Number(args.afterSeconds ?? 0);
+        const at = args.at ? new Date(String(args.at)) : null;
+        if (at && !Number.isNaN(at.getTime())) request = { at: at.toISOString() };
+        else if (Number.isInteger(seconds) && seconds >= 1) request = { after_seconds: seconds };
+        else throw new Error('once 调整需要 afterSeconds 或 at。');
+      } else {
+        if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new Error('调整需要新的本地时间 HH:mm:ss。');
+        const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined;
+        request = kind === 'weekly'
+          ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays ?? [1])].sort() } }
+          : { daily: { time: String(args.time), time_zone: timeZone } };
+      }
+      if (plan.schedule_id) {
+        await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id }).catch(error => {
+          console.warn(`[pa24] 调整时移除旧原生计划失败：${(error as Error).message}`);
+        });
+      }
+      const created = await schedule.create(plan.session_id, { ...request, prompt: this.digestPrompt(plan.id, plan.title), title: `[24PA] ${plan.title}` });
+      await this.repos!.digests.updatePlan(plan.id, { status: 'active', schedule_id: String(created.id), schedule_spec: request });
+      return { planId: plan.id, scheduleId: String(created.id), message: '计划已按新安排调整（同一计划保留历史，只影响以后）。' };
     }
     throw new Error('未知计划操作（pause/resume/stop/adjust）。');
   }
@@ -2737,8 +2784,8 @@ export class PaRuntime {
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
     const windowKey = this.digestWindowKey(plan.kind === 'evening' ? 'evening' : plan.kind, this.config!.timeZone);
     const { created, row } = await this.repos!.digests.claimOccurrence({ planId: plan.id, windowKey });
-    if (!created && ['sent', 'model_done'].includes(row.status)) {
-      return { planId, windowKey, reused: true, status: row.status, message: `本窗口（${windowKey}）简报已${row.status === 'sent' ? '发布' : '生成'}，不重复发布。` };
+    if (!created && row.status === 'model_done') {
+      return { planId, windowKey, reused: true, status: row.status, message: `本窗口（${windowKey}）简报已生成，不重复发布。` };
     }
     const facts = await this.planningFacts(new Date());
     const report = this.renderDigest(plan, windowKey, facts);
@@ -2753,10 +2800,12 @@ export class PaRuntime {
         kind: 'text',
         content: { text: report },
       });
-      await this.repos!.digests.updateOccurrence(row.id, { status: 'sent', outbox_key: outboxKey });
+      // model_done = model work finished and the send intent is durably
+      // queued; platform acceptance is the outbox row's own state (P24 区分).
+      await this.repos!.digests.updateOccurrence(row.id, { status: 'model_done', outbox_key: outboxKey });
     }
     await this.repos!.workItems.update(item.id, { result_ref: { planId: plan.id, windowKey, outboxKey } });
-    return { planId, windowKey, outboxKey, message: '简报已生成并发送（平台接受状态可查 reminder_status 类似的 Outbox 记录）。' };
+    return { planId, windowKey, outboxKey, message: '简报已生成并入发送队列（Outbox 持久，平台接受状态以发送记录为准）。' };
   }
 
   private renderDigest(
@@ -2783,7 +2832,7 @@ export class PaRuntime {
       lines.push('· 今日没有到期或计划中的待办');
     }
     if (plan.kind !== 'morning' && facts.tasksCompletedToday.length) {
-      lines.push(`· 今日已完成 ${facts.tasksCompletedToday.length} 项：${facts.tasksCompletedToday.map(t => t.summary).join('、')}`);
+      lines.push(`· 近 24 小时内同步到完成状态 ${facts.tasksCompletedToday.length} 项（来源：任务投影的同步时间，非精确完成时刻）：${facts.tasksCompletedToday.map(t => t.summary).join('、')}`);
     }
     if (facts.waiting.length) {
       lines.push(`· 等待事项 ${facts.waiting.length} 项：${facts.waiting.map(w => `${w.title}${w.checkpointAt ? `（检查点 ${w.checkpointAt}）` : ''}`).join('；')}`);
@@ -2807,7 +2856,7 @@ export class PaRuntime {
       for (const miss of facts.missing) lines.push(`· ${miss}`);
     }
     lines.push('');
-    lines.push('来源：飞书日历/任务投影、24PA 工作账本（等待/待审/项目）；事实与建议已分开，未自动修改任何任务、日程或记忆。');
+    lines.push('来源：飞书日历/任务投影、24私助工作账本（等待/待审/项目）；事实与建议已分开，未自动修改任何任务、日程或记忆。');
     return lines.join('\n');
   }
 
@@ -2816,7 +2865,7 @@ export class PaRuntime {
    * occurrence after the grace window marks the plan unconfirmed-paused; the
    * panel exposes the same bounded check with an overridable grace.
    */
-  async superviseDigests(graceMs: number): Promise<unknown> {
+  async superviseDigests(graceMs: number = DIGEST_UNCONFIRMED_GRACE_MS): Promise<unknown> {
     const schedule = this.nativeSchedule();
     if (!schedule) return { checked: 0, note: '当前 Host 未提供原生 Schedule 服务。' };
     const results = [];
@@ -2829,7 +2878,7 @@ export class PaRuntime {
       } catch {
         continue;
       }
-      const completed = (await this.repos!.digests.occurrencesOf(plan.id, 100)).filter(o => ['sent', 'model_done'].includes(o.status)).length;
+      const completed = (await this.repos!.digests.occurrencesOf(plan.id, 100)).filter(o => o.status === 'model_done').length;
       if (delivered > completed) {
         const staleDelivery = delivered - completed;
         const oldest = await this.repos!.digests.occurrencesOf(plan.id, 1);
@@ -2837,7 +2886,11 @@ export class PaRuntime {
         // Unattributable deliveries older than the grace pause the plan.
         const startedAtMs = this.startedAt ? new Date(this.startedAt).getTime() : Date.now();
         if (Date.now() - Math.max(lastDone, startedAtMs) > graceMs) {
-          await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id }).catch(() => {});
+          try {
+            await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id });
+          } catch (error) {
+            console.warn(`[pa24] 暂停无归属计划时移除原生 Schedule 失败（将重试）：${(error as Error).message}`);
+          }
           await this.repos!.digests.updatePlan(plan.id, { status: 'paused', schedule_id: null });
           if (this.config!.ownerOpenId) {
             await this.notifyOwner(
@@ -2965,14 +3018,36 @@ export class PaRuntime {
   private async planAdopt(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const blocks = Array.isArray(args.blocks) ? (args.blocks as Record<string, unknown>[]) : [];
     if (blocks.length === 0) throw new Error('需要选定要写入的时间块（blocks[]）；未选定的建议不会写入。');
+    // Pre-write recheck (P16 AC3): refresh the day's projection and refuse a
+    // block that now overlaps an existing arrangement (external changes show
+    // up here instead of double-booking).
+    const first = blocks[0]!;
+    const dayProbe = new Date(String(first.start ?? ''));
+    if (Number.isNaN(dayProbe.getTime())) throw new Error('blocks 需要包含 start（ISO）。');
+    const dayStart = new Date(dayProbe.toISOString().slice(0, 10) + 'T00:00:00Z');
+    const dayEnd = new Date(dayProbe.toISOString().slice(0, 10) + 'T23:59:59Z');
+    const calendarId = String(args.calendarId ?? this.config!.calendarId);
+    const sync = await this.syncCalendarWindow(calendarId, dayStart, dayEnd);
+    const existing = await this.repos!.calendar.eventsIn(calendarId, dayStart, dayEnd);
     const results = [];
     for (const [index, block] of blocks.entries()) {
+      const start = new Date(String(block.start ?? ''));
+      const end = new Date(String(block.end ?? ''));
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+        results.push({ index, ok: false, error: '时间块无效（需要 start/end，end 晚于 start）。' });
+        continue;
+      }
+      const clash = existing.find(e => new Date(e.start_time) < end && start < new Date(e.end_time));
+      if (clash) {
+        results.push({ index, ok: false, skipped: 'conflict', error: `复核发现与现有安排「${clash.summary}」重叠（写入前重新同步），未写入。` });
+        continue;
+      }
       try {
         const created = await this.calendarWrite(item, 'create', {
           summary: block.summary,
-          start: block.start,
-          end: block.end,
-          calendarId: args.calendarId,
+          start: start.toISOString(),
+          end: end.toISOString(),
+          calendarId,
         });
         results.push({ index, ok: true, ...(created as object) });
       } catch (error) {
@@ -2981,12 +3056,13 @@ export class PaRuntime {
     }
     const failed = results.filter(r => !r.ok).length;
     return {
+      fresh: sync.ok,
       adopted: results.length - failed,
       failed,
       results,
       message: failed === 0
-        ? `已按你的选择写入 ${results.length} 个时间块（写入前重新同步复核；回执见各块 eventId/url）。`
-        : `已采纳 ${results.length - failed} 项，${failed} 项失败（见明细）；失败项核对后可重试。`,
+        ? `已按你的选择写入 ${results.length} 个时间块（写入前重新同步${sync.ok ? '确认无冲突' : '失败，已按投影复核'}；回执见各块 eventId/url）。`
+        : `已采纳 ${results.length - failed} 项，${failed} 项未写入（明细含复核冲突与错误）；失败项核对后可重试。`,
     };
   }
 
