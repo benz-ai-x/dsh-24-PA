@@ -252,31 +252,15 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_connection',
-    '飞书接入向导：guide 返回随插件打包的配置指南（配置前必读，按阶段推进）；check 发起一次只读接入检查（CLI、身份、资源可读性），返回的 nextSteps 指出当前卡点的下一步；read 查看配置与最近检查结果。不发消息、不写飞书对象。',
-    { action: { type: 'string', enum: ['guide', 'check', 'read'] } },
+    '查看飞书配置与最近检查结果，或发起一次只读接入检查（CLI、身份、资源可读性）。不发消息、不写飞书对象。',
+    { action: { type: 'string', enum: ['read', 'check'] } },
     ['action'],
     async (args, exec) => {
       const role = runtime.roleFor(exec.agent!);
-      if (role !== 'local-robot') throw new Error('请在 dsh 的24私助会话中操作飞书接入。');
-      if (args.action === 'guide') return readSetupGuide();
+      if (role !== 'local-robot') throw new Error('请在 dsh 的24私助会话中检查接入。');
       if (args.action === 'check') return runtime.checkAccess();
       const snapshot = runtime.snapshot() as any;
       return { transport: snapshot.transport, diagnostics: snapshot.diagnostics };
     },
   );
-}
-
-/** The bundled feishu-setup.md is the single authority for access setup (F15). */
-async function readSetupGuide(): Promise<Record<string, unknown>> {
-  const { readFile } = await import('node:fs/promises');
-  const guideUrl = new URL('../feishu-setup.md', import.meta.url);
-  const pkgUrl = new URL('../package.json', import.meta.url);
-  const content = await readFile(guideUrl, 'utf8');
-  const pkg = JSON.parse(await readFile(pkgUrl, 'utf8')) as { version?: string };
-  return {
-    guide: 'feishu-setup.md',
-    version: pkg.version ?? null,
-    content,
-    usage: '配置飞书接入前先通读；按阶段推进，每阶段用 pa24_connection action=check 验证并按 nextSteps 收敛。',
-  };
 }

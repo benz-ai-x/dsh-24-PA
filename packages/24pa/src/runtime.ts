@@ -263,8 +263,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'tasks',
       name: '待办管理',
-      persona: WORKER_PROMPTS.tasks!.persona,
-      brief: WORKER_PROMPTS.tasks!.brief,
+      persona: WORKER_PROMPTS.tasks.persona,
+      brief: WORKER_PROMPTS.tasks.brief,
       available: true,
       actions: {
         task_create: async (args, item) => this.taskCreate(item, args),
@@ -299,8 +299,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'memo',
       name: '备忘整理',
-      persona: WORKER_PROMPTS.memo!.persona,
-      brief: WORKER_PROMPTS.memo!.brief,
+      persona: WORKER_PROMPTS.memo.persona,
+      brief: WORKER_PROMPTS.memo.brief,
       available: true,
       actions: {
         memo_save: async (args, item) => this.saveMemo(item, args),
@@ -333,8 +333,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'digest',
       name: '简报整理',
-      persona: WORKER_PROMPTS.digest!.persona,
-      brief: WORKER_PROMPTS.digest!.brief,
+      persona: WORKER_PROMPTS.digest.persona,
+      brief: WORKER_PROMPTS.digest.brief,
       available: true,
       actions: {
         digest_build: async (args, item) => this.digestBuild(item, args),
@@ -343,8 +343,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'calendar',
       name: '日程编排',
-      persona: WORKER_PROMPTS.calendar!.persona,
-      brief: WORKER_PROMPTS.calendar!.brief,
+      persona: WORKER_PROMPTS.calendar.persona,
+      brief: WORKER_PROMPTS.calendar.brief,
       available: true,
       actions: {
         calendar_query: async args => this.calendarQuery(args),
@@ -364,8 +364,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'reminders',
       name: '事项提醒',
-      persona: WORKER_PROMPTS.reminders!.persona,
-      brief: WORKER_PROMPTS.reminders!.brief,
+      persona: WORKER_PROMPTS.reminders.persona,
+      brief: WORKER_PROMPTS.reminders.brief,
       available: true,
       actions: {
         reminder_create: async args => {
@@ -410,8 +410,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'handwriting',
       name: '手写笔记',
-      persona: WORKER_PROMPTS.handwriting!.persona,
-      brief: WORKER_PROMPTS.handwriting!.brief,
+      persona: WORKER_PROMPTS.handwriting.persona,
+      brief: WORKER_PROMPTS.handwriting.brief,
       available: true,
       actions: {
         note_submit: async (args, item) => this.noteSubmit(item, args),
@@ -1353,6 +1353,9 @@ export class PaRuntime {
         // subagent prompt remote does), so admission happens here: inline
         // base64 blocks would otherwise persist unadmitted and break the
         // model request.
+        // Legacy in-flight items (delegated before the structured template)
+        // carry the old composite instruction with its own time/brief lines;
+        // they render one redundant pair of those lines until drained.
         let prompt: ContentBlock[] = [
           {
             type: 'text',
@@ -2649,11 +2652,6 @@ export class PaRuntime {
     return parts;
   }
 
-  /** Delegation prompt handed to the Lead when a digest window fires (P24); single copy in src/prompts.ts. */
-  private digestPrompt(planId: string, title: string): string {
-    return digestWakePrompt(planId, title);
-  }
-
   /**
    * Enable a smart plan (P24/P25): one durable business row plus one native
    * Schedule task bound to the fixed access session. Schedule persistence is
@@ -2685,7 +2683,7 @@ export class PaRuntime {
         ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays!)].sort() }, title: `[24PA] ${title}` }
         : { daily: { time: String(args.time), time_zone: timeZone }, title: `[24PA] ${title}` };
     }
-    const created = await schedule.create(this.accessSessionId!, { ...request, prompt: this.digestPrompt(id, title) });
+    const created = await schedule.create(this.accessSessionId!, { ...request, prompt: digestWakePrompt(id, title) });
     const plan = await this.repos!.digests.insertPlan({
       id,
       kind,
@@ -2761,7 +2759,7 @@ export class PaRuntime {
           console.warn(`[pa24] 调整时移除旧原生计划失败：${(error as Error).message}`);
         });
       }
-      const created = await schedule.create(plan.session_id, { ...request, prompt: this.digestPrompt(plan.id, plan.title), title: `[24PA] ${plan.title}` });
+      const created = await schedule.create(plan.session_id, { ...request, prompt: digestWakePrompt(plan.id, plan.title), title: `[24PA] ${plan.title}` });
       await this.repos!.digests.updatePlan(plan.id, { status: 'active', schedule_id: String(created.id), schedule_spec: request });
       return { planId: plan.id, scheduleId: String(created.id), message: '计划已按新安排调整（同一计划保留历史，只影响以后）。' };
     }
@@ -3205,7 +3203,7 @@ export class PaRuntime {
     const created = await schedule.create(this.accessSessionId!, {
       at: fireAt.toISOString(),
       title: `[24PA] 会前准备 ${eventId}`,
-      prompt: this.digestPrompt(id, `会前准备（${event.summary}）`),
+      prompt: digestWakePrompt(id, `会前准备（${event.summary}）`),
     });
     await this.repos!.digests.insertPlan({
       id,
