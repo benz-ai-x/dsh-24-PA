@@ -10,6 +10,13 @@ import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js
 import { runLarkCli } from './lark.js';
 import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
+import {
+  WORKER_PROMPTS,
+  workerPersonaFor,
+  workerStartPrompt,
+  digestWakePrompt,
+  workspaceRulesSection,
+} from './prompts.js';
 import { MemoryStore, type MemoryChange } from './memory.js';
 import { ReminderEngine, ReminderError, type SilencePolicy } from './reminders.js';
 import {
@@ -137,14 +144,6 @@ function nextTemplateOccurrence(record: RecurringScheduleRecord, now: number): D
   }
 }
 
-const WORKER_PERSONAS: Record<string, { name: string; persona: string; brief: string }> = {
-  memo: {
-    name: '备忘整理',
-    persona: '你是 24私助的备忘整理 Worker。把收到的想法、资料链接和文字材料整理保存，返回出处；需要背景时用 pa24_memory 检索（只读）。不执行其他业务，不产生新授权。结果交回发起会话。',
-    brief: '整理随手想法和文字材料：调用 memo_save 保存到配置的飞书目录（演示模式仅入账本），用 memo_find 按主题/日期/关键词找回。',
-  },
-};
-
 export type RuntimeRole = 'feishu-access' | 'local-robot' | 'worker' | null;
 export type ReadinessItem = { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string; detail?: unknown };
 
@@ -264,8 +263,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'tasks',
       name: '待办管理',
-      persona: '你是 24私助的待办管理 Worker。创建、修改、完成本人明确委托的飞书任务并按主题/项目跟踪；截止时间、计划投入时间与估时分开记录。完成任务必须有本人明确动作或飞书实际状态，不从对话结束推断。飞书任务是权威对象；网络结果未知时先核对，不盲目重试。结果交回发起会话。',
-      brief: '待办与项目：task_create/task_update/task_complete/task_get/task_list/task_cancel 维护飞书任务（幂等、先核对、取消按平台能力如实说明），project_create/project_adopt/project_progress 拆解目标并按实际任务状态汇报进展；outreach_send/task_assign 按本人明确指令对外发信或分派任务（需 instruction 依据，草稿不发送）；task_repeat_* 周期任务模板（跳过本次/停止以后）；waiting_* 等待事项与检查点（只提醒本人，不自动催办他人）。',
+      persona: WORKER_PROMPTS.tasks.persona,
+      brief: WORKER_PROMPTS.tasks.brief,
       available: true,
       actions: {
         task_create: async (args, item) => this.taskCreate(item, args),
@@ -300,8 +299,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'memo',
       name: '备忘整理',
-      persona: WORKER_PERSONAS.memo!.persona,
-      brief: WORKER_PERSONAS.memo!.brief,
+      persona: WORKER_PROMPTS.memo.persona,
+      brief: WORKER_PROMPTS.memo.brief,
       available: true,
       actions: {
         memo_save: async (args, item) => this.saveMemo(item, args),
@@ -334,9 +333,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'digest',
       name: '简报整理',
-      persona:
-        '你是 24私助的简报 Worker。按计划类型汇总当日/当周的实际状态：日程（带同步时间与新鲜度）、任务（截止与计划分开）、项目进展、等待事项与待审队列；重点与容量是建议，事实与建议必须分开标注，每条带来源；数据缺失如实列出，不显示为零。你只产出简报文本并交给宿主投递，不修改任务/日历，不写长期记忆，不自动延期任何未完成任务。',
-      brief: '智能简报：digest_build {planId} 生成当前窗口简报（晨报/晚间/每周），交回 Lead 汇报。',
+      persona: WORKER_PROMPTS.digest.persona,
+      brief: WORKER_PROMPTS.digest.brief,
       available: true,
       actions: {
         digest_build: async (args, item) => this.digestBuild(item, args),
@@ -345,8 +343,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'calendar',
       name: '日程编排',
-      persona: '你是 24私助的日程编排 Worker。只读写配置授权的本人日历；时间必须带时区；查询先经同步投影并报告新鲜度，读不到就说明资料缺失而不是“没有会议”。创建/改期/取消仅凭本人明确指令，变更前展示范围，写后以平台回执为准。邀请他人须本人明确邀请指令，同名或不明确的联系人先澄清；不臆造忙闲。结果交回发起会话。',
-      brief: '日程与会议：calendar_query/calendar_busy 查询（同步水位、冲突、新鲜度），calendar_create/update/cancel 维护本人日程（staged 幂等、写后回执），meeting_schedule 解析参会人并按明确指令邀请。',
+      persona: WORKER_PROMPTS.calendar.persona,
+      brief: WORKER_PROMPTS.calendar.brief,
       available: true,
       actions: {
         calendar_query: async args => this.calendarQuery(args),
@@ -366,8 +364,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'reminders',
       name: '事项提醒',
-      persona: '你是 24私助的事项提醒 Worker。创建提醒前确认时间、时区与内容；时间计算由宿主的 dsh-schedule 公开函数完成，不自行推算。提醒由 PostgreSQL 发生实例和 Outbox 投递，模型离线也能发出。完成/稍后/取消都绑定原规则与实例，重复请求不产生多份。只报告平台接受状态，不推断已读。',
-      brief: '提醒：reminder_create（once/every/daily/weekly，可 linkTaskGuid/linkEventId 跟随任务或日程——来源改期/取消后旧提醒停发并更正）、reminder_list、reminder_cancel/pause/resume、reminder_skip、reminder_snooze、reminder_status（实例与平台接受状态）。',
+      persona: WORKER_PROMPTS.reminders.persona,
+      brief: WORKER_PROMPTS.reminders.brief,
       available: true,
       actions: {
         reminder_create: async args => {
@@ -412,9 +410,8 @@ export class PaRuntime {
     this.roles.register({
       id: 'handwriting',
       name: '手写笔记',
-      persona:
-        '你是 24私助的手写笔记 Worker。你收到的图片是主人手写笔记的原稿：逐字忠实转写，不补写、不美化；整理摘要、AI 建议和疑点必须与原文分开标注；相对日期保留原话并说明解释依据；无法辨认的内容明确列为未知，不臆测成事实。你只产生候选内容：用 note_submit 提交结构化结果，由宿主写入待审文档并发给本人审核；你没有批准审核或创建任务、日程、消息等外部行动的工具。识别质量没有把握时如实说明。',
-      brief: '手写整理：查看原稿图片，用 note_submit 提交转写/摘要/AI建议/疑点/候选行动/相对日期，等待本人审核；不执行任何外部行动。',
+      persona: WORKER_PROMPTS.handwriting.persona,
+      brief: WORKER_PROMPTS.handwriting.brief,
       available: true,
       actions: {
         note_submit: async (args, item) => this.noteSubmit(item, args),
@@ -768,6 +765,16 @@ export class PaRuntime {
     this.loadedAt = nowIso();
     this.configError = null;
     return parsed.config;
+  }
+
+  /**
+   * Workspace prose rules from the bound AGENTS.md, injected as the
+   * `24pa-workspace-rules` system section (order 910). Empty until a
+   * workspace is bound and refreshed by every reload; user rules may only
+   * tighten, never loosen, the built-in safety boundary (A3, ADR-0001).
+   */
+  workspaceRulesSection(): string {
+    return workspaceRulesSection(this.instructions);
   }
 
   async reloadWorkspace(): Promise<void> {
@@ -1297,12 +1304,13 @@ export class PaRuntime {
     }
     const origin: 'feishu' | 'local' = agent.id === this.accessSessionId ? 'feishu' : 'local';
     const id = `pa24-work-${args.worker}-${randomUUID()}`;
-    const persona = { name: roleDef.name, persona: roleDef.persona, brief: roleDef.brief };
     const item = await this.repos!.workItems.insert({
       id,
       title,
       role: args.worker,
-      instruction: `${instruction}\n\n当前时间：${nowIso()}；时区：${config.timeZone}。\n${persona.brief}`,
+      // Raw delegation text only; time, brief, done criteria and the safety
+      // reiteration are composed fresh when the worker starts (src/prompts.ts).
+      instruction,
       origin,
       parent_session_id: agent.id,
       child_session_id: id,
@@ -1333,8 +1341,11 @@ export class PaRuntime {
         if ('error' in parent) throw parent.error;
         const roleDef = this.roles.get(item.role);
         if (!roleDef) throw new Error(`Worker 类型未注册：${item.role}`);
-        const persona = { name: roleDef.name, persona: roleDef.persona, brief: roleDef.brief };
         const modelRoute = this.config.workerModels[item.role];
+        // B7: a route flagged simplePersona swaps in the reviewed simplified
+        // copy when one exists; registered (dynamic) roles always use their
+        // own persona as the fallback.
+        const persona = workerPersonaFor(item.role, modelRoute, roleDef.persona);
         // Handwriting children receive the saved originals inline; the dsh
         // attachment service persists them and the vision route carries them
         // to the model (P29: the request really contains the image).
@@ -1342,7 +1353,22 @@ export class PaRuntime {
         // subagent prompt remote does), so admission happens here: inline
         // base64 blocks would otherwise persist unadmitted and break the
         // model request.
-        let prompt: ContentBlock[] = [{ type: 'text', text: `事项：${item.title}\n委托内容：\n${item.instruction}` }];
+        // Legacy in-flight items (delegated before the structured template)
+        // carry the old composite instruction with its own time/brief lines;
+        // they render one redundant pair of those lines until drained.
+        let prompt: ContentBlock[] = [
+          {
+            type: 'text',
+            text: workerStartPrompt({
+              title: item.title,
+              instruction: item.instruction,
+              nowIso: nowIso(),
+              timeZone: this.config.timeZone,
+              brief: roleDef.brief,
+              doneCriteria: WORKER_PROMPTS[item.role]?.doneCriteria,
+            }),
+          },
+        ];
         const note = await this.repos.notes.noteByWorkItem(item.id);
         if (item.role === 'handwriting' && note) {
           const savedPages = (await this.repos.notes.pagesOf(note.id)).filter(p => p.status === 'saved');
@@ -1367,13 +1393,13 @@ export class PaRuntime {
         }
         await this.ctx.subagents.startContinuable({
           provider: 'spawn',
-          label: `${persona.name} · ${item.title}`,
+          label: `${roleDef.name} · ${item.title}`,
           childId: item.id,
           signal: this.lifetime.signal,
           request: {
             parent: parent.agent,
             prompt,
-            persona: persona.persona,
+            persona,
             // send_message arrives as an adjacent-agent scoped tool and is
             // unaffected by global restrict(); the child can still report to
             // its parent through the native continuation channel.
@@ -2626,11 +2652,6 @@ export class PaRuntime {
     return parts;
   }
 
-  /** Delegation prompt handed to the Lead when a digest window fires (P24). */
-  private digestPrompt(planId: string, title: string): string {
-    return `[24PA计划 ${planId}] 到达${title}窗口：请委派 digest Worker（pa24_delegate worker=digest）执行 digest_build {planId:"${planId}"}，把简报发给本人；不要执行其他业务。`;
-  }
-
   /**
    * Enable a smart plan (P24/P25): one durable business row plus one native
    * Schedule task bound to the fixed access session. Schedule persistence is
@@ -2662,7 +2683,7 @@ export class PaRuntime {
         ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays!)].sort() }, title: `[24PA] ${title}` }
         : { daily: { time: String(args.time), time_zone: timeZone }, title: `[24PA] ${title}` };
     }
-    const created = await schedule.create(this.accessSessionId!, { ...request, prompt: this.digestPrompt(id, title) });
+    const created = await schedule.create(this.accessSessionId!, { ...request, prompt: digestWakePrompt(id, title) });
     const plan = await this.repos!.digests.insertPlan({
       id,
       kind,
@@ -2707,7 +2728,7 @@ export class PaRuntime {
     if (op === 'resume') {
       if (plan.status !== 'paused') throw new Error(`计划当前状态为 ${plan.status}，无法恢复。`);
       if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务。');
-      const prompt = `[24PA计划 ${plan.id}] 到达${plan.title}窗口：请委派 digest Worker（pa24_delegate worker=digest）执行 digest_build {planId:"${plan.id}"}，把简报发给本人；不要执行其他业务。`;
+      const prompt = digestWakePrompt(plan.id, plan.title);
       const created = await schedule.create(plan.session_id, { ...plan.schedule_spec, prompt, title: `[24PA] ${plan.title}` });
       await this.repos!.digests.updatePlan(plan.id, { status: 'active', schedule_id: String(created.id) });
       return { planId: plan.id, scheduleId: String(created.id), message: '计划已恢复（重新入队）。' };
@@ -2738,7 +2759,7 @@ export class PaRuntime {
           console.warn(`[pa24] 调整时移除旧原生计划失败：${(error as Error).message}`);
         });
       }
-      const created = await schedule.create(plan.session_id, { ...request, prompt: this.digestPrompt(plan.id, plan.title), title: `[24PA] ${plan.title}` });
+      const created = await schedule.create(plan.session_id, { ...request, prompt: digestWakePrompt(plan.id, plan.title), title: `[24PA] ${plan.title}` });
       await this.repos!.digests.updatePlan(plan.id, { status: 'active', schedule_id: String(created.id), schedule_spec: request });
       return { planId: plan.id, scheduleId: String(created.id), message: '计划已按新安排调整（同一计划保留历史，只影响以后）。' };
     }
@@ -3182,7 +3203,7 @@ export class PaRuntime {
     const created = await schedule.create(this.accessSessionId!, {
       at: fireAt.toISOString(),
       title: `[24PA] 会前准备 ${eventId}`,
-      prompt: this.digestPrompt(id, `会前准备（${event.summary}）`),
+      prompt: digestWakePrompt(id, `会前准备（${event.summary}）`),
     });
     await this.repos!.digests.insertPlan({
       id,

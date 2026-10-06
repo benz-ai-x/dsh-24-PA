@@ -38,6 +38,7 @@ F06 是最早可实际使用的手写完整流程：收图、识别、写文档�
 | 功能 PR | 工单 | 前置 PR | 合并后可以完成的操作 |
 |---|---|---|---|
 | F13 预设并入标准模式能力 | P45（故事 119） | F01–F12 全部合并 | 本地24私助会话在交办与维护之外直接使用标准模式编程工具全集（终端、文件、检索、计划、压缩、todo/web、通用 subagent/workflow 委派、ralph）；飞书入口与 Worker 边界不变；安装 provider 并在 extraLocalTools 开启后获得 codex/claude-code 外部 CLI 委派。 |
+| F14 提示词结构化（LangGPT 对标） | [P46 / #62](https://github.com/benz-ai-x/dsh-24-PA/issues/62)（调研见 [研究清单](../research/提示词结构化-LangGPT对标与改进清单.md)） | F01–F12 全部合并 | 内置提示词集中于 `src/prompts.ts` 并带版本；Lead 规则按「身份/协调/业务/安全」分节注入；Worker persona 统一「职责/完成标准/边界/输出要求」四节；工作区 AGENTS.md 自然语言规则注入系统提示（只能收紧不能放宽）；委派与定时唤醒 prompt 模板化并带安全重申；`workerModels` 路由可选 `simplePersona` 简化结构；提示词关键锚点有快照测试守护。 |
 
 F13 是用户 2026-10-07 确认的设计变更（规格 1.3 / 设计 v0.5 / ADR-0001 修订）：预设携带标准插件全集，权限仍按角色白名单裁剪；tool-schedule 不并入，提醒保持账本单轨。
 
