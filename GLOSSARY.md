@@ -24,6 +24,10 @@ _Avoid_: 24PA 工作区维护 Agent、独立维护预设
 24私助预设自规格 1.3 起携带的 dsh 标准预设插件全集所带来的编程工具面（终端、文件、检索、计划、压缩、todo/web、通用委派与 ralph）；仅对本地24私助会话的角色白名单开放。
 _Avoid_: 独立编程预设、对飞书入口开放的 Shell
 
+**飞书接入向导（feishu-setup）**：
+随24私助插件分发的飞书接入配置权威流程（阶段化指南＋只读检查的 nextSteps 导航）；面向执行配置的 AI 助理，也供本人查阅。
+_Avoid_: 交互式安装向导界面、替本人完成浏览器授权
+
 **本地工具扩展（extraLocalTools）**：
 工作区配置中显式列出 provider 级外部 CLI 委派工具（subagent_codex、subagent_claude_code）的开关字段；安装对应 provider 后才对本地24私助会话生效。
 _Avoid_: 默认开启的外部能力、飞书入口工具

@@ -197,6 +197,7 @@ ${JSON.stringify(DEFAULT_CONFIG, null, 2)}
 - 备忘与资料由 memo Worker 保存到配置的飞书目录，并带出处返回；检索按主题、日期、关键词进行。
 - 需要个人偏好或项目事实时，先查询结构化记忆（随后续功能启用），保留来源和确认状态。
 - 配置与记忆维护通过 dsh 的24私助会话进行；飞书接入会话与 Worker 没有维护写入权限。
+- 飞书接入按内置指南分阶段配置：先 pa24_connection action=guide 通读，再按 action=check 返回的 nextSteps 逐项收敛；应用密钥只由本人在启动环境填写。
 - 业务账本使用 PostgreSQL；数据库不可用时停止接纳相关业务，不伪造成功。
 `;
 }

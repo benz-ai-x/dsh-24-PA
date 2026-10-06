@@ -211,6 +211,57 @@ export interface AccessDiagnostics {
   cli: Record<string, unknown> | null;
   auth: Record<string, unknown>;
   resources: Record<string, unknown>[];
+  /** Wizard navigation: what to do next, derived from the states above (guide anchors included). */
+  nextSteps: string[];
+}
+
+/**
+ * Map diagnostic states to the concrete next actions from feishu-setup.md.
+ * Pure on (config, diagnostics) so tests can drive every branch directly;
+ * order follows the guide's stage sequence.
+ */
+export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics, 'nextSteps'>): string[] {
+  const steps: string[] = [];
+  const stateOf = (block: Record<string, unknown> | null): string | undefined =>
+    block == null ? undefined : String(block.state ?? '');
+  if (stateOf(result.cli) === 'error') {
+    steps.push('lark-cli 不可执行：在服务器安装并加入 dsh 宿主进程的 PATH（指南·阶段 0）；改完重启宿主。');
+    return steps;
+  }
+  if (stateOf(result.source) === 'changed') {
+    steps.push('AGENTS.md 已修改未重载：本地24私助会话执行 pa24_workspace action=reload（指南·阶段 4）。');
+  }
+  const auth = stateOf(result.auth);
+  const user = (result.auth as Record<string, unknown>) ?? {};
+  if (auth === 'missing') {
+    steps.push(
+      `固定 profile（${config.larkProfile}）尚无用户授权：发起 lark-cli auth login --no-wait --json --profile ${config.larkProfile} --domain im,task,calendar,docs,drive，把验证链接交给本人在浏览器完成，再用 --device-code 收尾（指南·阶段 2）。`,
+    );
+  } else if (auth === 'unbound') {
+    steps.push(`ownerOpenId 未绑定：把 auth status 返回的 user.openId（当前为 ${String(user.openId ?? '未知')}）填入 AGENTS.md（指南·阶段 3/4）。`);
+  } else if (auth === 'mismatch') {
+    steps.push('CLI 授权用户与配置主人不一致：本人重新 lark-cli auth login，或确认后把 ownerOpenId 改为实际授权用户（指南·阶段 2/4）。');
+  } else if (auth === 'unverified') {
+    steps.push('用户令牌有效性未确认：重新 lark-cli auth login 刷新令牌后复查（指南·阶段 2）。');
+  } else if (auth === 'error') {
+    steps.push('auth status --verify 失败：用 lark-cli config show 核对应用配置与网络后重试（指南·阶段 1/2）。');
+  }
+  for (const resource of result.resources) {
+    if (String(resource.state) === 'missing') {
+      const where = resource.id === 'folder' ? 'folderToken（飞书云文档文件夹链接复制 token）' : resource.id === 'tasklist' ? 'tasklistId（飞书任务清单链接复制 guid）' : 'calendarId';
+      steps.push(`${String(resource.label)}未配置：获取 ${where} 并填入 AGENTS.md（指南·阶段 3）。`);
+    } else if (String(resource.state) === 'error') {
+      steps.push(`${String(resource.label)}读取失败：多为权限点未开通或应用未发布新版本；对照指南·阶段 1 的权限清单并重新发布。`);
+    }
+  }
+  if (steps.length === 0 && auth === 'ok') {
+    steps.push(
+      config.mode === 'feishu'
+        ? '接入检查全部通过：若面板 readiness 的 feishu 项未显示长连接已启动，按指南·阶段 4 重启宿主；随后在飞书发送 /24pa 做端到端验证（指南·阶段 5）。'
+        : '接入前置全部就绪：由本人在启动环境填写 PA24_FEISHU_APP_ID/SECRET，你把 AGENTS.md mode 改为 feishu 并重启宿主（指南·阶段 4），再按阶段 5 验收。',
+    );
+  }
+  return steps;
 }
 
 export async function inspectAccess(
@@ -218,7 +269,16 @@ export async function inspectAccess(
   bin: string,
   workspace: { path: string; sourceHash: string },
 ): Promise<AccessDiagnostics> {
-  const result: AccessDiagnostics = {
+  const collected = await collectAccess(config, bin, workspace);
+  return { ...collected, nextSteps: setupNextSteps(config, collected) };
+}
+
+async function collectAccess(
+  config: PaConfig,
+  bin: string,
+  workspace: { path: string; sourceHash: string },
+): Promise<Omit<AccessDiagnostics, 'nextSteps'>> {
+  const result: Omit<AccessDiagnostics, 'nextSteps'> = {
     checkedAt: new Date().toISOString(),
     source: null,
     cli: null,
