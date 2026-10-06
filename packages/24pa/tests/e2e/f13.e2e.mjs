@@ -27,7 +27,8 @@ let cluster, llm, host, root, workspace, stubStatePath, scriptPath, bootEnv, loc
 const inject = event => host.api('action', { type: 'test.inject', event });
 const ownerEvent = (eventId, text) => ({ eventId, senderOpenId: 'ou_test_owner', appId: 'cli_test_app', text });
 
-const localRequest = () => llm.log.filter(r => r.tools.includes('bash') && r.tools.includes('pa24_delegate')).at(-1);
+const localRequest = () =>
+  llm.log.filter(r => r.tools.includes(process.platform === 'win32' ? 'pwsh' : 'bash') && r.tools.includes('pa24_delegate')).at(-1);
 const feishuRequest = () =>
   llm.log.filter(r => r.tools.includes('pa24_delegate') && !r.tools.includes('bash') && !r.tools.includes('pa24_work')).at(-1);
 const workerRequest = () => llm.log.filter(r => r.tools.includes('pa24_work')).at(-1);
@@ -118,9 +119,10 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
       if (!request) await new Promise(r => setTimeout(r, 500));
     }
     expect(request).toBeTruthy();
+    const shell = process.platform === 'win32' ? 'pwsh' : 'bash';
     expect(request.tools).toEqual(expect.arrayContaining([
-      // standard coding base
-      'bash', 'read', 'write', 'edit', 'read_image', 'glob', 'grep',
+      // standard coding base (platform shell asserted separately below)
+      'read', 'write', 'edit', 'read_image', 'glob', 'grep',
       'job_list', 'job_output', 'job_kill',
       'skill', 'create_goal', 'get_goal', 'update_goal',
       'exit_plan_mode', 'ask_user_question', 'todo_write',
@@ -131,6 +133,7 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
       'pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance',
       'pa24_workspace', 'pa24_connection',
     ]));
+    expect(request.tools).toContain(shell);
     // tool-schedule is deliberately omitted: reminders stay on the ledger.
     for (const absent of ['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete']) {
       expect(request.tools).not.toContain(absent);
@@ -152,15 +155,10 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
       if (!request) await new Promise(r => setTimeout(r, 500));
     }
     expect(request).toBeTruthy();
-    expect(request.tools).toEqual(expect.arrayContaining([
-      'pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance',
-    ]));
-    for (const absent of [
-      'bash', 'read', 'write', 'edit', 'glob', 'grep', 'todo_write', 'web_fetch',
-      'subagent', 'workflow', 'ralph', 'exit_plan_mode', 'pa24_workspace', 'pa24_connection', 'pa24_work',
-    ]) {
-      expect(request.tools).not.toContain(absent);
-    }
+    // Strict closed surface: the feishu lead may see NOTHING outside its
+    // business whitelist — no shell, no file tools, no generic delegation.
+    const FEISHU_WHITELIST = ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance'];
+    expect(request.tools.slice().sort()).toEqual(FEISHU_WHITELIST.slice().sort());
   });
 
   it('Worker 子会话仍只有 pa24_work 与只读记忆', async () => {
@@ -170,8 +168,7 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
       if (!request) await new Promise(r => setTimeout(r, 500));
     }
     expect(request).toBeTruthy();
-    expect(request.tools).toEqual(expect.arrayContaining(['pa24_work', 'pa24_memory']));
-    expect(request.tools).not.toContain('bash');
-    expect(request.tools).not.toContain('pa24_delegate');
+    // Strict closed surface: exactly the worker whitelist, nothing else.
+    expect(request.tools.slice().sort()).toEqual(['pa24_memory', 'pa24_work']);
   });
 });
