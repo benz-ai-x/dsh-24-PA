@@ -215,6 +215,9 @@ export interface AccessDiagnostics {
   nextSteps: string[];
 }
 
+/** Authorization domain set for the user identity login (guide·阶段 2). */
+const LARK_AUTH_DOMAINS = 'im,task,calendar,docs,drive';
+
 /**
  * Map diagnostic states to the concrete next actions from feishu-setup.md.
  * Pure on (config, diagnostics) so tests can drive every branch directly;
@@ -228,14 +231,17 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
     steps.push('lark-cli 不可执行：在服务器安装并加入 dsh 宿主进程的 PATH（指南·阶段 0）；改完重启宿主。');
     return steps;
   }
-  if (stateOf(result.source) === 'changed') {
+  const source = stateOf(result.source);
+  if (source === 'changed') {
     steps.push('AGENTS.md 已修改未重载：本地24私助会话执行 pa24_workspace action=reload（指南·阶段 4）。');
+  } else if (source === 'error') {
+    steps.push('AGENTS.md 读取失败：检查工作区文件与权限后重试（指南·阶段 0/4）；该错误未解决前检查结果不完整。');
   }
   const auth = stateOf(result.auth);
   const user = (result.auth as Record<string, unknown>) ?? {};
   if (auth === 'missing') {
     steps.push(
-      `固定 profile（${config.larkProfile}）尚无用户授权：发起 lark-cli auth login --no-wait --json --profile ${config.larkProfile} --domain im,task,calendar,docs,drive，把验证链接交给本人在浏览器完成，再用 --device-code 收尾（指南·阶段 2）。`,
+      `固定 profile（${config.larkProfile}）尚无用户授权：发起 lark-cli auth login --no-wait --json --profile ${config.larkProfile} --domain ${LARK_AUTH_DOMAINS}，把验证链接交给本人在浏览器完成，再用 --device-code 收尾（指南·阶段 2）。`,
     );
   } else if (auth === 'unbound') {
     steps.push(`ownerOpenId 未绑定：把 auth status 返回的 user.openId（当前为 ${String(user.openId ?? '未知')}）填入 AGENTS.md（指南·阶段 3/4）。`);
@@ -244,7 +250,7 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
   } else if (auth === 'unverified') {
     steps.push('用户令牌有效性未确认：重新 lark-cli auth login 刷新令牌后复查（指南·阶段 2）。');
   } else if (auth === 'error') {
-    steps.push('auth status --verify 失败：用 lark-cli config show 核对应用配置与网络后重试（指南·阶段 1/2）。');
+    steps.push('auth status --verify 失败：按指南·阶段 6「auth error」行处置（config show 核对应用配置与网络，必要时由本人重新 config init）。');
   }
   for (const resource of result.resources) {
     if (String(resource.state) === 'missing') {
@@ -254,11 +260,13 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
       steps.push(`${String(resource.label)}读取失败：多为权限点未开通或应用未发布新版本；对照指南·阶段 1 的权限清单并重新发布。`);
     }
   }
-  if (steps.length === 0 && auth === 'ok') {
+  // All-clear needs every block healthy: a source error above must not be
+  // reported as "接入就绪" just because auth and resources passed.
+  if (steps.length === 0 && auth === 'ok' && source !== 'error') {
     steps.push(
       config.mode === 'feishu'
         ? '接入检查全部通过：若面板 readiness 的 feishu 项未显示长连接已启动，按指南·阶段 4 重启宿主；随后在飞书发送 /24pa 做端到端验证（指南·阶段 5）。'
-        : '接入前置全部就绪：由本人在启动环境填写 PA24_FEISHU_APP_ID/SECRET，你把 AGENTS.md mode 改为 feishu 并重启宿主（指南·阶段 4），再按阶段 5 验收。',
+        : `接入前置全部就绪：由本人在启动环境填写 ${config.appIdEnv}/${config.appSecretEnv}，你把 AGENTS.md mode 改为 feishu 并重启宿主（指南·阶段 4），再按阶段 5 验收。`,
     );
   }
   return steps;

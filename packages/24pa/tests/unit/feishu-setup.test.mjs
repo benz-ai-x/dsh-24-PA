@@ -11,8 +11,9 @@ const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 const baseConfig = {
   version: 1, mode: 'demo', larkProfile: '24PA', ownerOpenId: 'ou_x', folderToken: 'fld_x',
-  tasklistId: 'tl_x', calendarId: 'primary', timeZone: 'Asia/Shanghai', appIdEnv: 'A', appSecretEnv: 'B',
-  pgDsnEnv: 'C', maxWorkers: 2, enabledWorkers: ['memo'], workerModels: {}, extraLocalTools: [],
+  tasklistId: 'tl_x', calendarId: 'primary', timeZone: 'Asia/Shanghai',
+  appIdEnv: 'PA24_FEISHU_APP_ID', appSecretEnv: 'PA24_FEISHU_APP_SECRET',
+  pgDsnEnv: 'PA24_PG_DSN', maxWorkers: 2, enabledWorkers: ['memo'], workerModels: {}, extraLocalTools: [],
 };
 
 const diag = (patch = {}) => ({
@@ -57,6 +58,13 @@ describe('setupNextSteps 状态映射', () => {
     expect(steps.join('')).toContain('reload');
   });
 
+  it('AGENTS.md 读取失败时不落入“全部就绪”，给出排查提示', () => {
+    const steps = setupNextSteps(baseConfig, diag({ source: { state: 'error' } }));
+    expect(steps.join('')).toContain('读取失败');
+    expect(steps.join('')).not.toContain('全部就绪');
+    expect(steps.join('')).not.toContain('全部通过');
+  });
+
   it('auth missing → Device Flow 三步法与 profile 名', () => {
     const steps = setupNextSteps(baseConfig, diag({ auth: { state: 'missing' } }));
     expect(steps.join('')).toContain('auth login --no-wait');
@@ -88,10 +96,13 @@ describe('setupNextSteps 状态映射', () => {
     expect(steps.join('')).toContain('权限点');
   });
 
-  it('全部就绪：demo 指引切 feishu，feishu 指引端到端验收', () => {
+  it('全部就绪：demo 指引切 feishu（用配置的环境变量名），feishu 指引端到端验收', () => {
     const demo = setupNextSteps(baseConfig, diag()).join('');
     expect(demo).toContain('PA24_FEISHU_APP_ID');
     expect(demo).toContain('feishu');
+    const customEnv = setupNextSteps({ ...baseConfig, appIdEnv: 'MY_APP_ID', appSecretEnv: 'MY_APP_SECRET' }, diag()).join('');
+    expect(customEnv).toContain('MY_APP_ID/MY_APP_SECRET');
+    expect(customEnv).not.toContain('PA24_FEISHU_APP_ID');
     const feishu = setupNextSteps({ ...baseConfig, mode: 'feishu' }, diag()).join('');
     expect(feishu).toContain('/24pa');
   });

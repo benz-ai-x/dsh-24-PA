@@ -6,7 +6,7 @@
 
 1. **两种身份**：机器人身份（应用自己，宿主用它收发消息/卡片/下载图片）与用户身份（本人，lark-cli 以 `--as user` 操作任务/日历/文档）。两者授权相互独立，都要就绪。
 2. **顺序铁律**：建应用 → CLI 绑定与用户授权 → 取资源标识 → 补启动环境变量（App ID/Secret，**由本人填写**）→ AGENTS.md 切 `mode: feishu` → 重启宿主 → 端到端验证。乱序会在配置校验或资源获取处卡死。
-3. **三类事只有本人能做**：浏览器里的开放平台操作、授权点击、填写 App Secret。其余（查资源标识、改 AGENTS.md、健康检查、发起授权流）都可由你代办。
+3. **四类事只有本人能做**：浏览器里的开放平台操作（建应用/开权限/发布）、授权点击、lark-cli 应用凭据绑定（`config init`，Secret 经本人终端输入）、在启动环境填写 App Secret。其余（发起授权流、查资源标识、改 AGENTS.md、健康检查）都可由你代办。
 
 ---
 
@@ -16,7 +16,7 @@
 |---|---|---|
 | dsh 宿主运行 | 面板可访问，readiness 中 host/config 为 ok | 先解决宿主与工作区问题，飞书接入无从谈起 |
 | PostgreSQL 已连接 | readiness 中 postgres 为 ok | 修复 `pgDsnEnv` 指向的环境变量与数据库 |
-| lark-cli 可执行 | `pa24_connection check` 的 `cli.state = ok`（版本 ≥1.0.x） | 在服务器安装 lark-cli；注意校验的是 **dsh 宿主进程的 PATH**，不是你的 shell PATH |
+| lark-cli 可执行 | `pa24_connection check` 的 `cli.state = ok`（返回的 `version` 字段供参考，检查只验证可执行性） | 在服务器安装 lark-cli；注意校验的是 **dsh 宿主进程的 PATH**，不是你的 shell PATH |
 | 本人有飞书开发者后台权限 | 能访问 open.feishu.cn 并创建企业自建应用 | 联系企业管理员，或换由管理员完成阶段 1 |
 
 ## 阶段 1：创建飞书自建应用（本人浏览器操作，你给操作单）
@@ -35,14 +35,14 @@
 
 达标标准：应用已发布；本人已保存 App ID/App Secret。
 
-## 阶段 2：lark-cli 绑定与用户授权（你发起，本人点一次链接）
+## 阶段 2：lark-cli 绑定与用户授权（本人绑凭据，你发起授权）
 
 lark-cli 的登录是 **Device Flow**，官方为 AI agent 设计：你发起、本人浏览器确认、你收尾。
 
-1. 绑定应用凭据（若 `lark-cli config show` 已显示正确 App ID 可跳过）：
-   `lark-cli config init`（按提示填 App ID、经 stdin 传入 App Secret——Secret 仍由本人输入）。
-   多应用时用 `--profile <名>`；该名字必须与 AGENTS.md 的 `larkProfile` 一致。
-2. 发起用户授权（三步法）：
+1. 绑定应用凭据（**只有本人能做**；若 `lark-cli config show` 已显示正确 App ID 可跳过）：
+   由**本人在自己的终端**运行 `lark-cli config init`（按提示填 App ID、经 stdin 输入 App Secret）——你不得经手 Secret，也不要请本人把 Secret 粘贴到对话里。
+   多应用时用 `--profile <名>`；该名字必须与 AGENTS.md 的 `larkProfile` 一致。你可用 `lark-cli config show --profile <名>` 核对绑定结果。
+2. 发起用户授权（三步法，你代办）：
    - `lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,docs,drive`
    - 把返回的**验证 URL**（或 `auth qrcode` 二维码）作为消息交给本人，请其在浏览器完成登录授权后告知你；
    - 本人确认后：`lark-cli auth login --device-code <上一步返回的设备码> --profile <名>` 完成绑定。
@@ -90,6 +90,7 @@ lark-cli 的登录是 **Device Flow**，官方为 AI agent 设计：你发起、
 | `auth.state=unbound` | ownerOpenId 为空 | 用 auth status 的 `user.openId` 填 AGENTS.md |
 | `auth.state=mismatch` | CLI 授权用户 ≠ 配置主人 | 本人重新授权，或把 ownerOpenId 改为实际授权者（确认后者就是主人） |
 | `auth.state=unverified` | 令牌失效/无法验证 | 重新 `auth login` 刷新令牌 |
+| `auth.state=error` | `auth status --verify` 本身失败 | `lark-cli config show --profile <名>` 核对应用配置（App ID/brand）与网络；配置损坏时由本人 `config remove` 后重新 `config init` |
 | `resources.*.state=error` | 权限点未开或应用未发布新版本 | 对照阶段 1 权限清单；**权限变更后重新发布版本** |
 | 收不到飞书消息 | 长连接未启用/事件未订阅/不在可用范围 | 对照阶段 1 第 5、6 步 |
 | 机器人能收不能发 | 发送权限点缺失或版本未发布 | 同上 |
