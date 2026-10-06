@@ -1566,7 +1566,7 @@ export class PaRuntime {
     };
   }
 
-  private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown> {
+  private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
     const calendarId = String(args.calendarId ?? this.config!.calendarId);
     const summary = kind === 'cancel' ? null : args.summary === undefined ? null : text(args.summary, 500);
     const start = args.start !== undefined ? new Date(String(args.start)) : null;
@@ -1580,13 +1580,15 @@ export class PaRuntime {
     const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
     const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}`;
     return this.gate(`calendar-event:${eventId || 'new'}`, async () => {
-    const staged = await this.stagedOperation(
-      item,
-      `calendar.${kind}`,
-      paramsKey,
-      { calendarId, kind, eventId, summary, start, end },
-      '请先用 calendar_query 重新同步窗口核对日程实际状态，确认后再继续。',
-    );
+    const staged = operationIdOverride
+      ? await this.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end })
+      : await this.stagedOperation(
+          item,
+          `calendar.${kind}`,
+          paramsKey,
+          { calendarId, kind, eventId, summary, start, end },
+          '请先用 calendar_query 重新同步窗口核对日程实际状态，确认后再继续。',
+        );
     if (!staged.created && staged.row.status === 'succeeded') {
       return { operationId: staged.row.id, reused: true, ...(staged.row.receipt ?? {}), message: '此日程操作此前已提交，未重复写入。' };
     }
@@ -1640,7 +1642,9 @@ export class PaRuntime {
         await this.notifySourceChanged('calendar', eventId, null);
       }
       await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
-      if (kind === 'update' && summary) {
+      if (kind === 'update') {
+        // Any successful update may have moved the source: linked reminders
+        // and prep plans re-derive their validity from the new fingerprint.
         const prior = await this.repos!.calendar.findEvent(newEventId);
         await this.notifySourceChanged('calendar', newEventId, eventFingerprint({ event_id: newEventId, summary: prior?.summary ?? summary ?? '', start_time: prior?.start_time ?? start! }));
       }
@@ -1808,6 +1812,16 @@ export class PaRuntime {
     return { created: true, row };
   }
 
+  /** Staged operation under a caller-chosen stable id (minutes candidates). */
+  private async stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }> {
+    const { created, row } = await this.repos!.operations.begin({ id: operationId, workItemId: item.id, action, params });
+    if (!created && row.status === 'unknown') {
+      throw new Error(`上次操作结果未知（超时或响应丢失）；请先核对远端实际对象，确认后再继续，不自动重试。`);
+    }
+    if (created || row.status !== 'succeeded') await this.repos!.operations.update(operationId, { status: 'running' });
+    return { created, row };
+  }
+
   private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const summary = text(args.summary, 500);
     const { dueAt, dueHasTime, dueArg } = parseDue(args.due);
@@ -1816,11 +1830,14 @@ export class PaRuntime {
     const estimateMinutes = args.estimateMinutes == null ? null : Number(args.estimateMinutes);
     if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
     const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : ''
-    const staged = await this.stagedOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
-      tasklistId: this.config!.tasklistId,
-      summary,
-      due: dueArg,
-    });
+    const overrideId = args._operationId ? String(args._operationId) : null;
+    const staged = overrideId
+      ? await this.stagedOperationWithId(overrideId, item, 'task.create', { tasklistId: this.config!.tasklistId, summary, due: dueArg })
+      : await this.stagedOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
+          tasklistId: this.config!.tasklistId,
+          summary,
+          due: dueArg,
+        });
     if (!staged.created && staged.row.status === 'succeeded') {
       const existing = await this.repos!.tasks.get(staged.row.id);
       return { operationId: staged.row.id, reused: true, guid: existing?.task_guid ?? staged.row.receipt?.guid, url: existing?.url ?? staged.row.receipt?.url ?? null, message: '此任务此前已创建，未重复写入飞书。' };
@@ -2312,14 +2329,20 @@ export class PaRuntime {
     if (sourceType === 'calendar') {
       // Prep packages bound to this meeting stop too (P26): no stale packages.
       const preps = (await this.dbRef
-        .query<{ id: string; schedule_id: string | null }>(
-          `select id, schedule_id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1`,
+        .query<{ id: string; schedule_id: string | null; session_id: string }>(
+          `select id, schedule_id, session_id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1`,
           [sourceId],
         )
-        .catch(() => ({ rows: [] as { id: string; schedule_id: string | null }[] }))).rows;
+        .catch(() => ({ rows: [] as { id: string; schedule_id: string | null; session_id: string }[] }))).rows;
       const schedule = this.nativeSchedule();
       for (const prep of preps) {
-        if (prep.schedule_id && schedule) await schedule.delete({ sessionId: this.accessSessionId!, id: prep.schedule_id }).catch(() => {});
+        if (prep.schedule_id && schedule) {
+          try {
+            await schedule.delete({ sessionId: prep.session_id, id: prep.schedule_id });
+          } catch (error) {
+            console.warn(`[pa24] 停止会前准备时移除原生计划失败（build 时仍会复查会议状态）：${(error as Error).message}`);
+          }
+        }
         await this.repos!.digests.updatePlan(prep.id, { status: 'stopped', schedule_id: null });
       }
     }
@@ -3100,8 +3123,14 @@ export class PaRuntime {
     if (!Number.isInteger(leadMinutes) || leadMinutes < 1 || leadMinutes > 24 * 60) throw new Error('提前量需为 1–1440 分钟。');
     const fireAt = new Date(new Date(event.start_time).getTime() - leadMinutes * 60_000);
     if (fireAt.getTime() <= Date.now()) throw new Error(`提前 ${leadMinutes} 分钟已错过（该时间在过去）；如需立即准备请直接让我现在生成。`);
+    const scope = {
+      memo: args.scopeMemo === false ? false : true,
+      memory: args.scopeMemory === false ? false : true,
+      tasks: args.scopeTasks === false ? false : true,
+      minutes: args.scopeMinutes === false ? false : true,
+    };
     const id = `prep-${randomUUID().slice(0, 12)}`;
-    const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: new Date(event.start_time).toISOString() };
+    const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: new Date(event.start_time).toISOString(), scope };
     const created = await schedule.create(this.accessSessionId!, {
       at: fireAt.toISOString(),
       title: `[24PA] 会前准备 ${eventId}`,
@@ -3132,6 +3161,7 @@ export class PaRuntime {
   private async meetingPrepBuild(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const plan = await this.repos!.digests.getPlan(String(args.planId ?? ''));
     if (!plan || plan.kind !== 'meeting_prep') throw new Error('会前准备计划不存在。');
+    if (plan.status === 'stopped') return { planId: plan.id, skipped: 'plan_stopped', message: '该准备计划已停止（会议可能已变化）；如需准备请按最新安排重设。' };
     const eventId = String(plan.schedule_spec?.eventId ?? '');
     // Pre-send meeting re-check: canceled/moved meetings never ship a stale package.
     const event = await this.repos!.calendar.findEvent(eventId);
@@ -3148,33 +3178,68 @@ export class PaRuntime {
     if (!created && row.status === 'model_done') {
       return { planId: plan.id, reused: true, message: '本会议的准备包已生成，不重复发送。' };
     }
-    // Authorized materials only: memos (keyword + recent), related project tasks, confirmed memory.
+    // Authorized materials only, each scoped by the plan's allowed sources.
+    const scope = (plan.schedule_spec?.scope ?? {}) as { memo?: boolean; memory?: boolean; tasks?: boolean; minutes?: boolean };
     const keyword = event.summary.slice(0, 12);
-    const memos = await this.repos!.memos.search({ query: keyword, limit: 5 }).catch(() => []);
-    const recent = await this.repos!.memos.search({ limit: 5 }).catch(() => []);
-    const seen = new Set<string>();
-    const materials = [...memos, ...recent].filter(m => (seen.has(m.id) ? false : seen.add(m.id)))
-      .slice(0, 6)
-      .map(m => ({ topic: m.topic, url: m.doc_url, date: String(m.occurred_on ?? '').slice(0, 10) }));
-    let memoryFacts: string[] = [];
-    try {
-      const memory = await this.memory!.search({ query: keyword, limit: 5 });
-      memoryFacts = memory.records.filter(r => r.status === 'confirmed').map(r => `${r.topic}：${r.content.slice(0, 60)}（来源：${r.source}）`);
-    } catch {
-      memoryFacts = [];
+    const materials: { topic: string; url: string | null; date: string }[] = [];
+    if (scope.memo !== false) {
+      const memos = await this.repos!.memos.search({ query: keyword, limit: 5 }).catch(() => []);
+      const recent = await this.repos!.memos.search({ limit: 5 }).catch(() => []);
+      const seen = new Set<string>();
+      for (const memo of [...memos, ...recent]) {
+        if (seen.has(memo.id)) continue;
+        seen.add(memo.id);
+        if (materials.length >= 6) break;
+        materials.push({ topic: memo.topic, url: memo.doc_url, date: String(memo.occurred_on ?? '').slice(0, 10) });
+      }
     }
-    const openTasks = (await this.repos!.tasks.list('open').catch(() => [])).slice(0, 5).map(t => t.summary);
+    let lastMinutes: { topic: string; url: string | null; actions: string[] } | null = null;
+    if (scope.minutes !== false) {
+      const rows = await this.dbRef
+        .query<{ id: string; topic: string; doc_url: string | null; candidates: any }>(
+          `select id, topic, doc_url, candidates from pa24.minutes order by created_at desc limit 3`,
+        )
+        .catch(() => ({ rows: [] as never[] }));
+      const match = rows.rows.find(m => m.topic.includes(keyword.slice(0, 4))) ?? rows.rows[0] ?? null;
+      if (match) lastMinutes = { topic: match.topic, url: match.doc_url, actions: (Array.isArray(match.candidates) ? match.candidates : []).map((c: { summary: string }) => c.summary).slice(0, 5) };
+    }
+    let memoryFacts: string[] = [];
+    if (scope.memory !== false) {
+      try {
+        const memory = await this.memory!.search({ query: keyword, limit: 5 });
+        memoryFacts = memory.records.filter(r => r.status === 'confirmed').map(r => `${r.topic}：${r.content.slice(0, 60)}（来源：${r.source}）`);
+      } catch {
+        memoryFacts = [];
+      }
+    }
+    // Only tasks sharing a token with the meeting count as related; otherwise
+    // the section stays absent rather than pretending relevance.
+    // CJK summaries rarely use separators: match on 2-character sliding
+    // windows so 季度评审会第二轮 still relates to 季度评审材料打包.
+    const rawTokens = event.summary.split(/[\s:：,，、/]+/).filter(t => t.length >= 2);
+    const tokens = new Set<string>();
+    for (const token of rawTokens) {
+      if (token.length <= 3) tokens.add(token);
+      for (let i = 0; i + 2 <= token.length; i++) tokens.add(token.slice(i, i + 2));
+    }
+    const openTasks = scope.tasks === false ? [] : (await this.repos!.tasks.list('open').catch(() => []))
+      .filter(t => [...tokens].some(token => t.summary.includes(token)))
+      .slice(0, 5)
+      .map(t => t.summary);
     const lines: string[] = [];
     lines.push(`【会前准备】${event.summary}`);
     lines.push(`时间：${isoDate(event.start_time)} → ${isoDate(event.end_time)}（发送前已复查会议状态）`);
     lines.push('');
-    if (materials.length || memoryFacts.length || openTasks.length) {
+    if (materials.length || memoryFacts.length || openTasks.length || lastMinutes) {
       lines.push('一、资料（授权范围内，带出处）');
       for (const m of materials) lines.push(`· 备忘「${m.topic}」${m.date ? `（${m.date}）` : ''}${m.url ? ` ${m.url}` : ''}`);
       for (const fact of memoryFacts) lines.push(`· 记忆：${fact}`);
+      if (lastMinutes) {
+        lines.push(`· 上次纪要「${lastMinutes.topic}」${lastMinutes.url ? ` ${lastMinutes.url}` : ''}${lastMinutes.actions.length ? `；候选行动：${lastMinutes.actions.join('、')}` : ''}`);
+      }
       if (openTasks.length) lines.push(`· 相关未完成任务：${openTasks.join('、')}`);
     } else {
-      lines.push('一、资料：没有找到与该会议相关的备忘、记忆或任务——请直接补充材料，本包不编造议程。');
+      lines.push('一、资料：没有找到与该会议相关的备忘、记忆、纪要或任务——请直接补充材料，本包不编造议程。');
     }
     lines.push('');
     lines.push('二、建议议程与问题清单（建议，供你确认）');
@@ -3209,7 +3274,7 @@ export class PaRuntime {
     const candidates = (Array.isArray(args.candidates) ? args.candidates : []).slice(0, 30).map((entry: Record<string, unknown>, index: number) => ({
       index,
       summary: text(entry.summary, 300),
-      sourceQuote: entry.sourceQuote ? text(entry.sourceQuote, 300) : '',
+      sourceQuote: entry.sourceQuote ? text(entry.sourceQuote, 300) : '（出处未标注）',
       owner: entry.owner ? text(entry.owner, 100) : null,
       due: entry.due ? String(entry.due) : null,
       start: entry.start ? String(entry.start) : null,
@@ -3218,8 +3283,8 @@ export class PaRuntime {
     }));
     const id = `min-${randomUUID().slice(0, 12)}`;
     // Save the minutes document through the memo pipeline (create + readback).
-    const saved = await this.saveMemo(item, { topic: `会议纪要：${topic}`, content, source: `会后纪要（事项 ${item.id}${eventId ? `，会议 ${eventId}` : ''}）` });
-    const memoRow = (await this.repos!.memos.get((saved as { operationId: string }).operationId)) ?? null;
+    const saved = (await this.saveMemo(item, { topic: `会议纪要：${topic}`, content, source: `会后纪要（事项 ${item.id}${eventId ? `，会议 ${eventId}` : ''}）` })) as { operationId: string; docUrl?: string | null };
+    const memoRow = (await this.repos!.memos.get(saved.operationId)) ?? null;
     const minutes = await this.repos!.minutes.insert({
       id,
       work_item_id: item.id,
@@ -3263,55 +3328,28 @@ export class PaRuntime {
       }
       try {
         if (candidate.start && candidate.end) {
-          const created = await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end });
-          results.push({ index, ok: true, kind: 'calendar', ...(created as object) });
+          // Minutes-scoped idempotency for calendar candidates too: repeated
+          // selections from any session return the existing event (P27).
+          const operationId = `minutes.action:${minutes.id}:${index}`;
+          const staged = await this.stagedOperationWithId(operationId, item, 'calendar.create', { minutesId: minutes.id, index, summary: candidate.summary, start: candidate.start, end: candidate.end });
+          if (!staged.created && staged.row.status === 'succeeded') {
+            const receipt = staged.row.receipt as { eventId?: string; url?: string | null } | null;
+            results.push({ index, ok: true, kind: 'calendar', reused: true, eventId: receipt?.eventId ?? null, url: receipt?.url ?? null, message: '该候选此前已执行，返回已有日程。' });
+            continue;
+          }
+          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end }, operationId)) as { eventId?: string; url?: string | null; operationId?: string };
+          await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, minutesId: minutes.id, index } });
+          results.push({ index, ok: true, kind: 'calendar', ...(created as object), minutesId: minutes.id });
         } else {
           // Minutes-scoped idempotency: the stable key is (minutes, index), not
           // the delegating work item, so a repeated selection from any session
           // returns the same task instead of creating a second one (P27).
-          const operationId = `minutes.action:${minutes.id}:${index}`;
-          const { created: opCreated, row: opRow } = await this.repos!.operations.begin({
-            id: operationId,
-            workItemId: item.id,
-            action: 'task.create',
-            params: { minutesId: minutes.id, index, summary: candidate.summary, due: candidate.due ?? null },
+          const created = await this.taskCreate(item, {
+            summary: candidate.summary,
+            due: candidate.due ?? undefined,
+            _operationId: `minutes.action:${minutes.id}:${index}`,
           });
-          if (!opCreated && opRow.status === 'succeeded') {
-            const existing = await this.repos!.tasks.get(operationId);
-            results.push({ index, ok: true, kind: 'task', reused: true, guid: existing?.task_guid ?? opRow.receipt?.guid, url: existing?.url ?? opRow.receipt?.url, message: '该候选此前已执行，返回已有对象。' });
-            continue;
-          }
-          if (!opCreated && opRow.status === 'unknown') {
-            results.push({ index, ok: false, error: '上次创建结果未知（超时或响应丢失）；请先核对飞书任务清单，确认后再继续。' });
-            continue;
-          }
-          await this.repos!.operations.update(operationId, { status: 'running' });
-          const { dueAt, dueHasTime, dueArg } = parseDue(candidate.due ?? '');
-          try {
-            const cliArgs = ['task', '+create', '--as', 'user', '--summary', `[24PA] ${candidate.summary}`, '--tasklist-id', this.config!.tasklistId, '--idempotency-key', operationId];
-            if (dueArg) cliArgs.push('--due', dueArg);
-            const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), cliArgs);
-            const external = taskExternal(data);
-            await this.repos!.tasks.save({
-              id: operationId,
-              work_item_id: item.id,
-              task_guid: external.guid,
-              url: external.url,
-              summary: candidate.summary,
-              due_at: dueAt,
-              due_has_time: dueHasTime,
-              planned_at: null,
-              estimate_minutes: null,
-              status: 'open',
-              external_updated_at: new Date(),
-              last_synced_at: new Date(),
-            });
-            await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { guid: external.guid, url: external.url, minutesId: minutes.id, index } });
-            results.push({ index, ok: true, kind: 'task', guid: external.guid, url: external.url, message: '已创建（飞书为权威对象）。' });
-          } catch (error) {
-            await this.failStaged(operationId, error);
-            throw error;
-          }
+          results.push({ index, ok: true, kind: 'task', ...(created as object) });
         }
       } catch (error) {
         results.push({ index, ok: false, error: (error as Error).message });

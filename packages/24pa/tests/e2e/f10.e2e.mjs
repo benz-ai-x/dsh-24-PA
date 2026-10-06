@@ -141,13 +141,66 @@ describe('F10 会议资料与纪要行动（真实 Loader + 隔离 PG）', () =>
     await waitWorkItem('重复会前准备', '重复准备完成');
     await waitToolResult('pa24_work', '不重复发送', '重复拒绝', 60_000, before);
 
-    // 会议取消 → 准备计划联动停止（再 build 明确跳过）
-    await writeScript(calScript('取消评审会', { action: 'calendar_cancel', eventId }));
+    // 会议改期 → 准备计划联动停止（不发送过时准备包），再 build 明确说明已停止
+    const movedStart = new Date(Date.now() + 3600_000).toISOString();
+    const movedEnd = new Date(Date.now() + 3900_000).toISOString();
+    await writeScript(calScript('改期评审会', { action: 'calendar_update', eventId, start: movedStart, end: movedEnd }));
     before = llm.log.length;
-    await inject(ownerEvent('evt-mp3', { text: '评审会取消了' }));
-    await waitWorkItem('取消评审会', '评审会取消完成');
-    await waitToolResult('pa24_work', '已取消', '取消回执', 60_000, before);
+    await inject(ownerEvent('evt-mp3', { text: '评审会改到一小时后' }));
+    await waitWorkItem('改期评审会', '改期完成');
+    await waitToolResult('pa24_work', '日程已修改', '改期回执', 60_000, before);
     expect((await rows(`select status from pa24.digest_plan where id='${planId}'`))[0].status).toBe('stopped');
+    await writeScript(calScript('停止后再build', { action: 'meeting_prep_build', planId }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-mp4', { text: '再试一次准备包' }));
+    await waitWorkItem('停止后再build', '停止后build完成');
+    await waitToolResult('pa24_work', '计划已停止', '停止说明', 60_000, before);
+  });
+
+  it('P26：准备包含上次纪要与相关任务（带出处），范围可绑定', async () => {
+    // 先造一份纪要和相关任务
+    await writeScript(memoScript('生成旧纪要', {
+      action: 'minutes_build',
+      topic: '季度评审',
+      eventId: null,
+      content: '上次评审决定推进 B 稿。',
+      candidates: [{ index: 0, summary: '上次行动：确认供应商', sourceQuote: '先确认供应商' }],
+    }));
+    let before = llm.log.length;
+    await inject(ownerEvent('evt-mp5', { text: '整理上次季度评审的纪要' }));
+    await waitWorkItem('生成旧纪要', '旧纪要完成');
+    await waitToolResult('pa24_work', 'minutesId', '旧纪要回执', 60_000, before);
+
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'tasks', title: '建相关任务', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'task_create', summary: '季度评审材料打包' }, workerReply: 'ok' });
+    before = llm.log.length;
+    await inject(ownerEvent('evt-mp6', { text: '建任务：季度评审材料打包' }));
+    await waitWorkItem('建相关任务', '相关任务完成');
+
+    const start = new Date(Date.now() + 95_000).toISOString();
+    const end = new Date(Date.now() + 125_000).toISOString();
+    await writeScript(calScript('建第二次评审', { action: 'calendar_create', summary: '季度评审会第二轮', start, end }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-mp7', { text: '40 秒后开季度评审会第二轮' }));
+    await waitWorkItem('建第二次评审', '二轮会议建立');
+    const created2 = await waitToolResult('pa24_work', 'eventId', '二轮回执', 60_000, before);
+    const eventId2 = (created2.match(/"eventId":"(evtstub-[^"]+)"/) || [])[1];
+
+    await writeScript(calScript('安排二轮准备', { action: 'meeting_prep_enable', eventId: eventId2, leadMinutes: 1 }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-mp8', { text: '二轮会前 1 分钟也给我准备包' }));
+    await waitWorkItem('安排二轮准备', '二轮准备安排完成');
+    const enabled2 = await waitToolResult('pa24_work', 'planId', '二轮准备回执', 60_000, before);
+    const planId2 = (enabled2.match(/"planId":"(prep-[^"]+)"/) || [])[1];
+
+    await writeScript(calScript('生成二轮准备', { action: 'meeting_prep_build', planId: planId2 }));
+    await waitWorkItem('生成二轮准备', '二轮准备生成', 180_000);
+    await waitToolResult('pa24_work', '准备包已生成', '二轮准备回执', 60_000, llm.log.length - 5);
+    const out2 = await waitOutbox(`digest:${planId2}:${eventId2}`, '二轮准备发送', 60_000);
+    const text2 = out2.content?.text ?? '';
+    expect(text2).toContain('上次纪要');
+    expect(text2).toContain('上次行动：确认供应商');
+    expect(text2).toContain('相关未完成任务');
+    expect(text2).toContain('季度评审材料打包');
   });
 
   it('P27：会后纪要保存文档＋候选行动分离；选择性采纳幂等、信息不足不执行', async () => {
@@ -182,7 +235,6 @@ describe('F10 会议资料与纪要行动（真实 Loader + 隔离 PG）', () =>
     const adopted = await waitToolResult('pa24_work', '已按你的选择执行 1 项', '采纳回执', 60_000, before);
     expect(adopted).toContain('tskstub');
     const taskCount = await rows(`select id, summary from pa24.task where summary like '%预算数字%'`);
-    console.error('BUDGET TASKS:', JSON.stringify(taskCount));
     expect(taskCount).toHaveLength(1);
     expect((await rows(`select status from pa24.minutes where id='${minutesId}'`))[0].status).toBe('actions_taken');
 
@@ -193,6 +245,31 @@ describe('F10 会议资料与纪要行动（真实 Loader + 隔离 PG）', () =>
     await waitWorkItem('重复执行', '重复执行完成');
     await waitToolResult('pa24_work', '重复选择同一编号返回已有对象', '幂等回执', 60_000, before);
     expect((await rows(`select count(*)::int as n from pa24.task where summary like '%预算数字%'`))[0].n).toBe(1);
+
+    // 日历候选（新纪要）：start/end → 时间块；跨会话重复返回已有日程
+    const calCandidates = [
+      { index: 0, summary: '复盘会时间块', sourceQuote: '周五下午复盘', start: new Date(Date.now() + 48 * 3600_000).toISOString(), end: new Date(Date.now() + 49 * 3600_000).toISOString() },
+    ];
+    await writeScript(memoScript('生成日历候选纪要', { action: 'minutes_build', topic: '排期会', content: '定周五复盘。', candidates: calCandidates }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-mn5', { text: '这是排期会的记录' }));
+    await waitWorkItem('生成日历候选纪要', '日历纪要完成');
+    const calBuilt = await waitToolResult('pa24_work', 'minutesId', '日历纪要回执', 60_000, before);
+    const calMinutesId = [...calBuilt.matchAll(/"minutesId":"(min-[^"]+)"/g)].at(-1)?.[1];
+    await writeScript(memoScript('执行日历候选', { action: 'minutes_adopt_actions', minutesId: calMinutesId, indexes: [0], instruction: '本人确认排周五复盘' }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-mn6', { text: '把复盘会排上' }));
+    await waitWorkItem('执行日历候选', '日历候选执行完成');
+    const calAdopted = await waitToolResult('pa24_work', '已按你的选择执行 1 项', '日历采纳回执', 60_000, before);
+    expect(calAdopted).toContain('kind');
+    const firstCount = (await rows(`select count(*)::int as n from pa24.calendar_event where summary like '%复盘会时间块%'`))[0].n;
+    expect(firstCount).toBe(1);
+    await writeScript(memoScript('重复日历候选', { action: 'minutes_adopt_actions', minutesId: calMinutesId, indexes: [0], instruction: '本人再次确认' }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-mn7', { text: '复盘会再执行一遍试试' }));
+    await waitWorkItem('重复日历候选', '重复日历执行完成');
+    await waitToolResult('pa24_work', '返回已有日程', '日历幂等回执', 60_000, before);
+    expect((await rows(`select count(*)::int as n from pa24.calendar_event where summary like '%复盘会时间块%'`))[0].n).toBe(1);
 
     // 信息不足候选 → 明确拒绝执行
     await writeScript(memoScript('执行未知项', { action: 'minutes_adopt_actions', minutesId, indexes: [1], instruction: '试试第二条' }));
