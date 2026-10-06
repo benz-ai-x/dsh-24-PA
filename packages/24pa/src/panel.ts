@@ -96,6 +96,10 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
   if (type === 'connection.check') return runtime.checkAccess();
   if (type === 'notes.poll') return { verified: await runtime.pollPendingNotes() };
   if (type === 'notes.remind-poll') return { sent: await runtime.dispatchReviewReminders() };
+  if (type === 'digest.supervise') {
+    const graceMs = Number(payload.graceMs);
+    return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : 10 * 60 * 1000);
+  }
   if (type === 'robot.open') return { sessionId: await runtime.openLocalSession() };
   if (type === 'role.register') {
     const definition = payload.definition as Record<string, unknown> | undefined;

@@ -65,6 +65,13 @@ dsh --profile <你的 profile>
 - 周期任务模板（P22）：`task_repeat_create`（every≥60s/daily/weekly，dsh-schedule 记录＋`pa24.task_template[_instance]` 唯一实例）；有界物化 tick 逐实例生成真实飞书任务（幂等键=实例 id）；只补最近一次错过（不无界回补）；`task_repeat_skip`（跳过本次）/`task_repeat_stop`（停止以后）/`task_repeat_update`（修改以后，重建模板停旧）；已生成历史保留。飞书任务 CLI 未暴露原生重复规则，按模板实现（如实说明）。
 - 等待事项（P23）：`waiting_create`（内容/来源/检查点/去重键，同源不重复建）＋`waiting_control`（收到/继续等/改时间/取消，同步调整检查点）；到点经 Outbox **只询问本人**（复用免打扰扣留），不自动催办他人；没有可读回复来源时以本人答复为准。
 
+## F09 增量（每日规划与定期回顾）
+
+- 每日规划（P16）：calendar Worker `plan_today`（重点/估时/容量/冲突/缺失；confirmed 偏好「会议之间留 N 分钟」计入缓冲；过载如实建议只选重点）、`plan_preview`（明日或含临时插单的候选时间块；插单只列受影响安排，未受影响不动）、`plan_adopt`（只写入选定块，写入前经 staged 日历创建并回执链接）、`overview_today`（今日任务/日历合并视图；未读取范围不显示为零）。建议与写入严格分离，截止与安排时间分开，不自动延期。
+- 智能计划（P24/P25）：`pa24.digest_plan[_occurrence]`＋原生 ScheduleService（`create/list/delete/history`，仅挂固定飞书接入顶层会话；dsh 原生拒绝 child）。`digest_enable`（morning/evening/weekly 定时、once 演示）/`digest_control`（暂停=移除原生计划保留历史；恢复=重新入队；调整=重建）/`digest_list`。状态三层：Schedule 持久入队（schedule_id）→ 模型工作（occurrence delivering→model_done）→ 平台接受（Outbox sent）；简报由 digest Worker `digest_build {planId}` 按窗口唯一键幂等生成（同窗重复投递不重复发布，全部以 planId/scheduleId 归属，不按标题相似盲建）。
+- 投递监督：有界核对对比原生 `schedule.history` 投递与已完成发生——无法归属（宽限后）→ 计划暂停＋`digestunconfirmed` 通知，不为过期窗口补发一串；面板 `digest.supervise {graceMs}` 暴露同一入口。重启后原生 Schedule 自持久续跑，业务状态按账本恢复。
+- 简报内容：事实（日程带 syncedAt/新鲜度、任务截止与计划分开、完成、等待、待审、项目进展）与建议分开，每期带来源与数据缺失清单；晚间/周回顾绝不自动延期任务、绝不写 JSON 记忆。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |

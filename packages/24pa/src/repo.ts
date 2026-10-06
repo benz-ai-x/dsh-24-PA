@@ -1498,6 +1498,104 @@ export class WaitingRepo {
   }
 }
 
+export interface DigestPlanRow {
+  id: string;
+  kind: 'morning' | 'evening' | 'weekly' | 'once' | string;
+  title: string;
+  schedule_id: string | null;
+  session_id: string;
+  schedule_spec: any;
+  status: 'active' | 'paused' | 'stopped' | string;
+  last_window: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface DigestOccurrenceRow {
+  id: string;
+  plan_id: string;
+  window_key: string;
+  status: 'delivering' | 'model_done' | 'sent' | 'unconfirmed' | string;
+  report: any;
+  outbox_key: string | null;
+  delivered_at: Date | null;
+  completed_at: Date | null;
+  error: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export class DigestRepo {
+  constructor(private readonly db: PaDatabase) {}
+
+  async insertPlan(row: Omit<DigestPlanRow, 'created_at' | 'updated_at'>): Promise<DigestPlanRow> {
+    const result = await this.db.query<DigestPlanRow>(
+      `insert into pa24.digest_plan (id, kind, title, schedule_id, session_id, schedule_spec, status, last_window)
+       values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+      [row.id, row.kind, row.title, row.schedule_id, row.session_id, JSON.stringify(row.schedule_spec), row.status, row.last_window],
+    );
+    return result.rows[0]!;
+  }
+
+  async getPlan(id: string): Promise<DigestPlanRow | null> {
+    const result = await this.db.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1', [id]);
+    return result.rows[0] ?? null;
+  }
+
+  async updatePlan(id: string, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'last_window' | 'title'>>): Promise<DigestPlanRow | null> {
+    const sets = ['updated_at = now()'];
+    const values: unknown[] = [id];
+    let n = 2;
+    for (const [key, value] of Object.entries(patch)) {
+      sets.push(`${key} = $${n}`);
+      values.push(key === 'schedule_spec' ? JSON.stringify(value) : value ?? null);
+      n += 1;
+    }
+    const result = await this.db.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 returning *`, values);
+    return result.rows[0] ?? null;
+  }
+
+  async listPlans(status?: string): Promise<DigestPlanRow[]> {
+    const result = status
+      ? await this.db.query<DigestPlanRow>('select * from pa24.digest_plan where status = $1 order by created_at', [status])
+      : await this.db.query<DigestPlanRow>('select * from pa24.digest_plan order by created_at');
+    return result.rows;
+  }
+
+  /** Claim one window for one plan; a repeat delivery in the same window returns the existing row. */
+  async claimOccurrence(row: { planId: string; windowKey: string }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
+    const id = `${row.planId}:${row.windowKey}`;
+    const result = await this.db.query<DigestOccurrenceRow>(
+      `insert into pa24.digest_occurrence (id, plan_id, window_key, status, delivered_at)
+       values ($1,$2,$3,'delivering', now()) on conflict (plan_id, window_key) do nothing returning *`,
+      [id, row.planId, row.windowKey],
+    );
+    if ((result.rowCount ?? 0) > 0) return { created: true, row: result.rows[0]! };
+    const existing = await this.db.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where plan_id = $1 and window_key = $2', [row.planId, row.windowKey]);
+    return { created: false, row: existing.rows[0]! };
+  }
+
+  async updateOccurrence(id: string, patch: Partial<Pick<DigestOccurrenceRow, 'status' | 'report' | 'outbox_key' | 'completed_at' | 'error'>>): Promise<void> {
+    const sets = ['updated_at = now()'];
+    const values: unknown[] = [id];
+    let n = 2;
+    for (const [key, value] of Object.entries(patch)) {
+      sets.push(`${key} = $${n}`);
+      values.push(key === 'report' ? JSON.stringify(value) : value ?? null);
+      n += 1;
+    }
+    await this.db.query(`update pa24.digest_occurrence set ${sets.join(', ')} where id = $1`, values);
+  }
+
+  async occurrencesOf(planId: string, limit = 20): Promise<DigestOccurrenceRow[]> {
+    const result = await this.db.query<DigestOccurrenceRow>(
+      'select * from pa24.digest_occurrence where plan_id = $1 order by created_at desc limit $2',
+      [planId, limit],
+    );
+    return result.rows;
+  }
+}
+
 export interface Repos {
   inbox: InboxRepo;
   workItems: WorkItemRepo;
@@ -1516,6 +1614,7 @@ export interface Repos {
   outreach: OutreachRepo;
   taskTemplates: TaskTemplateRepo;
   waiting: WaitingRepo;
+  digests: DigestRepo;
 }
 
 export function createRepos(db: PaDatabase): Repos {
@@ -1537,5 +1636,6 @@ export function createRepos(db: PaDatabase): Repos {
     outreach: new OutreachRepo(db),
     taskTemplates: new TaskTemplateRepo(db),
     waiting: new WaitingRepo(db),
+    digests: new DigestRepo(db),
   };
 }

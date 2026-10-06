@@ -169,6 +169,13 @@ export interface RuntimeOptions {
   env?: Record<string, string | undefined>;
 }
 
+export interface NativeScheduleService {
+  create(sessionId: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<{ id: string; scheduledAt?: string } & Record<string, unknown>>;
+  list(request: { sessionId: string }): Promise<{ id: string }[]>;
+  delete(request: { sessionId: string; id: string }): Promise<unknown>;
+  history(request: { sessionId: string; id: string; limit: number }): Promise<{ records?: unknown[] } & Record<string, unknown>>;
+}
+
 export class PaRuntime {
   private readonly ctx: DshContext;
   readonly options: RuntimeOptions;
@@ -318,6 +325,17 @@ export class PaRuntime {
       },
     });
     this.roles.register({
+      id: 'digest',
+      name: '简报整理',
+      persona:
+        '你是 24私助的简报 Worker。按计划类型汇总当日/当周的实际状态：日程（带同步时间与新鲜度）、任务（截止与计划分开）、项目进展、等待事项与待审队列；重点与容量是建议，事实与建议必须分开标注，每条带来源；数据缺失如实列出，不显示为零。你只产出简报文本并交给宿主投递，不修改任务/日历，不写长期记忆，不自动延期任何未完成任务。',
+      brief: '智能简报：digest_build {planId} 生成当前窗口简报（晨报/晚间/每周），交回 Lead 汇报。',
+      available: true,
+      actions: {
+        digest_build: async (args, item) => this.digestBuild(item, args),
+      },
+    });
+    this.roles.register({
       id: 'calendar',
       name: '日程编排',
       persona: '你是 24私助的日程编排 Worker。只读写配置授权的本人日历；时间必须带时区；查询先经同步投影并报告新鲜度，读不到就说明资料缺失而不是“没有会议”。创建/改期/取消仅凭本人明确指令，变更前展示范围，写后以平台回执为准。邀请他人须本人明确邀请指令，同名或不明确的联系人先澄清；不臆造忙闲。结果交回发起会话。',
@@ -330,6 +348,10 @@ export class PaRuntime {
         calendar_update: async (args, item) => this.calendarWrite(item, 'update', args),
         calendar_cancel: async (args, item) => this.calendarWrite(item, 'cancel', args),
         meeting_schedule: async (args, item) => this.meetingSchedule(item, args),
+        plan_today: async args => this.planToday(args),
+        plan_preview: async args => this.planPreview(args),
+        plan_adopt: async (args, item) => this.planAdopt(item, args),
+        overview_today: async () => this.overviewToday(),
       },
     });
     this.roles.register({
@@ -373,6 +395,9 @@ export class PaRuntime {
         reminder_skip: async args => this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')),
         reminder_snooze: async args => this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')),
         reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
+        digest_enable: async args => this.digestEnable(args),
+        digest_control: async args => this.digestControl(args),
+        digest_list: async () => this.digestList(),
       },
     });
     this.roles.register({
@@ -2501,6 +2526,7 @@ export class PaRuntime {
     if (this.closed || !this.repos || !this.config) return;
     void this.materializeTemplateInstances().catch(() => {});
     void this.dispatchWaitingCheckpoints().catch(() => {});
+    void this.superviseDigests(10 * 60 * 1000).catch(() => {});
   }
 
   private async dispatchWaitingCheckpoints(): Promise<number> {
@@ -2524,6 +2550,444 @@ export class PaRuntime {
       await this.repos!.waiting.update(item.id, { checkpoint_at: new Date(Date.now() + 3600 * 1000) });
     }
     return due.length;
+  }
+
+  // ---- daily planning & recurring digests (F09) -------------------------------
+
+  private nativeSchedule(): NativeScheduleService | null {
+    const service = this.ctx.get('schedule');
+    return service && typeof service.create === 'function' ? (service as NativeScheduleService) : null;
+  }
+
+  /** Local-date window key for a plan kind (morning/evening share the date, weekly uses ISO week). */
+  private digestWindowKey(kind: string, timeZone: string, now = new Date()): string {
+    const local = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+    if (kind === 'weekly') {
+      const weekday = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(now);
+      const jan1 = new Date(Date.UTC(now.getUTCFullYear(), 0, 1));
+      const week = Math.ceil(((now.getTime() - jan1.getTime()) / 86400000 + jan1.getUTCDay() + 1) / 7);
+      return `${local}-W${String(week).padStart(2, '0')}-${weekday}`;
+    }
+    return local;
+  }
+
+  /**
+   * Enable a smart plan (P24/P25): one durable business row plus one native
+   * Schedule task bound to the fixed access session. Schedule persistence is
+   * the enqueue; model work and platform acceptance are tracked separately on
+   * the occurrence row.
+   */
+  private async digestEnable(args: Record<string, unknown>): Promise<unknown> {
+    const kind = String(args.kind ?? '');
+    if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('计划类型：morning/evening/weekly（daily/weekly 定时）或 once（一次性，演示与测试）。');
+    const timeZone = String(args.timeZone ?? this.config!.timeZone);
+    const schedule = this.nativeSchedule();
+    if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务，无法建立智能计划。');
+    const title = { morning: '晨报', evening: '晚间回顾', weekly: '每周回顾', once: '一次性简报' }[kind]!;
+    const id = `dig-${kind === 'once' ? 'once-' + randomUUID().slice(0, 8) : kind + '-' + hash(this.workspace!.statePath + kind).slice(0, 8)}`;
+    const existing = await this.repos!.digests.getPlan(id);
+    if (existing && existing.status !== 'stopped') throw new Error(`${title}计划已存在（${id}）；如需调整用 digest_control resume/pause 或先停止。`);
+    let request: Record<string, unknown>;
+    if (kind === 'once') {
+      const seconds = Number(args.afterSeconds ?? 0);
+      const at = args.at ? new Date(String(args.at)) : null;
+      if (at && !Number.isNaN(at.getTime())) request = { at: at.toISOString(), title: `[24PA] ${title}` };
+      else if (Number.isInteger(seconds) && seconds >= 1) request = { after_seconds: seconds, title: `[24PA] ${title}` };
+      else throw new Error('once 计划需要 afterSeconds（秒）或 at（ISO 时间）。');
+    } else {
+      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new Error(`${title}需要本地时间 HH:mm:ss（工作区时区 ${timeZone}）。`);
+      const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined;
+      if (kind === 'weekly' && (!weekdays?.length || weekdays.some(d => !Number.isInteger(d) || d < 1 || d > 7))) throw new Error('weekly 计划需要 weekdays（ISO 1–7）。');
+      request = kind === 'weekly'
+        ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays!)].sort() }, title: `[24PA] ${title}` }
+        : { daily: { time: String(args.time), time_zone: timeZone }, title: `[24PA] ${title}` };
+    }
+    const prompt = `[24PA计划 ${id}] 到达${title}窗口：请委派 digest Worker（pa24_delegate worker=digest）执行 digest_build {planId:"${id}"}，把简报发给本人；不要执行其他业务。`;
+    const created = await schedule.create(this.accessSessionId!, { ...request, prompt });
+    const plan = await this.repos!.digests.insertPlan({
+      id,
+      kind,
+      title,
+      schedule_id: String(created.id),
+      session_id: this.accessSessionId!,
+      schedule_spec: request,
+      status: 'active',
+      last_window: null,
+    });
+    return {
+      planId: plan.id,
+      scheduleId: plan.schedule_id,
+      nextDueAt: (created as { scheduledAt?: string }).scheduledAt ?? null,
+      message: `${title}计划已开启（原生 Schedule 持久入队，绑定飞书接入会话）；到点唤醒 Lead 委派简报 Worker。`,
+    };
+  }
+
+  private async digestControl(args: Record<string, unknown>): Promise<unknown> {
+    const plan = await this.repos!.digests.getPlan(String(args.planId ?? ''));
+    if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
+    const op = String(args.op ?? '');
+    const schedule = this.nativeSchedule();
+    if (op === 'pause' || op === 'stop') {
+      if (schedule && plan.schedule_id) await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id }).catch(() => {});
+      await this.repos!.digests.updatePlan(plan.id, { status: op === 'pause' ? 'paused' : 'stopped', schedule_id: null });
+      return { planId: plan.id, status: op === 'pause' ? 'paused' : 'stopped', message: op === 'pause' ? '计划已暂停（原生 Schedule 已移除，业务历史保留）。' : '计划已停止。' };
+    }
+    if (op === 'resume') {
+      if (plan.status !== 'paused') throw new Error(`计划当前状态为 ${plan.status}，无法恢复。`);
+      if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务。');
+      const prompt = `[24PA计划 ${plan.id}] 到达${plan.title}窗口：请委派 digest Worker（pa24_delegate worker=digest）执行 digest_build {planId:"${plan.id}"}，把简报发给本人；不要执行其他业务。`;
+      const created = await schedule.create(plan.session_id, { ...plan.schedule_spec, prompt, title: `[24PA] ${plan.title}` });
+      await this.repos!.digests.updatePlan(plan.id, { status: 'active', schedule_id: String(created.id) });
+      return { planId: plan.id, scheduleId: String(created.id), message: '计划已恢复（重新入队）。' };
+    }
+    if (op === 'adjust') {
+      // Adjust = stop + re-enable with the new spec; history stays on the plan row.
+      return this.digestEnable({ ...args, kind: plan.kind, planId: plan.id });
+    }
+    throw new Error('未知计划操作（pause/resume/stop/adjust）。');
+  }
+
+  private async digestList(): Promise<unknown> {
+    const plans = await this.repos!.digests.listPlans();
+    const view = [];
+    for (const plan of plans) {
+      const occurrences = await this.repos!.digests.occurrencesOf(plan.id, 3);
+      view.push({
+        planId: plan.id,
+        kind: plan.kind,
+        status: plan.status,
+        scheduleId: plan.schedule_id,
+        lastWindow: plan.last_window,
+        recent: occurrences.map(o => ({ window: o.window_key, status: o.status, completedAt: isoDate(o.completed_at) })),
+      });
+    }
+    return { plans: view };
+  }
+
+  /** Gather planning facts once: calendar (with freshness), tasks, waiting, review queue, preferences. */
+  private async planningFacts(now: Date): Promise<{
+    calendar: { fresh: boolean; syncedAt: string | null; events: { summary: string; start: string; end: string; allDay: boolean }[] };
+    tasksDue: { guid: string; summary: string; dueAt: string | null; plannedAt: string | null; estimateMinutes: number | null; overdue: boolean }[];
+    tasksCompletedToday: { guid: string; summary: string }[];
+    waiting: { id: string; title: string; checkpointAt: string | null }[];
+    reviewQueueCount: number;
+    projects: { id: string; name: string; completed: number; total: number }[];
+    missing: string[];
+  }> {
+    const tz = this.config!.timeZone;
+    const dayStart = new Date(now.getTime() - 24 * 3600 * 1000);
+    const dayEnd = new Date(now.getTime() + 36 * 3600 * 1000);
+    const missing: string[] = [];
+    const calendarId = this.config!.calendarId;
+    const sync = await this.syncCalendarWindow(calendarId, dayStart, dayEnd).catch(() => ({ ok: false, error: '同步失败' }));
+    if (!sync.ok) missing.push(`日历同步失败（${(sync as { error?: string }).error ?? '未知'}）：以下为投影，可能过期`);
+    const events = await this.repos!.calendar.eventsIn(calendarId, dayStart, dayEnd);
+    const state = await this.repos!.calendar.getSync(calendarId);
+    const tasks = await this.repos!.tasks.list();
+    const localNow = new Date(now.toLocaleString('en-US', { timeZone: tz }));
+    const todayTasks = tasks.filter(t => {
+      const due = t.due_at ? new Date(t.due_at) : null;
+      const planned = t.planned_at ? new Date(t.planned_at) : null;
+      if (t.status === 'completed') return false;
+      return (due && due.getTime() > now.getTime() - 24 * 3600 * 1000 && due.getTime() < dayEnd.getTime())
+        || (planned && planned.getTime() > now.getTime() - 24 * 3600 * 1000 && planned.getTime() < dayEnd.getTime());
+    });
+    const completedToday = tasks.filter(t => t.status === 'completed' && t.last_synced_at && now.getTime() - t.last_synced_at.getTime() < 24 * 3600 * 1000);
+    const waiting = await this.repos!.waiting.list('waiting');
+    const queue = await this.reviewQueue().catch(() => null);
+    const projectRows = (await this.dbRef
+      .query<{ id: string; name: string }>('select id, name from pa24.project')
+      .catch(() => ({ rows: [] as { id: string; name: string }[] }))).rows;
+    const projects: { id: string; name: string; completed: number; total: number }[] = [];
+    for (const project of projectRows) {
+      const projectTasks = await this.repos!.projects.tasksOf(project.id);
+      projects.push({ id: project.id, name: project.name, completed: projectTasks.filter(t => t.status === 'completed').length, total: projectTasks.length });
+    }
+    return {
+      calendar: {
+        fresh: sync.ok,
+        syncedAt: isoDate(state?.last_synced_at ?? null),
+        events: events.map(e => ({ summary: e.summary, start: isoDate(e.start_time)!, end: isoDate(e.end_time)!, allDay: e.is_all_day })),
+      },
+      tasksDue: todayTasks.map(t => ({
+        guid: t.task_guid,
+        summary: t.summary,
+        dueAt: isoDate(t.due_at),
+        plannedAt: isoDate(t.planned_at),
+        estimateMinutes: t.estimate_minutes,
+        overdue: !!(t.due_at && new Date(t.due_at).getTime() < now.getTime()),
+      })),
+      tasksCompletedToday: completedToday.map(t => ({ guid: t.task_guid, summary: t.summary })),
+      waiting: waiting.map(w => ({ id: w.id, title: w.title, checkpointAt: w.checkpoint_at?.toISOString() ?? null })),
+      reviewQueueCount: queue ? (queue as { count: number }).count : -1,
+      projects,
+      missing,
+    };
+  }
+
+  /**
+   * Worker-side digest build (P24/P25): claims the current window idempotently,
+   * assembles a sourced facts-vs-suggestions report, and ships it through the
+   * outbox. Never writes tasks, calendar, or memory; nothing auto-postpones.
+   */
+  private async digestBuild(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const planId = String(args.planId ?? '');
+    const plan = await this.repos!.digests.getPlan(planId);
+    if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
+    const windowKey = this.digestWindowKey(plan.kind === 'evening' ? 'evening' : plan.kind, this.config!.timeZone);
+    const { created, row } = await this.repos!.digests.claimOccurrence({ planId: plan.id, windowKey });
+    if (!created && ['sent', 'model_done'].includes(row.status)) {
+      return { planId, windowKey, reused: true, status: row.status, message: `本窗口（${windowKey}）简报已${row.status === 'sent' ? '发布' : '生成'}，不重复发布。` };
+    }
+    const facts = await this.planningFacts(new Date());
+    const report = this.renderDigest(plan, windowKey, facts);
+    await this.repos!.digests.updateOccurrence(row.id, { status: 'model_done', report: { facts, report }, completed_at: new Date() });
+    await this.repos!.digests.updatePlan(plan.id, { last_window: windowKey });
+    const outboxKey = `digest:${row.id}`;
+    if (this.config!.ownerOpenId) {
+      await this.repos!.outbox.enqueue({
+        dedupKey: outboxKey,
+        channel: 'feishu',
+        target: this.config!.ownerOpenId,
+        kind: 'text',
+        content: { text: report },
+      });
+      await this.repos!.digests.updateOccurrence(row.id, { status: 'sent', outbox_key: outboxKey });
+    }
+    await this.repos!.workItems.update(item.id, { result_ref: { planId: plan.id, windowKey, outboxKey } });
+    return { planId, windowKey, outboxKey, message: '简报已生成并发送（平台接受状态可查 reminder_status 类似的 Outbox 记录）。' };
+  }
+
+  private renderDigest(
+    plan: { kind: string; title: string },
+    windowKey: string,
+    facts: Awaited<ReturnType<PaRuntime['planningFacts']>>,
+  ): string {
+    const lines: string[] = [];
+    lines.push(`【${plan.title}】窗口 ${windowKey}`);
+    lines.push('');
+    lines.push('一、事实（来自实际对象）');
+    if (facts.calendar.events.length) {
+      lines.push(`· 日程 ${facts.calendar.events.length} 项（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}${facts.calendar.fresh ? '' : '，本次同步失败可能过期'}）：`);
+      for (const event of facts.calendar.events.slice(0, 8)) lines.push(`  - ${event.summary} ${event.start} → ${event.end}${event.allDay ? '（全天）' : ''}`);
+    } else {
+      lines.push(`· 今日无日程（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}${facts.calendar.fresh ? '' : '，本次同步失败可能过期'}）`);
+    }
+    if (facts.tasksDue.length) {
+      lines.push(`· 待办 ${facts.tasksDue.length} 项（截止与计划时间分开记录）：`);
+      for (const task of facts.tasksDue.slice(0, 10)) {
+        lines.push(`  - ${task.summary}${task.dueAt ? `，截止 ${task.dueAt}` : ''}${task.plannedAt ? `，计划 ${task.plannedAt}` : ''}${task.estimateMinutes != null ? `，估时 ${task.estimateMinutes} 分钟` : ''}${task.overdue ? '，【已逾期】' : ''}`);
+      }
+    } else {
+      lines.push('· 今日没有到期或计划中的待办');
+    }
+    if (plan.kind !== 'morning' && facts.tasksCompletedToday.length) {
+      lines.push(`· 今日已完成 ${facts.tasksCompletedToday.length} 项：${facts.tasksCompletedToday.map(t => t.summary).join('、')}`);
+    }
+    if (facts.waiting.length) {
+      lines.push(`· 等待事项 ${facts.waiting.length} 项：${facts.waiting.map(w => `${w.title}${w.checkpointAt ? `（检查点 ${w.checkpointAt}）` : ''}`).join('；')}`);
+    } else if (plan.kind !== 'morning') {
+      lines.push('· 没有进行中的等待事项');
+    }
+    if (facts.reviewQueueCount >= 0) lines.push(`· 待审手写笔记 ${facts.reviewQueueCount} 份`);
+    for (const project of facts.projects) lines.push(`· 项目「${project.name}」：${project.completed}/${project.total} 完成（来源：飞书任务状态）`);
+    lines.push('');
+    lines.push('二、建议（推断，需你选定）');
+    if (plan.kind === 'morning') {
+      const overloaded = facts.tasksDue.reduce((sum, t) => sum + (t.estimateMinutes ?? 30), 0) > 6 * 60;
+      lines.push(`· 今日重点建议：${facts.tasksDue.slice(0, 3).map(t => t.summary).join('、') || '（无到期任务，可从项目下一步选择）'}${overloaded ? '；注意：按估时合计已超过 6 小时，建议延后部分任务（不会自动延期）' : ''}`);
+    } else {
+      const overdue = facts.tasksDue.filter(t => t.overdue);
+      lines.push(`· 下一步建议：${overdue.length ? `优先处理 ${overdue.slice(0, 3).map(t => t.summary).join('、')}（已逾期，是否延期由你决定）` : '无逾期任务，可推进项目下一步或安排明日重点'}`);
+    }
+    if (facts.missing.length) {
+      lines.push('');
+      lines.push('三、数据缺失');
+      for (const miss of facts.missing) lines.push(`· ${miss}`);
+    }
+    lines.push('');
+    lines.push('来源：飞书日历/任务投影、24PA 工作账本（等待/待审/项目）；事实与建议已分开，未自动修改任何任务、日程或记忆。');
+    return lines.join('\n');
+  }
+
+  /**
+   * Delivery supervision (P24): a native delivery with no attributable
+   * occurrence after the grace window marks the plan unconfirmed-paused; the
+   * panel exposes the same bounded check with an overridable grace.
+   */
+  async superviseDigests(graceMs: number): Promise<unknown> {
+    const schedule = this.nativeSchedule();
+    if (!schedule) return { checked: 0, note: '当前 Host 未提供原生 Schedule 服务。' };
+    const results = [];
+    for (const plan of await this.repos!.digests.listPlans('active')) {
+      if (!plan.schedule_id) continue;
+      let delivered = 0;
+      try {
+        const history = await schedule.history({ sessionId: plan.session_id, id: plan.schedule_id, limit: 100 });
+        delivered = Array.isArray((history as { records?: unknown[] }).records) ? (history as { records: unknown[] }).records.length : 0;
+      } catch {
+        continue;
+      }
+      const completed = (await this.repos!.digests.occurrencesOf(plan.id, 100)).filter(o => ['sent', 'model_done'].includes(o.status)).length;
+      if (delivered > completed) {
+        const staleDelivery = delivered - completed;
+        const oldest = await this.repos!.digests.occurrencesOf(plan.id, 1);
+        const lastDone = oldest[0]?.completed_at ? new Date(oldest[0].completed_at).getTime() : 0;
+        // Unattributable deliveries older than the grace pause the plan.
+        const startedAtMs = this.startedAt ? new Date(this.startedAt).getTime() : Date.now();
+        if (Date.now() - Math.max(lastDone, startedAtMs) > graceMs) {
+          await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id }).catch(() => {});
+          await this.repos!.digests.updatePlan(plan.id, { status: 'paused', schedule_id: null });
+          if (this.config!.ownerOpenId) {
+            await this.notifyOwner(
+              `digestunconfirmed:${plan.id}`,
+              `「${plan.title}」计划有 ${staleDelivery} 次投递无法归属到已完成的简报（可能模型未完成或回执写失败），已暂停并标记待核对；恢复前请先核对，不会为过期窗口补发一串简报。`,
+            );
+          }
+          results.push({ planId: plan.id, action: 'paused_unconfirmed', unattributed: staleDelivery });
+        }
+      }
+    }
+    return { checked: results.length, results };
+  }
+
+  /** Today overview: merged calendar + task view for the Lead (P16 AC4). */
+  private async overviewToday(): Promise<unknown> {
+    const facts = await this.planningFacts(new Date());
+    return {
+      calendar: { ...facts.calendar, events: facts.calendar.events.slice(0, 10) },
+      tasks: facts.tasksDue.slice(0, 10),
+      waiting: facts.waiting.slice(0, 5),
+      reviewQueue: facts.reviewQueueCount >= 0 ? facts.reviewQueueCount : null,
+      missing: facts.missing,
+      message: '今日概览来自实际投影；未读取的范围（如某集成未启用）不显示为零。',
+    };
+  }
+
+  /**
+   * Today plan (P16): focus, estimates, capacity and conflicts — a proposal,
+   * never a write. Buffers come from confirmed preferences (e.g. 会议之间留 15 分钟).
+   */
+  private async planToday(args: Record<string, unknown>): Promise<unknown> {
+    const now = new Date();
+    const facts = await this.planningFacts(now);
+    const bufferMinutes = await this.preferenceBufferMinutes();
+    const busyMinutes = facts.calendar.events.reduce((sum, e) => sum + Math.max(0, Math.round((new Date(e.end).getTime() - new Date(e.start).getTime()) / 60000)) + bufferMinutes, 0);
+    const estimateTotal = facts.tasksDue.reduce((sum, t) => sum + (t.estimateMinutes ?? 30), 0);
+    const capacityMinutes = Math.max(0, 8 * 60 - busyMinutes);
+    const conflicts: string[] = [];
+    for (const task of facts.tasksDue) {
+      if (task.plannedAt) {
+        const clash = facts.calendar.events.find(e => !e.allDay && new Date(e.start) <= new Date(task.plannedAt!) && new Date(task.plannedAt!) < new Date(e.end));
+        if (clash) conflicts.push(`「${task.summary}」的计划时段与日程「${clash.summary}」重叠`);
+      }
+    }
+    const overloaded = estimateTotal > capacityMinutes;
+    return {
+      focus: facts.tasksDue.slice(0, 3).map(t => ({ summary: t.summary, estimateMinutes: t.estimateMinutes ?? null, overdue: t.overdue })),
+      capacity: { workdayMinutes: 8 * 60, busyMinutes, bufferMinutesPerMeeting: bufferMinutes, remainingMinutes: capacityMinutes, taskEstimateMinutes: estimateTotal, overloaded },
+      conflicts,
+      missing: facts.missing,
+      message: overloaded
+        ? `按估时今日过载（需 ${estimateTotal} 分钟，余 ${capacityMinutes} 分钟）：建议只选重点写入计划（用 plan_adopt 选定时间块），延后项由你决定。`
+        : `今日容量 ${capacityMinutes} 分钟，任务估时 ${estimateTotal} 分钟；用 plan_preview 看候选时间块、plan_adopt 采纳选定项。`,
+    };
+  }
+
+  /** Confirmed preference for inter-meeting buffers (minutes), default 0. */
+  private async preferenceBufferMinutes(): Promise<number> {
+    try {
+      const memory = await this.memory!.search({ topic: '工作偏好', limit: 20 });
+      for (const record of memory.records) {
+        if (record.status !== 'confirmed') continue;
+        const match = record.content.match(/会议之间(?:留|间隔)\s*(\d+)\s*分钟/);
+        if (match) return Number(match[1]);
+      }
+    } catch {
+      // preference read failure keeps the default buffer, visibly zero-conflict
+    }
+    return 0;
+  }
+
+  /**
+   * Preview candidate time blocks (P16): tomorrow by default, optionally with
+   * a temporary insert; proposals only — adoption is a separate explicit step.
+   */
+  private async planPreview(args: Record<string, unknown>): Promise<unknown> {
+    const tz = this.config!.timeZone;
+    const base = args.date ? new Date(String(args.date)) : new Date(Date.now() + 24 * 3600 * 1000);
+    if (Number.isNaN(base.getTime())) throw new Error('date 需为可解析日期。');
+    const from = new Date(base.toISOString().slice(0, 10) + 'T00:00:00Z');
+    const to = new Date(base.toISOString().slice(0, 10) + 'T23:59:59Z');
+    const calendarId = this.config!.calendarId;
+    const sync = await this.syncCalendarWindow(calendarId, from, to).catch(() => ({ ok: false, error: '同步失败' }));
+    const events = await this.repos!.calendar.eventsIn(calendarId, from, to);
+    const bufferMinutes = await this.preferenceBufferMinutes();
+    const busy = events.filter(e => !e.is_all_day).map(e => ({ summary: e.summary, start: isoDate(e.start_time)!, end: isoDate(e.end_time)! }));
+    if (args.insert) {
+      const insertStart = new Date(String((args.insert as Record<string, unknown>).start ?? ''));
+      const insertEnd = new Date(String((args.insert as Record<string, unknown>).end ?? ''));
+      if (Number.isNaN(insertStart.getTime()) || Number.isNaN(insertEnd.getTime()) || insertEnd <= insertStart) throw new Error('插单需要 start/end（ISO）。');
+      const displaced = busy.filter(b => new Date(b.start) < insertEnd && insertStart < new Date(b.end));
+      return {
+        date: from.toISOString().slice(0, 10),
+        fresh: sync.ok,
+        busy,
+        insert: { start: insertStart.toISOString(), end: insertEnd.toISOString() },
+        displacedByInsert: displaced,
+        message: displaced.length
+          ? `插单与 ${displaced.length} 项现有安排重叠（${displaced.map(d => d.summary).join('、')}）；建议只调整受影响部分（改期建议如下），未受影响安排不动。采纳时用 plan_adopt 只写入你选定的块。`
+          : '插单时段空闲，可直接采纳（plan_adopt）。',
+        suggestions: displaced.map(d => `将「${d.summary}」改期到插单后，或压缩该时段`),
+      };
+    }
+    const tasks = await this.repos!.tasks.list();
+    const openTasks = tasks.filter(t => t.status !== 'completed').slice(0, 5);
+    return {
+      date: from.toISOString().slice(0, 10),
+      fresh: sync.ok,
+      busy,
+      bufferMinutesPerMeeting: bufferMinutes,
+      candidateBlocks: openTasks.map((task, index) => ({
+        task: task.summary,
+        suggestedStart: new Date(from.getTime() + (9 + index) * 3600 * 1000).toISOString(),
+        minutes: task.estimate_minutes ?? 60,
+      })),
+      message: '候选时间块仅为建议；用 plan_adopt 采纳选定项（写入前会重新同步复核）。',
+    };
+  }
+
+  /**
+   * Adopt selected blocks (P16): re-sync the day, re-check conflicts, then
+   * write only the chosen blocks through the staged calendar path.
+   */
+  private async planAdopt(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const blocks = Array.isArray(args.blocks) ? (args.blocks as Record<string, unknown>[]) : [];
+    if (blocks.length === 0) throw new Error('需要选定要写入的时间块（blocks[]）；未选定的建议不会写入。');
+    const results = [];
+    for (const [index, block] of blocks.entries()) {
+      try {
+        const created = await this.calendarWrite(item, 'create', {
+          summary: block.summary,
+          start: block.start,
+          end: block.end,
+          calendarId: args.calendarId,
+        });
+        results.push({ index, ok: true, ...(created as object) });
+      } catch (error) {
+        results.push({ index, ok: false, error: (error as Error).message });
+      }
+    }
+    const failed = results.filter(r => !r.ok).length;
+    return {
+      adopted: results.length - failed,
+      failed,
+      results,
+      message: failed === 0
+        ? `已按你的选择写入 ${results.length} 个时间块（写入前重新同步复核；回执见各块 eventId/url）。`
+        : `已采纳 ${results.length - failed} 项，${failed} 项失败（见明细）；失败项核对后可重试。`,
+    };
   }
 
   // ---- handwriting notes (F06) ----------------------------------------------
