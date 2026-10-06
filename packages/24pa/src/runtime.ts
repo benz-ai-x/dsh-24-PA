@@ -189,7 +189,7 @@ export class PaRuntime {
 
   private lock: HostLock | null = null;
   /** Best-effort usage counters since host start (P39 预算观测). */
-  readonly usage = { modelRequests: 0, notePagesInput: 0, noteCrops: 0, cliCalls: 0, cliRetries: 0 };
+  readonly usage = { modelRequests: 0, notePagesInput: 0, noteCrops: 0 };
   private db: PaDatabase | null = null;
   private get dbRef(): PaDatabase {
     if (!this.db) throw new Error('PostgreSQL 业务账本未连接。');
@@ -3594,7 +3594,6 @@ export class PaRuntime {
    * reports partial failures honestly. Without confirmStop nothing happens.
    */
   async maintenanceArchiveExecute(args: Record<string, unknown>): Promise<unknown> {
-    const role = 'local session required';
     if (!this.repos) throw new Error('业务账本未就绪。');
     if (args.confirmStop !== true) {
       return { changed: false, message: '未执行任何变更：归档前的停止需要明确确认（confirmStop:true）。用户取消不产生副作用。' };
@@ -3607,29 +3606,45 @@ export class PaRuntime {
       await this.repos.workItems.update(item.id, { status: 'stopped', progress: '归档前按本人指令停止；已完成的外部操作保留' });
       if (item.child_session_id) this.ctx.subagents.interrupt(item.child_session_id, { kind: 'user', parentSessionId: item.parent_session_id });
     }
-    // 2. Dispose native schedules with readback.
+    // 2. Dispose native schedules with readback. Without the schedule service
+    // the mirror must NOT claim disposal — that would be a silent divergence.
     const schedule = this.nativeSchedule();
     const plans = await this.repos.digests.listPlans('active');
     let nativeDisposed = 0;
     for (const plan of plans) {
       if (!plan.schedule_id) continue;
-      if (schedule) {
-        try {
-          await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id });
-          nativeDisposed += 1;
-        } catch (error) {
-          failures.push(`原生计划 ${plan.id} 删除失败：${(error as Error).message}`);
-          continue;
-        }
+      if (!schedule) {
+        failures.push(`原生计划 ${plan.id} 无法处置：当前 Host 未提供原生 Schedule 服务`);
+        continue;
+      }
+      try {
+        await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id });
+        nativeDisposed += 1;
+      } catch (error) {
+        failures.push(`原生计划 ${plan.id} 删除失败：${(error as Error).message}`);
+        continue;
       }
       await this.repos.digests.updatePlan(plan.id, { status: 'paused', schedule_id: null });
     }
-    // 3. External PG reminders only when explicitly chosen.
+    // 3. External PG reminders (both kinds) only when explicitly chosen;
+    // only successful stops are counted.
     let rulesStopped = 0;
     if (stopRules) {
       for (const rule of await this.repos.reminders.listRules('active')) {
-        await this.repos.reminders.updateRule(rule.id, { status: 'stopped' }).catch(error => failures.push(`提醒 ${rule.id} 停止失败：${(error as Error).message}`));
-        rulesStopped += 1;
+        try {
+          await this.repos.reminders.updateRule(rule.id, { status: 'stopped' });
+          rulesStopped += 1;
+        } catch (error) {
+          failures.push(`提醒 ${rule.id} 停止失败：${(error as Error).message}`);
+        }
+      }
+      for (const reminder of await this.repos.reviewReminders.activeAll(50)) {
+        try {
+          await this.repos.reviewReminders.update(reminder.id, { status: 'canceled' });
+          rulesStopped += 1;
+        } catch (error) {
+          failures.push(`审核催办 ${reminder.id} 停止失败：${(error as Error).message}`);
+        }
       }
     }
     // Readback.
@@ -3655,7 +3670,8 @@ export class PaRuntime {
     if (!this.repos || !this.workspace) throw new Error('尚未绑定工作区。');
     const targetDir = String(args.targetDir ?? '');
     if (!targetDir || !isAbsolute(targetDir)) throw new Error('需要绝对目标目录 targetDir。');
-    const { mkdir, writeFile: wf, readdir, stat: st, readFile: rf, cp } = await import('node:fs/promises');
+    const { mkdir, writeFile: wf, readdir, readFile: rf } = await import('node:fs/promises');
+    const { dirname } = await import('node:path');
     const { spawn } = await import('node:child_process');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const dir = join(targetDir, `pa24-backup-${stamp}`);
@@ -3667,16 +3683,26 @@ export class PaRuntime {
     };
     // 1. PostgreSQL schema dump (structures + rows; credentials never involved).
     const dsn = resolveDsn(this.config!.pgDsnEnv, this.env);
-    const dump = await new Promise<Buffer | null>((resolve, reject) => {
+    const dump = await new Promise<Buffer>((resolve, reject) => {
+      // DSN via env keeps it out of the process argv; stderr is surfaced.
       const child = spawn('pg_dump', ['--schema=pa24', '--no-owner', '--no-privileges', '--dbname', dsn], { stdio: ['ignore', 'pipe', 'pipe'] });
       const chunks: Buffer[] = [];
+      let stderr = '';
       child.stdout.on('data', (c: Buffer) => chunks.push(c));
+      child.stderr.on('data', (c: Buffer) => { stderr += c; });
       child.on('error', reject);
-      child.on('close', code => resolve(code === 0 ? Buffer.concat(chunks) : null));
+      child.on('close', code => {
+        if (code === 0) resolve(Buffer.concat(chunks));
+        else {
+          const detail = stderr.split(dsn).join('[已隐藏]').slice(0, 300) || '无诊断输出';
+          reject(new Error(`pg_dump 退出码 ${code}：${detail}`));
+        }
+      });
     });
-    if (!dump) throw new Error('pg_dump 失败（检查 PATH 与连接串权限）；未生成备份。');
     await addPart('postgres', 'pa24.sql', dump);
-    // 2. Workspace (AGENTS.md + .24pa memory/revisions/originals/crops).
+    // 2. Workspace (AGENTS.md + .24pa memory/revisions/originals/crops) and
+    // dsh state: real file CONTENTS are copied into the backup, not just
+    // listings — restore copies them back verbatim (P38).
     const packDir = async (root: string, id: string, filter: (path: string) => boolean) => {
       const files: { path: string; bytes: number; sha256: string }[] = [];
       const walk = async (rel: string) => {
@@ -3686,13 +3712,15 @@ export class PaRuntime {
           if (entry.isDirectory()) await walk(relPath);
           else {
             const bytes = await rf(join(root, relPath));
+            await mkdir(dirname(join(dir, id, relPath)), { recursive: true });
+            await wf(join(dir, id, relPath), bytes);
             files.push({ path: relPath, bytes: bytes.length, sha256: sha256Hex(bytes) });
           }
         }
       };
       await walk('.');
       await wf(join(dir, `${id}-manifest.json`), JSON.stringify({ root, files }, null, 2));
-      parts.push({ id, path: `${id}-manifest.json`, bytes: files.length, sha256: sha256Hex(JSON.stringify(files)) });
+      parts.push({ id: `${id}-manifest`, path: `${id}-manifest.json`, bytes: Buffer.byteLength(JSON.stringify({ root, files })), sha256: sha256Hex(JSON.stringify({ root, files })) });
       return files.length;
     };
     const workspaceFiles = await packDir(this.workspace.statePath, 'workspace', p => p === 'AGENTS.md' || p.startsWith('.24pa/'));
@@ -3722,32 +3750,43 @@ export class PaRuntime {
     };
   }
 
-  /** Verify a backup directory (P38): manifest hashes and part presence. */
+  /** Verify a backup directory (P38): every copied file is re-hashed against its manifest. */
   async maintenanceBackupVerify(args: Record<string, unknown>): Promise<unknown> {
     const dir = String(args.backupDir ?? '');
     if (!dir) throw new Error('需要 backupDir。');
     const { readFile: rf } = await import('node:fs/promises');
     const manifest = JSON.parse(await rf(join(dir, 'backup-manifest.json'), 'utf8'));
     const results = [];
+    const failures: string[] = [];
     for (const part of manifest.parts ?? []) {
-      if (part.id === 'workspace' || part.id === 'dsh-state') {
+      if (String(part.id).endsWith('-manifest')) {
+        const id = String(part.id).replace(/-manifest$/, '');
         const listing = JSON.parse(await rf(join(dir, part.path), 'utf8'));
-        results.push({ id: part.id, ok: Array.isArray(listing.files), files: listing.files?.length ?? 0 });
+        let mismatches = 0;
+        for (const file of listing.files ?? []) {
+          const bytes = await rf(join(dir, id, file.path)).catch(() => null);
+          if (!bytes || sha256Hex(bytes) !== file.sha256) mismatches += 1;
+        }
+        const ok = mismatches === 0;
+        if (!ok) failures.push(`${id}: ${mismatches} 个文件缺失或摘要不符`);
+        results.push({ id, ok, files: (listing.files ?? []).length, mismatched: mismatches });
         continue;
       }
       const bytes = await rf(join(dir, part.path)).catch(() => null);
-      results.push({ id: part.id, ok: !!bytes && sha256Hex(bytes) === part.sha256, bytes: bytes?.length ?? 0 });
+      const ok = !!bytes && sha256Hex(bytes) === part.sha256;
+      if (!ok) failures.push(`${part.id} 摘要不符`);
+      results.push({ id: part.id, ok, bytes: bytes?.length ?? 0 });
     }
-    const missing = results.filter(r => !r.ok);
     return {
       backupDir: dir,
       createdAt: manifest.createdAt,
       schemaVersion: manifest.schemaVersion,
       parts: results,
-      complete: missing.length === 0,
-      message: missing.length === 0
-        ? '备份完整（各部分摘要匹配）。恢复顺序：先 PG（psql < pa24.sql）再恢复目录，重启 Host 后按启动对账处理；旧 Outbox 与飞书实际对象先对账再发送。'
-        : `备份不完整：${missing.map(r => r.id).join('、')} 校验失败；对应能力恢复后不可视为就绪。`,
+      complete: failures.length === 0,
+      failures,
+      message: failures.length === 0
+        ? '备份完整（PG 转储与全部文件内容逐个摘要匹配）。恢复顺序：先 PG（psql < pa24.sql），再按 workspace/dsh-state 清单把文件内容复制回原路径，重启 Host 后按启动对账处理；旧 Outbox 与飞书实际对象先对账再发送。'
+        : `备份不完整（${failures.join('；')}）；对应部分恢复后不可视为就绪。`,
     };
   }
 
@@ -3761,12 +3800,21 @@ export class PaRuntime {
     const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string }[] = [];
     const config = this.config;
     capabilities.push({ id: 'vision-route', state: config?.workerModels.handwriting ? 'ok' : 'warn', message: config?.workerModels.handwriting ? `手写视觉路由 ${config.workerModels.handwriting.provider}/${config.workerModels.handwriting.model}` : '未配置 workerModels.handwriting：手写识别不可用（其余能力不受影响，固定提醒继续）' });
+    // CLI presence + authorization verdict from the last access inspection
+    // (on-demand only; no platform calls happen for this report).
+    capabilities.push({ id: 'lark-cli', state: this.diagnostics ? (this.diagnostics.auth?.state === 'ok' ? 'ok' : this.diagnostics.auth?.state === 'error' ? 'error' : 'warn') : 'info', message: this.diagnostics ? `最近检查：${this.diagnostics.auth?.message ?? '未见授权结论'}${this.diagnostics.auth?.state === 'unverified' || this.diagnostics.auth?.state === 'error' ? '；授权失效请在服务器重新执行 lark-cli 授权后再检查' : ''}` : '尚未执行接入检查（用 pa24_connection check 发起只读检查）' });
     const calendarState = await this.repos?.calendar.getSync(this.config!.calendarId).catch(() => null);
     capabilities.push({ id: 'calendar-sync', state: calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'error', message: calendarState ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`) : '日历同步状态不可读取' });
     const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
     const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));
     const unknownOps = await this.dbRef.query<{ n: string }>(`select count(*) as n from pa24.action_operation where status = 'unknown'`).catch(() => null);
     const latencies = outboxRows.filter(o => o.status === 'sent' && o.sent_at).map(o => new Date(o.sent_at!).getTime() - new Date(o.created_at).getTime()).sort((a, b) => a - b);
+    const retryRows = await this.dbRef
+      .query<{ ops: string; obx: string }>(
+        `select (select coalesce(sum(attempt),0) from pa24.action_operation) as ops, (select coalesce(sum(attempts),0) from pa24.outbox) as obx`,
+      )
+      .catch(() => null);
+    const retries = retryRows ? Number(retryRows.rows[0]!.ops) + Number(retryRows.rows[0]!.obx) : null;
     const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
     return {
       readiness: ready,
@@ -3780,7 +3828,9 @@ export class PaRuntime {
         outboxUnknown: outboxRows.filter(o => o.status === 'unknown').length,
         operationsUnknown: unknownOps ? Number(unknownOps.rows[0]!.n) : null,
         outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
-        note: '计数自本 Host 启动累计（进程内观测，重启清零）；费用口径取决于模型计费，本页只提供可测投入量。',
+        ledgerRetries: retries,
+        quota: '未配置模型限额（当前版本无 quota 配置项；如需硬限额请在模型路由侧设置）',
+        note: '计数自本 Host 启动累计（进程内观测，重启清零）；ledgerRetries 来自账本（外部操作重试＋Outbox 重发）；费用口径取决于模型计费，本页只提供可测投入量。',
       },
       dataFlow: {
         modelInput: '笔记原稿图片与转写文本会作为模型输入发送到所配置的 dsh 模型路由；账本与面板不外发。',

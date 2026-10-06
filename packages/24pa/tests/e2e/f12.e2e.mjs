@@ -144,12 +144,16 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     expect(manifest.credentialReferences).toContain('PA24_PG_DSN');
     expect(JSON.stringify(manifest)).not.toContain(cluster.dsn);
 
-    // verify
+    // verify（逐文件内容摘要校验）
     await localMaint('f12-bv-1', 'backup_verify', { backupDir });
     before = llm.log.length;
     await promptLocal('f12-bv-1', '校验刚才的备份');
     const verified = await waitToolResult('pa24_maintenance', '备份完整', '校验回执', 60_000, before);
+    expect(verified).toContain('逐个摘要匹配');
     expect(verified).toContain('恢复顺序');
+    // 工作区内容确实被复制（不只是清单）：AGENTS.md 与记忆目录存在于备份
+    const backedAgents = await readFile(join(backupDir, 'workspace', 'AGENTS.md'), 'utf8');
+    expect(backedAgents).toContain('24私助工作区');
 
     // 恢复演练：全新 cluster ← pa24.sql；代表性数据（digest_plan/work_item）可读
     const restored = await startPgCluster();
