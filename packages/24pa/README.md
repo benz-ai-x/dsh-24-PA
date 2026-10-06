@@ -72,6 +72,12 @@ dsh --profile <你的 profile>
 - 投递监督：有界核对对比原生 `schedule.history` 投递与已完成发生——无法归属（宽限后）→ 计划暂停＋`digestunconfirmed` 通知，不为过期窗口补发一串；面板 `digest.supervise {graceMs}` 暴露同一入口。重启后原生 Schedule 自持久续跑，业务状态按账本恢复。
 - 简报内容：事实（日程带 syncedAt/新鲜度、任务截止与计划分开、完成、等待、待审、项目进展）与建议分开，每期带来源与数据缺失清单；晚间/周回顾绝不自动延期任务、绝不写 JSON 记忆。
 
+## F10 增量（会议资料与纪要行动）
+
+- 会前准备（P26）：`meeting_prep_enable {eventId, leadMinutes}` 把一次性原生 Schedule 挂到固定接入会话（schedule_spec 记录会议与提前量）；到点 Lead 委派 calendar Worker `meeting_prep_build {planId}`——**发送前复查会议状态**（取消/改期即跳过并说明，不发送过时准备包）；资料检索限定授权范围（备忘关键词＋近期、confirmed 记忆、相关未完成任务），没有材料如实说明、不编造议程；准备包带资料出处与 WorkItem 标注。日程取消/改期经 F08 来源联动自动停止绑定该会议的 prep 计划。
+- 会后纪要（P27）：memo Worker `minutes_build {topic, content, candidates[]}` 经既有 memo 管线保存飞书纪要（创建＋回读），候选行动（含出处引文、责任人/日期原话、未知项）存 `pa24.minutes.candidates`——纪要生成≠行动执行。
+- 候选行动契约（可被手写链复用）：`minutes_adopt_actions {minutesId, indexes[], instruction}` 只执行选定且信息足够的候选（有 start/end→日历时间块，否则→飞书任务）；**幂等键＝(minutes, index)**——跨会话重复选择返回已有对象；结果未知拒绝盲重试；部分选择与部分失败逐项返回并回写纪要状态。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |

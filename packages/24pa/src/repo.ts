@@ -1593,6 +1593,44 @@ export class DigestRepo {
   }
 }
 
+export interface MinutesRow {
+  id: string;
+  work_item_id: string | null;
+  event_id: string | null;
+  topic: string;
+  memo_id: string | null;
+  doc_url: string | null;
+  candidates: any;
+  status: 'draft' | 'actions_taken' | string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export class MinutesRepo {
+  constructor(private readonly db: PaDatabase) {}
+
+  async insert(row: Omit<MinutesRow, 'created_at' | 'updated_at'>): Promise<MinutesRow> {
+    const result = await this.db.query<MinutesRow>(
+      `insert into pa24.minutes (id, work_item_id, event_id, topic, memo_id, doc_url, candidates, status)
+       values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+      [row.id, row.work_item_id, row.event_id, row.topic, row.memo_id, row.doc_url, JSON.stringify(row.candidates ?? []), row.status],
+    );
+    return result.rows[0]!;
+  }
+
+  async get(id: string): Promise<MinutesRow | null> {
+    const result = await this.db.query<MinutesRow>('select * from pa24.minutes where id = $1', [id]);
+    return result.rows[0] ?? null;
+  }
+
+  async update(id: string, patch: Partial<Pick<MinutesRow, 'memo_id' | 'doc_url' | 'candidates' | 'status'>>): Promise<void> {
+    const sets = ['updated_at = now()'];
+    const values: unknown[] = [id];
+    digestPatch(sets, values, patch, ['candidates']);
+    await this.db.query(`update pa24.minutes set ${sets.join(', ')} where id = $1`, values);
+  }
+}
+
 export interface Repos {
   inbox: InboxRepo;
   workItems: WorkItemRepo;
@@ -1612,6 +1650,7 @@ export interface Repos {
   taskTemplates: TaskTemplateRepo;
   waiting: WaitingRepo;
   digests: DigestRepo;
+  minutes: MinutesRepo;
 }
 
 export function createRepos(db: PaDatabase): Repos {
@@ -1634,5 +1673,6 @@ export function createRepos(db: PaDatabase): Repos {
     taskTemplates: new TaskTemplateRepo(db),
     waiting: new WaitingRepo(db),
     digests: new DigestRepo(db),
+    minutes: new MinutesRepo(db),
   };
 }

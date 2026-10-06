@@ -399,6 +399,23 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       `create index if not exists digest_occurrence_plan_idx on pa24.digest_occurrence (plan_id, created_at)`,
     ],
   },
+  {
+    version: 10,
+    statements: [
+      `create table if not exists pa24.minutes (
+        id text primary key,
+        work_item_id text,
+        event_id text,
+        topic text not null,
+        memo_id text,
+        doc_url text,
+        candidates jsonb not null default '[]'::jsonb,
+        status text not null default 'draft',
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {
