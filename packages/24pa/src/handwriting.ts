@@ -178,11 +178,12 @@ export function noteDocumentXml(
   // same rule generateCrops uses, so document citations match stored crops.
   let cropNo = 0;
   const nextCropId = () => `C${(cropNo += 1)}`;
+  const CERTAINTY_LABELS: Record<DoubtSpec['certainty'], string> = { reliable: '可靠', estimated: '估计', page: '页级' };
   const doubts = (recognized.doubts ?? []).map(doubt => {
     const kind = DOUBT_KIND_LABELS[doubt.kind as DoubtKind] ?? String(doubt.kind);
     const where = doubt.region
-      ? `${regionText(doubt.region)}（${doubt.certainty}，裁片 ${nextCropId()}）`
-      : `整页引用（${doubt.certainty}）`;
+      ? `${regionText(doubt.region)}（${CERTAINTY_LABELS[doubt.certainty] ?? doubt.certainty}，裁片 ${nextCropId()}）`
+      : `整页引用（${CERTAINTY_LABELS[doubt.certainty] ?? doubt.certainty}）`;
     return `<li>第 ${doubt.pageNo} 页【${kind}】“${xml(doubt.quote)}”${doubt.note ? `；${xml(doubt.note)}` : ''}；${where}</li>`;
   });
   const diagrams = (recognized.diagrams ?? []).map(diagram => {

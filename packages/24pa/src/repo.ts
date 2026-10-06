@@ -1211,9 +1211,6 @@ export class ReviewReminderRepo {
     return result.rowCount ?? 0;
   }
 
-  async cancelForVersionOn(client: any, versionId: string): Promise<void> {
-    await client.query(this.cancelForVersionSql, [versionId]);
-  }
 
   async activeForNote(noteId: string): Promise<ReviewReminderRow[]> {
     const result = await this.db.query<ReviewReminderRow>(
