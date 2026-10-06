@@ -78,6 +78,12 @@ dsh --profile <你的 profile>
 - 会后纪要（P27）：memo Worker `minutes_build {topic, content, candidates[]}` 经既有 memo 管线保存飞书纪要（创建＋回读），候选行动（含出处引文、责任人/日期原话、未知项）存 `pa24.minutes.candidates`——纪要生成≠行动执行。
 - 候选行动契约（可被手写链复用）：`minutes_adopt_actions {minutesId, indexes[], instruction}` 只执行选定且信息足够的候选（有 start/end→日历时间块，否则→飞书任务）；**幂等键＝(minutes, index)**——跨会话重复选择返回已有对象；结果未知拒绝盲重试；部分选择与部分失败逐项返回并回写纪要状态。
 
+## F11 增量（审核笔记的行动与综合查询）
+
+- 审核后行动（P34）：handwriting 角色 `note_adopt_actions {noteId, versionId, indexes[], instruction}`——使用前核验版本为 approved **且当前文档指纹仍匹配**（未审/已退回/被取代/编辑后/无法核验一律拒绝，未知字段不会自动变成执行参数）；候选保留出处（sourceQuote）与日期原话（due 原文＋解析值）；幂等键＝`note.action:<note>:v<版本>:<索引>`（复用 P27 契约，跨会话重复选择返回已有对象）；批准与行动授权分别落账。
+- 修订影响（P34）：发布新版本时对旧版本已建的行动对象发**变更建议**（`noteimpact` 通知，逐版本去重；"是否调整由你决定"，绝不静默删除/覆盖）。
+- 可信检索（P35）：`notes_search {query}` 只读检索，逐条**重新核验当前有效性**——matches（可作为已确认事实引用）/changed/unknown（含原因）/unreviewed 明确标注，多版本各自成行、不因曾通过而继承；返回可打开的文档链接。今日概览与晨报新增 reviewedNotes（当前仍匹配的已审版本，带版本/审核时间/链接）；待审读取失败显示"无法读取（不按零处理）"；会话历史不默认拼接。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |

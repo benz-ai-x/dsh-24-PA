@@ -72,12 +72,23 @@ export function advanceReminder(kind: 'once' | 'daily', sentCount: number, now: 
   return { status: 'pending', remindAt: new Date(now + REMINDER_DAILY_MIN_INTERVAL_MS) };
 }
 
+export interface NoteCandidate {
+  summary: string;
+  /** Verbatim quote from the original note proving the action (P34 出处). */
+  sourceQuote?: string;
+  /** Raw date phrase as written; parsing happens at adoption time. */
+  due?: string;
+  /** Optional explicit time block: routes the action to a calendar event (P34). */
+  start?: string;
+  end?: string;
+}
+
 export interface RecognizedNote {
   transcript: string;
   summary: string;
   suggestions: string[];
   unknowns: string[];
-  candidates: string[];
+  candidates: NoteCandidate[];
   relativeDates: { original: string; interpretation: string }[];
   /** F07 per-page transcripts; page numbers must match saved pages exactly. */
   pages?: { pageNo: number; transcript: string }[];
@@ -169,6 +180,8 @@ export function noteDocumentXml(
 ): string {
   const status = pendingReviewLine(noteId, version);
   const lines = (items: string[], tag = 'p') => items.map(item => `<${tag}>${xml(item)}</${tag}>`).join('\n');
+  const candidateText = (candidate: NoteCandidate) =>
+    `${candidate.summary}${candidate.sourceQuote ? `（原文：${candidate.sourceQuote}）` : ''}${candidate.due ? `（日期原话：${candidate.due}）` : ''}${candidate.start && candidate.end ? `（时间块 ${candidate.start} → ${candidate.end}）` : ''}`;
   const pages = recognized.pages?.length
     ? recognized.pages
         .map(p => `<h2>第 ${p.pageNo} 页 转写</h2>\n<p>${xml(p.transcript)}</p>`)
@@ -200,7 +213,7 @@ export function noteDocumentXml(
 <h1>整理正文</h1>
 <p>${xml(recognized.transcript)}</p>
 <h1>候选行动（未授权执行）</h1>
-${recognized.candidates.length ? lines(recognized.candidates, 'li') : '<p>（无）</p>'}
+${recognized.candidates.length ? recognized.candidates.map(candidate => `<li>${xml(candidateText(candidate))}</li>`).join('\n') : '<p>（无）</p>'}
 <h1>疑点与定位（重点复核：数字/人名/缩写/日期/否定/勾选/不清）</h1>
 ${doubts.length ? doubts.join('\n') : (recognized.unknowns.length ? lines(recognized.unknowns, 'li') : '<p>（无）</p>')}
 ${recognized.unknowns.length && doubts.length ? `<h2>其余未知项</h2>\n${lines(recognized.unknowns, 'li')}` : ''}
