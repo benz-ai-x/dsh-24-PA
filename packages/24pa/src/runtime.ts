@@ -2343,15 +2343,15 @@ export class PaRuntime {
       return;
     }
     // Re-verify the document matches the fingerprint this button was bound to.
-    let currentFingerprint: string;
+    let liveFingerprint: string;
     try {
-      currentFingerprint = await this.currentFingerprint(row.note_id, version.doc_id!);
+      liveFingerprint = await this.currentFingerprint(row.note_id, version.doc_id!);
     } catch (error) {
       await notify(`暂时无法核验文档当前内容（${(error as Error).message}）；本次点击未产生裁决，请稍后再试。`);
       await finish('rejected', '文档核验失败（unknown）');
       return;
     }
-    if (currentFingerprint !== row.fingerprint) {
+    if (liveFingerprint !== row.fingerprint) {
       await notes.updateVersion(version.id, { status: 'stale' });
       await notes.updateNote(row.note_id, { status: 'needs_rereview' });
       await notify('文档内容与待审版本不一致（已修改），本按钮不能批准当前内容；旧批准只覆盖旧快照。可要求重新发布候选版本。');
@@ -2656,7 +2656,7 @@ export class PaRuntime {
       await this.repos!.messageRoutes.record(messageId, { kind: 'note', noteId });
     } else if (dedupKey.startsWith('notereview:')) {
       // Key form: notereview:<noteId>:v<version>
-      const noteId = dedupKey.slice('notereview:'.length).split(':')[0] ?? '';
+      const noteId = dedupKey.slice('notereview:'.length).split(':')[0]!;
       await this.repos!.messageRoutes.record(messageId, { kind: 'note', noteId });
     } else if (dedupKey.startsWith('reply:')) {
       const inboxEventId = dedupKey.slice('reply:'.length).split(':')[0];
