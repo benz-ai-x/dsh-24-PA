@@ -58,6 +58,13 @@ dsh --profile <你的 profile>
 - 审核队列（P33）：`pa24_notes queue` 与面板「手写审核」页集中列出待审/需重审/已退回对象（最新版本、指纹、上次核验结果与时间、页数、在途催办、打开飞书文档）；页面只读，无网页批准按钮；空队列/读取失败分别显示。
 - 审核提醒（P33）：`pa24_notes remind`（once/daily，绑定当前待审版本）与 `remind_control`（snooze/pause/resume/cancel，只动提醒不动审核）；派发复用 Outbox 与 F05 静默扣留，6 小时最小间隔、daily 3 次封顶；版本完成审核或被新候选取代时在途催办同事务自动取消——旧版本不再催审；重启后按账本继续。面板 `notes.poll` / `notes.remind-poll` 暴露有界核对与派发入口。
 
+## F08 增量（事项交办与持续跟进）
+
+- 交办与发信（P13）：tasks Worker 的 `outreach_send`（`im +messages-send --user-id`，幂等键=操作号）与 `task_assign`（`task +assign`）只凭本人明确指令（instruction 依据）；草稿不发送、目标不唯一先澄清（复用 F04 联系人解析）；执行回执（平台 message_id/操作号）入 `pa24.outreach`；失败/结果未知如实记录，不伪造成功；等待事项与资料永不构成对外沟通授权。
+- 来源跟随提醒（P19）：`reminder_create` 可 `linkTaskGuid`/`linkEventId`（快照来源指纹）；提醒引擎**发送前复核**来源仍匹配——取消/改期则拦截实例并告知；任务修改、日程写入与日历同步检测到指纹变化时：未发送实例取消并通知、已发送的补发关联更正（`srccorr`）；规则按业务键天然去重，不重写飞书原生重复规则。
+- 周期任务模板（P22）：`task_repeat_create`（every≥60s/daily/weekly，dsh-schedule 记录＋`pa24.task_template[_instance]` 唯一实例）；有界物化 tick 逐实例生成真实飞书任务（幂等键=实例 id）；只补最近一次错过（不无界回补）；`task_repeat_skip`（跳过本次）/`task_repeat_stop`（停止以后）/`task_repeat_update`（修改以后，重建模板停旧）；已生成历史保留。飞书任务 CLI 未暴露原生重复规则，按模板实现（如实说明）。
+- 等待事项（P23）：`waiting_create`（内容/来源/检查点/去重键，同源不重复建）＋`waiting_control`（收到/继续等/改时间/取消，同步调整检查点）；到点经 Outbox **只询问本人**（复用免打扰扣留），不自动催办他人；没有可读回复来源时以本人答复为准。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |

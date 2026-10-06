@@ -27,6 +27,8 @@ export interface ReminderEngineHooks {
   notify(dedupKey: string, text: string): Promise<void>;
   /** Look up an outbox row's send state by dedup key (platform acceptance). */
   outboxState(dedupKey: string): Promise<{ status: string; messageId: string | null } | null>;
+  /** P19 pre-send check: a linked source that vanished or changed withholds the send. */
+  sourceValid?(rule: ReminderRuleRow): Promise<{ valid: boolean; reason?: string }>;
 }
 
 export interface CreateReminderInput {
@@ -42,6 +44,8 @@ export interface CreateReminderInput {
   timeZone: string;
   source?: string;
   workItemId?: string;
+  /** P19: bind to a task/calendar source; reminders only send while the fingerprint matches. */
+  link?: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string };
 }
 
 export class ReminderError extends Error {
@@ -152,6 +156,9 @@ export class ReminderEngine {
       origin_expression: originExpression,
       source: input.source ?? null,
       work_item_id: input.workItemId ?? null,
+      link_source_type: input.link?.sourceType ?? null,
+      link_source_id: input.link?.sourceId ?? null,
+      link_fingerprint: input.link?.fingerprint ?? null,
     });
     return {
       ruleId: rule.id,
@@ -326,6 +333,15 @@ export class ReminderEngine {
         // Quiet hours / vacation: hold the occurrence, do not drop it (P21).
         await this.repo.updateOccurrence(occurrence.id, { status: 'pending', deferred_until: silentUntil, last_error: null });
         continue;
+      }
+      if (rule.link_source_id && this.hooks.sourceValid) {
+        const verdict = await this.hooks.sourceValid(rule).catch(() => ({ valid: false, reason: '来源核对失败' }));
+        if (!verdict.valid) {
+          // The followed task/meeting changed or vanished: withhold and say so (P19).
+          await this.repo.updateOccurrence(occurrence.id, { status: 'canceled' });
+          await this.hooks.notify(`remindsrc:${occurrence.id}`, `提醒未发送：关联的${rule.link_source_type === 'task' ? '任务' : '日程'}已变更（${verdict.reason ?? '来源不再匹配'}）。如仍需要请按最新安排重新设置。`);
+          continue;
+        }
       }
       const dedupKey = `reminder:${occurrence.id}`;
       try {
