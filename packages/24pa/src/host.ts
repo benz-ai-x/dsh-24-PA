@@ -111,7 +111,8 @@ export interface FsWritePolicy {
 export interface SystemPromptSection {
   name: string;
   order: number;
-  text: string;
+  /** Static text, or a function re-evaluated at render time (e.g. reloadable workspace rules). */
+  text: string | (() => string);
   interpolate?: (data: unknown) => string;
 }
 
