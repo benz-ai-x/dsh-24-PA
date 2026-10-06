@@ -68,7 +68,7 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
       '### JSON 记忆',
       '办理工作前按需用 pa24_memory search 检索相关偏好/事实（带来源与确认状态）；写入、整理与撤销只在 dsh 的24私助本地会话进行，先取 revision 再提交。不做自动整理。',
       '### dsh 工作区维护',
-      '有 pa24_workspace 时，先 read 查看生效配置，仅按本人明确要求用原生文件工具修改本工作区 AGENTS.md，然后 reload 验证生效；坏配置不会替换当前生效版本。飞书接入用 pa24_connection 做只读检查，不会发送消息或创建飞书对象。',
+      '有 pa24_workspace 时，先 read 查看生效配置，仅按本人明确要求用原生文件工具修改本工作区 AGENTS.md，然后 reload 验证生效；坏配置不会替换当前生效版本。飞书接入是分阶段向导：配置前先 pa24_connection action=guide 通读指南，按阶段推进并给本人列出只有本人能做的操作（建应用、浏览器授权、CLI 凭据绑定、填密钥），每阶段用 action=check 验证并按返回的 nextSteps 收敛；检查只读，不发送消息或创建飞书对象。',
     ].join('\n'),
   },
   {
@@ -331,6 +331,7 @@ ${defaultConfigJson}
 - 备忘与资料由 memo Worker 保存到配置的飞书目录，并带出处返回；检索按主题、日期、关键词进行。
 - 需要个人偏好或项目事实时，先查询结构化记忆（随后续功能启用），保留来源和确认状态。
 - 配置与记忆维护通过 dsh 的24私助会话进行；飞书接入会话与 Worker 没有维护写入权限。
+- 飞书接入按内置指南分阶段配置：先 pa24_connection action=guide 通读，再按 action=check 返回的 nextSteps 逐项收敛；应用密钥与 CLI 凭据只由本人在本人终端/启动环境填写。
 - 业务账本使用 PostgreSQL；数据库不可用时停止接纳相关业务，不伪造成功。
 `;
 }

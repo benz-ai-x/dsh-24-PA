@@ -99,6 +99,13 @@ dsh --profile <你的 profile>
 - `extraLocalTools`（封闭枚举 `subagent_codex`/`subagent_claude_code`）：安装对应 provider 包后在 AGENTS.md 显式列出，本地会话才获得外部 CLI 委派工具；restrict() 要求名单内工具真实存在，故该能力不能默认开启。
 - 验收：`tests/e2e/f13.e2e.mjs` 经真实 Loader 断言三个角色的实际工具面（本地全集、飞书白名单、Worker 仅 pa24_work＋只读记忆）。
 
+## F15 增量（飞书接入配置向导）
+
+- `feishu-setup.md` 随插件分发（进入 npm files），是飞书接入配置的唯一权威流程：阶段 0 前置自查 → 1 建自建应用（权限点/长连接事件/发布）→ 2 lark-cli 绑定与用户授权（Device Flow 三步法，`--domain im,task,calendar,docs,drive`）→ 3 资源标识（ownerOpenId/folderToken/tasklistId）→ 4 切换（先 env、后 AGENTS.md、再重启）→ 5 健康检查与 `/24pa` 端到端 → 6 故障对照；附安全红线（密钥不读不写、授权点击与建应用只由本人完成）。
+- `pa24_connection`：`guide` 返回指南全文＋插件版本；`check`（`src/feishu.ts` `inspectAccess`）新增 `nextSteps`——把 cli/source/auth（missing/unbound/mismatch/unverified/error）与资源（missing/error）状态映射为带指南锚点的下一步，全部就绪时按 mode 给出切换或端到端验收指引。
+- 系统提示词与 AGENTS.md 模板：配置飞书接入前必读指南、按 check 的 nextSteps 收敛。
+- 测试：`tests/unit/feishu-setup.test.mjs`（指南章节契约＋映射全分支）、`tests/e2e/f15.e2e.mjs`（真实 Loader 下 guide/check 经本地会话可达）。
+
 ## 数据与备份/恢复
 
 | 数据 | 位置 |
