@@ -5466,6 +5466,7 @@ export class PaRuntime {
         lastSentAt: this.lastSentAt,
       },
       diagnostics: this.diagnostics,
+      wecom: this.wecomDiagnosticsSnapshot(),
     };
   }
 }

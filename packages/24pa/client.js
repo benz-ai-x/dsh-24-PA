@@ -9,7 +9,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react'), h = React.createElement;
     const zh = {
-      panel: '24私助工作区', title: '24私助', work: '事项总览', feishu: '飞书接入', memory: '结构化记忆', workspace: '工作区',
+      panel: '24私助工作区', title: '24私助', work: '事项总览', feishu: '飞书接入', wecom: '企微接入', memory: '结构化记忆',
       settings: '24私助',
       review: '手写审核', awaiting_review: '待审核', needs_rereview: '需重新审核', returned: '已退回', collecting: '收集中',
       collected: '已收齐', approved: '已通过', pending_review: '待审核', stale: '已失效', superseded: '已取代',
@@ -258,7 +258,7 @@ window.__ModuleLoader__.load({
 
         function Panel() {
           const [state, setState] = React.useState(null), [connError, setConnError] = React.useState('');
-          const [tab, setTab] = React.useState('work'), [path, setPath] = React.useState('');
+          const [tab, setTab] = React.useState('work');
           const main = React.useRef(null);
           const refresh = async () => { const s = await rpc('snapshot'); setState(s); setConnError(''); return s; };
           React.useEffect(() => {
@@ -279,7 +279,7 @@ window.__ModuleLoader__.load({
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
           const items = state.work || [];
           const active = items.filter(j => ['accepted', 'queued', 'running'].includes(j.status));
-          const tabItems = [['work', 'grid', 'blue'], ['feishu', 'plug', 'blue'], ['memory', 'memory', 'blue'], ['review', 'pen', 'blue'], ['workspace', 'folder', 'blue']];
+          const tabItems = [['work', 'grid', 'blue'], ['feishu', 'plug', 'blue'], ['wecom', 'bot', 'blue'], ['memory', 'memory', 'blue'], ['review', 'pen', 'blue']];
           let content;
           if (tab === 'review') {
             // workspace 为 null（启动失败或未绑定）时 ReviewView 读 workspace.path
@@ -382,16 +382,13 @@ window.__ModuleLoader__.load({
                   fields([['配置来源', (workspace ? workspace.path : '') + '/AGENTS.md'], ['生效时间', date(workspace ? workspace.loadedAt : null, tz)], ['文件与生效版本', check && check.source ? check.source.message : '尚未检查']]))));
           } else if (tab === 'memory') {
             content = workspace && h(MemoryView, { key: workspace.path, workspace, openRobot: () => void run(openRobot) });
-          } else if (tab === 'workspace') {
-            content = h('div', { className: 'pa24-grid' },
-              h(HealthBlock),
-              h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }));
+          } else if (tab === 'wecom') {
+            content = h(WecomView, { state, busy, button, openRobot });
           }
           return h('main', { className: 'pa24', ref: main }, h('style', null, style), h('div', { className: 'pa24-wrap' },
             h('header', { className: 'pa24-header' },
               h('div', { className: 'pa24-identity' }, h('span', { className: 'pa24-brand' }, icon('bot')), h('div', null, h('div', { className: 'pa24-eyebrow' }, 'YOUR PERSONAL ASSISTANT'), h('h1', null, t('title')), h('p', { className: 'pa24-tagline' }, '日常交给我，重要的事由你决定。'))),
               h('div', { className: 'pa24-row' }, button('chat', '与24私助对话', openRobot, { className: 'pa24-primary', disabled: busy || !workspace }), button('refresh', '刷新', () => refresh(), { className: 'pa24-quiet' }))),
-            h('div', { className: 'pa24-workspace-strip' }, icon('folder', { width: 17, height: 17 }), h('span', { className: 'pa24-path', title: workspace?.path }, workspace?.path || '尚未绑定工作区'), badge('工作区', 'neutral'), h('button', { type: 'button', className: 'pa24-quiet', onClick: () => selectTab('workspace') }, '查看配置', icon('chevron', { width: 14, height: 14 }))),
             config?.mode === 'demo' && h('div', { className: 'pa24-notice pa24-tone-amber' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, '体验模式'), ' · 未连接飞书；业务账本使用 PostgreSQL，备忘仅入账本。')),
             (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? '连接暂时中断，以下为上次读取的状态' : '操作未完成'), h('p', null, error || connError)),
             h('nav', { className: 'pa24-tabs', role: 'tablist', 'aria-label': '24私助工作区导航' }, tabItems.map(([id, name, tone], index) => h('button', { key: id, id: 'pa24-tab-' + id, type: 'button', role: 'tab', className: 'pa24-tone-' + tone, 'aria-selected': tab === id, 'aria-controls': 'pa24-content', tabIndex: tab === id ? 0 : -1, onClick: () => selectTab(id), onKeyDown: e => {
@@ -401,6 +398,55 @@ window.__ModuleLoader__.load({
             h('div', { id: 'pa24-content', role: 'tabpanel', 'aria-labelledby': 'pa24-tab-' + tab, tabIndex: 0 }, content),
             h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), '业务账本使用 PostgreSQL；配置与记忆通过对话维护，界面不伪造成功。')));
         }
+
+        // F20: 企微接入面板模块——对标飞书接入：渠道配置、CLI 与身份、
+        // 服务级授权（含平台 helpMessage 原文）与 nextSteps 导航。
+        function WecomView({ state, busy, button, openRobot }) {
+          const wecom = state.wecom;
+          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
+          const channelBadge = value => value === 'wecom' ? badge('企微', 'blue', 'bot') : badge('飞书', 'neutral', 'plug');
+          const serviceMeta = { calendar: '日程', todo: '待办', push: '推送' };
+          const serviceBadge = s => {
+            const map = {
+              ok: ['检查通过', 'blue', 'check'], unauthorized: ['未授权', 'amber', 'info'], expired: ['已过期', 'amber', 'clock'],
+              unavailable: ['企业不可用', 'danger', 'alert'], error: ['异常', 'danger', 'alert'], skipped: ['未启用', 'neutral', 'info'],
+            };
+            const [label, tone, name] = map[s.state] || ['未知', 'neutral', 'info'];
+            return badge(label, tone, name);
+          };
+          return h('div', { className: 'pa24-grid' },
+            h('section', { className: 'pa24-card' },
+              sectionHead('bot', '企微接入', '日程/待办第二操作渠道与提醒单向推送（不做收信，飞书保持唯一交互入口）。',
+                h('div', { className: 'pa24-row' },
+                  button('refresh', busy ? '检查中…' : '检查企微接入', () => rpc('action', { type: 'connection.wecom-check' }), { className: 'pa24-primary' }),
+                  button('chat', '通过对话配置', openRobot)), 'blue'),
+              fields([
+                ['日程渠道', channelBadge(config ? config.calendarChannel : 'feishu')],
+                ['待办渠道', channelBadge(config ? config.todoChannel : 'feishu')],
+                ['推送渠道', channelBadge(config ? config.notifyChannel : 'feishu')],
+                ['上次检查', wecom ? date(wecom.checkedAt, tz) : '尚未检查，点击右上方按钮开始'],
+              ]),
+              h('div', { className: 'pa24-helper' }, '可以说："检查企微接入，告诉我还缺什么。" 检查只读，不发送消息、不建企微对象；接入权威流程见 wecom-setup.md（pa24_connection action=wecom_guide）。')),
+            wecom && h('section', { className: 'pa24-card' },
+              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与身份'), wecom.cli.state === 'ok' ? badge('CLI 可用', 'blue', 'check') : badge('CLI 不可用', 'danger', 'alert')),
+              fields([
+                ['CLI 状态', wecom.cli.message],
+                ['机器人绑定与授权真人', wecom.identity.message],
+                ['推送目标', wecom.identity.userid || '未解析'],
+              ])),
+            wecom && h('section', { className: 'pa24-card' },
+              sectionHead('shield', '服务级授权', '按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。'),
+              (wecom.services ?? []).length === 0
+                ? h('p', { className: 'pa24-meta' }, '没有已启用的企微渠道（三渠道均为 feishu）。')
+                : (wecom.services ?? []).map(s => h('div', { key: s.id, className: 'pa24-resource' },
+                    h('div', { className: 'pa24-row' },
+                      h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, serviceMeta[s.id] || s.id), h('p', null, s.message)),
+                      serviceBadge(s)),
+                    s.helpMessage && h('p', { className: 'pa24-note pa24-meta' }, s.helpMessage))),
+              h('details', null, h('summary', null, '下一步（nextSteps）'), (wecom.nextSteps ?? []).map((n, i) => h('p', { key: i, className: 'pa24-note' }, n)))),
+            !wecom && h('section', { className: 'pa24-card' }, empty('bot', 'blue', '尚未检查企微接入', '点击右上方「检查企微接入」发起一次只读检查：CLI 可执行、机器人绑定与授权真人、按启用域的服务级授权探测。', button('chat', '让24私助带我做接入', openRobot, { className: 'pa24-primary' }))));
+        }
+
         // F17: 设置模态里的「24私助」分区——复用 WorkspaceCards 与既有 RPC，
         // 自取 snapshot（settings.section 的 owner props 只有 close）。
         function SettingsSection({ close }) {
@@ -421,12 +467,14 @@ window.__ModuleLoader__.load({
             h('div', { className: 'pa24-settings-head' },
               h('div', { className: 'pa24-row' },
                 h('span', { className: 'pa24-brand pa24-settings-brand' }, icon('bot', { width: 18, height: 18 })),
-                h('div', null, h('h2', null, t('settings')), h('p', { className: 'pa24-meta' }, '工作区绑定、配置重载与生效配置查看；日常操作与诊断请打开24私助面板。'))),
+                h('div', null, h('h2', null, t('settings')), h('p', { className: 'pa24-meta' }, '工作区绑定、配置重载、生效配置查看与健康预算；日常操作与接入诊断在24私助面板。'))),
               h('div', { className: 'pa24-row' }, button('external', '打开24私助面板', openPanel, { className: 'pa24-primary' }))),
             (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? '连接暂时中断' : '操作未完成'), h('p', null, error || connError)),
             !state
               ? h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), connError ? '无法读取工作区状态。' : '正在读取工作区状态…')
-              : h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }));
+              : h('div', null,
+                h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }),
+                h(HealthBlock)));
         }
         const SidebarIcon = () => icon('bot', { width: 22, height: 22 });
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'pa24' }, Panel));
