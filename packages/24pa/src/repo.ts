@@ -226,7 +226,7 @@ export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'unknown' | 'failed'
 export interface OutboxRow {
   id: number;
   dedup_key: string;
-  channel: 'feishu' | 'local';
+  channel: 'feishu' | 'local' | 'wecom';
   target: string;
   kind: 'text' | 'card';
   content: any;
@@ -241,7 +241,7 @@ export interface OutboxRow {
 
 export interface NewOutbox {
   dedupKey: string;
-  channel: 'feishu' | 'local';
+  channel: 'feishu' | 'local' | 'wecom';
   target: string;
   kind: 'text' | 'card';
   content: unknown;
@@ -445,6 +445,9 @@ export class MemoRepo {
   }
 }
 
+/** Which channel owns a projected task/calendar row (F16, spec 1.6). */
+export type DataChannel = 'feishu' | 'wecom';
+
 export interface TaskRow {
   id: string;
   work_item_id: string | null;
@@ -459,16 +462,18 @@ export interface TaskRow {
   external_updated_at: Date | null;
   last_synced_at: Date | null;
   created_at: Date;
+  /** F16: which channel owns this task; legacy rows read as 'feishu'. */
+  channel: DataChannel;
 }
 
 export class TaskRepo {
   constructor(private readonly db: PaDatabase) {}
 
-  /** Upsert the local projection; Feishu remains the authority. */
-  async save(row: Omit<TaskRow, 'created_at'> & { created_at?: Date }): Promise<TaskRow> {
+  /** Upsert the local projection; the owning channel remains the authority. */
+  async save(row: Omit<TaskRow, 'created_at' | 'channel'> & { created_at?: Date; channel?: DataChannel }): Promise<TaskRow> {
     const result = await this.db.query<TaskRow>(
-      `insert into pa24.task (id, work_item_id, task_guid, url, summary, due_at, due_has_time, planned_at, estimate_minutes, status, external_updated_at, last_synced_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      `insert into pa24.task (id, work_item_id, task_guid, url, summary, due_at, due_has_time, planned_at, estimate_minutes, status, external_updated_at, last_synced_at, channel)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        on conflict (id) do update set
          task_guid = excluded.task_guid,
          url = excluded.url,
@@ -481,7 +486,7 @@ export class TaskRepo {
          external_updated_at = excluded.external_updated_at,
          last_synced_at = excluded.last_synced_at
        returning *`,
-      [row.id, row.work_item_id ?? null, row.task_guid, row.url, row.summary, row.due_at, row.due_has_time ?? false, row.planned_at, row.estimate_minutes, row.status, row.external_updated_at, row.last_synced_at],
+      [row.id, row.work_item_id ?? null, row.task_guid, row.url, row.summary, row.due_at, row.due_has_time ?? false, row.planned_at, row.estimate_minutes, row.status, row.external_updated_at, row.last_synced_at, row.channel ?? 'feishu'],
     );
     return result.rows[0]!;
   }
@@ -560,6 +565,8 @@ export interface CalendarEventRow {
   url: string | null;
   raw: any;
   synced_at: Date;
+  /** F16: which channel owns this event; legacy rows read as 'feishu'. */
+  channel: DataChannel;
 }
 
 export interface CalendarSyncRow {
@@ -569,15 +576,17 @@ export interface CalendarSyncRow {
   complete: boolean;
   last_synced_at: Date | null;
   last_error: string | null;
+  /** F16: which channel produced this sync state. */
+  channel: DataChannel;
 }
 
 export class CalendarRepo {
   constructor(private readonly db: PaDatabase) {}
 
-  async upsertEvent(row: Omit<CalendarEventRow, 'synced_at'> & { synced_at?: Date }): Promise<CalendarEventRow> {
+  async upsertEvent(row: Omit<CalendarEventRow, 'synced_at' | 'channel'> & { synced_at?: Date; channel?: DataChannel }): Promise<CalendarEventRow> {
     const result = await this.db.query<CalendarEventRow>(
-      `insert into pa24.calendar_event (event_id, calendar_id, summary, start_time, end_time, is_all_day, timezone, status, recurring, attendees, url, raw, synced_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())
+      `insert into pa24.calendar_event (event_id, calendar_id, summary, start_time, end_time, is_all_day, timezone, status, recurring, attendees, url, raw, synced_at, channel)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),$13)
        on conflict (event_id) do update set
          summary = excluded.summary,
          start_time = excluded.start_time,
@@ -592,7 +601,7 @@ export class CalendarRepo {
          synced_at = now()
        returning *`,
       [row.event_id, row.calendar_id, row.summary, row.start_time, row.end_time, row.is_all_day, row.timezone, row.status, row.recurring,
-       row.attendees === undefined ? null : JSON.stringify(row.attendees), row.url, row.raw === undefined ? null : JSON.stringify(row.raw)],
+       row.attendees === undefined ? null : JSON.stringify(row.attendees), row.url, row.raw === undefined ? null : JSON.stringify(row.raw), row.channel ?? 'feishu'],
     );
     return result.rows[0]!;
   }
@@ -631,18 +640,18 @@ export class CalendarRepo {
    * must NOT advance last_synced_at: that timestamp means "data current as
    * of", and a failure provides no such guarantee.
    */
-  async saveSync(row: Omit<CalendarSyncRow, 'last_synced_at' | 'last_error'> & { lastError?: string }): Promise<void> {
+  async saveSync(row: Omit<CalendarSyncRow, 'last_synced_at' | 'last_error' | 'channel'> & { lastError?: string; channel?: DataChannel }): Promise<void> {
     const ok = row.complete && !row.lastError;
     await this.db.query(
-      `insert into pa24.calendar_sync_state (calendar_id, window_start, window_end, complete, last_synced_at, last_error)
-       values ($1,$2,$3,$4,${ok ? 'now()' : 'null'},$5)
+      `insert into pa24.calendar_sync_state (calendar_id, window_start, window_end, complete, last_synced_at, last_error, channel)
+       values ($1,$2,$3,$4,${ok ? 'now()' : 'null'},$5,$6)
        on conflict (calendar_id) do update set
          window_start = excluded.window_start,
          window_end = excluded.window_end,
          complete = excluded.complete,
          last_synced_at = coalesce(excluded.last_synced_at, pa24.calendar_sync_state.last_synced_at),
          last_error = excluded.last_error`,
-      [row.calendar_id, row.window_start, row.window_end, row.complete, row.lastError ?? null],
+      [row.calendar_id, row.window_start, row.window_end, row.complete, row.lastError ?? null, row.channel ?? 'feishu'],
     );
   }
 

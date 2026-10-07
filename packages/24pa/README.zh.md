@@ -65,7 +65,7 @@ dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 | `PA24_WORKSPACE` | 首次启动绑定的绝对工作区目录（也可在面板或设置里选择） |
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | 飞书自建应用凭据（feishu 模式） |
 
-`AGENTS.md` 字段：`mode`（demo/feishu）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraLocalTools`（封闭枚举）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
+`AGENTS.md` 字段：`mode`（demo/feishu）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`calendarChannel`/`todoChannel`/`notifyChannel`（feishu|wecom，默认 feishu——企微作日程/待办第二操作渠道＋提醒单向推送，永不收信）、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraLocalTools`（封闭枚举）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
 
 ### 暴露工具
 
@@ -75,7 +75,7 @@ dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 
 - 「24私助」预设：标准插件全集（平台 shell、文件、检索、jobs、skill、goal、plan-mode、压缩、通用委派、ask-user、todo、web、present、ralph）＋`pa24-agent`；persona 文案已并入助理身份；`tool-schedule` 刻意不并入——提醒统一走账本。
 - 按角色裁剪的工具面：本地会话获得完整标准工具面＋全部 `pa24_*` 工具；飞书接入会话与 Worker 保持业务白名单（同一预设绝不意味着同一权限）。
-- 宿主插件：固定飞书接入与本地会话，`pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`，PostgreSQL 账本＋Outbox 回执＋离线可发提醒、手写审核卡片、简报、备份/健康与 Web 面板，并在 dsh 设置模态提供「24私助」分区管理工作区（绑定/重载/生效配置查看；侧栏面板保持不变）。
+- 宿主插件：固定飞书接入与本地会话，`pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`，PostgreSQL 账本＋Outbox 回执＋离线可发提醒、手写审核卡片、简报、备份/健康与 Web 面板，并在 dsh 设置模态提供「24私助」分区管理工作区（绑定/重载/生效配置查看；侧栏面板保持不变）；企微渠道接入走随包 `wecom-setup.md`（`pa24_connection action=wecom_guide` / `wecom_check`）。
 
 ### 失败与恢复
 

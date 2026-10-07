@@ -65,7 +65,7 @@ Secrets live only in the server environment; the workspace `AGENTS.md` holds one
 | `PA24_WORKSPACE` | Absolute workspace directory bound on first start (or pick one in the panel / dsh settings) |
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | Feishu custom-app credentials (feishu mode) |
 
-`AGENTS.md` fields: `mode` (demo/feishu), `larkProfile`, `ownerOpenId`, `folderToken`, `tasklistId`, `calendarId`, `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraLocalTools` (closed enum). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`; the bundled `feishu-setup.md` is the single authority.
+`AGENTS.md` fields: `mode` (demo/feishu), `larkProfile`, `ownerOpenId`, `folderToken`, `tasklistId`, `calendarId`, `calendarChannel`/`todoChannel`/`notifyChannel` (feishu|wecom, default feishu — WeCom as the second operation channel for calendar/todo plus one-way reminder push, never inbound), `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraLocalTools` (closed enum). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`; the bundled `feishu-setup.md` is the single authority.
 
 ### Exposing the tool
 
@@ -75,7 +75,7 @@ External CLI delegation rows ship enabled but stay dormant: `subagent_codex` and
 
 - The「24私助」preset: standard plugin set (platform shell, fs, search, jobs, skill, goal, plan-mode, compaction, delegation, ask-user, todo, web, present, ralph) plus `pa24-agent`; persona text merged into the assistant identity; `tool-schedule` deliberately excluded — reminders stay on the ledger.
 - Role-restricted tool surfaces: local sessions get the full standard base plus all `pa24_*` tools; the Feishu entry session and workers keep business-only whitelists (one preset never implies one permission set).
-- The host plugin: fixed Feishu access and local sessions, `pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`, PostgreSQL ledger with outbox delivery and offline-capable reminders, handwriting review cards, digests, backup/health, the web panel, and a「24私助」section in the dsh settings modal for workspace binding, AGENTS.md reload, and effective-config review (the sidebar panel stays).
+- The host plugin: fixed Feishu access and local sessions, `pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`, PostgreSQL ledger with outbox delivery and offline-capable reminders, handwriting review cards, digests, backup/health, the web panel, and a「24私助」section in the dsh settings modal for workspace binding, AGENTS.md reload, and effective-config review (the sidebar panel stays). WeCom access setup follows the bundled `wecom-setup.md` via `pa24_connection action=wecom_guide` / `wecom_check`. WeCom access setup follows the bundled `wecom-setup.md` via `pa24_connection action=wecom_guide` / `wecom_check`.
 
 ### Failure and recovery
 

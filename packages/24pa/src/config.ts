@@ -27,6 +27,14 @@ export interface PaConfig {
   folderToken: string;
   tasklistId: string;
   calendarId: string;
+  /**
+   * Per-domain operation channels (spec 1.6, F16): which backend executes
+   * calendar / todo writes and where reminders are delivered. 'feishu' keeps
+   * the v1 single-channel behavior and is the default for existing files.
+   */
+  calendarChannel: 'feishu' | 'wecom';
+  todoChannel: 'feishu' | 'wecom';
+  notifyChannel: 'feishu' | 'wecom';
   timeZone: string;
   appIdEnv: string;
   appSecretEnv: string;
@@ -62,6 +70,9 @@ export const DEFAULT_CONFIG: PaConfig = {
   folderToken: '',
   tasklistId: '',
   calendarId: 'primary',
+  calendarChannel: 'feishu',
+  todoChannel: 'feishu',
+  notifyChannel: 'feishu',
   timeZone: 'Asia/Shanghai',
   appIdEnv: 'PA24_FEISHU_APP_ID',
   appSecretEnv: 'PA24_FEISHU_APP_SECRET',
@@ -92,6 +103,11 @@ export function validateConfig(raw: unknown): PaConfig {
   if (unknown.length) throw new ConfigError(`未知配置字段：${unknown.join(', ')}。`);
   if (input.version !== 1) throw new ConfigError('配置 version 必须为 1。');
   if (input.mode !== 'demo' && input.mode !== 'feishu') throw new ConfigError('mode 必须是 demo 或 feishu。');
+  // 旧版 AGENTS.md 不含 channel 字段：缺省视作 feishu（规格 1.6 存量零影响）。
+  for (const key of ['calendarChannel', 'todoChannel', 'notifyChannel'] as const) {
+    const value = input[key] ?? 'feishu';
+    if (value !== 'feishu' && value !== 'wecom') throw new ConfigError(`${key} 必须是 feishu 或 wecom。`);
+  }
   for (const key of STRING_FIELDS) {
     if (typeof input[key] !== 'string') throw new ConfigError(`配置 ${key} 必须为字符串。`);
   }
@@ -143,6 +159,9 @@ export function validateConfig(raw: unknown): PaConfig {
     folderToken: input.folderToken as string,
     tasklistId: input.tasklistId as string,
     calendarId: input.calendarId as string,
+    calendarChannel: (input.calendarChannel ?? 'feishu') as PaConfig['calendarChannel'],
+    todoChannel: (input.todoChannel ?? 'feishu') as PaConfig['todoChannel'],
+    notifyChannel: (input.notifyChannel ?? 'feishu') as PaConfig['notifyChannel'],
     timeZone: input.timeZone as string,
     appIdEnv: input.appIdEnv as string,
     appSecretEnv: input.appSecretEnv as string,
