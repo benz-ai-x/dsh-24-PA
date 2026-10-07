@@ -1,9 +1,9 @@
-// 24私助工作区 panel (F01): overview / Feishu access / workspace tabs with the
+// 24私助工作区 panel (F01): business overview / access modules with the
 // shared SVG + semantic-color + keyboard/focus vocabulary. Read-mostly; all
 // maintenance happens through the assistant conversation.
-// F17: the workspace tab's management cards are extracted into WorkspaceCards
-// and reused by a settings.section entry, so workspace binding/reload/config
-// review also lives in the dsh settings modal; the sidebar panel stays.
+// F20 (1.6 补充): workspace configuration management moved to the dsh
+// settings「24私助」section entirely (binding/reload/config/health) — the
+// panel shows business tabs only, plus the WeCom access module.
 window.__ModuleLoader__.load({
   id: '@benz-ai-x/dsh-24pa',
   factory(require) {
@@ -59,7 +59,7 @@ window.__ModuleLoader__.load({
       .pa24 :is(button,input,select,summary,a,[tabindex]):focus-visible{outline:3px solid var(--pa-blue);outline-offset:3px}.pa24 input,.pa24 select{min-height:42px;width:100%;font:inherit;padding:10px 12px;border:1px solid var(--pa-line);border-radius:10px;background:var(--pa-surface);color:var(--pa-ink)}
       .pa24-icon-tile{width:40px;height:40px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tone-bg);color:var(--tone)}.pa24-tone-blue{--tone:var(--pa-blue);--tone-bg:var(--pa-blue-bg)}.pa24-tone-amber{--tone:var(--pa-amber);--tone-bg:var(--pa-amber-bg)}.pa24-tone-danger{--tone:var(--pa-danger);--tone-bg:var(--pa-danger-bg)}.pa24-tone-neutral{--tone:var(--pa-muted);--tone-bg:var(--pa-soft)}.pa24-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;background:var(--tone-bg);color:var(--tone);font-size:11px;font-weight:600;line-height:1.7;white-space:nowrap}
       .pa24-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px}.pa24-identity{display:flex;align-items:center;gap:14px}.pa24-brand{width:52px;height:52px;border-radius:12px;background:var(--pa-brand);color:#fff;display:inline-flex;align-items:center;justify-content:center}.pa24-brand svg{width:29px;height:29px}.pa24-eyebrow{font-size:10px;letter-spacing:2px;font-weight:650;color:var(--pa-muted);margin-bottom:3px}.pa24-tagline{margin-top:4px!important;color:var(--pa-muted);font-size:13px}
-      .pa24-workspace-strip{display:flex;gap:10px;align-items:center;min-width:0;padding:11px 14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);margin-bottom:18px}.pa24-workspace-strip>svg{color:var(--pa-blue)}.pa24-path{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--pa-muted)}
+      
       .pa24-notice{display:flex;gap:10px;align-items:flex-start;padding:12px 15px;border:1px solid color-mix(in srgb,var(--tone) 16%,transparent);border-radius:12px;color:var(--tone);background:var(--tone-bg);font-size:12px;margin-bottom:20px}.pa24-notice>svg{margin-top:1px}.pa24-notice>div{flex:1;min-width:0}
       .pa24-error{padding:16px;border:1px solid var(--pa-danger);border-radius:12px;background:var(--pa-danger-bg);margin:14px 0;color:var(--pa-danger);overflow-wrap:anywhere}
       .pa24-tabs{display:flex;gap:6px;border-bottom:1px solid var(--pa-line);margin:0 0 25px;overflow-x:auto;scrollbar-width:thin;padding:3px 0 10px}.pa24-tabs button{flex-shrink:0;min-height:40px;padding:8px 12px;background:transparent;border:1px solid transparent;border-radius:9px;color:var(--pa-muted);font-weight:500}.pa24-tabs button[aria-selected=true]{background:var(--tone-bg);color:var(--tone);font-weight:650}
@@ -283,10 +283,10 @@ window.__ModuleLoader__.load({
           let content;
           if (tab === 'review') {
             // workspace 为 null（启动失败或未绑定）时 ReviewView 读 workspace.path
-            // 会把整个 main slot 判死（黑屏）；与 memory/workspace 页同样先防护。
+            // 会把整个 main slot 判死（黑屏）；与 memory 页同样先防护。
             content = workspace
               ? h(ReviewView, { key: workspace.path, workspace, openRobot })
-              : empty('pen', 'blue', '尚未绑定工作区', '在「工作区」标签绑定目录后，手写审核队列会显示在这里。');
+              : empty('pen', 'blue', '尚未绑定工作区', '在 dsh 设置的「24私助」分区绑定工作区后，手写审核队列会显示在这里。');
           } else if (tab === 'work') {
             const roleNames = { memo: '备忘整理' };
             const readyItems = (state.readiness?.items || []).map(item => {
