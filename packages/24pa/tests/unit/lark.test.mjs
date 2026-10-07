@@ -16,6 +16,7 @@ if (args.includes('--version')) { console.log('stub 1.0'); process.exit(0); }
 if (mode === 'notjson') { console.error('plain text failure'); process.exit(2); }
 if (mode === 'rejected') { console.error(JSON.stringify({ ok: false, error: { message: '平台拒绝' } })); process.exit(3); }
 if (mode === 'envelope') { console.log(JSON.stringify({ data: {} })); process.exit(0); }
+if (mode === 'bare-error') { console.log(JSON.stringify({ error: { message: '内部错误' } })); process.exit(0); }
 if (mode === 'hang') { setTimeout(() => {}, 60000); }
 const stdin = await new Promise(r => { let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => r(d)); process.stdin.on('error', () => r(d)); });
 console.log(JSON.stringify({ ok: true, data: { echoed: stdin, calls: state.calls } }));
@@ -59,8 +60,14 @@ describe('lark-cli 受控执行', () => {
     });
   });
 
-  it('缺少 ok 字段的信封不受支持', async () => {
-    await expect(runLarkCli(options('envelope'), ['x', '--mode=envelope', '--json'])).rejects.toMatchObject({
+  it('裸对象（无 ok 信封，lark-cli 1.0.87 契约）按成功处理', async () => {
+    const { data, raw } = await runLarkCli(options('envelope'), ['auth', 'status', '--mode=envelope', '--json']);
+    expect(data).toEqual({});
+    expect(raw.ok).toBeUndefined();
+  });
+
+  it('裸对象携带 error 字段仍不受支持', async () => {
+    await expect(runLarkCli(options('bare-error'), ['x', '--mode=bare-error', '--json'])).rejects.toMatchObject({
       outcome: 'invalid-envelope',
     });
   });
