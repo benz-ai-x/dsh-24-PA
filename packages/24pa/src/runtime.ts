@@ -2200,7 +2200,8 @@ export class PaRuntime {
 
   /** On-demand read-only wecom access inspection (CLI/identity/service probes). */
   async wecomCheck(): Promise<WecomDiagnostics> {
-    if (!this.config) throw new Error('尚未绑定工作区。');    const nextSteps: string[] = [];
+    if (!this.config) throw new Error('尚未绑定工作区。');
+    const nextSteps: string[] = [];
     const services: WecomServiceCheck[] = [];
     const checkedAt = nowIso();
     // 1. CLI presence: `--version` prints plain text (not the JSON envelope),
@@ -2475,7 +2476,7 @@ export class PaRuntime {
       plannedAt: isoDate(view.planned_at),
       estimateMinutes: view.estimate_minutes,
       status: view.status,
-      channel: view.channel ?? 'feishu',
+      channel: view.channel,
       // stale = 本次未能核对到远端最新状态（刷新失败或未命中）
       stale: !refreshed,
       message: refreshed ? `已按${view.channel === 'wecom' ? '企微' : '飞书'}最新状态刷新。` : view.last_synced_at ? '本次远端核对未完成，展示此前同步的投影。' : '本地投影（远端核对未完成，状态可能滞后）。',
@@ -2487,7 +2488,7 @@ export class PaRuntime {
     const tasks = projectId ? await this.repos!.projects.tasksOf(projectId) : await this.repos!.tasks.list(args.status ? String(args.status) : undefined);
     return {
       count: tasks.length,
-      tasks: tasks.map(t => ({ id: t.id, guid: t.task_guid, summary: t.summary, url: t.url, status: t.status, channel: t.channel ?? 'feishu', dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
+      tasks: tasks.map(t => ({ id: t.id, guid: t.task_guid, summary: t.summary, url: t.url, status: t.status, channel: t.channel, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
     };
   }
 
@@ -5315,6 +5316,18 @@ export class PaRuntime {
     });
   }
 
+  /** Shared outbox failure policy: unknown parks, 3+ attempts fail, else back off. */
+  private async markOutboxFailure(row: { id: number; attempts: number }, error: unknown): Promise<void> {
+    const unknown = (error as any)?.outcome === 'unknown';
+    if (unknown) {
+      await this.repos!.outbox.mark(row.id, { status: 'unknown', error: (error as Error).message }).catch(() => {});
+    } else if (row.attempts >= 3) {
+      await this.repos!.outbox.mark(row.id, { status: 'failed', error: (error as Error).message }).catch(() => {});
+    } else {
+      await this.repos!.outbox.mark(row.id, { status: 'pending', error: (error as Error).message, retryInMs: 2000 * row.attempts }).catch(() => {});
+    }
+  }
+
   async sendOutbox(): Promise<void> {
     // wecom rows deliver through the CLI gateway and need no SDK transport;
     // a transport-less host still drains them (demo + notifyChannel=wecom).
@@ -5336,14 +5349,7 @@ export class PaRuntime {
             await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
             await this.recordMessageRoute(row.dedup_key, sent.messageId);
           } catch (error) {
-            const unknown = (error as any)?.outcome === 'unknown';
-            if (unknown) {
-              await this.repos.outbox.mark(row.id, { status: 'unknown', error: (error as Error).message }).catch(() => {});
-            } else if (row.attempts >= 3) {
-              await this.repos.outbox.mark(row.id, { status: 'failed', error: (error as Error).message }).catch(() => {});
-            } else {
-              await this.repos.outbox.mark(row.id, { status: 'pending', error: (error as Error).message, retryInMs: 2000 * row.attempts }).catch(() => {});
-            }
+            await this.markOutboxFailure(row, error);
           }
           continue;
         }
@@ -5363,15 +5369,7 @@ export class PaRuntime {
           await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
           await this.recordMessageRoute(row.dedup_key, sent.messageId);
         } catch (error) {
-          const unknown = (error as any)?.outcome === 'unknown';
-          const attempts = row.attempts;
-          if (unknown) {
-            await this.repos.outbox.mark(row.id, { status: 'unknown', error: (error as Error).message }).catch(() => {});
-          } else if (attempts >= 3) {
-            await this.repos.outbox.mark(row.id, { status: 'failed', error: (error as Error).message }).catch(() => {});
-          } else {
-            await this.repos.outbox.mark(row.id, { status: 'pending', error: (error as Error).message, retryInMs: 2000 * attempts }).catch(() => {});
-          }
+          await this.markOutboxFailure(row, error);
         }
       }
     }

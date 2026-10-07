@@ -445,6 +445,9 @@ export class MemoRepo {
   }
 }
 
+/** Which channel owns a projected task/calendar row (F16, spec 1.6). */
+export type DataChannel = 'feishu' | 'wecom';
+
 export interface TaskRow {
   id: string;
   work_item_id: string | null;
@@ -460,14 +463,14 @@ export interface TaskRow {
   last_synced_at: Date | null;
   created_at: Date;
   /** F16: which channel owns this task; legacy rows read as 'feishu'. */
-  channel: string;
+  channel: DataChannel;
 }
 
 export class TaskRepo {
   constructor(private readonly db: PaDatabase) {}
 
   /** Upsert the local projection; the owning channel remains the authority. */
-  async save(row: Omit<TaskRow, 'created_at' | 'channel'> & { created_at?: Date; channel?: string }): Promise<TaskRow> {
+  async save(row: Omit<TaskRow, 'created_at' | 'channel'> & { created_at?: Date; channel?: DataChannel }): Promise<TaskRow> {
     const result = await this.db.query<TaskRow>(
       `insert into pa24.task (id, work_item_id, task_guid, url, summary, due_at, due_has_time, planned_at, estimate_minutes, status, external_updated_at, last_synced_at, channel)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -563,7 +566,7 @@ export interface CalendarEventRow {
   raw: any;
   synced_at: Date;
   /** F16: which channel owns this event; legacy rows read as 'feishu'. */
-  channel: string;
+  channel: DataChannel;
 }
 
 export interface CalendarSyncRow {
@@ -574,13 +577,13 @@ export interface CalendarSyncRow {
   last_synced_at: Date | null;
   last_error: string | null;
   /** F16: which channel produced this sync state. */
-  channel: string;
+  channel: DataChannel;
 }
 
 export class CalendarRepo {
   constructor(private readonly db: PaDatabase) {}
 
-  async upsertEvent(row: Omit<CalendarEventRow, 'synced_at' | 'channel'> & { synced_at?: Date; channel?: string }): Promise<CalendarEventRow> {
+  async upsertEvent(row: Omit<CalendarEventRow, 'synced_at' | 'channel'> & { synced_at?: Date; channel?: DataChannel }): Promise<CalendarEventRow> {
     const result = await this.db.query<CalendarEventRow>(
       `insert into pa24.calendar_event (event_id, calendar_id, summary, start_time, end_time, is_all_day, timezone, status, recurring, attendees, url, raw, synced_at, channel)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),$13)
@@ -637,7 +640,7 @@ export class CalendarRepo {
    * must NOT advance last_synced_at: that timestamp means "data current as
    * of", and a failure provides no such guarantee.
    */
-  async saveSync(row: Omit<CalendarSyncRow, 'last_synced_at' | 'last_error' | 'channel'> & { lastError?: string; channel?: string }): Promise<void> {
+  async saveSync(row: Omit<CalendarSyncRow, 'last_synced_at' | 'last_error' | 'channel'> & { lastError?: string; channel?: DataChannel }): Promise<void> {
     const ok = row.complete && !row.lastError;
     await this.db.query(
       `insert into pa24.calendar_sync_state (calendar_id, window_start, window_end, complete, last_synced_at, last_error, channel)

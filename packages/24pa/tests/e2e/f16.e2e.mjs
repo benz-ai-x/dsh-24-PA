@@ -264,6 +264,14 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     const check = await waitToolResult('「待办」使用权限已过期', '过期诊断');
     expect(check).toContain('850003');
     expect(check).toContain('[点击这里]');
+
+    // 企业不可用（853006）：如实报告且不由助理侧修复话术。
+    await writeStubState({ ownerUserid: 'wou_test_owner', calendarUnauthorized: true });
+    await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_connection', input: { action: 'wecom_check' } }, leadReply: '已检查。' });
+    await prompt('再检查一次日程授权');
+    const check2 = await waitToolResult('853006', '企业不可用诊断');
+    expect(check2).toContain('日程');
+    expect(check2).toContain('无法由助理侧修复');
     await writeStubState({ ownerUserid: 'wou_test_owner' });
   });
 });
