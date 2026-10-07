@@ -36,28 +36,28 @@ window.__ModuleLoader__.load({
       external: ['M14 3h7v7m0-7-11 11M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5'],
     };
     const icon = (name, props = {}) => h('svg', { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true, focusable: false, ...props }, (paths[name] || paths.note).map((d, i) => h('path', { d, key: i })));
-    const tile = (name, tone = 'teal') => h('span', { className: 'pa24-icon-tile pa24-tone-' + tone }, icon(name));
+    const tile = (name, tone = 'neutral') => h('span', { className: 'pa24-icon-tile pa24-tone-' + tone }, icon(name));
     const badge = (label, tone = 'neutral', name) => h('span', { className: 'pa24-badge pa24-tone-' + tone }, name && icon(name, { width: 13, height: 13 }), label);
     const statusStyle = {
-      accepted: ['neutral', 'clock'], queued: ['neutral', 'clock'], running: ['blue', 'pulse'], completed: ['teal', 'check'],
-      waiting_input: ['amber', 'clock'], failed: ['rose', 'alert'], stopped: ['neutral', 'close'], needs_reconciliation: ['amber', 'info'],
-      sent: ['teal', 'check'], pending: ['amber', 'clock'], sending: ['blue', 'pulse'], unknown: ['amber', 'info'], expired: ['neutral', 'close'],
+      accepted: ['neutral', 'clock'], queued: ['neutral', 'clock'], running: ['blue', 'pulse'], completed: ['blue', 'check'],
+      waiting_input: ['amber', 'clock'], failed: ['danger', 'alert'], stopped: ['neutral', 'close'], needs_reconciliation: ['amber', 'info'],
+      sent: ['blue', 'check'], pending: ['amber', 'clock'], sending: ['blue', 'pulse'], unknown: ['amber', 'info'], expired: ['neutral', 'close'],
     };
-    const toneOf = item => (item.state === 'ok' ? 'teal' : item.state === 'error' ? 'rose' : item.state === 'warn' ? 'amber' : 'neutral');
+    const toneOf = item => (item.state === 'ok' ? 'blue' : item.state === 'error' ? 'danger' : item.state === 'warn' ? 'amber' : 'neutral');
     const style = `
-      .pa24{--pa-ink:var(--dsw-alias-label-primary,#172c38);--pa-muted:#647480;--pa-line:#e3e9ed;--pa-canvas:#f4f7f8;--pa-surface:var(--dsw-alias-bg-base,#fff);--pa-soft:#f8fafb;--pa-teal:#167368;--pa-teal-bg:#e9f5f1;--pa-blue:#305fae;--pa-blue-bg:#edf3ff;--pa-amber:#946019;--pa-amber-bg:#fff5e3;--pa-rose:#ad4961;--pa-rose-bg:#fbeff3;--pa-shadow:0 3px 16px #243b4d05;height:100%;overflow:auto;container-type:inline-size;padding:32px;color:var(--pa-ink);background:var(--pa-canvas);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;scrollbar-gutter:stable}
-      body[data-ds-dark-theme] .pa24{--pa-muted:#a0b0bc;--pa-line:#354149;--pa-canvas:#171e22;--pa-surface:#20292e;--pa-soft:#263037;--pa-teal:#80cebb;--pa-teal-bg:#233d38;--pa-blue:#a3c1ff;--pa-blue-bg:#28374f;--pa-amber:#e6be7d;--pa-amber-bg:#40372a;--pa-rose:#eda7bc;--pa-rose-bg:#452e37;--pa-violet:#c8aff3;--pa-violet-bg:#373047;--pa-shadow:none}
+      .pa24{--pa-ink:var(--dsw-alias-label-primary,#1f2937);--pa-muted:#667085;--pa-line:#e4e7ec;--pa-canvas:#f7f8fa;--pa-surface:var(--dsw-alias-bg-base,#fff);--pa-soft:#f2f4f7;--pa-brand:#2b5da8;--pa-brand-hover:#244f8e;--pa-blue:#2b5da8;--pa-blue-bg:#edf2fa;--pa-amber:#8a5b18;--pa-amber-bg:#fff7e8;--pa-danger:#b42318;--pa-danger-bg:#fff1f0;--pa-shadow:none;height:100%;overflow:auto;container-type:inline-size;padding:32px;color:var(--pa-ink);background:var(--pa-canvas);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;scrollbar-gutter:stable}
+      body[data-ds-dark-theme] .pa24{--pa-muted:#9ba8b9;--pa-line:#303c4a;--pa-canvas:#151b23;--pa-surface:#1d2631;--pa-soft:#25303d;--pa-brand:#3764ab;--pa-brand-hover:#4174c2;--pa-blue:#a0bdf0;--pa-blue-bg:#25364f;--pa-amber:#dfbc83;--pa-amber-bg:#3b3225;--pa-danger:#f0aaa5;--pa-danger-bg:#412b2c;--pa-shadow:none}
       .pa24 *{box-sizing:border-box}.pa24 svg{flex-shrink:0;vertical-align:middle}.pa24 h1,.pa24 h2,.pa24 h3,.pa24 p{margin:0}.pa24 h1{font-size:29px;line-height:1.3;letter-spacing:-.7px;font-weight:700}.pa24 h2{font-size:17px;line-height:1.5;font-weight:650}.pa24 h3{font-size:15px;line-height:1.55;font-weight:650}.pa24 p+p{margin-top:6px}.pa24-wrap{max-width:1100px;margin:auto;min-width:0}
       .pa24-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pa24-between{justify-content:space-between}.pa24-muted{color:var(--pa-muted)}.pa24-meta{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-note{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85}
       .pa24 button,.pa24 .pa24-link-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 14px;border:1px solid var(--pa-line);border-radius:10px;color:var(--pa-ink);background:var(--pa-surface);font:inherit;font-size:13px;font-weight:550;cursor:pointer;transition:background .15s,border-color .15s;text-decoration:none}
-      .pa24 button:hover:not(:disabled){background:var(--pa-soft);border-color:var(--pa-muted)}.pa24 button:disabled{opacity:.45;cursor:not-allowed}.pa24 button.pa24-primary{background:var(--pa-teal);color:#fff;border-color:var(--pa-teal)}body[data-ds-dark-theme] .pa24 button.pa24-primary{color:#172c27}
+      .pa24 button:hover:not(:disabled){background:var(--pa-soft);border-color:var(--pa-muted)}.pa24 button:disabled{opacity:.45;cursor:not-allowed}.pa24 button.pa24-primary{background:var(--pa-blue);color:#fff;border-color:var(--pa-blue)}body[data-ds-dark-theme] .pa24 button.pa24-primary{color:#172c27}
       .pa24 button.pa24-quiet{background:transparent;border-color:transparent;color:var(--pa-muted)}.pa24 button.pa24-quiet:hover:not(:disabled){background:var(--pa-soft);color:var(--pa-ink);border-color:var(--pa-line)}
       .pa24 :is(button,input,select,summary,a,[tabindex]):focus-visible{outline:3px solid var(--pa-blue);outline-offset:3px}.pa24 input,.pa24 select{min-height:42px;width:100%;font:inherit;padding:10px 12px;border:1px solid var(--pa-line);border-radius:10px;background:var(--pa-surface);color:var(--pa-ink)}
-      .pa24-icon-tile{width:40px;height:40px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tone-bg);color:var(--tone)}.pa24-tone-teal{--tone:var(--pa-teal);--tone-bg:var(--pa-teal-bg)}.pa24-tone-blue{--tone:var(--pa-blue);--tone-bg:var(--pa-blue-bg)}.pa24-tone-amber{--tone:var(--pa-amber);--tone-bg:var(--pa-amber-bg)}.pa24-tone-rose{--tone:var(--pa-rose);--tone-bg:var(--pa-rose-bg)}.pa24-tone-neutral{--tone:var(--pa-muted);--tone-bg:var(--pa-soft)}.pa24-tone-violet{--tone:#7050ad;--tone-bg:#f3effb}.pa24-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;background:var(--tone-bg);color:var(--tone);font-size:11px;font-weight:600;line-height:1.7;white-space:nowrap}
-      .pa24-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px}.pa24-identity{display:flex;align-items:center;gap:14px}.pa24-brand{width:52px;height:52px;border-radius:17px;background:var(--pa-teal);color:#fff;display:inline-flex;align-items:center;justify-content:center}.pa24-brand svg{width:29px;height:29px}body[data-ds-dark-theme] .pa24-brand{color:#172c27}.pa24-eyebrow{font-size:10px;letter-spacing:2px;font-weight:650;color:var(--pa-teal);margin-bottom:3px}.pa24-tagline{margin-top:4px!important;color:var(--pa-muted);font-size:13px}
-      .pa24-workspace-strip{display:flex;gap:10px;align-items:center;min-width:0;padding:11px 14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);margin-bottom:18px}.pa24-workspace-strip>svg{color:var(--pa-teal)}.pa24-path{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--pa-muted)}
+      .pa24-icon-tile{width:40px;height:40px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tone-bg);color:var(--tone)}.pa24-tone-blue{--tone:var(--pa-blue);--tone-bg:var(--pa-blue-bg)}.pa24-tone-amber{--tone:var(--pa-amber);--tone-bg:var(--pa-amber-bg)}.pa24-tone-danger{--tone:var(--pa-danger);--tone-bg:var(--pa-danger-bg)}.pa24-tone-neutral{--tone:var(--pa-muted);--tone-bg:var(--pa-soft)}.pa24-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;background:var(--tone-bg);color:var(--tone);font-size:11px;font-weight:600;line-height:1.7;white-space:nowrap}
+      .pa24-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px}.pa24-identity{display:flex;align-items:center;gap:14px}.pa24-brand{width:52px;height:52px;border-radius:12px;background:var(--pa-brand);color:#fff;display:inline-flex;align-items:center;justify-content:center}.pa24-brand svg{width:29px;height:29px}.pa24-eyebrow{font-size:10px;letter-spacing:2px;font-weight:650;color:var(--pa-muted);margin-bottom:3px}.pa24-tagline{margin-top:4px!important;color:var(--pa-muted);font-size:13px}
+      .pa24-workspace-strip{display:flex;gap:10px;align-items:center;min-width:0;padding:11px 14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);margin-bottom:18px}.pa24-workspace-strip>svg{color:var(--pa-blue)}.pa24-path{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--pa-muted)}
       .pa24-notice{display:flex;gap:10px;align-items:flex-start;padding:12px 15px;border:1px solid color-mix(in srgb,var(--tone) 16%,transparent);border-radius:12px;color:var(--tone);background:var(--tone-bg);font-size:12px;margin-bottom:20px}.pa24-notice>svg{margin-top:1px}.pa24-notice>div{flex:1;min-width:0}
-      .pa24-error{padding:16px;border:1px solid var(--pa-rose);border-radius:12px;background:var(--pa-rose-bg);margin:14px 0;color:var(--pa-rose);overflow-wrap:anywhere}
+      .pa24-error{padding:16px;border:1px solid var(--pa-danger);border-radius:12px;background:var(--pa-danger-bg);margin:14px 0;color:var(--pa-danger);overflow-wrap:anywhere}
       .pa24-tabs{display:flex;gap:6px;border-bottom:1px solid var(--pa-line);margin:0 0 25px;overflow-x:auto;scrollbar-width:thin;padding:3px 0 10px}.pa24-tabs button{flex-shrink:0;min-height:40px;padding:8px 12px;background:transparent;border:1px solid transparent;border-radius:9px;color:var(--pa-muted);font-weight:500}.pa24-tabs button[aria-selected=true]{background:var(--tone-bg);color:var(--tone);font-weight:650}
       .pa24-section-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.pa24-section-title{display:flex;align-items:center;gap:10px}.pa24-section-desc{margin-top:5px!important;color:var(--pa-muted);font-size:13px}
       .pa24-card{min-width:0;background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:var(--pa-shadow)}.pa24-card>h2{margin-bottom:15px}.pa24-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.pa24-grid>.pa24-card{margin:0}
@@ -94,7 +94,7 @@ window.__ModuleLoader__.load({
         const date = (value, timeZone) => (value ? new Date(value).toLocaleString('zh-CN', { timeZone: timeZone || 'Asia/Shanghai', hour12: false }) : '尚无记录');
         const badgeOf = status => badge(t(status) || status, ...(statusStyle[status] || ['neutral', 'info']));
         const fields = items => h('dl', { className: 'pa24-dl' }, items.map(([label, value]) => h('div', { key: String(label), className: 'pa24-field' }, h('dt', null, label), h('dd', null, value ?? '未配置'))));
-        const sectionHead = (name, title, description, action, tone = 'teal') => h('div', { className: 'pa24-section-head' }, h('div', null, h('div', { className: 'pa24-section-title' }, h('span', { className: 'pa24-tone-' + tone, style: { color: 'var(--tone)' } }, icon(name)), h('h2', null, title)), description && h('p', { className: 'pa24-section-desc' }, description)), action);
+        const sectionHead = (name, title, description, action, tone = 'neutral') => h('div', { className: 'pa24-section-head' }, h('div', null, h('div', { className: 'pa24-section-title' }, h('span', { className: 'pa24-tone-' + tone, style: { color: 'var(--tone)' } }, icon(name)), h('h2', null, title)), description && h('p', { className: 'pa24-section-desc' }, description)), action);
         const empty = (name, tone, title, description, actions) => h('div', { className: 'pa24-empty' }, tile(name, tone), h('h3', null, title), h('p', null, description), actions && h('div', { className: 'pa24-row' }, actions));
 
         function MemoryView({ workspace, openRobot }) {
@@ -108,14 +108,14 @@ window.__ModuleLoader__.load({
             }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
             return () => abort.abort();
           }, [workspace.path, query, offset, retry]);
-          const categories = { preference: ['个人偏好', 'violet'], fact: ['事实', 'blue'], project: ['项目', 'teal'], decision: ['决定', 'amber'] };
+          const categories = { preference: ['个人偏好', 'neutral'], fact: ['事实', 'neutral'], project: ['项目', 'blue'], decision: ['决定', 'neutral'] };
           const search = () => { setOffset(0); setQuery(draft.trim()); setRetry(v => v + 1); };
           const clear = () => { setDraft(''); setQuery(''); setOffset(0); };
           const data = view.data;
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           return h('section', null,
             sectionHead('memory', '结构化记忆', '记住你的偏好与背景，让每次交办更有默契。',
-              h('div', { className: 'pa24-row' }, button('refresh', '刷新记忆', () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', '通过对话维护记忆', openRobot)), 'violet'),
+              h('div', { className: 'pa24-row' }, button('refresh', '刷新记忆', () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', '通过对话维护记忆', openRobot)), 'neutral'),
             h('div', { className: 'pa24-searchbar' },
               h('div', { className: 'pa24-search' }, icon('search'), h('input', { value: draft, placeholder: '搜索正文、主题或来源…', 'aria-label': '筛选记忆', onChange: e => setDraft(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) search(); } })),
               button('search', '筛选', search), (draft || query) && button('close', '查看全部', clear, { className: 'pa24-quiet' })),
@@ -123,15 +123,15 @@ window.__ModuleLoader__.load({
             view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '记忆读取失败')), h('p', null, view.error), h('p', null, '请在 dsh 的24私助会话中检查记忆文件，修复后重试。'), button('refresh', '重试读取', () => setRetry(v => v + 1))),
             data && h('div', null,
               h('div', { className: 'pa24-result-meta', role: 'status' }, h('span', null, '共 ' + data.total + ' 条记忆' + (query ? ' · 匹配 ' + data.matched + ' 条' : '')), h('span', null, '记忆版本 ' + data.revision)),
-              data.total === 0 ? h('div', { className: 'pa24-card' }, empty('memory', 'violet', '从「记住这件事」开始', '还没有保存的记忆。在 dsh 的24私助会话告诉它你的偏好或项目背景，保存后会直接显示在这里。',
+              data.total === 0 ? h('div', { className: 'pa24-card' }, empty('memory', 'neutral', '从「记住这件事」开始', '还没有保存的记忆。在 dsh 的24私助会话告诉它你的偏好或项目背景，保存后会直接显示在这里。',
                 button('chat', '告诉24私助我的偏好', openRobot, { className: 'pa24-primary' })),
                 h('div', { className: 'pa24-example' }, icon('chat', { width: 16, height: 16 }), '试着说：“记住，我希望会议之间留 15 分钟。”')) :
-              data.matched === 0 ? h('div', { className: 'pa24-card' }, empty('search', 'violet', '没有找到匹配的记忆', '试试更短的关键词，或清空筛选查看所有记忆。', button('close', '清空筛选', clear))) :
+              data.matched === 0 ? h('div', { className: 'pa24-card' }, empty('search', 'neutral', '没有找到匹配的记忆', '试试更短的关键词，或清空筛选查看所有记忆。', button('close', '清空筛选', clear))) :
               h('div', { className: 'pa24-memory-list' }, data.records.map(r => {
                 const [category, tone] = categories[r.category] || [r.category, 'neutral'];
                 return h('article', { key: r.id, className: 'pa24-memory-card' },
                   h('div', { className: 'pa24-memory-body' },
-                    h('div', { className: 'pa24-memory-heading' }, h('div', { className: 'pa24-row' }, badge(category, tone), h('h3', null, r.topic || '未设置主题')), badge(r.status === 'confirmed' ? '已确认' : '待核实', r.status === 'confirmed' ? 'teal' : 'amber', r.status === 'confirmed' ? 'check' : 'clock')),
+                    h('div', { className: 'pa24-memory-heading' }, h('div', { className: 'pa24-row' }, badge(category, tone), h('h3', null, r.topic || '未设置主题')), badge(r.status === 'confirmed' ? '已确认' : '待核实', r.status === 'confirmed' ? 'blue' : 'amber', r.status === 'confirmed' ? 'check' : 'clock')),
                     h('div', { className: 'pa24-note' }, r.content),
                     h('div', { className: 'pa24-row pa24-between' },
                       h('div', { className: 'pa24-memory-source' }, icon('note', { width: 13, height: 13 }), h('span', null, '来源：' + r.source)),
@@ -157,20 +157,20 @@ window.__ModuleLoader__.load({
           const tz = workspace.config ? workspace.config.timeZone : 'Asia/Shanghai';
           const verifyBadge = v => {
             if (!v || !v.verifyResult) return badge('尚未核验', 'neutral', 'info');
-            if (v.verifyResult === 'matches') return badge('内容一致', 'teal', 'check');
+            if (v.verifyResult === 'matches') return badge('内容一致', 'blue', 'check');
             if (v.verifyResult === 'changed') return badge('文档已修改', 'amber', 'alert');
-            return badge('核验异常', 'rose', 'alert');
+            return badge('核验异常', 'danger', 'alert');
           };
           return h('section', null,
             sectionHead('pen', '手写审核', '拍照笔记的待审版本、疑点定位与催办都在这里；批准或退回请在飞书审核卡上完成。',
-              button('refresh', '刷新队列', () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'rose'),
+              button('refresh', '刷新队列', () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'danger'),
             h('div', { className: 'pa24-example' }, icon('shield', { width: 16, height: 16 }), '审核裁决只由你在飞书卡片上作出；本页面为只读查阅，不提供网页批准按钮。'),
             view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取审核队列…'),
             view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '审核队列读取失败')), h('p', null, view.error), button('refresh', '重试读取', () => setRetry(v => v + 1))),
             view.status === 'ready' && (view.data.count === 0
-              ? h('div', { className: 'pa24-card' }, empty('check', 'teal', '没有等待审核的笔记', '拍照整理后的待审版本会出现在这里；审核完成或退回后自动移出。', button('chat', '与24私助对话', openRobot)))
+              ? h('div', { className: 'pa24-card' }, empty('check', 'blue', '没有等待审核的笔记', '拍照整理后的待审版本会出现在这里；审核完成或退回后自动移出。', button('chat', '与24私助对话', openRobot)))
               : view.data.items.map(item => h('article', { key: item.noteId, className: 'pa24-job' },
-                  h('div', { className: 'pa24-row pa24-between' }, h('h3', null, item.title || item.noteId), badge(t(item.noteStatus) || item.noteStatus, ...(item.noteStatus === 'awaiting_review' ? ['amber', 'clock'] : item.noteStatus === 'needs_rereview' ? ['rose', 'alert'] : ['neutral', 'pen']))),
+                  h('div', { className: 'pa24-row pa24-between' }, h('h3', null, item.title || item.noteId), badge(t(item.noteStatus) || item.noteStatus, ...(item.noteStatus === 'awaiting_review' ? ['amber', 'clock'] : item.noteStatus === 'needs_rereview' ? ['danger', 'alert'] : ['amber', 'pen']))),
                   item.latestVersion && h('div', { className: 'pa24-row' }, badge('v' + item.latestVersion.version + ' ' + (t(item.latestVersion.status) || item.latestVersion.status), item.latestVersion.status === 'pending_review' ? 'amber' : 'neutral', 'shield'), verifyBadge(item.latestVersion)),
                   h('p', { className: 'pa24-meta' }, item.pages + ' 页原稿 · 指纹 ' + (item.latestVersion ? item.latestVersion.fingerprint : '—') + (item.latestVersion && item.latestVersion.verifiedAt ? ' · 上次核验 ' + date(item.latestVersion.verifiedAt, tz) : '')),
                   item.reminders.length > 0 && h('p', { className: 'pa24-meta' }, '催办：' + item.reminders.map(r => (t('reminder' + (r.kind === 'daily' ? 'Daily' : 'Once')) || r.kind) + ' ' + (t('reminder' + r.status.charAt(0).toUpperCase() + r.status.slice(1)) || r.status) + (r.status === 'pending' ? '，下次 ' + date(r.remindAt, tz) : '')).join('；')),
@@ -184,14 +184,14 @@ window.__ModuleLoader__.load({
             setView({ status: 'loading', data: null, error: '' });
             void rpc('health', {}).then(data => setView({ status: 'ready', data, error: '' })).catch(error => setView({ status: 'error', data: null, error: error.message }));
           };
-          const badgeOfCap = c => badge(c.state === 'ok' ? '正常' : c.state === 'warn' ? '需注意' : c.state === 'error' ? '异常' : '说明', c.state === 'ok' ? 'teal' : c.state === 'warn' ? 'amber' : c.state === 'error' ? 'rose' : 'neutral', c.state === 'ok' ? 'check' : c.state === 'warn' ? 'info' : 'alert');
+          const badgeOfCap = c => badge(c.state === 'ok' ? '正常' : c.state === 'warn' ? '需注意' : c.state === 'error' ? '异常' : '说明', c.state === 'ok' ? 'blue' : c.state === 'warn' ? 'amber' : c.state === 'error' ? 'danger' : 'neutral', c.state === 'ok' ? 'check' : c.state === 'warn' ? 'info' : 'alert');
           return h('section', null,
             sectionHead('pulse', '健康与预算', '能力可用性、同步新鲜度与本 Host 的投入统计；凭据不进入诊断。',
               h('div', { className: 'pa24-row' }, button('refresh', view.status === 'idle' ? '读取健康状态' : '刷新', load, { disabled: view.status === 'loading', className: view.status === 'idle' ? 'pa24-primary' : 'pa24-quiet' })), 'blue'),
             view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取健康状态…'),
             view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '健康状态读取失败')), h('p', null, view.error), button('refresh', '重试', load)),
             view.status === 'ready' && h('div', { className: 'pa24-card' },
-              h('div', { className: 'pa24-ready' }, (view.data.capabilities ?? []).map(c => h('div', { key: c.id, className: 'pa24-ready-item pa24-tone-' + (c.state === 'ok' ? 'teal' : c.state === 'warn' ? 'amber' : 'rose') }, icon(c.state === 'ok' ? 'check' : 'alert', { width: 17, height: 17 }), h('div', null, h('div', { className: 'pa24-row pa24-between' }, h('strong', null, c.id), badgeOfCap(c)), h('p', { className: 'pa24-meta' }, c.message))))),
+              h('div', { className: 'pa24-ready' }, (view.data.capabilities ?? []).map(c => h('div', { key: c.id, className: 'pa24-ready-item pa24-tone-' + (c.state === 'ok' ? 'blue' : c.state === 'warn' ? 'amber' : 'danger') }, icon(c.state === 'ok' ? 'check' : 'alert', { width: 17, height: 17 }), h('div', null, h('div', { className: 'pa24-row pa24-between' }, h('strong', null, c.id), badgeOfCap(c)), h('p', { className: 'pa24-meta' }, c.message))))),
               view.data.usage && h('div', { style: { marginTop: 14 } }, fields([
                 ['模型轮次', view.data.usage.modelTurns], ['输入笔记页', view.data.usage.notePagesInput], ['生成裁片', view.data.usage.noteCrops],
                 ['发送队列', view.data.usage.outboxQueued], ['结果未知', (view.data.usage.outboxUnknown ?? 0) + (view.data.usage.operationsUnknown ?? 0)],
@@ -224,11 +224,11 @@ window.__ModuleLoader__.load({
           const button = (name, label, fn, props = {}) => h('button', { type: 'button', disabled: busy, onClick: () => void run(fn), ...props }, name && icon(name), label);
           const selectTab = id => { setTab(id); main.current?.scrollTo({ top: 0 }); };
           const openRobot = async () => { const r = await rpc('action', { type: 'robot.open' }); ctx.uiWorkspace.openSession(r.sessionId); };
-          if (!state) return h('main', { className: 'pa24' }, h('style', null, style), h('div', { className: 'pa24-wrap' }, empty(connError ? 'alert' : 'bot', connError ? 'rose' : 'teal', connError ? '暂时无法连接工作区' : '正在连接你的工作区', connError || '正在读取配置与当前事项…')));
+          if (!state) return h('main', { className: 'pa24' }, h('style', null, style), h('div', { className: 'pa24-wrap' }, empty(connError ? 'alert' : 'bot', connError ? 'danger' : 'blue', connError ? '暂时无法连接工作区' : '正在连接你的工作区', connError || '正在读取配置与当前事项…')));
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
           const items = state.work || [];
           const active = items.filter(j => ['accepted', 'queued', 'running'].includes(j.status));
-          const tabItems = [['work', 'grid', 'teal'], ['feishu', 'plug', 'blue'], ['memory', 'memory', 'violet'], ['review', 'pen', 'rose'], ['workspace', 'folder', 'teal']];
+          const tabItems = [['work', 'grid', 'blue'], ['feishu', 'plug', 'blue'], ['memory', 'memory', 'blue'], ['review', 'pen', 'blue'], ['workspace', 'folder', 'blue']];
           let content;
           if (tab === 'review') {
             content = h(ReviewView, { workspace, openRobot });
@@ -246,8 +246,8 @@ window.__ModuleLoader__.load({
             });
             const stats = [
               ['pulse', 'blue', '正在处理', active.length, '含排队事项'],
-              ['check', 'teal', '已完成', items.filter(j => j.status === 'completed').length, '历史事项'],
-              ['note', 'violet', '备忘已保存', (state.memos ?? items.filter(j => j.role === 'memo' && j.status === 'completed')).length, '随手记与资料'],
+              ['check', 'blue', '已完成', items.filter(j => j.status === 'completed').length, '历史事项'],
+              ['note', 'neutral', '备忘已保存', (state.memos ?? items.filter(j => j.role === 'memo' && j.status === 'completed')).length, '随手记与资料'],
             ];
             const jobCards = items.length
               ? items.map(j => h('article', { className: 'pa24-job', key: j.id },
@@ -258,7 +258,7 @@ window.__ModuleLoader__.load({
                   j.child_session_id && button('external', '查看 Worker 会话', () => ctx.uiWorkspace.openSession({ childSessionId: j.child_session_id, parentSessionId: j.parent_session_id, mode: 'continuable' }), { className: 'pa24-quiet' }),
                   h('p', { className: 'pa24-meta' }, '事项编号：' + j.id)))
               : [h(React.Fragment, { key: 'empty' },
-                  empty('chat', 'teal', '下一件事，交给24私助', '在飞书或这里发一段话，机器人会安排合适的 Worker，并把进度与结果带回来。',
+                  empty('chat', 'blue', '下一件事，交给24私助', '在飞书或这里发一段话，机器人会安排合适的 Worker，并把进度与结果带回来。',
                     [button('chat', '与24私助对话', openRobot, { key: 'chat', className: 'pa24-primary', disabled: busy || !workspace })]),
                   h('div', { className: 'pa24-example' }, icon('info', { width: 16, height: 16 }), '可以说：“记一下：下周讨论新的合作方向。”'))];
             content = h('div', null,
@@ -275,9 +275,9 @@ window.__ModuleLoader__.load({
             const diagnosis = (item, fallback = '尚未检查') => !item
               ? badge(fallback, 'neutral', 'clock')
               : item.state === 'ok'
-                ? badge('检查通过', 'teal', 'check')
+                ? badge('检查通过', 'blue', 'check')
                 : ['error', 'mismatch'].includes(item.state)
-                  ? badge('需要处理', 'rose', 'alert')
+                  ? badge('需要处理', 'danger', 'alert')
                   : badge(item.state === 'missing' ? '待配置' : '待核验', 'amber', 'info');
             const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + ' 条（持久 Outbox）';
             const resourceRows = [['folder', '文档目录', config ? config.folderToken : null, 'folder'], ['tasklist', '任务清单', config ? config.tasklistId : null, 'tasks'], ['calendar', '本人日历', config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
