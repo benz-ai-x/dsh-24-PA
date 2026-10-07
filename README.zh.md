@@ -79,7 +79,7 @@ dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 
 ### 失败与恢复
 
-dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会前准备如实报「当前 Host 未提供原生 Schedule 服务」；registry 的 `dsh-schedule@0.2.0-rc.1` peer 不匹配、其行保持禁用。未安装的外部 CLI provider 使工具缺席而非报错。同一 `$DSH_HOME/24pa` 上的第二个 pa24 宿主会因锁拒绝启动。lark-cli 超时归类为结果未知——先核对飞书实际对象再决定是否重试；绝不盲目重放外部写入。
+dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会前准备如实报「当前 Host 未提供原生 Schedule 服务」；registry 的 `dsh-schedule@0.2.0-rc.1` peer 不匹配、其行保持禁用。未安装的外部 CLI provider 使工具缺席而非报错。同一 `$DSH_HOME/24pa` 上的第二个 pa24 宿主会因锁拒绝启动。全新 Profile 对 `protobufjs`（飞书 SDK 的传递依赖）自带未决的 `allowBuilds` 占位符，首次安装会以非零码结束，需在 Profile 的 `pnpm-workspace.yaml` 里把它设为 `true`；无论哪种结果包都已完整加入。 lark-cli 超时归类为结果未知——先核对飞书实际对象再决定是否重试；绝不盲目重放外部写入。
 
 -----
 
