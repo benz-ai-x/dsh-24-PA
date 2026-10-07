@@ -60,9 +60,12 @@ describe('client.js 挂载面（F17/F20）', () => {
     // 一屏一主按钮：仅页头对话、工作/记忆/企微空态 CTA、设置分区绑定五处为实心
     expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(5);
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
-    // 统一状态词汇与名称/状态徽章分离、长 ID 截断、提示可关闭
-    expect(client).toContain("'正常'");
-    expect(client).not.toContain("'长连接已启动'");
+    // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
+    // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留
+    expect(client).toContain('const STATUS = {');
+    expect(client).toContain('const statusBadge = (tier, label)');
+    expect(client).not.toContain("'需注意'");
+    expect(client).toContain("'长连接已启动'");
     expect(client).toContain('pa24-ellip');
     expect(client).toContain('关闭体验模式提示');
     expect(client).toContain('待发消息');

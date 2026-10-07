@@ -50,7 +50,11 @@ window.__ModuleLoader__.load({
       waiting_input: ['amber', 'clock'], failed: ['danger', 'alert'], stopped: ['neutral', 'close'], needs_reconciliation: ['amber', 'info'],
       sent: ['blue', 'check'], pending: ['amber', 'clock'], sending: ['blue', 'pulse'], unknown: ['amber', 'info'], expired: ['neutral', 'close'],
     };
-    const toneOf = item => (item.state === 'ok' ? 'blue' : item.state === 'error' ? 'danger' : item.state === 'warn' ? 'amber' : 'neutral');
+    // P53: 状态徽章统一语法——四档通用词（正常/待核验/需要处理/待配置/尚未检查）各配
+    // 固定 tone 与图标；诊断徽章可用 label 覆盖具体原因词（未授权/已过期/企业不可用），
+    // 但 tone/图标必须取自同一档，保证 SPEC §13「状态全局一致」。
+    const STATUS = { ok: ['正常', 'blue', 'check'], warn: ['待核验', 'amber', 'clock'], error: ['需要处理', 'danger', 'alert'], missing: ['待配置', 'amber', 'info'], unchecked: ['尚未检查', 'neutral', 'clock'] };
+    const statusBadge = (tier, label) => { const item = STATUS[tier] || STATUS.unchecked; return badge(label || item[0], item[1], item[2]); };
     const style = `
       .pa24{--pa-ink:var(--dsw-alias-label-primary,#1f2937);--pa-muted:#667085;--pa-line:#e4e7ec;--pa-canvas:#f7f8fa;--pa-surface:var(--dsw-alias-bg-base,#fff);--pa-soft:#f2f4f7;--pa-brand:#2b5da8;--pa-brand-hover:#244f8e;--pa-blue:#2b5da8;--pa-blue-bg:#edf2fa;--pa-green:#1f7a4d;--pa-green-bg:#e9f5ef;--pa-violet:#6941c6;--pa-violet-bg:#f0ebfa;--pa-amber:#8a5b18;--pa-amber-bg:#fff7e8;--pa-danger:#b42318;--pa-danger-bg:#fff1f0;--pa-shadow:none;height:100%;overflow:auto;container-type:inline-size;padding:32px;color:var(--pa-ink);background:var(--pa-canvas);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;scrollbar-gutter:stable}
       body[data-ds-dark-theme] .pa24{--pa-muted:#9ba8b9;--pa-line:#303c4a;--pa-canvas:#151b23;--pa-surface:#1d2631;--pa-soft:#25303d;--pa-brand:#3764ab;--pa-brand-hover:#4174c2;--pa-blue:#a0bdf0;--pa-blue-bg:#25364f;--pa-green:#7cc7a2;--pa-green-bg:#1f3226;--pa-violet:#b9a5ef;--pa-violet-bg:#2b2447;--pa-amber:#dfbc83;--pa-amber-bg:#3b3225;--pa-danger:#f0aaa5;--pa-danger-bg:#412b2c;--pa-shadow:none}
@@ -239,7 +243,7 @@ window.__ModuleLoader__.load({
             setView({ status: 'loading', data: null, error: '' });
             void rpc('health', {}).then(data => setView({ status: 'ready', data, error: '' })).catch(error => setView({ status: 'error', data: null, error: error.message }));
           };
-          const badgeOfCap = c => badge(c.state === 'ok' ? '正常' : c.state === 'warn' ? '需注意' : c.state === 'error' ? '异常' : '说明', c.state === 'ok' ? 'blue' : c.state === 'warn' ? 'amber' : c.state === 'error' ? 'danger' : 'neutral', c.state === 'ok' ? 'check' : c.state === 'warn' ? 'info' : 'alert');
+          const badgeOfCap = c => statusBadge(['ok', 'warn', 'error'].includes(c.state) ? c.state : 'unchecked');
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           return h('section', null,
             sectionHead('pulse', '健康与预算', '能力可用性、同步新鲜度与本 Host 的投入统计；凭据不进入诊断。',
@@ -296,12 +300,11 @@ window.__ModuleLoader__.load({
             const roleNames = { memo: '备忘整理' };
             const readyItems = (state.readiness?.items || []).map(item => {
               const labels = { host: '宿主', config: '配置', postgres: 'PostgreSQL', workspace: '工作区', feishu: '飞书接入', sessions: '固定会话' };
-              const stateLabel = item.state === 'ok' ? '正常' : item.state === 'error' ? '需要处理' : '待核验';
-              const iconName = item.state === 'ok' ? 'check' : item.state === 'error' ? 'alert' : 'clock';
-              return h('div', { key: item.id, className: 'pa24-ready-item pa24-tone-' + toneOf(item) },
-                icon(iconName, { width: 17, height: 17 }),
+              const tier = item.state === 'ok' ? 'ok' : item.state === 'error' ? 'error' : 'warn';
+              return h('div', { key: item.id, className: 'pa24-ready-item pa24-tone-' + STATUS[tier][1] },
+                icon(STATUS[tier][2], { width: 17, height: 17 }),
                 h('div', null,
-                  h('div', { className: 'pa24-row pa24-between' }, h('strong', null, labels[item.id] || item.id), badge(stateLabel, toneOf(item))),
+                  h('div', { className: 'pa24-row pa24-between' }, h('strong', null, labels[item.id] || item.id), statusBadge(tier)),
                   h('p', { className: 'pa24-meta' }, item.message)));
             });
             const stats = [
@@ -332,20 +335,16 @@ window.__ModuleLoader__.load({
             const check = state.diagnostics;
             const cli = check ? check.cli : null;
             const auth = check ? check.auth : null;
-            const diagnosis = (item, fallback = '尚未检查') => !item
-              ? badge(fallback, 'neutral', 'clock')
-              : item.state === 'ok'
-                ? badge('正常', 'blue', 'check')
-                : ['error', 'mismatch'].includes(item.state)
-                  ? badge('需要处理', 'danger', 'alert')
-                  : badge(item.state === 'missing' ? '待配置' : '待核验', 'amber', 'clock');
+            const diagnosis = (item, configured = true) => !item
+              ? statusBadge(configured ? 'unchecked' : 'missing')
+              : statusBadge(item.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(item.state) ? 'error' : item.state === 'missing' ? 'missing' : 'warn');
             const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + ' 条';
             const resourceRows = [['folder', '文档目录', config ? config.folderToken : null, 'folder'], ['tasklist', '任务清单', config ? config.tasklistId : null, 'tasks'], ['calendar', '本人日历', config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
               const resource = check && check.resources ? check.resources.find(r => r.id === id) : null;
               return h('div', { key: id, className: 'pa24-resource' },
                 h('div', { className: 'pa24-row' },
                   h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, label), h('p', null, value || '尚未配置')),
-                  diagnosis(resource, value ? '尚未检查' : '待配置')),
+                  diagnosis(resource, !!value)),
                 resource ? h('p', null, resource.message) : null);
             });
             content = h('div', { className: 'pa24-grid' },
@@ -361,9 +360,9 @@ window.__ModuleLoader__.load({
                 ]),
                 h('div', { className: 'pa24-helper' }, '可以说：“检查飞书接入，告诉我还缺什么。” 检查只读取，不创建飞书对象。')),
               h('section', { className: 'pa24-card' },
-                h('div', { className: 'pa24-row pa24-between' }, h('h2', null, '机器人连接'), badge(state.transport && state.transport.connected ? '已连接' : '未连接', state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
+                h('div', { className: 'pa24-row pa24-between' }, h('h2', null, '机器人连接'), badge(state.transport && state.transport.connected ? '长连接已启动' : '未启动', state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
                 fields([
-                  ['连接状态', (state.transport && state.transport.message) || (state.transport && state.transport.connected ? '运行中（无报错）' : '未连接')],
+                  ['连接状态', (state.transport && state.transport.message) || (state.transport && state.transport.connected ? '长连接运行中（无报错）' : '未启动')],
                   ['最近收到本人消息', date(state.transport ? state.transport.lastReceivedAt : null, tz)],
                   ['最近发送获平台确认', date(state.transport ? state.transport.lastSentAt : null, tz)],
                   ['待发消息', pendingOutbox],
@@ -415,14 +414,9 @@ window.__ModuleLoader__.load({
           const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
           const channelBadge = value => value === 'wecom' ? badge('企微', 'neutral', 'bot') : badge('飞书', 'neutral', 'plug');
           const serviceMeta = { calendar: '日程', todo: '待办', push: '推送' };
-          const serviceBadge = s => {
-            const map = {
-              ok: ['正常', 'blue', 'check'], unauthorized: ['未授权', 'amber', 'info'], expired: ['已过期', 'amber', 'clock'],
-              unavailable: ['企业不可用', 'danger', 'alert'], error: ['异常', 'danger', 'alert'], skipped: ['未启用', 'neutral', 'info'],
-            };
-            const [label, tone, name] = map[s.state] || ['未知', 'neutral', 'info'];
-            return badge(label, tone, name);
-          };
+          const serviceBadge = s => statusBadge(
+            { ok: 'ok', unauthorized: 'missing', expired: 'warn', unavailable: 'error', error: 'error', skipped: 'unchecked' }[s.state] || 'unchecked',
+            { unauthorized: '未授权', expired: '已过期', unavailable: '企业不可用', error: '异常', skipped: '未启用' }[s.state]);
           return h('div', { className: 'pa24-grid' },
             h('section', { className: 'pa24-card' },
                 sectionHead('bot', '企微接入', '日程/待办第二操作渠道与提醒单向推送（不做收信，飞书保持唯一交互入口）。',
@@ -437,7 +431,7 @@ window.__ModuleLoader__.load({
               ]),
               h('div', { className: 'pa24-helper' }, '可以说：“检查企微接入，告诉我还缺什么。” 检查只读，不发送消息、不建企微对象；完整接入步骤让24私助给出指南（说“给我企微接入指南”）。')),
             wecom && h('section', { className: 'pa24-card' },
-              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与身份'), wecom.cli.state === 'ok' ? badge('CLI 可用', 'blue', 'check') : badge('CLI 不可用', 'danger', 'alert')),
+              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与身份'), statusBadge(wecom.cli.state === 'ok' ? 'ok' : 'error', wecom.cli.state === 'ok' ? undefined : 'CLI 不可用')),
               fields([
                 ['CLI 状态', wecom.cli.message],
                 ['机器人绑定与授权真人', wecom.identity.message],
@@ -485,8 +479,9 @@ window.__ModuleLoader__.load({
                 h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }),
                 h(HealthBlock)));
         }
-        // P53: 宿主侧栏只有图标位——title 悬停提示与 aria-label 补可访问名称（SPEC §13）。
-        const SidebarIcon = () => h('span', { title: t('panel'), 'aria-label': t('panel'), style: { display: 'inline-flex' } }, icon('bot', { width: 22, height: 22 }));
+        // P53: 宿主侧栏只有图标位——无障碍名由宿主 register 的 label 提供，
+        // title 仅补悬停提示。
+        const SidebarIcon = () => h('span', { title: t('panel'), style: { display: 'inline-flex' } }, icon('bot', { width: 22, height: 22 }));
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'pa24' }, Panel));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'pa24', order: 24, label: () => t('panel') }, SidebarIcon));
         ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'pa24', order: 25, label: () => t('settings') }, SettingsSection));
