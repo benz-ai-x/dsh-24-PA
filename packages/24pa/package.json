@@ -68,5 +68,34 @@
         "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "deepseek-harness",
+    "feishu",
+    "lark",
+    "larksuite",
+    "personal-assistant",
+    "ai-assistant",
+    "assistant",
+    "agent",
+    "chatbot",
+    "reminders",
+    "tasks",
+    "calendar",
+    "handwriting",
+    "postgresql",
+    "24pa"
+  ],
+  "homepage": "https://github.com/benz-ai-x/dsh-24-PA#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benz-ai-x/dsh-24-PA.git",
+    "directory": "packages/24pa"
+  },
+  "bugs": {
+    "url": "https://github.com/benz-ai-x/dsh-24-PA/issues"
   }
 }

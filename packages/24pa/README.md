@@ -11,6 +11,18 @@ English | [中文](README.zh.md)
 
 Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to six business workers, with a PostgreSQL ledger for items, reminders, handwritten-note review, digests, and delivery receipts. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2` and `0.2.1-alpha.1`.
 
+## FAQ
+
+**What is 24私助 (24PA)?** — A Feishu personal-assistant plugin for dsh, shipped as a profile bundle: local dsh sessions and a Feishu bot coordinate six business workers over a PostgreSQL ledger — tasks, calendar, reminders, memos, digests, and handwritten-note review.
+
+**Which dsh runtimes are supported?** — dsh `0.2.0-rc.2` and `0.2.1-alpha.1`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
+
+**How do I install it?** — `dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<baseline serial>`, then restart the profile (see [Installing the Bundle](#installing-the-bundle)).
+
+**Do reminders require the model to be online?** — No: reminders fire from PostgreSQL occurrence rows through the outbox, so fixed reminders deliver while the model is offline.
+
+**How do I connect Feishu?** — Tell the local 24私助 session「帮我接通飞书」; the built-in wizard (`pa24_connection` `guide`, and `check` with `nextSteps`) walks app creation, authorization, resource ids, and health checks.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)

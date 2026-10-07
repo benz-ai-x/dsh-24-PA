@@ -11,6 +11,18 @@ kind: "package-bundle"
 
 把 `@benz-ai-x/dsh-24pa` 安装进 Profile，即获得「24私助」助理预设及其宿主插件：飞书＋本地双入口协调、六类业务 Worker，PostgreSQL 账本承载事项、提醒、手写审核、简报与发送回执。预设携带按角色裁剪的标准模式工具面——本地会话可编程，飞书入口与 Worker 保持业务白名单。版本号跟随 dsh 基线（`<dsh 版本>.<序号>`），支持 dsh `0.2.0-rc.2` 与 `0.2.1-alpha.1`。
 
+## 常见问题
+
+**24私助（24PA）是什么？**——面向 dsh 的飞书私人助理插件（profile bundle）：本地 dsh 会话与飞书机器人协调六类业务 Worker，PostgreSQL 账本承载任务、日程、提醒、备忘、简报与手写审核。
+
+**支持哪些 dsh 运行时？**——dsh `0.2.0-rc.2` 与 `0.2.1-alpha.1`；版本号按 `<dsh 基线>.<序号>` 命名，npm dist-tag 按基线分通道。
+
+**怎么安装？**——`dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<基线序号>`，然后重启 profile（见[安装 Bundle](#安装-bundle)）。
+
+**提醒需要模型在线吗？**——不需要：提醒由 PostgreSQL 发生实例经 Outbox 触发，模型离线时固定提醒照发。
+
+**怎么接通飞书？**——对本地24私助会话说「帮我接通飞书」；内置向导（`pa24_connection` 的 `guide` 与带 `nextSteps` 的 `check`）带你完成建应用、授权、资源标识与健康检查。
+
 ## 目录
 
 - [使用本包](#使用本包)
