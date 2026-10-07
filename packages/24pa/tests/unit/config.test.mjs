@@ -15,6 +15,21 @@ describe('AGENTS.md 配置校验', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, mode: 'weixin' })).toThrow(/mode/);
   });
 
+  it('渠道字段（F16）：缺省视作 feishu，非法值拒绝', () => {
+    const legacy = { ...DEFAULT_CONFIG };
+    delete legacy.calendarChannel;
+    delete legacy.todoChannel;
+    delete legacy.notifyChannel;
+    const parsed = validateConfig(legacy);
+    expect(parsed.calendarChannel).toBe('feishu');
+    expect(parsed.todoChannel).toBe('feishu');
+    expect(parsed.notifyChannel).toBe('feishu');
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, calendarChannel: 'dingtalk' })).toThrow(/calendarChannel/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, todoChannel: 5 })).toThrow(/todoChannel/);
+    const wecom = validateConfig({ ...DEFAULT_CONFIG, calendarChannel: 'wecom', todoChannel: 'wecom', notifyChannel: 'wecom' });
+    expect(wecom.notifyChannel).toBe('wecom');
+  });
+
   it('要求固定 profile、合法环境变量名与时区', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, larkProfile: '' })).toThrow(/larkProfile/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, appIdEnv: 'not-env' })).toThrow(/环境变量/);

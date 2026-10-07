@@ -416,6 +416,16 @@ const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] 
       )`,
     ],
   },
+  {
+    // F16 (spec 1.6): projection rows record which channel created them.
+    // Existing rows keep their implicit feishu semantics.
+    version: 11,
+    statements: [
+      `alter table pa24.task add column if not exists channel text not null default 'feishu'`,
+      `alter table pa24.calendar_event add column if not exists channel text not null default 'feishu'`,
+      `alter table pa24.calendar_sync_state add column if not exists channel text not null default 'feishu'`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

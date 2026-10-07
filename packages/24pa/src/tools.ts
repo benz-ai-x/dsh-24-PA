@@ -252,16 +252,18 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_connection',
-    '飞书接入向导：guide 返回随插件打包的配置指南（配置前必读，按阶段推进）；check 发起一次只读接入检查（CLI、身份、资源可读性），返回的 nextSteps 指出当前卡点的下一步；read 查看配置与最近检查结果。不发消息、不写飞书对象。',
-    { action: { type: 'string', enum: ['guide', 'check', 'read'] } },
+    '接入向导与诊断：guide 返回飞书接入配置指南（配置前必读）；wecom_guide 返回企业微信日程/待办渠道的接入指南（wecom-setup.md）；check 发起飞书只读接入检查（CLI、身份、资源可读性），wecom_check 发起企微渠道只读检查（CLI、机器人绑定、按启用域探测服务级授权），返回的 nextSteps 指出当前卡点的下一步；read 查看配置与最近检查结果。不发消息、不写平台对象。',
+    { action: { type: 'string', enum: ['guide', 'check', 'read', 'wecom_guide', 'wecom_check'] } },
     ['action'],
     async (args, exec) => {
       const role = runtime.roleFor(exec.agent!);
-      if (role !== 'local-robot') throw new Error('请在 dsh 的24私助会话中操作飞书接入。');
+      if (role !== 'local-robot') throw new Error('请在 dsh 的24私助会话中操作接入配置。');
       if (args.action === 'guide') return readSetupGuide();
+      if (args.action === 'wecom_guide') return readWecomSetupGuide();
       if (args.action === 'check') return runtime.checkAccess();
+      if (args.action === 'wecom_check') return runtime.wecomCheck();
       const snapshot = runtime.snapshot() as any;
-      return { transport: snapshot.transport, diagnostics: snapshot.diagnostics };
+      return { transport: snapshot.transport, diagnostics: snapshot.diagnostics, wecom: runtime.wecomDiagnosticsSnapshot() };
     },
   );
 }
@@ -278,5 +280,20 @@ async function readSetupGuide(): Promise<Record<string, unknown>> {
     version: pkg.version ?? null,
     content,
     usage: '配置飞书接入前先通读；按阶段推进，每阶段用 pa24_connection action=check 验证并按 nextSteps 收敛。',
+  };
+}
+
+/** The bundled wecom-setup.md is the single authority for the wecom channel (F16). */
+async function readWecomSetupGuide(): Promise<Record<string, unknown>> {
+  const { readFile } = await import('node:fs/promises');
+  const guideUrl = new URL('../wecom-setup.md', import.meta.url);
+  const pkgUrl = new URL('../package.json', import.meta.url);
+  const content = await readFile(guideUrl, 'utf8');
+  const pkg = JSON.parse(await readFile(pkgUrl, 'utf8')) as { version?: string };
+  return {
+    guide: 'wecom-setup.md',
+    version: pkg.version ?? null,
+    content,
+    usage: '接入企微日程/待办渠道前先通读；按阶段推进，每阶段用 pa24_connection action=wecom_check 验证并按 nextSteps 收敛。',
   };
 }

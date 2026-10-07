@@ -151,3 +151,4 @@
         stateDirectory: !!js dshHomePath('24pa')
         workspacePath: !!js process.env.PA24_WORKSPACE || ''
         larkCliBin: lark-cli
+        wecomCliBin: wecom-cli

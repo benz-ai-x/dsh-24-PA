@@ -8,6 +8,7 @@ import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, typ
 import { acquireHostLock, type HostLock, HostAlreadyActive } from './lock.js';
 import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
 import { runLarkCli } from './lark.js';
+import { runWecomCli, WecomCliError, wecomWallTime, wecomParseWallTime } from './wecom.js';
 import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
@@ -163,6 +164,7 @@ export interface RuntimeOptions {
   stateDirectory: string;
   workspacePath: string;
   larkCliBin: string;
+  wecomCliBin: string;
   cliTimeoutMs: number;
   dispatchTickMs: number;
   outboxTickMs: number;
@@ -170,6 +172,26 @@ export interface RuntimeOptions {
   noteVerifyTickMs: number;
   reviewReminderTickMs: number;
   env?: Record<string, string | undefined>;
+}
+
+/** F16: calendar projection namespace for the wecom channel. */
+export const WECOM_CALENDAR_ID = 'wecom';
+
+export interface WecomServiceCheck {
+  id: 'calendar' | 'todo' | 'push';
+  state: 'ok' | 'unauthorized' | 'expired' | 'unavailable' | 'error' | 'skipped';
+  message: string;
+  /** Verbatim platform guidance (contains the in-app authorization link). */
+  helpMessage?: string;
+}
+
+export interface WecomDiagnostics {
+  checkedAt: string;
+  cli: { state: 'ok' | 'error'; message: string };
+  auth: { state: 'ok' | 'error'; message: string };
+  identity: { state: 'ok' | 'error' | 'missing'; message: string; userid?: string; userName?: string };
+  services: WecomServiceCheck[];
+  nextSteps: string[];
 }
 
 export interface NativeScheduleService {
@@ -214,6 +236,11 @@ export class PaRuntime {
   private lastSentAt: string | null = null;
   private diagnostics: AccessDiagnostics | null = null;
   private checking: Promise<AccessDiagnostics> | null = null;
+  // F16: wecom identity target (resolved via `identity whoami`) and the last
+  // wecom access inspection, mirroring the lark diagnostics pattern.
+  private wecomIdentityCache: { userid: string; name: string } | null = null;
+  private wecomIdentityFailedAt = 0;
+  private wecomDiagnostics: WecomDiagnostics | null = null;
 
   private dispatchTimer: NodeJS.Timeout | null = null;
   private outboxTimer: NodeJS.Timeout | null = null;
@@ -271,9 +298,10 @@ export class PaRuntime {
         task_update: async (args, item) => this.taskUpdate(item, args),
         task_complete: async (args, item) => this.taskComplete(item, args),
         task_get: async args => this.taskGet(args),
-        task_cancel: async args => {
+        task_cancel: async (args, item) => {
           const task = await this.resolveTask(args);
           if (!String(args.reason ?? '').trim()) throw new Error('取消需要说明本人的理由，用于记录与后续核对。');
+          if (task.channel === 'wecom') return this.wecomTaskDelete(item, task, String(args.reason));
           return {
             guid: task.task_guid,
             url: task.url,
@@ -936,7 +964,21 @@ export class PaRuntime {
 
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
-    if (!this.config?.ownerOpenId) return; // unbound/demo: nothing to address yet
+    if (!this.config) return; // unbound: nothing to address yet
+    if (this.config.notifyChannel === 'wecom') {
+      // Single-direction wecom push; the reminder ledger stays the single
+      // schedule track, only the delivery exit changes (ADR-0001).
+      const owner = await this.wecomOwnerUserid();
+      await this.repos!.outbox.enqueue({
+        dedupKey,
+        channel: 'wecom',
+        target: owner.userid,
+        kind: 'text',
+        content: { text },
+      });
+      return;
+    }
+    if (!this.config.ownerOpenId) return; // demo/feishu without binding: nothing to address yet
     await this.repos!.outbox.enqueue({
       dedupKey,
       channel: 'feishu',
@@ -1549,6 +1591,7 @@ export class PaRuntime {
   // ---- calendar (F04) -------------------------------------------------------
 
   private async calendarQuery(args: Record<string, unknown>): Promise<unknown> {
+    if (this.config!.calendarChannel === 'wecom') return this.wecomCalendarQuery(args);
     const calendarId = String(args.calendarId ?? this.config!.calendarId);
     const { from, to } = parseZonedRange(args);
     const sync = await this.syncCalendarWindow(calendarId, from, to);
@@ -1589,6 +1632,7 @@ export class PaRuntime {
   }
 
   private async calendarBusy(args: Record<string, unknown>): Promise<unknown> {
+    if (this.config!.calendarChannel === 'wecom') return this.wecomCalendarBusy(args);
     const calendarId = String(args.calendarId ?? this.config!.calendarId);
     const { from, to } = parseZonedRange(args);
     const sync = await this.syncCalendarWindow(calendarId, from, to);
@@ -1601,6 +1645,10 @@ export class PaRuntime {
   }
 
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
+    if (this.config!.calendarChannel === 'wecom') {
+      if (operationIdOverride) throw new Error('企微日程渠道不支持操作键覆盖（meeting/minutes 流程限定飞书）。');
+      return this.wecomCalendarWrite(item, kind, args);
+    }
     const calendarId = String(args.calendarId ?? this.config!.calendarId);
     const summary = kind === 'cancel' ? null : args.summary === undefined ? null : text(args.summary, 500);
     const start = args.start !== undefined ? new Date(String(args.start)) : null;
@@ -1701,6 +1749,9 @@ export class PaRuntime {
    * clarified before anything is sent.
    */
   private async meetingSchedule(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    if (this.config!.calendarChannel === 'wecom') {
+      throw new Error('会议邀请（meeting_schedule）依赖飞书联系人解析，企微日程渠道不可用；可先用 calendar_create 建企微日程（不含邀请），邀请由本人在企微发起。');
+    }
     const title = text(args.title, 200);
     const start = new Date(String(args.start ?? ''));
     const end = new Date(String(args.end ?? ''));
@@ -1798,10 +1849,428 @@ export class PaRuntime {
     }
   }
 
+  // ---- wecom channel (F16, spec 1.6) ----------------------------------------
+  //
+  // 企业微信作为日程/待办的第二操作渠道与提醒单向推送出口：不做收信，
+  // 飞书保持唯一交互入口。写操作同样先落 staged 账——wecom-cli 没有平台
+  // 幂等键（实测重复 create 产生重复对象），操作键是唯一防线。
+
+  private wecomRun(args: readonly string[]) {
+    return runWecomCli({ bin: this.options.wecomCliBin, timeoutMs: this.options.cliTimeoutMs }, args);
+  }
+
+  /** Resolve the push target via `identity whoami` once per workspace session. */
+  private async wecomOwnerUserid(): Promise<{ userid: string; name: string }> {
+    if (this.wecomIdentityCache) return this.wecomIdentityCache;
+    if (Date.now() - this.wecomIdentityFailedAt < 60_000) {
+      throw new Error('企微推送目标最近解析失败（60 秒内不重复解析）；用 pa24_connection action=wecom_check 诊断。');
+    }
+    try {
+      const { raw } = await this.wecomRun(['identity', 'whoami']);
+      const context = String((raw as any)?.extra_identity_context ?? '');
+      const match = /授权真人用户身份：\s*名字：(.+?)\s*ID：([A-Za-z0-9_\-]+)/.exec(context.replace(/\s+/g, ' '));
+      if (!match) throw new Error('whoami 未包含授权真人身份；请先在服务器完成 wecom-cli auth init 并由本人扫码。');
+      this.wecomIdentityCache = { name: match[1]!.trim(), userid: match[2]! };
+      return this.wecomIdentityCache;
+    } catch (error) {
+      this.wecomIdentityFailedAt = Date.now();
+      throw error;
+    }
+  }
+
+  private mapWecomSchedule(rawEvent: any): {
+    eventId: string; summary: string; start: Date; end: Date; attendees: unknown;
+  } | null {
+    const eventId = String(rawEvent?.schedule_id ?? '');
+    const summary = rawEvent?.subject == null ? '' : String(rawEvent.subject);
+    const tz = this.config!.timeZone;
+    const start = wecomParseWallTime(String(rawEvent?.begin_time ?? ''), tz);
+    const end = wecomParseWallTime(String(rawEvent?.end_time ?? ''), tz);
+    if (!eventId || !summary || !start || !end) return null;
+    const attendees = Array.isArray(rawEvent?.attendees)
+      ? (rawEvent.attendees as any[]).map(a => String(a?.name ?? a?.userid ?? '')).filter(Boolean)
+      : null;
+    return { eventId, summary, start, end, attendees };
+  }
+
+  private async syncWecomCalendarWindow(from: Date, to: Date): Promise<{ ok: boolean; error?: string }> {
+    const tz = this.config!.timeZone;
+    try {
+      const { data } = await this.wecomRun(['calendar', 'schedules', 'list', '--begin-time', wecomWallTime(from, tz), '--end-time', wecomWallTime(to, tz)]);
+      // An unrecognized response shape means the full window is unknown;
+      // never run destructive cancellation marking in that case.
+      const raw = Array.isArray(data?.schedule_list) ? data.schedule_list : null;
+      if (!raw) {
+        await this.repos!.calendar.saveSync({ calendar_id: WECOM_CALENDAR_ID, window_start: from, window_end: to, complete: false, lastError: '同步返回形状无法识别', channel: 'wecom' });
+        return { ok: false, error: '同步返回形状无法识别' };
+      }
+      const live: string[] = [];
+      for (const rawEvent of raw) {
+        const mapped = this.mapWecomSchedule(rawEvent);
+        if (!mapped) continue;
+        const existing = await this.repos!.calendar.findEvent(mapped.eventId);
+        if (existing) {
+          const afterFp = eventFingerprint({ event_id: mapped.eventId, summary: mapped.summary, start_time: mapped.start });
+          if (eventFingerprint(existing) !== afterFp) await this.notifySourceChanged('calendar', mapped.eventId, afterFp);
+        }
+        await this.repos!.calendar.upsertEvent({
+          event_id: mapped.eventId,
+          calendar_id: WECOM_CALENDAR_ID,
+          summary: mapped.summary,
+          start_time: mapped.start,
+          end_time: mapped.end,
+          is_all_day: false,
+          timezone: tz,
+          status: 'active',
+          recurring: false,
+          attendees: mapped.attendees,
+          url: null,
+          raw: rawEvent,
+          channel: 'wecom',
+        });
+        live.push(mapped.eventId);
+      }
+      await this.repos!.calendar.markCanceledExcept(WECOM_CALENDAR_ID, live, from, to);
+      for (const eventId of await this.linkedEventIdsInWindow(from, to)) {
+        if (!live.includes(eventId)) await this.notifySourceChanged('calendar', eventId, null);
+      }
+      await this.repos!.calendar.saveSync({ calendar_id: WECOM_CALENDAR_ID, window_start: from, window_end: to, complete: true, channel: 'wecom' });
+      return { ok: true };
+    } catch (error) {
+      await this.repos!.calendar
+        .saveSync({ calendar_id: WECOM_CALENDAR_ID, window_start: from, window_end: to, complete: false, lastError: (error as Error).message, channel: 'wecom' })
+        .catch(() => {});
+      return { ok: false, error: (error as Error).message };
+    }
+  }
+
+  private async wecomCalendarQuery(args: Record<string, unknown>): Promise<unknown> {
+    const { from, to } = parseZonedRange(args);
+    const sync = await this.syncWecomCalendarWindow(from, to);
+    const events = await this.repos!.calendar.eventsIn(WECOM_CALENDAR_ID, from, to);
+    const state = await this.repos!.calendar.getSync(WECOM_CALENDAR_ID);
+    return {
+      calendarId: WECOM_CALENDAR_ID,
+      channel: 'wecom',
+      from: isoDate(from),
+      to: isoDate(to),
+      fresh: sync.ok,
+      syncedAt: isoDate(state?.last_synced_at ?? null),
+      message: sync.ok
+        ? `共 ${events.length} 个企微日程（不含已取消）。`
+        : `本次企微同步失败（${sync.error}）；以下为投影数据，可能过期，不视为完整日历。`,
+      events: events.map(e => ({
+        eventId: e.event_id,
+        summary: e.summary,
+        start: isoDate(e.start_time),
+        end: isoDate(e.end_time),
+        allDay: e.is_all_day,
+        timezone: e.timezone,
+        attendees: e.attendees,
+      })),
+    };
+  }
+
+  private async wecomCalendarBusy(args: Record<string, unknown>): Promise<unknown> {
+    const { from, to } = parseZonedRange(args);
+    const sync = await this.syncWecomCalendarWindow(from, to);
+    const events = await this.repos!.calendar.eventsIn(WECOM_CALENDAR_ID, from, to);
+    return {
+      fresh: sync.ok,
+      channel: 'wecom',
+      message: sync.ok ? `该时段忙闲如下（${events.length} 项，企微）。` : `本次企微同步失败（${sync.error}）；展示投影，可能过期。`,
+      busy: events.map(e => ({ summary: e.summary, start: isoDate(e.start_time), end: isoDate(e.end_time), allDay: e.is_all_day })),
+    };
+  }
+
+  private async wecomCalendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown> {
+    if (kind === 'update') {
+      throw new Error('企微日程首版不支持修改（F16 范围：查询/创建/取消）；如需变更，可取消后重建，或本人手动调整。');
+    }
+    const summary = kind === 'cancel' ? null : args.summary === undefined ? null : text(args.summary, 500);
+    const start = args.start !== undefined ? new Date(String(args.start)) : null;
+    const end = args.end !== undefined ? new Date(String(args.end)) : null;
+    if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) throw new Error('日程时间需为可解析的 ISO 时间。');
+    if (start && end && end <= start) throw new Error('结束时间须晚于开始时间。');
+    if (kind === 'create' && (!summary || !start || !end)) throw new Error('创建需要 summary、start、end。');
+    const eventId = kind === 'create' ? '' : String(args.eventId ?? '');
+    if (kind === 'cancel' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询企微日程）。');
+    const tz = this.config!.timeZone;
+    const paramsKey = `wecom\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}`;
+    return this.gate(`calendar-event:${eventId || 'wecom-new'}`, async () => {
+      const staged = await this.stagedOperation(
+        item,
+        `wecom_calendar.${kind}`,
+        paramsKey,
+        { channel: 'wecom', kind, eventId, summary, start, end },
+        '请先用 calendar_query 重新同步窗口核对企微日程实际状态，确认后再继续。',
+      );
+      if (!staged.created && staged.row.status === 'succeeded') {
+        return { operationId: staged.row.id, reused: true, ...(staged.row.receipt ?? {}), message: '此企微日程操作此前已提交，未重复写入。' };
+      }
+      try {
+        let newEventId = eventId;
+        if (kind === 'create') {
+          const { data } = await this.wecomRun([
+            'calendar', 'schedules', 'create',
+            '--subject', `[24PA] ${summary}`,
+            '--begin-time', wecomWallTime(start!, tz),
+            '--end-time', wecomWallTime(end!, tz),
+          ]);
+          newEventId = String(data?.schedule_id ?? '');
+          if (!newEventId) throw new Error('企微创建成功但未返回 schedule_id；以 calendar_query 核对。');
+          await this.repos!.calendar.upsertEvent({
+            event_id: newEventId,
+            calendar_id: WECOM_CALENDAR_ID,
+            summary: `[24PA] ${summary}`,
+            start_time: start!,
+            end_time: end!,
+            is_all_day: false,
+            timezone: tz,
+            status: 'active',
+            recurring: false,
+            attendees: null,
+            url: null,
+            raw: data,
+            channel: 'wecom',
+          });
+        } else {
+          await this.wecomRun(['calendar', 'schedules', 'cancel', '--schedule-id', eventId]);
+          await this.repos!.calendar.markCanceled(eventId).catch(() => {});
+          await this.notifySourceChanged('calendar', eventId, null);
+        }
+        await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url: null, kind, channel: 'wecom' } });
+        return {
+          operationId: staged.row.id,
+          eventId: newEventId,
+          url: null,
+          message: kind === 'create' ? '企微日程已创建（以平台回执为准）。' : '企微日程已取消（以平台回执为准）。',
+        };
+      } catch (error) {
+        await this.failStaged(staged.row.id, error);
+        throw error;
+      }
+    });
+  }
+
+  private async wecomTaskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const summary = text(args.summary, 500);
+    const { dueAt, dueHasTime } = parseDue(args.due);
+    const plannedAt = args.plannedAt ? new Date(String(args.plannedAt)) : null;
+    if (plannedAt && Number.isNaN(plannedAt.getTime())) throw new Error('计划投入时间无法解析。');
+    const estimateMinutes = args.estimateMinutes == null ? null : Number(args.estimateMinutes);
+    if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
+    const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : '';
+    const overrideId = args._operationId ? String(args._operationId) : null;
+    const authorization = args._instruction ? { instruction: text(args._instruction, 500) } : {};
+    const staged = overrideId
+      ? await this.stagedOperationWithId(overrideId, item, 'wecom_todo.create', { channel: 'wecom', summary, due: args.due ? String(args.due) : null, ...authorization })
+      : await this.stagedOperation(item, 'wecom_todo.create', `wecom\n${summary}\n${args.due ?? ''}${batchSuffix}`, {
+          channel: 'wecom',
+          summary,
+          due: args.due ? String(args.due) : null,
+          ...authorization,
+        });
+    if (!staged.created && staged.row.status === 'succeeded') {
+      const existing = await this.repos!.tasks.get(staged.row.id);
+      return { operationId: staged.row.id, reused: true, guid: existing?.task_guid ?? staged.row.receipt?.guid, url: null, message: '此企微待办此前已创建，未重复写入。' };
+    }
+    try {
+      const tz = this.config!.timeZone;
+      const todoItem: Record<string, unknown> = { title: `[24PA] ${summary}` };
+      if (dueAt) {
+        todoItem.deadline = { type: dueHasTime ? 'datetime' : 'date', value: dueHasTime ? wecomWallTime(dueAt, tz) : wecomWallTime(dueAt, tz).slice(0, 10) };
+        todoItem.remind_at_deadline = true;
+      }
+      const { data } = await this.wecomRun(['todo', 'create', '--items', JSON.stringify([todoItem])]);
+      const created = (data?.items ?? [])[0] as any;
+      const guid = String(created?.todo_id ?? '');
+      if (created?.success === false || !guid) {
+        throw new Error(`企微待办创建未成功：${created?.title ?? '未返回 todo_id'}；请核对企微待办列表后重试。`);
+      }
+      const task = await this.repos!.tasks.save({
+        id: staged.row.id,
+        work_item_id: item.id,
+        task_guid: guid,
+        url: null,
+        summary,
+        due_at: dueAt,
+        due_has_time: dueHasTime,
+        planned_at: plannedAt,
+        estimate_minutes: estimateMinutes == null ? null : Math.round(estimateMinutes),
+        status: 'open',
+        external_updated_at: new Date(),
+        last_synced_at: new Date(),
+        channel: 'wecom',
+      });
+      if (args.projectId) await this.repos!.projects.link(String(args.projectId), task.id);
+      await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid, summary } });
+      return { operationId: staged.row.id, guid, url: null, dueAt: isoDate(task.due_at), plannedAt: isoDate(task.planned_at), estimateMinutes: task.estimate_minutes, channel: 'wecom', message: '企微待办已创建（企微为权威对象）。' };
+    } catch (error) {
+      await this.failStaged(staged.row.id, error);
+      throw error;
+    }
+  }
+
+  /** Best-effort refresh for wecom todo rows (todo list has no single-get filter). */
+  private async refreshWecomTaskFromRemote(task: TaskRow): Promise<TaskRow | null> {
+    try {
+      const { data } = await this.wecomRun(['todo', 'list']);
+      const remote = ((data?.items ?? data?.todos ?? []) as any[]).find(t => String(t?.todo_id) === task.task_guid);
+      if (!remote) return null;
+      const status = remote.status === 'proceed' ? 'open' : 'completed';
+      return await this.repos!.tasks.save({
+        ...task,
+        status,
+        last_synced_at: new Date(),
+        external_updated_at: new Date(),
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private async wecomTaskFinish(item: WorkItemRow, task: TaskRow): Promise<unknown> {
+    return this.gate(`task:${task.task_guid}`, async () => {
+      const local = await this.repos!.tasks.get(task.id);
+      if (!local) throw new Error('待办不存在；请先用 task_list 查看。');
+      const refreshed = (await this.refreshWecomTaskFromRemote(local)) ?? local;
+      if (refreshed.status === 'completed') {
+        return { guid: refreshed.task_guid, status: 'completed', reused: true, message: '企微待办此前已是完成状态（含远端核对）。' };
+      }
+      const staged = await this.stagedOperation(item, 'wecom_todo.finish', refreshed.task_guid, { channel: 'wecom', guid: refreshed.task_guid });
+      if (!staged.created && staged.row.status === 'succeeded') {
+        await this.repos!.tasks.save({ ...refreshed, status: 'completed' });
+        return { operationId: staged.row.id, guid: refreshed.task_guid, status: 'completed', reused: true, message: '此前已完成，未重复提交。' };
+      }
+      try {
+        const { data } = await this.wecomRun(['todo', 'finish', '--items', JSON.stringify([{ todo_id: refreshed.task_guid }])]);
+        const finished = ((data?.items ?? []) as any[])[0];
+        if (finished?.success === false) throw new Error('企微待办完成未成功；请核对企微待办列表后重试。');
+        const updated = await this.repos!.tasks.save({ ...refreshed, status: 'completed', last_synced_at: new Date(), external_updated_at: new Date() });
+        await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: refreshed.task_guid, status: 'completed' } });
+        return { operationId: staged.row.id, guid: updated.task_guid, url: null, status: 'completed', channel: 'wecom', message: '企微待办已完成（以企微实际状态为准）。' };
+      } catch (error) {
+        await this.failStaged(staged.row.id, error);
+        throw error;
+      }
+    });
+  }
+
+  /** wecom todos do have a delete API — unlike the Feishu task platform. */
+  private async wecomTaskDelete(item: WorkItemRow, task: TaskRow, reason: string): Promise<unknown> {
+    return this.gate(`task:${task.task_guid}`, async () => {
+      const staged = await this.stagedOperation(item, 'wecom_todo.delete', task.task_guid, { channel: 'wecom', guid: task.task_guid, reason });
+      if (!staged.created && staged.row.status === 'succeeded') {
+        return { operationId: staged.row.id, guid: task.task_guid, status: 'canceled', reused: true, message: '此企微待办此前已删除。' };
+      }
+      try {
+        const { data } = await this.wecomRun(['todo', 'delete', '--items', JSON.stringify([{ todo_id: task.task_guid }])]);
+        const deleted = ((data?.items ?? []) as any[])[0];
+        if (deleted?.success === false) throw new Error('企微待办删除未成功；请核对企微待办列表后重试。');
+        await this.repos!.tasks.save({ ...task, status: 'canceled', last_synced_at: new Date(), external_updated_at: new Date() });
+        await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, status: 'canceled', reason } });
+        return { operationId: staged.row.id, guid: task.task_guid, status: 'canceled', channel: 'wecom', message: `企微待办已删除（理由已记录：${reason}）。` };
+      } catch (error) {
+        await this.failStaged(staged.row.id, error);
+        throw error;
+      }
+    });
+  }
+
+  /** Single-direction wecom push via the smart-bot markdown channel. */
+  private async wecomSendText(target: string, text: string, uuid: string): Promise<{ messageId: string }> {
+    // Markdown control characters in reminder prose must not restyle the
+    // message; escape the inline markers wecom markdown honors.
+    const escaped = text.replace(/([*_`#\[\]])/g, '\\$1');
+    const { data } = await this.wecomRun([
+      'message', 'aibot', 'send',
+      '--chat-id', target,
+      '--msg-type', 'markdown',
+      '--markdown', JSON.stringify({ content: escaped }),
+    ]);
+    if (data?.success !== true) throw new Error('企微推送未获平台确认（success!=true）。');
+    return { messageId: `wecom:${uuid}` };
+  }
+
+  /** Read-only view of the last wecom inspection (no platform calls). */
+  wecomDiagnosticsSnapshot(): WecomDiagnostics | null {
+    return this.wecomDiagnostics;
+  }
+
+  /** On-demand read-only wecom access inspection (CLI/identity/service probes). */
+  async wecomCheck(): Promise<WecomDiagnostics> {
+    if (!this.config) throw new Error('尚未绑定工作区。');    const nextSteps: string[] = [];
+    const services: WecomServiceCheck[] = [];
+    const checkedAt = nowIso();
+    // 1. CLI presence: `--version` prints plain text (not the JSON envelope),
+    // so it runs through a raw spawn rather than the business gateway.
+    let cli: WecomDiagnostics['cli'];
+    try {
+      const { execFile } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const run = promisify(execFile);
+      const { stdout } = await run(this.options.wecomCliBin, ['--version'], { timeout: Math.min(this.options.cliTimeoutMs, 10_000) });
+      cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}` };
+    } catch (error) {
+      cli = { state: 'error', message: `无法运行 ${this.options.wecomCliBin}：${(error as Error).message}` };
+      nextSteps.push(`安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 阶段 0）。`);
+      const result: WecomDiagnostics = { checkedAt, cli, auth: { state: 'error', message: 'CLI 不可用，跳过。' }, identity: { state: 'missing', message: '未解析。' }, services, nextSteps };
+      this.wecomDiagnostics = result;
+      return result;
+    }
+    // 2. Identity (whoami covers bot binding + authorized human in one call).
+    let identity: WecomDiagnostics['identity'];
+    let userid: string | null = null;
+    try {
+      const owner = await this.wecomOwnerUserid();
+      userid = owner.userid;
+      identity = { state: 'ok', message: `机器人已绑定；授权真人 ${owner.name}（${owner.userid}）`, userid: owner.userid, userName: owner.name };
+    } catch (error) {
+      identity = { state: 'error', message: (error as Error).message };
+      nextSteps.push('在服务器执行 wecom-cli auth init 并由本人企微扫码绑定机器人（wecom-setup.md 阶段 1）。');
+    }
+    // 3. Per-service authorization probes (read-only) for enabled domains.
+    const probes: Array<{ id: WecomServiceCheck['id']; enabled: boolean; args: readonly string[] }> = [
+      { id: 'calendar', enabled: this.config.calendarChannel === 'wecom', args: ['calendar', 'schedules', 'list'] },
+      { id: 'todo', enabled: this.config.todoChannel === 'wecom', args: ['todo', 'list'] },
+      { id: 'push', enabled: this.config.notifyChannel === 'wecom', args: [] },
+    ];
+    for (const probe of probes) {
+      if (!probe.enabled) continue;
+      if (probe.id === 'push') {
+        services.push({
+          id: 'push',
+          state: userid ? 'ok' : 'error',
+          message: userid
+            ? `推送目标已解析（${userid}）；无只读探针，以首次真实推送为准。`
+            : '推送目标未解析（见身份检查）。',
+        });
+        continue;
+      }
+      try {
+        await this.wecomRun(probe.args);
+        services.push({ id: probe.id, state: 'ok', message: '只读探测通过。' });
+      } catch (error) {
+        const errcode = (error as WecomCliError)?.errcode;
+        const helpMessage = (error as WecomCliError)?.helpMessage;
+        const state: WecomServiceCheck['state'] = errcode === 850002 ? 'unauthorized' : errcode === 850003 ? 'expired' : errcode === 853006 ? 'unavailable' : 'error';
+        services.push({ id: probe.id, state, message: (error as Error).message, helpMessage });
+        if (helpMessage) nextSteps.push(helpMessage);
+        else if (state === 'unavailable') nextSteps.push(`该企业未开放「${probe.id === 'calendar' ? '日程' : '待办'}」机器人能力（853006），无法由助理侧修复。`);
+      }
+    }
+    if (nextSteps.length === 0) nextSteps.push('企微渠道检查通过。服务级授权会过期（实测日程授权曾过期），异常时回到本检查。');
+    const result: WecomDiagnostics = { checkedAt, cli, auth: { state: identity.state === 'ok' ? 'ok' : 'error', message: identity.message }, identity, services, nextSteps };
+    this.wecomDiagnostics = result;
+    return result;
+  }
+
   // ---- tasks & projects (F03) ----------------------------------------------
 
   /** Best-effort remote refresh folded into the projection; returns the fresh row or null. */
   private async refreshTaskFromRemote(task: TaskRow): Promise<TaskRow | null> {
+    if (task.channel === 'wecom') return this.refreshWecomTaskFromRemote(task);
     try {
       const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
         'task', '+search', '--as', 'user', '--query', task.summary.replace(/^\[24PA\] /, '').slice(0, 20),
@@ -1857,6 +2326,7 @@ export class PaRuntime {
   }
 
   private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    if (this.config!.todoChannel === 'wecom') return this.wecomTaskCreate(item, args);
     const summary = text(args.summary, 500);
     const { dueAt, dueHasTime, dueArg } = parseDue(args.due);
     const plannedAt = args.plannedAt ? new Date(String(args.plannedAt)) : null;
@@ -1915,6 +2385,9 @@ export class PaRuntime {
 
   private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const taskRef = await this.resolveTask(args);
+    if (taskRef.channel === 'wecom') {
+      throw new Error('企微待办首版不支持修改（F16 范围：创建/完成/删除）；如需调整，可删除后重建。');
+    }
     const summary = args.summary == null ? null : text(args.summary, 500);
     const { dueAt, dueHasTime, dueArg } = parseDue(args.due === undefined ? null : args.due);
     const plannedAt = args.plannedAt === undefined ? undefined : args.plannedAt === null ? null : new Date(String(args.plannedAt));
@@ -1963,6 +2436,7 @@ export class PaRuntime {
 
   private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const taskRef = await this.resolveTask(args);
+    if (taskRef.channel === 'wecom') return this.wecomTaskFinish(item, taskRef);
     return this.gate(`task:${taskRef.task_guid}`, async () => {
       // Idempotency check inside the gate, against the freshest remote state.
       const local = await this.repos!.tasks.get(taskRef.id);
@@ -2001,9 +2475,10 @@ export class PaRuntime {
       plannedAt: isoDate(view.planned_at),
       estimateMinutes: view.estimate_minutes,
       status: view.status,
+      channel: view.channel ?? 'feishu',
       // stale = 本次未能核对到远端最新状态（刷新失败或未命中）
       stale: !refreshed,
-      message: refreshed ? '已按飞书最新状态刷新。' : view.last_synced_at ? '本次远端核对未完成，展示此前同步的投影。' : '本地投影（远端核对未完成，状态可能滞后）。',
+      message: refreshed ? `已按${view.channel === 'wecom' ? '企微' : '飞书'}最新状态刷新。` : view.last_synced_at ? '本次远端核对未完成，展示此前同步的投影。' : '本地投影（远端核对未完成，状态可能滞后）。',
     };
   }
 
@@ -2012,7 +2487,7 @@ export class PaRuntime {
     const tasks = projectId ? await this.repos!.projects.tasksOf(projectId) : await this.repos!.tasks.list(args.status ? String(args.status) : undefined);
     return {
       count: tasks.length,
-      tasks: tasks.map(t => ({ id: t.id, guid: t.task_guid, summary: t.summary, url: t.url, status: t.status, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
+      tasks: tasks.map(t => ({ id: t.id, guid: t.task_guid, summary: t.summary, url: t.url, status: t.status, channel: t.channel ?? 'feishu', dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
     };
   }
 
@@ -2617,13 +3092,10 @@ export class PaRuntime {
         await this.repos!.waiting.update(item.id, { checkpoint_at: silentUntil, ask_count: item.ask_count - 1 });
         continue;
       }
-      await this.repos!.outbox.enqueue({
-        dedupKey: `waiting:${item.id}:${item.ask_count}`,
-        channel: 'feishu',
-        target: this.config.ownerOpenId,
-        kind: 'text',
-        content: { text: `等待跟进：「${item.title}」到检查点了${item.source_desc ? `（来源：${item.source_desc}）` : ''}——收到了吗？回复让助理记录（收到 / 继续等 / 改时间 / 取消）；不会自动向对方催办。` },
-      });
+      await this.notifyOwner(
+        `waiting:${item.id}:${item.ask_count}`,
+        `等待跟进：「${item.title}」到检查点了${item.source_desc ? `（来源：${item.source_desc}）` : ''}——收到了吗？回复让助理记录（收到 / 继续等 / 改时间 / 取消）；不会自动向对方催办。`,
+      );
       // One ask per checkpoint: without an answer the next ask backs off an
       // hour instead of nagging every tick (P23 到点询问).
       await this.repos!.waiting.update(item.id, { checkpoint_at: new Date(Date.now() + 3600 * 1000) });
@@ -2896,14 +3368,8 @@ export class PaRuntime {
     await this.repos!.digests.updateOccurrence(row.id, { status: 'model_done', report: { facts, report }, completed_at: new Date() });
     await this.repos!.digests.updatePlan(plan.id, { last_window: windowKey });
     const outboxKey = `digest:${row.id}`;
-    if (this.config!.ownerOpenId) {
-      await this.repos!.outbox.enqueue({
-        dedupKey: outboxKey,
-        channel: 'feishu',
-        target: this.config!.ownerOpenId,
-        kind: 'text',
-        content: { text: report },
-      });
+    if (this.config!.notifyChannel === 'wecom' || this.config!.ownerOpenId) {
+      await this.notifyOwner(outboxKey, report);
       // model_done = model work finished and the send intent is durably
       // queued; platform acceptance is the outbox row's own state (P24 区分).
       await this.repos!.digests.updateOccurrence(row.id, { status: 'model_done', outbox_key: outboxKey });
@@ -3320,14 +3786,8 @@ export class PaRuntime {
     lines.push(`来源：会议投影（${event.event_id}）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：${item.id}`);
     const report = lines.join('\n');
     await this.repos!.digests.updateOccurrence(row.id, { status: 'model_done', report: { report }, completed_at: new Date() });
-    if (this.config!.ownerOpenId) {
-      await this.repos!.outbox.enqueue({
-        dedupKey: `digest:${row.id}`,
-        channel: 'feishu',
-        target: this.config!.ownerOpenId,
-        kind: 'text',
-        content: { text: report },
-      });
+    if (this.config!.notifyChannel === 'wecom' || this.config!.ownerOpenId) {
+      await this.notifyOwner(`digest:${row.id}`, report);
     }
     await this.repos!.workItems.update(item.id, { result_ref: { planId: plan.id, eventId, outboxKey: `digest:${row.id}` } });
     return { planId: plan.id, eventId, message: '会前准备包已生成并入发送队列（发送前复查过会议状态）。' };
@@ -3826,8 +4286,19 @@ export class PaRuntime {
     // CLI presence + authorization verdict from the last access inspection
     // (on-demand only; no platform calls happen for this report).
     capabilities.push({ id: 'lark-cli', state: this.diagnostics ? (this.diagnostics.auth?.state === 'ok' ? 'ok' : this.diagnostics.auth?.state === 'error' ? 'error' : 'warn') : 'info', message: this.diagnostics ? `最近检查：${this.diagnostics.auth?.message ?? '未见授权结论'}${this.diagnostics.auth?.state === 'unverified' || this.diagnostics.auth?.state === 'error' ? '；授权失效请在服务器重新执行 lark-cli 授权后再检查' : ''}` : '尚未执行接入检查（用 pa24_connection check 发起只读检查）' });
-    const calendarState = await this.repos?.calendar.getSync(this.config!.calendarId).catch(() => null);
-    capabilities.push({ id: 'calendar-sync', state: calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'error', message: calendarState ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`) : '日历同步状态不可读取' });
+    const calendarState = await this.repos?.calendar.getSync(config?.calendarChannel === 'wecom' ? WECOM_CALENDAR_ID : this.config!.calendarId).catch(() => null);
+    capabilities.push({ id: 'calendar-sync', state: calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'error', message: calendarState ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}（渠道 ${config?.calendarChannel ?? 'feishu'}）` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`) : '日历同步状态不可读取' });
+    // F16: wecom channel health mirrors the lark-cli pattern — verdict comes
+    // from the last on-demand wecom_check; no platform calls happen here.
+    if (config && (config.calendarChannel === 'wecom' || config.todoChannel === 'wecom' || config.notifyChannel === 'wecom')) {
+      capabilities.push({
+        id: 'wecom-cli',
+        state: this.wecomDiagnostics ? (this.wecomDiagnostics.cli.state === 'ok' && this.wecomDiagnostics.identity.state === 'ok' ? 'ok' : 'warn') : 'info',
+        message: this.wecomDiagnostics
+          ? `最近检查：${this.wecomDiagnostics.cli.state === 'ok' ? 'CLI 可用' : this.wecomDiagnostics.cli.message}；${this.wecomDiagnostics.identity.message}`
+          : '企微渠道已启用但尚未执行接入检查（用 pa24_connection action=wecom_check 发起只读检查）',
+      });
+    }
     const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
     const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));
     const unknownOps = await this.dbRef.query<{ n: string }>(`select count(*) as n from pa24.action_operation where status = 'unknown'`).catch(() => null);
@@ -4772,13 +5243,10 @@ export class PaRuntime {
         await this.repos.reviewReminders.update(reminder.id, { remind_at: silentUntil });
         continue;
       }
-      await this.repos!.outbox.enqueue({
-        dedupKey: `noteremind:${reminder.id}:${reminder.sent_count + 1}`,
-        channel: 'feishu',
-        target: this.config.ownerOpenId,
-        kind: 'text',
-        content: { text: `手写笔记待审核提醒：${reminder.note_id} v${version.version} 仍在等待你的审核${version.doc_url ? `（${version.doc_url}）` : ''}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。` },
-      });
+      await this.notifyOwner(
+        `noteremind:${reminder.id}:${reminder.sent_count + 1}`,
+        `手写笔记待审核提醒：${reminder.note_id} v${version.version} 仍在等待你的审核${version.doc_url ? `（${version.doc_url}）` : ''}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。`,
+      );
       const sentCount = reminder.sent_count + 1;
       const next = advanceReminder(reminder.kind === 'daily' ? 'daily' : 'once', sentCount, Date.now());
       await this.repos.reviewReminders.update(reminder.id, {
@@ -4848,11 +5316,43 @@ export class PaRuntime {
   }
 
   async sendOutbox(): Promise<void> {
-    if (!this.repos || !this.transport) return;
+    // wecom rows deliver through the CLI gateway and need no SDK transport;
+    // a transport-less host still drains them (demo + notifyChannel=wecom).
+    if (!this.repos || (!this.transport && this.config?.notifyChannel !== 'wecom')) return;
     for (;;) {
       const rows = await this.repos.outbox.claim(5);
       if (rows.length === 0) return;
       for (const row of rows) {
+        if (row.channel === 'wecom') {
+          // Review cards are Feishu-only; a wecom channel on a card row means
+          // a mixed setup drifted — report it instead of rendering garbage.
+          if (row.kind === 'card') {
+            await this.repos.outbox.mark(row.id, { status: 'failed', error: '企微通道不支持卡片消息（手写审核卡限定飞书）。' }).catch(() => {});
+            continue;
+          }
+          try {
+            const sent = await this.wecomSendText(row.target, String(row.content?.text ?? ''), row.dedup_key.slice(0, 50));
+            this.lastSentAt = nowIso();
+            await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
+            await this.recordMessageRoute(row.dedup_key, sent.messageId);
+          } catch (error) {
+            const unknown = (error as any)?.outcome === 'unknown';
+            if (unknown) {
+              await this.repos.outbox.mark(row.id, { status: 'unknown', error: (error as Error).message }).catch(() => {});
+            } else if (row.attempts >= 3) {
+              await this.repos.outbox.mark(row.id, { status: 'failed', error: (error as Error).message }).catch(() => {});
+            } else {
+              await this.repos.outbox.mark(row.id, { status: 'pending', error: (error as Error).message, retryInMs: 2000 * row.attempts }).catch(() => {});
+            }
+          }
+          continue;
+        }
+        if (!this.transport) {
+          // Feishu rows cannot be delivered on a wecom-only host; park them
+          // visibly instead of silently looping through claim().
+          await this.repos.outbox.mark(row.id, { status: 'pending', error: '飞书传输未连接，暂缓投递', retryInMs: 60_000 }).catch(() => {});
+          continue;
+        }
         try {
           const uuid = row.dedup_key.slice(0, 50);
           const sent =

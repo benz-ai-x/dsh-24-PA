@@ -16,6 +16,7 @@
     "client.js",
     "cordis.patch.yml",
     "feishu-setup.md",
+    "wecom-setup.md",
     "README.md"
   ],
   "scripts": {
