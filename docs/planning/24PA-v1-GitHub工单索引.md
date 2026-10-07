@@ -21,4 +21,6 @@
 
 整体发布验收：[#46 · 安装发布包并完成 v1 实地验收](https://github.com/benz-ai-x/dsh-24-PA/issues/46)，不预设独立 PR。
 
+v1 后续功能（规格 1.3–1.6）：F13＝[#60](https://github.com/benz-ai-x/dsh-24-PA/issues/60)（P45）、F14＝[#62](https://github.com/benz-ai-x/dsh-24-PA/issues/62)（P46）、F15＝[#63](https://github.com/benz-ai-x/dsh-24-PA/issues/63)（P47）、F16＝[#68](https://github.com/benz-ai-x/dsh-24-PA/issues/68)（P48）、F17＝[#67](https://github.com/benz-ai-x/dsh-24-PA/issues/67)（P49）。F16/F17 为规格 1.6 新增（用户 2026-10-07 确认），F17 先行交付。
+
 详情与全量故事/测试/场景映射见 [工单清单](24PA-v1-工单拆分草案.md)，依赖推进与合并标准见 [PR 交付计划](24PA-v1-PR交付计划.md)。
