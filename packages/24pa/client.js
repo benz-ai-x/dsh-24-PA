@@ -1,12 +1,16 @@
 // 24私助工作区 panel (F01): overview / Feishu access / workspace tabs with the
 // shared SVG + semantic-color + keyboard/focus vocabulary. Read-mostly; all
 // maintenance happens through the assistant conversation.
+// F17: the workspace tab's management cards are extracted into WorkspaceCards
+// and reused by a settings.section entry, so workspace binding/reload/config
+// review also lives in the dsh settings modal; the sidebar panel stays.
 window.__ModuleLoader__.load({
   id: '@benz-ai-x/dsh-24pa',
   factory(require) {
     const React = require('react'), h = React.createElement;
     const zh = {
       panel: '24私助工作区', title: '24私助', work: '事项总览', feishu: '飞书接入', memory: '结构化记忆', workspace: '工作区',
+      settings: '24私助',
       review: '手写审核', awaiting_review: '待审核', needs_rereview: '需重新审核', returned: '已退回', collecting: '收集中',
       collected: '已收齐', approved: '已通过', pending_review: '待审核', stale: '已失效', superseded: '已取代',
       reminderOnce: '单次', reminderDaily: '每日', reminderPaused: '已暂停', reminderCanceled: '已取消', reminderDone: '已结束',
@@ -76,11 +80,14 @@ window.__ModuleLoader__.load({
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
       @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24 h1{font-size:25px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}}
+      .pa24-settings{padding:22px;height:auto}
+      .pa24-settings-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px}
+      .pa24-settings-brand{width:34px;height:34px;border-radius:9px}
       @media(max-width:760px){.pa24{padding:20px 16px}.pa24 button{min-height:44px}.pa24-tabs button{min-height:44px}.pa24 summary{min-height:40px;display:list-item}}
       @media(prefers-reduced-motion:reduce){.pa24 *{animation:none!important;transition:none!important}}
     `;
     return {
-      inject: ['slots', 'locale', 'connection', 'uiWorkspace'],
+      inject: ['slots', 'locale', 'connection', 'uiWorkspace', 'layout'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register('pa24', { zh }));
         const t = ctx.locale.bind('pa24');
@@ -178,6 +185,39 @@ window.__ModuleLoader__.load({
                   h('p', { className: 'pa24-meta' }, '需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。')))));
         }
 
+        // F17: 工作区管理两张卡（绑定/切换 + 生效配置）独立成组件，
+        // 面板 workspace tab 与设置分区共用；动作走既有 RPC，不新增端点。
+        function WorkspaceCards({ snapshot, busy, button, openRobot }) {
+          const [path, setPath] = React.useState('');
+          const workspace = snapshot.workspace, config = workspace ? workspace.config : null;
+          const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: '备忘整理' }[w] || w)).join('、') || '无';
+          return h(React.Fragment, null,
+            h('section', { className: 'pa24-card' },
+              sectionHead('folder', '当前工作区', '在 dsh 添加服务器目录，再选择绑定。空目录首次绑定时生成 AGENTS.md。'),
+              h('label', { style: { display: 'block', margin: '18px 0 12px' } },
+                h('span', { className: 'pa24-meta' }, '选择 dsh 工作区'),
+                h('select', { value: path, onChange: e => setPath(e.target.value), style: { marginTop: 6 } },
+                  h('option', { value: '' }, '选择一个工作区…'),
+                  (snapshot.availableWorkspaces || []).map(w => h('option', { value: w.path, key: w.id }, w.title + ' · ' + w.path)))),
+              button('folder', '绑定所选工作区', () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path }),
+              h('div', { className: 'pa24-helper' }, '当前目录', h('p', { className: 'pa24-meta' }, workspace ? workspace.path : '未绑定'))),
+            h('section', { className: 'pa24-card' },
+              sectionHead('code', '当前生效配置', '配置源是工作区 AGENTS.md；凭据值由服务器环境或 CLI 授权保存。',
+                h('div', { className: 'pa24-row' },
+                  button('chat', '通过对话修改配置', openRobot),
+                  button('refresh', '重载 AGENTS.md', () => rpc('action', { type: 'workspace.reload' }), { className: 'pa24-quiet' })), 'blue'),
+              workspace && fields([
+                ['固定飞书 profile', config ? config.larkProfile : null],
+                ['时区', config ? config.timeZone : null],
+                ['同时处理数', config ? config.maxWorkers : null],
+                ['已启用 Worker', enabledNames],
+                ['飞书接入会话', workspace.accessSessionId || '未建立'],
+                ['本地助理会话', workspace.localSessionId || '未建立'],
+              ]),
+              workspace && workspace.configError && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, '当前生效配置保留上一有效版本'), h('p', null, workspace.configError)),
+              h('details', null, h('summary', null, '查看完整配置 JSON'), h('pre', null, JSON.stringify(config, null, 2)))));
+        }
+
         function HealthBlock() {
           const [view, setView] = React.useState({ status: 'idle', data: null, error: '' });
           const load = () => {
@@ -206,7 +246,7 @@ window.__ModuleLoader__.load({
 
         function Panel() {
           const [state, setState] = React.useState(null), [error, setError] = React.useState(''), [connError, setConnError] = React.useState(''), [busy, setBusy] = React.useState(false);
-          const [tab, setTab] = React.useState('work'), [path, setPath] = React.useState('');
+          const [tab, setTab] = React.useState('work');
           const main = React.useRef(null);
           const refresh = async () => { const s = await rpc('snapshot'); setState(s); setConnError(''); return s; };
           React.useEffect(() => {
@@ -333,33 +373,9 @@ window.__ModuleLoader__.load({
           } else if (tab === 'memory') {
             content = workspace && h(MemoryView, { key: workspace.path, workspace, openRobot: () => void run(openRobot) });
           } else if (tab === 'workspace') {
-            const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: '备忘整理' }[w] || w)).join('、') || '无';
             content = h('div', { className: 'pa24-grid' },
               h(HealthBlock),
-              h('section', { className: 'pa24-card' },
-                sectionHead('folder', '当前工作区', '在 dsh 添加服务器目录，再选择绑定。空目录首次绑定时生成 AGENTS.md。'),
-                h('label', { style: { display: 'block', margin: '18px 0 12px' } },
-                  h('span', { className: 'pa24-meta' }, '选择 dsh 工作区'),
-                  h('select', { value: path, onChange: e => setPath(e.target.value), style: { marginTop: 6 } },
-                    h('option', { value: '' }, '选择一个工作区…'),
-                    (state.availableWorkspaces || []).map(w => h('option', { value: w.path, key: w.id }, w.title + ' · ' + w.path)))),
-                button('folder', '绑定所选工作区', () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path }),
-                h('div', { className: 'pa24-helper' }, '当前目录', h('p', { className: 'pa24-meta' }, workspace ? workspace.path : '未绑定'))),
-              h('section', { className: 'pa24-card' },
-                sectionHead('code', '当前生效配置', '配置源是工作区 AGENTS.md；凭据值由服务器环境或 CLI 授权保存。',
-                  h('div', { className: 'pa24-row' },
-                    button('chat', '通过对话修改配置', openRobot),
-                    button('refresh', '重载 AGENTS.md', () => rpc('action', { type: 'workspace.reload' }), { className: 'pa24-quiet' })), 'blue'),
-                workspace && fields([
-                  ['固定飞书 profile', config ? config.larkProfile : null],
-                  ['时区', config ? config.timeZone : null],
-                  ['同时处理数', config ? config.maxWorkers : null],
-                  ['已启用 Worker', enabledNames],
-                  ['飞书接入会话', workspace.accessSessionId || '未建立'],
-                  ['本地助理会话', workspace.localSessionId || '未建立'],
-                ]),
-                workspace && workspace.configError && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, '当前生效配置保留上一有效版本'), h('p', null, workspace.configError)),
-                h('details', null, h('summary', null, '查看完整配置 JSON'), h('pre', null, JSON.stringify(config, null, 2)))));
+              h(WorkspaceCards, { snapshot: state, busy, button, openRobot }));
           }
           return h('main', { className: 'pa24', ref: main }, h('style', null, style), h('div', { className: 'pa24-wrap' },
             h('header', { className: 'pa24-header' },
@@ -375,9 +391,38 @@ window.__ModuleLoader__.load({
             h('div', { id: 'pa24-content', role: 'tabpanel', 'aria-labelledby': 'pa24-tab-' + tab, tabIndex: 0 }, content),
             h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), '业务账本使用 PostgreSQL；配置与记忆通过对话维护，界面不伪造成功。')));
         }
+        // F17: 设置模态里的「24私助」分区——复用 WorkspaceCards 与既有 RPC，
+        // 自取 snapshot（settings.section 的 owner props 只有 close）。
+        function SettingsSection({ close }) {
+          const [state, setState] = React.useState(null), [connError, setConnError] = React.useState(''), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
+          const load = async () => { const s = await rpc('snapshot'); setState(s); setConnError(''); return s; };
+          React.useEffect(() => {
+            let live = true;
+            void load().catch(e => { if (live) setConnError(e.message); });
+            return () => { live = false; };
+          }, []);
+          const run = async fn => { setBusy(true); setError(''); try { const r = await fn(); await load(); return r; } catch (e) { setError(e.message); return null; } finally { setBusy(false); } };
+          const button = (name, label, fn, props = {}) => h('button', { type: 'button', disabled: busy, onClick: () => void run(fn), ...props }, name && icon(name), label);
+          const openRobot = async () => { const r = await rpc('action', { type: 'robot.open' }); ctx.uiWorkspace.openSession(r.sessionId); };
+          const openPanel = () => {
+            try { if (ctx.layout) ctx.layout.selectPanel('pa24'); } catch (e) { /* 面板未注册时仅关闭设置 */ }
+            close();
+          };
+          return h('div', { className: 'pa24 pa24-settings' }, h('style', null, style),
+            h('div', { className: 'pa24-settings-head' },
+              h('div', { className: 'pa24-row' },
+                h('span', { className: 'pa24-brand pa24-settings-brand' }, icon('bot', { width: 18, height: 18 })),
+                h('div', null, h('h2', null, t('settings')), h('p', { className: 'pa24-meta' }, '工作区绑定、配置重载与生效配置查看；日常操作与诊断请打开24私助面板。'))),
+              h('div', { className: 'pa24-row' }, button('external', '打开24私助面板', openPanel, { className: 'pa24-primary' }))),
+            (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? '连接暂时中断' : '操作未完成'), h('p', null, error || connError)),
+            !state
+              ? h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), connError ? '无法读取工作区状态。' : '正在读取工作区状态…')
+              : h(WorkspaceCards, { snapshot: state, busy, button, openRobot: () => void run(openRobot) }));
+        }
         const SidebarIcon = () => icon('bot', { width: 22, height: 22 });
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'pa24' }, Panel));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'pa24', order: 24, label: () => t('panel') }, SidebarIcon));
+        ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'pa24', order: 25, label: () => t('settings') }, SettingsSection));
       },
     };
   },
