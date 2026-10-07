@@ -11,10 +11,15 @@
 ## 安装与启动
 
 ```sh
+# 方式一：npm 安装（发布名 @benz-ai-x/dsh-24pa）
+npm install @benz-ai-x/dsh-24pa        # 或在 dsh profile 内以包名安装
+
+# 方式二：源码安装
 npm install && npm run build          # 构建 lib/
-dsh --profile <你的 profile> plugin add <本目录> --ignore-scripts
-dsh --profile <你的 profile>
+dsh plugin --profile <你的 profile> add <本目录>
 ```
+
+> 注：本机默认 registry 若为 npmmirror 镜像，需等待同步或显式 `--registry https://registry.npmjs.org`。
 
 环境变量（值由服务器启动环境提供，文件只保存名称）：
 
