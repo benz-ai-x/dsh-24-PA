@@ -686,6 +686,8 @@ export class PaRuntime {
       throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
     }
 
+    // 重绑会关闭旧库，而旧引擎持有旧库句柄；先停止，避免关闭窗口或失败路径里旧引擎每轮报「数据库连接池已关闭」。
+    this.reminders?.stop();
     await this.openDatabaseFor(real);
     const saved = await this.repos!.workspaceState.get(real);
     this.accessSessionId = saved?.feishu_session_id ?? `pa24-${hash(real).slice(0, 12)}-feishu`;
@@ -700,8 +702,6 @@ export class PaRuntime {
     this.workspace = { ...workspace, statePath: real };
     this.memory = new MemoryStore(real, this.ctx);
     await this.restoreRegisteredRoles();
-    // 重绑会关闭旧库，而旧引擎持有旧库句柄；不先停止会每轮报「数据库连接池已关闭」。
-    this.reminders?.stop();
     this.reminders = new ReminderEngine(
       this.dbRef,
       {
