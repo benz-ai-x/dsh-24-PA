@@ -4,6 +4,10 @@
 
 预设携带标准预设的插件全集（persona 已并入助理身份、bash/pwsh、文件与检索、jobs、skill、goal、plan-mode、压缩、subagent/subagent_fork、workflow、ralph、ask-user、todo、web、present）＋ pa24 业务插件；各入口实际可见工具由角色白名单决定：本地24私助会话获得标准编程工具全集，飞书接入会话与 Worker 维持业务白名单。`tool-schedule` 不并入——提醒统一经 PostgreSQL 账本。外部 CLI 委派（`subagent_codex`/`subagent_claude_code`）的工具行已启用，但需先向 profile 安装对应 provider 包（`@deepseek-ai/dsh-subagent-codex` / `-claude-code`）并在 AGENTS.md `extraLocalTools` 中显式列出后才对本地会话生效。
 
+## 版本命名
+
+版本号跟随 dsh 基线：**`<dsh 基线版本>.<本产品序号>`**（如 dsh 基线 0.2.0-rc.2 → 本产品 0.2.0-rc.2.1、0.2.0-rc.2.2…）。当前基线＝peerDependencies 锁定并经全量验证的 dsh 版本；dsh 基线变化时版本号随之推进并重新核验后发版。
+
 ## 安装与启动
 
 ```sh
