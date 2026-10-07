@@ -4,6 +4,9 @@
 // F20 (1.6 补充): workspace configuration management moved to the dsh
 // settings「24私助」section entirely (binding/reload/config/health) — the
 // panel shows business tabs only, plus the WeCom access module.
+// F21 (P53): UI/UX walkthrough fixes — tighter vertical rhythm, one primary
+// action per view, unified status-badge vocabulary, human-first copy with
+// tech detail folded away, and design-doc tab color semantics.
 window.__ModuleLoader__.load({
   id: '@benz-ai-x/dsh-24pa',
   factory(require) {
@@ -49,26 +52,26 @@ window.__ModuleLoader__.load({
     };
     const toneOf = item => (item.state === 'ok' ? 'blue' : item.state === 'error' ? 'danger' : item.state === 'warn' ? 'amber' : 'neutral');
     const style = `
-      .pa24{--pa-ink:var(--dsw-alias-label-primary,#1f2937);--pa-muted:#667085;--pa-line:#e4e7ec;--pa-canvas:#f7f8fa;--pa-surface:var(--dsw-alias-bg-base,#fff);--pa-soft:#f2f4f7;--pa-brand:#2b5da8;--pa-brand-hover:#244f8e;--pa-blue:#2b5da8;--pa-blue-bg:#edf2fa;--pa-amber:#8a5b18;--pa-amber-bg:#fff7e8;--pa-danger:#b42318;--pa-danger-bg:#fff1f0;--pa-shadow:none;height:100%;overflow:auto;container-type:inline-size;padding:32px;color:var(--pa-ink);background:var(--pa-canvas);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;scrollbar-gutter:stable}
-      body[data-ds-dark-theme] .pa24{--pa-muted:#9ba8b9;--pa-line:#303c4a;--pa-canvas:#151b23;--pa-surface:#1d2631;--pa-soft:#25303d;--pa-brand:#3764ab;--pa-brand-hover:#4174c2;--pa-blue:#a0bdf0;--pa-blue-bg:#25364f;--pa-amber:#dfbc83;--pa-amber-bg:#3b3225;--pa-danger:#f0aaa5;--pa-danger-bg:#412b2c;--pa-shadow:none}
-      .pa24 *{box-sizing:border-box}.pa24 svg{flex-shrink:0;vertical-align:middle}.pa24 h1,.pa24 h2,.pa24 h3,.pa24 p{margin:0}.pa24 h1{font-size:29px;line-height:1.3;letter-spacing:-.7px;font-weight:700}.pa24 h2{font-size:17px;line-height:1.5;font-weight:650}.pa24 h3{font-size:15px;line-height:1.55;font-weight:650}.pa24 p+p{margin-top:6px}.pa24-wrap{max-width:1100px;margin:auto;min-width:0}
-      .pa24-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pa24-between{justify-content:space-between}.pa24-muted{color:var(--pa-muted)}.pa24-meta{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-note{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85}
+      .pa24{--pa-ink:var(--dsw-alias-label-primary,#1f2937);--pa-muted:#667085;--pa-line:#e4e7ec;--pa-canvas:#f7f8fa;--pa-surface:var(--dsw-alias-bg-base,#fff);--pa-soft:#f2f4f7;--pa-brand:#2b5da8;--pa-brand-hover:#244f8e;--pa-blue:#2b5da8;--pa-blue-bg:#edf2fa;--pa-green:#1f7a4d;--pa-green-bg:#e9f5ef;--pa-violet:#6941c6;--pa-violet-bg:#f0ebfa;--pa-amber:#8a5b18;--pa-amber-bg:#fff7e8;--pa-danger:#b42318;--pa-danger-bg:#fff1f0;--pa-shadow:none;height:100%;overflow:auto;container-type:inline-size;padding:32px;color:var(--pa-ink);background:var(--pa-canvas);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;scrollbar-gutter:stable}
+      body[data-ds-dark-theme] .pa24{--pa-muted:#9ba8b9;--pa-line:#303c4a;--pa-canvas:#151b23;--pa-surface:#1d2631;--pa-soft:#25303d;--pa-brand:#3764ab;--pa-brand-hover:#4174c2;--pa-blue:#a0bdf0;--pa-blue-bg:#25364f;--pa-green:#7cc7a2;--pa-green-bg:#1f3226;--pa-violet:#b9a5ef;--pa-violet-bg:#2b2447;--pa-amber:#dfbc83;--pa-amber-bg:#3b3225;--pa-danger:#f0aaa5;--pa-danger-bg:#412b2c;--pa-shadow:none}
+      .pa24 *{box-sizing:border-box}.pa24 svg{flex-shrink:0;vertical-align:middle}.pa24 h1,.pa24 h2,.pa24 h3,.pa24 p{margin:0}.pa24 h1{font-size:21px;line-height:1.35;letter-spacing:-.4px;font-weight:700}.pa24 h2{font-size:17px;line-height:1.5;font-weight:650}.pa24 h3{font-size:15px;line-height:1.55;font-weight:650}.pa24 p+p{margin-top:6px}.pa24-wrap{max-width:1100px;margin:auto;min-width:0}
+      .pa24-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pa24-between{justify-content:space-between}.pa24-muted{color:var(--pa-muted)}.pa24-meta{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-ellip{display:inline-block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}.pa24-note{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85}
       .pa24 button,.pa24 .pa24-link-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 14px;border:1px solid var(--pa-line);border-radius:10px;color:var(--pa-ink);background:var(--pa-surface);font:inherit;font-size:13px;font-weight:550;cursor:pointer;transition:background .15s,border-color .15s;text-decoration:none}
       .pa24 button:hover:not(:disabled){background:var(--pa-soft);border-color:var(--pa-muted)}.pa24 button:disabled{opacity:.45;cursor:not-allowed}.pa24 button.pa24-primary{background:var(--pa-blue);color:#fff;border-color:var(--pa-blue)}body[data-ds-dark-theme] .pa24 button.pa24-primary{color:#172c27}
       .pa24 button.pa24-quiet{background:transparent;border-color:transparent;color:var(--pa-muted)}.pa24 button.pa24-quiet:hover:not(:disabled){background:var(--pa-soft);color:var(--pa-ink);border-color:var(--pa-line)}
       .pa24 :is(button,input,select,summary,a,[tabindex]):focus-visible{outline:3px solid var(--pa-blue);outline-offset:3px}.pa24 input,.pa24 select{min-height:42px;width:100%;font:inherit;padding:10px 12px;border:1px solid var(--pa-line);border-radius:10px;background:var(--pa-surface);color:var(--pa-ink)}
-      .pa24-icon-tile{width:40px;height:40px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tone-bg);color:var(--tone)}.pa24-tone-blue{--tone:var(--pa-blue);--tone-bg:var(--pa-blue-bg)}.pa24-tone-amber{--tone:var(--pa-amber);--tone-bg:var(--pa-amber-bg)}.pa24-tone-danger{--tone:var(--pa-danger);--tone-bg:var(--pa-danger-bg)}.pa24-tone-neutral{--tone:var(--pa-muted);--tone-bg:var(--pa-soft)}.pa24-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;background:var(--tone-bg);color:var(--tone);font-size:11px;font-weight:600;line-height:1.7;white-space:nowrap}
-      .pa24-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px}.pa24-identity{display:flex;align-items:center;gap:14px}.pa24-brand{width:52px;height:52px;border-radius:12px;background:var(--pa-brand);color:#fff;display:inline-flex;align-items:center;justify-content:center}.pa24-brand svg{width:29px;height:29px}.pa24-eyebrow{font-size:10px;letter-spacing:2px;font-weight:650;color:var(--pa-muted);margin-bottom:3px}.pa24-tagline{margin-top:4px!important;color:var(--pa-muted);font-size:13px}
+      .pa24-icon-tile{width:40px;height:40px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tone-bg);color:var(--tone)}.pa24-tone-blue{--tone:var(--pa-blue);--tone-bg:var(--pa-blue-bg)}.pa24-tone-green{--tone:var(--pa-green);--tone-bg:var(--pa-green-bg)}.pa24-tone-violet{--tone:var(--pa-violet);--tone-bg:var(--pa-violet-bg)}.pa24-tone-amber{--tone:var(--pa-amber);--tone-bg:var(--pa-amber-bg)}.pa24-tone-danger{--tone:var(--pa-danger);--tone-bg:var(--pa-danger-bg)}.pa24-tone-neutral{--tone:var(--pa-muted);--tone-bg:var(--pa-soft)}.pa24-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;background:var(--tone-bg);color:var(--tone);font-size:11px;font-weight:600;line-height:1.7;white-space:nowrap}
+      .pa24-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:16px}.pa24-identity{display:flex;align-items:center;gap:12px}.pa24-brand{width:44px;height:44px;border-radius:11px;background:var(--pa-brand);color:#fff;display:inline-flex;align-items:center;justify-content:center}.pa24-brand svg{width:24px;height:24px}.pa24-title-row{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.pa24-tagline{color:var(--pa-muted);font-size:13px}
       
       .pa24-notice{display:flex;gap:10px;align-items:flex-start;padding:12px 15px;border:1px solid color-mix(in srgb,var(--tone) 16%,transparent);border-radius:12px;color:var(--tone);background:var(--tone-bg);font-size:12px;margin-bottom:20px}.pa24-notice>svg{margin-top:1px}.pa24-notice>div{flex:1;min-width:0}
       .pa24-error{padding:16px;border:1px solid var(--pa-danger);border-radius:12px;background:var(--pa-danger-bg);margin:14px 0;color:var(--pa-danger);overflow-wrap:anywhere}
-      .pa24-tabs{display:flex;gap:6px;border-bottom:1px solid var(--pa-line);margin:0 0 25px;overflow-x:auto;scrollbar-width:thin;padding:3px 0 10px}.pa24-tabs button{flex-shrink:0;min-height:40px;padding:8px 12px;background:transparent;border:1px solid transparent;border-radius:9px;color:var(--pa-muted);font-weight:500}.pa24-tabs button[aria-selected=true]{background:var(--tone-bg);color:var(--tone);font-weight:650}
-      .pa24-section-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}.pa24-section-title{display:flex;align-items:center;gap:10px}.pa24-section-desc{margin-top:5px!important;color:var(--pa-muted);font-size:13px}
-      .pa24-card{min-width:0;background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:var(--pa-shadow)}.pa24-card>h2{margin-bottom:15px}.pa24-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.pa24-grid>.pa24-card{margin:0}
-      .pa24-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:22px}.pa24-stat{display:flex;align-items:center;gap:14px;padding:18px;border:1px solid var(--pa-line);border-radius:14px;background:var(--pa-surface)}.pa24-stat strong{font-size:27px;line-height:1.2;font-weight:650;font-variant-numeric:tabular-nums}.pa24-stat-label{font-size:12px;color:var(--pa-muted);margin-bottom:4px}.pa24-stat small{font-size:11px;color:var(--pa-muted);margin-left:8px}
+      .pa24-tabs{display:flex;gap:6px;border-bottom:1px solid var(--pa-line);margin:0 0 18px;overflow-x:auto;scrollbar-width:thin;padding:3px 0 10px}.pa24-tabs button{flex-shrink:0;min-height:40px;padding:8px 12px;background:transparent;border:1px solid transparent;border-radius:9px;color:var(--pa-muted);font-weight:500}.pa24-tabs button[aria-selected=true]{background:var(--tone-bg);color:var(--tone);font-weight:650}
+      .pa24-section-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}.pa24-section-title{display:flex;align-items:center;gap:10px}.pa24-section-desc{margin-top:5px!important;color:var(--pa-muted);font-size:13px}
+      .pa24-card{min-width:0;background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:16px;padding:16px 18px;margin-bottom:16px;box-shadow:var(--pa-shadow)}.pa24-card>h2{margin-bottom:10px}.pa24-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}.pa24-grid>.pa24-card{margin:0}
+      .pa24-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}.pa24-stat{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--pa-line);border-radius:14px;background:var(--pa-surface)}.pa24-stat strong{font-size:22px;line-height:1.2;font-weight:650;font-variant-numeric:tabular-nums}.pa24-stat-label{font-size:12px;color:var(--pa-muted);margin-bottom:4px}.pa24-stat small{font-size:11px;color:var(--pa-muted);margin-left:8px}
       .pa24-empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:35px 18px}.pa24-empty>.pa24-icon-tile{width:64px;height:64px;border-radius:22px;margin-bottom:18px}.pa24-empty>.pa24-icon-tile svg{width:29px;height:29px}.pa24-empty h3{font-size:17px;margin:3px 0 8px}.pa24-empty p{max-width:440px;color:var(--pa-muted);font-size:13px}.pa24-empty .pa24-row{margin-top:18px;justify-content:center}
       .pa24-example{display:flex;align-items:center;gap:9px;padding:12px 16px;background:var(--pa-soft);border-radius:10px;font-size:12px;color:var(--pa-muted)}
-      .pa24-dl{margin:0}.pa24-field{display:grid;grid-template-columns:130px minmax(0,1fr);gap:16px;padding:10px 0;border-bottom:1px solid var(--pa-line)}.pa24-field:last-child{border-bottom:0}.pa24-field dt{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-field dd{margin:0;font-size:13px;overflow-wrap:anywhere}
+      .pa24-dl{margin:0}.pa24-field{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;padding:7px 0;border-bottom:1px solid var(--pa-line)}.pa24-field:last-child{border-bottom:0}.pa24-field dt{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-field dd{margin:0;font-size:13px;overflow-wrap:anywhere}
       .pa24-helper{border-radius:10px;padding:12px 14px;background:var(--pa-soft);color:var(--pa-muted);font-size:12px;margin-top:16px}
       .pa24-searchbar{display:flex;gap:8px;align-items:center;padding:14px;background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:12px;margin-bottom:14px}.pa24-search{position:relative;flex:1;min-width:120px}.pa24-search>svg{position:absolute;left:12px;top:12px;color:var(--pa-muted);width:18px;height:18px}.pa24-search input{padding-left:38px;background:var(--pa-soft);font-size:13px}
       .pa24-result-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 15px;font-size:12px;color:var(--pa-muted)}.pa24-memory-list{display:grid;gap:14px}.pa24-memory-card{background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:14px;overflow:hidden}.pa24-memory-body{padding:20px 22px}.pa24-memory-heading{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}.pa24-memory-heading h3{overflow-wrap:anywhere}.pa24-memory-card .pa24-note{margin:15px 0;font-size:14px}.pa24-memory-source{display:flex;gap:6px;align-items:flex-start;font-size:11px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-memory-footer{padding:10px 22px;background:var(--pa-soft);border-top:1px solid var(--pa-line)}.pa24-memory-footer details{border:0;margin:0;padding:0}.pa24-memory-footer summary{min-height:26px;padding:0;font-size:11px}.pa24-page-nav{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:22px;font-size:12px;color:var(--pa-muted)}.pa24-page-nav button:first-child svg{transform:rotate(180deg)}
@@ -79,8 +82,8 @@ window.__ModuleLoader__.load({
       .pa24-footer{display:flex;gap:8px;align-items:baseline;margin:26px 0 5px;padding-top:16px;border-top:1px solid var(--pa-line);font-size:11px;color:var(--pa-muted)}
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
-      @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24 h1{font-size:25px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}}
-      .pa24-settings{padding:22px;height:auto}
+      @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24 h1{font-size:19px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}}
+      .pa24-settings{padding:22px;height:auto;min-width:0;width:100%}
       .pa24-settings-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px}
       .pa24-settings-brand{width:34px;height:34px;border-radius:9px}
       @media(max-width:760px){.pa24{padding:20px 16px}.pa24 button{min-height:44px}.pa24-tabs button{min-height:44px}.pa24 summary{min-height:40px;display:list-item}}
@@ -211,7 +214,7 @@ window.__ModuleLoader__.load({
                 h('select', { value: path, onChange: e => onPathChange(e.target.value), style: { marginTop: 6 } },
                   h('option', { value: '' }, '选择一个工作区…'),
                   (snapshot.availableWorkspaces || []).map(w => h('option', { value: w.path, key: w.id }, w.title + ' · ' + w.path)))),
-              button('folder', '绑定所选工作区', () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path }),
+              button('folder', '绑定所选工作区', () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path, className: 'pa24-primary' }),
               h('div', { className: 'pa24-helper' }, '当前目录', h('p', { className: 'pa24-meta' }, workspace ? workspace.path : '未绑定'))),
             h('section', { className: 'pa24-card' },
               sectionHead('code', '当前生效配置', '配置源是工作区 AGENTS.md；凭据值由服务器环境或 CLI 授权保存。',
@@ -240,7 +243,7 @@ window.__ModuleLoader__.load({
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           return h('section', null,
             sectionHead('pulse', '健康与预算', '能力可用性、同步新鲜度与本 Host 的投入统计；凭据不进入诊断。',
-              h('div', { className: 'pa24-row' }, button('refresh', view.status === 'idle' ? '读取健康状态' : '刷新', load, { disabled: view.status === 'loading', className: view.status === 'idle' ? 'pa24-primary' : 'pa24-quiet' })), 'blue'),
+              h('div', { className: 'pa24-row' }, button('refresh', view.status === 'idle' ? '读取健康状态' : '刷新', load, { disabled: view.status === 'loading', className: 'pa24-quiet' })), 'blue'),
             view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取健康状态…'),
             view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '健康状态读取失败')), h('p', null, view.error), button('refresh', '重试', load)),
             view.status === 'ready' && h('div', { className: 'pa24-card' },
@@ -258,7 +261,7 @@ window.__ModuleLoader__.load({
 
         function Panel() {
           const [state, setState] = React.useState(null), [connError, setConnError] = React.useState('');
-          const [tab, setTab] = React.useState('work');
+          const [tab, setTab] = React.useState('work'), [noticeClosed, setNoticeClosed] = React.useState(false);
           const main = React.useRef(null);
           const refresh = async () => { const s = await rpc('snapshot'); setState(s); setConnError(''); return s; };
           React.useEffect(() => {
@@ -279,7 +282,9 @@ window.__ModuleLoader__.load({
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
           const items = state.work || [];
           const active = items.filter(j => ['accepted', 'queued', 'running'].includes(j.status));
-          const tabItems = [['work', 'grid', 'blue'], ['feishu', 'plug', 'blue'], ['wecom', 'bot', 'blue'], ['memory', 'memory', 'blue'], ['review', 'pen', 'blue']];
+          // P53: tab 配色按设计文档语义（蓝日程/蓝绿接入/紫记忆/玫红手写审核），
+          // 避免全部 tab 与状态徽章抢同一蓝色。
+          const tabItems = [['work', 'grid', 'blue'], ['feishu', 'plug', 'green'], ['wecom', 'bot', 'green'], ['memory', 'memory', 'violet'], ['review', 'pen', 'danger']];
           let content;
           if (tab === 'review') {
             // workspace 为 null（启动失败或未绑定）时 ReviewView 读 workspace.path
@@ -320,7 +325,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-stats' },
                 stats.map(([name, tone, label, value, hint]) =>
                   h('div', { key: label, className: 'pa24-stat' }, tile(name, tone), h('div', null, h('div', { className: 'pa24-stat-label' }, label), h('strong', null, value), h('small', null, hint))))),
-              h('section', { className: 'pa24-card' }, sectionHead('tasks', '正在办理的事项', '委托、进度与结果，在这里一目了然。', badge('PostgreSQL 业务账本', 'neutral', 'shield')), jobCards),
+              h('section', { className: 'pa24-card' }, sectionHead('tasks', '正在办理的事项', '委托、进度与结果，在这里一目了然。'), jobCards),
               h('section', { className: 'pa24-card' }, sectionHead('pulse', '运行就绪', '配置、账本与接入的真实状态；不把进程在线当作全部就绪。'),
                 h('div', { className: 'pa24-ready' }, readyItems)));
           } else if (tab === 'feishu') {
@@ -330,11 +335,11 @@ window.__ModuleLoader__.load({
             const diagnosis = (item, fallback = '尚未检查') => !item
               ? badge(fallback, 'neutral', 'clock')
               : item.state === 'ok'
-                ? badge('检查通过', 'blue', 'check')
+                ? badge('正常', 'blue', 'check')
                 : ['error', 'mismatch'].includes(item.state)
                   ? badge('需要处理', 'danger', 'alert')
-                  : badge(item.state === 'missing' ? '待配置' : '待核验', 'amber', 'info');
-            const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + ' 条（持久 Outbox）';
+                  : badge(item.state === 'missing' ? '待配置' : '待核验', 'amber', 'clock');
+            const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + ' 条';
             const resourceRows = [['folder', '文档目录', config ? config.folderToken : null, 'folder'], ['tasklist', '任务清单', config ? config.tasklistId : null, 'tasks'], ['calendar', '本人日历', config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
               const resource = check && check.resources ? check.resources.find(r => r.id === id) : null;
               return h('div', { key: id, className: 'pa24-resource' },
@@ -347,23 +352,23 @@ window.__ModuleLoader__.load({
               h('section', { className: 'pa24-card' },
                 sectionHead('plug', '飞书接入', '用自然语言配置，在这里查阅接入情况。',
                   h('div', { className: 'pa24-row' },
-                    button('refresh', busy ? '检查中…' : '检查接入状态', () => rpc('action', { type: 'connection.check' }), { className: 'pa24-primary' }),
+                    button('refresh', busy ? '检查中…' : '检查接入状态', () => rpc('action', { type: 'connection.check' })),
                     button('chat', '通过对话配置', openRobot)), 'blue'),
                 fields([
-                  ['固定 CLI profile', badge(config ? config.larkProfile : '未配置', 'blue')],
+                  ['固定 CLI profile', badge(config ? config.larkProfile : '未配置', 'neutral')],
                   ['接入模式', config && config.mode === 'feishu' ? '飞书模式' : '体验模式 · 未连接飞书'],
                   ['上次检查', check ? date(check.checkedAt, tz) : '尚未检查，点击右上方按钮开始'],
                 ]),
                 h('div', { className: 'pa24-helper' }, '可以说：“检查飞书接入，告诉我还缺什么。” 检查只读取，不创建飞书对象。')),
               h('section', { className: 'pa24-card' },
-                h('div', { className: 'pa24-row pa24-between' }, h('h2', null, '机器人连接'), badge(state.transport && state.transport.connected ? '长连接已启动' : '未启动', state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
+                h('div', { className: 'pa24-row pa24-between' }, h('h2', null, '机器人连接'), badge(state.transport && state.transport.connected ? '已连接' : '未连接', state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
                 fields([
-                  ['连接状态', (state.transport && state.transport.message) || (state.transport && state.transport.connected ? '长连接运行中（无报错）' : '未启动')],
+                  ['连接状态', (state.transport && state.transport.message) || (state.transport && state.transport.connected ? '运行中（无报错）' : '未连接')],
                   ['最近收到本人消息', date(state.transport ? state.transport.lastReceivedAt : null, tz)],
                   ['最近发送获平台确认', date(state.transport ? state.transport.lastSentAt : null, tz)],
                   ['待发消息', pendingOutbox],
                 ]),
-                h('p', { className: 'pa24-helper' }, '在飞书发送 /24pa 并收到回复后，再核对收发记录。长连接启动不代表端到端可用。')),
+                h('p', { className: 'pa24-helper' }, '建议在飞书发一条 /24pa 实测收发；连接正常不代表消息一定送达，发送后以收发记录为准。')),
               h('section', { className: 'pa24-card' },
                 h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与用户授权'), diagnosis(auth)),
                 fields([
@@ -374,7 +379,11 @@ window.__ModuleLoader__.load({
                   ['用户令牌', auth ? auth.tokenStatus : '尚未确认'],
                 ]),
                 h('details', null, h('summary', null, '路径与身份明细'),
-                  fields([['CLI 路径', cli ? cli.path : '尚未检查'], ['CLI open_id', auth ? auth.openId : '尚未取得'], ['配置主人', config ? config.ownerOpenId : '未配置']]))),
+                  fields([
+                    ['CLI 路径', cli ? h('span', { className: 'pa24-ellip', title: cli.path }, cli.path) : '尚未检查'],
+                    ['CLI open_id', auth ? h('span', { className: 'pa24-ellip', title: auth.openId }, auth.openId) : '尚未取得'],
+                    ['配置主人', config ? h('span', { className: 'pa24-ellip', title: config.ownerOpenId }, config.ownerOpenId) : '未配置'],
+                  ]))),
               h('section', { className: 'pa24-card' },
                 sectionHead('folder', '使用的飞书资源', '检查结果仅代表可读性；写入由实际任务回执验证。'),
                 resourceRows,
@@ -387,16 +396,16 @@ window.__ModuleLoader__.load({
           }
           return h('main', { className: 'pa24', ref: main }, h('style', null, style), h('div', { className: 'pa24-wrap' },
             h('header', { className: 'pa24-header' },
-              h('div', { className: 'pa24-identity' }, h('span', { className: 'pa24-brand' }, icon('bot')), h('div', null, h('div', { className: 'pa24-eyebrow' }, 'YOUR PERSONAL ASSISTANT'), h('h1', null, t('title')), h('p', { className: 'pa24-tagline' }, '日常交给我，重要的事由你决定。'))),
+              h('div', { className: 'pa24-identity' }, h('span', { className: 'pa24-brand' }, icon('bot')), h('div', null, h('div', { className: 'pa24-title-row' }, h('h1', null, t('title')), h('p', { className: 'pa24-tagline' }, '日常交给我，重要的事由你决定。')))),
               h('div', { className: 'pa24-row' }, button('chat', '与24私助对话', openRobot, { className: 'pa24-primary', disabled: busy || !workspace }), button('refresh', '刷新', () => refresh(), { className: 'pa24-quiet' }))),
-            config?.mode === 'demo' && h('div', { className: 'pa24-notice pa24-tone-amber' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, '体验模式'), ' · 未连接飞书；业务账本使用 PostgreSQL，备忘仅入账本。')),
+            config?.mode === 'demo' && !noticeClosed && h('div', { className: 'pa24-notice pa24-tone-amber' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, '体验模式'), ' · 未连接飞书；数据保存在本机数据库，不会发到飞书。'), h('button', { type: 'button', className: 'pa24-quiet', 'aria-label': '关闭体验模式提示', onClick: () => setNoticeClosed(true) }, icon('close', { width: 15, height: 15 }))),
             (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? '连接暂时中断，以下为上次读取的状态' : '操作未完成'), h('p', null, error || connError)),
             h('nav', { className: 'pa24-tabs', role: 'tablist', 'aria-label': '24私助工作区导航' }, tabItems.map(([id, name, tone], index) => h('button', { key: id, id: 'pa24-tab-' + id, type: 'button', role: 'tab', className: 'pa24-tone-' + tone, 'aria-selected': tab === id, 'aria-controls': 'pa24-content', tabIndex: tab === id ? 0 : -1, onClick: () => selectTab(id), onKeyDown: e => {
               const next = e.key === 'ArrowRight' ? (index + 1) % tabItems.length : e.key === 'ArrowLeft' ? (index + tabItems.length - 1) % tabItems.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabItems.length - 1 : null;
               if (next === null) return; e.preventDefault(); selectTab(tabItems[next][0]); e.currentTarget.parentElement.querySelectorAll('[role=tab]')[next].focus();
             } }, icon(name, { width: 17, height: 17 }), t(id)))),
             h('div', { id: 'pa24-content', role: 'tabpanel', 'aria-labelledby': 'pa24-tab-' + tab, tabIndex: 0 }, content),
-            h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), '业务账本使用 PostgreSQL；配置与记忆通过对话维护，界面不伪造成功。')));
+            h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), '数据保存在本机（PostgreSQL）；配置与记忆通过对话维护，界面只显示真实结果。')));
         }
 
         // F20: 企微接入面板模块——对标飞书接入：渠道配置、CLI 与身份、
@@ -404,11 +413,11 @@ window.__ModuleLoader__.load({
         function WecomView({ state, busy, button, openRobot }) {
           const wecom = state.wecom;
           const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
-          const channelBadge = value => value === 'wecom' ? badge('企微', 'blue', 'bot') : badge('飞书', 'neutral', 'plug');
+          const channelBadge = value => value === 'wecom' ? badge('企微', 'neutral', 'bot') : badge('飞书', 'neutral', 'plug');
           const serviceMeta = { calendar: '日程', todo: '待办', push: '推送' };
           const serviceBadge = s => {
             const map = {
-              ok: ['检查通过', 'blue', 'check'], unauthorized: ['未授权', 'amber', 'info'], expired: ['已过期', 'amber', 'clock'],
+              ok: ['正常', 'blue', 'check'], unauthorized: ['未授权', 'amber', 'info'], expired: ['已过期', 'amber', 'clock'],
               unavailable: ['企业不可用', 'danger', 'alert'], error: ['异常', 'danger', 'alert'], skipped: ['未启用', 'neutral', 'info'],
             };
             const [label, tone, name] = map[s.state] || ['未知', 'neutral', 'info'];
@@ -416,23 +425,23 @@ window.__ModuleLoader__.load({
           };
           return h('div', { className: 'pa24-grid' },
             h('section', { className: 'pa24-card' },
-              sectionHead('bot', '企微接入', '日程/待办第二操作渠道与提醒单向推送（不做收信，飞书保持唯一交互入口）。',
-                h('div', { className: 'pa24-row' },
-                  button('refresh', busy ? '检查中…' : '检查企微接入', () => rpc('action', { type: 'connection.wecom-check' }), { className: 'pa24-primary' }),
-                  button('chat', '通过对话配置', openRobot)), 'blue'),
+                sectionHead('bot', '企微接入', '日程/待办第二操作渠道与提醒单向推送（不做收信，飞书保持唯一交互入口）。',
+                  h('div', { className: 'pa24-row' },
+                    button('refresh', busy ? '检查中…' : '检查企微接入', () => rpc('action', { type: 'connection.wecom-check' })),
+                    button('chat', '通过对话配置', openRobot)), 'blue'),
               fields([
                 ['日程渠道', channelBadge(config ? config.calendarChannel : 'feishu')],
                 ['待办渠道', channelBadge(config ? config.todoChannel : 'feishu')],
                 ['推送渠道', channelBadge(config ? config.notifyChannel : 'feishu')],
                 ['上次检查', wecom ? date(wecom.checkedAt, tz) : '尚未检查，点击右上方按钮开始'],
               ]),
-              h('div', { className: 'pa24-helper' }, '可以说："检查企微接入，告诉我还缺什么。" 检查只读，不发送消息、不建企微对象；接入权威流程见 wecom-setup.md（pa24_connection action=wecom_guide）。')),
+              h('div', { className: 'pa24-helper' }, '可以说：“检查企微接入，告诉我还缺什么。” 检查只读，不发送消息、不建企微对象；完整接入步骤让24私助给出指南（说“给我企微接入指南”）。')),
             wecom && h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与身份'), wecom.cli.state === 'ok' ? badge('CLI 可用', 'blue', 'check') : badge('CLI 不可用', 'danger', 'alert')),
               fields([
                 ['CLI 状态', wecom.cli.message],
                 ['机器人绑定与授权真人', wecom.identity.message],
-                ['推送目标', wecom.identity.userid || '未解析'],
+                ['推送目标', wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : '未解析'],
               ])),
             wecom && h('section', { className: 'pa24-card' },
               sectionHead('shield', '服务级授权', '按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。'),
@@ -468,7 +477,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-row' },
                 h('span', { className: 'pa24-brand pa24-settings-brand' }, icon('bot', { width: 18, height: 18 })),
                 h('div', null, h('h2', null, t('settings')), h('p', { className: 'pa24-meta' }, '工作区绑定、配置重载、生效配置查看与健康预算；日常操作与接入诊断在24私助面板。'))),
-              h('div', { className: 'pa24-row' }, button('external', '打开24私助面板', openPanel, { className: 'pa24-primary' }))),
+              h('div', { className: 'pa24-row' }, button('external', '打开24私助面板', openPanel, { className: 'pa24-quiet' }))),
             (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? '连接暂时中断' : '操作未完成'), h('p', null, error || connError)),
             !state
               ? h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), connError ? '无法读取工作区状态。' : '正在读取工作区状态…')
@@ -476,7 +485,8 @@ window.__ModuleLoader__.load({
                 h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }),
                 h(HealthBlock)));
         }
-        const SidebarIcon = () => icon('bot', { width: 22, height: 22 });
+        // P53: 宿主侧栏只有图标位——title 悬停提示与 aria-label 补可访问名称（SPEC §13）。
+        const SidebarIcon = () => h('span', { title: t('panel'), 'aria-label': t('panel'), style: { display: 'inline-flex' } }, icon('bot', { width: 22, height: 22 }));
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'pa24' }, Panel));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'pa24', order: 24, label: () => t('panel') }, SidebarIcon));
         ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'pa24', order: 25, label: () => t('settings') }, SettingsSection));
