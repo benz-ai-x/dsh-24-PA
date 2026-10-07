@@ -25,9 +25,9 @@ Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant 
 <a id="use-this-package"></a>
 ## Use this package
 
-### Install into a profile
+### Installing the Bundle
 
-Pick the release matching your dsh runtime, then restart the profile. The reconcile step activates the patch layer (one assistant preset row plus the host plugin row) for exactly this `dsh.bundle` declaration.
+Pick the release matching your dsh runtime, then restart the Profile. The reconcile step activates the patch layer (one assistant preset row plus the host plugin row) for exactly this `dsh.bundle` declaration.
 
 ```sh
 # dsh 0.2.1-alpha.1 host (schedule service built in)
@@ -41,18 +41,11 @@ dsh plugin --profile <name> add <rc.2 harness checkout>/packages/schedule/schedu
 dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 ```
 
-Removal withdraws the preset and host plugin on the next profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched.
+Removal withdraws the preset and host plugin on the next Profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched. Version naming follows `<dsh baseline version>.<serial>`; npm dist-tags track baselines (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`).
 
-### What you get
+### Configuration
 
-- The「24私助」preset: standard plugin set (platform shell, fs, search, jobs, skill, goal, plan-mode, compaction, delegation, ask-user, todo, web, present, ralph) plus `pa24-agent`; persona text merged into the assistant identity; `tool-schedule` deliberately excluded — reminders stay on the ledger.
-- Role-restricted tool surfaces: local sessions get the full standard base plus all `pa24_*` tools; the Feishu entry session and workers keep business-only whitelists (one preset never implies one permission set).
-- The host plugin: fixed Feishu access and local sessions, `pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`, PostgreSQL ledger with outbox delivery and offline-capable reminders, handwriting review cards, digests, backup/health, and the web panel.
-- `feishu-setup.md`, the staged access-setup wizard surfaced through `pa24_connection` (`guide` plus `check` with `nextSteps`).
-
-### Environment and configuration
-
-Secrets live only in the server environment; the workspace `AGENTS.md` holds one machine-checked JSON block with variable names.
+Secrets live only in the server environment; the workspace `AGENTS.md` holds one machine-checked JSON block with variable names, revalidated on reload — a bad block never replaces the effective configuration.
 
 | Variable | Meaning |
 |---|---|
@@ -60,7 +53,21 @@ Secrets live only in the server environment; the workspace `AGENTS.md` holds one
 | `PA24_WORKSPACE` | Absolute workspace directory bound on first start (or pick one in the panel) |
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | Feishu custom-app credentials (feishu mode) |
 
-`AGENTS.md` fields: `mode` (demo/feishu), `larkProfile`, `ownerOpenId`, `folderToken`, `tasklistId`, `calendarId`, `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraLocalTools` (closed enum: `subagent_codex`, `subagent_claude_code`). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`.
+`AGENTS.md` fields: `mode` (demo/feishu), `larkProfile`, `ownerOpenId`, `folderToken`, `tasklistId`, `calendarId`, `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraLocalTools` (closed enum). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`; the bundled `feishu-setup.md` is the single authority.
+
+### Exposing the tool
+
+External CLI delegation rows ship enabled but stay dormant: `subagent_codex` and `subagent_claude_code` mount only after their provider bundles (`@deepseek-ai/dsh-subagent-codex` / `-claude-code`) are installed into the Profile, and the workspace must then opt in through `extraLocalTools`, because `tools.restrict()` rejects allow-listed names that are not live tools. `ralph` is available to local sessions and follows its own tool contract: only on an explicit user request.
+
+### What you get
+
+- The「24私助」preset: standard plugin set (platform shell, fs, search, jobs, skill, goal, plan-mode, compaction, delegation, ask-user, todo, web, present, ralph) plus `pa24-agent`; persona text merged into the assistant identity; `tool-schedule` deliberately excluded — reminders stay on the ledger.
+- Role-restricted tool surfaces: local sessions get the full standard base plus all `pa24_*` tools; the Feishu entry session and workers keep business-only whitelists (one preset never implies one permission set).
+- The host plugin: fixed Feishu access and local sessions, `pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`, PostgreSQL ledger with outbox delivery and offline-capable reminders, handwriting review cards, digests, backup/health, and the web panel.
+
+### Failure and recovery
+
+Digests and meeting prep on a dsh 0.2.0-rc.2 host report「当前 Host 未提供原生 Schedule 服务」until the schedule companions above are installed; the registry `dsh-schedule@0.2.0-rc.1` is peer-incompatible and its row stays disabled. An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
 
 -----
 
@@ -70,7 +77,29 @@ Secrets live only in the server environment; the workspace `AGENTS.md` holds one
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The patch (`cordis.patch.yml`) inserts two rows: `pa24-preset` (`@deepseek-ai/dsh-agent-preset`, id `pa24`) composing the standard plugin set plus `@benz-ai-x/dsh-24pa/agent`, and `pa24` (`@benz-ai-x/dsh-24pa`) for the host plugin. A `toolFilter` naming absent tools fails startup, so the subagent rows carry no schedule deny list; `modelSelectionSettings` is omitted because its host-scope settings row is not guaranteed. `subagent_codex`/`subagent_claude_code` rows are enabled but mount only when their provider bundles are installed; `tools.restrict()` requires allow-listed names to exist, hence the `extraLocalTools` opt-in. `src/tools.ts` owns `STANDARD_CODING_TOOLS` and `ROLE_TOOLS`; `src/prompts.ts` owns every built-in prompt with `PROMPTS_VERSION`; `src/feishu.ts` owns transport, access diagnostics, and `setupNextSteps`. The workspace-rules prompt section is dynamic and reloadable; bad config never replaces the effective version.
+This section explains how the assistant organizes work and where the observable behavior comes from; the consumer contract lives in [Use this package](#use-this-package).
+
+### Design concept
+
+- **One preset, many permission sets.** Every session composes the same「24私助」preset; role whitelists applied at agent creation decide the visible tools, so inheriting the preset never inherits maintenance authority (ADR-0001).
+- **The ledger is the reminder authority.** `tool-schedule` is excluded on purpose: reminders occur from PostgreSQL occurrence rows through the outbox, so they fire with the model offline and every delivery keeps a receipt.
+- **Material never becomes authorization.** Notes, documents, subagent replies, and fetched web content are inputs; only the owner's explicit instruction authorizes an external write, and secrets are referenced by environment variable name only.
+
+### Source map
+
+| File | Role |
+|---|---|
+| [`cordis.patch.yml`](cordis.patch.yml) | The Profile patch layer: preset row plus host plugin row |
+| [`src/index.ts`](src/index.ts) | Plugin entry: config schema, runtime construction, panel |
+| [`src/tools.ts`](src/tools.ts) | Tool registration, `STANDARD_CODING_TOOLS`, `ROLE_TOOLS` |
+| [`src/prompts.ts`](src/prompts.ts) | Every built-in prompt with `PROMPTS_VERSION`, AGENTS.md template |
+| [`src/runtime.ts`](src/runtime.ts) | Roles, delegation, ledger flows, reminders, digests, backup |
+| [`src/feishu.ts`](src/feishu.ts) | SDK long-connection transport, access diagnostics, `setupNextSteps` |
+| [`feishu-setup.md`](feishu-setup.md) | The bundled access-setup guide served by `pa24_connection guide` |
+
+### Run flow
+
+On start the host plugin takes a single-writer lock on `$DSH_HOME/24pa`, connects PostgreSQL, loads and validates the workspace `AGENTS.md`, and establishes the fixed Feishu access and local sessions through the SessionController. Inbound Feishu events durably enter an inbox before acknowledgment, the coordinator delegates to workers through the continuable child API, and each item records its origin, parent, and delivery target. Ticks drain the outbox with receipts, fire due reminder occurrences, verify published note fingerprints, and wake digest plans through the native Schedule service; results return to the entry that originated the work. At agent creation the role whitelist restricts the inherited tool catalog, and an `AGENTS.md` reload replaces the workspace-rules prompt section without touching the effective configuration on failure.
 
 </details>
 
@@ -79,18 +108,24 @@ The patch (`cordis.patch.yml`) inserts two rows: `pa24-preset` (`@deepseek-ai/ds
 <a id="further-exploration"></a>
 ## Further Exploration
 
-The repository carries the product spec (`docs/24PA-v1-SPEC.md`), the design (`docs/24PA-整体设计方案.md`), ADR-0001 on workspace/session boundaries, per-feature research (`docs/research/`), and the delivery plan (`docs/planning/`). Releases publish npm dist-tags per dsh baseline (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`).
+Read these pages when the package-level contract is not enough. They move from this bundle to the product it implements and the platform it plugs into.
+
+- [Product spec](../../docs/24PA-v1-SPEC.md) — stories, scenarios, and test groups behind every delivered feature.
+- [Overall design](../../docs/24PA-整体设计方案.md) — flows, session topology, and confirmed trade-offs.
+- [ADR-0001](../../docs/adr/0001-workspace-session-boundaries.md) — the workspace/session permission boundary this preset enforces.
+- [Research records](../../docs/research/) — per-feature verified contracts, including the dual-baseline and access-wizard studies.
+- [Agent preset registry](https://github.com/benz-ai-x/dsh-24-PA) — repository, releases, and the delivery plan.
 
 -----
 
 <a id="model-experience"></a>
 ## Model Experience
 
-### Assistant system-prompt sections (bundle-owned)
+### Assistant request
 
 #### What the model sees
 
-Four ordered lead sections (identity and capability split, coordination, business domains, safety and reporting) plus the merged persona line, injected by `pa24-agent`; the workspace-rules section (order 910) carries `AGENTS.md` prose and stays empty until a workspace is bound. Workers receive four-part personas (职责/完成标准/边界/输出要求) instead.
+`pa24-agent` injects four ordered lead sections (identity and capability split, coordination, business domains, safety and reporting) plus the merged persona line; the workspace-rules section (order 910) carries `AGENTS.md` prose and stays empty until a workspace is bound. Workers receive four-part personas (职责/完成标准/边界/输出要求) instead.
 
 ##### Verbatim identity line (src/prompts.ts)
 
@@ -104,9 +139,9 @@ Fixed per role after workspace bind; the workspace-rules section is conditional 
 
 #### KV Cache effect
 
-Stable repeated prefix within a session; an `AGENTS.md` reload replaces the rules section and invalidates reuse from that request on, while a `PROMPTS_VERSION` bump invalidates across deployments.
+Stable repeated prefix within a session: an `AGENTS.md` reload replaces the rules section and invalidates reuse from that request on, while a `PROMPTS_VERSION` bump invalidates across deployments. Nothing else in this bundle rewrites the earlier prefix.
 
-### Bundle-owned tool schemas (pa24_*)
+### Role-restricted tool catalog
 
 #### What the model sees
 
@@ -114,11 +149,11 @@ Eight `pa24_*` schemas with fixed JSON parameters, plus the role restriction app
 
 #### Token effect
 
-Fixed catalog per role for the session lifetime; `extraLocalTools` extends the local allow list only.
+Fixed catalog per role for the session lifetime; `extraLocalTools` extends the local allow list only, and host-plane additions from other bundles (for example `schedule_*`) are outside this bundle's allow list.
 
 #### KV Cache effect
 
-The catalog is constant across one session's requests (append-only conversation); changing the workspace `extraLocalTools`, the preset composition, or upgrading the package invalidates reuse.
+Append-only: the catalog is constant across one session's requests, so conversation growth never rewrites the prefix; changing the workspace `extraLocalTools`, the preset composition, or upgrading the package invalidates reuse.
 
 Indirectly, through the preset rows this bundle composes, each inserted standard package owns its own tool descriptions and prompt contributions.
 
@@ -126,9 +161,11 @@ Indirectly, through the preset rows this bundle composes, each inserted standard
 
 <a id="known-limitations-and-deferred-work"></a>
 
+These limits define when this assistant needs special operational care. They are current package constraints, not a general Feishu comparison or a task backlog.
+
 - **Real Feishu tenants are untested** — long-connection, dual identities, and token renewal were verified against a stubbed Feishu side; the first real integration may surface wire differences, and console permission scope names are keyword-based pending on-console verification.
 - **Handwriting recognition quality is unquantified** — multi-page transcription fidelity needs a 30–50 page real-sample evaluation before any accuracy claim; the visual route must be configured in `workerModels`.
-- **dsh 0.2.0-rc.2 hosts ship no schedule service** — digests and meeting prep report "当前 Host 未提供原生 Schedule 服务" until the experimental schedule bundle and a workspace-built `dsh-schedule` are installed; the registry `dsh-schedule@0.2.0-rc.1` is peer-incompatible, and its host-plane `schedule_*` tools cannot be hidden by preset restriction.
+- **dsh 0.2.0-rc.2 hosts ship no schedule service** — digests and meeting prep stay honestly unavailable until the schedule companions are installed, and the host-plane `schedule_*` tools those companions add cannot be hidden by preset restriction.
 - **External CLI delegation is dormant by default** — `subagent_codex`/`subagent_claude_code` mount only after their provider bundles are installed and `extraLocalTools` opts in; unconfigured tools stay absent rather than erroring.
 - **One writer per state directory** — a second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock; run one host per state directory.
 
@@ -138,6 +175,9 @@ Indirectly, through the preset rows this bundle composes, each inserted standard
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-Build and test run inside `packages/24pa` against an adjacent `deepseek-harness` checkout: `npm install && npm run build`, `npm test` (unit plus e2e over the real dsh loader, native sessions, and an isolated PostgreSQL; only the model, network, and clock are stubbed). Dual-baseline runs pass `DSH_BIN` to select the runtime and `PA24_E2E_EXTRA_PLUGINS` to append the rc.2 schedule companions. Regression baselines: 0.2.1-alpha.1 plain and 0.2.0-rc.2 with companions, 130/130 each. The bundled guide (`feishu-setup.md`) ships in `files` and is the single authority for access setup.
+This Dev Note is working context for maintainers: open questions and undecided directions. It is explicitly non-authoritative — shipped behavior and limits live in the sections above and in the package code.
+
+- **Dual-baseline verification** — regression runs select the runtime with `DSH_BIN` and append the rc.2 schedule companions with `PA24_E2E_EXTRA_PLUGINS`; baselines are 0.2.1-alpha.1 plain and 0.2.0-rc.2 with companions, 130/130 each.
+- **Local harness adjacency** — dev type-checking links vendored peers from an adjacent `deepseek-harness` checkout through `scripts/link-peer.mjs`; registry installs never depend on that checkout.
 
 </details>
