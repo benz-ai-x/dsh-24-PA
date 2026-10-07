@@ -185,10 +185,22 @@ window.__ModuleLoader__.load({
                   h('p', { className: 'pa24-meta' }, '需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。')))));
         }
 
+        // F17: Panel 与 SettingsSection 共用的动作外壳（busy/error/run/button）。
+        // reloadAfter：动作成功后立即重读 snapshot——设置分区无轮询需要；
+        // 面板有 2.5s 轮询，保持原行为不重读。
+        // 打开固定本地助理会话——面板与设置分区共用。
+        const openRobot = async () => { const r = await rpc('action', { type: 'robot.open' }); ctx.uiWorkspace.openSession(r.sessionId); };
+        function usePanelActions({ reloadAfter } = {}) {
+          const [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
+          const run = async fn => { setBusy(true); setError(''); try { const r = await fn(); if (reloadAfter) await reloadAfter(); return r; } catch (e) { setError(e.message); return null; } finally { setBusy(false); } };
+          const button = (name, label, fn, props = {}) => h('button', { type: 'button', disabled: busy, onClick: () => void run(fn), ...props }, name && icon(name), label);
+          return { busy, error, run, button };
+        }
+
         // F17: 工作区管理两张卡（绑定/切换 + 生效配置）独立成组件，
         // 面板 workspace tab 与设置分区共用；动作走既有 RPC，不新增端点。
-        function WorkspaceCards({ snapshot, busy, button, openRobot }) {
-          const [path, setPath] = React.useState('');
+        // path 为受控值由父级持有，面板侧保证切 tab 不丢已选未绑定的目录。
+        function WorkspaceCards({ snapshot, busy, button, openRobot, path, onPathChange }) {
           const workspace = snapshot.workspace, config = workspace ? workspace.config : null;
           const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: '备忘整理' }[w] || w)).join('、') || '无';
           return h(React.Fragment, null,
@@ -196,7 +208,7 @@ window.__ModuleLoader__.load({
               sectionHead('folder', '当前工作区', '在 dsh 添加服务器目录，再选择绑定。空目录首次绑定时生成 AGENTS.md。'),
               h('label', { style: { display: 'block', margin: '18px 0 12px' } },
                 h('span', { className: 'pa24-meta' }, '选择 dsh 工作区'),
-                h('select', { value: path, onChange: e => setPath(e.target.value), style: { marginTop: 6 } },
+                h('select', { value: path, onChange: e => onPathChange(e.target.value), style: { marginTop: 6 } },
                   h('option', { value: '' }, '选择一个工作区…'),
                   (snapshot.availableWorkspaces || []).map(w => h('option', { value: w.path, key: w.id }, w.title + ' · ' + w.path)))),
               button('folder', '绑定所选工作区', () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path }),
@@ -245,8 +257,8 @@ window.__ModuleLoader__.load({
         }
 
         function Panel() {
-          const [state, setState] = React.useState(null), [error, setError] = React.useState(''), [connError, setConnError] = React.useState(''), [busy, setBusy] = React.useState(false);
-          const [tab, setTab] = React.useState('work');
+          const [state, setState] = React.useState(null), [connError, setConnError] = React.useState('');
+          const [tab, setTab] = React.useState('work'), [path, setPath] = React.useState('');
           const main = React.useRef(null);
           const refresh = async () => { const s = await rpc('snapshot'); setState(s); setConnError(''); return s; };
           React.useEffect(() => {
@@ -261,10 +273,8 @@ window.__ModuleLoader__.load({
             void load(); const timer = setInterval(() => void load(), 2500);
             return () => { live = false; clearInterval(timer); };
           }, []);
-          const run = async fn => { setBusy(true); setError(''); try { return await fn(); } catch (e) { setError(e.message); return null; } finally { setBusy(false); } };
-          const button = (name, label, fn, props = {}) => h('button', { type: 'button', disabled: busy, onClick: () => void run(fn), ...props }, name && icon(name), label);
+          const { busy, error, run, button } = usePanelActions();
           const selectTab = id => { setTab(id); main.current?.scrollTo({ top: 0 }); };
-          const openRobot = async () => { const r = await rpc('action', { type: 'robot.open' }); ctx.uiWorkspace.openSession(r.sessionId); };
           if (!state) return h('main', { className: 'pa24' }, h('style', null, style), h('div', { className: 'pa24-wrap' }, empty(connError ? 'alert' : 'bot', connError ? 'danger' : 'blue', connError ? '暂时无法连接工作区' : '正在连接你的工作区', connError || '正在读取配置与当前事项…')));
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
           const items = state.work || [];
@@ -375,7 +385,7 @@ window.__ModuleLoader__.load({
           } else if (tab === 'workspace') {
             content = h('div', { className: 'pa24-grid' },
               h(HealthBlock),
-              h(WorkspaceCards, { snapshot: state, busy, button, openRobot }));
+              h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }));
           }
           return h('main', { className: 'pa24', ref: main }, h('style', null, style), h('div', { className: 'pa24-wrap' },
             h('header', { className: 'pa24-header' },
@@ -394,18 +404,17 @@ window.__ModuleLoader__.load({
         // F17: 设置模态里的「24私助」分区——复用 WorkspaceCards 与既有 RPC，
         // 自取 snapshot（settings.section 的 owner props 只有 close）。
         function SettingsSection({ close }) {
-          const [state, setState] = React.useState(null), [connError, setConnError] = React.useState(''), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
+          const [state, setState] = React.useState(null), [connError, setConnError] = React.useState('');
+          const [path, setPath] = React.useState('');
           const load = async () => { const s = await rpc('snapshot'); setState(s); setConnError(''); return s; };
           React.useEffect(() => {
             let live = true;
             void load().catch(e => { if (live) setConnError(e.message); });
             return () => { live = false; };
           }, []);
-          const run = async fn => { setBusy(true); setError(''); try { const r = await fn(); await load(); return r; } catch (e) { setError(e.message); return null; } finally { setBusy(false); } };
-          const button = (name, label, fn, props = {}) => h('button', { type: 'button', disabled: busy, onClick: () => void run(fn), ...props }, name && icon(name), label);
-          const openRobot = async () => { const r = await rpc('action', { type: 'robot.open' }); ctx.uiWorkspace.openSession(r.sessionId); };
+          const { busy, error, button } = usePanelActions({ reloadAfter: load });
           const openPanel = () => {
-            try { if (ctx.layout) ctx.layout.selectPanel('pa24'); } catch (e) { /* 面板未注册时仅关闭设置 */ }
+            try { if (ctx.layout) ctx.layout.selectPanel('pa24'); } catch (e) { console.warn('pa24: 打开24私助面板失败，仅关闭设置', e); }
             close();
           };
           return h('div', { className: 'pa24 pa24-settings' }, h('style', null, style),
@@ -417,7 +426,7 @@ window.__ModuleLoader__.load({
             (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? '连接暂时中断' : '操作未完成'), h('p', null, error || connError)),
             !state
               ? h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), connError ? '无法读取工作区状态。' : '正在读取工作区状态…')
-              : h(WorkspaceCards, { snapshot: state, busy, button, openRobot: () => void run(openRobot) }));
+              : h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }));
         }
         const SidebarIcon = () => icon('bot', { width: 22, height: 22 });
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'pa24' }, Panel));

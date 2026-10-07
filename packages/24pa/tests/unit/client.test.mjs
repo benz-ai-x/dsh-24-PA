@@ -21,9 +21,12 @@ describe('client.js 挂载面（F17）', () => {
   });
 
   it('设置分区复用 WorkspaceCards 且不新增 RPC 端点', () => {
-    expect(client).toContain('function WorkspaceCards({ snapshot, busy, button, openRobot })');
-    // 面板 workspace tab 与设置分区都挂同一组件
-    expect(client.match(/h\(WorkspaceCards,/g)?.length).toBe(2);
+    expect(client).toContain('function WorkspaceCards({ snapshot, busy, button, openRobot, path, onPathChange })');
+    // 面板 workspace tab 与设置分区都挂同一组件（后续第三处复用也合法）
+    expect(client.match(/h\(WorkspaceCards,/g)?.length).toBeGreaterThanOrEqual(2);
+    // 动作外壳与机器人入口共享，不再在 SettingsSection 内复制状态机
+    expect(client).toContain('function usePanelActions({ reloadAfter } = {})');
+    expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // F17 不允许出现本插件面板 RPC 之外的新 endpoint 字符串
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
     expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health']));
@@ -32,6 +35,7 @@ describe('client.js 挂载面（F17）', () => {
   it('设置分区跳转面板走 layout 服务并保留关闭兜底', () => {
     expect(client).toContain("'layout'");
     expect(client).toContain("ctx.layout.selectPanel('pa24')");
+    expect(client).toContain('console.warn');
     expect(client).toContain('close()');
   });
 });
