@@ -8,6 +8,16 @@
 
 版本号跟随 dsh 基线：**`<dsh 基线版本>.<本产品序号>`**（如 dsh 基线 0.2.0-rc.2 → 本产品 0.2.0-rc.2.1、0.2.0-rc.2.2…）。当前基线＝peerDependencies 锁定并经全量验证的 dsh 版本；dsh 基线变化时版本号随之推进并重新核验后发版。
 
+## 双基线支持
+
+peerDependencies 同时声明 `0.2.0-rc.2 || 0.2.1-alpha.1`，两基线均通过全量 130 用例：
+
+- **dsh 0.2.1-alpha.1**：web 宿主自带 schedule 服务，直接安装即可。
+- **dsh 0.2.0-rc.2**：web 宿主不提供 schedule 服务（官方移入 experimental bundle，且 registry 的 schedule@0.2.0-rc.1 因 peer 不匹配会被禁用）。智能简报/会前准备等依赖原生 Schedule 的功能需另装两件：
+  1. `dsh plugin --profile <p> add @deepseek-ai/dsh-experimental-schedule-bundle`（提供 schedule 服务行）
+  2. `dsh plugin --profile <p> add <rc.2 harness checkout>/packages/schedule/schedule`（registry 版 peer 锁 rc.1 不可用，须目录安装 rc.2 workspace 版）
+  装后宿主的 `schedule_*` 工具对所有会话可见（dsh 会话层注册，预设 restrict 不可隐藏）；账本提醒不受影响。
+
 ## 安装与启动
 
 ```sh
