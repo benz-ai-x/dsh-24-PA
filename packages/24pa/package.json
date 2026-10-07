@@ -1,7 +1,6 @@
 {
   "name": "@benz-ai-x/dsh-24pa",
   "version": "0.2.1-alpha.1.1",
-  "private": true,
   "description": "24私助（24PA）: Feishu-backed personal assistant as a dsh workspace bundle.",
   "type": "module",
   "engines": {
