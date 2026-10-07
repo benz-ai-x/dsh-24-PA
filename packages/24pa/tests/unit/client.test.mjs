@@ -36,12 +36,39 @@ describe('client.js 挂载面（F17/F20）', () => {
   });
 
   it('企微接入模块（F20）：tab、检查动作、诊断四态与 helpMessage 原文', () => {
-    expect(client).toContain("['wecom', 'bot', 'blue']");
+    expect(client).toContain("['wecom', 'bot', 'green']");
     expect(client).toContain('function WecomView({ state, busy, button, openRobot })');
     expect(client).toContain("type: 'connection.wecom-check'");
-    for (const anchor of ['检查通过', '未授权', '已过期', '企业不可用', 's.helpMessage', '下一步（nextSteps）']) {
+    for (const anchor of ['正常', '未授权', '已过期', '企业不可用', 's.helpMessage', '下一步（nextSteps）']) {
       expect(client).toContain(anchor);
     }
+  });
+
+  it('UI 制度锚点（P53）：语义配色、单主按钮、统一状态词汇、可关闭提示与防溢出', () => {
+    // tab 配色按设计文档语义：蓝日程 / 蓝绿接入 / 紫记忆 / 玫红手写审核
+    expect(client).toContain("['feishu', 'plug', 'green']");
+    expect(client).toContain("['memory', 'memory', 'violet']");
+    expect(client).toContain("['review', 'pen', 'danger']");
+    expect(client).toContain('.pa24-tone-green{');
+    expect(client).toContain('.pa24-tone-violet{');
+    // header 压缩：eyebrow 退役、口号并入标题行
+    expect(client).not.toContain('pa24-eyebrow');
+    expect(client).toContain('pa24-title-row');
+    // 右列短卡收缩与设置模态防横向裁切
+    expect(client).toContain('align-items:start');
+    expect(client).toContain('.pa24-settings{padding:22px;height:auto;min-width:0;width:100%}');
+    // 一屏一主按钮：仅页头对话、工作/记忆/企微空态 CTA、设置分区绑定五处为实心
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(5);
+    expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
+    // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
+    // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留
+    expect(client).toContain('const STATUS = {');
+    expect(client).toContain('const statusBadge = (tier, label)');
+    expect(client).not.toContain("'需注意'");
+    expect(client).toContain("'长连接已启动'");
+    expect(client).toContain('pa24-ellip');
+    expect(client).toContain('关闭体验模式提示');
+    expect(client).toContain('待发消息');
   });
 
   it('设置分区跳转面板走 layout 服务并保留关闭兜底', () => {
