@@ -185,6 +185,7 @@ window.__ModuleLoader__.load({
             void rpc('health', {}).then(data => setView({ status: 'ready', data, error: '' })).catch(error => setView({ status: 'error', data: null, error: error.message }));
           };
           const badgeOfCap = c => badge(c.state === 'ok' ? '正常' : c.state === 'warn' ? '需注意' : c.state === 'error' ? '异常' : '说明', c.state === 'ok' ? 'blue' : c.state === 'warn' ? 'amber' : c.state === 'error' ? 'danger' : 'neutral', c.state === 'ok' ? 'check' : c.state === 'warn' ? 'info' : 'alert');
+          const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           return h('section', null,
             sectionHead('pulse', '健康与预算', '能力可用性、同步新鲜度与本 Host 的投入统计；凭据不进入诊断。',
               h('div', { className: 'pa24-row' }, button('refresh', view.status === 'idle' ? '读取健康状态' : '刷新', load, { disabled: view.status === 'loading', className: view.status === 'idle' ? 'pa24-primary' : 'pa24-quiet' })), 'blue'),
@@ -307,7 +308,7 @@ window.__ModuleLoader__.load({
               h('section', { className: 'pa24-card' },
                 h('div', { className: 'pa24-row pa24-between' }, h('h2', null, '机器人连接'), badge(state.transport && state.transport.connected ? '长连接已启动' : '未启动', state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
                 fields([
-                  ['连接状态', (state.transport && state.transport.message) || '未启动'],
+                  ['连接状态', (state.transport && state.transport.message) || (state.transport && state.transport.connected ? '长连接运行中（无报错）' : '未启动')],
                   ['最近收到本人消息', date(state.transport ? state.transport.lastReceivedAt : null, tz)],
                   ['最近发送获平台确认', date(state.transport ? state.transport.lastSentAt : null, tz)],
                   ['待发消息', pendingOutbox],

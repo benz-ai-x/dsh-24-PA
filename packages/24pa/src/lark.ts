@@ -93,7 +93,9 @@ export function runLarkCli(options: LarkCliOptions, args: readonly string[], std
         reject(new LarkCliError(parsed.error?.message || `飞书 CLI 失败（exit ${code}）。`, 'failed', parsed));
         return;
       }
-      if (parsed.ok !== true) {
+      // lark-cli ≥1.0.87 的部分子命令（auth status 等）成功时返回无 ok 信封的裸对象：
+      // exit 0 且无 error 字段视为成功，其余形态仍不受支持。
+      if (parsed.ok !== true && !(parsed.ok === undefined && parsed.error === undefined)) {
         reject(new LarkCliError('飞书 CLI 返回不受支持的结果信封，不能记作成功。', 'invalid-envelope', parsed));
         return;
       }
