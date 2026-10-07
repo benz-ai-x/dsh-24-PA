@@ -231,7 +231,11 @@ window.__ModuleLoader__.load({
           const tabItems = [['work', 'grid', 'blue'], ['feishu', 'plug', 'blue'], ['memory', 'memory', 'blue'], ['review', 'pen', 'blue'], ['workspace', 'folder', 'blue']];
           let content;
           if (tab === 'review') {
-            content = h(ReviewView, { workspace, openRobot });
+            // workspace 为 null（启动失败或未绑定）时 ReviewView 读 workspace.path
+            // 会把整个 main slot 判死（黑屏）；与 memory/workspace 页同样先防护。
+            content = workspace
+              ? h(ReviewView, { key: workspace.path, workspace, openRobot })
+              : empty('pen', 'blue', '尚未绑定工作区', '在「工作区」标签绑定目录后，手写审核队列会显示在这里。');
           } else if (tab === 'work') {
             const roleNames = { memo: '备忘整理' };
             const readyItems = (state.readiness?.items || []).map(item => {
