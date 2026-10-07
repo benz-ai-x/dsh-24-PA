@@ -700,6 +700,8 @@ export class PaRuntime {
     this.workspace = { ...workspace, statePath: real };
     this.memory = new MemoryStore(real, this.ctx);
     await this.restoreRegisteredRoles();
+    // 重绑会关闭旧库，而旧引擎持有旧库句柄；不先停止会每轮报「数据库连接池已关闭」。
+    this.reminders?.stop();
     this.reminders = new ReminderEngine(
       this.dbRef,
       {
