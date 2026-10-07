@@ -37,6 +37,12 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
     runSync(bin, ['--profile', 'pa24-test', '--from-default-profile', 'web', '--dump-config'], env, 'profile init');
   }
   runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', pkgDir, '--ignore-scripts', '--store-dir', join(root, 'store')], env, 'plugin add');
+  // Optional companion plugins for runtime-variant runs: on dsh 0.2.0-rc.2 the
+  // web host ships no schedule service, so digest e2e needs the experimental
+  // schedule bundle (0.2.1-alpha.1 carries the service in the web patch).
+  for (const extra of (process.env.PA24_E2E_EXTRA_PLUGINS ?? '').split(',').filter(Boolean)) {
+    runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', extra, '--ignore-scripts', '--store-dir', join(root, 'store')], env, `extra plugin add (${extra})`);
+  }
 
   const child = spawn(process.execPath, [bin, '--profile', 'pa24-test', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
     env,

@@ -134,9 +134,15 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
       'pa24_workspace', 'pa24_connection',
     ]));
     expect(request.tools).toContain(shell);
-    // tool-schedule is deliberately omitted: reminders stay on the ledger.
-    for (const absent of ['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete']) {
-      expect(request.tools).not.toContain(absent);
+    // tool-schedule is deliberately omitted from the PRESET: reminders stay on
+    // the ledger. On the rc.2 variant run the host also carries the
+    // experimental schedule bundle, whose session-layer tools no preset
+    // restriction can hide — deployment choice, not our preset composition.
+    const hostScheduleBundle = /schedule-bundle/.test(process.env.PA24_E2E_EXTRA_PLUGINS ?? '');
+    if (!hostScheduleBundle) {
+      for (const absent of ['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete']) {
+        expect(request.tools).not.toContain(absent);
+      }
     }
     // The external-CLI delegation tools mount only once their provider bundles
     // are installed into the profile; this test profile has none, so they stay
@@ -157,8 +163,19 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
     expect(request).toBeTruthy();
     // Strict closed surface: the feishu lead may see NOTHING outside its
     // business whitelist — no shell, no file tools, no generic delegation.
+    // On the rc.2 variant run the host's experimental schedule bundle adds
+    // session-layer schedule_* tools that no restriction can hide; those are
+    // the ONLY tolerated extras (deployment choice, see above).
     const FEISHU_WHITELIST = ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance'];
-    expect(request.tools.slice().sort()).toEqual(FEISHU_WHITELIST.slice().sort());
+    const received = request.tools.slice().sort();
+    const hostScheduleBundle = /schedule-bundle/.test(process.env.PA24_E2E_EXTRA_PLUGINS ?? '');
+    if (!hostScheduleBundle) {
+      expect(received).toEqual(FEISHU_WHITELIST.slice().sort());
+    } else {
+      const tolerated = received.filter(t => t.startsWith('schedule_'));
+      expect(tolerated.length).toBeGreaterThan(0);
+      expect(received.filter(t => !t.startsWith('schedule_'))).toEqual(FEISHU_WHITELIST.slice().sort());
+    }
   });
 
   it('Worker 子会话仍只有 pa24_work 与只读记忆', async () => {
