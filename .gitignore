@@ -9,3 +9,10 @@ packages/*/lib/
 .env.*
 !.env.example
 .DS_Store
+
+# ZCode 本地会话状态（plans 等；workflows 子目录保留可入库）
+.zcode/*
+!.zcode/workflows/
+# packages/24pa 目录内 pnpm install 的本地产物（仓库不入库 lockfile；workspace yaml 为 allowBuilds 占位残留）
+packages/24pa/pnpm-lock.yaml
+packages/24pa/pnpm-workspace.yaml
