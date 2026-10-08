@@ -21,7 +21,7 @@ kind: "package-bundle"
 
 **提醒需要模型在线吗？**——不需要：提醒由 PostgreSQL 发生实例经 Outbox 触发，模型离线时固定提醒照发。
 
-**怎么接通飞书？**——对本地24私助会话说「帮我接通飞书」；内置向导（`pa24_connection` 的 `guide` 与带 `nextSteps` 的 `check`）带你完成建应用、授权、资源标识与健康检查。
+**怎么接通飞书？**——对本地24私助会话说「帮我接通飞书」；内置向导（`pa24_connection` 的 `guide` 与带 `nextSteps` 的 `check`）带你完成建应用、授权、资源标识与健康检查。飞书接入会话也可运行这套只读向导及 `wecom_guide`/`wecom_check` 渠道诊断；配置写入仍仅限本地会话（ADR-0001）。
 
 ## 目录
 
