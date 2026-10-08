@@ -35,6 +35,15 @@ const feishuRequest = () =>
   llm.log.filter(r => r.tools.includes('pa24_delegate') && !r.tools.includes('bash') && !r.tools.includes('pa24_work')).at(-1);
 const workerRequest = () => llm.log.filter(r => r.tools.includes('pa24_work')).at(-1);
 
+const waitToolResult = async (substr, label, timeoutMs = 60_000) => {
+  for (let i = 0; i < timeoutMs / 500; i++) {
+    const last = llm.log.filter(r => r.toolResults.length > 0).at(-1);
+    if (last && last.toolResults.join('').includes(substr)) return last.toolResults.join('');
+    await new Promise(r => setTimeout(r, 500));
+  }
+  throw new Error(`等待工具结果（${label}，含 "${substr}"）超时`);
+};
+
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'pa24-f13-'));
   cluster = await startPgCluster();
@@ -179,6 +188,17 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
       expect(tolerated.length).toBeGreaterThan(0);
       expect(received.filter(t => !t.startsWith('schedule_'))).toEqual(FEISHU_WHITELIST.slice().sort());
     }
+  });
+
+  it('飞书接入会话可实调 pa24_connection 只读动作（不被本地门禁拒绝）', async () => {
+    await writeFile(scriptPath, JSON.stringify({
+      mode: 'dispatch',
+      leadTool: { name: 'pa24_connection', input: { action: 'guide' } },
+      leadReply: '已读取接入指南。',
+    }, null, 2));
+    await inject(ownerEvent('evt-f13-conn', '帮我看看飞书接入配置指南'));
+    const result = await waitToolResult('feishu-setup.md', '飞书侧 guide 返回');
+    expect(result).not.toContain('请在 dsh 的24私助会话中操作');
   });
 
   it('Worker 子会话仍只有 pa24_work 与只读记忆', async () => {

@@ -259,8 +259,11 @@ export function apply(ctx: DshContext) {
     { action: { type: 'string', enum: ['guide', 'check', 'read', 'wecom_guide', 'wecom_check'] } },
     ['action'],
     async (args, exec) => {
+      // Every action here is read-only (bundled guides, probes, snapshot), so
+      // the feishu entry may run all of them; config writes are a different,
+      // local-only tool (pa24_workspace, ADR-0001).
       const role = runtime.roleFor(exec.agent!);
-      if (role !== 'local-robot') throw new Error('请在 dsh 的24私助会话中操作接入配置。');
+      if (role !== 'local-robot' && role !== 'feishu-access') throw new Error('请在 dsh 的24私助会话中操作接入配置。');
       if (args.action === 'guide') return readSetupGuide();
       if (args.action === 'wecom_guide') return readWecomSetupGuide();
       if (args.action === 'check') return runtime.checkAccess();
