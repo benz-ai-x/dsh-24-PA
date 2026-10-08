@@ -41,12 +41,18 @@ F06 是最早可实际使用的手写完整流程：收图、识别、写文档�
 | F14 提示词结构化（LangGPT 对标） | [P46 / #62](https://github.com/benz-ai-x/dsh-24-PA/issues/62)（调研见 [研究清单](../research/提示词结构化-LangGPT对标与改进清单.md)） | F01–F12 全部合并 | 内置提示词集中于 `src/prompts.ts` 并带版本；Lead 规则按「身份/协调/业务/安全」分节注入；Worker persona 统一「职责/完成标准/边界/输出要求」四节；工作区 AGENTS.md 自然语言规则注入系统提示（只能收紧不能放宽）；委派与定时唤醒 prompt 模板化并带安全重申；`workerModels` 路由可选 `simplePersona` 简化结构；提示词关键锚点有快照测试守护。 |
 | F16 企微日程待办渠道 | P48（故事 122–123，研究见 [F16 研究](../research/F16-企微日程待办实现研究.md)） | F17 合并（设置分区先行，无代码依赖，仅交付顺序） | 工作区配置 `calendarChannel`/`todoChannel`/`notifyChannel` 按域切换到企业微信后：助理经 wecom-cli 查询/创建/取消企微日程、创建/完成企微待办（写操作过 staged 账防重，unknown 提示核对）；提醒与汇报经企微机器人 markdown 单向推送（目标取授权真人）；`pa24_connection` 提供 wecom-setup 指南与授权诊断（未授权/过期/企业不可用 nextSteps）；wecom-cli 状态进入维护健康面板。 |
 | F17 设置分区管理工作区 | P49（故事 124） | F01–F12 全部合并 | dsh 设置模态出现「24私助」分区：完成工作区绑定/切换、配置重载、生效配置查看（复用面板既有 RPC 与组件）；顶部可跳转打开24私助面板；侧栏面板入口保持不变。 |
+| F18 QwenNote 听记接入 | [P50 / #70](https://github.com/benz-ai-x/dsh-24-PA/issues/70)（故事 125，研究见 [F18 研究](../research/F18-QwenNote听记MCP接入研究.md)） | F01–F12 全部合并（extraLocalTools/prompts.ts/向导三件套随 F13–F15 已交付） | profile 配置 dsh-mcp-client 条目（stdio＋mcp-remote OAuth 桥，serverName=qwennote）并经 extraLocalTools 放行后：本地24私助会话可查询主人 QwenNote 录音卡的听记（最近列表、转写与纪要读取），引用带来源标注；行动提炼走既有候选行动→审核→行动授权；仅本地会话可用，飞书入口与 Worker 不放行；初始化指南含听记接入节（首次授权本人浏览器完成）与诊断三态。 |
+| F19 晨报复盘语音投递 | [P51 / #72](https://github.com/benz-ai-x/dsh-24-PA/issues/72)（故事 126，研究见 [F19 研究](../research/F19-晨报复盘语音投递实现研究.md)） | F01–F12 全部合并（建议排 F16 之后：同改 outbox 投递分派） | digest 计划开启 voice 后：晨报/复盘到点先送达本机 TTS 合成的原生语音消息（say＋ffmpeg 转 opus，bot 身份经 lark-cli --audio），紧跟全文文本兜底；语音正文为口播变体（剥离元数据行）并截断上限；say/ffmpeg 缺失降级文本不中断；`digest_control` 可调 voice；初始化指南补 macOS/ffmpeg 前置项。 |
 
 F13 是用户 2026-10-07 确认的设计变更（规格 1.3 / 设计 v0.5 / ADR-0001 修订）：预设携带标准插件全集，权限仍按角色白名单裁剪；tool-schedule 不并入，提醒保持账本单轨。
 
 F15（P47 / #63，故事 121，规格 1.5 / 设计 v0.6）：飞书接入配置向导——feishu-setup.md 随插件分发，pa24_connection 提供 guide 与带 nextSteps 的 check；解决「助理无配置知识导致多轮无法接通」的问题。F14（提示词结构化）由 P46 / #62 交付。
 
 F16/F17 是用户 2026-10-07 确认的设计变更（规格 1.6 / 设计 v0.7）：F16 企业微信定位为日程/待办第二操作渠道＋单向推送出口，不做企微收信，Out of Scope 相应收敛为「第二聊天平台的收信接入」；提醒保持 PG 账本单轨（ADR-0001），仅扩投递出口。F17 纯 UI 小迭代先行交付，两者无代码依赖，交付顺序 F17 → F16 仅为了小 PR 先落地。
+
+F18（P50 / #70，故事 125，规格 1.7 / 设计 v0.8）：用户 2026-10-07 提出的 QwenNote 录音卡听记接入。通道复用 dsh 内建 dsh-mcp-client（不自研 MCP 客户端、不新增包依赖），OAuth 经 mcp-remote stdio 桥（锁版本）；QwenNote MCP 的工具面与 token 形态以真机实测为准（工单第一步），架构不成立时回提案重审。
+
+F19（P51 / #72，故事 126，规格 1.8）：用户 2026-10-07 提出的晨报复盘语音投递。三段链路已真机验证（digest 模板渲染既有、say＋ffmpeg 合成实测、lark-cli `--audio` bot 身份送达实测）；投递形态扩展，不新增服务；与 F16 同改 outbox 分派，建议串行实施。
 
 F04 使用 F03 的实际任务查询呈现日程变更的关联影响，外部操作底座由 F01 的备忘流程建立。F09 的周回顾读取 F08 等待项；F10 会前准备复用 F09 智能 Schedule。F12 汇总运维能力，各早期功能仍须自行交付基础迁移和恢复说明，不把可靠性拖到最后。管理页和共同视觉规范同样随功能交付：F01 建立统一入口、SVG/主题/键盘基础和只读接入页，F02 交付事项与记忆内容，F07 补齐审核查阅，F12 扩展健康与日志。F12 的 T20 是全量复核，不是届时才开发全部界面。
 
