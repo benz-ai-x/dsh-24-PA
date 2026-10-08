@@ -23,3 +23,7 @@
 ### PR delivery
 
 领取实施 Issue、规划分支或创建/合并 PR 前，先读 `docs/planning/24PA-v1-PR交付计划.md`，按其中的功能分组和依赖规则执行。
+
+### Deployment runbook
+
+初始化24私助实例前，先读 `docs/24PA-初始化指南.md`，按其阶段达标标准推进。
