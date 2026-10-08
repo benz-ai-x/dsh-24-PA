@@ -40,7 +40,10 @@ const STANDARD_CODING_TOOLS = [
 ];
 
 const ROLE_TOOLS: Record<string, string[]> = {
-  'feishu-access': ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance'],
+  // pa24_connection on the feishu entry is the read-only access wizard
+  // (guide/check/wecom_guide/wecom_check): diagnostics over the chat the owner
+  // already uses. Config writes stay local-only (ADR-0001) via pa24_workspace.
+  'feishu-access': ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_connection'],
   'local-robot': [
     'pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_workspace', 'pa24_connection',
     ...STANDARD_CODING_TOOLS,
@@ -256,8 +259,11 @@ export function apply(ctx: DshContext) {
     { action: { type: 'string', enum: ['guide', 'check', 'read', 'wecom_guide', 'wecom_check'] } },
     ['action'],
     async (args, exec) => {
+      // Every action here is read-only (bundled guides, probes, snapshot), so
+      // the feishu entry may run all of them; config writes are a different,
+      // local-only tool (pa24_workspace, ADR-0001).
       const role = runtime.roleFor(exec.agent!);
-      if (role !== 'local-robot') throw new Error('请在 dsh 的24私助会话中操作接入配置。');
+      if (role !== 'local-robot' && role !== 'feishu-access') throw new Error('请在 dsh 的24私助会话中操作接入配置。');
       if (args.action === 'guide') return readSetupGuide();
       if (args.action === 'wecom_guide') return readWecomSetupGuide();
       if (args.action === 'check') return runtime.checkAccess();

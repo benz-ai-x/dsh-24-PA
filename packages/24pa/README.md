@@ -21,7 +21,7 @@ Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant 
 
 **Do reminders require the model to be online?** — No: reminders fire from PostgreSQL occurrence rows through the outbox, so fixed reminders deliver while the model is offline.
 
-**How do I connect Feishu?** — Tell the local 24私助 session「帮我接通飞书」; the built-in wizard (`pa24_connection` `guide`, and `check` with `nextSteps`) walks app creation, authorization, resource ids, and health checks.
+**How do I connect Feishu?** — Tell the local 24私助 session「帮我接通飞书」; the built-in wizard (`pa24_connection` `guide`, and `check` with `nextSteps`) walks app creation, authorization, resource ids, and health checks. The Feishu entry session can also run this read-only wizard and `wecom_guide`/`wecom_check` for channel diagnostics; configuration writes stay local-only (ADR-0001).
 
 ## Table of Contents
 
