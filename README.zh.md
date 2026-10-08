@@ -45,7 +45,7 @@ kind: "package-bundle"
 # dsh 0.2.1-alpha.1 宿主（自带 schedule 服务）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.4
 
-# dsh 0.2.0-rc.2 宿主（简报功能另需两个 schedule 伴随件）
+# dsh 0.2.0-rc.2 宿主——该线已冻结于 0.2.0-rc.2.3、不再迭代（简报功能另需两个 schedule 伴随件）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
 dsh plugin --profile <name> add @deepseek-ai/dsh-experimental-schedule-bundle
 dsh plugin --profile <name> add <rc.2 harness 源码>/packages/schedule/schedule
