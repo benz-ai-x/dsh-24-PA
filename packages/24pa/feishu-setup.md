@@ -25,7 +25,7 @@
 lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,docs,drive
 ```
 
-记下返回的**验证 URL 与设备码**，随本人操作清单一并交付（授权 URL 有时效；本人做到块 B 时若已过期，重新发起即可，其余步骤不变）。`--domain` 按域圈定授权范围（im/task/calendar/docs/drive 正好覆盖24私助的业务面），避免申请全量权限。
+记下返回的**验证 URL 与设备码**，随本人操作清单一并交付（也可用 `auth qrcode` 生成二维码一并交给本人；授权 URL 有时效——本人做到块 B 时若已过期，重新发起即可，其余步骤不变）。`--domain` 按域圈定授权范围（im/task/calendar/docs/drive 正好覆盖24私助的业务面），避免申请全量权限。
 
 ## 本人操作全量清单（一次交付给本人）
 
@@ -45,7 +45,7 @@ lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,d
 
 ### 块 B：终端＋浏览器（依赖：块 A 的 App ID/App Secret）
 
-1. 在**自己的终端**运行 `lark-cli config init`（按提示填块 A 的 App ID、经 stdin 输入 App Secret；多应用时加 `--profile <名>`，与 AGENTS.md 的 `larkProfile` 一致）——Secret 不发给 AI、不粘贴到对话。
+1. 在**自己的终端**运行 `lark-cli config init`（按提示填块 A 的 App ID、经 stdin 输入 App Secret；若此应用此前已绑定过且 App ID 正确可跳过——可让助理先用 `lark-cli config show` 核对；多应用时加 `--profile <名>`，与 AGENTS.md 的 `larkProfile` 一致）——Secret 不发给 AI、不粘贴到对话。
 2. 打开随清单交付的**授权验证 URL**，在浏览器完成登录授权。
 
 ### 块 C：启动环境（依赖：块 A 的 App ID/App Secret）

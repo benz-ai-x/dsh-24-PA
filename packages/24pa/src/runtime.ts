@@ -179,10 +179,15 @@ export interface RuntimeOptions {
 export const WECOM_CALENDAR_ID = 'wecom';
 
 // F23: wecom service-auth monitor cadence. Slow on purpose — read-only
-// probes against wecom-cli, alert suppressed to once a day per condition.
+// probes against wecom-cli; the ALERT is suppressed to one window per day
+// (latest condition wins), the probe itself always runs.
 const WECOM_AUTH_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const WECOM_AUTH_FIRST_CHECK_DELAY_MS = 10 * 60 * 1000;
 const WECOM_AUTH_ALERT_SUPPRESS_MS = 24 * 60 * 60 * 1000;
+
+function anyWecomChannel(config: PaConfig): boolean {
+  return config.calendarChannel === 'wecom' || config.todoChannel === 'wecom' || config.notifyChannel === 'wecom';
+}
 
 export interface WecomServiceCheck {
   id: 'calendar' | 'todo' | 'push';
@@ -609,13 +614,11 @@ export class PaRuntime {
   private async wecomAuthTick(): Promise<void> {
     if (this.closed || !this.repos || !this.config) return;
     const config = this.config;
-    if (config.calendarChannel !== 'wecom' && config.todoChannel !== 'wecom' && config.notifyChannel !== 'wecom') return;
-    const now = Date.now();
-    // Suppression is in-memory: a restart may re-alert once, the day-scoped
-    // dedup key keeps the outbox from double-sending within the same day.
-    if (now - this.wecomAuthLastAlertAt < WECOM_AUTH_ALERT_SUPPRESS_MS) return;
+    if (!anyWecomChannel(config)) return;
     let plan;
     try {
+      // The probe always runs so diagnostics stay fresh even while the
+      // notify side is suppressed.
       const diagnostics = await this.wecomCheck();
       const dayKey = wecomWallTime(new Date(), config.timeZone ?? 'Asia/Shanghai').slice(0, 10);
       plan = wecomAuthAlertPlan(diagnostics.services, dayKey);
@@ -623,8 +626,18 @@ export class PaRuntime {
       return; // probe failures surface through on-demand checks, not the monitor
     }
     if (!plan) return;
+    const now = Date.now();
+    // Suppression is a single in-memory window (a restart may re-alert once);
+    // the day-scoped dedup key keeps the outbox from double-sending per day.
+    // The window only advances after a successful enqueue, so a failed push
+    // retries on the next tick instead of being silenced for a day.
+    if (now - this.wecomAuthLastAlertAt < WECOM_AUTH_ALERT_SUPPRESS_MS) return;
+    try {
+      await this.notifyOwner(plan.dedupKey, plan.text);
+    } catch {
+      return; // leave the window unstamped so the next tick retries
+    }
     this.wecomAuthLastAlertAt = now;
-    await this.notifyOwner(plan.dedupKey, plan.text).catch(() => undefined);
   }
 
   private async readSavedWorkspacePath(): Promise<string | null> {
@@ -2255,7 +2268,7 @@ export class PaRuntime {
       cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}` };
     } catch (error) {
       cli = { state: 'error', message: `无法运行 ${this.options.wecomCliBin}：${(error as Error).message}` };
-      nextSteps.push(`安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 阶段 0）。`);
+      nextSteps.push('安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 准备节）。');
       const result: WecomDiagnostics = { checkedAt, cli, auth: { state: 'error', message: 'CLI 不可用，跳过。' }, identity: { state: 'missing', message: '未解析。' }, services, nextSteps };
       this.wecomDiagnostics = result;
       return result;
@@ -2269,7 +2282,7 @@ export class PaRuntime {
       identity = { state: 'ok', message: `机器人已绑定；授权真人 ${owner.name}（${owner.userid}）`, userid: owner.userid, userName: owner.name };
     } catch (error) {
       identity = { state: 'error', message: (error as Error).message };
-      nextSteps.push('在服务器执行 wecom-cli auth init 并由本人企微扫码绑定机器人（wecom-setup.md 阶段 1）。');
+      nextSteps.push('在服务器执行 wecom-cli auth init 并由本人企微扫码绑定机器人（wecom-setup.md 块 A）。');
     }
     // 3. Per-service authorization probes (read-only) for enabled domains.
     const probes: Array<{ id: WecomServiceCheck['id']; enabled: boolean; args: readonly string[] }> = [

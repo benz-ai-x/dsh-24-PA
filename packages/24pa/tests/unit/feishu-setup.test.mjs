@@ -86,7 +86,7 @@ describe('setupNextSteps 状态映射', () => {
     expect(setupNextSteps(baseConfig, diag({ auth: { state: 'error' } })).join('')).toContain('config show');
   });
 
-  it('资源缺失/报错 → 指南阶段 3 与权限点提示', () => {
+  it('资源缺失/报错 → 指南收尾节与权限点提示', () => {
     const steps = setupNextSteps(baseConfig, diag({
       resources: [
         { id: 'folder', label: '文档目录', value: '', state: 'missing' },
