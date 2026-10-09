@@ -46,6 +46,7 @@ import {
   systemLine,
   diffNormalized,
   advanceReminder,
+  looksLikeVisionModel,
   type CropSpec,
   type DoubtSpec,
   type DiagramSpec,
@@ -4283,7 +4284,16 @@ export class PaRuntime {
     const ready = this.readiness();
     const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string }[] = [];
     const config = this.config;
-    capabilities.push({ id: 'vision-route', state: config?.workerModels.handwriting ? 'ok' : 'warn', message: config?.workerModels.handwriting ? `手写视觉路由 ${config.workerModels.handwriting.provider}/${config.workerModels.handwriting.model}` : '未配置 workerModels.handwriting：手写识别不可用（其余能力不受影响，固定提醒继续）' });
+    const visionRoute = config?.workerModels.handwriting;
+    capabilities.push({
+      id: 'vision-route',
+      state: visionRoute ? (looksLikeVisionModel(visionRoute.model) ? 'ok' : 'warn') : 'warn',
+      message: !visionRoute
+        ? '未配置 workerModels.handwriting：手写识别不可用（其余能力不受影响，固定提醒继续）'
+        : looksLikeVisionModel(visionRoute.model)
+          ? `手写视觉路由 ${visionRoute.provider}/${visionRoute.model}`
+          : `手写视觉路由 ${visionRoute.provider}/${visionRoute.model} 疑似纯文本模型（模型名无视觉特征）——手写识别质量将不可用；请在 AGENTS.md workerModels.handwriting 配置视觉模型（如 GLM-4.5V、Qwen-VL 系列）`,
+    });
     // CLI presence + authorization verdict from the last access inspection
     // (on-demand only; no platform calls happen for this report).
     capabilities.push({ id: 'lark-cli', state: this.diagnostics ? (this.diagnostics.auth?.state === 'ok' ? 'ok' : this.diagnostics.auth?.state === 'error' ? 'error' : 'warn') : 'info', message: this.diagnostics ? `最近检查：${this.diagnostics.auth?.message ?? '未见授权结论'}${this.diagnostics.auth?.state === 'unverified' || this.diagnostics.auth?.state === 'error' ? '；授权失效请在服务器重新执行 lark-cli 授权后再检查' : ''}` : '尚未执行接入检查（用 pa24_connection check 发起只读检查）' });

@@ -10,7 +10,7 @@
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.2.0';
+export const PROMPTS_VERSION = '1.3.0';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -206,17 +206,18 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
       '## 职责',
       '- 你收到的图片是主人手写笔记的原稿：逐字忠实转写，不补写、不美化。',
       '## 完成标准',
-      '- 转写、摘要、AI 建议、疑点、候选行动与相对日期齐备，用 note_submit 提交结构化结果即为完成。',
+      '- 转写、摘要、疑点、候选行动与相对日期按内容分级齐备，用 note_submit 提交结构化结果即为完成。',
       '## 边界',
       '- 整理摘要、AI 建议和疑点必须与原文分开标注；相对日期保留原话并说明解释依据；无法辨认的内容明确列为未知，不臆测成事实。',
+      '- 输出分级与长度纪律（待审文档会省略空段，不要硬凑）：摘要不超过 100 字且不复述原文；短笔记（全篇不超过 80 字）摘要一句话即可、只保留转写＋候选行动；AI 建议只在有真实增量价值时给出（可以为空）；疑点只列无法辨认或前后矛盾之处；相对日期仅在候选行动需要解释时提供。',
       '- 你只产生候选内容：由宿主写入待审文档并发给本人审核；你没有批准审核或创建任务、日程、消息等外部行动的工具。',
       '- 识别质量没有把握时如实说明。',
       '## 输出要求',
       '- note_submit 提交结构化结果，等待本人审核；不执行任何外部行动。',
     ].join('\n'),
     brief: 'note_submit（转写/摘要/AI建议/疑点/候选行动/相对日期）、notes_search。',
-    doneCriteria: 'note_submit 已提交结构化候选内容；无法辨认处已列为未知。',
-    version: 1,
+    doneCriteria: 'note_submit 已提交结构化候选内容；无法辨认处已列为未知；空的可选部分留空未硬凑。',
+    version: 2,
   },
 };
 
