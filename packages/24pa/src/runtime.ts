@@ -8,7 +8,7 @@ import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, typ
 import { acquireHostLock, type HostLock, HostAlreadyActive } from './lock.js';
 import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
 import { runLarkCli } from './lark.js';
-import { runWecomCli, WecomCliError, wecomWallTime, wecomParseWallTime } from './wecom.js';
+import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
 import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
@@ -178,6 +178,17 @@ export interface RuntimeOptions {
 /** F16: calendar projection namespace for the wecom channel. */
 export const WECOM_CALENDAR_ID = 'wecom';
 
+// F23: wecom service-auth monitor cadence. Slow on purpose — read-only
+// probes against wecom-cli; the ALERT is suppressed to one window per day
+// (latest condition wins), the probe itself always runs.
+const WECOM_AUTH_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const WECOM_AUTH_FIRST_CHECK_DELAY_MS = 10 * 60 * 1000;
+const WECOM_AUTH_ALERT_SUPPRESS_MS = 24 * 60 * 60 * 1000;
+
+function anyWecomChannel(config: PaConfig): boolean {
+  return config.calendarChannel === 'wecom' || config.todoChannel === 'wecom' || config.notifyChannel === 'wecom';
+}
+
 export interface WecomServiceCheck {
   id: 'calendar' | 'todo' | 'push';
   state: 'ok' | 'unauthorized' | 'expired' | 'unavailable' | 'error' | 'skipped';
@@ -245,6 +256,9 @@ export class PaRuntime {
 
   private dispatchTimer: NodeJS.Timeout | null = null;
   private outboxTimer: NodeJS.Timeout | null = null;
+  private wecomAuthTimer: NodeJS.Timeout | null = null;
+  /** F23: in-memory suppression window for the wecom auth renewal alert. */
+  private wecomAuthLastAlertAt = 0;
   private noteVerifyTimer: NodeJS.Timeout | null = null;
   private reviewReminderTimer: NodeJS.Timeout | null = null;
   private reviewReminding = false;
@@ -586,7 +600,44 @@ export class PaRuntime {
     this.outboxTimer.unref?.();
     this.noteVerifyTimer.unref?.();
     this.reviewReminderTimer.unref?.();
+    // F23: proactive wecom service-auth monitoring — a silent expiry must not
+    // wait for the owner to hit a business error. Read-only probes only; the
+    // first check runs shortly after start, then at a slow cadence.
+    this.wecomAuthTimer = setInterval(() => void this.wecomAuthTick(), WECOM_AUTH_CHECK_INTERVAL_MS);
+    this.wecomAuthTimer.unref?.();
+    const firstCheck = setTimeout(() => void this.wecomAuthTick(), WECOM_AUTH_FIRST_CHECK_DELAY_MS);
+    firstCheck.unref?.();
     this.startedAt = nowIso();
+  }
+
+  /** F23: one monitoring pass — read-only wecom_check, alert on renewal states. */
+  private async wecomAuthTick(): Promise<void> {
+    if (this.closed || !this.repos || !this.config) return;
+    const config = this.config;
+    if (!anyWecomChannel(config)) return;
+    let plan;
+    try {
+      // The probe always runs so diagnostics stay fresh even while the
+      // notify side is suppressed.
+      const diagnostics = await this.wecomCheck();
+      const dayKey = wecomWallTime(new Date(), config.timeZone ?? 'Asia/Shanghai').slice(0, 10);
+      plan = wecomAuthAlertPlan(diagnostics.services, dayKey);
+    } catch {
+      return; // probe failures surface through on-demand checks, not the monitor
+    }
+    if (!plan) return;
+    const now = Date.now();
+    // Suppression is a single in-memory window (a restart may re-alert once);
+    // the day-scoped dedup key keeps the outbox from double-sending per day.
+    // The window only advances after a successful enqueue, so a failed push
+    // retries on the next tick instead of being silenced for a day.
+    if (now - this.wecomAuthLastAlertAt < WECOM_AUTH_ALERT_SUPPRESS_MS) return;
+    try {
+      await this.notifyOwner(plan.dedupKey, plan.text);
+    } catch {
+      return; // leave the window unstamped so the next tick retries
+    }
+    this.wecomAuthLastAlertAt = now;
   }
 
   private async readSavedWorkspacePath(): Promise<string | null> {
@@ -601,6 +652,7 @@ export class PaRuntime {
     this.lifetime.abort();
     if (this.dispatchTimer) clearInterval(this.dispatchTimer);
     if (this.outboxTimer) clearInterval(this.outboxTimer);
+    if (this.wecomAuthTimer) clearInterval(this.wecomAuthTimer);
     try {
       if (this.repos) {
         const active = await this.repos.workItems.list(['accepted', 'queued', 'running'], 50);
@@ -2216,7 +2268,7 @@ export class PaRuntime {
       cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}` };
     } catch (error) {
       cli = { state: 'error', message: `无法运行 ${this.options.wecomCliBin}：${(error as Error).message}` };
-      nextSteps.push(`安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 阶段 0）。`);
+      nextSteps.push('安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 准备节）。');
       const result: WecomDiagnostics = { checkedAt, cli, auth: { state: 'error', message: 'CLI 不可用，跳过。' }, identity: { state: 'missing', message: '未解析。' }, services, nextSteps };
       this.wecomDiagnostics = result;
       return result;
@@ -2230,7 +2282,7 @@ export class PaRuntime {
       identity = { state: 'ok', message: `机器人已绑定；授权真人 ${owner.name}（${owner.userid}）`, userid: owner.userid, userName: owner.name };
     } catch (error) {
       identity = { state: 'error', message: (error as Error).message };
-      nextSteps.push('在服务器执行 wecom-cli auth init 并由本人企微扫码绑定机器人（wecom-setup.md 阶段 1）。');
+      nextSteps.push('在服务器执行 wecom-cli auth init 并由本人企微扫码绑定机器人（wecom-setup.md 块 A）。');
     }
     // 3. Per-service authorization probes (read-only) for enabled domains.
     const probes: Array<{ id: WecomServiceCheck['id']; enabled: boolean; args: readonly string[] }> = [

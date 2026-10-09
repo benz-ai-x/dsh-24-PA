@@ -287,7 +287,7 @@ async function readSetupGuide(): Promise<Record<string, unknown>> {
     guide: 'feishu-setup.md',
     version: pkg.version ?? null,
     content,
-    usage: '配置飞书接入前先通读；按阶段推进，每阶段用 pa24_connection action=check 验证并按 nextSteps 收敛。',
+    usage: '配置飞书接入前先通读；一次交付本人操作全量清单，本人回报后自动循环 pa24_connection action=check 收敛并按 nextSteps 一次汇总。',
   };
 }
 
@@ -302,6 +302,6 @@ async function readWecomSetupGuide(): Promise<Record<string, unknown>> {
     guide: 'wecom-setup.md',
     version: pkg.version ?? null,
     content,
-    usage: '接入企微日程/待办渠道前先通读；按阶段推进，每阶段用 pa24_connection action=wecom_check 验证并按 nextSteps 收敛。',
+    usage: '接入企微日程/待办渠道前先通读；一次交付本人操作全量清单，本人回报后自动循环 wecom_check 收敛并按 nextSteps 一次汇总。',
   };
 }

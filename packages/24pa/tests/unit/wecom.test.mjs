@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll } from 'vitest';
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runWecomCli, wecomWallTime, wecomParseWallTime, WecomCliError } from '../../lib/wecom.js';
+import { runWecomCli, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime, WecomCliError } from '../../lib/wecom.js';
 
 // 信封契约的权威来源：docs/research/F16-企微日程待办实现研究.md（@wecom/cli 1.3.4 实测）。
 const STUB = `
@@ -97,5 +97,40 @@ describe('wecom-cli 受控执行', () => {
     // 非整半小时区（UTC+5:30）也必须往返无损。
     const ist = wecomParseWallTime('2026-10-09 10:30:00', 'Asia/Kolkata');
     expect(wecomWallTime(ist, 'Asia/Kolkata')).toBe('2026-10-09 10:30:00');
+  });
+});
+
+describe('F23：企微服务授权到期告警判定（wecomAuthAlertPlan）', () => {
+  it('全部 ok 时不告警', () => {
+    expect(wecomAuthAlertPlan([
+      { id: 'calendar', state: 'ok' },
+      { id: 'todo', state: 'ok' },
+    ], '2026-10-08')).toBeNull();
+  });
+
+  it('未授权/已过期才告警：按日去重键＋原文续期指引', () => {
+    const plan = wecomAuthAlertPlan([
+      { id: 'todo', state: 'ok' },
+      { id: 'calendar', state: 'expired', helpMessage: 'https://wecom.example/renew?c=2' },
+      { id: 'push', state: 'unauthorized' },
+    ], '2026-10-08');
+    expect(plan).not.toBeNull();
+    expect(plan.dedupKey).toBe('wecom-auth:calendar,push:2026-10-08');
+    expect(plan.text).toContain('日程：已过期');
+    expect(plan.text).toContain('https://wecom.example/renew?c=2');
+    expect(plan.text).toContain('推送：未授权');
+    // 同日同状态集合 → 相同去重键（outbox 天然幂等）
+    const again = wecomAuthAlertPlan([
+      { id: 'calendar', state: 'expired', helpMessage: 'https://wecom.example/renew?c=2' },
+      { id: 'push', state: 'unauthorized' },
+    ], '2026-10-08');
+    expect(again.dedupKey).toBe(plan.dedupKey);
+  });
+
+  it('企业不可用/探测错误不触发续期告警', () => {
+    expect(wecomAuthAlertPlan([
+      { id: 'calendar', state: 'unavailable' },
+      { id: 'todo', state: 'error' },
+    ], '2026-10-08')).toBeNull();
   });
 });

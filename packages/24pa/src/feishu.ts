@@ -215,7 +215,7 @@ export interface AccessDiagnostics {
   nextSteps: string[];
 }
 
-/** Authorization domain set for the user identity login (guide·阶段 2). */
+/** Authorization domain set for the user identity login (guide·准备/块 B). */
 const LARK_AUTH_DOMAINS = 'im,task,calendar,docs,drive';
 
 /**
@@ -228,27 +228,27 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
   const stateOf = (block: Record<string, unknown> | null): string | undefined =>
     block == null ? undefined : String(block.state ?? '');
   if (stateOf(result.cli) === 'error') {
-    steps.push('lark-cli 不可执行：在服务器安装并加入 dsh 宿主进程的 PATH（指南·阶段 0）；改完重启宿主。');
+    steps.push('lark-cli 不可执行：在服务器安装并加入 dsh 宿主进程的 PATH（指南·准备）；改完重启宿主。');
     return steps;
   }
   const source = stateOf(result.source);
   if (source === 'changed') {
-    steps.push('AGENTS.md 已修改未重载：本地24私助会话执行 pa24_workspace action=reload（指南·阶段 4）。');
+    steps.push('AGENTS.md 已修改未重载：本地24私助会话执行 pa24_workspace action=reload（指南·收尾）。');
   } else if (source === 'error') {
-    steps.push('AGENTS.md 读取失败：检查工作区文件与权限后重试（指南·阶段 0/4）；该错误未解决前检查结果不完整。');
+    steps.push('AGENTS.md 读取失败：检查工作区文件与权限后重试（指南·准备/收尾）；该错误未解决前检查结果不完整。');
   }
   const auth = stateOf(result.auth);
   const user = (result.auth as Record<string, unknown>) ?? {};
   if (auth === 'missing') {
     steps.push(
-      `固定 profile（${config.larkProfile}）尚无用户授权：发起 lark-cli auth login --no-wait --json --profile ${config.larkProfile} --domain ${LARK_AUTH_DOMAINS}，把验证链接交给本人在浏览器完成，再用 --device-code 收尾（指南·阶段 2）。`,
+      `固定 profile（${config.larkProfile}）尚无用户授权：发起 lark-cli auth login --no-wait --json --profile ${config.larkProfile} --domain ${LARK_AUTH_DOMAINS}，把验证链接交给本人在浏览器完成，再用 --device-code 收尾（指南·准备与块 B）。`,
     );
   } else if (auth === 'unbound') {
-    steps.push(`ownerOpenId 未绑定：把 auth status 返回的 user.openId（当前为 ${String(user.openId ?? '未知')}）填入 AGENTS.md（指南·阶段 3/4）。`);
+    steps.push(`ownerOpenId 未绑定：把 auth status 返回的 user.openId（当前为 ${String(user.openId ?? '未知')}）填入 AGENTS.md（指南·收尾）。`);
   } else if (auth === 'mismatch') {
     steps.push('CLI 授权用户与配置主人不一致：本人重新 lark-cli auth login，或确认后把 ownerOpenId 改为实际授权用户（指南·阶段 2/4）。');
   } else if (auth === 'unverified') {
-    steps.push('用户令牌有效性未确认：重新 lark-cli auth login 刷新令牌后复查（指南·阶段 2）。');
+    steps.push('用户令牌有效性未确认：重新 lark-cli auth login 刷新令牌后复查（指南·准备与块 B）。');
   } else if (auth === 'error') {
     steps.push('auth status --verify 失败：按指南·阶段 6「auth error」行处置（config show 核对应用配置与网络，必要时由本人重新 config init）。');
   }

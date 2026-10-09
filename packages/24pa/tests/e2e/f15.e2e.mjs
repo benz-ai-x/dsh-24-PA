@@ -89,7 +89,7 @@ describe('F15 飞书接入配置向导（真实 Loader + 隔离 PG）', () => {
     const result = await waitToolResult('feishu-setup.md', 'guide 返回');
     expect(result).toContain('飞书接入配置指南');
     expect(result).toContain('--device-code');
-    expect(result).toContain('阶段 4');
+    expect(result).toContain('自动验收（一次汇总');
     expect(result).toContain('version');
   });
 
