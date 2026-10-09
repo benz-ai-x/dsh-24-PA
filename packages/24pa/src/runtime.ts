@@ -4276,6 +4276,23 @@ export class PaRuntime {
   }
 
   /**
+   * F24: the handwriting vision route is a config the "route exists" check
+   * alone used to bless — a text-only model id must warn loudly instead.
+   * Shared by the health report and pa24_connection read so every surface
+   * carries the same verdict.
+   */
+  visionRouteStatus(): { id: string; state: 'ok' | 'warn'; message: string } {
+    const route = this.config?.workerModels.handwriting;
+    if (!route) {
+      return { id: 'vision-route', state: 'warn', message: '未配置 workerModels.handwriting：手写识别不可用（其余能力不受影响，固定提醒继续）' };
+    }
+    if (!looksLikeVisionModel(route.model)) {
+      return { id: 'vision-route', state: 'warn', message: `手写视觉路由 ${route.provider}/${route.model} 疑似非视觉（纯文本）模型——手写识别质量将不可用；请在 AGENTS.md workerModels.handwriting 配置视觉模型（如 GLM-4.5V、Qwen-VL 系列）` };
+    }
+    return { id: 'vision-route', state: 'ok', message: `手写视觉路由 ${route.provider}/${route.model}` };
+  }
+
+  /**
    * Capability health and budget report (P39): readiness plus per-capability
    * state, sync freshness, usage counters, and data-flow disclosure. Secrets
    * never appear; a down dependency is an error, never a silent zero.
@@ -4284,16 +4301,7 @@ export class PaRuntime {
     const ready = this.readiness();
     const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string }[] = [];
     const config = this.config;
-    const visionRoute = config?.workerModels.handwriting;
-    capabilities.push({
-      id: 'vision-route',
-      state: visionRoute ? (looksLikeVisionModel(visionRoute.model) ? 'ok' : 'warn') : 'warn',
-      message: !visionRoute
-        ? '未配置 workerModels.handwriting：手写识别不可用（其余能力不受影响，固定提醒继续）'
-        : looksLikeVisionModel(visionRoute.model)
-          ? `手写视觉路由 ${visionRoute.provider}/${visionRoute.model}`
-          : `手写视觉路由 ${visionRoute.provider}/${visionRoute.model} 疑似纯文本模型（模型名无视觉特征）——手写识别质量将不可用；请在 AGENTS.md workerModels.handwriting 配置视觉模型（如 GLM-4.5V、Qwen-VL 系列）`,
-    });
+    capabilities.push(this.visionRouteStatus());
     // CLI presence + authorization verdict from the last access inspection
     // (on-demand only; no platform calls happen for this report).
     capabilities.push({ id: 'lark-cli', state: this.diagnostics ? (this.diagnostics.auth?.state === 'ok' ? 'ok' : this.diagnostics.auth?.state === 'error' ? 'error' : 'warn') : 'info', message: this.diagnostics ? `最近检查：${this.diagnostics.auth?.message ?? '未见授权结论'}${this.diagnostics.auth?.state === 'unverified' || this.diagnostics.auth?.state === 'error' ? '；授权失效请在服务器重新执行 lark-cli 授权后再检查' : ''}` : '尚未执行接入检查（用 pa24_connection check 发起只读检查）' });

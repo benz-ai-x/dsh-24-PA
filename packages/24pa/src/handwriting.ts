@@ -171,7 +171,6 @@ export function regionText(region: Region): string {
   return `区域 x${region.x.toFixed(3)} y${region.y.toFixed(3)} w${region.w.toFixed(3)} h${region.h.toFixed(3)}`;
 }
 
-/** Build the note document XML (registered template; multi-page since F07). */
 /**
  * Heuristic: does a routed model id plausibly name a vision-capable model?
  * Feeds a health WARNING only, never a hard gate — a mis-judged id at worst
@@ -185,6 +184,7 @@ export function looksLikeVisionModel(model: string): boolean {
   return VISION_MODEL_HINT.test(model);
 }
 
+/** Build the note document XML (registered template; multi-page since F07). */
 export function noteDocumentXml(
   noteId: string,
   version: number,
@@ -226,7 +226,9 @@ export function noteDocumentXml(
     sections.push(`<h1>候选行动（未授权执行）</h1>\n${recognized.candidates.map(candidate => `<li>${xml(candidateText(candidate))}</li>`).join('\n')}`);
   }
   if (doubts.length || recognized.unknowns.length) {
-    sections.push(`<h1>疑点与定位（重点复核：数字/人名/缩写/日期/否定/勾选/不清）</h1>\n${doubts.length ? doubts.join('\n') : lines(recognized.unknowns, 'li')}${recognized.unknowns.length && doubts.length ? `\n<h2>其余未知项</h2>\n${lines(recognized.unknowns, 'li')}` : ''}`);
+    const doubtBody = doubts.length ? doubts.join('\n') : lines(recognized.unknowns, 'li');
+    const extraUnknowns = recognized.unknowns.length && doubts.length ? `\n<h2>其余未知项</h2>\n${lines(recognized.unknowns, 'li')}` : '';
+    sections.push(`<h1>疑点与定位（重点复核：数字/人名/缩写/日期/否定/勾选/不清）</h1>\n${doubtBody}${extraUnknowns}`);
   }
   if (diagrams.length) {
     sections.push(`<h1>图示说明</h1>\n${diagrams.join('\n')}`);

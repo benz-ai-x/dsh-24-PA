@@ -269,7 +269,9 @@ export function apply(ctx: DshContext) {
       if (args.action === 'check') return runtime.checkAccess();
       if (args.action === 'wecom_check') return runtime.wecomCheck();
       const snapshot = runtime.snapshot() as any;
-      return { transport: snapshot.transport, diagnostics: snapshot.diagnostics, wecom: runtime.wecomDiagnosticsSnapshot() };
+      // F24: the vision-route verdict rides along on read so the chat the
+      // owner already uses surfaces a text-only-model misroute immediately.
+      return { transport: snapshot.transport, diagnostics: snapshot.diagnostics, wecom: runtime.wecomDiagnosticsSnapshot(), visionRoute: runtime.visionRouteStatus() };
     },
   );
 }
