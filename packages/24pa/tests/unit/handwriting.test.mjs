@@ -4,6 +4,7 @@ import {
   detectImageMediaType,
   diffNormalized,
   fingerprintOf,
+  looksLikeVisionModel,
   normalizeDocument,
   noteDocumentXml,
   pendingReviewLine,
@@ -30,6 +31,42 @@ describe('handwriting 纯函数（F06）', () => {
     expect(detectImageMediaType(jpeg)).toBe('image/jpeg');
     expect(detectImageMediaType(webp)).toBe('image/webp');
     expect(detectImageMediaType(Buffer.from('not an image'))).toBeNull();
+  });
+
+  it('F24：短笔记省略空段——无候选/疑点/AI建议/相对日期时不渲染占位（无）段', () => {
+    const short = {
+      transcript: '买牛奶',
+      summary: '购物提醒一条',
+      suggestions: [],
+      unknowns: [],
+      candidates: [],
+      relativeDates: [],
+    };
+    const xml = noteDocumentXml('N-2', 1, short, [{ pageNo: 1, sha256: 'a'.repeat(64), mediaType: 'image/png', byteSize: 1024, sourceType: 'image' }]);
+    expect(xml).toContain(pendingReviewLine('N-2', 1));
+    expect(xml).toContain('整理摘要');
+    expect(xml).toContain('整理正文');
+    expect(xml).toContain('原稿索引');
+    expect(xml).toContain('发布说明');
+    expect(xml).not.toContain('（无）');
+    expect(xml).not.toContain('候选行动');
+    expect(xml).not.toContain('疑点与定位');
+    expect(xml).not.toContain('AI 建议');
+    expect(xml).not.toContain('相对日期依据');
+    expect(xml).not.toContain('逐页转写'); // 单页不与整理正文重复
+  });
+
+  it('F24：视觉模型判定启发式——纯文本模型名告警、视觉模型名放行', () => {
+    expect(looksLikeVisionModel('deepseek-flash')).toBe(false);
+    expect(looksLikeVisionModel('deepseek-chat')).toBe(false);
+    expect(looksLikeVisionModel('glm-4.5v')).toBe(true);
+    expect(looksLikeVisionModel('glm-4v-flash')).toBe(true);
+    expect(looksLikeVisionModel('qwen-vl-max')).toBe(true);
+    expect(looksLikeVisionModel('qwen2.5-vl-72b-instruct')).toBe(true);
+    expect(looksLikeVisionModel('gpt-4o')).toBe(true);
+    expect(looksLikeVisionModel('gemini-2.5-flash')).toBe(true);
+    expect(looksLikeVisionModel('doubao-1.5-vision-pro')).toBe(true);
+    expect(looksLikeVisionModel('step-1v')).toBe(true);
   });
 
   it('cropBox：归一化区域换算夹紧并标记 estimated', () => {

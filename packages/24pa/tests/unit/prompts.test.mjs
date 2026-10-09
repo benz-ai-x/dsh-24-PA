@@ -53,6 +53,14 @@ describe('PROMPTS_VERSION 与 Lead 分节（A1/B1）', () => {
     const persona = WORKER_PROMPTS.tasks.persona;
     expect(persona).toContain('todoChannel');
     expect(persona).toContain('企微待办不支持修改');
+    // F24: handwriting persona 输出分级与长度纪律锚点（快照守护）。
+    const handwriting = WORKER_PROMPTS.handwriting;
+    expect(handwriting.version).toBeGreaterThanOrEqual(2);
+    expect(handwriting.persona).toContain('不超过 100 字');
+    expect(handwriting.persona).toContain('只保留转写＋候选行动');
+    expect(handwriting.persona).toContain('可以为空');
+    expect(handwriting.persona).toContain('省略空段');
+    expect(handwriting.doneCriteria).toContain('未硬凑');
   });
 
   it('安全边界 section 保留关键约束锚点', () => {

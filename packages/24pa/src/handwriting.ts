@@ -171,6 +171,19 @@ export function regionText(region: Region): string {
   return `区域 x${region.x.toFixed(3)} y${region.y.toFixed(3)} w${region.w.toFixed(3)} h${region.h.toFixed(3)}`;
 }
 
+/**
+ * Heuristic: does a routed model id plausibly name a vision-capable model?
+ * Feeds a health WARNING only, never a hard gate — a mis-judged id at worst
+ * over-warns, and the message always carries the raw model id for the human
+ * to overrule (F24: handwriting was once routed to a text-only model and the
+ * "route exists" check alone reported ok).
+ */
+const VISION_MODEL_HINT = /vision|(^|[^a-z])vl([^a-z]|$)|glm-[\d.]*v|[\d]v(?![a-z])|4o|omni|qvq|gemini/i;
+
+export function looksLikeVisionModel(model: string): boolean {
+  return VISION_MODEL_HINT.test(model);
+}
+
 /** Build the note document XML (registered template; multi-page since F07). */
 export function noteDocumentXml(
   noteId: string,
@@ -203,31 +216,36 @@ export function noteDocumentXml(
     const where = diagram.region ? `${regionText(diagram.region)}（裁片 ${nextCropId()}）` : '见该页原图';
     return `<li>第 ${diagram.pageNo} 页 图示：${xml(diagram.description)}；${where}（保留原图，不做矢量重绘）</li>`;
   });
-  const relative = recognized.relativeDates.length
-    ? `<h1>相对日期依据</h1>\n${recognized.relativeDates.map(r => `<p>原话：${xml(r.original)}；解释：${xml(r.interpretation)}（以上传日期为准解释，保留原话）</p>`).join('\n')}`
-    : '';
-  return `<title>${xml(`[24PA] 手写笔记 ${noteId} v${version}`)}</title>
-<p>${xml(status)}</p>
-<h1>整理摘要</h1>
-<p>${xml(recognized.summary)}</p>
-<h1>整理正文</h1>
-<p>${xml(recognized.transcript)}</p>
-<h1>候选行动（未授权执行）</h1>
-${recognized.candidates.length ? recognized.candidates.map(candidate => `<li>${xml(candidateText(candidate))}</li>`).join('\n') : '<p>（无）</p>'}
-<h1>疑点与定位（重点复核：数字/人名/缩写/日期/否定/勾选/不清）</h1>
-${doubts.length ? doubts.join('\n') : (recognized.unknowns.length ? lines(recognized.unknowns, 'li') : '<p>（无）</p>')}
-${recognized.unknowns.length && doubts.length ? `<h2>其余未知项</h2>\n${lines(recognized.unknowns, 'li')}` : ''}
-<h1>图示说明</h1>
-${diagrams.length ? diagrams.join('\n') : '<p>（无）</p>'}
-<h1>AI 建议（推断，非原文）</h1>
-${recognized.suggestions.length ? lines(recognized.suggestions, 'li') : '<p>（无）</p>'}
-${relative}
-<h1>逐页转写</h1>
-${pages}
-<h1>原稿索引</h1>
-${pageInfos.map(p => `<p>第 ${p.pageNo} 页：${p.mediaType}，${p.byteSize} 字节，sha256 ${p.sha256.slice(0, 16)}…，${p.sourceType === 'file' ? '文件原图' : '平台图片（可能已压缩）'}（原件已保存，识别内容为派生副本）</p>`).join('\n')}
-<h1>发布说明</h1>
-<p>本候选版本尚未经人工审核；批准/退回请使用24私助发送的审核卡按钮，按钮仅对本版本内容指纹有效。模型自报的置信度不作为概率使用；无法辨认的内容保持未知。</p>`;
+  // F24: optional sections render only when they carry content — a short note
+  // no longer fills a page with （无） placeholders. Review-critical anchors
+  // (status line, full transcript, 原稿索引, 发布说明) always render.
+  const sections: string[] = [`<p>${xml(status)}</p>`];
+  sections.push(`<h1>整理摘要</h1>\n<p>${xml(recognized.summary)}</p>`);
+  sections.push(`<h1>整理正文</h1>\n<p>${xml(recognized.transcript)}</p>`);
+  if (recognized.candidates.length) {
+    sections.push(`<h1>候选行动（未授权执行）</h1>\n${recognized.candidates.map(candidate => `<li>${xml(candidateText(candidate))}</li>`).join('\n')}`);
+  }
+  if (doubts.length || recognized.unknowns.length) {
+    const doubtBody = doubts.length ? doubts.join('\n') : lines(recognized.unknowns, 'li');
+    const extraUnknowns = recognized.unknowns.length && doubts.length ? `\n<h2>其余未知项</h2>\n${lines(recognized.unknowns, 'li')}` : '';
+    sections.push(`<h1>疑点与定位（重点复核：数字/人名/缩写/日期/否定/勾选/不清）</h1>\n${doubtBody}${extraUnknowns}`);
+  }
+  if (diagrams.length) {
+    sections.push(`<h1>图示说明</h1>\n${diagrams.join('\n')}`);
+  }
+  if (recognized.suggestions.length) {
+    sections.push(`<h1>AI 建议（推断，非原文）</h1>\n${lines(recognized.suggestions, 'li')}`);
+  }
+  if (recognized.relativeDates.length) {
+    sections.push(`<h1>相对日期依据</h1>\n${recognized.relativeDates.map(r => `<p>原话：${xml(r.original)}；解释：${xml(r.interpretation)}（以上传日期为准解释，保留原话）</p>`).join('\n')}`);
+  }
+  // Single-page notes would only duplicate 整理正文 under a per-page header.
+  if ((recognized.pages?.length ?? 0) > 1) {
+    sections.push(`<h1>逐页转写</h1>\n${pages}`);
+  }
+  sections.push(`<h1>原稿索引</h1>\n${pageInfos.map(p => `<p>第 ${p.pageNo} 页：${p.mediaType}，${p.byteSize} 字节，sha256 ${p.sha256.slice(0, 16)}…，${p.sourceType === 'file' ? '文件原图' : '平台图片（可能已压缩）'}（原件已保存，识别内容为派生副本）</p>`).join('\n')}`);
+  sections.push(`<h1>发布说明</h1>\n<p>本候选版本尚未经人工审核；批准/退回请使用24私助发送的审核卡按钮，按钮仅对本版本内容指纹有效。模型自报的置信度不作为概率使用；无法辨认的内容保持未知。</p>`);
+  return `<title>${xml(`[24PA] 手写笔记 ${noteId} v${version}`)}</title>\n${sections.join('\n')}`;
 }
 
 /**
