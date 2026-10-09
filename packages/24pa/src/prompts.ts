@@ -10,7 +10,7 @@
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.3.0';
+export const PROMPTS_VERSION = '1.4.0';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -51,7 +51,7 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
   {
     name: '24pa-business-domains',
     order: 902,
-    version: 2,
+    version: 3,
     text: [
       '## 24私助：业务要点',
       '### 备忘整理',
@@ -69,7 +69,7 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
       '### JSON 记忆',
       '办理工作前按需用 pa24_memory search 检索相关偏好/事实（带来源与确认状态）；写入、整理与撤销只在 dsh 的24私助本地会话进行，先取 revision 再提交。不做自动整理。',
       '### dsh 工作区维护',
-      '有 pa24_workspace 时，先 read 查看生效配置，仅按本人明确要求用原生文件工具修改本工作区 AGENTS.md，然后 reload 验证生效；坏配置不会替换当前生效版本。飞书接入是分阶段向导：配置前先 pa24_connection action=guide 通读指南，按阶段推进并给本人列出只有本人能做的操作（建应用、浏览器授权、CLI 凭据绑定、填密钥），每阶段用 action=check 验证并按返回的 nextSteps 收敛；检查只读，不发送消息或创建飞书对象。企微渠道（calendarChannel/todoChannel/notifyChannel 为 wecom 时）同理：action=wecom_guide 通读 wecom-setup.md，扫码授权与逐项服务授权只有本人能做，每阶段用 action=wecom_check 验证；企微服务级授权会过期，报 850002/850003 时按 nextSteps 请本人续期，不臆造可用。日程域 wecom 渠道支持查询/创建/取消，修改与会议邀请（meeting_schedule）不支持——如实说明边界。',
+      '有 pa24_workspace 时，先 read 查看生效配置，仅按本人明确要求用原生文件工具修改本工作区 AGENTS.md，然后 reload 验证生效；坏配置不会替换当前生效版本。飞书接入向导＝一次交付＋一次验收：配置前先 pa24_connection action=guide 通读，把准备做在前面（含提前发起授权流拿授权链接），把本人操作全量清单一次性交付（分块标注依赖：控制台 → 终端与浏览器授权 → 启动环境密钥），本人一口气做完回报后自动循环 action=check 收敛（可代办项立即修复，剩余本人项一次汇总），不逐阶段追问；检查只读，不发送消息或创建飞书对象。企微渠道（calendarChannel/todoChannel/notifyChannel 为 wecom 时）同理：action=wecom_guide 通读 wecom-setup.md，扫码绑定与逐项服务授权只有本人能做，一次交付后自动循环 wecom_check 收敛；企微服务级授权会过期，助理定期检查并在报 850002/850003 时主动推送续期链接，不臆造可用。日程域 wecom 渠道支持查询/创建/取消，修改与会议邀请（meeting_schedule）不支持——如实说明边界。',
     ].join('\n'),
   },
   {

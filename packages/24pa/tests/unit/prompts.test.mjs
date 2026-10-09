@@ -46,7 +46,7 @@ describe('PROMPTS_VERSION 与 Lead 分节（A1/B1）', () => {
 
   it('渠道语义锚点（F16）：按域选择、企微不做收信、过期续期', () => {
     const business = LEAD_SECTIONS.find(s => s.name === '24pa-business-domains').text;
-    for (const anchor of ['todoChannel', 'notifyChannel', '企微机器人单向推送；企微不做收信', '850002/850003 时按 nextSteps 请本人续期']) {
+    for (const anchor of ['todoChannel', 'notifyChannel', '企微机器人单向推送；企微不做收信', '850002/850003 时主动推送续期链接']) {
       expect(business).toContain(anchor);
     }
     // tasks persona 渠道中立：不得再写死单一渠道权威。

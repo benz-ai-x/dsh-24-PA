@@ -8,7 +8,7 @@ import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, typ
 import { acquireHostLock, type HostLock, HostAlreadyActive } from './lock.js';
 import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
 import { runLarkCli } from './lark.js';
-import { runWecomCli, WecomCliError, wecomWallTime, wecomParseWallTime } from './wecom.js';
+import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
 import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
@@ -178,6 +178,12 @@ export interface RuntimeOptions {
 /** F16: calendar projection namespace for the wecom channel. */
 export const WECOM_CALENDAR_ID = 'wecom';
 
+// F23: wecom service-auth monitor cadence. Slow on purpose — read-only
+// probes against wecom-cli, alert suppressed to once a day per condition.
+const WECOM_AUTH_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const WECOM_AUTH_FIRST_CHECK_DELAY_MS = 10 * 60 * 1000;
+const WECOM_AUTH_ALERT_SUPPRESS_MS = 24 * 60 * 60 * 1000;
+
 export interface WecomServiceCheck {
   id: 'calendar' | 'todo' | 'push';
   state: 'ok' | 'unauthorized' | 'expired' | 'unavailable' | 'error' | 'skipped';
@@ -245,6 +251,9 @@ export class PaRuntime {
 
   private dispatchTimer: NodeJS.Timeout | null = null;
   private outboxTimer: NodeJS.Timeout | null = null;
+  private wecomAuthTimer: NodeJS.Timeout | null = null;
+  /** F23: in-memory suppression window for the wecom auth renewal alert. */
+  private wecomAuthLastAlertAt = 0;
   private noteVerifyTimer: NodeJS.Timeout | null = null;
   private reviewReminderTimer: NodeJS.Timeout | null = null;
   private reviewReminding = false;
@@ -586,7 +595,36 @@ export class PaRuntime {
     this.outboxTimer.unref?.();
     this.noteVerifyTimer.unref?.();
     this.reviewReminderTimer.unref?.();
+    // F23: proactive wecom service-auth monitoring — a silent expiry must not
+    // wait for the owner to hit a business error. Read-only probes only; the
+    // first check runs shortly after start, then at a slow cadence.
+    this.wecomAuthTimer = setInterval(() => void this.wecomAuthTick(), WECOM_AUTH_CHECK_INTERVAL_MS);
+    this.wecomAuthTimer.unref?.();
+    const firstCheck = setTimeout(() => void this.wecomAuthTick(), WECOM_AUTH_FIRST_CHECK_DELAY_MS);
+    firstCheck.unref?.();
     this.startedAt = nowIso();
+  }
+
+  /** F23: one monitoring pass — read-only wecom_check, alert on renewal states. */
+  private async wecomAuthTick(): Promise<void> {
+    if (this.closed || !this.repos || !this.config) return;
+    const config = this.config;
+    if (config.calendarChannel !== 'wecom' && config.todoChannel !== 'wecom' && config.notifyChannel !== 'wecom') return;
+    const now = Date.now();
+    // Suppression is in-memory: a restart may re-alert once, the day-scoped
+    // dedup key keeps the outbox from double-sending within the same day.
+    if (now - this.wecomAuthLastAlertAt < WECOM_AUTH_ALERT_SUPPRESS_MS) return;
+    let plan;
+    try {
+      const diagnostics = await this.wecomCheck();
+      const dayKey = wecomWallTime(new Date(), config.timeZone ?? 'Asia/Shanghai').slice(0, 10);
+      plan = wecomAuthAlertPlan(diagnostics.services, dayKey);
+    } catch {
+      return; // probe failures surface through on-demand checks, not the monitor
+    }
+    if (!plan) return;
+    this.wecomAuthLastAlertAt = now;
+    await this.notifyOwner(plan.dedupKey, plan.text).catch(() => undefined);
   }
 
   private async readSavedWorkspacePath(): Promise<string | null> {
@@ -601,6 +639,7 @@ export class PaRuntime {
     this.lifetime.abort();
     if (this.dispatchTimer) clearInterval(this.dispatchTimer);
     if (this.outboxTimer) clearInterval(this.outboxTimer);
+    if (this.wecomAuthTimer) clearInterval(this.wecomAuthTimer);
     try {
       if (this.repos) {
         const active = await this.repos.workItems.list(['accepted', 'queued', 'running'], 50);

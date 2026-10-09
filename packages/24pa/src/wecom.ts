@@ -202,3 +202,38 @@ function tzOffsetMillis(date: Date, timeZone: string): number {
   const asUtc = Date.parse(`${p.year}-${p.month}-${p.day}T${hour}:${p.minute}:${p.second ?? '00'}Z`);
   return asUtc - date.getTime();
 }
+
+// ---- F23: proactive service-auth renewal alert --------------------------------
+
+export interface WecomAuthAlertPlan {
+  /** Day-scoped outbox dedup key: repeats within the same day collapse. */
+  dedupKey: string;
+  /** Owner-facing notification text (renewal guidance verbatim). */
+  text: string;
+}
+
+/**
+ * Pure decision for the wecom auth monitor: returns a renewal alert when any
+ * enabled service reports unauthorized/expired (850002/850003 semantics),
+ * null when everything is fine. Structural input keeps this free of the
+ * runtime's diagnostics types (no import cycle).
+ */
+export function wecomAuthAlertPlan(
+  services: ReadonlyArray<{ id: string; state: string; helpMessage?: string }>,
+  dayKey: string,
+): WecomAuthAlertPlan | null {
+  const renewals = services.filter(s => s.state === 'unauthorized' || s.state === 'expired');
+  if (renewals.length === 0) return null;
+  const ids = renewals.map(s => s.id).sort().join(',');
+  const SERVICE_LABELS: Record<string, string> = { calendar: '日程', todo: '待办', push: '推送' };
+  const lines = renewals.map(s => {
+    const label = SERVICE_LABELS[s.id] ?? s.id;
+    const stateLabel = s.state === 'expired' ? '已过期' : '未授权';
+    const guidance = s.helpMessage ? `；续期指引（原文）：${s.helpMessage}` : '';
+    return `- ${label}：${stateLabel}${guidance}`;
+  });
+  return {
+    dedupKey: `wecom-auth:${ids}:${dayKey}`,
+    text: `企微服务授权需要本人续期（在企微 App 内打开链接重新授权，完成后可让我再检查一次）：\n${lines.join('\n')}`,
+  };
+}

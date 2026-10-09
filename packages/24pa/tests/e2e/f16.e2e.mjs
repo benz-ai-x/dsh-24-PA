@@ -126,7 +126,7 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     await prompt('帮我看看企微渠道怎么接');
     const guide = await waitToolResult('wecom-setup.md', 'guide 返回');
     expect(guide).toContain('企业微信渠道接入指南');
-    expect(guide).toContain('阶段 4');
+    expect(guide).toContain('自动验收（一次汇总');
 
     await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_connection', input: { action: 'wecom_check' } }, leadReply: '已检查。' });
     await prompt('检查一下企微渠道状态');

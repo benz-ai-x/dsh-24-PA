@@ -30,11 +30,13 @@ const diag = (patch = {}) => ({
 });
 
 describe('飞书接入指南（feishu-setup.md）', () => {
-  it('随包分发且包含全部阶段与关键契约', async () => {
+  it('随包分发且包含一次交付结构与关键契约', async () => {
     const content = await readFile(resolve(pkgDir, 'feishu-setup.md'), 'utf8');
-    for (const stage of ['阶段 0', '阶段 1', '阶段 2', '阶段 3', '阶段 4', '阶段 5', '阶段 6', '安全红线']) {
-      expect(content).toContain(stage);
+    // F23: 一次交付＋一次验收 structure replaces the stage ladder.
+    for (const heading of ['准备（你代办，配置开始立即做）', '本人操作全量清单（一次交付给本人）', '块 A', '块 B', '块 C', '本人回报后你收尾', '自动验收（一次汇总，不逐项追问）', '故障对照表', '安全红线']) {
+      expect(content).toContain(heading);
     }
+    expect(content).toContain('一次交付＋一次验收');
     // The two contracts the guide must state exactly: the agent-driven Device
     // Flow and the domain-scoped authorization set.
     expect(content).toContain('--device-code');
