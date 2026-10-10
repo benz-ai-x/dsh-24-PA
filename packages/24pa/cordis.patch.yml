@@ -4,6 +4,12 @@
 # and omits tool-schedule by design: reminders stay on the PostgreSQL ledger.
 # subagent_codex / subagent_claude_code mount only after their provider bundles
 # (@deepseek-ai/dsh-subagent-codex / -claude-code) are installed into the profile.
+# Synced to standard.patch.yml of dsh 0.2.1-alpha.2: plan-mode guidance wording,
+# persona cwd suffix removal, subagent spawn/fork backgroundMode back to package
+# defaults (upstream dropped the explicit continuable override). The ralph /
+# subagent_codex / subagent_claude_code rows stay enabled here by design:
+# alpha.2 moved them out of standard into the experimental catalog, but the
+# packages ship with the installation and keep resolving.
 - insert:
     - id: pa24-preset
       name: '@deepseek-ai/dsh-agent-preset'
@@ -15,7 +21,6 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              suffix: 你的工作目录是 {{cwd}}。
               prefix: 你是24私助（24PA），由 {{model}} 模型驱动的私人助理，同时具备完整的编程 Agent 能力。
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
@@ -55,7 +60,7 @@
                 name: '@deepseek-ai/dsh-plan-mode'
                 config:
                   section: |
-                    You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
+                    You are in plan mode. Stay in plan mode until the user approves your plan through exit_plan_mode or switches the session mode. Imperative language to implement changes means plan the implementation, not execute it. A user's conversational agreement — including an answer confirming something you asked — approves nothing and does not end plan mode; fold the confirmed decision into the plan and submit it through exit_plan_mode.
 
                     Explore first. Use non-mutating reads, searches, static analysis, and checks to ground the plan in the actual repository. Do not edit or write files, change configuration, run formatters or code generation that rewrites tracked files, commit, or otherwise carry out the plan. Prefer existing functions and patterns over new machinery.
 
@@ -98,13 +103,11 @@
                 config:
                   provider: spawn
                   toolName: subagent
-                  backgroundMode: continuable
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
                   provider: fork
                   toolName: subagent_fork
-                  backgroundMode: continuable
               - id: tool-subagent-codex
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
