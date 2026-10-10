@@ -299,7 +299,7 @@ window.__ModuleLoader__.load({
           } else if (tab === 'work') {
             const roleNames = { memo: '备忘整理' };
             const readyItems = (state.readiness?.items || []).map(item => {
-              const labels = { host: '宿主', config: '配置', postgres: 'PostgreSQL', workspace: '工作区', feishu: '飞书接入', sessions: '固定会话' };
+              const labels = { host: '宿主', config: '配置', postgres: '业务账本', workspace: '工作区', feishu: '飞书接入', sessions: '固定会话' };
               const tier = item.state === 'ok' ? 'ok' : item.state === 'error' ? 'error' : 'warn';
               return h('div', { key: item.id, className: 'pa24-ready-item pa24-tone-' + STATUS[tier][1] },
                 icon(STATUS[tier][2], { width: 17, height: 17 }),

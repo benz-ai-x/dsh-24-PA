@@ -5516,7 +5516,7 @@ export class PaRuntime {
         ? `启动未完成：${this.startupError.message}`
         : this.closed
           ? '插件已停止'
-          : `24私助 Host 运行中（Node ${process.version}，dsh ${versions.dsh}，飞书 SDK ${versions.sdk}）`,
+          : `24私助 Host 运行中（Node ${process.version}，dsh ${versions.dsh}，24私助插件 ${versions.plugin}，飞书 SDK ${versions.sdk}）`,
     });
     items.push({
       id: 'config',
@@ -5603,8 +5603,8 @@ function requireStatus(value: unknown): 'confirmed' | 'unverified' {
 }
 
 /** Cached dependency versions surfaced by readiness (P01). */
-let cachedVersions: { dsh: string; sdk: string } | null = null;
-function resolveVersions(): { dsh: string; sdk: string } {
+let cachedVersions: { dsh: string; sdk: string; plugin: string } | null = null;
+function resolveVersions(): { dsh: string; sdk: string; plugin: string } {
   if (cachedVersions) return cachedVersions;
   const require = createRequire(import.meta.url);
   const read = (name: string): string => {
@@ -5614,7 +5614,13 @@ function resolveVersions(): { dsh: string; sdk: string } {
       return '未解析';
     }
   };
-  cachedVersions = { dsh: read('@deepseek-ai/dsh'), sdk: read('@larksuiteoapi/node-sdk') };
+  let plugin = '未解析';
+  try {
+    plugin = String(require('../package.json').version ?? '未知');
+  } catch {
+    // unreadable own manifest: surfaced as 未解析, never fabricated
+  }
+  cachedVersions = { dsh: read('@deepseek-ai/dsh'), sdk: read('@larksuiteoapi/node-sdk'), plugin };
   return cachedVersions;
 }
 
