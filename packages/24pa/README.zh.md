@@ -45,10 +45,9 @@ kind: "package-bundle"
 # dsh 0.2.1-alpha.1 宿主（自带 schedule 服务）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
-# dsh 0.2.1-alpha.2 宿主——peer 范围已包含 alpha.2；首个 alpha.2 基线版本
-# （0.2.1-alpha.2.1）随该宿主同步后的预设发布，发布前 alpha.2 宿主无法安装
-# alpha.1 线（peer 检查拒绝跨基线安装）
-# dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.1
+# dsh 0.2.1-alpha.2 宿主（预设已同步该基线的 standard.patch.yml；peer 检查拒绝
+# 跨基线安装，alpha.2 宿主须装此线）
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.1
 
 # dsh 0.2.0-rc.2 宿主——该线已冻结于 0.2.0-rc.2.3、不再迭代（简报功能另需两个 schedule 伴随件）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
