@@ -823,7 +823,6 @@ export class PaRuntime {
     if (probe.storage === 'postgres') {
       db = new PaDatabase(resolveDsn(probe.pgDsnEnv, this.env));
     } else {
-      const { mkdir } = await import('node:fs/promises');
       const dataDir = join(workspacePath, 'data');
       await mkdir(dataDir, { recursive: true });
       db = new SqliteDb(join(dataDir, 'pa24.db'));
@@ -847,9 +846,10 @@ export class PaRuntime {
       const { config } = parseAgentsMd(source);
       return { storage: config.storage, pgDsnEnv: config.pgDsnEnv };
     } catch {
-      // Unreadable AGENTS.md keeps the legacy error path: a missing DSN env
-      // fails loud instead of quietly switching backends.
-      return { storage: 'postgres', pgDsnEnv: 'PA24_PG_DSN' };
+      // Fresh workspace (no AGENTS.md yet) or an unreadable one: the product
+      // default is the zero-dependency SQLite ledger — never a silent PG
+      // fallback. An invalid config block still fails loud at loadConfig.
+      return { storage: 'sqlite', pgDsnEnv: 'PA24_PG_DSN' };
     }
   }
 
@@ -4246,8 +4246,16 @@ export class PaRuntime {
     };
     // 1. Ledger backup: PG dump, or a checkpointed SQLite file copy (F25).
     if (this.db!.kind === 'sqlite') {
-      (this.db as SqliteDb).checkpoint();
-      await addPart('sqlite', 'pa24.db', await rf((this.db as SqliteDb).filePath!));
+      const sqlite = this.db as SqliteDb;
+      const { busy } = sqlite.checkpoint();
+      await addPart('sqlite', 'pa24.db', await rf(sqlite.filePath!));
+      // A busy checkpoint means frames stayed in the WAL — ship it too, or
+      // the backup would silently miss committed writes.
+      if (busy > 0) {
+        await addPart('sqlite-wal', 'pa24.db-wal', await rf(`${sqlite.filePath}-wal`)).catch(async () => {
+          // -wal absent between checkpoints: nothing to append.
+        });
+      }
     } else {
     const dsn = resolveDsn(this.config!.pgDsnEnv, this.env);
     const dump = await new Promise<Buffer>((resolve, reject) => {

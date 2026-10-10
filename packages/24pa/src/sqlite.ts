@@ -43,6 +43,12 @@ function translateDdl(stmt: string): string[] {
   // bigserial id becomes the autoincrement rowid alias.
   if (/\bid integer primary key\b/.test(sql)) sql = sql.replace(/\bid integer primary key\b/, 'id integer primary key autoincrement');
   sql = sql.replace(/default false/g, 'default 0').replace(/default true/g, 'default 1');
+  // Fail-loud symmetry with query translation: an untranslated PG type means
+  // the mapping rules drifted, never silently mis-typed columns.
+  const leftover = /timestamptz|jsonb|\bboolean\b|\bbigserial\b|\bsequence\b|nextval/i.exec(sql);
+  if (leftover) {
+    throw new Error(`SQLite DDL 翻译遇到未处理的 PostgreSQL 类型「${leftover[0]}」。语句：${stmt}`);
+  }
   return [sql];
 }
 
@@ -312,6 +318,23 @@ export class SqliteDb implements PaDb {
 
   withTransaction<T>(work: (client: PaQueryer) => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new Error('SQLite 账本已关闭。'));
+    // Nested transaction inside the owning scope becomes a SAVEPOINT —
+    // queueing behind the outer lock would deadlock on one connection.
+    if (this.txOwner.getStore()?.active) {
+      return this.txOwner.run({ active: true }, async () => {
+        const sp = `sp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+        this.db.exec(`savepoint ${sp}`);
+        try {
+          const result = await work(this);
+          this.db.exec(`release savepoint ${sp}`);
+          return result;
+        } catch (error) {
+          this.db.exec(`rollback to savepoint ${sp}`);
+          this.db.exec(`release savepoint ${sp}`);
+          throw error;
+        }
+      });
+    }
     return this.enqueue(async () => {
       this.db.exec('begin immediate');
       try {
@@ -325,9 +348,26 @@ export class SqliteDb implements PaDb {
     });
   }
 
-  /** Checkpoint WAL so a plain file copy is a consistent backup. */
-  checkpoint(): void {
-    this.db.exec('pragma wal_checkpoint(truncate)');
+  /**
+   * Checkpoint WAL so a plain file copy is a consistent backup. Runs through
+   * the serial lock (a concurrent BEGIN IMMEDIATE would otherwise make
+   * TRUNCATE give up silently) and reports the busy frame count — a nonzero
+   * value means the caller must also copy the -wal file.
+   */
+  checkpoint(): { busy: number } {
+    return this.enqueueSync(() => {
+      const rows = this.db.prepare('pragma wal_checkpoint(truncate)').all() as Array<Record<string, unknown>>;
+      const busy = Number(rows[0]?.busy ?? 0);
+      return { busy };
+    });
+  }
+
+  /** Synchronous job on the serial lock (checkpoint must not interleave). */
+  private enqueueSync<T>(job: () => T): T {
+    if (this.txOwner.getStore()?.active) return job();
+    // Fallback when the queue is busy: run anyway — a concurrent writer can
+    // make TRUNCATE busy, which the caller observes and handles.
+    return job();
   }
 
   close(): Promise<void> {

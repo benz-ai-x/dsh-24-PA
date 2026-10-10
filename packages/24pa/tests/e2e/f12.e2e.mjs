@@ -157,6 +157,7 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
 
     // 恢复演练：全新 cluster ← pa24.sql；代表性数据（digest_plan/work_item）可读。
     // SQLite 模式等价路径：把备份里的 pa24.db 拷回临时工作区直接重开校验。
+    const planCountBefore = Number((await cluster.query('select count(*) from pa24.digest_plan')).trim());
     if (process.env.PA24_E2E_STORAGE === 'sqlite') {
       const { copyFile, mkdir: mkBackupDir } = await import('node:fs/promises');
       const restoreDir = join(root, 'restored-workspace');
@@ -165,7 +166,7 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
       const { SqliteDb } = await import('../../lib/sqlite.js');
       const restoredDb = new SqliteDb(join(restoreDir, 'data', 'pa24.db'));
       const plans = await restoredDb.query('select id, kind, status from pa24.digest_plan');
-      expect(Array.isArray(plans.rows)).toBe(true);
+      expect(plans.rows.length).toBe(planCountBefore);
       const pending = await restoredDb.query("select count(*) as c from pa24.outbox where status in ('pending','sending')");
       expect(Number(pending.rows[0].c)).toBeGreaterThanOrEqual(0);
       await restoredDb.close();

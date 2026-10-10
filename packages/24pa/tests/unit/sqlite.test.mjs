@@ -55,16 +55,16 @@ describe('F25：方言翻译（translateQuery）', () => {
     expect(emptyAll.sql).toContain('1 = 1');
   });
 
-  it('F25 补充：残留 all(/any( 抛错', () => {
-    expect(() => translateQuery('select * from t where id = some_all($1)', ['x'])).not.toThrow();
+  it('F25 补充：未覆盖的 any/all 形态（<> any、= all）按残留方言抛错', () => {
+    expect(() => translateQuery('select * from t where id <> any($1)', [['a']])).toThrow(/未处理/);
+    expect(() => translateQuery('select * from t where id = all($1)', [['a']])).toThrow(/未处理/);
   });
 
   it('未知方言直接抛错（fail loud，不静默误跑）', () => {
     expect(() => translateQuery('select * from pa24.x where a = some_function($1)', ['v'])).not.toThrow();
     expect(() => translateQuery('select nextval($1)', ['s'])).toThrow(/未处理/);
-    expect(() => translateQuery('select $2', ['a', 'b'])).not.toThrow(); // 乱序合法：按编号取值
-    const t = translateQuery('select $2, $1', ['a', 'b']);
-    expect(t.values).toEqual(['b', 'a']);
+    // 乱序合法：按编号取值
+    expect(translateQuery('select $2, $1', ['a', 'b']).values).toEqual(['b', 'a']);
   });
 });
 
