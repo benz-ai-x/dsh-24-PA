@@ -404,7 +404,7 @@ window.__ModuleLoader__.load({
               if (next === null) return; e.preventDefault(); selectTab(tabItems[next][0]); e.currentTarget.parentElement.querySelectorAll('[role=tab]')[next].focus();
             } }, icon(name, { width: 17, height: 17 }), t(id)))),
             h('div', { id: 'pa24-content', role: 'tabpanel', 'aria-labelledby': 'pa24-tab-' + tab, tabIndex: 0 }, content),
-            h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), '数据保存在本机（PostgreSQL）；配置与记忆通过对话维护，界面只显示真实结果。')));
+            h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), '数据保存在本机（业务账本随工作区配置，默认 SQLite、可选 PostgreSQL）；配置与记忆通过对话维护，界面只显示真实结果。')));
         }
 
         // F20: 企微接入面板模块——对标飞书接入：渠道配置、CLI 与身份、

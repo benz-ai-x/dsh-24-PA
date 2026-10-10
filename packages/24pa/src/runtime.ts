@@ -5614,13 +5614,7 @@ function resolveVersions(): { dsh: string; sdk: string; plugin: string } {
       return '未解析';
     }
   };
-  let plugin = '未解析';
-  try {
-    plugin = String(require('../package.json').version ?? '未知');
-  } catch {
-    // unreadable own manifest: surfaced as 未解析, never fabricated
-  }
-  cachedVersions = { dsh: read('@deepseek-ai/dsh'), sdk: read('@larksuiteoapi/node-sdk'), plugin };
+  cachedVersions = { dsh: read('@deepseek-ai/dsh'), sdk: read('@larksuiteoapi/node-sdk'), plugin: read('..') };
   return cachedVersions;
 }
 
