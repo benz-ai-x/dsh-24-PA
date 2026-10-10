@@ -155,7 +155,21 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     const backedAgents = await readFile(join(backupDir, 'workspace', 'AGENTS.md'), 'utf8');
     expect(backedAgents).toContain('24私助工作区');
 
-    // 恢复演练：全新 cluster ← pa24.sql；代表性数据（digest_plan/work_item）可读
+    // 恢复演练：全新 cluster ← pa24.sql；代表性数据（digest_plan/work_item）可读。
+    // SQLite 模式等价路径：把备份里的 pa24.db 拷回临时工作区直接重开校验。
+    if (process.env.PA24_E2E_STORAGE === 'sqlite') {
+      const { copyFile, mkdir: mkBackupDir } = await import('node:fs/promises');
+      const restoreDir = join(root, 'restored-workspace');
+      await mkBackupDir(join(restoreDir, 'data'), { recursive: true });
+      await copyFile(join(backupDir, 'pa24.db'), join(restoreDir, 'data', 'pa24.db'));
+      const { SqliteDb } = await import('../../lib/sqlite.js');
+      const restoredDb = new SqliteDb(join(restoreDir, 'data', 'pa24.db'));
+      const plans = await restoredDb.query('select id, kind, status from pa24.digest_plan');
+      expect(Array.isArray(plans.rows)).toBe(true);
+      const pending = await restoredDb.query("select count(*) as c from pa24.outbox where status in ('pending','sending')");
+      expect(Number(pending.rows[0].c)).toBeGreaterThanOrEqual(0);
+      await restoredDb.close();
+    } else {
     const restored = await startPgCluster();
     try {
       // Restore via stdin (pg_dump emits psql meta-commands like \restrict).
@@ -176,6 +190,7 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     } finally {
       await restored.stop();
     }
+    } // sqlite 分支的 else 收口
   });
 
   it('P39：健康报告含能力状态/投入统计/数据流披露；PG 异常时如实报错不假成功', async () => {

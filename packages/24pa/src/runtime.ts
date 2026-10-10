@@ -1,9 +1,11 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
+import { SqliteDb } from './sqlite.js';
+import type { PaDb } from './db.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock, HostAlreadyActive } from './lock.js';
 import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
@@ -223,8 +225,8 @@ export class PaRuntime {
   private lock: HostLock | null = null;
   /** Best-effort usage counters since host start (P39 预算观测). */
   readonly usage = { modelRequests: 0, notePagesInput: 0, noteCrops: 0 };
-  private db: PaDatabase | null = null;
-  private get dbRef(): PaDatabase {
+  private db: PaDb | null = null;
+  private get dbRef(): PaDb {
     if (!this.db) throw new Error('PostgreSQL 业务账本未连接。');
     return this.db;
   }
@@ -814,9 +816,18 @@ export class PaRuntime {
   }
 
   private async openDatabaseFor(workspacePath: string): Promise<void> {
-    const envName = await this.probeConfigDsn(workspacePath);
-    const dsn = resolveDsn(envName, this.env);
-    const db = new PaDatabase(dsn);
+    const probe = await this.probeStorageConfig(workspacePath);
+    // F25: default ledger is a SQLite file in the workspace; PostgreSQL runs
+    // only by explicit workspace choice. No silent fallback either way.
+    let db: PaDb;
+    if (probe.storage === 'postgres') {
+      db = new PaDatabase(resolveDsn(probe.pgDsnEnv, this.env));
+    } else {
+      const { mkdir } = await import('node:fs/promises');
+      const dataDir = join(workspacePath, 'data');
+      await mkdir(dataDir, { recursive: true });
+      db = new SqliteDb(join(dataDir, 'pa24.db'));
+    }
     try {
       await db.check();
       await db.migrate();
@@ -829,13 +840,16 @@ export class PaRuntime {
     this.repos = createRepos(db);
   }
 
-  /** Read the DSN env name from AGENTS.md before the full config is trusted. */
-  private async probeConfigDsn(workspacePath: string): Promise<string> {
+  /** Read the storage choice from AGENTS.md before the full config is trusted. */
+  private async probeStorageConfig(workspacePath: string): Promise<{ storage: 'sqlite' | 'postgres'; pgDsnEnv: string }> {
     try {
       const source = await readFile(join(workspacePath, 'AGENTS.md'), 'utf8');
-      return parseAgentsMd(source).config.pgDsnEnv;
+      const { config } = parseAgentsMd(source);
+      return { storage: config.storage, pgDsnEnv: config.pgDsnEnv };
     } catch {
-      return 'PA24_PG_DSN';
+      // Unreadable AGENTS.md keeps the legacy error path: a missing DSN env
+      // fails loud instead of quietly switching backends.
+      return { storage: 'postgres', pgDsnEnv: 'PA24_PG_DSN' };
     }
   }
 
@@ -4230,7 +4244,11 @@ export class PaRuntime {
       await wf(join(dir, name), bytes);
       parts.push({ id, path: name, bytes: bytes.length, sha256: sha256Hex(bytes) });
     };
-    // 1. PostgreSQL schema dump (structures + rows; credentials never involved).
+    // 1. Ledger backup: PG dump, or a checkpointed SQLite file copy (F25).
+    if (this.db!.kind === 'sqlite') {
+      (this.db as SqliteDb).checkpoint();
+      await addPart('sqlite', 'pa24.db', await rf((this.db as SqliteDb).filePath!));
+    } else {
     const dsn = resolveDsn(this.config!.pgDsnEnv, this.env);
     const dump = await new Promise<Buffer>((resolve, reject) => {
       // DSN via env keeps it out of the process argv; stderr is surfaced.
@@ -4249,6 +4267,7 @@ export class PaRuntime {
       });
     });
     await addPart('postgres', 'pa24.sql', dump);
+    }
     // 2. Workspace (AGENTS.md + .24pa memory/revisions/originals/crops) and
     // dsh state: real file CONTENTS are copied into the backup, not just
     // listings — restore copies them back verbatim (P38).
@@ -4334,7 +4353,7 @@ export class PaRuntime {
       complete: failures.length === 0,
       failures,
       message: failures.length === 0
-        ? '备份完整（PG 转储与全部文件内容逐个摘要匹配）。恢复顺序：先 PG（psql < pa24.sql），再按 workspace/dsh-state 清单把文件内容复制回原路径，重启 Host 后按启动对账处理；旧 Outbox 与飞书实际对象先对账再发送。'
+        ? `备份完整（账本${this.db?.kind === 'sqlite' ? ' SQLite 文件' : ' PG 转储'}与全部文件内容逐个摘要匹配）。恢复顺序：先把账本恢复到数据目录（SQLite＝复制 pa24.db 到工作区 data/；PG＝psql < pa24.sql），再按 workspace/dsh-state 清单把文件内容复制回原路径，重启 Host 后按启动对账处理；旧 Outbox 与飞书实际对象先对账再发送。`
         : `备份不完整（${failures.join('；')}）；对应部分恢复后不可视为就绪。`,
     };
   }
@@ -5501,7 +5520,9 @@ export class PaRuntime {
       id: 'postgres',
       state: this.db ? 'ok' : 'error',
       message: this.db
-        ? 'PostgreSQL 业务账本已连接'
+        ? this.db.kind === 'sqlite'
+          ? `SQLite 业务账本已连接（${basename(this.db.filePath ?? '')}）`
+          : 'PostgreSQL 业务账本已连接'
         : (this.configError && this.configError.includes('数据库') ? this.configError : 'PostgreSQL 未连接'),
     });
     items.push({

@@ -1,4 +1,4 @@
-import type { PaDatabase } from './pg.js';
+import type { PaDb, PaQueryer } from './db.js';
 
 // Repositories over the pa24 schema. Every externally visible effect funnels
 // through a durable row first (inbox before ACK, outbox before send,
@@ -28,7 +28,7 @@ export interface NewInbox {
 }
 
 export class InboxRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   /** Insert once; platform redelivery returns the original row untouched. */
   async insert(row: NewInbox): Promise<{ inserted: boolean; row: InboxRow }> {
@@ -113,7 +113,7 @@ export interface WorkItemRow {
 }
 
 export class WorkItemRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insert(row: Omit<WorkItemRow, 'created_at' | 'updated_at' | 'progress' | 'result' | 'result_ref' | 'child_session_id'> & { child_session_id?: string }): Promise<WorkItemRow> {
     const result = await this.db.query<WorkItemRow>(
@@ -184,7 +184,7 @@ export interface ActionOperationRow {
 }
 
 export class ActionOperationRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   /**
    * Register an operation under its stable key. Returns the existing row when
@@ -248,7 +248,7 @@ export interface NewOutbox {
 }
 
 export class OutboxRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   /** Idempotent enqueue: one business notification keeps one stable key. */
   async enqueue(row: NewOutbox): Promise<{ created: boolean; row: OutboxRow }> {
@@ -308,7 +308,7 @@ export interface BindingRow {
 }
 
 export class BindingRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async upsert(row: { appId: string; tenantKey: string; ownerOpenId: string; larkProfile: string; chatId?: string }): Promise<BindingRow> {
     const result = await this.db.query<BindingRow>(
@@ -350,7 +350,7 @@ export interface WorkspaceStateRow {
 }
 
 export class WorkspaceStateRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async save(path: string, sessions: { feishuSessionId?: string; localSessionId?: string }): Promise<WorkspaceStateRow> {
     const result = await this.db.query<WorkspaceStateRow>(
@@ -385,7 +385,7 @@ export interface MemoRow {
 }
 
 export class MemoRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insert(row: Omit<MemoRow, 'created_at'>): Promise<MemoRow> {
     // Idempotent upsert keyed by operation id: a crash between the memo write
@@ -467,7 +467,7 @@ export interface TaskRow {
 }
 
 export class TaskRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   /** Upsert the local projection; the owning channel remains the authority. */
   async save(row: Omit<TaskRow, 'created_at' | 'channel'> & { created_at?: Date; channel?: DataChannel }): Promise<TaskRow> {
@@ -518,7 +518,7 @@ export interface ProjectRow {
 }
 
 export class ProjectRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async create(row: { id: string; name: string; goal?: string }): Promise<ProjectRow> {
     const result = await this.db.query<ProjectRow>(
@@ -581,7 +581,7 @@ export interface CalendarSyncRow {
 }
 
 export class CalendarRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async upsertEvent(row: Omit<CalendarEventRow, 'synced_at' | 'channel'> & { synced_at?: Date; channel?: DataChannel }): Promise<CalendarEventRow> {
     const result = await this.db.query<CalendarEventRow>(
@@ -695,7 +695,7 @@ export interface ReminderOccurrenceRow {
 }
 
 export class ReminderRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insertRule(row: Omit<ReminderRuleRow, 'created_at' | 'updated_at'>): Promise<ReminderRuleRow> {
     const result = await this.db.query<ReminderRuleRow>(
@@ -852,7 +852,7 @@ export interface MessageRouteRow {
 }
 
 export class MessageRouteRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   /** Durable platform-message → work item / inbox / note routing (P05, P28). */
   async record(messageId: string, route: { kind: 'workitem' | 'reply' | 'status' | 'notice' | 'note'; workItemId?: string; inboxEventId?: string; noteId?: string }): Promise<void> {
@@ -950,11 +950,10 @@ export interface ReviewDecisionRow {
 }
 
 export class NoteRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async nextNoteId(): Promise<string> {
-    const result = await this.db.query<{ next: string }>(`select nextval('pa24.note_seq') as next`);
-    return `N-${Number(result.rows[0]!.next)}`;
+    return `N-${await this.db.nextNoteSeq()}`;
   }
 
   async insertNote(row: { id: string; title: string; origin: string; workItemId?: string | null }): Promise<NoteRow> {
@@ -1202,7 +1201,7 @@ export interface ReviewReminderRow {
 }
 
 export class ReviewReminderRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insert(row: { id: string; noteId: string; versionId: string; kind: 'once' | 'daily'; remindAt: Date; reason?: string }): Promise<ReviewReminderRow> {
     const result = await this.db.query<ReviewReminderRow>(
@@ -1290,7 +1289,7 @@ export interface OutreachRow {
 }
 
 export class OutreachRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insert(row: Omit<OutreachRow, 'created_at' | 'sent_at' | 'message_id' | 'task_guid' | 'error'>): Promise<{ inserted: boolean; row: OutreachRow }> {
     const result = await this.db.query<OutreachRow>(
@@ -1344,7 +1343,7 @@ export interface TaskTemplateInstanceRow {
 }
 
 export class TaskTemplateRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insert(row: Omit<TaskTemplateRow, 'created_at' | 'updated_at'>): Promise<TaskTemplateRow> {
     const result = await this.db.query<TaskTemplateRow>(
@@ -1449,7 +1448,7 @@ export interface WaitingItemRow {
 }
 
 export class WaitingRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insert(row: { id: string; title: string; detail?: string; sourceDesc?: string; dedupKey?: string; checkpointAt?: Date | null }): Promise<WaitingItemRow> {
     const result = await this.db.query<WaitingItemRow>(
@@ -1542,7 +1541,7 @@ function digestPatch(setsOut: string[], valuesOut: unknown[], patch: Record<stri
 }
 
 export class DigestRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insertPlan(row: Omit<DigestPlanRow, 'created_at' | 'updated_at'>): Promise<DigestPlanRow> {
     const result = await this.db.query<DigestPlanRow>(
@@ -1616,7 +1615,7 @@ export interface MinutesRow {
 }
 
 export class MinutesRepo {
-  constructor(private readonly db: PaDatabase) {}
+  constructor(private readonly db: PaDb) {}
 
   async insert(row: Omit<MinutesRow, 'created_at' | 'updated_at'>): Promise<MinutesRow> {
     const result = await this.db.query<MinutesRow>(
@@ -1662,7 +1661,7 @@ export interface Repos {
   minutes: MinutesRepo;
 }
 
-export function createRepos(db: PaDatabase): Repos {
+export function createRepos(db: PaDb): Repos {
   return {
     inbox: new InboxRepo(db),
     workItems: new WorkItemRepo(db),

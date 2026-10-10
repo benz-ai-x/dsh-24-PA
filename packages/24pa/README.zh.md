@@ -69,7 +69,7 @@ dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 | `PA24_WORKSPACE` | 首次启动绑定的绝对工作区目录（也可在面板或设置里选择） |
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | 飞书自建应用凭据（feishu 模式） |
 
-`AGENTS.md` 字段：`mode`（demo/feishu）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`calendarChannel`/`todoChannel`/`notifyChannel`（feishu|wecom，默认 feishu——企微作日程/待办第二操作渠道＋提醒单向推送，永不收信）、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraLocalTools`（封闭枚举）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
+`AGENTS.md` 字段：`mode`（demo/feishu）、`storage`（sqlite/postgres，默认 sqlite——账本默认是工作区 `data/pa24.db`，SQLite 要求宿主 Node ≥ 23.4；显式 `postgres` 时才需要 `pgDsnEnv` 与外部数据库）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`calendarChannel`/`todoChannel`/`notifyChannel`（feishu|wecom，默认 feishu——企微作日程/待办第二操作渠道＋提醒单向推送，永不收信）、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraLocalTools`（封闭枚举）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
 
 ### 暴露工具
 

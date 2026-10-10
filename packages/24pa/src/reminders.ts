@@ -9,7 +9,7 @@ import {
   resolveRecurringOccurrence,
   type RecurringScheduleRecord,
 } from '@deepseek-ai/dsh-schedule';
-import type { PaDatabase } from './pg.js';
+import type { PaDb } from './db.js';
 import { ReminderRepo, type ReminderRuleRow } from './repo.js';
 
 // Deterministic reminders (P18/P20): rule state and every occurrence live in
@@ -68,7 +68,7 @@ export class ReminderError extends Error {
 }
 
 export class ReminderEngine {
-  private readonly db: PaDatabase;
+  private readonly db: PaDb;
   private readonly repo: ReminderRepo;
   private readonly hooks: ReminderEngineHooks;
   private readonly policy: SilencePolicy;
@@ -76,7 +76,7 @@ export class ReminderEngine {
   private ticking = false;
   private closed = false;
 
-  constructor(db: PaDatabase, hooks: ReminderEngineHooks, policy: SilencePolicy) {
+  constructor(db: PaDb, hooks: ReminderEngineHooks, policy: SilencePolicy) {
     this.db = db;
     this.repo = new ReminderRepo(db);
     this.hooks = hooks;

@@ -69,7 +69,7 @@ Secrets live only in the server environment; the workspace `AGENTS.md` holds one
 | `PA24_WORKSPACE` | Absolute workspace directory bound on first start (or pick one in the panel / dsh settings) |
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | Feishu custom-app credentials (feishu mode) |
 
-`AGENTS.md` fields: `mode` (demo/feishu), `larkProfile`, `ownerOpenId`, `folderToken`, `tasklistId`, `calendarId`, `calendarChannel`/`todoChannel`/`notifyChannel` (feishu|wecom, default feishu — WeCom as the second operation channel for calendar/todo plus one-way reminder push, never inbound), `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraLocalTools` (closed enum). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`; the bundled `feishu-setup.md` is the single authority.
+`AGENTS.md` fields: `mode` (demo/feishu), `storage` (sqlite/postgres, default sqlite — the ledger is the workspace `data/pa24.db` file; SQLite needs host Node ≥ 23.4; `postgres` requires `pgDsnEnv` and an external database), `larkProfile`, `ownerOpenId`, `folderToken`, `tasklistId`, `calendarId`, `calendarChannel`/`todoChannel`/`notifyChannel` (feishu|wecom, default feishu — WeCom as the second operation channel for calendar/todo plus one-way reminder push, never inbound), `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraLocalTools` (closed enum). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`; the bundled `feishu-setup.md` is the single authority.
 
 ### Exposing the tool
 

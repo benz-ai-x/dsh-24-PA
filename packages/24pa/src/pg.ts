@@ -1,4 +1,5 @@
 import pg from 'pg';
+import type { PaDb } from './db.js';
 
 // Business ledger lives in a dedicated `pa24` schema of the configured
 // PostgreSQL instance. The DSN itself comes from the environment variable
@@ -6,7 +7,7 @@ import pg from 'pg';
 
 export const SCHEMA_NAME = 'pa24';
 
-const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] = [
+export const MIGRATIONS: readonly { version: number; statements: readonly string[] }[] = [
   {
     version: 1,
     statements: [
@@ -433,7 +434,8 @@ export interface PaPoolOptions {
   connectTimeoutMs?: number;
 }
 
-export class PaDatabase {
+export class PaDatabase implements PaDb {
+  readonly kind = 'postgres' as const;
   private readonly pool: pg.Pool;
   private closed = false;
 
@@ -484,9 +486,13 @@ export class PaDatabase {
     return result.rows[0]!.version;
   }
 
-  query<T extends pg.QueryResultRow = pg.QueryResultRow>(text: string, values?: readonly unknown[]): Promise<pg.QueryResult<T>> {
-    if (this.closed) return Promise.reject(new Error('数据库连接池已关闭。'));
-    return this.pool.query<T>(text, values as any[]);
+  async query<T extends pg.QueryResultRow = pg.QueryResultRow>(text: string, values?: readonly unknown[]): Promise<pg.QueryResult<T> & { rowCount: number }> {
+    if (this.closed) throw new Error('数据库连接池已关闭。');
+    const result = await this.pool.query<T>(text, values as any[]);
+    // PaDb contract: rowCount is always a number (the driver leaves it null
+    // only in cases our repos never rely on).
+    if (result.rowCount == null) return { ...result, rowCount: 0 } as pg.QueryResult<T> & { rowCount: number };
+    return result as pg.QueryResult<T> & { rowCount: number };
   }
 
   async withTransaction<T>(work: (client: pg.PoolClient) => Promise<T>): Promise<T> {
@@ -502,6 +508,11 @@ export class PaDatabase {
     } finally {
       client.release();
     }
+  }
+
+  async nextNoteSeq(): Promise<number> {
+    const result = await this.pool.query<{ next: string }>(`select nextval('pa24.note_seq') as next`);
+    return Number(result.rows[0]!.next);
   }
 
   async close(): Promise<void> {
