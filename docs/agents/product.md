@@ -8,7 +8,7 @@
 - [GitHub #1](https://github.com/benz-ai-x/dsh-24-PA/issues/1) 是父规格，仓库 SPEC 是对应版本；[设计](../24PA-整体设计方案.md) 解释流程与取舍，[术语表](../../GLOSSARY.md) 仅定义词义，[ADR](../adr/0001-workspace-session-boundaries.md) 记录会话与权限边界。
 - 唯一助理预设支持事务协调和维护。一个预设不等于一个会话，Lead/Worker 不是产品入口；按实际发起会话创建 Worker、恢复工作并回传结果。
 - 记忆和配置维护由本地24私助会话承接；飞书日常交办、拍照和版本审核保持不变。固定飞书 profile 共用，记忆整理仅由主人发起。
-- 正式版业务使用 PostgreSQL；JSON 是长期记忆的唯一可编辑权威，助理工作区 AGENTS.md 是规则和非秘密配置源。
+- 业务账本默认 SQLite（工作区文件，规格 2.1/F25）、可选 PostgreSQL（`storage: "postgres"` 显式声明）；JSON 是长期记忆的唯一可编辑权威，助理工作区 AGENTS.md 是规则和非秘密配置源。
 
 ## 先 research，再开发
 

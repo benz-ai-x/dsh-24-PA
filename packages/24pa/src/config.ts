@@ -22,6 +22,13 @@ export interface WorkerModelRoute {
 export interface PaConfig {
   version: number;
   mode: 'demo' | 'feishu';
+  /**
+   * Business-ledger backend (spec 2.1, F25): SQLite file in the workspace by
+   * default (zero external dependencies), PostgreSQL by explicit choice —
+   * existing PG deployments must opt in with storage: "postgres" on upgrade.
+   * Whichever backend is named is the one that runs; no silent fallback.
+   */
+  storage: 'sqlite' | 'postgres';
   larkProfile: string;
   ownerOpenId: string;
   folderToken: string;
@@ -65,6 +72,7 @@ export class ConfigError extends Error {
 export const DEFAULT_CONFIG: PaConfig = {
   version: 1,
   mode: 'demo',
+  storage: 'sqlite',
   larkProfile: 'default',
   ownerOpenId: '',
   folderToken: '',
@@ -93,7 +101,6 @@ const STRING_FIELDS = [
   'timeZone',
   'appIdEnv',
   'appSecretEnv',
-  'pgDsnEnv',
 ] as const;
 
 export function validateConfig(raw: unknown): PaConfig {
@@ -112,8 +119,17 @@ export function validateConfig(raw: unknown): PaConfig {
     if (typeof input[key] !== 'string') throw new ConfigError(`配置 ${key} 必须为字符串。`);
   }
   if (!input.larkProfile) throw new ConfigError('必须固定飞书 CLI profile（larkProfile）。');
-  for (const key of ['appIdEnv', 'appSecretEnv', 'pgDsnEnv'] as const) {
+  // F25：账本后端缺省 sqlite；postgres 才要求 pgDsnEnv（存量 PG 工作区升级时显式声明）。
+  const storage = (input.storage ?? 'sqlite') as PaConfig['storage'];
+  if (storage !== 'sqlite' && storage !== 'postgres') throw new ConfigError('storage 必须是 sqlite 或 postgres。');
+  const dsnEnvKeys = storage === 'postgres'
+    ? (['appIdEnv', 'appSecretEnv', 'pgDsnEnv'] as const)
+    : (['appIdEnv', 'appSecretEnv'] as const);
+  for (const key of dsnEnvKeys) {
     if (!ENV_NAME.test(input[key] as string)) throw new ConfigError(`${key} 应填写环境变量名称（大写字母、数字、下划线）。`);
+  }
+  if (storage === 'sqlite' && input.pgDsnEnv !== undefined && !ENV_NAME.test(input.pgDsnEnv as string)) {
+    throw new ConfigError('pgDsnEnv 应填写环境变量名称（大写字母、数字、下划线）。');
   }
   const maxWorkers = input.maxWorkers;
   if (!Number.isInteger(maxWorkers) || (maxWorkers as number) < 1 || (maxWorkers as number) > 8) {
@@ -154,6 +170,7 @@ export function validateConfig(raw: unknown): PaConfig {
   const config: PaConfig = {
     version: 1,
     mode: input.mode,
+    storage,
     larkProfile: input.larkProfile as string,
     ownerOpenId: input.ownerOpenId as string,
     folderToken: input.folderToken as string,
@@ -165,7 +182,7 @@ export function validateConfig(raw: unknown): PaConfig {
     timeZone: input.timeZone as string,
     appIdEnv: input.appIdEnv as string,
     appSecretEnv: input.appSecretEnv as string,
-    pgDsnEnv: input.pgDsnEnv as string,
+    pgDsnEnv: (input.pgDsnEnv ?? 'PA24_PG_DSN') as string,
     maxWorkers: maxWorkers as number,
     enabledWorkers: enabledWorkers as string[],
     workerModels: workerModels as PaConfig['workerModels'],

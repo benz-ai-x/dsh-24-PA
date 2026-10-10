@@ -24,6 +24,25 @@ const runSync = (bin, args, env, label) => {
 
 export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
   const root = reuseRoot ?? (await mkdtemp(join(tmpdir(), 'pa24-host-')));
+  // F25 backend matrix: PA24_E2E_STORAGE=sqlite flips the workspace AGENTS.md
+  // to the SQLite ledger before the host boots, so the same suite runs
+  // against both backends without per-file config forks.
+  if (extraEnv.PA24_WORKSPACE) {
+    // F25 backend matrix: storage is injected explicitly BOTH ways — the
+    // product default is sqlite, but the long-standing PG suite keeps its
+    // backend unless PA24_E2E_STORAGE=sqlite flips it.
+    const storage = process.env.PA24_E2E_STORAGE === 'sqlite' ? 'sqlite' : 'postgres';
+    const { readFile, writeFile } = await import('node:fs/promises');
+    const agentsPath = join(extraEnv.PA24_WORKSPACE, 'AGENTS.md');
+    const source = await readFile(agentsPath, 'utf8');
+    if (!source.includes('"storage"')) {
+      await writeFile(agentsPath, source.replace(/(```json\s*\n\{)\n/, `$1\n  "storage": "${storage}",\n`));
+    }
+    if (storage === 'sqlite') {
+      const { setE2eSqliteWorkspace } = await import('./pg.mjs');
+      setE2eSqliteWorkspace(extraEnv.PA24_WORKSPACE);
+    }
+  }
   const bin = dshBin();
   const env = {
     ...process.env,
