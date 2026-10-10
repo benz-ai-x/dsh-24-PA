@@ -299,7 +299,7 @@ export class PaRuntime {
         occurred_on: new Date().toISOString().slice(0, 10),
       });
       await this.repos!.workItems.update(item.id, { result_ref: { memoId: memo.id, operationId: `digest:${item.id}` } });
-      return { memoId: memo.id, topic, message: '资料摘要已保存入账本（PostgreSQL），可按主题检索。' };
+      return { memoId: memo.id, topic, message: '资料摘要已保存入业务账本，可按主题检索。' };
     },
   };
 
@@ -913,7 +913,7 @@ export class PaRuntime {
     this.transportError = null;
     if (!this.config) return;
     if (this.config.mode !== 'feishu') {
-      this.transportError = 'demo：未连接飞书；业务账本使用 PostgreSQL。';
+      this.transportError = 'demo：未连接飞书；业务账本按工作区配置运行。';
       return;
     }
     const appId = this.env[this.config.appIdEnv];
@@ -2707,7 +2707,7 @@ export class PaRuntime {
         operationId,
         docUrl: external.url,
         demo: !live,
-        message: live && external.docId ? '备忘已保存为飞书文档并回读确认。' : '演示模式：备忘已入账本（PostgreSQL），未创建飞书文档。',
+        message: live && external.docId ? '备忘已保存为飞书文档并回读确认。' : '演示模式：备忘已入业务账本，未创建飞书文档。',
       };
     } catch (error) {
       await this.failStaged(operationId, error);

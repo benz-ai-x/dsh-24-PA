@@ -179,7 +179,7 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     ].join('\n'),
     brief: 'calendar_query/calendar_busy（同步水位/冲突/新鲜度）、calendar_create/update/cancel（staged 幂等）、meeting_schedule、plan_today/plan_preview/plan_adopt、meeting_prep_*、overview_today。',
     doneCriteria: '读操作带新鲜度说明；写操作取得平台回执（日程标识）后交回；规划建议按事实/建议/来源/缺失四栏给出。',
-    version: 1,
+    version: 2,
   },
   reminders: {
     persona: [
