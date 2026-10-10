@@ -9,13 +9,13 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to six business workers, with a PostgreSQL ledger for items, reminders, handwritten-note review, digests, and delivery receipts. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2` and `0.2.1-alpha.1`.
+Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to six business workers, with a PostgreSQL ledger for items, reminders, handwritten-note review, digests, and delivery receipts. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2`, `0.2.1-alpha.1`, and `0.2.1-alpha.2`.
 
 ## FAQ
 
 **What is 24私助 (24PA)?** — A Feishu personal-assistant plugin for dsh, shipped as a profile bundle: local dsh sessions and a Feishu bot coordinate six business workers over a PostgreSQL ledger — tasks, calendar, reminders, memos, digests, and handwritten-note review.
 
-**Which dsh runtimes are supported?** — dsh `0.2.0-rc.2` and `0.2.1-alpha.1`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
+**Which dsh runtimes are supported?** — dsh `0.2.0-rc.2`, `0.2.1-alpha.1`, and `0.2.1-alpha.2`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
 
 **How do I install it?** — `dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<baseline serial>`, then restart the profile (see [Installing the Bundle](#installing-the-bundle)).
 
@@ -45,6 +45,12 @@ Pick the release matching your dsh runtime, then restart the Profile. The reconc
 # dsh 0.2.1-alpha.1 host (schedule service built in)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
+# dsh 0.2.1-alpha.2 host — the peer range already includes alpha.2; the first
+# alpha.2-baseline release (0.2.1-alpha.2.1) ships the preset synced to
+# standard.patch.yml of that host, so until it is published an alpha.2 host
+# cannot install the alpha.1 line (the peer check rejects cross-baseline installs)
+# dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.1
+
 # dsh 0.2.0-rc.2 host — line frozen at 0.2.0-rc.2.3, no further releases (also add the two schedule companions for digests)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
 dsh plugin --profile <name> add @deepseek-ai/dsh-experimental-schedule-bundle
@@ -53,7 +59,7 @@ dsh plugin --profile <name> add <rc.2 harness checkout>/packages/schedule/schedu
 dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 ```
 
-Removal withdraws the preset and host plugin on the next Profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched. Version naming follows `<dsh baseline version>.<serial>`; npm dist-tags track baselines (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`).
+Removal withdraws the preset and host plugin on the next Profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched. Version naming follows `<dsh baseline version>.<serial>`; npm dist-tags track baselines (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`, `dsh-0.2.1-alpha.2`).
 
 ### Configuration
 
@@ -189,7 +195,7 @@ These limits define when this assistant needs special operational care. They are
 
 This Dev Note is working context for maintainers: open questions and undecided directions. It is explicitly non-authoritative — shipped behavior and limits live in the sections above and in the package code.
 
-- **Dual-baseline verification** — regression runs select the runtime with `DSH_BIN` and append the rc.2 schedule companions with `PA24_E2E_EXTRA_PLUGINS`; baselines are 0.2.1-alpha.1 plain and 0.2.0-rc.2 with companions, 130/130 each.
+- **Multi-baseline verification** — regression runs select the runtime with `DSH_BIN` and append the rc.2 schedule companions with `PA24_E2E_EXTRA_PLUGINS`; the active baseline is 0.2.1-alpha.2 plain (156/156), while 0.2.0-rc.2 and 0.2.1-alpha.1 remain covered by the dual-API fallback paths.
 - **Local harness adjacency** — dev type-checking links vendored peers from an adjacent `deepseek-harness` checkout through `scripts/link-peer.mjs`; registry installs never depend on that checkout.
 
 </details>

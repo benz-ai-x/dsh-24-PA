@@ -2,7 +2,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo } from './host.js';
+import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock, HostAlreadyActive } from './lock.js';
@@ -662,7 +662,11 @@ export class PaRuntime {
           const resolved = await this.ctx.sessionController.resolveAgent(id).catch(() => null);
           if (resolved && !('error' in resolved)) agents.push(resolved.agent);
         }
-        if (agents.length > 0) await this.ctx.subagents.drainContinuableDescendants(agents).catch(() => {});
+        // 0.2.1-alpha.2 renames drainContinuableDescendants to drainDescendants.
+        if (agents.length > 0) {
+          const drain = this.ctx.subagents.drainDescendants ?? this.ctx.subagents.drainContinuableDescendants;
+          if (drain) await drain(agents).catch(() => {});
+        }
       }
     } finally {
       await this.cleanup();
@@ -1488,7 +1492,11 @@ export class PaRuntime {
             prompt = (await attachments.admitPromptContent(prompt)) as ContentBlock[];
           }
         }
-        await this.ctx.subagents.startContinuable({
+        // dsh 0.2.1-alpha.2 renames startContinuable to startActivation and
+        // requires an explicit delivery; 'parent' keeps the continuable
+        // semantics (the child's completion notifies this Lead). Older hosts
+        // (0.2.0-rc.2 / 0.2.1-alpha.1) only expose the legacy name.
+        const startSpec: Omit<ContinuableStartSpec, 'delivery'> = {
           provider: 'spawn',
           label: `${roleDef.name} · ${item.title}`,
           childId: item.id,
@@ -1502,9 +1510,13 @@ export class PaRuntime {
             // its parent through the native continuation channel.
             toolFilter: { allow: ['pa24_work', 'pa24_memory', ...(roleDef.tools ?? [])] },
             maxDepth: 1,
-            ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } as any } : {}),
+            ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } } : {}),
           },
-        });
+        };
+        const subagents = this.ctx.subagents;
+        if (typeof subagents.startActivation === 'function') await subagents.startActivation({ ...startSpec, delivery: 'parent' });
+        else if (typeof subagents.startContinuable === 'function') await subagents.startContinuable(startSpec);
+        else throw new Error('宿主未提供 subagents 启动接口（startActivation/startContinuable 均缺失），请核对 dsh 版本兼容声明。');
       } catch (error) {
         await this.repos.workItems.update(item.id, { status: 'failed', progress: `Worker 未启动：${(error as Error).message}` });
       }

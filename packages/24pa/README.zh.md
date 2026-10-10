@@ -9,13 +9,13 @@ kind: "package-bundle"
 
 ## 摘要
 
-把 `@benz-ai-x/dsh-24pa` 安装进 Profile，即获得「24私助」助理预设及其宿主插件：飞书＋本地双入口协调、六类业务 Worker，PostgreSQL 账本承载事项、提醒、手写审核、简报与发送回执。预设携带按角色裁剪的标准模式工具面——本地会话可编程，飞书入口与 Worker 保持业务白名单。版本号跟随 dsh 基线（`<dsh 版本>.<序号>`），支持 dsh `0.2.0-rc.2` 与 `0.2.1-alpha.1`。
+把 `@benz-ai-x/dsh-24pa` 安装进 Profile，即获得「24私助」助理预设及其宿主插件：飞书＋本地双入口协调、六类业务 Worker，PostgreSQL 账本承载事项、提醒、手写审核、简报与发送回执。预设携带按角色裁剪的标准模式工具面——本地会话可编程，飞书入口与 Worker 保持业务白名单。版本号跟随 dsh 基线（`<dsh 版本>.<序号>`），支持 dsh `0.2.0-rc.2`、`0.2.1-alpha.1` 与 `0.2.1-alpha.2`。
 
 ## 常见问题
 
 **24私助（24PA）是什么？**——面向 dsh 的飞书私人助理插件（profile bundle）：本地 dsh 会话与飞书机器人协调六类业务 Worker，PostgreSQL 账本承载任务、日程、提醒、备忘、简报与手写审核。
 
-**支持哪些 dsh 运行时？**——dsh `0.2.0-rc.2` 与 `0.2.1-alpha.1`；版本号按 `<dsh 基线>.<序号>` 命名，npm dist-tag 按基线分通道。
+**支持哪些 dsh 运行时？**——dsh `0.2.0-rc.2`、`0.2.1-alpha.1` 与 `0.2.1-alpha.2`；版本号按 `<dsh 基线>.<序号>` 命名，npm dist-tag 按基线分通道。
 
 **怎么安装？**——`dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<基线序号>`，然后重启 profile（见[安装 Bundle](#安装-bundle)）。
 
@@ -45,6 +45,11 @@ kind: "package-bundle"
 # dsh 0.2.1-alpha.1 宿主（自带 schedule 服务）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
+# dsh 0.2.1-alpha.2 宿主——peer 范围已包含 alpha.2；首个 alpha.2 基线版本
+# （0.2.1-alpha.2.1）随该宿主同步后的预设发布，发布前 alpha.2 宿主无法安装
+# alpha.1 线（peer 检查拒绝跨基线安装）
+# dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.1
+
 # dsh 0.2.0-rc.2 宿主——该线已冻结于 0.2.0-rc.2.3、不再迭代（简报功能另需两个 schedule 伴随件）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
 dsh plugin --profile <name> add @deepseek-ai/dsh-experimental-schedule-bundle
@@ -53,7 +58,7 @@ dsh plugin --profile <name> add <rc.2 harness 源码>/packages/schedule/schedule
 dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 ```
 
-删除在下一次 Profile 启动时收回预设与宿主插件；PostgreSQL 数据、dsh 会话与工作区目录不受影响。版本命名遵循 `<dsh 基线版本>.<序号>`；npm dist-tag 按基线分通道（`dsh-0.2.0-rc.2`、`dsh-0.2.1-alpha.1`）。
+删除在下一次 Profile 启动时收回预设与宿主插件；PostgreSQL 数据、dsh 会话与工作区目录不受影响。版本命名遵循 `<dsh 基线版本>.<序号>`；npm dist-tag 按基线分通道（`dsh-0.2.0-rc.2`、`dsh-0.2.1-alpha.1`、`dsh-0.2.1-alpha.2`）。
 
 ### 配置
 
@@ -189,7 +194,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 
 本备注是面向维护者的工作上下文：待决问题与未定方向。它明确不具权威性——已交付的行为与限制以正文章节与包代码为准。
 
-- **双基线验证**——回归运行用 `DSH_BIN` 选运行时、`PA24_E2E_EXTRA_PLUGINS` 附加 rc.2 的 schedule 伴随件；基线为 0.2.1-alpha.1 无附加与 0.2.0-rc.2 带伴随件，各 130/130。
+- **多基线验证**——回归运行用 `DSH_BIN` 选运行时、`PA24_E2E_EXTRA_PLUGINS` 附加 rc.2 的 schedule 伴随件；当前活跃基线为 0.2.1-alpha.2 无附加（156/156），0.2.0-rc.2 与 0.2.1-alpha.1 由双 API 回退路径保持兼容。
 - **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
 
 </details>

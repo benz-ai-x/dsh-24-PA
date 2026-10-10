@@ -62,6 +62,8 @@ export interface SubagentStartRequest {
   persona?: string;
   toolFilter?: { allow?: string[]; deny?: string[] };
   maxDepth?: number;
+  /** Per-child provider/model override; dsh merges it over the parent's options. */
+  agentOptions?: { provider: string; model: string };
 }
 
 export interface ContinuableStartSpec {
@@ -69,6 +71,9 @@ export interface ContinuableStartSpec {
   label?: string;
   childId: string;
   signal?: AbortSignal;
+  /** dsh 0.2.1-alpha.2 requires an explicit delivery; 'parent' keeps the
+   *  continuable semantics (the child's completion notifies the Lead). */
+  delivery: 'parent' | 'caller';
   request: SubagentStartRequest;
 }
 
@@ -142,10 +147,15 @@ export interface DshContext {
     flush(session: DshSession): Promise<boolean>;
   };
   subagents: {
-    startContinuable(spec: ContinuableStartSpec): Promise<unknown>;
+    /** dsh 0.2.1-alpha.2+; the runtime probes and falls back to the legacy name below. */
+    startActivation?(spec: ContinuableStartSpec): Promise<unknown>;
+    /** dsh ≤ 0.2.1-alpha.1 legacy name. */
+    startContinuable?(spec: Omit<ContinuableStartSpec, 'delivery'>): Promise<unknown>;
     sendMessage(sender: DshAgent, targetId: string, content: ContentBlock[], options?: { signal?: AbortSignal }): Promise<unknown>;
     interrupt(targetSessionId: string, authority: { kind: string; parentSessionId?: string }): void;
-    drainContinuableDescendants(parents: readonly DshAgent[]): Promise<unknown>;
+    /** dsh 0.2.1-alpha.2+; legacy drainContinuableDescendants below. */
+    drainDescendants?(parents: readonly DshAgent[]): Promise<unknown>;
+    drainContinuableDescendants?(parents: readonly DshAgent[]): Promise<unknown>;
     listChildren(parentSessionId: string, signal?: AbortSignal): Promise<unknown>;
   };
   tools: {
