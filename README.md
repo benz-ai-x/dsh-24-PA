@@ -43,7 +43,7 @@ Pick the release matching your dsh runtime, then restart the Profile. The reconc
 
 ```sh
 # dsh 0.2.1-alpha.1 host (schedule service built in)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.5
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
 # dsh 0.2.0-rc.2 host — line frozen at 0.2.0-rc.2.3, no further releases (also add the two schedule companions for digests)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
