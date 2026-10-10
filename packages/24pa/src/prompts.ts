@@ -10,7 +10,7 @@
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.4.0';
+export const PROMPTS_VERSION = '1.5.0';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -179,7 +179,7 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     ].join('\n'),
     brief: 'calendar_query/calendar_busy（同步水位/冲突/新鲜度）、calendar_create/update/cancel（staged 幂等）、meeting_schedule、plan_today/plan_preview/plan_adopt、meeting_prep_*、overview_today。',
     doneCriteria: '读操作带新鲜度说明；写操作取得平台回执（日程标识）后交回；规划建议按事实/建议/来源/缺失四栏给出。',
-    version: 1,
+    version: 2,
   },
   reminders: {
     persona: [
@@ -190,7 +190,7 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
       '- 时间计算由宿主的 dsh-schedule 公开函数完成，不自行推算。',
       '- 只报告平台接受状态，不推断已读。',
       '## 边界',
-      '- 提醒由 PostgreSQL 发生实例和 Outbox 投递，模型离线也能发出。',
+      '- 提醒由业务账本触发实例并经 Outbox 投递，模型离线也能发出。',
       '- 完成/稍后/取消都绑定原规则与实例，重复请求不产生多份。',
       '- 不执行其他业务，不产生新授权。',
       '## 输出要求',
@@ -334,6 +334,6 @@ ${defaultConfigJson}
 - 需要个人偏好或项目事实时，先查询结构化记忆（随后续功能启用），保留来源和确认状态。
 - 配置与记忆维护通过 dsh 的24私助会话进行；飞书接入会话与 Worker 没有维护写入权限。
 - 飞书接入按内置指南分阶段配置：先 pa24_connection action=guide 通读，再按 action=check 返回的 nextSteps 逐项收敛；应用密钥与 CLI 凭据只由本人在本人终端/启动环境填写。
-- 业务账本使用 PostgreSQL；数据库不可用时停止接纳相关业务，不伪造成功。
+- 业务账本按工作区配置运行（默认 SQLite，可选 PostgreSQL）；账本不可用时停止接纳相关业务，不伪造成功。
 `;
 }

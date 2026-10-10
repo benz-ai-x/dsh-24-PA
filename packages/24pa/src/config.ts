@@ -120,7 +120,9 @@ export function validateConfig(raw: unknown): PaConfig {
   }
   if (!input.larkProfile) throw new ConfigError('必须固定飞书 CLI profile（larkProfile）。');
   // F25：账本后端缺省 sqlite；postgres 才要求 pgDsnEnv（存量 PG 工作区升级时显式声明）。
-  const storage = (input.storage ?? 'sqlite') as PaConfig['storage'];
+  // `undefined` (older file without the field) takes the product default;
+  // an explicit `null` must fail loud, not silently become sqlite.
+  const storage = (input.storage === undefined ? 'sqlite' : input.storage) as PaConfig['storage'];
   if (storage !== 'sqlite' && storage !== 'postgres') throw new ConfigError('storage 必须是 sqlite 或 postgres。');
   const dsnEnvKeys = storage === 'postgres'
     ? (['appIdEnv', 'appSecretEnv', 'pgDsnEnv'] as const)

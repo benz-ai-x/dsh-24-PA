@@ -93,11 +93,16 @@ function inferKinds(): Kinds {
         const close = stmt.lastIndexOf(')');
         const body = stmt.slice(open + 1, close);
         const table = m[1]!;
+        let learned = 0;
         for (const col of splitTopLevel(body)) {
           const cm = /^(\w+)\s+(.+)$/.exec(col);
           if (!cm || /^(primary|foreign|unique|check|constraint)\b/i.test(cm[1]!)) continue;
           learn(table, cm[1]!, cm[2]!);
+          learned += 1;
         }
+        // Fail loud, symmetric with query translation: a matched CREATE TABLE
+        // that parsed to zero columns means the DDL shape drifted.
+        if (learned === 0) throw new Error(`SQLite 列类型推导失败：pa24.${table} 未解析出任何列。`);
         continue;
       }
       m = /^alter table pa24\.(\w+) add column (?:if not exists )?(\w+)\s+(.+)$/.exec(stmt.trim());
@@ -349,24 +354,22 @@ export class SqliteDb implements PaDb {
   }
 
   /**
-   * Checkpoint WAL so a plain file copy is a consistent backup. Runs through
-   * the serial lock (a concurrent BEGIN IMMEDIATE would otherwise make
-   * TRUNCATE give up silently) and reports the busy frame count — a nonzero
-   * value means the caller must also copy the -wal file.
+   * Checkpoint WAL so a plain file copy is a consistent backup. Runs UNQUEUED
+   * (owning transactions may hold the serial lock; WAL checkpoints are safe
+   * to attempt concurrently) and reports the busy frame count — a nonzero
+   * value means frames stayed in the WAL and the caller must copy -wal too.
    */
   checkpoint(): { busy: number } {
-    return this.enqueueSync(() => {
+    return this.runUnqueued(() => {
       const rows = this.db.prepare('pragma wal_checkpoint(truncate)').all() as Array<Record<string, unknown>>;
       const busy = Number(rows[0]?.busy ?? 0);
       return { busy };
     });
   }
 
-  /** Synchronous job on the serial lock (checkpoint must not interleave). */
-  private enqueueSync<T>(job: () => T): T {
-    if (this.txOwner.getStore()?.active) return job();
-    // Fallback when the queue is busy: run anyway — a concurrent writer can
-    // make TRUNCATE busy, which the caller observes and handles.
+  /** Runs immediately without the serial queue; checkpoint busy-ness is
+   * reported to the caller instead of blocking on in-flight transactions. */
+  private runUnqueued<T>(job: () => T): T {
     return job();
   }
 

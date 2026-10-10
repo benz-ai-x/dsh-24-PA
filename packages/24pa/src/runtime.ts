@@ -299,7 +299,7 @@ export class PaRuntime {
         occurred_on: new Date().toISOString().slice(0, 10),
       });
       await this.repos!.workItems.update(item.id, { result_ref: { memoId: memo.id, operationId: `digest:${item.id}` } });
-      return { memoId: memo.id, topic, message: '资料摘要已保存入账本（PostgreSQL），可按主题检索。' };
+      return { memoId: memo.id, topic, message: '资料摘要已保存入业务账本，可按主题检索。' };
     },
   };
 
@@ -845,10 +845,12 @@ export class PaRuntime {
       const source = await readFile(join(workspacePath, 'AGENTS.md'), 'utf8');
       const { config } = parseAgentsMd(source);
       return { storage: config.storage, pgDsnEnv: config.pgDsnEnv };
-    } catch {
-      // Fresh workspace (no AGENTS.md yet) or an unreadable one: the product
-      // default is the zero-dependency SQLite ledger — never a silent PG
-      // fallback. An invalid config block still fails loud at loadConfig.
+    } catch (error) {
+      // An INVALID config block fails loud right here — before any ledger
+      // side effect (openDatabaseFor would otherwise migrate a file the
+      // broken workspace never asked for). A missing/unreadable AGENTS.md
+      // (fresh workspace) takes the zero-dependency product default.
+      if (error instanceof ConfigError) throw error;
       return { storage: 'sqlite', pgDsnEnv: 'PA24_PG_DSN' };
     }
   }
@@ -911,7 +913,7 @@ export class PaRuntime {
     this.transportError = null;
     if (!this.config) return;
     if (this.config.mode !== 'feishu') {
-      this.transportError = 'demo：未连接飞书；业务账本使用 PostgreSQL。';
+      this.transportError = 'demo：未连接飞书；业务账本按工作区配置运行。';
       return;
     }
     const appId = this.env[this.config.appIdEnv];
@@ -1175,7 +1177,7 @@ export class PaRuntime {
         [
           '24私助已收到你的消息。',
           `绑定：${this.config.ownerOpenId ? '已按配置绑定主人' : '尚未在配置中绑定主人'}`,
-          `业务账本（PostgreSQL）：${pg?.state === 'ok' ? '正常' : pg?.message ?? '未知'}`,
+          `业务账本（${this.db?.kind === 'sqlite' ? 'SQLite' : 'PostgreSQL'}）：${pg?.state === 'ok' ? '正常' : pg?.message ?? '未知'}`,
           '直接告诉我需要办理什么；也可以说“查看正在处理的事”。配置与记忆维护请到 dsh 的24私助会话。',
         ].join('\n'),
       );
@@ -2705,7 +2707,7 @@ export class PaRuntime {
         operationId,
         docUrl: external.url,
         demo: !live,
-        message: live && external.docId ? '备忘已保存为飞书文档并回读确认。' : '演示模式：备忘已入账本（PostgreSQL），未创建飞书文档。',
+        message: live && external.docId ? '备忘已保存为飞书文档并回读确认。' : '演示模式：备忘已入业务账本，未创建飞书文档。',
       };
     } catch (error) {
       await this.failStaged(operationId, error);
@@ -4361,7 +4363,7 @@ export class PaRuntime {
       complete: failures.length === 0,
       failures,
       message: failures.length === 0
-        ? `备份完整（账本${this.db?.kind === 'sqlite' ? ' SQLite 文件' : ' PG 转储'}与全部文件内容逐个摘要匹配）。恢复顺序：先把账本恢复到数据目录（SQLite＝复制 pa24.db 到工作区 data/；PG＝psql < pa24.sql），再按 workspace/dsh-state 清单把文件内容复制回原路径，重启 Host 后按启动对账处理；旧 Outbox 与飞书实际对象先对账再发送。`
+        ? `备份完整（账本${this.db?.kind === 'sqlite' ? ' SQLite 文件' : ' PG 转储'}与全部文件内容逐个摘要匹配）。恢复顺序：先把账本恢复到数据目录（SQLite＝复制 pa24.db 到工作区 data/，备份若含 pa24.db-wal 一并放回；PG＝psql < pa24.sql），再按 workspace/dsh-state 清单把文件内容复制回原路径，重启 Host 后按启动对账处理；旧 Outbox 与飞书实际对象先对账再发送。`
         : `备份不完整（${failures.join('；')}）；对应部分恢复后不可视为就绪。`,
     };
   }
