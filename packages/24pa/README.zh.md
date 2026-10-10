@@ -47,7 +47,7 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
 # dsh 0.2.1-alpha.2 宿主（预设已同步该基线的 standard.patch.yml；peer 检查拒绝
 # 跨基线安装，alpha.2 宿主须装此线）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.2
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.3
 
 # dsh 0.2.0-rc.2 宿主——该线已冻结于 0.2.0-rc.2.3、不再迭代（简报功能另需两个 schedule 伴随件）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3

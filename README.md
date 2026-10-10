@@ -47,7 +47,7 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
 # dsh 0.2.1-alpha.2 host (preset synced to standard.patch.yml of that baseline;
 # the peer check rejects cross-baseline installs, so alpha.2 hosts need this line)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.2
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.3
 
 # dsh 0.2.0-rc.2 host — line frozen at 0.2.0-rc.2.3, no further releases (also add the two schedule companions for digests)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
