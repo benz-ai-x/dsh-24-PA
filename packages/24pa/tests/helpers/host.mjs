@@ -28,9 +28,6 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
   // to the SQLite ledger before the host boots, so the same suite runs
   // against both backends without per-file config forks.
   if (extraEnv.PA24_WORKSPACE) {
-    // F25 backend matrix: storage is injected explicitly BOTH ways — the
-    // product default is sqlite, but the long-standing PG suite keeps its
-    // backend unless PA24_E2E_STORAGE=sqlite flips it.
     const storage = process.env.PA24_E2E_STORAGE === 'sqlite' ? 'sqlite' : 'postgres';
     const { readFile, writeFile } = await import('node:fs/promises');
     const agentsPath = join(extraEnv.PA24_WORKSPACE, 'AGENTS.md');
