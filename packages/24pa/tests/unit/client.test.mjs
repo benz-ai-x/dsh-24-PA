@@ -68,7 +68,7 @@ describe('client.js 挂载面（F17/F20）', () => {
     // 听记卡：F18 合流入口，状态来自维护健康 extra-local-tools
     expect(client).toContain("extraToolCap = extra => (extra.health?.capabilities || []).find(c => c.id === 'extra-local-tools')");
     // 未配置卡占位（知识库 F22 预留）
-    expect(client).toContain("tier: () => 'missing', label: () => '未配置'");
+    expect(client).toContain("tier: () => 'missing', label: () => L('未配置', 'Not configured')");
     // 全应用健康检查卡（用户 2026-10-11 裁决）：聚合 tier＋一键全量检查含主动探测
     expect(client).toContain("id: 'healthcheck', cat: 'system', tone: 'blue', icon: 'shield'");
     expect(client).toContain('const healthAggregate = ({ state, extra }) =>');
@@ -110,6 +110,27 @@ describe('client.js 挂载面（F17/F20）', () => {
     // 浅色为主参考（F26 裁决）：主文字/次要双层令牌，暗色跟随不掉层级
     expect(client).toContain('--pa-ink:var(--dsw-alias-label-primary,#1f2937)');
     expect(client).toContain('body[data-ds-dark-theme] .pa24{');
+  });
+
+  it('中英双语（F27/P59）：en 命名空间注册＋resolveText L 通道＋无空英文', () => {
+    expect(client).toContain("ctx.locale.register('pa24', { zh, en })");
+    expect(client).toContain('const en = {');
+    expect(client).toContain('const L = (zhText, enText) => ctx.locale.resolveText({ zh: zhText, en: enText });');
+    // L() 无空英文参数（'…', '') 允许出现在 zh-only 后缀场景（如单位词），
+    // 但成对文案不允许第二个参数为空串且无 CJK。
+    const empties = [...client.matchAll(/L\('([^']*)', ''\)/g)].map(m => m[1]);
+    for (const zhStr of empties) expect(zhStr.length).toBeLessThanOrEqual(4); // 仅单位词可空译
+    // 状态词汇走字典键（P53 词汇双语）
+    expect(client).toContain("'status.ok': '正常'");
+    expect(client).toContain("'status.ok': 'OK'");
+    // 切换即时生效：Panel 订阅 locale 快照
+    expect(client).toContain('useSyncExternalStore(cb => ctx.locale.subscribe(cb), () => ctx.locale.getSnapshot())');
+    // zh/en 命名空间键集一致（解析两个字典块的键名）
+    const dictKeys = name => {
+      const block = client.split('const ' + name + ' = {')[1].split('\n    };')[0];
+      return [...block.matchAll(/'?([A-Za-z][A-Za-z0-9_.-]*)'?\s*:/g)].map(m => m[1]).sort();
+    };
+    expect(dictKeys('en')).toEqual(dictKeys('zh'));
   });
 
   it('设置分区跳转面板走 layout 服务并保留关闭兜底', () => {
