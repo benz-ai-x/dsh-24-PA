@@ -19,6 +19,36 @@ describe('单 Host 锁', () => {
     await first.release();
   });
 
+  it('拒绝时报错带持锁方命令行、工作目录与锁文件路径', async () => {
+    const path = join(dir, 'host.lock');
+    const argv = ['node', '/usr/local/bin/dsh', 'web', '--profile', 'ops'];
+    await writeFile(
+      path,
+      JSON.stringify({ pid: process.pid, startedAt: '2026-10-11T00:00:00.000Z', argv, cwd: '/Users/x/Ops-Space/24PA' }),
+    );
+    const error = await acquireHostLock(dir).then(
+      () => undefined,
+      (error) => error,
+    );
+    expect(error).toBeInstanceOf(HostAlreadyActive);
+    expect(error.message).toContain('web --profile ops');
+    expect(error.message).toContain('/Users/x/Ops-Space/24PA');
+    expect(error.message).toContain(path);
+  });
+
+  it('旧格式锁文件（无命令行/目录字段）报错不缺字段', async () => {
+    const path = join(dir, 'host.lock');
+    await writeFile(path, JSON.stringify({ pid: process.pid, startedAt: '2026-10-11T00:00:00.000Z' }));
+    const error = await acquireHostLock(dir).then(
+      () => undefined,
+      (error) => error,
+    );
+    expect(error).toBeInstanceOf(HostAlreadyActive);
+    expect(error.message).toContain(`pid ${process.pid}`);
+    expect(error.message).not.toContain('undefined');
+    expect(error.message).not.toContain('，命令');
+  });
+
   it('释放后可重新获得', async () => {
     const first = await acquireHostLock(dir);
     await first.release();
