@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createRequire } from 'node:module';
-import type { PaDb, PaQueryResult, PaQueryer } from './db.js';
+import type { BackupPart, PaDb, PaQueryResult, PaQueryer } from './db.js';
 import { MIGRATIONS } from './pg.js';
 
 // F25: SQLite backend for the business ledger (default storage; PostgreSQL
@@ -365,6 +365,22 @@ export class SqliteDb implements PaDb {
       const busy = Number(rows[0]?.busy ?? 0);
       return { busy };
     });
+  }
+
+  /** F28: checkpoint then copy the ledger file; a busy truncate appends the
+   *  WAL so committed writes never silently miss from the backup. */
+  async backup(): Promise<BackupPart[]> {
+    const { readFile } = await import('node:fs/promises');
+    const { busy } = this.checkpoint();
+    const parts: BackupPart[] = [{ id: 'sqlite', name: 'pa24.db', bytes: await readFile(this.filePath) }];
+    if (busy > 0) {
+      try {
+        parts.push({ id: 'sqlite-wal', name: 'pa24.db-wal', bytes: await readFile(`${this.filePath}-wal`) });
+      } catch {
+        // -wal absent between checkpoints: nothing to append.
+      }
+    }
+    return parts;
   }
 
   /** Runs immediately without the serial queue; checkpoint busy-ness is

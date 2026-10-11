@@ -131,6 +131,18 @@ describe('F25：SQLite 账本（迁移＋业务往返）', () => {
 
   it('备份 checkpoint 后文件可整体拷贝（WAL 收拢）', async () => {
     db.checkpoint();
+  });
+
+  it('F28 backup()：返回可恢复的账本件（sqlite 主件，busy 时附 WAL）', async () => {
+    await db.query(`insert into pa24.memo (id, topic, content, source) values ($1, $2, $3, $4)`, ['memo-bk', 'bk', '备份前写入', 'test']);
+    const parts = await db.backup();
+    expect(parts.length).toBeGreaterThanOrEqual(1);
+    expect(parts[0].id).toBe('sqlite');
+    expect(parts[0].name).toBe('pa24.db');
+    expect(parts[0].bytes.length).toBeGreaterThan(0);
+    // WAL 为条件件：checkpoint truncate 忙时才有；件 id 只允许这两个
+    expect(parts.every(p => ['sqlite', 'sqlite-wal'].includes(p.id))).toBe(true);
+    await db.close();
     await rm(root, { recursive: true, force: true });
   });
 });

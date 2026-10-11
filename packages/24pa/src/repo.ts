@@ -66,6 +66,18 @@ export class InboxRepo {
     return result.rows;
   }
 
+  /** Restart reconcile (F28): rows stuck mid-dispatch requeue for retry. */
+  async resetProcessing(): Promise<void> {
+    await this.db.query(`update pa24.inbox set status = 'received' where status = 'processing'`);
+  }
+
+  /** Restart reconcile (F28): admitted-but-undelivered events, surfaced to
+   *  the owner instead of guessing an outcome across the crash. */
+  async listAdmitted(): Promise<InboxRow[]> {
+    const result = await this.db.query<InboxRow>(`select * from pa24.inbox where status = 'admitted'`);
+    return result.rows;
+  }
+
   async mark(eventId: string, patch: { status: InboxStatus; requestId?: string; targetSession?: string; error?: string }): Promise<void> {
     await this.db.query(
       `update pa24.inbox set status = $2,
@@ -368,6 +380,12 @@ export class WorkspaceStateRepo {
   async get(path: string): Promise<WorkspaceStateRow | null> {
     const result = await this.db.query<WorkspaceStateRow>('select * from pa24.workspace_state where path = $1', [path]);
     return result.rows[0] ?? null;
+  }
+
+  /** Most recently touched workspace path, for host restart rebinding (F28). */
+  async latestPath(): Promise<string | null> {
+    const result = await this.db.query<{ path: string }>('select path from pa24.workspace_state order by updated_at desc limit 1');
+    return result.rows[0]?.path ?? null;
   }
 }
 
@@ -730,10 +748,13 @@ export class ReminderRepo {
     return result.rows;
   }
 
-  /** Cancel not-yet-sent occurrences of one rule (source-change path, P19). */
-  async cancelPendingOccurrences(ruleId: string): Promise<number> {
+  /** Cancel not-yet-sent occurrences of one rule (source-change path, P19).
+   *  unclaimedOnly (F28): leave rows whose defer window already elapsed —
+   *  they are mid-claim by a dispatcher and cancel through the guarded path. */
+  async cancelPendingOccurrences(ruleId: string, options?: { unclaimedOnly?: boolean }): Promise<number> {
+    const guard = options?.unclaimedOnly ? ' and (deferred_until is null or deferred_until > now())' : '';
     const result = await this.db.query(
-      `update pa24.reminder_occurrence set status = 'canceled', updated_at = now() where rule_id = $1 and status = 'pending'`,
+      `update pa24.reminder_occurrence set status = 'canceled', updated_at = now() where rule_id = $1 and status = 'pending'${guard}`,
       [ruleId],
     );
     return result.rowCount ?? 0;
@@ -1180,6 +1201,16 @@ export class NoteRepo {
   async pendingReviewVersions(limit: number): Promise<NoteVersionRow[]> {
     const result = await this.db.query<NoteVersionRow>(
       `select * from pa24.note_version where status = 'pending_review' order by created_at limit $1`,
+      [limit],
+    );
+    return result.rows;
+  }
+
+  /** Recently approved versions for today's overview (F28); live documents
+   *  are re-verified by the caller so stale approvals drop out (P35). */
+  async recentApproved(limit: number): Promise<NoteVersionRow[]> {
+    const result = await this.db.query<NoteVersionRow>(
+      `select * from pa24.note_version where status = 'approved' order by decided_at desc nulls last limit $1`,
       [limit],
     );
     return result.rows;
@@ -1639,6 +1670,31 @@ export class MinutesRepo {
   }
 }
 
+/** Cross-table maintenance statistics (F28): backup manifest watermarks and
+ *  health/retry figures that previously lived as raw SQL in the runtime. */
+export class MaintenanceRepo {
+  constructor(private readonly db: PaDb) {}
+
+  async watermarks(): Promise<Array<{ table: string; rows: number }>> {
+    const result = await this.db.query<{ table: string; n: string }>(
+      `select 'work_item' as table, count(*) as n from pa24.work_item union all select 'note', count(*) from pa24.note union all select 'reminder_rule', count(*) from pa24.reminder_rule union all select 'outbox', count(*) from pa24.outbox`,
+    );
+    return result.rows.map(r => ({ table: r.table, rows: Number(r.n) }));
+  }
+
+  async unknownOperationCount(): Promise<number> {
+    const result = await this.db.query<{ n: string }>(`select count(*) as n from pa24.action_operation where status = 'unknown'`);
+    return Number(result.rows[0]?.n ?? 0);
+  }
+
+  async attemptTotals(): Promise<{ operations: number; outbox: number }> {
+    const result = await this.db.query<{ ops: string; obx: string }>(
+      `select (select coalesce(sum(attempt),0) from pa24.action_operation) as ops, (select coalesce(sum(attempts),0) from pa24.outbox) as obx`,
+    );
+    return { operations: Number(result.rows[0]?.ops ?? 0), outbox: Number(result.rows[0]?.obx ?? 0) };
+  }
+}
+
 export interface Repos {
   inbox: InboxRepo;
   workItems: WorkItemRepo;
@@ -1659,6 +1715,7 @@ export interface Repos {
   waiting: WaitingRepo;
   digests: DigestRepo;
   minutes: MinutesRepo;
+  maintenance: MaintenanceRepo;
 }
 
 export function createRepos(db: PaDb): Repos {
@@ -1682,5 +1739,6 @@ export function createRepos(db: PaDb): Repos {
     waiting: new WaitingRepo(db),
     digests: new DigestRepo(db),
     minutes: new MinutesRepo(db),
+    maintenance: new MaintenanceRepo(db),
   };
 }
