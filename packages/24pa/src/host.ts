@@ -157,10 +157,14 @@ export interface DshContext {
     drainDescendants?(parents: readonly DshAgent[]): Promise<unknown>;
     drainContinuableDescendants?(parents: readonly DshAgent[]): Promise<unknown>;
     listChildren(parentSessionId: string, signal?: AbortSignal): Promise<unknown>;
+    /** Named-provider probe (F18, present since 0.2.0-rc.2): no result means the provider bundle is not installed. */
+    getProvider?(name: string): unknown;
   };
   tools: {
     register(definition: ToolDefinition): () => void;
     restrict(filter: { allow?: string[]; deny?: string[] }): void;
+    /** Host-plane (global) view of mounted tools, name-projected (present since 0.2.0-rc.2); profile-level MCP tools mount there (F18). */
+    schemas?(scope?: unknown): Array<{ name: string; [key: string]: unknown }>;
   };
   systemPrompt: {
     section(section: SystemPromptSection): () => void;
