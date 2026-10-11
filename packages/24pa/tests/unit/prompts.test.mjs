@@ -37,11 +37,22 @@ describe('PROMPTS_VERSION 与 Lead 分节（A1/B1）', () => {
     }
   });
 
-  it('业务要点 section 覆盖全部八个业务域的小节标题', () => {
+  it('业务要点 section 覆盖全部九个业务域的小节标题', () => {
     const business = LEAD_SECTIONS.find(s => s.name === '24pa-business-domains').text;
-    for (const domain of ['备忘整理', '待办与项目', '提醒', '交办与跟进', '规划与简报', '手写笔记', 'JSON 记忆', 'dsh 工作区维护']) {
+    for (const domain of ['备忘整理', '待办与项目', '提醒', '交办与跟进', '规划与简报', '手写笔记', '听记资料', 'JSON 记忆', 'dsh 工作区维护']) {
       expect(business).toContain(`### ${domain}`);
     }
+  });
+
+  it('听记资料锚点（F18）：仅本地会话、带来源、行动不跳过确认', () => {
+    const business = LEAD_SECTIONS.find(s => s.name === '24pa-business-domains').text;
+    for (const anchor of ['mcp__qwennote__*', '不臆造听记内容', '不因来源是听记而跳过确认']) {
+      expect(business).toContain(anchor);
+    }
+    // AGENTS.md 工作规则模板同步告知 extraLocalTools 的听记语义与过滤提示。
+    const agentsMd = template();
+    expect(agentsMd).toContain('mcp__qwennote__*');
+    expect(agentsMd).toContain('未挂载的点名项会被自动过滤');
   });
 
   it('渠道语义锚点（F16）：按域选择、企微不做收信、过期续期', () => {

@@ -2,6 +2,7 @@ import z from '@deepseek-ai/schemastery';
 import type { DshContext, ToolRunContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
 import { LEAD_SECTIONS } from './prompts.js';
+import { DELEGATION_TOOL_PROVIDER, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD } from './config.js';
 
 // Agent-half plugin mounted inside the 24私助 preset. Tools are registered
 // once, then restricted per role at agent creation: the same preset never
@@ -51,16 +52,85 @@ const ROLE_TOOLS: Record<string, string[]> = {
   worker: ['pa24_work', 'pa24_memory'],
 };
 
+/** Live-mount signals one agent creation sees; both are cheap host-plane probes. */
+export interface ExtraToolSignals {
+  /** Names in the host-plane (global) tool view — where profile-level MCP tools mount. */
+  globalToolNames: ReadonlySet<string>;
+  /** Whether a ctx.subagents provider currently resolves under this name. */
+  providerAvailable(name: string): boolean;
+}
+
+/** Host-plane tool names; any probe failure degrades to an empty view. */
+function hostGlobalToolNames(ctx: DshContext): string[] {
+  try {
+    return (ctx.tools.schemas?.() ?? []).map(schema => schema.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve configured extraLocalTools entries against live mounts before they
+ * join the restrict() allow list (F18): restrict() rejects names that are not
+ * live on the agent's scope chain, so a configured-but-unmounted channel — a
+ * delegation tool without its provider bundle, or an mcp__qwennote__ entry
+ * without the profile's dsh-mcp-client row — must be dropped here, visibly
+ * (`filtered`) rather than fatally. The wildcard entry expands to every
+ * mounted qwennote tool; output preserves request order, deduplicated.
+ */
+export function resolveExtraLocalTools(extras: readonly string[], signals: ExtraToolSignals): { allow: string[]; filtered: string[] } {
+  const allow: string[] = [];
+  const filtered: string[] = [];
+  const seen = new Set<string>();
+  const admit = (name: string) => {
+    if (!seen.has(name)) {
+      seen.add(name);
+      allow.push(name);
+    }
+  };
+  for (const extra of extras) {
+    const provider = DELEGATION_TOOL_PROVIDER[extra as keyof typeof DELEGATION_TOOL_PROVIDER];
+    if (provider !== undefined) {
+      if (signals.providerAvailable(provider)) admit(extra);
+      else filtered.push(extra);
+      continue;
+    }
+    if (extra === QWENNOTE_TOOL_WILDCARD) {
+      const mounted = [...signals.globalToolNames].filter(name => name.startsWith(QWENNOTE_TOOL_PREFIX)).sort();
+      if (mounted.length === 0) filtered.push(extra);
+      else mounted.forEach(admit);
+      continue;
+    }
+    // A precise mcp__qwennote__<tool> entry: live iff mounted on the host
+    // plane. validateConfig gates entries to this prefix; the prefix guard
+    // here keeps the resolver honest if it is ever reused ungated.
+    if (extra.startsWith(QWENNOTE_TOOL_PREFIX) && signals.globalToolNames.has(extra)) admit(extra);
+    else filtered.push(extra);
+  }
+  return { allow, filtered };
+}
+
 export function apply(ctx: DshContext) {
   const runtime = ctx.get('pa24') as PaRuntime;
 
   ctx.on('agent/created', async ({ agent }) => {
     const role = runtime.roleFor(agent);
     const base = (role && ROLE_TOOLS[role]) || [];
-    // Provider-gated extras are an explicit workspace decision: naming them
-    // unconditionally would fail restrict() in profiles without the provider.
+    // Extras are an explicit workspace decision, but naming them
+    // unconditionally would fail restrict() wherever the provider bundle or
+    // profile mcp-client entry is absent — so resolve against live mounts.
     const extras = role === 'local-robot' ? (runtime.config?.extraLocalTools ?? []) : [];
-    const allow = [...base, ...extras];
+    const signals: ExtraToolSignals = {
+      // A probe failure must degrade to "nothing mounted", never fail agent
+      // creation — the very crash path this resolution exists to eliminate.
+      globalToolNames: new Set(hostGlobalToolNames(ctx)),
+      providerAvailable: name => runtime.providerAvailable(name),
+    };
+    const resolved = resolveExtraLocalTools(extras, signals);
+    if (extras.length > 0) {
+      runtime.noteExtraToolResolution({ requested: [...extras], active: resolved.allow, filtered: resolved.filtered });
+    }
+    const allow = [...base, ...resolved.allow];
     await agent.ctx!
       .plugin({
         name: 'pa24-role-tools',

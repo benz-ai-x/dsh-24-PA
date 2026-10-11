@@ -51,16 +51,39 @@ export interface PaConfig {
   enabledWorkers: string[];
   workerModels: Partial<Record<string, WorkerModelRoute>>;
   /**
-   * Provider-gated delegation tools the local session may also use. The preset
-   * registers the tool rows, but they only mount after their provider bundles
-   * are installed into the dsh profile, so opting in is a deployment decision
-   * recorded here rather than a default capability.
+   * Extra tools the local role may also use: the provider-gated delegation
+   * tools, plus QwenNote minutes tools mounted by a profile-level
+   * dsh-mcp-client entry (serverName `qwennote`, F18). Naming an unmounted
+   * tool is tolerated — the agent-side resolution filters it out — so opting
+   * in stays a workspace decision recorded here, never a startup crash.
    */
   extraLocalTools: string[];
 }
 
-/** Closed set: every extra tool the local role may be granted beyond the standard base. */
-export const EXTRA_LOCAL_TOOLS = ['subagent_codex', 'subagent_claude_code'] as const;
+/** Provider-gated delegation tools; they mount only after their provider bundles are installed. */
+export const DELEGATION_EXTRA_TOOLS = ['subagent_codex', 'subagent_claude_code'] as const;
+/** Each delegation tool and the ctx.subagents provider name that mounts it. */
+export const DELEGATION_TOOL_PROVIDER: Record<(typeof DELEGATION_EXTRA_TOOLS)[number], string> = {
+  subagent_codex: 'codex',
+  subagent_claude_code: 'claude-code',
+};
+/** QwenNote minutes tools register as host-plane globals under this prefix. */
+export const QWENNOTE_TOOL_PREFIX = 'mcp__qwennote__';
+/** Wildcard entry: allow every currently mounted qwennote tool. */
+export const QWENNOTE_TOOL_WILDCARD = 'mcp__qwennote__*';
+// Precise names match the harness MCP tool-name charset; a raw name long
+// enough to need the 12-hex normalization suffix can exceed the cap here —
+// those stay reachable through the wildcard entry instead.
+const QWENNOTE_TOOL_NAME = /^mcp__qwennote__[A-Za-z0-9_-]{1,48}$/;
+
+/** Whether one extraLocalTools entry is acceptable: a delegation tool, the qwennote wildcard, or a precise qwennote tool name. */
+export function isExtraLocalToolEntry(value: string): boolean {
+  return (
+    (DELEGATION_EXTRA_TOOLS as readonly string[]).includes(value) ||
+    value === QWENNOTE_TOOL_WILDCARD ||
+    QWENNOTE_TOOL_NAME.test(value)
+  );
+}
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -164,10 +187,10 @@ export function validateConfig(raw: unknown): PaConfig {
   const extraLocalTools = input.extraLocalTools ?? [];
   if (
     !Array.isArray(extraLocalTools) ||
-    extraLocalTools.some(x => typeof x !== 'string' || !(EXTRA_LOCAL_TOOLS as readonly string[]).includes(x)) ||
+    extraLocalTools.some(x => typeof x !== 'string' || !isExtraLocalToolEntry(x)) ||
     new Set(extraLocalTools).size !== extraLocalTools.length
   ) {
-    throw new ConfigError(`extraLocalTools 只接受不重复的 ${EXTRA_LOCAL_TOOLS.join(', ')}。`);
+    throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${QWENNOTE_TOOL_WILDCARD} 或 ${QWENNOTE_TOOL_PREFIX}<工具名>。`);
   }
   const config: PaConfig = {
     version: 1,

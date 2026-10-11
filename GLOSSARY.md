@@ -29,8 +29,12 @@ _Avoid_: 独立编程预设、对飞书入口开放的 Shell
 _Avoid_: 交互式安装向导界面、替本人完成浏览器授权
 
 **本地工具扩展（extraLocalTools）**：
-工作区配置中显式列出 provider 级外部 CLI 委派工具（subagent_codex、subagent_claude_code）的开关字段；安装对应 provider 后才对本地24私助会话生效。
-_Avoid_: 默认开启的外部能力、飞书入口工具
+工作区配置中显式列出本地24私助会话额外放行的已注册工具名的字段：provider 级外部 CLI 委派（subagent_codex、subagent_claude_code）与 QwenNote 听记工具（`mcp__qwennote__*` 通配或精确名，需 profile 配置 dsh-mcp-client 条目）；对应通道挂载后才生效，点名未挂载工具的条目会被过滤并提示。
+_Avoid_: 默认开启的外部能力、飞书入口工具、开放任意工具名
+
+**听记资料**：
+主人 QwenNote 录音卡产生、经 dsh-mcp-client（serverName qwennote）进入本地24私助会话的会议转写、纪要与速记；按需读取的外部资料，不落业务账本，候选行动走既有审核与行动授权。
+_Avoid_: 同步进账本的投影、飞书入口可用的资料源、跳过审核的行动
 
 ## 角色与工作
 

@@ -983,6 +983,22 @@ export class PaRuntime {
     return null;
   }
 
+  /** Whether a subagent provider currently resolves (F18): an absent provider bundle leaves its extras unmounted. */
+  providerAvailable(name: string): boolean {
+    try {
+      return this.ctx.subagents?.getProvider?.(name) != null;
+    } catch {
+      return false;
+    }
+  }
+
+  private extraToolResolution: { requested: string[]; active: string[]; filtered: string[] } | null = null;
+
+  /** Latest extraLocalTools resolution for the local role; surfaced by the health report (F18). */
+  noteExtraToolResolution(resolution: { requested: string[]; active: string[]; filtered: string[] }): void {
+    this.extraToolResolution = resolution;
+  }
+
   private readonly workItemByChild = new Map<string, WorkItemRow>();
   private trackWorkItem(item: WorkItemRow): void {
     if (this.workItemByChild.size > 500) {
@@ -4409,6 +4425,18 @@ export class PaRuntime {
         message: this.wecomDiagnostics
           ? `最近检查：${this.wecomDiagnostics.cli.state === 'ok' ? 'CLI 可用' : this.wecomDiagnostics.cli.message}；${this.wecomDiagnostics.identity.message}`
           : '企微渠道已启用但尚未执行接入检查（用 pa24_connection action=wecom_check 发起只读检查）',
+      });
+    }
+    // F18: extraLocalTools resolution — configured names that never mounted
+    // (missing provider bundle or profile mcp-client entry) surface here
+    // instead of failing agent creation.
+    if (config && config.extraLocalTools.length > 0) {
+      capabilities.push({
+        id: 'extra-local-tools',
+        state: this.extraToolResolution ? (this.extraToolResolution.filtered.length ? 'warn' : 'ok') : 'info',
+        message: this.extraToolResolution
+          ? `最近本地会话解析：放行 ${this.extraToolResolution.active.length} 项${this.extraToolResolution.filtered.length ? `；未挂载被过滤：${this.extraToolResolution.filtered.join('、')}` : ''}`
+          : '已配置 extraLocalTools 但本地24私助会话尚未创建',
       });
     }
     const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
