@@ -23,6 +23,20 @@ window.__ModuleLoader__.load({
       reminderOnce: '单次', reminderDaily: '每日', reminderPaused: '已暂停', reminderCanceled: '已取消', reminderDone: '已结束',
       queued: '排队中', running: '处理中', completed: '已完成', accepted: '已接纳',
       waiting_input: '等待补充', failed: '未完成', stopped: '已停止', needs_reconciliation: '需核对',
+      'status.ok': '正常', 'status.warn': '待核验', 'status.error': '需要处理', 'status.missing': '待配置', 'status.unchecked': '尚未检查',
+    };
+    // F27（P59）：中英双语——命名空间字典走 register({zh,en})；内联文案走
+    // resolveText({zh,en}) 的 L() 帮助函数（dsh 官方内联双语通道，与字符串
+    // 同址维护）；切换即时生效由 Panel 的 useSyncExternalStore 订阅保证。
+    const en = {
+      panel: '24PA Workspace', title: '24PA',
+      settings: '24PA', biz: 'Business', access: 'Access & Messaging', system: 'System Maintenance',
+      review: 'Handwriting Review', awaiting_review: 'Awaiting review', needs_rereview: 'Needs re-review', returned: 'Returned', collecting: 'Collecting',
+      collected: 'All pages in', approved: 'Approved', pending_review: 'Awaiting review', stale: 'Stale', superseded: 'Superseded',
+      reminderOnce: 'Once', reminderDaily: 'Daily', reminderPaused: 'Paused', reminderCanceled: 'Canceled', reminderDone: 'Done',
+      queued: 'Queued', running: 'Running', completed: 'Completed', accepted: 'Accepted',
+      waiting_input: 'Waiting for input', failed: 'Failed', stopped: 'Stopped', needs_reconciliation: 'Needs reconciliation',
+      'status.ok': 'OK', 'status.warn': 'Needs review', 'status.error': 'Needs attention', 'status.missing': 'Not configured', 'status.unchecked': 'Not checked',
     };
     const paths = {
       memory: ['M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4Z', 'M8 7v10m8-10v10M8 9h4a3 3 0 0 1 0 6H8m8-6h-1'],
@@ -57,8 +71,7 @@ window.__ModuleLoader__.load({
     // P53: 状态徽章统一语法——四档通用词（正常/待核验/需要处理/待配置/尚未检查）各配
     // 固定 tone 与图标；诊断徽章可用 label 覆盖具体原因词（未授权/已过期/企业不可用），
     // 但 tone/图标必须取自同一档，保证 SPEC §13「状态全局一致」。
-    const STATUS = { ok: ['正常', 'blue', 'check'], warn: ['待核验', 'amber', 'clock'], error: ['需要处理', 'danger', 'alert'], missing: ['待配置', 'amber', 'info'], unchecked: ['尚未检查', 'neutral', 'clock'] };
-    const statusBadge = (tier, label) => { const item = STATUS[tier] || STATUS.unchecked; return badge(label || item[0], item[1], item[2]); };
+    const STATUS = { ok: ['status.ok', 'blue', 'check'], warn: ['status.warn', 'amber', 'clock'], error: ['status.error', 'danger', 'alert'], missing: ['status.missing', 'amber', 'info'], unchecked: ['status.unchecked', 'neutral', 'clock'] };
     const style = `
       .pa24{--pa-ink:var(--dsw-alias-label-primary,#1f2937);--pa-muted:#667085;--pa-line:#e4e7ec;--pa-canvas:#f7f8fa;--pa-surface:var(--dsw-alias-bg-base,#fff);--pa-soft:#f2f4f7;--pa-brand:#2b5da8;--pa-brand-hover:#244f8e;--pa-blue:#2b5da8;--pa-blue-bg:#edf2fa;--pa-green:#1f7a4d;--pa-green-bg:#e9f5ef;--pa-violet:#6941c6;--pa-violet-bg:#f0ebfa;--pa-amber:#8a5b18;--pa-amber-bg:#fff7e8;--pa-danger:#b42318;--pa-danger-bg:#fff1f0;--pa-shadow:none;height:100%;overflow:auto;container-type:inline-size;padding:32px;color:var(--pa-ink);background:var(--pa-canvas);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;scrollbar-gutter:stable}
       body[data-ds-dark-theme] .pa24{--pa-muted:#9ba8b9;--pa-line:#303c4a;--pa-canvas:#151b23;--pa-surface:#1d2631;--pa-soft:#25303d;--pa-brand:#3764ab;--pa-brand-hover:#4174c2;--pa-blue:#a0bdf0;--pa-blue-bg:#25364f;--pa-green:#7cc7a2;--pa-green-bg:#1f3226;--pa-violet:#b9a5ef;--pa-violet-bg:#2b2447;--pa-amber:#dfbc83;--pa-amber-bg:#3b3225;--pa-danger:#f0aaa5;--pa-danger-bg:#412b2c;--pa-shadow:none}
@@ -118,8 +131,12 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale', 'connection', 'uiWorkspace', 'layout'],
       apply(ctx) {
-        ctx.effect(() => ctx.locale.register('pa24', { zh }));
+        ctx.effect(() => ctx.locale.register('pa24', { zh, en }));
         const t = ctx.locale.bind('pa24');
+        // F27: 内联双语通道——dsh locale 服务的 resolveText 按当前语言与回退
+        // 链解析 {zh,en}；与字符串同址维护，避免大字典间接层。
+        const L = (zhText, enText) => ctx.locale.resolveText({ zh: zhText, en: enText });
+        const statusBadge = (tier, label) => { const item = STATUS[tier] || STATUS.unchecked; return badge(label || t(item[0]), item[1], item[2]); };
         const rpc = async (endpoint, payload = {}, signal) => {
           const response = await fetch('./api/24pa', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint, payload }), signal });
           if (!response.ok) throw new Error('dsh HTTP ' + response.status);
@@ -127,9 +144,9 @@ window.__ModuleLoader__.load({
           if (!result.ok) throw new Error(result.error.message);
           return result.value;
         };
-        const date = (value, timeZone) => (value ? new Date(value).toLocaleString('zh-CN', { timeZone: timeZone || 'Asia/Shanghai', hour12: false }) : '尚无记录');
+        const date = (value, timeZone) => (value ? new Date(value).toLocaleString('zh-CN', { timeZone: timeZone || 'Asia/Shanghai', hour12: false }) : L('尚无记录', 'No record yet'));
         const badgeOf = status => badge(t(status) || status, ...(statusStyle[status] || ['neutral', 'info']));
-        const fields = items => h('dl', { className: 'pa24-dl' }, items.map(([label, value]) => h('div', { key: String(label), className: 'pa24-field' }, h('dt', null, label), h('dd', null, value ?? '未配置'))));
+        const fields = items => h('dl', { className: 'pa24-dl' }, items.map(([label, value]) => h('div', { key: String(label), className: 'pa24-field' }, h('dt', null, label), h('dd', null, value ?? L('未配置', 'Not configured')))));
         const sectionHead = (name, title, description, action, tone = 'neutral') => h('div', { className: 'pa24-section-head' }, h('div', null, h('div', { className: 'pa24-section-title' }, h('span', { className: 'pa24-tone-' + tone, style: { color: 'var(--tone)' } }, icon(name)), h('h2', null, title)), description && h('p', { className: 'pa24-section-desc' }, description)), action);
         const empty = (name, tone, title, description, actions) => h('div', { className: 'pa24-empty' }, tile(name, tone), h('h3', null, title), h('p', null, description), actions && h('div', { className: 'pa24-row' }, actions));
 
@@ -144,38 +161,38 @@ window.__ModuleLoader__.load({
             }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
             return () => abort.abort();
           }, [workspace.path, query, offset, retry]);
-          const categories = { preference: ['个人偏好', 'neutral'], fact: ['事实', 'neutral'], project: ['项目', 'blue'], decision: ['决定', 'neutral'] };
+          const categories = { preference: [L('个人偏好', 'Preference'), 'neutral'], fact: [L('事实', 'Fact'), 'neutral'], project: [L('项目', 'Project'), 'blue'], decision: [L('决定', 'Decision'), 'neutral'] };
           const search = () => { setOffset(0); setQuery(draft.trim()); setRetry(v => v + 1); };
           const clear = () => { setDraft(''); setQuery(''); setOffset(0); };
           const data = view.data;
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           return h('section', null,
-            sectionHead('memory', '结构化记忆', '记住你的偏好与背景，让每次交办更有默契。',
-              h('div', { className: 'pa24-row' }, button('refresh', '刷新记忆', () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', '通过对话维护记忆', openRobot)), 'neutral'),
+            sectionHead('memory', L('结构化记忆', 'Structured memory'), L('记住你的偏好与背景，让每次交办更有默契。', 'Your preferences and background, remembered so every handoff lands better.'),
+              h('div', { className: 'pa24-row' }, button('refresh', L('刷新记忆', 'Refresh memories'), () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', L('通过对话维护记忆', 'Manage memories in chat'), openRobot)), 'neutral'),
             h('div', { className: 'pa24-searchbar' },
-              h('div', { className: 'pa24-search' }, icon('search'), h('input', { value: draft, placeholder: '搜索正文、主题或来源…', 'aria-label': '筛选记忆', onChange: e => setDraft(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) search(); } })),
-              button('search', '筛选', search), (draft || query) && button('close', '查看全部', clear, { className: 'pa24-quiet' })),
-            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取记忆内容…'),
-            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '记忆读取失败')), h('p', null, view.error), h('p', null, '请在 dsh 的24私助会话中检查记忆文件，修复后重试。'), button('refresh', '重试读取', () => setRetry(v => v + 1))),
+              h('div', { className: 'pa24-search' }, icon('search'), h('input', { value: draft, placeholder: L('搜索正文、主题或来源…', 'Search content, topic, or source…'), 'aria-label': L('筛选记忆', 'Filter memories'), onChange: e => setDraft(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) search(); } })),
+              button('search', L('筛选', 'Filter'), search), (draft || query) && button('close', L('查看全部', 'Show all'), clear, { className: 'pa24-quiet' })),
+            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取记忆内容…', 'Reading memories…')),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('记忆读取失败', 'Failed to read memories'))), h('p', null, view.error), h('p', null, L('请在 dsh 的24私助会话中检查记忆文件，修复后重试。', 'Check the memory file in the 24PA dsh session and retry after fixing.')), button('refresh', L('重试读取', 'Retry read'), () => setRetry(v => v + 1))),
             data && h('div', null,
-              h('div', { className: 'pa24-result-meta', role: 'status' }, h('span', null, '共 ' + data.total + ' 条记忆' + (query ? ' · 匹配 ' + data.matched + ' 条' : '')), h('span', null, '记忆版本 ' + data.revision)),
-              data.total === 0 ? h('div', { className: 'pa24-card' }, empty('memory', 'neutral', '从「记住这件事」开始', '还没有保存的记忆。在 dsh 的24私助会话告诉它你的偏好或项目背景，保存后会直接显示在这里。',
-                button('chat', '告诉24私助我的偏好', openRobot, { className: 'pa24-primary' })),
-                h('div', { className: 'pa24-example' }, icon('chat', { width: 16, height: 16 }), '试着说：“记住，我希望会议之间留 15 分钟。”')) :
-              data.matched === 0 ? h('div', { className: 'pa24-card' }, empty('search', 'neutral', '没有找到匹配的记忆', '试试更短的关键词，或清空筛选查看所有记忆。', button('close', '清空筛选', clear))) :
+              h('div', { className: 'pa24-result-meta', role: 'status' }, h('span', null, L('共 ' + data.total + L(' 条记忆', ' memories') + (query ? L(' · 匹配 ', ' · ') + data.matched + L(' 条', ' matched') : ''), data.total + (query ? ' memories (' + data.matched + ' matched)' : ' memories total'))), h('span', null, L('记忆版本 ' + data.revision, 'Memory revision ' + data.revision))),
+              data.total === 0 ? h('div', { className: 'pa24-card' }, empty('memory', 'neutral', L('从「记住这件事」开始', 'Start with “remember this”'), L('还没有保存的记忆。在 dsh 的24私助会话告诉它你的偏好或项目背景，保存后会直接显示在这里。', 'Nothing saved yet. Tell the 24PA dsh session your preferences or project background and they will show up here.'),
+                button('chat', L('告诉24私助我的偏好', 'Tell 24PA my preferences'), openRobot, { className: 'pa24-primary' })),
+                h('div', { className: 'pa24-example' }, icon('chat', { width: 16, height: 16 }), L('试着说：“记住，我希望会议之间留 15 分钟。”', 'Try: “Remember, I want 15 minutes between meetings.”'))) :
+              data.matched === 0 ? h('div', { className: 'pa24-card' }, empty('search', 'neutral', L('没有找到匹配的记忆', 'No matching memories'), L('试试更短的关键词，或清空筛选查看所有记忆。', 'Try shorter keywords, or clear the filter to see everything.'), button('close', L('清空筛选', 'Clear filter'), clear))) :
               h('div', { className: 'pa24-memory-list' }, data.records.map(r => {
                 const [category, tone] = categories[r.category] || [r.category, 'neutral'];
                 return h('article', { key: r.id, className: 'pa24-memory-card' },
                   h('div', { className: 'pa24-memory-body' },
-                    h('div', { className: 'pa24-memory-heading' }, h('div', { className: 'pa24-row' }, badge(category, tone), h('h3', null, r.topic || '未设置主题')), badge(r.status === 'confirmed' ? '已确认' : '待核实', r.status === 'confirmed' ? 'blue' : 'amber', r.status === 'confirmed' ? 'check' : 'clock')),
+                    h('div', { className: 'pa24-memory-heading' }, h('div', { className: 'pa24-row' }, badge(category, tone), h('h3', null, r.topic || L('未设置主题', 'No topic set'))), badge(r.status === 'confirmed' ? L('已确认', 'Confirmed') : L('待核实', 'Unverified'), r.status === 'confirmed' ? 'blue' : 'amber', r.status === 'confirmed' ? 'check' : 'clock')),
                     h('div', { className: 'pa24-note' }, r.content),
                     h('div', { className: 'pa24-row pa24-between' },
-                      h('div', { className: 'pa24-memory-source' }, icon('note', { width: 13, height: 13 }), h('span', null, '来源：' + r.source)),
+                      h('div', { className: 'pa24-memory-source' }, icon('note', { width: 13, height: 13 }), h('span', null, L('来源：', 'Source: ') + r.source)),
                       h('time', { className: 'pa24-meta', dateTime: r.updatedAt }, date(r.updatedAt, workspace.config ? workspace.config.timeZone : 'Asia/Shanghai')))),
-                  h('div', { className: 'pa24-memory-footer' }, h('details', null, h('summary', null, '修订依据与 JSON'), h('p', { className: 'pa24-meta' }, '修订依据：' + r.reason), h('p', { className: 'pa24-meta' }, '修改会话：' + r.updatedBy), r.validUntil && h('p', { className: 'pa24-meta' }, '有效期至：' + r.validUntil), h('pre', null, JSON.stringify(r, null, 2)))));
+                  h('div', { className: 'pa24-memory-footer' }, h('details', null, h('summary', null, L('修订依据与 JSON', 'Revision basis & JSON')), h('p', { className: 'pa24-meta' }, L('修订依据：', 'Reason: ') + r.reason), h('p', { className: 'pa24-meta' }, L('修改会话：', 'Updated by: ') + r.updatedBy), r.validUntil && h('p', { className: 'pa24-meta' }, L('有效期至：', 'Valid until: ') + r.validUntil), h('pre', null, JSON.stringify(r, null, 2)))));
               })),
-              data.matched > data.limit && h('nav', { className: 'pa24-page-nav', 'aria-label': '记忆分页' }, button('chevron', '上一页', () => setOffset(Math.max(0, data.offset - data.limit)), { disabled: data.offset === 0 }), h('span', null, '第 ' + (Math.floor(data.offset / data.limit) + 1) + ' / ' + Math.ceil(data.matched / data.limit) + ' 页'), button('chevron', '下一页', () => setOffset(data.offset + data.limit), { disabled: data.offset + data.limit >= data.matched }))),
-            h('details', null, h('summary', null, '存储位置与维护方式'), h('p', { className: 'pa24-meta' }, (workspace.path || '') + '/.24pa/memory.json'), h('p', { className: 'pa24-meta' }, '通过 dsh 的24私助会话新增、更正、删除和整理（变更集可撤销）；整理仅由你发起。')));
+              data.matched > data.limit && h('nav', { className: 'pa24-page-nav', 'aria-label': L('记忆分页', 'Memory pagination') }, button('chevron', L('上一页', 'Previous'), () => setOffset(Math.max(0, data.offset - data.limit)), { disabled: data.offset === 0 }), h('span', null, L('第 ' + (Math.floor(data.offset / data.limit) + 1) + ' / ' + Math.ceil(data.matched / data.limit) + L(' 页', ''), 'Page ' + (Math.floor(data.offset / data.limit) + 1) + ' / ' + Math.ceil(data.matched / data.limit))), button('chevron', L('下一页', 'Next'), () => setOffset(data.offset + data.limit), { disabled: data.offset + data.limit >= data.matched }))),
+            h('details', null, h('summary', null, L('存储位置与维护方式', 'Storage & maintenance')), h('p', { className: 'pa24-meta' }, (workspace.path || '') + '/.24pa/memory.json'), h('p', { className: 'pa24-meta' }, L('通过 dsh 的24私助会话新增、更正、删除和整理（变更集可撤销）；整理仅由你发起。', 'Add, correct, remove, and tidy through the 24PA dsh session (changesets are undoable); tidying is always owner-initiated.'))));
         }
 
         function ReviewView({ workspace, openRobot }) {
@@ -192,26 +209,26 @@ window.__ModuleLoader__.load({
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           const tz = workspace.config ? workspace.config.timeZone : 'Asia/Shanghai';
           const verifyBadge = v => {
-            if (!v || !v.verifyResult) return badge('尚未核验', 'neutral', 'info');
-            if (v.verifyResult === 'matches') return badge('内容一致', 'blue', 'check');
-            if (v.verifyResult === 'changed') return badge('文档已修改', 'amber', 'alert');
-            return badge('核验异常', 'danger', 'alert');
+            if (!v || !v.verifyResult) return badge(L('尚未核验', 'Not verified'), 'neutral', 'info');
+            if (v.verifyResult === 'matches') return badge(L('内容一致', 'Content matches'), 'blue', 'check');
+            if (v.verifyResult === 'changed') return badge(L('文档已修改', 'Document changed'), 'amber', 'alert');
+            return badge(L('核验异常', 'Verification failed'), 'danger', 'alert');
           };
           return h('section', null,
-            sectionHead('pen', '手写审核', '拍照笔记的待审版本、疑点定位与催办都在这里；批准或退回请在飞书审核卡上完成。',
-              button('refresh', '刷新队列', () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'danger'),
-            h('div', { className: 'pa24-example' }, icon('shield', { width: 16, height: 16 }), '审核裁决只由你在飞书卡片上作出；本页面为只读查阅，不提供网页批准按钮。'),
-            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取审核队列…'),
-            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '审核队列读取失败')), h('p', null, view.error), button('refresh', '重试读取', () => setRetry(v => v + 1))),
+            sectionHead('pen', L('手写审核', 'Handwriting review'), L('拍照笔记的待审版本、疑点定位与催办都在这里；批准或退回请在飞书审核卡上完成。', 'Pending versions, doubt locations, and follow-up nudges for photographed notes; approve or return on the Feishu review card.'),
+              button('refresh', L('刷新队列', 'Refresh queue'), () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'danger'),
+            h('div', { className: 'pa24-example' }, icon('shield', { width: 16, height: 16 }), L('审核裁决只由你在飞书卡片上作出；本页面为只读查阅，不提供网页批准按钮。', 'Review verdicts are made by you on the Feishu card only; this page is read-only and has no approve button.')),
+            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取审核队列…', 'Reading the review queue…')),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('审核队列读取失败', 'Failed to read the review queue'))), h('p', null, view.error), button('refresh', L('重试读取', 'Retry read'), () => setRetry(v => v + 1))),
             view.status === 'ready' && (view.data.count === 0
-              ? h('div', { className: 'pa24-card' }, empty('check', 'blue', '没有等待审核的笔记', '拍照整理后的待审版本会出现在这里；审核完成或退回后自动移出。', button('chat', '与24私助对话', openRobot)))
+              ? h('div', { className: 'pa24-card' }, empty('check', 'blue', L('没有等待审核的笔记', 'No notes awaiting review'), L('拍照整理后的待审版本会出现在这里；审核完成或退回后自动移出。', 'Pending versions from photographed notes appear here and move out once reviewed or returned.'), button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot)))
               : view.data.items.map(item => h('article', { key: item.noteId, className: 'pa24-job' },
                   h('div', { className: 'pa24-row pa24-between' }, h('h3', null, item.title || item.noteId), badge(t(item.noteStatus) || item.noteStatus, ...(item.noteStatus === 'awaiting_review' ? ['amber', 'clock'] : item.noteStatus === 'needs_rereview' ? ['danger', 'alert'] : ['amber', 'pen']))),
                   item.latestVersion && h('div', { className: 'pa24-row' }, badge('v' + item.latestVersion.version + ' ' + (t(item.latestVersion.status) || item.latestVersion.status), item.latestVersion.status === 'pending_review' ? 'amber' : 'neutral', 'shield'), verifyBadge(item.latestVersion)),
-                  h('p', { className: 'pa24-meta' }, item.pages + ' 页原稿 · 指纹 ' + (item.latestVersion ? item.latestVersion.fingerprint : '—') + (item.latestVersion && item.latestVersion.verifiedAt ? ' · 上次核验 ' + date(item.latestVersion.verifiedAt, tz) : '')),
-                  item.reminders.length > 0 && h('p', { className: 'pa24-meta' }, '催办：' + item.reminders.map(r => (t('reminder' + (r.kind === 'daily' ? 'Daily' : 'Once')) || r.kind) + ' ' + (t('reminder' + r.status.charAt(0).toUpperCase() + r.status.slice(1)) || r.status) + (r.status === 'pending' ? '，下次 ' + date(r.remindAt, tz) : '')).join('；')),
-                  item.latestVersion && item.latestVersion.docUrl && h('a', { className: 'pa24-link-button', href: item.latestVersion.docUrl, target: '_blank', rel: 'noreferrer' }, icon('external'), '打开飞书文档'),
-                  h('p', { className: 'pa24-meta' }, '需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。')))));
+                  h('p', { className: 'pa24-meta' }, item.pages + L(' 页原稿 · 指纹 ', ' pages · fingerprint ') + (item.latestVersion ? item.latestVersion.fingerprint : '—') + (item.latestVersion && item.latestVersion.verifiedAt ? L(' · 上次核验 ', ' · last verified ') + date(item.latestVersion.verifiedAt, tz) : '')),
+                  item.reminders.length > 0 && h('p', { className: 'pa24-meta' }, L('催办：', 'Reminders: ') + item.reminders.map(r => (t('reminder' + (r.kind === 'daily' ? 'Daily' : 'Once')) || r.kind) + ' ' + (t('reminder' + r.status.charAt(0).toUpperCase() + r.status.slice(1)) || r.status) + (r.status === 'pending' ? L('，下次 ', ', next ') + date(r.remindAt, tz) : '')).join(L('；', '; '))),
+                  item.latestVersion && item.latestVersion.docUrl && h('a', { className: 'pa24-link-button', href: item.latestVersion.docUrl, target: '_blank', rel: 'noreferrer' }, icon('external'), L('打开飞书文档', 'Open Feishu doc')),
+                  h('p', { className: 'pa24-meta' }, L('需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。', 'For a later nudge, pausing follow-ups, or republishing a candidate, just tell 24PA.'))))));
         }
 
         // F17: Panel 与 SettingsSection 共用的动作外壳（busy/error/run/button）。
@@ -231,32 +248,32 @@ window.__ModuleLoader__.load({
         // path 为受控值由父级持有，面板侧保证切 tab 不丢已选未绑定的目录。
         function WorkspaceCards({ snapshot, busy, button, openRobot, path, onPathChange }) {
           const workspace = snapshot.workspace, config = workspace ? workspace.config : null;
-          const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: '备忘整理' }[w] || w)).join('、') || '无';
+          const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: L('备忘整理', 'Memo worker') }[w] || w)).join('、') || L('无', 'None');
           return h(React.Fragment, null,
             h('section', { className: 'pa24-card' },
-              sectionHead('folder', '当前工作区', '在 dsh 添加服务器目录，再选择绑定。空目录首次绑定时生成 AGENTS.md。'),
+              sectionHead('folder', L('当前工作区', 'Current workspace'), L('在 dsh 添加服务器目录，再选择绑定。空目录首次绑定时生成 AGENTS.md。', 'Add the server directory in dsh, then bind. An empty directory gets an AGENTS.md on first bind.')),
               h('label', { style: { display: 'block', margin: '18px 0 12px' } },
-                h('span', { className: 'pa24-meta' }, '选择 dsh 工作区'),
+                h('span', { className: 'pa24-meta' }, L('选择 dsh 工作区', 'Choose a dsh workspace')),
                 h('select', { value: path, onChange: e => onPathChange(e.target.value), style: { marginTop: 6 } },
-                  h('option', { value: '' }, '选择一个工作区…'),
+                  h('option', { value: '' }, L('选择一个工作区…', 'Pick a workspace…')),
                   (snapshot.availableWorkspaces || []).map(w => h('option', { value: w.path, key: w.id }, w.title + ' · ' + w.path)))),
-              button('folder', '绑定所选工作区', () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path, className: 'pa24-primary' }),
-              h('div', { className: 'pa24-helper' }, '当前目录', h('p', { className: 'pa24-meta' }, workspace ? workspace.path : '未绑定'))),
+              button('folder', L('绑定所选工作区', 'Bind selected workspace'), () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path, className: 'pa24-primary' }),
+              h('div', { className: 'pa24-helper' }, L('当前目录', 'Current directory'), h('p', { className: 'pa24-meta' }, workspace ? workspace.path : L('未绑定', 'Not bound')))),
             h('section', { className: 'pa24-card' },
-              sectionHead('code', '当前生效配置', '配置源是工作区 AGENTS.md；凭据值由服务器环境或 CLI 授权保存。',
+              sectionHead('code', L('当前生效配置', 'Effective configuration'), L('配置源是工作区 AGENTS.md；凭据值由服务器环境或 CLI 授权保存。', 'The source is the workspace AGENTS.md; secret values live in the server environment or CLI auth.'),
                 h('div', { className: 'pa24-row' },
-                  button('chat', '通过对话修改配置', openRobot),
-                  button('refresh', '重载 AGENTS.md', () => rpc('action', { type: 'workspace.reload' }), { className: 'pa24-quiet' })), 'blue'),
+                  button('chat', L('通过对话修改配置', 'Change config in chat'), openRobot),
+                  button('refresh', L('重载 AGENTS.md', 'Reload AGENTS.md'), () => rpc('action', { type: 'workspace.reload' }), { className: 'pa24-quiet' })), 'blue'),
               workspace && fields([
-                ['固定飞书 profile', config ? config.larkProfile : null],
-                ['时区', config ? config.timeZone : null],
-                ['同时处理数', config ? config.maxWorkers : null],
-                ['已启用 Worker', enabledNames],
-                ['飞书接入会话', workspace.accessSessionId || '未建立'],
-                ['本地助理会话', workspace.localSessionId || '未建立'],
+                [L('固定飞书 profile', 'Feishu CLI profile'), config ? config.larkProfile : null],
+                [L('时区', 'Time zone'), config ? config.timeZone : null],
+                [L('同时处理数', 'Parallel workers'), config ? config.maxWorkers : null],
+                [L('已启用 Worker', 'Enabled workers'), enabledNames],
+                [L('飞书接入会话', 'Feishu access session'), workspace.accessSessionId || L('未建立', 'Not created')],
+                [L('本地助理会话', 'Local assistant session'), workspace.localSessionId || L('未建立', 'Not created')],
               ]),
-              workspace && workspace.configError && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, '当前生效配置保留上一有效版本'), h('p', null, workspace.configError)),
-              h('details', null, h('summary', null, '查看完整配置 JSON'), h('pre', null, JSON.stringify(config, null, 2)))));
+              workspace && workspace.configError && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, L('当前生效配置保留上一有效版本', 'Keeping the last valid configuration')), h('p', null, workspace.configError)),
+              h('details', null, h('summary', null, L('查看完整配置 JSON', 'View full configuration JSON')), h('pre', null, JSON.stringify(config, null, 2)))));
         }
 
         function HealthBlock() {
@@ -268,19 +285,19 @@ window.__ModuleLoader__.load({
           const badgeOfCap = c => statusBadge(['ok', 'warn', 'error'].includes(c.state) ? c.state : 'unchecked');
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           return h('section', null,
-            sectionHead('pulse', '健康与预算', '能力可用性、同步新鲜度与本 Host 的投入统计；凭据不进入诊断。',
-              h('div', { className: 'pa24-row' }, button('refresh', view.status === 'idle' ? '读取健康状态' : '刷新', load, { disabled: view.status === 'loading', className: 'pa24-quiet' })), 'blue'),
-            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), '正在读取健康状态…'),
-            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, '健康状态读取失败')), h('p', null, view.error), button('refresh', '重试', load)),
+            sectionHead('pulse', L('健康与预算', 'Health & budget'), L('能力可用性、同步新鲜度与本 Host 的投入统计；凭据不进入诊断。', 'Capability availability, sync freshness, and this host’s usage; secrets never enter diagnostics.'),
+              h('div', { className: 'pa24-row' }, button('refresh', view.status === 'idle' ? L('读取健康状态', 'Read health status') : L('刷新', 'Refresh'), load, { disabled: view.status === 'loading', className: 'pa24-quiet' })), 'blue'),
+            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取健康状态…', 'Reading health status…')),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('健康状态读取失败', 'Failed to read health status'))), h('p', null, view.error), button('refresh', L('重试', 'Retry'), load)),
             view.status === 'ready' && h('div', { className: 'pa24-card' },
               h('div', { className: 'pa24-ready' }, (view.data.capabilities ?? []).map(c => h('div', { key: c.id, className: 'pa24-ready-item pa24-tone-' + (c.state === 'ok' ? 'blue' : c.state === 'warn' ? 'amber' : 'danger') }, icon(c.state === 'ok' ? 'check' : 'alert', { width: 17, height: 17 }), h('div', null, h('div', { className: 'pa24-row pa24-between' }, h('strong', null, c.id), badgeOfCap(c)), h('p', { className: 'pa24-meta' }, c.message))))),
               view.data.usage && h('div', { style: { marginTop: 14 } }, fields([
-                ['模型轮次', view.data.usage.modelTurns], ['输入笔记页', view.data.usage.notePagesInput], ['生成裁片', view.data.usage.noteCrops],
-                ['发送队列', view.data.usage.outboxQueued], ['结果未知', (view.data.usage.outboxUnknown ?? 0) + (view.data.usage.operationsUnknown ?? 0)],
-                ['发送延迟 p50/p95', (view.data.usage.outboxLatencyMs?.p50 ?? '—') + ' / ' + (view.data.usage.outboxLatencyMs?.p95 ?? '—') + ' ms'],
+                [L('模型轮次', 'Model turns'), view.data.usage.modelTurns], [L('输入笔记页', 'Note pages in'), view.data.usage.notePagesInput], [L('生成裁片', 'Crops generated'), view.data.usage.noteCrops],
+                [L('发送队列', 'Outbox queued'), view.data.usage.outboxQueued], [L('结果未知', 'Unknown results'), (view.data.usage.outboxUnknown ?? 0) + (view.data.usage.operationsUnknown ?? 0)],
+                [L('发送延迟 p50/p95', 'Outbox latency p50/p95'), (view.data.usage.outboxLatencyMs?.p50 ?? '—') + ' / ' + (view.data.usage.outboxLatencyMs?.p95 ?? '—') + ' ms'],
               ]), h('p', { className: 'pa24-meta' }, view.data.usage.note)),
-              view.data.dataFlow && h('details', null, h('summary', null, '数据流与保留披露'), fields([
-                ['模型输入', view.data.dataFlow.modelInput], ['额外日志', view.data.dataFlow.extraLogs], ['保留期限', view.data.dataFlow.retention], ['凭据', view.data.dataFlow.secrets],
+              view.data.dataFlow && h('details', null, h('summary', null, L('数据流与保留披露', 'Data flow & retention')), fields([
+                [L('模型输入', 'Model input'), view.data.dataFlow.modelInput], [L('额外日志', 'Extra logs'), view.data.dataFlow.extraLogs], [L('保留期限', 'Retention'), view.data.dataFlow.retention], [L('凭据', 'Secrets'), view.data.dataFlow.secrets],
               ])),
               view.data.degraded && h('div', { className: 'pa24-example' }, icon('info', { width: 16, height: 16 }), view.data.degraded.modelDown + ' ' + view.data.degraded.pgDown)));
         }
@@ -344,35 +361,35 @@ window.__ModuleLoader__.load({
         function WorkDetail({ state, button, busy, workspace, openRobot }) {
           const items = state.work || [];
           const active = items.filter(j => ['accepted', 'queued', 'running'].includes(j.status));
-          const roleNames = { memo: '备忘整理' };
+          const roleNames = { memo: L('备忘整理', 'Memo worker') };
           const stats = [
-            ['pulse', 'blue', '正在处理', active.length, '含排队事项'],
-            ['check', 'blue', '已完成', items.filter(j => j.status === 'completed').length, '历史事项'],
-            ['note', 'neutral', '备忘已保存', (state.memos ?? items.filter(j => j.role === 'memo' && j.status === 'completed')).length, '随手记与资料'],
+            ['pulse', 'blue', L('正在处理', 'In progress'), active.length, L('含排队事项', 'incl. queued')],
+            ['check', 'blue', L('已完成', 'Completed'), items.filter(j => j.status === 'completed').length, L('历史事项', 'past items')],
+            ['note', 'neutral', L('备忘已保存', 'Memos saved'), (state.memos ?? items.filter(j => j.role === 'memo' && j.status === 'completed')).length, L('随手记与资料', 'quick notes & material')],
           ];
           const jobCards = items.length
             ? items.map(j => h('article', { className: 'pa24-job', key: j.id },
                 h('div', { className: 'pa24-row pa24-between' }, h('h3', null, j.title), badgeOf(j.status)),
-                h('p', { className: 'pa24-meta' }, (j.origin === 'local' ? 'dsh 会话' : '飞书') + ' · ' + (roleNames[j.role] || j.role)),
+                h('p', { className: 'pa24-meta' }, (j.origin === 'local' ? L('dsh 会话', 'dsh session') : L('飞书', 'Feishu')) + ' · ' + (roleNames[j.role] || j.role)),
                 j.progress && h('p', { className: 'pa24-note' }, j.progress),
-                j.result && h('details', null, h('summary', null, '查看处理结果'), h('div', { className: 'pa24-note' }, j.result)),
-                j.child_session_id && button('external', '查看 Worker 会话', () => ctx.uiWorkspace.openSession({ childSessionId: j.child_session_id, parentSessionId: j.parent_session_id, mode: 'continuable' }), { className: 'pa24-quiet' }),
-                h('p', { className: 'pa24-meta' }, '事项编号：' + j.id)))
+                j.result && h('details', null, h('summary', null, L('查看处理结果', 'View result')), h('div', { className: 'pa24-note' }, j.result)),
+                j.child_session_id && button('external', L('查看 Worker 会话', 'Open worker session'), () => ctx.uiWorkspace.openSession({ childSessionId: j.child_session_id, parentSessionId: j.parent_session_id, mode: 'continuable' }), { className: 'pa24-quiet' }),
+                h('p', { className: 'pa24-meta' }, L('事项编号：' + j.id, 'Item ' + j.id))))
             : [h(React.Fragment, { key: 'empty' },
-                empty('chat', 'blue', '下一件事，交给24私助', '在飞书或这里发一段话，机器人会安排合适的 Worker，并把进度与结果带回来。',
-                  [button('chat', '与24私助对话', openRobot, { key: 'chat', className: 'pa24-primary', disabled: busy || !workspace })]),
-                h('div', { className: 'pa24-example' }, icon('info', { width: 16, height: 16 }), '可以说：“记一下：下周讨论新的合作方向。”'))];
+                empty('chat', 'blue', L('下一件事，交给24私助', 'Hand the next thing to 24PA'), L('在飞书或这里发一段话，机器人会安排合适的 Worker，并把进度与结果带回来。', 'Send a message here or on Feishu; the bot picks the right worker and brings back progress and results.'),
+                  [button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { key: 'chat', className: 'pa24-primary', disabled: busy || !workspace })]),
+                h('div', { className: 'pa24-example' }, icon('info', { width: 16, height: 16 }), L('可以说：“记一下：下周讨论新的合作方向。”', 'Try: “Note: discuss the new partnership direction next week.”')))];
           return h('div', null,
             h('div', { className: 'pa24-stats' },
               stats.map(([name, tone, label, value, hint]) =>
                 h('div', { key: label, className: 'pa24-stat' }, tile(name, tone), h('div', null, h('div', { className: 'pa24-stat-label' }, label), h('strong', null, value), h('small', null, hint))))),
-            h('section', { className: 'pa24-card' }, sectionHead('tasks', '正在办理的事项', '委托、进度与结果，在这里一目了然。'), jobCards));
+            h('section', { className: 'pa24-card' }, sectionHead('tasks', L('正在办理的事项', 'Items in flight'), L('委托、进度与结果，在这里一目了然。', 'Delegations, progress, and results at a glance.')), jobCards));
         }
 
         // 二级详情：运行就绪（原 work tab 区块移入系统维护分类）。
         function ReadinessDetail({ state }) {
           const readyItems = (state.readiness?.items || []).map(item => {
-            const labels = { host: '宿主', config: '配置', postgres: '业务账本', workspace: '工作区', feishu: '飞书接入', sessions: '固定会话' };
+            const labels = { host: L('宿主', 'Host'), config: L('配置', 'Config'), postgres: L('业务账本', 'Ledger'), workspace: L('工作区', 'Workspace'), feishu: L('飞书接入', 'Feishu access'), sessions: L('固定会话', 'Fixed sessions') };
             const tier = item.state === 'ok' ? 'ok' : item.state === 'error' ? 'error' : 'warn';
             return h('div', { key: item.id, className: 'pa24-ready-item pa24-tone-' + STATUS[tier][1] },
               icon(STATUS[tier][2], { width: 17, height: 17 }),
@@ -380,7 +397,7 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'pa24-row pa24-between' }, h('strong', null, labels[item.id] || item.id), statusBadge(tier)),
                 h('p', { className: 'pa24-meta' }, item.message)));
           });
-          return h('section', { className: 'pa24-card' }, sectionHead('pulse', '运行就绪', '配置、账本与接入的真实状态；不把进程在线当作全部就绪。'),
+          return h('section', { className: 'pa24-card' }, sectionHead('pulse', L('运行就绪', 'Readiness'), L('配置、账本与接入的真实状态；不把进程在线当作全部就绪。', 'Real state of config, ledger, and access; process-up alone does not mean ready.')),
             h('div', { className: 'pa24-ready' }, readyItems));
         }
 
@@ -393,56 +410,56 @@ window.__ModuleLoader__.load({
           const diagnosis = (item, configured = true) => !item
             ? statusBadge(configured ? 'unchecked' : 'missing')
             : statusBadge(item.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(item.state) ? 'error' : item.state === 'missing' ? 'missing' : 'warn');
-          const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + ' 条';
-          const resourceRows = [['folder', '文档目录', config ? config.folderToken : null, 'folder'], ['tasklist', '任务清单', config ? config.tasklistId : null, 'tasks'], ['calendar', '本人日历', config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
+          const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + L(' 条', ' pending');
+          const resourceRows = [['folder', L('文档目录', 'Docs folder'), config ? config.folderToken : null, 'folder'], ['tasklist', L('任务清单', 'Task list'), config ? config.tasklistId : null, 'tasks'], ['calendar', L('本人日历', 'Owner calendar'), config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
             const resource = check && check.resources ? check.resources.find(r => r.id === id) : null;
             return h('div', { key: id, className: 'pa24-resource' },
               h('div', { className: 'pa24-row' },
-                h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, label), h('p', null, value || '尚未配置')),
+                h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, label), h('p', null, value || L('尚未配置', 'Not configured yet'))),
                 diagnosis(resource, !!value)),
               resource ? h('p', null, resource.message) : null);
           });
           return h('div', { className: 'pa24-grid' },
             h('section', { className: 'pa24-card' },
-              sectionHead('plug', '飞书接入', '用自然语言配置，在这里查阅接入情况。',
+              sectionHead('plug', L('飞书接入', 'Feishu access'), L('用自然语言配置，在这里查阅接入情况。', 'Configure in natural language; review the access state here.'),
                 h('div', { className: 'pa24-row' },
-                  button('refresh', busy ? '检查中…' : '检查接入状态', () => rpc('action', { type: 'connection.check' })),
-                  button('chat', '通过对话配置', openRobot)), 'blue'),
+                  button('refresh', busy ? L('检查中…', 'Checking…') : L('检查接入状态', 'Check access'), () => rpc('action', { type: 'connection.check' })),
+                  button('chat', L('通过对话配置', 'Configure in chat'), openRobot)), 'blue'),
               fields([
-                ['固定 CLI profile', badge(config ? config.larkProfile : '未配置', 'neutral')],
-                ['接入模式', config && config.mode === 'feishu' ? '飞书模式' : '体验模式 · 未连接飞书'],
-                ['上次检查', check ? date(check.checkedAt, tz) : '尚未检查，点击右上方按钮开始'],
+                [L('固定 CLI profile', 'Feishu CLI profile'), badge(config ? config.larkProfile : L('未配置', 'Not configured'), 'neutral')],
+                [L('接入模式', 'Mode'), config && config.mode === 'feishu' ? L('飞书模式', 'Feishu mode') : L('体验模式 · 未连接飞书', 'Demo · not connected to Feishu')],
+                [L('上次检查', 'Last check'), check ? date(check.checkedAt, tz) : L('尚未检查，点击右上方按钮开始', 'Not checked yet — click the button above to start')],
               ]),
-              h('div', { className: 'pa24-helper' }, '可以说：“检查飞书接入，告诉我还缺什么。” 检查只读取，不创建飞书对象。')),
+              h('div', { className: 'pa24-helper' }, L('可以说：“检查飞书接入，告诉我还缺什么。” 检查只读取，不创建飞书对象。', 'Try: “Check the Feishu access and tell me what is missing.” Checks are read-only and create no Feishu objects.'))),
             h('section', { className: 'pa24-card' },
-              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, '机器人连接'), badge(state.transport && state.transport.connected ? '长连接已启动' : '未启动', state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
+              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('机器人连接', 'Bot connection')), badge(state.transport && state.transport.connected ? L('长连接已启动', 'Connected') : L('未启动', 'Not started'), state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
               fields([
-                ['连接状态', (state.transport && state.transport.message) || (state.transport && state.transport.connected ? '长连接运行中（无报错）' : '未启动')],
-                ['最近收到本人消息', date(state.transport ? state.transport.lastReceivedAt : null, tz)],
-                ['最近发送获平台确认', date(state.transport ? state.transport.lastSentAt : null, tz)],
-                ['待发消息', pendingOutbox],
+                [L('连接状态', 'Connection'), (state.transport && state.transport.message) || (state.transport && state.transport.connected ? L('长连接运行中（无报错）', 'Running (no errors)') : L('未启动', 'Not started'))],
+                [L('最近收到本人消息', 'Last owner message in'), date(state.transport ? state.transport.lastReceivedAt : null, tz)],
+                [L('最近发送获平台确认', 'Last send acknowledged'), date(state.transport ? state.transport.lastSentAt : null, tz)],
+                [L('待发消息', 'Outbox pending'), pendingOutbox],
               ]),
-              h('p', { className: 'pa24-helper' }, '建议在飞书发一条 /24pa 实测收发；连接正常不代表消息一定送达，发送后以收发记录为准。')),
+              h('p', { className: 'pa24-helper' }, L('建议在飞书发一条 /24pa 实测收发；连接正常不代表消息一定送达，发送后以收发记录为准。', 'Send /24pa on Feishu to verify both directions; a healthy connection does not guarantee delivery — trust the send log.'))),
             h('section', { className: 'pa24-card' },
-              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与用户授权'), diagnosis(auth)),
+              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与用户授权', 'CLI & user auth')), diagnosis(auth)),
               fields([
-                ['安装状态', cli ? cli.message : '尚未检查'],
-                ['CLI 版本', cli ? cli.version : '尚未检查'],
-                ['用户授权', auth ? auth.message : '尚未检查'],
-                ['CLI 用户', auth ? auth.userName : '尚未取得'],
-                ['用户令牌', auth ? auth.tokenStatus : '尚未确认'],
+                [L('安装状态', 'Install'), cli ? cli.message : L('尚未检查', 'Not checked')],
+                [L('CLI 版本', 'CLI version'), cli ? cli.version : L('尚未检查', 'Not checked')],
+                [L('用户授权', 'User auth'), auth ? auth.message : L('尚未检查', 'Not checked')],
+                [L('CLI 用户', 'CLI user'), auth ? auth.userName : L('尚未取得', 'Not acquired')],
+                [L('用户令牌', 'User token'), auth ? auth.tokenStatus : L('尚未确认', 'Unconfirmed')],
               ]),
-              h('details', null, h('summary', null, '路径与身份明细'),
+              h('details', null, h('summary', null, L('路径与身份明细', 'Path & identity details')),
                 fields([
-                  ['CLI 路径', cli ? h('span', { className: 'pa24-ellip', title: cli.path }, cli.path) : '尚未检查'],
-                  ['CLI open_id', auth ? h('span', { className: 'pa24-ellip', title: auth.openId }, auth.openId) : '尚未取得'],
-                  ['配置主人', config ? h('span', { className: 'pa24-ellip', title: config.ownerOpenId }, config.ownerOpenId) : '未配置'],
+                  [L('CLI 路径', 'CLI path'), cli ? h('span', { className: 'pa24-ellip', title: cli.path }, cli.path) : L('尚未检查', 'Not checked')],
+                  [L('CLI open_id', 'CLI open_id'), auth ? h('span', { className: 'pa24-ellip', title: auth.openId }, auth.openId) : L('尚未取得', 'Not acquired')],
+                  [L('配置主人', 'Configured owner'), config ? h('span', { className: 'pa24-ellip', title: config.ownerOpenId }, config.ownerOpenId) : L('未配置', 'Not configured')],
                 ]))),
             h('section', { className: 'pa24-card' },
-              sectionHead('folder', '使用的飞书资源', '检查结果仅代表可读性；写入由实际任务回执验证。'),
+              sectionHead('folder', L('使用的飞书资源', 'Feishu resources in use'), L('检查结果仅代表可读性；写入由实际任务回执验证。', 'Checks prove readability only; writes are verified by real task receipts.')),
               resourceRows,
-              h('details', null, h('summary', null, '配置来源与生效时间'),
-                fields([['配置来源', (workspace ? workspace.path : '') + '/AGENTS.md'], ['生效时间', date(workspace ? workspace.loadedAt : null, tz)], ['文件与生效版本', check && check.source ? check.source.message : '尚未检查']]))));
+              h('details', null, h('summary', null, L('配置来源与生效时间', 'Source & effective time')),
+                fields([[L('配置来源', 'Source'), (workspace ? workspace.path : '') + '/AGENTS.md'], [L('生效时间', 'Effective at'), date(workspace ? workspace.loadedAt : null, tz)], [L('文件与生效版本', 'File vs. effective version'), check && check.source ? check.source.message : L('尚未检查', 'Not checked')]]))));
         }
 
         // 二级详情：QwenNote 听记（F18 WP3 的面板落点，状态来自维护健康）。
@@ -451,75 +468,75 @@ window.__ModuleLoader__.load({
           const cap = extraToolCap(extra);
           const configured = qwennoteConfigured(config);
           return h('div', null,
-            sectionHead('note', 'QwenNote 听记', '录音卡转写/纪要/速记经 mcp__qwennote__* 工具进入本地24私助会话（仅本地会话；飞书入口与 Worker 不放行）。',
-              h('div', { className: 'pa24-row' }, button('chat', '通过对话配置', openRobot)), 'amber'),
+            sectionHead('note', L('QwenNote 听记', 'QwenNote minutes'), L('录音卡转写/纪要/速记经 mcp__qwennote__* 工具进入本地24私助会话（仅本地会话；飞书入口与 Worker 不放行）。', 'Recorder transcripts, minutes, and quick notes reach the local 24PA session via mcp__qwennote__* tools (local session only; the Feishu entry and workers stay excluded).'),
+              h('div', { className: 'pa24-row' }, button('chat', L('通过对话配置', 'Configure in chat'), openRobot)), 'amber'),
             h('section', { className: 'pa24-card' },
               fields([
-                ['工作区放行', configured ? (config.extraLocalTools || []).join('、') : '未配置（AGENTS.md 的 extraLocalTools）'],
-                ['通道健康', cap ? cap.message : '尚无健康结论；在系统维护读取健康状态后显示'],
-                ['工具状态', cap ? statusBadge(['ok', 'warn', 'error'].includes(cap.state) ? cap.state : 'unchecked') : statusBadge('unchecked')],
+                [L('工作区放行', 'Workspace allowance'), configured ? (config.extraLocalTools || []).join(L('、', ', ')) : L('未配置（AGENTS.md 的 extraLocalTools）', 'Not configured (extraLocalTools in AGENTS.md)')],
+                [L('通道健康', 'Channel health'), cap ? cap.message : L('尚无健康结论；在系统维护读取健康状态后显示', 'No health verdict yet — shows after reading health under System Maintenance')],
+                [L('工具状态', 'Tool status'), cap ? statusBadge(['ok', 'warn', 'error'].includes(cap.state) ? cap.state : 'unchecked') : statusBadge('unchecked')],
               ]),
-              nextStrip('首次接入：profile 配置 dsh-mcp-client 条目（serverName qwennote）→ 本人浏览器完成一次授权 → AGENTS.md 的 extraLocalTools 放行 mcp__qwennote__*。'),
-              h('div', { className: 'pa24-helper' }, '听记是按需读取的外部资料，不落业务账本；从中提炼的候选行动走既有审核与行动授权，不因来源是听记跳过确认。')));
+              nextStrip(L('首次接入：profile 配置 dsh-mcp-client 条目（serverName qwennote）→ 本人浏览器完成一次授权 → AGENTS.md 的 extraLocalTools 放行 mcp__qwennote__*。', 'First-time setup: add the dsh-mcp-client entry (serverName qwennote) to the profile → authorize once from your browser → allow mcp__qwennote__* via extraLocalTools in AGENTS.md.')),
+              h('div', { className: 'pa24-helper' }, L('听记是按需读取的外部资料，不落业务账本；从中提炼的候选行动走既有审核与行动授权，不因来源是听记跳过确认。', 'Minutes are external material read on demand and never land in the ledger; candidate actions go through the existing review and action authorization — the source never skips confirmation.'))));
         }
 
         // 卡片注册表：tier 为纯函数（角标聚合复用同一结果）；label 可覆盖状态词。
         const CARDS = [
           {
-            id: 'work', cat: 'biz', tone: 'blue', icon: 'grid', title: '事项', sub: '进行中的委派与等待', action: '查看事项',
+            id: 'work', cat: 'biz', tone: 'blue', icon: 'grid', title: ['事项', 'Items'], sub: ['进行中的委派与等待', 'Delegations in flight and waiting'], action: ['查看事项', 'Open items'],
             tier: ({ state }) => (state.work || []).some(j => j.status === 'failed') ? 'warn' : 'ok',
             body: ({ state }) => {
               const items = state.work || [];
               return capKpi([
-                [String(items.filter(j => ['accepted', 'queued', 'running'].includes(j.status)).length), '进行中'],
-                [String(items.filter(j => j.status === 'waiting_input').length), '等待本人'],
-                [String(items.filter(j => j.status === 'failed').length), '未完成'],
+                [String(items.filter(j => ['accepted', 'queued', 'running'].includes(j.status)).length), L('进行中', 'Active')],
+                [String(items.filter(j => j.status === 'waiting_input').length), L('等待本人', 'Waiting on you')],
+                [String(items.filter(j => j.status === 'failed').length), L('未完成', 'Failed')],
               ]);
             },
             detail: helpers => h(WorkDetail, helpers),
           },
           {
-            id: 'reminders', cat: 'biz', tone: 'amber', icon: 'clock', title: '提醒', sub: '账本触发 · 模型离线仍送达', action: '管理提醒',
+            id: 'reminders', cat: 'biz', tone: 'amber', icon: 'clock', title: ['提醒', 'Reminders'], sub: ['账本触发 · 模型离线仍送达', 'Ledger-fired · delivered even with the model offline'], action: ['管理提醒', 'Manage reminders'],
             tier: ({ state }) => ((state.outbox || []).some(o => o.status === 'unknown') ? 'warn' : 'ok'),
             body: ({ state, config }) => {
               const pending = (state.outbox || []).filter(o => ['pending', 'sending'].includes(o.status)).length;
-              return h('div', null, capLine('待发', pending + ' 条'), capLine('投递出口', config && config.notifyChannel === 'wecom' ? '企微推送' : '飞书'));
+              return h('div', null, capLine(L('待发', 'Pending'), pending + L(' 条', '')), capLine(L('投递出口', 'Delivery'), config && config.notifyChannel === 'wecom' ? L('企微推送', 'WeCom push') : L('飞书', 'Feishu')));
             },
-            detail: helpers => empty('clock', 'amber', '提醒经对话管理', '设置、稍后、暂停与休假都通过24私助会话办理；提醒由账本触发，模型离线也能按时送达。',
-              [helpers.button('chat', '与24私助对话', helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
+            detail: helpers => empty('clock', 'amber', L('提醒经对话管理', 'Reminders are managed in chat'), L('设置、稍后、暂停与休假都通过24私助会话办理；提醒由账本触发，模型离线也能按时送达。', 'Snooze, pause, and vacation are all handled in the 24PA session; the ledger fires reminders on time even with the model offline.'),
+              [helpers.button('chat', L('与24私助对话', 'Chat with 24PA'), helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
           },
           {
-            id: 'review', cat: 'biz', tone: 'danger', icon: 'pen', title: '手写审核', sub: '待审文档与版本核验', action: '打开审核',
+            id: 'review', cat: 'biz', tone: 'danger', icon: 'pen', title: ['手写审核', 'Handwriting review'], sub: ['待审文档与版本核验', 'Pending versions & verification'], action: ['打开审核', 'Open review'],
             tier: ({ extra }) => (extra.review ? (extra.review.count > 0 ? 'warn' : 'ok') : 'unchecked'),
-            label: ({ extra }) => (extra.review && extra.review.count > 0 ? '待审 ' + extra.review.count : null),
+            label: ({ extra }) => (extra.review && extra.review.count > 0 ? L('待审 ' + extra.review.count, extra.review.count + ' to review') : null),
             body: ({ extra }) => (extra.review && extra.review.count > 0
-              ? h('div', null, capLine('待审版本', extra.review.count + ' 份'), h('p', { className: 'pa24-meta' }, '批准/退回在飞书审核卡上完成'))
-              : h('p', { className: 'pa24-meta' }, '拍照整理后的待审版本会出现在这里')),
-            detail: helpers => (helpers.workspace ? h(ReviewView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('pen', 'blue', '尚未绑定工作区', '在 dsh 设置的「24私助」分区绑定工作区后，手写审核队列会显示在这里。')),
+              ? h('div', null, capLine(L('待审版本', 'Awaiting review'), extra.review.count + L(' 份', '')), h('p', { className: 'pa24-meta' }, L('批准/退回在飞书审核卡上完成', 'Approve/return happens on the Feishu review card')))
+              : h('p', { className: 'pa24-meta' }, L('拍照整理后的待审版本会出现在这里', 'Pending versions from photographed notes appear here'))),
+            detail: helpers => (helpers.workspace ? h(ReviewView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('pen', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在 dsh 设置的「24私助」分区绑定工作区后，手写审核队列会显示在这里。', 'Bind a workspace in the dsh settings “24PA” section and the review queue will show up here.'))),
           },
           {
-            id: 'memory', cat: 'biz', tone: 'violet', icon: 'memory', title: '结构化记忆', sub: '偏好 · 事实 · 项目背景', action: '检索记忆',
+            id: 'memory', cat: 'biz', tone: 'violet', icon: 'memory', title: ['结构化记忆', 'Structured memory'], sub: ['偏好 · 事实 · 项目背景', 'Preferences · facts · project background'], action: ['检索记忆', 'Search memories'],
             tier: ({ state }) => (state.workspace ? 'ok' : 'missing'),
-            body: ({ extra }) => (extra.memory ? capLine('已保存', extra.memory.total + ' 条') : h('p', { className: 'pa24-meta' }, '读取中…')),
-            detail: helpers => (helpers.workspace ? h(MemoryView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('memory', 'violet', '尚未绑定工作区', '绑定工作区后，记忆会按确认状态显示在这里。')),
+            body: ({ extra }) => (extra.memory ? capLine(L('已保存', 'Stored'), extra.memory.total + L(' 条', '')) : h('p', { className: 'pa24-meta' }, L('读取中…', 'Loading…'))),
+            detail: helpers => (helpers.workspace ? h(MemoryView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('memory', 'violet', L('尚未绑定工作区', 'No workspace bound'), L('绑定工作区后，记忆会按确认状态显示在这里。', 'Once a workspace is bound, memories show up here with their confirmation status.'))),
           },
           {
-            id: 'digest', cat: 'biz', tone: 'green', icon: 'pulse', title: '晨报与复盘', sub: '周期服务 · 原生 Schedule 唤醒', action: '调整计划',
-            tier: () => 'unchecked', label: () => '对话管理',
-            body: () => h('p', { className: 'pa24-meta' }, '晨报/晚间/每周回顾计划经24私助会话开启与调整'),
-            detail: helpers => empty('pulse', 'green', '周期服务经对话管理', '对24私助说「开启晨报」或「调整每周回顾时间」即可；到点由原生 Schedule 唤醒后投递。',
-              [helpers.button('chat', '与24私助对话', helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
+            id: 'digest', cat: 'biz', tone: 'green', icon: 'pulse', title: ['晨报与复盘', 'Digest & retrospective'], sub: ['周期服务 · 原生 Schedule 唤醒', 'Scheduled services · native Schedule wake'], action: ['调整计划', 'Adjust plans'],
+            tier: () => 'unchecked', label: () => L('对话管理', 'Managed in chat'),
+            body: () => h('p', { className: 'pa24-meta' }, L('晨报/晚间/每周回顾计划经24私助会话开启与调整', 'Morning/evening/weekly digest plans are enabled and adjusted in the 24PA session')),
+            detail: helpers => empty('pulse', 'green', L('周期服务经对话管理', 'Scheduled services are managed in chat'), L('对24私助说「开启晨报」或「调整每周回顾时间」即可；到点由原生 Schedule 唤醒后投递。', 'Say “enable the morning digest” or “move the weekly retrospective” — the native Schedule wakes and delivers on time.'),
+              [helpers.button('chat', L('与24私助对话', 'Chat with 24PA'), helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
           },
           {
-            id: 'feishu', cat: 'access', tone: 'green', icon: 'plug', title: '飞书', sub: '唯一收信入口 · 发件与审核卡', action: '接入详情',
+            id: 'feishu', cat: 'access', tone: 'green', icon: 'plug', title: ['飞书', 'Feishu'], sub: ['唯一收信入口 · 发件与审核卡', 'The only inbound · outbound & review cards'], action: ['接入详情', 'Access details'],
             tier: ({ state, config }) => (state.transport && state.transport.connected ? 'ok' : config && config.mode === 'feishu' ? 'warn' : 'unchecked'),
             body: ({ state }) => h('div', null,
-              capLine('消息通道', state.transport && state.transport.connected ? '长连接已启动' : '未启动'),
-              capLine('CLI 授权', state.diagnostics && state.diagnostics.auth ? (state.diagnostics.auth.state === 'ok' ? '有效' : state.diagnostics.auth.message) : '尚未检查')),
+              capLine(L('消息通道', 'Messaging'), state.transport && state.transport.connected ? L('长连接已启动', 'Connected') : L('未启动', 'Not started')),
+              capLine(L('CLI 授权', 'CLI auth'), state.diagnostics && state.diagnostics.auth ? (state.diagnostics.auth.state === 'ok' ? L('有效', 'Valid') : state.diagnostics.auth.message) : L('尚未检查', 'Not checked'))),
             detail: helpers => h(FeishuDetail, helpers),
           },
           {
-            id: 'wecom', cat: 'access', tone: 'amber', icon: 'bot', title: '企业微信', sub: '日程/待办第二渠道 · 单向推送', action: '接入详情',
+            id: 'wecom', cat: 'access', tone: 'amber', icon: 'bot', title: ['企业微信', 'WeCom'], sub: ['日程/待办第二渠道 · 单向推送', 'Second channel for calendar/todo · one-way push'], action: ['接入详情', 'Access details'],
             tier: ({ state }) => {
               const config = state.workspace ? state.workspace.config : null;
               if (!wecomTier(config) || !state.wecom) return 'unchecked';
@@ -531,67 +548,68 @@ window.__ModuleLoader__.load({
             label: ({ state }) => {
               const services = state.wecom ? state.wecom.services || [] : [];
               const bad = services.find(s => ['unauthorized', 'expired'].includes(s.state));
-              return bad ? (bad.state === 'expired' ? '已过期' : '未授权') : null;
+              return bad ? (bad.state === 'expired' ? L('已过期', 'Expired') : L('未授权', 'Unauthorized')) : null;
             },
             body: ({ state, config }) => h('div', null,
-                capLine('启用渠道', wecomChannelsOn(config) ? '已启用' : '未启用'),
-                capLine('上次检查', state.wecom ? date(state.wecom.checkedAt, config ? config.timeZone : 'Asia/Shanghai') : '尚未检查')),
+                capLine(L('启用渠道', 'Channels'), wecomChannelsOn(config) ? L('已启用', 'Enabled') : L('未启用', 'Not enabled')),
+                capLine(L('上次检查', 'Last check'), state.wecom ? date(state.wecom.checkedAt, config ? config.timeZone : 'Asia/Shanghai') : L('尚未检查', 'Not checked'))),
             detail: helpers => h(WecomView, helpers),
           },
           {
-            id: 'qwennote', cat: 'access', tone: 'amber', icon: 'note', title: 'QwenNote 听记', sub: '录音卡转写 · 纪要 · 速记', action: '接入详情',
+            id: 'qwennote', cat: 'access', tone: 'amber', icon: 'note', title: ['QwenNote 听记', 'QwenNote minutes'], sub: ['录音卡转写 · 纪要 · 速记', 'Recorder transcripts · minutes · quick notes'], action: ['接入详情', 'Access details'],
             tier: ({ state, extra }) => {
               if (!qwennoteConfigured(state.workspace ? state.workspace.config : null)) return 'missing';
               const cap = extraToolCap(extra);
               if (!cap) return 'unchecked';
               return ['ok', 'warn', 'error'].includes(cap.state) ? cap.state : 'unchecked';
             },
-            label: ({ state }) => (qwennoteConfigured(state.workspace ? state.workspace.config : null) ? null : '待配置'),
+            label: ({ state }) => (qwennoteConfigured(state.workspace ? state.workspace.config : null) ? null : L('待配置', 'Not configured')),
             body: ({ extra }) => {
               const cap = extraToolCap(extra);
               return h('div', null,
-                capLine('放行结论', cap ? cap.message : '尚未检查'),
-                nextStrip('首次接入需本人浏览器完成一次授权；完成后本卡转「正常」。'));
+                capLine(L('放行结论', 'Allowance'), cap ? cap.message : L('尚未检查', 'Not checked')),
+                nextStrip(L('首次接入需本人浏览器完成一次授权；完成后本卡转「正常」。', 'First-time setup needs a one-time authorization from your browser; the card turns OK once it lands.')));
             },
             detail: helpers => h(MinutesDetail, helpers),
           },
           {
-            id: 'wiki', cat: 'access', tone: 'neutral', icon: 'folder', title: '飞书知识库', sub: '备忘/待审文档落库节点', action: '去配置',
-            tier: () => 'missing', label: () => '未配置',
-            body: () => h('p', { className: 'pa24-meta' }, '配置知识库节点后，备忘与手写待审文档直接建入授权知识库（F22 交付后生效）。'),
-            detail: helpers => empty('folder', 'neutral', '知识库落库待配置', '该能力随 F22 交付：届时在工作区配置知识库节点后，这里显示节点与最近落库文档。',
-              [helpers.button('chat', '与24私助对话', helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
+            id: 'wiki', cat: 'access', tone: 'neutral', icon: 'folder', title: ['飞书知识库', 'Feishu wiki'], sub: ['备忘/待审文档落库节点', 'Where memos and pending docs land'], action: ['去配置', 'Configure'],
+            tier: () => 'missing', label: () => L('未配置', 'Not configured'),
+            body: () => h('p', { className: 'pa24-meta' }, L('配置知识库节点后，备忘与手写待审文档直接建入授权知识库（F22 交付后生效）。', 'Once a wiki node is configured, memos and pending docs are created directly in the authorized wiki (ships with F22).')),
+            detail: helpers => empty('folder', 'neutral', L('知识库落库待配置', 'Wiki landing not configured'), L('该能力随 F22 交付：届时在工作区配置知识库节点后，这里显示节点与最近落库文档。', 'Arrives with F22: configure a wiki node in the workspace and this shows the node and recent documents.'),
+              [helpers.button('chat', L('与24私助对话', 'Chat with 24PA'), helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
           },
           {
-            id: 'healthcheck', cat: 'system', tone: 'blue', icon: 'shield', title: '全应用健康检查', sub: '一键全量检查与总体结论', action: '全量报告',
+            id: 'healthcheck', cat: 'system', tone: 'blue', icon: 'shield', title: ['全应用健康检查', 'Full-app health check'], sub: ['一键全量检查与总体结论', 'One-click full check & verdict'], action: ['全量报告', 'Full report'],
             tier: helpers => healthAggregate(helpers).tier,
             body: helpers => {
               const a = healthAggregate(helpers);
               const last = lastActiveCheck(helpers.state);
+              const pending = a.warn + a.error;
               return h('div', null,
-                capKpi([[String(a.ok), '正常'], [String(a.warn), '待核验'], [String(a.error), '需要处理']]),
-                h('p', { className: 'pa24-meta', style: { marginTop: 6 } }, last ? '最近主动检查 ' + date(last.toISOString(), helpers.tz) : '尚未执行主动检查'),
-                (a.warn > 0 || a.error > 0) && nextStrip('有 ' + (a.warn + a.error) + ' 项待核验或需要处理——打开全量报告查看 nextSteps。'));
+                capKpi([[String(a.ok), L('正常', 'OK')], [String(a.warn), L('待核验', 'Needs review')], [String(a.error), L('需要处理', 'Needs attention')]]),
+                h('p', { className: 'pa24-meta', style: { marginTop: 6 } }, last ? L('最近主动检查 ' + date(last.toISOString(), helpers.tz), 'Last active check ' + date(last.toISOString(), helpers.tz)) : L('尚未执行主动检查', 'No active check yet')),
+                pending > 0 && nextStrip(L('有 ' + pending + ' 项待核验或需要处理——打开全量报告查看 nextSteps。', pending + ' item(s) need review or attention — open the full report for next steps.')));
             },
-            quick: helpers => helpers.button('refresh', helpers.busy ? '检查中…' : '一键全量检查', () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy }),
+            quick: helpers => helpers.button('refresh', helpers.busy ? L('检查中…', 'Checking…') : L('一键全量检查', 'Run full check'), () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy }),
             detail: helpers => h(HealthReportDetail, { key: 'healthcheck', helpers }),
           },
           {
-            id: 'storage', cat: 'system', tone: 'blue', icon: 'folder', title: '账本与备份', sub: '业务状态唯一权威', action: '运行就绪',
+            id: 'storage', cat: 'system', tone: 'blue', icon: 'folder', title: ['账本与备份', 'Ledger & backup'], sub: ['业务状态唯一权威', 'The single source of business truth'], action: ['运行就绪', 'Readiness'],
             tier: ({ state }) => readinessTier(state, ['postgres', 'workspace']),
             label: ({ config }) => (config ? (config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite') : null),
             body: ({ state }) => {
               const rows = (state.readiness?.items || []).filter(i => ['postgres', 'workspace'].includes(i.id));
-              return h('div', null, rows.length ? rows.map(r => capLine(r.id === 'postgres' ? '业务账本' : '工作区', r.state === 'ok' ? '正常' : r.message)) : h('p', { className: 'pa24-meta' }, '读取中…'));
+              return h('div', null, rows.length ? rows.map(r => capLine(r.id === 'postgres' ? L('业务账本', 'Ledger') : L('工作区', 'Workspace'), r.state === 'ok' ? L('正常', 'OK') : r.message)) : h('p', { className: 'pa24-meta' }, L('读取中…', 'Loading…')));
             },
             detail: helpers => h(ReadinessDetail, helpers),
           },
           {
-            id: 'budget', cat: 'system', tone: 'green', icon: 'pulse', title: '模型与预算', sub: '路由 · 用量 · 健康判定', action: '健康报告',
+            id: 'budget', cat: 'system', tone: 'green', icon: 'pulse', title: ['模型与预算', 'Models & budget'], sub: ['路由 · 用量 · 健康判定', 'Routing · usage · health verdict'], action: ['健康报告', 'Health report'],
             tier: ({ extra }) => (extra.health ? 'ok' : 'unchecked'),
             body: ({ extra }) => (extra.health && extra.health.usage
-              ? h('div', null, capLine('模型轮次', extra.health.usage.modelTurns ?? '—'), capLine('发送队列', extra.health.usage.outboxQueued ?? '—'))
-              : h('p', { className: 'pa24-meta' }, '读取中…')),
+              ? h('div', null, capLine(L('模型轮次', 'Model turns'), extra.health.usage.modelTurns ?? '—'), capLine(L('发送队列', 'Outbox queued'), extra.health.usage.outboxQueued ?? '—'))
+              : h('p', { className: 'pa24-meta' }, L('读取中…', 'Loading…'))),
             detail: () => h(HealthBlock),
           },
         ];
@@ -602,26 +620,26 @@ window.__ModuleLoader__.load({
           const a = healthAggregate(helpers);
           const last = lastActiveCheck(state);
           return h('div', null,
-            sectionHead('shield', '全应用健康检查', '聚合运行就绪、能力健康与消息通道的总体结论；一键全量检查会对飞书（及启用的企微渠道）发起只读平台探测。',
-              h('div', { className: 'pa24-row' }, helpers.button('refresh', helpers.busy ? '检查中…' : '一键全量检查', () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy, className: 'pa24-primary' })), 'blue'),
+            sectionHead('shield', L('全应用健康检查', 'Full-app health check'), L('聚合运行就绪、能力健康与消息通道的总体结论；一键全量检查会对飞书（及启用的企微渠道）发起只读平台探测。', 'An aggregated verdict over readiness, capability health, and messaging; the one-click full check runs read-only probes against Feishu (and any enabled WeCom channel).'),
+              h('div', { className: 'pa24-row' }, helpers.button('refresh', helpers.busy ? L('检查中…', 'Checking…') : L('一键全量检查', 'Run full check'), () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy, className: 'pa24-primary' })), 'blue'),
             h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-stats' }, [
-                ['check', 'blue', '正常', a.ok, '各域健康'],
-                ['clock', 'amber', '待核验', a.warn, '有 nextSteps'],
-                ['alert', 'danger', '需要处理', a.error, '阻断对应能力'],
+                ['check', 'blue', L('正常', 'OK'), a.ok, L('各域健康', 'healthy domains')],
+                ['clock', 'amber', L('待核验', 'Needs review'), a.warn, L('有 nextSteps', 'has next steps')],
+                ['alert', 'danger', L('需要处理', 'Needs attention'), a.error, L('阻断对应能力', 'blocks its capability')],
               ].map(([name, tone, label, value, hint]) =>
                 h('div', { key: label, className: 'pa24-stat' }, tile(name, tone), h('div', null, h('div', { className: 'pa24-stat-label' }, label), h('strong', null, value), h('small', null, hint))))),
-              h('p', { className: 'pa24-meta' }, last ? '最近主动检查：' + date(last.toISOString(), helpers.tz) : '尚未执行主动检查——点击右上方按钮开始（只读，不创建平台对象）。')),
+              h('p', { className: 'pa24-meta' }, last ? L('最近主动检查：' + date(last.toISOString(), helpers.tz), 'Last active check: ' + date(last.toISOString(), helpers.tz)) : L('尚未执行主动检查——点击右上方按钮开始（只读，不创建平台对象）。', 'No active check yet — click the button above to start (read-only, creates no platform objects).'))),
             h(ReadinessDetail, { state }),
             h(HealthBlock));
         }
 
         function CardShell({ card, tier, label, manage, hidden, onToggleHidden, body, foot }) {
           return h('section', { className: 'pa24-cap pa24-tone-' + card.tone + (hidden ? ' pa24-cap-hidden' : '') },
-            manage && h('button', { type: 'button', className: 'pa24-quiet pa24-cap-hide', 'aria-pressed': hidden ? 'true' : 'false', onClick: onToggleHidden }, hidden ? '显示' : '隐藏'),
+            manage && h('button', { type: 'button', className: 'pa24-quiet pa24-cap-hide', 'aria-pressed': hidden ? 'true' : 'false', onClick: onToggleHidden }, hidden ? L('显示', 'Show') : L('隐藏', 'Hide')),
             h('div', { className: 'pa24-cap-head' },
               tile(card.icon, card.tone),
-              h('div', { className: 'pa24-cap-title' }, h('b', null, card.title), h('small', null, card.sub)),
+              h('div', { className: 'pa24-cap-title' }, h('b', null, L(...card.title)), h('small', null, L(...card.sub))),
               statusBadge(tier, label || undefined)),
             h('div', { className: 'pa24-cap-body' }, body),
             foot && h('div', { className: 'pa24-cap-foot' }, foot));
@@ -638,7 +656,7 @@ window.__ModuleLoader__.load({
               key: card.id, card, tier, label: label || '', manage, hidden: isHidden,
               onToggleHidden: () => toggleHidden(cat, card.id),
               body: card.body(helpers),
-              foot: [...(card.quick ? [card.quick(helpers)] : []), h('button', { key: 'open', type: 'button', onClick: () => openDetail(card.id) }, icon('arrow'), card.action || '查看详情')],
+              foot: [...(card.quick ? [card.quick(helpers)] : []), h('button', { key: 'open', type: 'button', onClick: () => openDetail(card.id) }, icon('arrow'), card.action || L('查看详情', 'Open'))],
             });
           }));
         }
@@ -646,6 +664,8 @@ window.__ModuleLoader__.load({
         function Panel() {
           const [state, setState] = React.useState(null), [connError, setConnError] = React.useState('');
           const [tab, setTab] = React.useState('biz'), [detail, setDetail] = React.useState(null), [noticeClosed, setNoticeClosed] = React.useState(false);
+          // F27: 订阅 locale 快照——语言切换即时重渲染（快照含 revision）。
+          React.useSyncExternalStore(cb => ctx.locale.subscribe(cb), () => ctx.locale.getSnapshot());
           const [manage, setManage] = React.useState(false), [hidden, setHidden] = React.useState(readHiddenPrefs());
           const [extraTick, setExtraTick] = React.useState(0);
           const main = React.useRef(null);
@@ -671,7 +691,7 @@ window.__ModuleLoader__.load({
             const next = { ...hidden, [cat]: list.includes(id) ? list.filter(x => x !== id) : [...list, id] };
             setHidden(next); writeHiddenPrefs(next);
           };
-          if (!state) return h('main', { className: 'pa24' }, h('style', null, style), h('div', { className: 'pa24-wrap' }, empty(connError ? 'alert' : 'bot', connError ? 'danger' : 'blue', connError ? '暂时无法连接工作区' : '正在连接你的工作区', connError || '正在读取配置与当前事项…')));
+          if (!state) return h('main', { className: 'pa24' }, h('style', null, style), h('div', { className: 'pa24-wrap' }, empty(connError ? 'alert' : 'bot', connError ? 'danger' : 'blue', connError ? L('暂时无法连接工作区', 'Cannot reach the workspace right now') : L('正在连接你的工作区', 'Connecting to your workspace'), connError || L('正在读取配置与当前事项…', 'Reading configuration and current items…'))));
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
           // 一键全量检查（用户裁决：含主动平台探测）：飞书 → 启用中的企微 →
           // 刷新快照与补充数据；单步失败不中断（健康报告会呈现失败项）。
@@ -694,28 +714,28 @@ window.__ModuleLoader__.load({
           if (entry) {
             content = h('div', null,
               h('div', { className: 'pa24-detail-bar' },
-                button('chevron', '返回卡片', () => setDetail(null), { className: 'pa24-quiet' }),
-                h('h2', { style: { margin: 0 } }, entry.title, h('span', { className: 'pa24-muted', style: { fontSize: 12, fontWeight: 400, marginLeft: 8 } }, entry.sub))),
+                button('chevron', L('返回卡片', 'Back to cards'), () => setDetail(null), { className: 'pa24-quiet' }),
+                h('h2', { style: { margin: 0 } }, L(...entry.title), h('span', { className: 'pa24-muted', style: { fontSize: 12, fontWeight: 400, marginLeft: 8 } }, L(...entry.sub)))),
               entry.detail(helpers));
           } else {
             content = h(CardGrid, { cat: tab, helpers, manage, hidden, toggleHidden, openDetail });
           }
           return h('main', { className: 'pa24' + (manage ? ' pa24-manage' : ''), ref: main }, h('style', null, style), h('div', { className: 'pa24-wrap' },
             h('header', { className: 'pa24-header' },
-              h('div', { className: 'pa24-identity' }, h('span', { className: 'pa24-brand' }, icon('bot')), h('div', null, h('div', { className: 'pa24-title-row' }, h('h1', null, t('title')), h('p', { className: 'pa24-tagline' }, '日常交给我，重要的事由你决定。')))),
-              h('div', { className: 'pa24-row' }, button('chat', '与24私助对话', openRobot, { className: 'pa24-primary', disabled: busy || !workspace }), button('refresh', '刷新', () => refresh(), { className: 'pa24-quiet' }), button('grid', manage ? '完成' : '管理卡片', () => setManage(v => !v), { className: 'pa24-quiet', 'aria-pressed': manage ? 'true' : 'false' }))),
-            manage && h('div', { className: 'pa24-notice pa24-tone-blue' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, '管理态'), ' · 点卡片右上角「隐藏」收起（再点「显示」恢复）；偏好保存在本浏览器，按分类分别记忆。')),
-            config?.mode === 'demo' && !noticeClosed && h('div', { className: 'pa24-notice pa24-tone-amber' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, '体验模式'), ' · 未连接飞书；数据保存在本机数据库，不会发到飞书。'), h('button', { type: 'button', className: 'pa24-quiet', 'aria-label': '关闭体验模式提示', onClick: () => setNoticeClosed(true) }, icon('close', { width: 15, height: 15 }))),
-            (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? '连接暂时中断，以下为上次读取的状态' : '操作未完成'), h('p', null, error || connError)),
-            h('nav', { className: 'pa24-tabs', role: 'tablist', 'aria-label': '24私助工作区导航' }, CATEGORY_TABS.map(([id, name, tone], index) => {
+              h('div', { className: 'pa24-identity' }, h('span', { className: 'pa24-brand' }, icon('bot')), h('div', null, h('div', { className: 'pa24-title-row' }, h('h1', null, t('title')), h('p', { className: 'pa24-tagline' }, L('日常交给我，重要的事由你决定。', 'Leave the routine to me; the important calls stay yours.'))))),
+              h('div', { className: 'pa24-row' }, button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { className: 'pa24-primary', disabled: busy || !workspace }), button('refresh', L('刷新', 'Refresh'), () => refresh(), { className: 'pa24-quiet' }), button('grid', manage ? L('完成', 'Done') : L('管理卡片', 'Manage cards'), () => setManage(v => !v), { className: 'pa24-quiet', 'aria-pressed': manage ? 'true' : 'false' }))),
+            manage && h('div', { className: 'pa24-notice pa24-tone-blue' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, L('管理态', 'Manage')), L(' · 点卡片右上角「隐藏」收起（再点「显示」恢复）；偏好保存在本浏览器，按分类分别记忆。', ' · Use Hide on a card top-right to tuck it away (Show brings it back); preferences persist in this browser, remembered per category.'))),
+            config?.mode === 'demo' && !noticeClosed && h('div', { className: 'pa24-notice pa24-tone-amber' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, L('体验模式', 'Demo mode')), L(' · 未连接飞书；数据保存在本机数据库，不会发到飞书。', ' · Not connected to Feishu; data stays in the local database and never reaches Feishu.')), h('button', { type: 'button', className: 'pa24-quiet', 'aria-label': L('关闭体验模式提示', 'Dismiss demo-mode notice'), onClick: () => setNoticeClosed(true) }, icon('close', { width: 15, height: 15 }))),
+            (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? L('连接暂时中断，以下为上次读取的状态', 'Connection lost — showing the last read state') : L('操作未完成', 'Action did not complete')), h('p', null, error || connError)),
+            h('nav', { className: 'pa24-tabs', role: 'tablist', 'aria-label': L('24私助工作区导航', '24PA workspace navigation') }, CATEGORY_TABS.map(([id, name, tone], index) => {
               const chip = chipOf(id);
               return h('button', { key: id, id: 'pa24-tab-' + id, type: 'button', role: 'tab', className: 'pa24-tone-' + tone, 'aria-selected': tab === id, 'aria-controls': 'pa24-content', tabIndex: tab === id ? 0 : -1, onClick: () => selectTab(id), onKeyDown: e => {
                 const next = e.key === 'ArrowRight' ? (index + 1) % CATEGORY_TABS.length : e.key === 'ArrowLeft' ? (index + CATEGORY_TABS.length - 1) % CATEGORY_TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? CATEGORY_TABS.length - 1 : null;
                 if (next === null) return; e.preventDefault(); selectTab(CATEGORY_TABS[next][0]); e.currentTarget.parentElement.querySelectorAll('[role=tab]')[next].focus();
-              } }, icon(name, { width: 17, height: 17 }), t(id), chip && h('span', { className: 'pa24-chip show' + (chip.tone === 'error' ? ' error' : ''), 'aria-label': '需注意 ' + chip.n + ' 项' }, String(chip.n)));
+              } }, icon(name, { width: 17, height: 17 }), t(id), chip && h('span', { className: 'pa24-chip show' + (chip.tone === 'error' ? ' error' : ''), 'aria-label': L('待核验或需要处理 ', 'Needs review or attention ') + chip.n + L(' 项', ' item(s)') }, String(chip.n)));
             })),
             h('div', { id: 'pa24-content', role: 'tabpanel', 'aria-labelledby': 'pa24-tab-' + tab, tabIndex: 0 }, content),
-            h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), '数据保存在本机（业务账本随工作区配置，默认 SQLite、可选 PostgreSQL）；配置与记忆通过对话维护，界面只显示真实结果。')));
+            h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), L('数据保存在本机（业务账本随工作区配置，默认 SQLite、可选 PostgreSQL）；配置与记忆通过对话维护，界面只显示真实结果。', 'Data stays on this machine (ledger per workspace config — SQLite by default, PostgreSQL optional); config and memories are maintained in chat, and the UI only shows real results.'))));
         }
 
         // F20: 企微接入面板模块——对标飞书接入：渠道配置、CLI 与身份、
@@ -723,42 +743,42 @@ window.__ModuleLoader__.load({
         function WecomView({ state, busy, button, openRobot }) {
           const wecom = state.wecom;
           const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
-          const channelBadge = value => value === 'wecom' ? badge('企微', 'neutral', 'bot') : badge('飞书', 'neutral', 'plug');
-          const serviceMeta = { calendar: '日程', todo: '待办', push: '推送' };
+          const channelBadge = value => value === 'wecom' ? badge(L('企微', 'WeCom'), 'neutral', 'bot') : badge(L('飞书', 'Feishu'), 'neutral', 'plug');
+          const serviceMeta = { calendar: L('日程', 'Calendar'), todo: L('待办', 'Todo'), push: L('推送', 'Push') };
           const serviceBadge = s => statusBadge(
             { ok: 'ok', unauthorized: 'missing', expired: 'warn', unavailable: 'error', error: 'error', skipped: 'unchecked' }[s.state] || 'unchecked',
-            { unauthorized: '未授权', expired: '已过期', unavailable: '企业不可用', error: '异常', skipped: '未启用' }[s.state]);
+            { unauthorized: L('未授权', 'Unauthorized'), expired: L('已过期', 'Expired'), unavailable: L('企业不可用', 'Enterprise unavailable'), error: L('异常', 'Error'), skipped: L('未启用', 'Not enabled') }[s.state]);
           return h('div', { className: 'pa24-grid' },
             h('section', { className: 'pa24-card' },
-                sectionHead('bot', '企微接入', '日程/待办第二操作渠道与提醒单向推送（不做收信，飞书保持唯一交互入口）。',
+                sectionHead('bot', L('企微接入', 'WeCom access'), L('日程/待办第二操作渠道与提醒单向推送（不做收信，飞书保持唯一交互入口）。', 'A second operation channel for calendar/todo plus one-way reminder push (no inbound; Feishu stays the only interaction entry).'),
                   h('div', { className: 'pa24-row' },
-                    button('refresh', busy ? '检查中…' : '检查企微接入', () => rpc('action', { type: 'connection.wecom-check' })),
-                    button('chat', '通过对话配置', openRobot)), 'blue'),
+                    button('refresh', busy ? L('检查中…', 'Checking…') : L('检查企微接入', 'Check WeCom access'), () => rpc('action', { type: 'connection.wecom-check' })),
+                    button('chat', L('通过对话配置', 'Configure in chat'), openRobot)), 'blue'),
               fields([
-                ['日程渠道', channelBadge(config ? config.calendarChannel : 'feishu')],
-                ['待办渠道', channelBadge(config ? config.todoChannel : 'feishu')],
-                ['推送渠道', channelBadge(config ? config.notifyChannel : 'feishu')],
-                ['上次检查', wecom ? date(wecom.checkedAt, tz) : '尚未检查，点击右上方按钮开始'],
+                [L('日程渠道', 'Calendar channel'), channelBadge(config ? config.calendarChannel : 'feishu')],
+                [L('待办渠道', 'Todo channel'), channelBadge(config ? config.todoChannel : 'feishu')],
+                [L('推送渠道', 'Push channel'), channelBadge(config ? config.notifyChannel : 'feishu')],
+                [L('上次检查', 'Last check'), wecom ? date(wecom.checkedAt, tz) : L('尚未检查，点击右上方按钮开始', 'Not checked yet — click the button above to start')],
               ]),
-              h('div', { className: 'pa24-helper' }, '可以说：“检查企微接入，告诉我还缺什么。” 检查只读，不发送消息、不建企微对象；完整接入步骤让24私助给出指南（说“给我企微接入指南”）。')),
+              h('div', { className: 'pa24-helper' }, L('可以说：“检查企微接入，告诉我还缺什么。” 检查只读，不发送消息、不建企微对象；完整接入步骤让24私助给出指南（说“给我企微接入指南”）。', 'Try: “Check WeCom access and tell me what is missing.” Checks are read-only — no messages sent, no WeCom objects created; for the full walkthrough ask 24PA for the guide.'))),
             wecom && h('section', { className: 'pa24-card' },
-              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, 'CLI 与身份'), statusBadge(wecom.cli.state === 'ok' ? 'ok' : 'error', wecom.cli.state === 'ok' ? undefined : 'CLI 不可用')),
+              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与身份', 'CLI & identity')), statusBadge(wecom.cli.state === 'ok' ? 'ok' : 'error', wecom.cli.state === 'ok' ? undefined : L('CLI 不可用', 'CLI unavailable'))),
               fields([
-                ['CLI 状态', wecom.cli.message],
-                ['机器人绑定与授权真人', wecom.identity.message],
-                ['推送目标', wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : '未解析'],
+                [L('CLI 状态', 'CLI status'), wecom.cli.message],
+                [L('机器人绑定与授权真人', 'Bot binding & authorized user'), wecom.identity.message],
+                [L('推送目标', 'Push target'), wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : L('未解析', 'Unresolved')],
               ])),
             wecom && h('section', { className: 'pa24-card' },
-              sectionHead('shield', '服务级授权', '按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。'),
+              sectionHead('shield', L('服务级授权', 'Service-level authorization'), L('按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。', 'Read-only probes per enabled channel; service-level grants expire (follow the renewal guide on 850003), and links must open inside the WeCom app.')),
               (wecom.services ?? []).length === 0
-                ? h('p', { className: 'pa24-meta' }, '没有已启用的企微渠道（三渠道均为 feishu）。')
+                ? h('p', { className: 'pa24-meta' }, L('没有已启用的企微渠道（三渠道均为 feishu）。', 'No WeCom channel is enabled (all three channels are on feishu).'))
                 : (wecom.services ?? []).map(s => h('div', { key: s.id, className: 'pa24-resource' },
                     h('div', { className: 'pa24-row' },
                       h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, serviceMeta[s.id] || s.id), h('p', null, s.message)),
                       serviceBadge(s)),
                     s.helpMessage && h('p', { className: 'pa24-note pa24-meta' }, s.helpMessage))),
-              h('details', null, h('summary', null, '下一步（nextSteps）'), (wecom.nextSteps ?? []).map((n, i) => h('p', { key: i, className: 'pa24-note' }, n)))),
-            !wecom && h('section', { className: 'pa24-card' }, empty('bot', 'blue', '尚未检查企微接入', '点击右上方「检查企微接入」发起一次只读检查：CLI 可执行、机器人绑定与授权真人、按启用域的服务级授权探测。', button('chat', '让24私助带我做接入', openRobot, { className: 'pa24-primary' }))));
+              h('details', null, h('summary', null, L('下一步（nextSteps）', 'Next steps')), (wecom.nextSteps ?? []).map((n, i) => h('p', { key: i, className: 'pa24-note' }, n)))),
+            !wecom && h('section', { className: 'pa24-card' }, empty('bot', 'blue', L('尚未检查企微接入', 'WeCom access not checked yet'), L('点击右上方「检查企微接入」发起一次只读检查：CLI 可执行、机器人绑定与授权真人、按启用域的服务级授权探测。', 'Click “Check WeCom access” above for a read-only pass: CLI binary, bot binding and authorized user, and service-level probes per enabled domain.'), button('chat', L('让24私助带我做接入', 'Walk me through it'), openRobot, { className: 'pa24-primary' }))));
         }
 
         // F17: 设置模态里的「24私助」分区——复用 WorkspaceCards 与既有 RPC，
@@ -774,18 +794,18 @@ window.__ModuleLoader__.load({
           }, []);
           const { busy, error, button } = usePanelActions({ reloadAfter: load });
           const openPanel = () => {
-            try { if (ctx.layout) ctx.layout.selectPanel('pa24'); } catch (e) { console.warn('pa24: 打开24私助面板失败，仅关闭设置', e); }
+            try { if (ctx.layout) ctx.layout.selectPanel('pa24'); } catch (e) { console.warn('pa24: failed to open the 24PA panel, closing settings only', e); }
             close();
           };
           return h('div', { className: 'pa24 pa24-settings' }, h('style', null, style),
             h('div', { className: 'pa24-settings-head' },
               h('div', { className: 'pa24-row' },
                 h('span', { className: 'pa24-brand pa24-settings-brand' }, icon('bot', { width: 18, height: 18 })),
-                h('div', null, h('h2', null, t('settings')), h('p', { className: 'pa24-meta' }, '工作区绑定、配置重载、生效配置查看与健康预算；日常操作与接入诊断在24私助面板。'))),
-              h('div', { className: 'pa24-row' }, button('external', '打开24私助面板', openPanel, { className: 'pa24-quiet' }))),
-            (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? '连接暂时中断' : '操作未完成'), h('p', null, error || connError)),
+                h('div', null, h('h2', null, t('settings')), h('p', { className: 'pa24-meta' }, L('工作区绑定、配置重载、生效配置查看与健康预算；日常操作与接入诊断在24私助面板。', 'Workspace binding, config reload, effective-config review, and health & budget; daily actions and access diagnostics live in the 24PA panel.')))),
+              h('div', { className: 'pa24-row' }, button('external', L('打开24私助面板', 'Open the 24PA panel'), openPanel, { className: 'pa24-quiet' }))),
+            (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? L('连接暂时中断', 'Connection lost') : L('操作未完成', 'Action did not complete')), h('p', null, error || connError)),
             !state
-              ? h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), connError ? '无法读取工作区状态。' : '正在读取工作区状态…')
+              ? h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), connError ? L('无法读取工作区状态。', 'Cannot read workspace state.') : L('正在读取工作区状态…', 'Reading workspace state…'))
               : h('div', null,
                 h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }),
                 h(HealthBlock)));
