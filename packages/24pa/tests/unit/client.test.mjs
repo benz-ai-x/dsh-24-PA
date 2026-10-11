@@ -125,6 +125,10 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain("'status.ok': 'OK'");
     // 切换即时生效：Panel 订阅 locale 快照
     expect(client).toContain('useSyncExternalStore(cb => ctx.locale.subscribe(cb), () => ctx.locale.getSnapshot())');
+    // 卡片元数据消费点必须惰性解析（foot 曾漏改致中英拼接，回归锚点）
+    expect(client).toContain('card.action ? L(...card.action) : L(\'查看详情\', \'Open\')');
+    expect(client).toContain('h(\'b\', null, L(...card.title))');
+    expect(client).toContain('L(...entry.title)');
     // zh/en 命名空间键集一致（解析两个字典块的键名）
     const dictKeys = name => {
       const block = client.split('const ' + name + ' = {')[1].split('\n    };')[0];

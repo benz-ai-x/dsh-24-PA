@@ -656,7 +656,7 @@ window.__ModuleLoader__.load({
               key: card.id, card, tier, label: label || '', manage, hidden: isHidden,
               onToggleHidden: () => toggleHidden(cat, card.id),
               body: card.body(helpers),
-              foot: [...(card.quick ? [card.quick(helpers)] : []), h('button', { key: 'open', type: 'button', onClick: () => openDetail(card.id) }, icon('arrow'), card.action || L('查看详情', 'Open'))],
+              foot: [...(card.quick ? [card.quick(helpers)] : []), h('button', { key: 'open', type: 'button', onClick: () => openDetail(card.id) }, icon('arrow'), card.action ? L(...card.action) : L('查看详情', 'Open'))],
             });
           }));
         }
