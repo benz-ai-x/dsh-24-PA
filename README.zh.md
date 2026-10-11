@@ -194,6 +194,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 本备注是面向维护者的工作上下文：待决问题与未定方向。它明确不具权威性——已交付的行为与限制以正文章节与包代码为准。
 
 - **多基线验证**——回归运行用 `DSH_BIN` 选运行时、`PA24_E2E_EXTRA_PLUGINS` 附加 rc.2 的 schedule 伴随件；当前活跃基线为 0.2.1-alpha.2 无附加（156/156），0.2.0-rc.2 与 0.2.1-alpha.1 由双 API 回退路径保持兼容。
+- **预设补丁为生成物**——`cordis.patch.yml` 由 `scripts/sync-preset.mjs` 对 devDependency 钉住的 `@deepseek-ai/dsh-web-app` 标准预设应用 delta 生成，勿手改；换新 dsh 基线时先改 pin 再跑 `npm run preset:sync`，`npm run preset:check` 与单测守护已提交副本不漂移。
 - **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
 
 </details>
