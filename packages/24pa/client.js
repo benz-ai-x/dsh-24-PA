@@ -320,6 +320,21 @@ window.__ModuleLoader__.load({
           if (rows.some(i => i.state !== 'ok')) return 'warn';
           return 'ok';
         };
+        // 全应用健康聚合（用户 2026-10-11 裁决：一键检查含主动平台探测）：
+        // readiness 六项＋health capabilities＋消息通道，任一 error→需处理。
+        const healthAggregate = ({ state, extra }) => {
+          const rows = [];
+          for (const item of (state.readiness?.items || [])) rows.push(item.state);
+          for (const cap of (extra.health?.capabilities || [])) rows.push(cap.state);
+          if (state.transport) rows.push(state.transport.connected ? 'ok' : (state.workspace && state.workspace.config && state.workspace.config.mode === 'feishu' ? 'error' : 'warn'));
+          if (!rows.length) return { tier: 'unchecked', ok: 0, warn: 0, error: 0 };
+          const ok = rows.filter(x => x === 'ok').length, warn = rows.filter(x => x === 'warn').length, error = rows.filter(x => x === 'error').length;
+          return { tier: error > 0 ? 'error' : warn > 0 ? 'warn' : 'ok', ok, warn, error };
+        };
+        const lastActiveCheck = state => {
+          const times = [state.diagnostics && state.diagnostics.checkedAt, state.wecom && state.wecom.checkedAt].filter(Boolean).map(x => new Date(x).getTime());
+          return times.length ? new Date(Math.max(...times)) : null;
+        };
         const wecomChannelsOn = config => !!(config && ['calendarChannel', 'todoChannel', 'notifyChannel'].some(k => config[k] === 'wecom'));
         const wecomTier = config => (wecomChannelsOn(config) ? 'ok' : 'unchecked');
         const qwennoteConfigured = config => !!(config && (config.extraLocalTools || []).some(x => String(x).startsWith('mcp__qwennote__')));
@@ -548,6 +563,20 @@ window.__ModuleLoader__.load({
               [helpers.button('chat', '与24私助对话', helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
           },
           {
+            id: 'healthcheck', cat: 'system', tone: 'blue', icon: 'shield', title: '全应用健康检查', sub: '一键全量检查与总体结论', action: '全量报告',
+            tier: helpers => healthAggregate(helpers).tier,
+            body: helpers => {
+              const a = healthAggregate(helpers);
+              const last = lastActiveCheck(helpers.state);
+              return h('div', null,
+                capKpi([[String(a.ok), '正常'], [String(a.warn), '待核验'], [String(a.error), '需要处理']]),
+                h('p', { className: 'pa24-meta', style: { marginTop: 6 } }, last ? '最近主动检查 ' + date(last.toISOString(), helpers.tz) : '尚未执行主动检查'),
+                (a.warn > 0 || a.error > 0) && nextStrip('有 ' + (a.warn + a.error) + ' 项待核验或需要处理——打开全量报告查看 nextSteps。'));
+            },
+            quick: helpers => helpers.button('refresh', helpers.busy ? '检查中…' : '一键全量检查', () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy }),
+            detail: helpers => h(HealthReportDetail, { key: 'healthcheck', helpers }),
+          },
+          {
             id: 'storage', cat: 'system', tone: 'blue', icon: 'folder', title: '账本与备份', sub: '业务状态唯一权威', action: '运行就绪',
             tier: ({ state }) => readinessTier(state, ['postgres', 'workspace']),
             label: ({ config }) => (config ? (config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite') : null),
@@ -566,6 +595,26 @@ window.__ModuleLoader__.load({
             detail: () => h(HealthBlock),
           },
         ];
+
+        // 二级详情：全应用健康检查——聚合结论＋运行就绪＋能力健康报告。
+        function HealthReportDetail({ helpers }) {
+          const { state } = helpers;
+          const a = healthAggregate(helpers);
+          const last = lastActiveCheck(state);
+          return h('div', null,
+            sectionHead('shield', '全应用健康检查', '聚合运行就绪、能力健康与消息通道的总体结论；一键全量检查会对飞书（及启用的企微渠道）发起只读平台探测。',
+              h('div', { className: 'pa24-row' }, helpers.button('refresh', helpers.busy ? '检查中…' : '一键全量检查', () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy, className: 'pa24-primary' })), 'blue'),
+            h('section', { className: 'pa24-card' },
+              h('div', { className: 'pa24-stats' }, [
+                ['check', 'blue', '正常', a.ok, '各域健康'],
+                ['clock', 'amber', '待核验', a.warn, '有 nextSteps'],
+                ['alert', 'danger', '需要处理', a.error, '阻断对应能力'],
+              ].map(([name, tone, label, value, hint]) =>
+                h('div', { key: label, className: 'pa24-stat' }, tile(name, tone), h('div', null, h('div', { className: 'pa24-stat-label' }, label), h('strong', null, value), h('small', null, hint))))),
+              h('p', { className: 'pa24-meta' }, last ? '最近主动检查：' + date(last.toISOString(), helpers.tz) : '尚未执行主动检查——点击右上方按钮开始（只读，不创建平台对象）。')),
+            h(ReadinessDetail, { state }),
+            h(HealthBlock));
+        }
 
         function CardShell({ card, tier, label, manage, hidden, onToggleHidden, body, foot }) {
           return h('section', { className: 'pa24-cap pa24-tone-' + card.tone + (hidden ? ' pa24-cap-hidden' : '') },
@@ -589,7 +638,7 @@ window.__ModuleLoader__.load({
               key: card.id, card, tier, label: label || '', manage, hidden: isHidden,
               onToggleHidden: () => toggleHidden(cat, card.id),
               body: card.body(helpers),
-              foot: [h('button', { key: 'open', type: 'button', onClick: () => openDetail(card.id) }, icon('arrow'), card.action || '查看详情')],
+              foot: [...(card.quick ? [card.quick(helpers)] : []), h('button', { key: 'open', type: 'button', onClick: () => openDetail(card.id) }, icon('arrow'), card.action || '查看详情')],
             });
           }));
         }
@@ -624,7 +673,14 @@ window.__ModuleLoader__.load({
           };
           if (!state) return h('main', { className: 'pa24' }, h('style', null, style), h('div', { className: 'pa24-wrap' }, empty(connError ? 'alert' : 'bot', connError ? 'danger' : 'blue', connError ? '暂时无法连接工作区' : '正在连接你的工作区', connError || '正在读取配置与当前事项…')));
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
-          const helpers = { state, extra, workspace, config, tz, busy, button, openRobot: () => void run(openRobot) };
+          // 一键全量检查（用户裁决：含主动平台探测）：飞书 → 启用中的企微 →
+          // 刷新快照与补充数据；单步失败不中断（健康报告会呈现失败项）。
+          const runFullCheck = async () => {
+            await rpc('action', { type: 'connection.check' }).catch(() => {});
+            if (wecomChannelsOn(config)) await rpc('action', { type: 'connection.wecom-check' }).catch(() => {});
+            await refresh();
+          };
+          const helpers = { state, extra, workspace, config, tz, busy, button, run, runFullCheck, openRobot: () => void run(openRobot) };
           // F26: tab 角标＝分类内「需注意/需处理」卡片数；出现 error 时角标转红，
           // 仅 warn 时保持琥珀（口径为实施默认，后续可裁决调整）。
           const chipOf = cat => {

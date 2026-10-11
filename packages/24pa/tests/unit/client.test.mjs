@@ -50,8 +50,8 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain("biz: '业务内容', access: '接入与通讯', system: '系统维护'");
     // 注册表驱动：注册即生卡；每卡必有 tier（角标聚合纯函数）＋body＋detail
     const ids = [...client.matchAll(/id: '([a-z]+)', cat: '(biz|access|system)'/g)].map(m => m[1]);
-    expect(ids).toEqual(['work', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'storage', 'budget']);
-    expect((client.match(/tier: \(/g) || []).length).toBe(ids.length);
+    expect(ids).toEqual(['work', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'healthcheck', 'storage', 'budget']);
+    expect((client.match(/^            tier: /gm) || []).length).toBe(ids.length);
     // tab 角标＝分类内 warn/error 卡片数，error 转红
     expect(client).toContain('const chipOf = cat =>');
     expect(client).toContain("chip.tone === 'error' ? ' error' : ''");
@@ -69,6 +69,11 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain("extraToolCap = extra => (extra.health?.capabilities || []).find(c => c.id === 'extra-local-tools')");
     // 未配置卡占位（知识库 F22 预留）
     expect(client).toContain("tier: () => 'missing', label: () => '未配置'");
+    // 全应用健康检查卡（用户 2026-10-11 裁决）：聚合 tier＋一键全量检查含主动探测
+    expect(client).toContain("id: 'healthcheck', cat: 'system', tone: 'blue', icon: 'shield'");
+    expect(client).toContain('const healthAggregate = ({ state, extra }) =>');
+    expect(client).toContain("'一键全量检查'");
+    expect(client).toContain('helpers.run(helpers.runFullCheck)');
     // 快照轮询不变；卡片补充数据一次性读取并随手动刷新重取
     expect(client).toContain('const useExtra = (workspacePath, tick)');
     expect(client).toContain('setExtraTick');
@@ -90,8 +95,8 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain('align-items:start');
     expect(client).toContain('.pa24-settings{padding:22px;height:auto;min-width:0;width:100%}');
     // 一屏一主按钮：页头对话＋工作/记忆/企微空态 CTA＋设置分区绑定＋F26 对话管理
-    // 引导空态（提醒/晨报/知识库三张卡的详情页各一个 CTA）＝8 处为实心
-    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(8);
+    // 引导空态（提醒/晨报/知识库三卡详情各一）＋全量健康报告的一键检查＝9 处为实心
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(9);
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
     // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留
