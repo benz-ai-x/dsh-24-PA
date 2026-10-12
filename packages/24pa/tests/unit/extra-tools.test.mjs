@@ -1,7 +1,7 @@
 // F18: extraLocalTools 存在性过滤——配置点名的工具在并入 restrict() 白名单前，
 // 必须按活挂载信号解析；未挂载项被过滤并保序可观测，绝不让 restrict() 抛错。
 import { describe, expect, it } from 'vitest';
-import { resolveExtraLocalTools } from '../../lib/tools.js';
+import { resolveExtraLocalTools, qwennoteChannelState } from '../../lib/tools.js';
 
 const signals = ({ globalToolNames = [], providers = [] } = {}) => ({
   globalToolNames: new Set(globalToolNames),
@@ -70,5 +70,34 @@ describe('extraLocalTools 解析（F18）', () => {
       allow: ['mcp__qwennote__list_minutes'],
       filtered: ['subagent_claude_code'],
     });
+  });
+});
+
+describe('F18 WP3：听记通道三态诊断（qwennoteChannelState）', () => {
+  it('配置＋挂载＝正常', () => {
+    const out = qwennoteChannelState({ configured: true, mounted: true, tokenCache: { exists: true, updatedAt: new Date() } });
+    expect(out.state).toBe('ok');
+    expect(out.nextSteps).toEqual([]);
+  });
+
+  it('配置＋未挂载＋无缓存＝未授权（首次授权未完成）', () => {
+    const out = qwennoteChannelState({ configured: true, mounted: false, tokenCache: { exists: false, updatedAt: null } });
+    expect(out.state).toBe('error');
+    expect(out.message).toContain('未授权');
+    expect(out.nextSteps[0]).toContain('首次授权');
+  });
+
+  it('配置＋未挂载＋有缓存＝连接失败或 token 过期（携带缓存时间）', () => {
+    const at = new Date('2026-10-10T08:00:00Z');
+    const out = qwennoteChannelState({ configured: true, mounted: false, tokenCache: { exists: true, updatedAt: at } });
+    expect(out.state).toBe('warn');
+    expect(out.message).toContain('2026-10-10T08:00:00.000Z');
+    expect(out.nextSteps[0]).toContain('重启宿主');
+  });
+
+  it('未配置＝不诊断态（warn＋指引配置）', () => {
+    const out = qwennoteChannelState({ configured: false, mounted: false, tokenCache: { exists: false, updatedAt: null } });
+    expect(out.state).toBe('warn');
+    expect(out.message).toContain('未配置');
   });
 });

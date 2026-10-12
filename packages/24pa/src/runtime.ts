@@ -8,7 +8,8 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
-import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
+import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, type PaConfig } from './config.js';
+import { qwennoteChannelState, hostGlobalToolNames } from './tools.js';
 import { runLarkCli } from './lark.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
@@ -944,6 +945,28 @@ export class PaRuntime {
   /** Latest extraLocalTools resolution for the local role; surfaced by the health report (F18). */
   noteExtraToolResolution(resolution: { requested: string[]; active: string[]; filtered: string[] }): void {
     this.extraToolResolution = resolution;
+  }
+
+  /** mcp-remote token cache presence for the qwennote channel (F18 WP3):
+   *  existence + mtime only — token contents are never read. */
+  private async qwennoteTokenCache(): Promise<{ exists: boolean; updatedAt: Date | null }> {
+    try {
+      const { stat, readdir } = await import('node:fs/promises');
+      const { homedir } = await import('node:os');
+      const { join } = await import('node:path');
+      const dir = join(homedir(), '.mcp-auth', 'mcp-remote-v1');
+      const info = await stat(dir).catch(() => null);
+      if (!info?.isDirectory()) return { exists: false, updatedAt: null };
+      // The newest file mtime approximates the last token refresh.
+      let latest: Date | null = null;
+      for (const name of await readdir(dir)) {
+        const file = await stat(join(dir, name)).catch(() => null);
+        if (file?.isFile() && (!latest || file.mtime > latest)) latest = file.mtime;
+      }
+      return { exists: true, updatedAt: latest };
+    } catch {
+      return { exists: false, updatedAt: null };
+    }
   }
 
   private readonly workItemByChild = new Map<string, WorkItemRow>();
@@ -3354,7 +3377,7 @@ export class PaRuntime {
    */
   async maintenanceHealth(): Promise<unknown> {
     const ready = this.readiness();
-    const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string }[] = [];
+    const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string; detail?: unknown }[] = [];
     const config = this.config;
     capabilities.push(this.visionRouteStatus());
     // CLI presence + authorization verdict from the last access inspection
@@ -3384,6 +3407,16 @@ export class PaRuntime {
           ? `最近本地会话解析：放行 ${this.extraToolResolution.active.length} 项${this.extraToolResolution.filtered.length ? `；未挂载被过滤：${this.extraToolResolution.filtered.join('、')}` : ''}`
           : '已配置 extraLocalTools 但本地24私助会话尚未创建',
       });
+    }
+    // F18 WP3: qwennote channel three-state diagnosis (presence inference —
+    // mcp-client exposes no status service; no tool is called to diagnose).
+    if (config && config.extraLocalTools.some(e => e === QWENNOTE_TOOL_WILDCARD || e.startsWith(QWENNOTE_TOOL_PREFIX))) {
+      const channel = qwennoteChannelState({
+        configured: true,
+        mounted: hostGlobalToolNames(this.ctx).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX)),
+        tokenCache: await this.qwennoteTokenCache(),
+      });
+      capabilities.push({ id: 'qwennote-channel', state: channel.state, message: channel.message, detail: channel.nextSteps.length ? { nextSteps: channel.nextSteps } : undefined });
     }
     const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
     const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));

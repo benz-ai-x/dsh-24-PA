@@ -59,7 +59,13 @@
 
 ## 五、未决 / 真机待验（本票第一步实测后回填本文）
 
-### 2026-10-12 更新：OAuth 形态已真机核验（ali 生产实例，WP0 进行中）
+### 2026-10-12 终报：WP0 真机打通完成（ali 生产实例）
+
+- **授权成功路径（踩坑后定稿）**：宿主反复重连会把 mcp-remote 堆成多实例（曾达 3 个）——多实例抢 8905 时，回调实例换到的 token 会被服务实例的连接竞争拒绝（`Unauthorized`），且 dsh-mcp-client spawn 时吞掉 mcp-remote 的 stderr（systemd journal 与 nohup 日志均拿不到授权 URL）。**可靠方案＝独立授权进程**：清全部实例后手动 `setsid nohup …/mcp-remote https://minutes.qwennote.cn/mcp`（HOME 指向实例 home，stderr 落文件）——单实例打 URL、用户浏览器经 SSH 隧道 `-L 8905` 完成授权、token 落共享缓存后进程自退；随后 systemd 重启宿主，新 mcp-remote 读缓存 token 直连成功（`Proxy established`，journal 可见）。
+- **结果**：本地24私助会话创建后 `extra-local-tools` 快照显示**通配展开放行 16 项**（16 个 `mcp__qwennote__*` 工具挂载且全部进入 allow）——通道、放行、教学三层全部生效。ali 实例已恢复 systemd（pa24.service）常态。
+- **工具明细**（16 个名称/参数/只读性）待 WP3 部署后经健康面 detail 或会话实测盘点回填；refresh_token 自动续期表现待长稳观察。
+
+### 2026-10-12 更新：OAuth 形态已真机核验（ali 生产实例，WP0 首轮）
 
 - **动态客户端注册**：`minutes.qwennote.cn/mcp` 走 OAuth 2.0 动态注册，实测获得 `client_id: qnmcp-fa7cef0f8e814761ba9a7699f1f3e094`；授权请求带 **PKCE S256 ＋ state ＋ resource 参数**——授权 URL 只能用 mcp-remote 发起的那一条（手工重构缺 state 会被拒），且轮换周期约 4–5 分钟；
 - **回调端口**：本地回调 `http://127.0.0.1:8905/callback`（端口由 server URL 推导）——意味着**宿主上必须由 mcp-remote 进程持有回调监听**，授权必须发生在「宿主已启动 mcp-client 条目、且由主人浏览器可达宿主」的场景（ali 实例经 magic-proxy 隧道不转发 localhost，需在宿主本机或 SSH 端口转发下完成）；
