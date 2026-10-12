@@ -63,7 +63,7 @@
 
 - **授权成功路径（踩坑后定稿）**：宿主反复重连会把 mcp-remote 堆成多实例（曾达 3 个）——多实例抢 8905 时，回调实例换到的 token 会被服务实例的连接竞争拒绝（`Unauthorized`），且 dsh-mcp-client spawn 时吞掉 mcp-remote 的 stderr（systemd journal 与 nohup 日志均拿不到授权 URL）。**可靠方案＝独立授权进程**：清全部实例后手动 `setsid nohup …/mcp-remote https://minutes.qwennote.cn/mcp`（HOME 指向实例 home，stderr 落文件）——单实例打 URL、用户浏览器经 SSH 隧道 `-L 8905` 完成授权、token 落共享缓存后进程自退；随后 systemd 重启宿主，新 mcp-remote 读缓存 token 直连成功（`Proxy established`，journal 可见）。
 - **结果**：本地24私助会话创建后 `extra-local-tools` 快照显示**通配展开放行 16 项**（16 个 `mcp__qwennote__*` 工具挂载且全部进入 allow）——通道、放行、教学三层全部生效。ali 实例已恢复 systemd（pa24.service）常态。
-- **工具明细**（16 个名称/参数/只读性）待 WP3 部署后经健康面 detail 或会话实测盘点回填；refresh_token 自动续期表现待长稳观察。
+- **工具明细已盘点**（2026-10-12，独立进程 tools/list 实测，16 个）——**只读 11**：`list_my_minutes`（跨来源最近听记列表）、`get_minutes_basic_info`（标题/时长等）、`get_minutes_transcription`（逐段转写）、`get_minutes_ai_summary`（AI 全文纪要 Markdown）、`get_minutes_keywords`（AI 关键词）、`batch_get_minutes_details`（批量基本信息）、`list_minutes_by_tag`/`list_minutes_tags`（按标签）、`list_minutes_todos`（AI 提炼的待办）、`get_minutes_media_url`（限时音视频直链）、`list_hot_words`（热词与配额）；**写 5**：`add_personal_hot_word`、`replace_minutes_text`（全文查找替换，改转写）、`replace_speaker`（改说话人归属）、`update_minutes_summary`（覆写纪要）、`update_minutes_title`（改标题）。**边界裁定**：extraLocalTools 放行通配则写工具同样进入本地会话工具面——按「本地24私助会话＝主人本人操作面（ADR-0001 标准编程能力口径）」放行不做工具级裁剪，但听记教学的提示词规则明确「修改类操作须主人明确指令」（prompts.ts「### 听记资料」节已有「行动走既有确认」约束）；配额与 token 寿命待长稳观察。
 
 ### 2026-10-12 更新：OAuth 形态已真机核验（ali 生产实例，WP0 首轮）
 
