@@ -355,3 +355,45 @@ async function collectAccess(
   }
   return result;
 }
+/** In-process fake used by tests and demo mode to exercise the real pipeline. */
+export class FakeFeishuTransport implements FeishuTransport {
+  readonly name = 'fake';
+  private handler: ((event: InboundEvent) => Promise<void>) | null = null;
+  readonly sent: { openId: string; text?: string; card?: unknown; uuid: string; messageId: string }[] = [];
+  private readonly resources = new Map<string, Buffer>();
+
+  constructor(readonly appId: string) {}
+
+  async start(onEvent: (event: InboundEvent) => Promise<void>): Promise<void> {
+    this.handler = onEvent;
+  }
+
+  async inject(event: InboundEvent, imageData?: string): Promise<void> {
+    if (!this.handler) throw new Error('fake transport 未启动。');
+    const key = event.imageKey || event.fileKey;
+    if (key && imageData) this.resources.set(key, Buffer.from(imageData, 'base64'));
+    await this.handler(event);
+  }
+
+  async sendText(openId: string, text: string, uuid: string): Promise<{ messageId: string }> {
+    const messageId = `fake-${uuid}`;
+    this.sent.push({ openId, text, uuid, messageId });
+    return { messageId };
+  }
+
+  async sendCard(openId: string, card: unknown, uuid: string): Promise<{ messageId: string }> {
+    const messageId = `fake-${uuid}`;
+    this.sent.push({ openId, card, uuid, messageId });
+    return { messageId };
+  }
+
+  async downloadImage(_messageId: string, imageKey: string): Promise<Buffer> {
+    const bytes = this.resources.get(imageKey);
+    if (!bytes) throw new Error(`fake transport 没有登记图片资源：${imageKey}`);
+    return bytes;
+  }
+
+  async close(): Promise<void> {
+    this.handler = null;
+  }
+}

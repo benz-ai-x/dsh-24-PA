@@ -11,7 +11,10 @@ import { acquireHostLock, type HostLock } from './lock.js';
 import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
 import { runLarkCli } from './lark.js';
 import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
-import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
+import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
+import { HandwritingPipeline } from './handwriting-pipeline.js';
+import { text, nowIso, isoDate } from './util.js';
+export { text, nowIso, isoDate };
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
   WORKER_PROMPTS,
@@ -31,39 +34,16 @@ import {
   type RecurringScheduleRecord,
 } from '@deepseek-ai/dsh-schedule';
 import {
-  cropBox,
-  detectImageMediaType,
-  extensionOf,
-  fingerprintOf,
-  MAX_PAGES_PER_NOTE,
-  MAX_PAGE_BYTES,
-  newReviewToken,
-  normalizeDocument,
-  noteDocumentXml,
-  pendingReviewLine,
   RECOGNITION_PAGE_LIMIT,
-  REVIEW_TOKEN_TTL_MS,
-  reviewCard,
-  sha256Hex,
-  systemLine,
-  diffNormalized,
   advanceReminder,
   looksLikeVisionModel,
-  type CropSpec,
-  type DoubtSpec,
-  type DiagramSpec,
+  sha256Hex,
   type NoteCandidate,
-  type RecognizedNote,
-  type Region,
 } from './handwriting.js';
 import type { NoteRow, NotePageRow, ReviewReminderRow } from './repo.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-const nowIso = () => new Date().toISOString();
-const text = (value: unknown, max = 12000): string => {
-  if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`请输入 1–${max} 字的内容。`);
-  return value.trim();
-};
+
 const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
 
@@ -78,7 +58,6 @@ function parseDue(value: unknown): { dueAt: Date | null; dueHasTime: boolean; du
   return { dueAt: date, dueHasTime, dueArg: raw };
 }
 
-const isoDate = (value: Date | string | null): string | null => (value == null ? null : new Date(value).toISOString());
 
 function parseZonedRange(args: Record<string, unknown>): { from: Date; to: Date } {
   const from = new Date(String(args.from ?? ''));
@@ -264,6 +243,26 @@ export class PaRuntime {
   private noteVerifyTimer: NodeJS.Timeout | null = null;
   private reviewReminderTimer: NodeJS.Timeout | null = null;
   private reviewReminding = false;
+
+  /** Handwriting note pipeline (F29): submit→publish→review→verify→republish
+   *  behind a deep module; the runtime keeps role bindings and tick loops. */
+  private readonly handwriting: HandwritingPipeline = new HandwritingPipeline({
+    repos: () => this.repos!,
+    config: () => this.config!,
+    cli: () => ({ larkCliBin: this.options.larkCliBin, cliTimeoutMs: this.options.cliTimeoutMs }),
+    workspace: () => this.workspace,
+    transport: () => this.transport,
+    accessSessionId: () => this.accessSessionId,
+    notifyOwner: (dedupKey, body) => this.notifyOwner(dedupKey, body),
+    assertLive: context => this.assertFeishuLive(context),
+    trackWorkItem: item => this.trackWorkItem(item),
+    stagedOperation: (item, kind, paramsKey, params, hint) => this.stagedOperation(item, kind, paramsKey, params, hint),
+    failStaged: (operationId, error) => this.failStaged(operationId, error),
+    roleFor: agent => this.roleFor(agent),
+    reviewQueue: () => this.reviewQueue(),
+    usage: this.usage,
+    dbRef: () => this.dbRef,
+  });
   private dispatching = false;
   private outboxSending = false;
   private noteVerifying = false;
@@ -459,7 +458,7 @@ export class PaRuntime {
       brief: WORKER_PROMPTS.handwriting.brief,
       available: true,
       actions: {
-        note_submit: async (args, item) => this.noteSubmit(item, args),
+        note_submit: async (args, item) => this.handwriting.noteSubmit(item, args),
         note_adopt_actions: async (args, item) => this.noteAdoptActions(item, args),
         notes_search: async args => this.notesSearch(args),
       },
@@ -1155,22 +1154,22 @@ export class PaRuntime {
     if (!this.config || !this.repos) return;
     const event = row.payload as InboundEvent;
     if (row.kind === 'card') {
-      await this.processReviewCard(row.event_id, event);
+      await this.handwriting.processReviewCard(row.event_id, event);
       return;
     }
-    const isInboundImage = event.messageType === 'image' || this.isImageFileMessage(event);
+    const isInboundImage = event.messageType === 'image' || this.handwriting.isImageFileMessage(event);
     // Replies pin to their original target before any fresh handling: a photo
     // answering a note ack appends a page to that note instead of opening a
     // new one (P28: never auto-merge different discussions).
     if (event.parentMessageId && isInboundImage) {
       const route = await this.repos.messageRoutes.lookup(event.parentMessageId);
       if (route?.note_id) {
-        await this.collectNotePage(row.event_id, event, route.note_id);
+        await this.handwriting.collectNotePage(row.event_id, event, route.note_id);
         return;
       }
     }
     if (isInboundImage) {
-      await this.collectNotePage(row.event_id, event, null);
+      await this.handwriting.collectNotePage(row.event_id, event, null);
       return;
     }
     const input = String(event.text ?? '').trim();
@@ -3370,7 +3369,7 @@ export class PaRuntime {
         // Overview facts must be currently valid: re-verify the live document
         // so an externally edited note stops being presented as confirmed (P35).
         try {
-          const live = await this.currentFingerprint(row.note_id, row.doc_id!, row);
+          const live = await this.handwriting.currentFingerprint(row.note_id, row.doc_id!, row);
           if (live !== row.fingerprint) continue;
         } catch (error) {
           missing.push(`已审笔记 ${row.note_id} v${row.version} 暂无法核验（${(error as Error).message}），未列入概览`);
@@ -3982,7 +3981,7 @@ export class PaRuntime {
     // edited or unverifiable content never silently becomes execution params.
     let liveFingerprint: string;
     try {
-      liveFingerprint = await this.currentFingerprint(noteId, version.doc_id!, version);
+      liveFingerprint = await this.handwriting.currentFingerprint(noteId, version.doc_id!, version);
     } catch (error) {
       throw new Error(`无法核验文档当前内容（${(error as Error).message}）；暂不执行，请稍后再试。`);
     }
@@ -4059,7 +4058,7 @@ export class PaRuntime {
       let unknownReason: string | null = null;
       if (row.status === 'approved') {
         try {
-          const live = await this.currentFingerprint(row.note_id, row.doc_id, row as { id: string; content: any });
+          const live = await this.handwriting.currentFingerprint(row.note_id, row.doc_id, row as { id: string; content: any });
           validity = live === row.fingerprint ? 'matches' : 'changed';
         } catch (error) {
           validity = 'unknown';
@@ -4402,835 +4401,13 @@ export class PaRuntime {
     };
   }
 
-  // ---- handwriting notes (F06) ----------------------------------------------
-
-  private isImageFileMessage(event: InboundEvent): boolean {
-    if (event.messageType !== 'file') return false;
-    return /\.(jpe?g|png|webp)$/i.test(String(event.fileName ?? ''));
-  }
-
-  /**
-   * Collect one inbound photo/file as a note page (P28): durable original
-   * bytes + hash under the workspace, page order tracked in PG, owner ack
-   * message routed back to the note so replies append pages to it.
-   */
-  private async collectNotePage(inboxEventId: string, event: InboundEvent, noteId: string | null): Promise<void> {
-    const config = this.config!;
-    if (config.mode !== 'feishu' || !this.transport) {
-      await this.notifyOwner(`noteinfo:${event.eventId}`, '手写笔记收集需要 feishu 模式与已启动的飞书连接。');
-      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '手写收集未启用' });
-      return;
-    }
-    // (kept inline: this branch reports to the owner instead of throwing)
-    const resourceKey = event.imageKey || event.fileKey || '';
-    const resourceType: 'image' | 'file' = event.messageType === 'image' ? 'image' : 'file';
-    if (!resourceKey || !event.messageId) {
-      await this.notifyOwner(`noteinfo:${event.eventId}`, '这条消息缺少可下载的图片资源；请重新发送照片或图片文件。');
-      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '缺少图片资源' });
-      return;
-    }
-    const rejectPage = async (note: NoteRow, pageNo: number, reason: string, notifyText: string) => {
-      await this.repos!.notes.insertPage({
-        note_id: note.id,
-        page_no: pageNo,
-        message_id: String(event.messageId),
-        image_key: resourceKey,
-        media_type: 'unknown',
-        byte_size: 0,
-        sha256: '',
-        storage_path: '',
-        source_type: resourceType,
-        quality: reason,
-        status: 'rejected',
-      });
-      await this.notifyOwner(`noteinfo:${event.eventId}`, notifyText);
-      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: reason });
-    };
-    try {
-      if (noteId) {
-        const current = await this.repos!.notes.getNote(noteId);
-        if (current?.status === 'collected') {
-          await this.notifyOwner(`noteinfo:${event.eventId}`, `笔记 ${noteId} 的批次已结束，不再追加页；如需补充请发新笔记。`);
-          await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '批次已结束' });
-          return;
-        }
-      }
-      const bytes = await this.transport.downloadImage(event.messageId, resourceKey, resourceType);
-      const mediaType = detectImageMediaType(bytes);
-      const pages = noteId ? await this.repos!.notes.pagesOf(noteId) : [];
-      const savedCount = pages.filter(p => p.status === 'saved').length;
-      const nextNo = pages.length + 1;
-      let note: NoteRow;
-      if (noteId) {
-        const found = await this.repos!.notes.getNote(noteId);
-        if (!found) {
-          await this.notifyOwner(`noteinfo:${event.eventId}`, '引用的笔记已不存在；请直接发送照片开始新笔记。');
-          await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '引用笔记不存在' });
-          return;
-        }
-        note = found;
-      } else {
-        const id = await this.repos!.notes.nextNoteId();
-        note = await this.repos!.notes.insertNote({ id, title: `手写笔记 ${id}`, origin: 'feishu' });
-      }
-      if (!mediaType) {
-        await rejectPage(note, nextNo, '无法识别的图片格式（需 JPEG/PNG/WebP）', `笔记 ${note.id} 第 ${nextNo} 页不是可识别的图片（需 JPEG/PNG/WebP 原图或图片文件），已记录为缺页；请重发该页。`);
-        return;
-      }
-      if (bytes.length > MAX_PAGE_BYTES) {
-        await rejectPage(note, nextNo, `图片超过 ${MAX_PAGE_BYTES} 字节上限`, `笔记 ${note.id} 第 ${nextNo} 页超过 10 MiB 上限；请发送压缩后的图片或改用文件发送。`);
-        return;
-      }
-      if (savedCount >= MAX_PAGES_PER_NOTE) {
-        await rejectPage(note, nextNo, `笔记页数超过 ${MAX_PAGES_PER_NOTE} 上限`, `笔记 ${note.id} 已达 ${MAX_PAGES_PER_NOTE} 页上限；请先整理当前批次，或另发新笔记。`);
-        return;
-      }
-      const sha = sha256Hex(bytes);
-      const duplicate = pages.find(p => p.status === 'saved' && p.sha256 === sha);
-      if (duplicate) {
-        await this.notifyOwner(
-          `noteinfo:${event.eventId}`,
-          `这与笔记 ${note.id} 第 ${duplicate.page_no} 页是同一张原稿（sha256 ${sha.slice(0, 16)}…），未重复保存；如需替换该页请先说明。`,
-        );
-        await this.repos!.inbox.mark(inboxEventId, { status: 'duplicate', error: '重复页' });
-        return;
-      }
-      const dir = join(this.workspace!.statePath, '.24pa', 'originals', note.id);
-      await mkdir(dir, { recursive: true });
-      const storagePath = join(dir, `p${nextNo}-${sha.slice(0, 12)}.${extensionOf(mediaType)}`);
-      await (await import('node:fs/promises')).writeFile(storagePath, bytes, { mode: 0o600 });
-      this.usage.notePagesInput += 1;
-      await this.repos!.notes.insertPage({
-        note_id: note.id,
-        page_no: nextNo,
-        message_id: String(event.messageId),
-        image_key: resourceKey,
-        media_type: mediaType,
-        byte_size: bytes.length,
-        sha256: sha,
-        storage_path: storagePath,
-        source_type: resourceType,
-        quality: null,
-        status: 'saved',
-      });
-      // The ack message carries the route back to this note: replying with
-      // another photo appends the next page; replying with text reaches Lead.
-      await this.notifyOwner(
-        `noteack:${note.id}:p${nextNo}:${event.eventId}`,
-        `已收到笔记 ${note.id} 第 ${nextNo} 页原稿（${mediaType}，${bytes.length} 字节，sha256 ${sha.slice(0, 16)}…，${resourceType === 'file' ? '文件原图' : '平台图片，可能已压缩'}）。继续拍下一页请直接回复本条消息再发图；整理识别请回复“整理这份笔记”，或说“结束这批笔记”。`,
-      );
-      await this.repos!.inbox.mark(inboxEventId, { status: 'delivered', requestId: `note:${note.id}:p${nextNo}` });
-    } catch (error) {
-      // Download interrupted: nothing durable was written; a re-send retries.
-      await this.notifyOwner(
-        `noteinfo:${event.eventId}`,
-        `原稿下载未完成（${(error as Error).message}）；笔记记录未保存该页，请重新发送这张图片。`,
-      );
-      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: `原稿下载失败：${(error as Error).message}` });
-    }
-  }
-
-  /** Worker-side structured recognition result → publish the pending version (P29/P30). */
-  private async noteSubmit(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const notes = this.repos!.notes;
-    const note = await notes.noteByWorkItem(item.id);
-    if (!note) throw new Error('本事项未绑定手写笔记；请核对 noteId。');
-    const boundedStringList = (value: unknown, max: number, limit: number): string[] => {
-      const list = Array.isArray(value) ? value.map(v => text(v, max)) : [];
-      if (list.length > limit) throw new Error(`列表条目超过 ${limit} 条上限。`);
-      return list;
-    };
-    const savedPages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
-    const savedPageNos = new Set(savedPages.map(p => p.page_no));
-    const region = (value: unknown): Region | undefined => {
-      if (!value || typeof value !== 'object') return undefined;
-      const r = value as Record<string, unknown>;
-      const parsed = { x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h) };
-      if (Object.values(parsed).some(v => !Number.isFinite(v) || v < 0 || v > 1)) {
-        throw new Error('疑点/图示区域必须是 0–1 的归一化坐标（x/y/w/h）。');
-      }
-      return parsed;
-    };
-    const pages = (Array.isArray(args.pages) ? args.pages : []).slice(0, MAX_PAGES_PER_NOTE).map((entry: Record<string, unknown>, index: number) => {
-      const pageNo = Number(entry.pageNo);
-      if (!Number.isInteger(pageNo) || !savedPageNos.has(pageNo)) {
-        throw new Error(`逐页转写第 ${index + 1} 项的页号 ${String(entry.pageNo)} 不在已保存页中（已保存：${[...savedPageNos].sort((a, b) => a - b).join(', ')}）；缺页如实留空，不要臆造。`);
-      }
-      return { pageNo, transcript: text(entry.transcript, 20000) };
-    });
-    if (new Set(pages.map(p => p.pageNo)).size !== pages.length) throw new Error('逐页转写存在重复页号。');
-    for (let i = 1; i < pages.length; i++) {
-      if (pages[i]!.pageNo <= pages[i - 1]!.pageNo) throw new Error(`逐页转写必须按页号升序提交（第 ${i + 1} 项 ${pages[i]!.pageNo} ≤ 前项 ${pages[i - 1]!.pageNo}）；段落顺序以页序为准。`);
-    }
-    if (pages.length > 0 && pages.length !== savedPages.length) {
-      throw new Error(`逐页转写需覆盖全部已保存页（已保存 ${savedPages.length} 页，收到 ${pages.length} 页）；缺失页请明确标注无法辨认。`);
-    }
-    const doubts: DoubtSpec[] = (Array.isArray(args.doubts) ? args.doubts : []).slice(0, 100).map((entry: Record<string, unknown>, index: number) => {
-      const pageNo = Number(entry.pageNo);
-      if (!savedPageNos.has(pageNo)) throw new Error(`疑点第 ${index + 1} 项引用了未保存的页号 ${String(entry.pageNo)}。`);
-      const specifiedRegion = region(entry.region);
-      return {
-        pageNo,
-        kind: String(entry.kind ?? 'unclear'),
-        quote: text(entry.quote, 300),
-        region: specifiedRegion,
-        certainty: (specifiedRegion ? 'reliable' : 'page') as DoubtSpec['certainty'],
-        note: entry.note ? text(entry.note, 300) : undefined,
-      };
-    });
-    const diagrams: DiagramSpec[] = (Array.isArray(args.diagrams) ? args.diagrams : []).slice(0, 50).map((entry: Record<string, unknown>) => {
-      const pageNo = Number(entry.pageNo);
-      if (!savedPageNos.has(pageNo)) throw new Error(`图示引用了未保存的页号 ${String(entry.pageNo)}。`);
-      return { pageNo, description: text(entry.description, 1000), region: region(entry.region) };
-    });
-    // Candidate actions keep their provenance: source quote and the raw date
-    // phrase travel with the parsed summary into the version content (P34).
-    const noteCandidates = (Array.isArray(args.candidates) ? args.candidates : []).slice(0, 50).map((entry: unknown) => {
-      if (typeof entry === 'string') return { summary: text(entry, 500) };
-      const record = entry as Record<string, unknown>;
-      return {
-        summary: text(String(record.summary ?? ''), 500),
-        ...(record.sourceQuote ? { sourceQuote: text(record.sourceQuote, 300) } : {}),
-        ...(record.due != null && record.due !== '' ? { due: String(record.due) } : {}),
-        ...(record.start ? { start: String(record.start) } : {}),
-        ...(record.end ? { end: String(record.end) } : {}),
-      };
-    }).filter(c => c.summary);
-    const recognized: RecognizedNote = {
-      transcript: text(args.transcript, 20000),
-      summary: text(args.summary ?? '（无摘要）', 2000),
-      suggestions: boundedStringList(args.suggestions, 500, 50),
-      unknowns: boundedStringList(args.unknowns, 500, 50),
-      candidates: noteCandidates,
-      relativeDates: (Array.isArray(args.relativeDates) ? args.relativeDates : []).slice(0, 20).map((entry: Record<string, unknown>) => ({
-        original: text(entry.original, 200),
-        interpretation: text(entry.interpretation, 500),
-      })),
-      ...(pages.length ? { pages } : {}),
-      ...(doubts.length ? { doubts } : {}),
-      ...(diagrams.length ? { diagrams } : {}),
-    };
-    // Regioned doubts/diagrams become durable crops before publishing (P30).
-    const crops = await this.generateCrops(note.id, savedPages, doubts, diagrams);
-    return this.publishNoteVersion(item, note, recognized, null, crops);
-  }
-
-  /**
-   * Produce zoom crops for regioned doubts/diagrams from the saved originals
-   * (P30): normalized regions map through the page's intrinsic size with
-   * clamping; each crop keeps its transform record and sha256.
-   */
-  private async generateCrops(noteId: string, pages: NotePageRow[], doubts: DoubtSpec[], diagrams: DiagramSpec[]): Promise<CropSpec[]> {
-    const entries: { kind: 'doubt' | 'diagram'; pageNo: number; region: Region }[] = [];
-    for (const doubt of doubts) if (doubt.region) entries.push({ kind: 'doubt', pageNo: doubt.pageNo, region: doubt.region });
-    for (const diagram of diagrams) if (diagram.region) entries.push({ kind: 'diagram', pageNo: diagram.pageNo, region: diagram.region });
-    if (entries.length === 0) return [];
-    let sharp: any;
-    try {
-      sharp = (await import('sharp')).default;
-    } catch (error) {
-      throw new Error(`生成疑点裁片需要 sharp（${(error as Error).message}）；请先不带区域提交，区域定位随后补充。`);
-    }
-    const { mkdir, writeFile } = await import('node:fs/promises');
-    const dir = join(this.workspace!.statePath, '.24pa', 'crops', noteId);
-    await mkdir(dir, { recursive: true });
-    const crops: CropSpec[] = [];
-    for (const [index, entry] of entries.entries()) {
-      const page = pages.find(p => p.page_no === entry.pageNo);
-      if (!page) continue;
-      const meta = await sharp(page.storage_path).metadata();
-      if (!meta.width || !meta.height) throw new Error(`无法读取第 ${entry.pageNo} 页原稿尺寸，不能生成裁片。`);
-      const { box, certainty } = cropBox(entry.region, meta.width, meta.height);
-      const png = await sharp(page.storage_path).extract(box).png().toBuffer();
-      const sha = sha256Hex(png);
-      const id = `C${index + 1}`;
-      const path = join(dir, `p${entry.pageNo}-${id}-${sha.slice(0, 12)}.png`);
-      await writeFile(path, png, { mode: 0o600 });
-      crops.push({ id, pageNo: entry.pageNo, kind: entry.kind, region: entry.region, certainty, path, sha256: sha });
-      this.usage.noteCrops += 1;
-      // Feed the real clamp verdict back: an adjusted region is published as
-      // 估计, never 可靠 (P30 AC2).
-      if (certainty === 'estimated' && entry.kind === 'doubt') {
-        const target = doubts.find(d => d.pageNo === entry.pageNo && d.region === entry.region);
-        if (target) target.certainty = 'estimated';
-      }
-    }
-    return crops;
-  }
-
-  /**
-   * Publish a pending review version. Stage-resumable: the created document id
-   * is persisted on the staged operation before anything else can fail, so a
-   * retry resumes from the read-back instead of creating a second document.
-   * `republishFromDoc` (P32) skips creation and captures the current document
-   * as the next candidate instead.
-   */
-  private async publishNoteVersion(
-    item: WorkItemRow,
-    note: NoteRow,
-    recognized: RecognizedNote | null,
-    republishFromDoc: { docId: string; docUrl: string | null; normalized: string; snapshot: string; revision: string | null } | null,
-    crops: CropSpec[] = [],
-  ): Promise<unknown> {
-    const notes = this.repos!.notes;
-    const pages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
-    if (pages.length === 0) throw new Error('这份笔记还没有已保存的原稿页。');
-    const latest = await notes.latestVersion(note.id);
-    const version = (latest?.version ?? 0) + 1;
-    const versionId = `${note.id}:v${version}`;
-    this.assertFeishuLive('手写笔记发布需要 feishu 模式与飞书连接');
-    const visionRoute = this.config!.workerModels.handwriting;
-    const paramsKey = republishFromDoc ? `republish:${republishFromDoc.docId}:${sha256Hex(republishFromDoc.normalized)}` : sha256Hex(JSON.stringify(recognized));
-    const staged = await this.stagedOperation(
-      item,
-      'note.publish',
-      `${versionId}\n${paramsKey}`,
-      { noteId: note.id, version, republish: !!republishFromDoc },
-      '请先到飞书体验目录核对是否已生成待审文档，确认后再继续，不会自动重试。',
-    );
-    if (!staged.created && staged.row.status === 'succeeded') {
-      const existing = await notes.getVersion(versionId);
-      return { noteId: note.id, version, versionId, reused: true, docUrl: existing?.doc_url ?? staged.row.receipt?.docUrl ?? null, message: '该版本此前已发布，未重复创建文档。' };
-    }
-    try {
-      let docId = (staged.row.receipt?.docId as string | undefined) ?? republishFromDoc?.docId ?? null;
-      let docUrl = (staged.row.receipt?.docUrl as string | undefined) ?? republishFromDoc?.docUrl ?? null;
-      if (!docId) {
-        if (!recognized) throw new Error('发布新版本需要结构化识别结果。');
-        const xmlBody = noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size, sourceType: p.source_type })));
-        const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-          'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', this.config!.folderToken, '--content', '-',
-        ], xmlBody);
-        const doc = data?.document;
-        if (!doc?.document_id || !doc?.url) throw new Error('文档创建未返回标识；请先核对体验目录，不要盲目重试。');
-        docId = String(doc.document_id);
-        docUrl = String(doc.url);
-        await this.repos!.operations.update(staged.row.id, { status: 'running', receipt: { docId, docUrl, stage: 'created' } });
-      }
-      // Original images ride into the doc from the saved originals; a failure
-      // here leaves the operation resumable at the read-back stage.
-      const insertedMedia = staged.row.receipt?.mediaInserted === true;
-      if (!republishFromDoc && !insertedMedia) {
-        const mediaFiles = [...pages.map(p => p.storage_path), ...crops.map(c => c.path)];
-        for (const file of mediaFiles) {
-          await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-            'docs', '+media-insert', '--as', 'user', '--doc', docId, '--type', 'image', '--file', file,
-          ]);
-        }
-        await this.repos!.operations.update(staged.row.id, { status: 'running', receipt: { docId, docUrl, stage: 'media', mediaInserted: true } });
-      }
-      const readback = await this.fetchNoteDocument(docId);
-      // Resource completeness: every saved page's original and every crop must
-      // be present in the read-back before the review link may go out (P29/P30).
-      const imageCount = (readback.content.match(/<img\b/g) ?? []).length;
-      if (imageCount < pages.length + crops.length) {
-        throw new Error(`文档回读不完整：仅见到 ${imageCount} 张图片（应有 ${pages.length} 页原稿 + ${crops.length} 张裁片）；不发送待审链接，请核对文档。`);
-      }
-      const normalized = normalizeDocument(readback.content);
-      const fingerprint = fingerprintOf(normalized, pages.map(p => p.sha256), crops.map(c => c.sha256));
-      const snapshot = republishFromDoc?.snapshot ?? readback.content;
-      const finalRecognized = republishFromDoc
-        ? { ...(latest?.content ?? {}), republishedFromDoc: true, previousVersion: latest?.version ?? null }
-        : { ...recognized, model: visionRoute ? { provider: visionRoute.provider, model: visionRoute.model } : null, crops };
-      await notes.insertVersion({
-        id: versionId,
-        note_id: note.id,
-        version,
-        doc_id: docId,
-        doc_url: docUrl,
-        doc_revision: readback.revision,
-        fingerprint,
-        normalized_text: normalized,
-        content: finalRecognized,
-        doc_snapshot: snapshot,
-        status: 'pending_review',
-      });
-      await notes.supersedeOlder(note.id, version);
-      // A new candidate supersedes the old version: its nags must stop (P33).
-      if (latest) {
-        await this.repos!.reviewReminders.cancelForVersion(latest.id).catch(error => {
-          console.warn(`[pa24] 取消旧版本催办失败（派发时会再核对版本状态）：${(error as Error).message}`);
-        });
-      }
-      await notes.updateNote(note.id, { status: 'awaiting_review' });
-      await this.repos!.operations.update(staged.row.id, {
-        status: 'succeeded',
-        receipt: { docId, docUrl, versionId, fingerprint, revision: readback.revision },
-      });
-      await this.repos!.workItems.update(item.id, {
-        result_ref: { operationId: staged.row.id, docId, docUrl, noteId: note.id, versionId },
-      });
-      await this.sendReviewCard(note.id, versionId);
-      // Revision impact (P34): objects created from older versions get a change
-      // suggestion — never silent deletion or overwrite; one notice per new version.
-      if (latest) {
-        const affected = (await this.repos!.operations.succeededWithIdPrefix(`note.action:${note.id}:v%`).catch(() => [] as Array<{ id: string; params: any; status: string }>))
-          .filter(op => !op.id.startsWith(`note.action:${note.id}:v${version}:`));
-        if (affected.length > 0 && this.config?.ownerOpenId) {
-          const diff = diffNormalized(String(latest.normalized_text ?? ''), normalized);
-          const diffNote = diff.added.length || diff.removed.length
-            ? `主要差异：新增 ${diff.added.length} 行${diff.added.length ? `（如「${diff.added[0]!.slice(0, 40)}」）` : ''}，删除 ${diff.removed.length} 行${diff.removed.length ? `（如「${diff.removed[0]!.slice(0, 40)}」）` : ''}。`
-            : '两版本正文无文本差异（可能仅原稿/结构变化）。';
-          await this.notifyOwner(
-            `noteimpact:${note.id}:v${version}`,
-            `笔记 ${note.id} 已发布 v${version} 候选。${diffNote}此前按旧版本创建的 ${affected.length} 个行动对象可能需要调整：${affected.map(op => String(op.params?.summary ?? op.id)).join('、')}。是否修改由你决定，助理不会静默删除或覆盖。`,
-          );
-        }
-      }
-      return {
-        noteId: note.id,
-        version,
-        versionId,
-        docUrl,
-        fingerprint,
-        message: `已生成待审版本 v${version} 并回读确认；等待本人在飞书审核卡上批准或退回。`,
-      };
-    } catch (error) {
-      await this.failStaged(staged.row.id, error);
-      throw error;
-    }
-  }
-
-  private async fetchNoteDocument(docId: string): Promise<{ content: string; revision: string | null }> {
-    const readback = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-      'docs', '+fetch', '--as', 'user', '--doc', docId, '--doc-format', 'xml', '--detail', 'full',
-    ]);
-    const content = readback.data?.document?.content;
-    if (typeof content !== 'string' || !content.trim()) throw new Error('文档回读不完整，不能作为待审内容。');
-    return { content, revision: readback.data.document.revision_id != null ? String(readback.data.document.revision_id) : null };
-  }
-
-  /** Enqueue the durable review card with opaque, server-verified tokens (P31). */
-  private async sendReviewCard(noteId: string, versionId: string): Promise<void> {
-    const notes = this.repos!.notes;
-    const version = await notes.getVersion(versionId);
-    if (!version) throw new Error('版本不存在，无法发送审核卡。');
-    const approveToken = newReviewToken();
-    const returnToken = newReviewToken();
-    const expires = new Date(Date.now() + REVIEW_TOKEN_TTL_MS);
-    await notes.insertToken({ token: approveToken, note_id: noteId, version_id: versionId, action: 'approve', owner_open_id: this.config!.ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
-    await notes.insertToken({ token: returnToken, note_id: noteId, version_id: versionId, action: 'return', owner_open_id: this.config!.ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
-    const summary = String(version.content?.summary ?? '（见文档）');
-    const card = reviewCard(noteId, version.version, version.doc_url, summary, version.fingerprint.slice(0, 12), approveToken, returnToken);
-    await this.repos!.outbox.enqueue({
-      dedupKey: `notereview:${noteId}:v${version.version}`,
-      channel: 'feishu',
-      target: this.config!.ownerOpenId,
-      kind: 'card',
-      content: card,
-    });
-  }
-
-  /**
-   * Card click → server-side verification and transactional decision (P31).
-   * The button only carries an opaque token; every binding is re-checked here.
-   */
-  private async processReviewCard(inboxEventId: string, event: InboundEvent): Promise<void> {
-    const value = (event.cardAction?.value ?? {}) as Record<string, unknown>;
-    const finish = async (status: 'delivered' | 'rejected' | 'duplicate', error?: string, requestId?: string) => {
-      await this.repos!.inbox.mark(inboxEventId, { status, error, requestId });
-    };
-    if (value.pa24 !== 'review' || !value.token) {
-      await finish('rejected', '未支持的卡片动作');
-      return;
-    }
-    const token = String(value.token);
-    const notes = this.repos!.notes;
-    const row = await notes.getToken(token);
-    const notify = (text: string) => this.notifyOwner(`review:${token.slice(0, 12)}:${inboxEventId}`, text);
-    if (!row) {
-      await notify('这个审核按钮不属于当前工作区或已失效；请以最新审核卡为准。');
-      await finish('rejected', '未知审核令牌');
-      return;
-    }
-    if (row.used_at || row.result) {
-      await notify(`该按钮此前已处理：${typeof row.result?.message === 'string' ? row.result.message : '结果见此前通知'}；重复点击不产生新裁决。`);
-      await finish('duplicate', '重复卡片动作');
-      return;
-    }
-    if (row.expires_at.getTime() < Date.now()) {
-      await notify('这个审核按钮已过期（7 天）；如需审核请要求重新发送审核卡。');
-      await finish('rejected', '审核令牌过期');
-      return;
-    }
-    if (this.config!.ownerOpenId && event.senderOpenId !== row.owner_open_id) {
-      await notify('审核按钮只对绑定的主人有效；其他成员的操作已被拒绝。');
-      await finish('rejected', '非主人操作');
-      return;
-    }
-    const version = await notes.getVersion(row.version_id);
-    if (!version || version.note_id !== row.note_id || version.status !== 'pending_review') {
-      await notify(`该版本当前不是待审状态（${version?.status ?? '不存在'}）；请核对最新版本后操作。`);
-      await finish('rejected', '版本状态不符');
-      return;
-    }
-    // Re-verify the document matches the fingerprint this button was bound to.
-    let liveFingerprint: string;
-    try {
-      liveFingerprint = await this.currentFingerprint(row.note_id, version.doc_id!);
-    } catch (error) {
-      await notify(`暂时无法核验文档当前内容（${(error as Error).message}）；本次点击未产生裁决，请稍后再试。`);
-      await finish('rejected', '文档核验失败（unknown）');
-      return;
-    }
-    if (liveFingerprint !== row.fingerprint) {
-      await notes.updateVersion(version.id, { status: 'stale' });
-      await notes.updateNote(row.note_id, { status: 'needs_rereview' });
-      await notify('文档内容与待审版本不一致（已修改），本按钮不能批准当前内容；旧批准只覆盖旧快照。可要求重新发布候选版本。');
-      await finish('rejected', '内容已变化');
-      return;
-    }
-    const { claimed } = await notes.useToken(token);
-    if (!claimed) {
-      await notify('该按钮刚刚已被处理，结果见稍前通知；不产生重复裁决。');
-      await finish('duplicate', '并发重复点击');
-      return;
-    }
-    const decision = row.action === 'approve' ? 'approve' : 'return';
-    const decisionId = `rvw-${randomUUID().slice(0, 16)}`;
-    // Credential, statuses and the owner-notification intent commit together.
-    await this.dbRef.withTransaction(client =>
-      this.repos!.notes.decideVersion(client, {
-        decisionId,
-        noteId: row.note_id,
-        versionId: row.version_id,
-        versionStatus: decision === 'approve' ? 'approved' : 'returned',
-        noteStatus: decision === 'approve' ? 'approved' : 'returned',
-        decision,
-        reviewerOpenId: event.senderOpenId,
-        token,
-        fingerprint: row.fingerprint,
-        notifyDedupKey: `review:${token.slice(0, 12)}:${inboxEventId}`,
-        notifyTarget: this.config!.ownerOpenId,
-        notifyText: decision === 'approve'
-          ? `已批准 ${row.note_id} v${version.version}（覆盖指纹 ${row.fingerprint.slice(0, 12)}…，审核人 ${event.senderOpenId}）。`
-          : `已退回 ${row.note_id} v${version.version}；修改草稿后可要求重新发布候选版本。`,
-      }),
-    );
-    // Document status refresh runs after the ledger commit; a failure here
-    // keeps the credential and reports "saved / syncing" (P32).
-    let syncMessage: string;
-    if (this.config!.mode === 'feishu' && this.transport) {
-      try {
-        const decidedAt = nowIso();
-        const newLine = decision === 'approve'
-          ? systemLine(`本人已审核 ${row.note_id} v${version.version}（${decidedAt}；覆盖指纹 ${row.fingerprint.slice(0, 12)}…）`)
-          : systemLine(`本人退回 ${row.note_id} v${version.version}（${decidedAt}）；修改后可要求重新发布候选`);
-        await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-          'docs', '+update', '--as', 'user', '--doc', version.doc_id!,
-          '--command', 'str_replace', '--pattern', pendingReviewLine(row.note_id, version.version),
-          '--content', newLine,
-        ]);
-        await notes.updateDecisionSync(decisionId, { docSyncStatus: 'synced' });
-        syncMessage = decision === 'approve' ? '文档审核状态已同步。' : '文档已标注退回状态。';
-      } catch (error) {
-        await notes.updateDecisionSync(decisionId, { docSyncStatus: 'failed', error: (error as Error).message });
-        syncMessage = `审核凭证已保存，但文档状态同步失败（${(error as Error).message}）；标识同步中，可稍后重试核验。`;
-      }
-    } else {
-      syncMessage = 'demo 模式：凭证已入账本，未同步文档状态。';
-    }
-    const result = {
-      decision,
-      noteId: row.note_id,
-      version: version.version,
-      fingerprint: row.fingerprint,
-      message:
-        decision === 'approve'
-          ? `已批准 ${row.note_id} v${version.version}（覆盖指纹 ${row.fingerprint.slice(0, 12)}…，审核人 ${event.senderOpenId}）。${syncMessage}`
-          : `已退回 ${row.note_id} v${version.version}；修改草稿后可要求重新发布候选版本。${syncMessage}`,
-    };
-    await notes.markTokenResult(token, result);
-    if (syncMessage) {
-      // The decision itself was notified transactionally; only the sync status
-      // needs a follow-up when it differs from the happy path. Distinct dedup
-      // key so it is never swallowed by the decision notification.
-      await this.notifyOwner(`reviewsync:${token.slice(0, 12)}:${inboxEventId}`, `笔记 ${row.note_id} v${version.version}：${syncMessage}`);
-    }
-    await finish('delivered', undefined, `review:${decisionId}`);
-  }
-
-  /** Fingerprint of the live document for one note (shared verification path). */
-  private async currentFingerprint(noteId: string, docId: string, versionRow?: { id: string; content: any } | null): Promise<string> {
-    const pages = (await this.repos!.notes.pagesOf(noteId)).filter(p => p.status === 'saved');
-    const version = versionRow ?? (await this.repos!.notes.latestVersion(noteId));
-    const cropShas = (Array.isArray(version?.content?.crops) ? version.content.crops : []).map((c: { sha256: string }) => c.sha256);
-    const readback = await this.fetchNoteDocument(docId);
-    return fingerprintOf(normalizeDocument(readback.content), pages.map(p => p.sha256), cropShas);
+    async notesTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
+    return this.handwriting.notesTool(args, agent);
   }
 
   /** Assert the Feishu transport is live; every note write path needs it. */
   private assertFeishuLive(context: string): void {
     if (this.config?.mode !== 'feishu' || !this.transport) throw new Error(`${context}：需要 feishu 模式与已启动的飞书连接。`);
-  }
-
-  /**
-   * Retry document status-block sync for decisions whose refresh failed: the
-   * credential is durable, only the projection lags (P32 恢复).
-   */
-  private async repairDecisionSync(noteId: string): Promise<number> {
-    const notes = this.repos!.notes;
-    const failed = await notes.failedSyncDecisions(noteId);
-    let repaired = 0;
-    for (const decision of failed) {
-      const version = await notes.getVersion(decision.version_id);
-      if (!version?.doc_id) continue;
-      try {
-        const newLine = decision.decision === 'approve'
-          ? systemLine(`本人已审核 ${noteId} v${version.version}（${new Date(decision.decided_at).toISOString()}；覆盖指纹 ${decision.fingerprint.slice(0, 12)}…）`)
-          : systemLine(`本人退回 ${noteId} v${version.version}（${new Date(decision.decided_at).toISOString()}）；修改后可要求重新发布候选`);
-        await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-          'docs', '+update', '--as', 'user', '--doc', version.doc_id,
-          '--command', 'str_replace', '--pattern', pendingReviewLine(noteId, version.version),
-          '--content', newLine,
-        ]);
-        await notes.updateDecisionSync(decision.id, { docSyncStatus: 'synced' });
-        repaired += 1;
-      } catch {
-        // Still failing; the credential remains and the lag stays visible.
-      }
-    }
-    return repaired;
-  }
-
-  /** Bounded verification of a published version against the live document (P32). */
-  private async verifyNote(noteId: string, options: { persist?: boolean } = {}): Promise<unknown> {
-    const notes = this.repos!.notes;
-    const note = await notes.getNote(noteId);
-    if (!note) throw new Error('笔记不存在。');
-    const latest = await notes.latestVersion(noteId);
-    if (!latest) return { noteId, result: 'none', message: '这份笔记还没有已发布版本。' };
-    let outcome: 'matches' | 'changed' | 'unknown';
-    let fingerprint: string | null = null;
-    let reason: string | null = null;
-    try {
-      fingerprint = await this.currentFingerprint(noteId, latest.doc_id!);
-      outcome = fingerprint === latest.fingerprint ? 'matches' : 'changed';
-    } catch (error) {
-      outcome = 'unknown';
-      reason = (error as Error).message;
-    }
-    if (options.persist !== false) {
-      await notes.updateVersion(latest.id, {
-        verified_at: new Date(),
-        verify_result: outcome,
-        verify_fingerprint: fingerprint,
-      });
-    }
-    let repaired = 0;
-    if (outcome === 'changed') {
-      if (latest.status !== 'stale') {
-        await notes.updateVersion(latest.id, { status: 'stale' });
-        await notes.updateNote(noteId, { status: 'needs_rereview' });
-        await this.notifyOwner(
-          `notechange:${latest.id}`,
-          `笔记 ${noteId} 的文档在发布 v${latest.version} 后被修改；待审/批准状态已标记需重新审核（旧批准仅覆盖旧快照）。可让助理“重新发布候选”。`,
-        );
-      }
-    } else if (outcome === 'matches') {
-      repaired = await this.repairDecisionSync(noteId);
-    }
-    return {
-      noteId,
-      latestVersion: latest.version,
-      latestStatus: latest.status,
-      result: outcome,
-      ...(fingerprint ? { fingerprint } : {}),
-      ...(reason ? { reason } : {}),
-      ...(repaired > 0 ? { repairedDecisionSync: repaired } : {}),
-      message:
-        outcome === 'matches'
-          ? `文档与 v${latest.version} 的指纹一致。${repaired > 0 ? `并补同步了 ${repaired} 条文档审核状态。` : ''}`
-          : outcome === 'changed'
-            ? `文档与 v${latest.version} 不一致（changed）；状态已转为需重新审核。`
-            : `本次无法核验文档（${reason}）；不能据此宣称一致或已审。`,
-    };
-  }
-
-  /** Refresh the candidate: current document content becomes v(n+1) (P32). */
-  private async republishNote(item: WorkItemRow, noteId: string): Promise<unknown> {
-    const notes = this.repos!.notes;
-    const note = await notes.getNote(noteId);
-    if (!note) throw new Error('笔记不存在。');
-    const latest = await notes.latestVersion(noteId);
-    if (!latest) throw new Error('这份笔记还没有已发布版本，无候选可刷新；请先识别整理。');
-    const readback = await this.fetchNoteDocument(latest.doc_id!);
-    const normalized = normalizeDocument(readback.content);
-    if (normalized === latest.normalized_text) {
-      return { noteId, result: 'unchanged', message: `当前文档与 v${latest.version} 一致，无需重发候选。` };
-    }
-    const diff = diffNormalized(latest.normalized_text, normalized);
-    const carriedCrops = (Array.isArray(latest.content?.crops) ? latest.content.crops : []) as CropSpec[];
-    const result = (await this.publishNoteVersion(item, note, null, {
-      docId: latest.doc_id!,
-      docUrl: latest.doc_url,
-      normalized,
-      snapshot: readback.content,
-      revision: readback.revision,
-    }, carriedCrops)) as Record<string, unknown>;
-    // Point the document's status line at the new candidate version; the
-    // system line is fingerprint-excluded, so this never invalidates it.
-    try {
-      await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-        'docs', '+update', '--as', 'user', '--doc', latest.doc_id!,
-        '--command', 'str_replace', '--pattern', pendingReviewLine(noteId, latest.version),
-        '--content', pendingReviewLine(noteId, Number(result.version)),
-      ]);
-    } catch {
-      // Status-line drift is cosmetic; the review card names the version.
-    }
-    return {
-      ...result,
-      diff: {
-        addedLines: diff.added.length,
-        removedLines: diff.removed.length,
-        addedSamples: diff.added.slice(0, 5),
-        removedSamples: diff.removed.slice(0, 5),
-      },
-      message: `已以当前文档内容发布 v${result.version} 待审候选（新增 ${diff.added.length} 行、删除 ${diff.removed.length} 行）；在本人批准前不继承旧结论。`,
-    };
-  }
-
-  /** Lead-facing note inspection/control (pa24_notes). */
-  async notesTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
-    const role = this.roleFor(agent);
-    if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('笔记查询与核验由24私助会话负责。');
-    const notes = this.repos!.notes;
-    const action = String(args.action ?? 'list');
-    const noteId = args.noteId ? String(args.noteId) : '';
-    if (action === 'queue') {
-      return this.reviewQueue();
-    }
-    if (action === 'list') {
-      const rows = await notes.listNotes(args.status ? String(args.status) : undefined, 20);
-      const view = [];
-      for (const row of rows) {
-        const pages = await notes.pagesOf(row.id);
-        const latest = await notes.latestVersion(row.id);
-        view.push({
-          noteId: row.id,
-          title: row.title,
-          status: row.status,
-          pages: pages.length,
-          savedPages: pages.filter(p => p.status === 'saved').length,
-          latestVersion: latest ? { version: latest.version, status: latest.status, docUrl: latest.doc_url } : null,
-        });
-      }
-      return { notes: view };
-    }
-    if (action === 'inspect') {
-      if (!noteId) throw new Error('需要 noteId。');
-      const note = await notes.getNote(noteId);
-      if (!note) throw new Error('笔记不存在。');
-      const pages = await notes.pagesOf(noteId);
-      const versions = await notes.versionsOf(noteId);
-      const decisions = await notes.decisionsOf(noteId);
-      return {
-        noteId: note.id,
-        title: note.title,
-        status: note.status,
-        pages: pages.map(p => ({ pageNo: p.page_no, mediaType: p.media_type, bytes: p.byte_size, sha256: p.sha256.slice(0, 16) + '…', status: p.status, quality: p.quality })),
-        versions: versions.map(v => ({ version: v.version, status: v.status, fingerprint: v.fingerprint.slice(0, 16) + '…', docUrl: v.doc_url, decidedAt: isoDate(v.decided_at) })),
-        decisions: decisions.map(d => ({ decision: d.decision, versionId: d.version_id, reviewer: d.reviewer_open_id, decidedAt: isoDate(d.decided_at), docSync: d.doc_sync_status })),
-      };
-    }
-    if (action === 'verify') {
-      if (!noteId) throw new Error('需要 noteId。');
-      return this.verifyNote(noteId);
-    }
-    if (action === 'finish') {
-      if (!noteId) throw new Error('需要 noteId。');
-      const note = await notes.getNote(noteId);
-      if (!note) throw new Error('笔记不存在。');
-      if (note.status !== 'collecting') throw new Error(`该笔记不在收集阶段（${note.status}），无需结束批次。`);
-      const pages = (await notes.pagesOf(noteId)).filter(p => p.status === 'saved');
-      if (pages.length === 0) throw new Error('该笔记还没有已保存原稿，不能结束为可整理批次。');
-      await notes.updateNote(noteId, { status: 'collected' });
-      return { noteId, status: 'collected', pages: pages.length, message: `批次已结束（共 ${pages.length} 页）；现在可以委派 handwriting 整理，之后不再追加页。` };
-    }
-    if (action === 'remind') {
-      if (!noteId) throw new Error('需要 noteId。');
-      const latest = await notes.latestVersion(noteId);
-      if (!latest || latest.status !== 'pending_review') {
-        throw new Error(`笔记 ${noteId} 当前没有待审版本（${latest ? latest.status : '尚无版本'}），提醒绑定待审版本；请先发布候选。`);
-      }
-      const kind = args.kind === 'daily' ? 'daily' : 'once';
-      let remindAt: Date;
-      if (args.at) {
-        remindAt = new Date(String(args.at));
-        if (Number.isNaN(remindAt.getTime())) throw new Error('at 需为可解析的 ISO 时间。');
-      } else {
-        const seconds = Number(args.inSeconds ?? 0);
-        if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new Error('remind 需要 inSeconds（1 秒–365 天）或绝对时间 at。');
-        remindAt = new Date(Date.now() + seconds * 1000);
-      }
-      const id = `nrm-${randomUUID().slice(0, 12)}`;
-      await this.repos!.reviewReminders.insert({ id, noteId, versionId: latest.id, kind, remindAt, reason: args.reason ? text(args.reason, 300) : undefined });
-      return { reminderId: id, noteId, versionId: latest.id, kind, remindAt: remindAt.toISOString(), message: `已为 ${noteId} v${latest.version} 设置审核提醒（${kind}）；版本完成审核后自动取消。` };
-    }
-    if (action === 'remind_control') {
-      const op = String(args.op ?? '');
-      const byId = args.reminderId ? String(args.reminderId) : '';
-      let targets: ReviewReminderRow[];
-      if (byId) {
-        const row = await this.repos!.reviewReminders.get(byId);
-        if (!row) throw new Error('提醒不存在。');
-        targets = [row];
-      } else {
-        if (!noteId) throw new Error('需要 reminderId 或 noteId。');
-        targets = await this.repos!.reviewReminders.activeForNote(noteId);
-        if (targets.length === 0) throw new Error(`笔记 ${noteId} 没有在途提醒。`);
-      }
-      const results = [];
-      for (const reminder of targets) {
-        if (!['pending', 'paused'].includes(reminder.status)) {
-          results.push({ id: reminder.id, status: reminder.status, message: '该提醒已结束，操作无效。' });
-          continue;
-        }
-        if (op === 'snooze') {
-          const seconds = Number(args.inSeconds ?? 0);
-          if (!Number.isInteger(seconds) || seconds < 1 || seconds > 7 * 24 * 3600) throw new Error('snooze 需要 inSeconds（1 秒–7 天）。');
-          const next = new Date(Date.now() + seconds * 1000);
-          await this.repos!.reviewReminders.update(reminder.id, { status: 'pending', remind_at: next });
-          results.push({ id: reminder.id, status: 'pending', remindAt: next.toISOString(), message: `已稍后 ${seconds} 秒提醒（仍绑定原版本）。` });
-        } else if (op === 'pause') {
-          await this.repos!.reviewReminders.update(reminder.id, { status: 'paused' });
-          results.push({ id: reminder.id, status: 'paused', message: '提醒已暂停；审核状态未变。' });
-        } else if (op === 'resume') {
-          await this.repos!.reviewReminders.update(reminder.id, { status: 'pending' });
-          results.push({ id: reminder.id, status: 'pending', message: '提醒已恢复。' });
-        } else if (op === 'cancel') {
-          await this.repos!.reviewReminders.update(reminder.id, { status: 'canceled' });
-          results.push({ id: reminder.id, status: 'canceled', message: '提醒已取消；审核状态未变。' });
-        } else {
-          throw new Error('未知提醒操作（snooze/pause/resume/cancel）。');
-        }
-      }
-      return { results };
-    }
-    if (action === 'republish') {
-      if (!noteId) throw new Error('需要 noteId。');
-      // A durable work item owns the republish so retries stay idempotent.
-      const id = `pa24-work-notes-${randomUUID()}`;
-      const republishItem = await this.repos!.workItems.insert({
-        id,
-        title: `刷新笔记候选 ${noteId}`,
-        role: 'handwriting',
-        instruction: `刷新 ${noteId} 的待审候选`,
-        origin: agent.id === this.accessSessionId ? 'feishu' : 'local',
-        parent_session_id: agent.id,
-        child_session_id: id,
-        delivery: agent.id === this.accessSessionId ? `feishu:${this.config!.ownerOpenId}` : `local:${agent.id}`,
-        status: 'running',
-      });
-      this.trackWorkItem(republishItem);
-      try {
-        return await this.republishNote(republishItem, noteId);
-      } finally {
-        await this.repos!.workItems.update(id, { status: 'completed', progress: '候选刷新完成' });
-      }
-    }
-    throw new Error('未知笔记操作。');
   }
 
   /** Map a sent platform message to the work item / note / inbox it answers (P05, P28/P31). */
@@ -5266,7 +4443,7 @@ export class PaRuntime {
   async pollPendingNotes(): Promise<number> {
     if (!this.repos || !this.config || this.config.mode !== 'feishu' || !this.transport) return 0;
     const versions = await this.repos.notes.pendingReviewVersions(5);
-    await Promise.all(versions.map(version => this.verifyNote(version.note_id).catch(() => {})));
+    await Promise.all(versions.map(version => this.handwriting.verifyNote(version.note_id).catch(() => {})));
     return versions.length;
   }
 
@@ -5564,45 +4741,3 @@ function resolveVersions(): { dsh: string; sdk: string; plugin: string } {
   return cachedVersions;
 }
 
-/** In-process fake used by tests and demo mode to exercise the real pipeline. */
-export class FakeFeishuTransport implements FeishuTransport {
-  readonly name = 'fake';
-  private handler: ((event: InboundEvent) => Promise<void>) | null = null;
-  readonly sent: { openId: string; text?: string; card?: unknown; uuid: string; messageId: string }[] = [];
-  private readonly resources = new Map<string, Buffer>();
-
-  constructor(readonly appId: string) {}
-
-  async start(onEvent: (event: InboundEvent) => Promise<void>): Promise<void> {
-    this.handler = onEvent;
-  }
-
-  async inject(event: InboundEvent, imageData?: string): Promise<void> {
-    if (!this.handler) throw new Error('fake transport 未启动。');
-    const key = event.imageKey || event.fileKey;
-    if (key && imageData) this.resources.set(key, Buffer.from(imageData, 'base64'));
-    await this.handler(event);
-  }
-
-  async sendText(openId: string, text: string, uuid: string): Promise<{ messageId: string }> {
-    const messageId = `fake-${uuid}`;
-    this.sent.push({ openId, text, uuid, messageId });
-    return { messageId };
-  }
-
-  async sendCard(openId: string, card: unknown, uuid: string): Promise<{ messageId: string }> {
-    const messageId = `fake-${uuid}`;
-    this.sent.push({ openId, card, uuid, messageId });
-    return { messageId };
-  }
-
-  async downloadImage(_messageId: string, imageKey: string): Promise<Buffer> {
-    const bytes = this.resources.get(imageKey);
-    if (!bytes) throw new Error(`fake transport 没有登记图片资源：${imageKey}`);
-    return bytes;
-  }
-
-  async close(): Promise<void> {
-    this.handler = null;
-  }
-}
