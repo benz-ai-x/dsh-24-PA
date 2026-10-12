@@ -18,6 +18,9 @@ export interface BackupPart {
   id: string;
   name: string;
   bytes: Buffer;
+  /** Best-effort part: a write failure degrades the backup but does not
+   *  fail it (e.g. the SQLite WAL append when -wal vanished mid-backup). */
+  optional?: boolean;
 }
 
 export interface PaDb extends PaQueryer {

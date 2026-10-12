@@ -148,6 +148,35 @@ describe('PostgreSQL 业务账本', () => {
     expect(totals.outbox).toBeGreaterThanOrEqual(0);
   });
 
+  it('F28 第二轮收口：recovery 代数、会前准备守卫、行动前缀与纪要近况', async () => {
+    // workItems.setRecoveryGen
+    await repos.workItems.setRecoveryGen('wip-1', 3);
+    expect((await repos.workItems.get('wip-1')).recovery_gen).toBe(3);
+    // inbox.settleDelivered：admitted 的目标会话消息关账
+    await repos.inbox.mark('f28-open', { status: 'admitted', requestId: 'r2', targetSession: 'wip-1' });
+    await repos.inbox.settleDelivered('wip-1');
+    expect((await repos.inbox.get('f28-open')).status).toBe('delivered');
+    // digests.activeMeetingPreps：按 eventId 找活跃会前准备（重复守卫/取消共用）
+    expect(await repos.digests.activeMeetingPreps('evt-none')).toEqual([]);
+    await repos.digests.insertPlan({ id: 'prep-f28', kind: 'meeting_prep', status: 'active', title: '会前', schedule_spec: { eventId: 'evt-f28' }, session_id: 's-prep', schedule_id: null, last_window: null });
+    const preps = await repos.digests.activeMeetingPreps('evt-f28');
+    expect(preps.map(p => p.id)).toEqual(['prep-f28']);
+    // projects.listIdNames
+    await repos.projects.create({ id: 'pj-f28', name: 'F28 项目' });
+    expect((await repos.projects.listIdNames()).map(p => p.name)).toContain('F28 项目');
+    // minutes.recent
+    await repos.minutes.insert({ id: 'min-f28', work_item_id: null, event_id: null, memo_id: null, doc_url: null, topic: 'F28 纪要', candidates: [], status: 'draft' });
+    expect((await repos.minutes.recent(3)).map(m => m.topic)).toContain('F28 纪要');
+    // operations.succeededWithIdPrefix
+    await repos.operations.begin({ id: 'note.action:n1:v1:task', workItemId: 'wip-1', action: 'task.create', params: { summary: 'x' } });
+    await repos.operations.update('note.action:n1:v1:task', { status: 'succeeded' });
+    const hits = await repos.operations.succeededWithIdPrefix('note.action:n1:v%');
+    expect(hits.map(o => o.id)).toContain('note.action:n1:v1:task');
+    // notes.versionsWithDecisions：带审核决定列
+    const withDecisions = await repos.notes.versionsWithDecisions(10);
+    expect(Array.isArray(withDecisions)).toBe(true);
+  });
+
   it('F28 reminder：cancelPendingOccurrences(unclaimedOnly) 保留已到期实例', async () => {
     const due = new Date(Date.now() - 60_000);
     await repos.reminders.insertRule({ id: 'rr-f28', kind: 'daily', text: '试验提醒', record: {}, status: 'active', next_due_at: due, time_zone: 'Asia/Shanghai', origin_expression: 'daily 9:00', source: 'test' });
@@ -156,7 +185,7 @@ describe('PostgreSQL 业务账本', () => {
     // occ-later 处于延期窗口内（未来）→ 未被领取；occ-elapsed 的延期已过 → 视为派发中
     await db.query(`update pa24.reminder_occurrence set deferred_until = now() - interval '1 minute' where id = 'occ-elapsed'`);
     await db.query(`update pa24.reminder_occurrence set deferred_until = now() + interval '1 hour' where id = 'occ-later'`);
-    const canceled = await repos.reminders.cancelPendingOccurrences('rr-f28', { unclaimedOnly: true });
+    const canceled = await repos.reminders.cancelPendingOccurrences('rr-f28', true);
     expect(canceled).toBe(1); // 只取消 occ-later
     const all = await db.query(`select id, status from pa24.reminder_occurrence where rule_id = 'rr-f28'`);
     const byId = Object.fromEntries(all.rows.map(r => [r.id, r.status]));

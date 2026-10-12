@@ -2,7 +2,7 @@
 // repos use, migrate the shared DDL list, and round-trip business rows with
 // the same JS shapes PostgreSQL hands back (Date timestamps, parsed jsonb,
 // booleans).
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -71,6 +71,11 @@ describe('F25：方言翻译（translateQuery）', () => {
 describe('F25：SQLite 账本（迁移＋业务往返）', () => {
   let db;
   let root;
+
+  afterAll(async () => {
+    await db?.close();
+    if (root) await rm(root, { recursive: true, force: true });
+  });
 
   it('共享迁移清单建全 29 表骨架，schema 版本与 PG 一致', async () => {
     root = await mkdtemp(join(tmpdir(), 'pa24-sqlite-'));
@@ -142,7 +147,5 @@ describe('F25：SQLite 账本（迁移＋业务往返）', () => {
     expect(parts[0].bytes.length).toBeGreaterThan(0);
     // WAL 为条件件：checkpoint truncate 忙时才有；件 id 只允许这两个
     expect(parts.every(p => ['sqlite', 'sqlite-wal'].includes(p.id))).toBe(true);
-    await db.close();
-    await rm(root, { recursive: true, force: true });
   });
 });

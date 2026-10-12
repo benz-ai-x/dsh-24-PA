@@ -375,7 +375,7 @@ export class SqliteDb implements PaDb {
     const parts: BackupPart[] = [{ id: 'sqlite', name: 'pa24.db', bytes: await readFile(this.filePath) }];
     if (busy > 0) {
       try {
-        parts.push({ id: 'sqlite-wal', name: 'pa24.db-wal', bytes: await readFile(`${this.filePath}-wal`) });
+        parts.push({ id: 'sqlite-wal', name: 'pa24.db-wal', bytes: await readFile(`${this.filePath}-wal`), optional: true });
       } catch {
         // -wal absent between checkpoints: nothing to append.
       }

@@ -729,9 +729,7 @@ export class PaRuntime {
       }
       const gen = (item.recovery_gen ?? 0) + 1;
       await this.repos.workItems.update(item.id, { progress: `重启恢复（第 ${gen} 代）；等待 Worker 核对后续办` } as any);
-      await this.dbRef
-        .query(`update pa24.work_item set recovery_gen = $2 where id = $1`, [item.id, gen])
-        .catch(() => {});
+      await this.repos.workItems.setRecoveryGen(item.id, gen).catch(() => {});
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id).catch(() => null);
       if (!parent || 'error' in parent) continue;
       await this.ctx.subagents
@@ -1358,12 +1356,7 @@ export class PaRuntime {
     });
     await this.deliverWorkItemResult(item.id, output, turn);
     // Follow-up inputs routed to this child are settled by this turn.
-    await this.dbRef
-      .query(
-        `update pa24.inbox set status = 'delivered', processed_at = now() where target_session = $1 and status = 'admitted'`,
-        [item.id],
-      )
-      .catch(() => {});
+    await this.repos!.inbox.settleDelivered(item.id).catch(() => {});
   }
 
   private async deliverWorkItemResult(workItemId: string, output: string, turn?: number): Promise<void> {
@@ -2887,15 +2880,7 @@ export class PaRuntime {
    * never observed and must not be falsely canceled. */
   private async linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]> {
     if (!this.repos) return [];
-    const result = await this.dbRef
-      .query<{ link_source_id: string }>(
-        `select distinct r.link_source_id from pa24.reminder_rule r
-         join pa24.calendar_event e on e.event_id = r.link_source_id
-         where r.link_source_type = 'calendar' and not (e.end_time <= $1 or e.start_time >= $2)`,
-        [from, to],
-      )
-      .catch(() => ({ rows: [] as { link_source_id: string }[] }));
-    return result.rows.map(r => r.link_source_id);
+    return this.repos.reminders.linkedEventIdsInWindow(from, to).catch(() => [] as string[]);
   }
 
   /**
@@ -2932,12 +2917,7 @@ export class PaRuntime {
     }
     if (sourceType === 'calendar') {
       // Prep packages bound to this meeting stop too (P26): no stale packages.
-      const preps = (await this.dbRef
-        .query<{ id: string; schedule_id: string | null; session_id: string }>(
-          `select id, schedule_id, session_id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1`,
-          [sourceId],
-        )
-        .catch(() => ({ rows: [] as { id: string; schedule_id: string | null; session_id: string }[] }))).rows;
+      const preps = await this.repos!.digests.activeMeetingPreps(sourceId).catch(() => [] as Array<{ id: string; schedule_id: string | null; session_id: string }>);
       const schedule = this.nativeSchedule();
       for (const prep of preps) {
         if (prep.schedule_id && schedule) {
@@ -3407,9 +3387,7 @@ export class PaRuntime {
     } catch {
       missing.push('已审笔记列表读取失败；概览未包含该部分，不按零处理');
     }
-    const projectRows = (await this.dbRef
-      .query<{ id: string; name: string }>('select id, name from pa24.project')
-      .catch(() => ({ rows: [] as { id: string; name: string }[] }))).rows;
+    const projectRows = await this.repos!.projects.listIdNames().catch(() => [] as Array<{ id: string; name: string }>);
     const projects: { id: string; name: string; completed: number; total: number }[] = [];
     for (const project of projectRows) {
       const projectTasks = await this.repos!.projects.tasksOf(project.id);
@@ -3750,12 +3728,7 @@ export class PaRuntime {
       tasks: args.scopeTasks === false ? false : true,
       minutes: args.scopeMinutes === false ? false : true,
     };
-    const active = (await this.dbRef
-      .query<{ id: string }>(
-        `select id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1 limit 1`,
-        [eventId],
-      )
-      .catch(() => ({ rows: [] as { id: string }[] }))).rows;
+    const active = await this.repos!.digests.activeMeetingPreps(eventId).catch(() => [] as Array<{ id: string; schedule_id: string | null; session_id: string }>);
     if (active.length > 0) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；不要重复设置，如需调整请先停止原计划。`);
     const id = `prep-${randomUUID().slice(0, 12)}`;
     const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: new Date(event.start_time).toISOString(), scope };
@@ -3823,12 +3796,8 @@ export class PaRuntime {
     }
     let lastMinutes: { topic: string; url: string | null; actions: string[] } | null = null;
     if (scope.minutes !== false) {
-      const rows = await this.dbRef
-        .query<{ id: string; topic: string; doc_url: string | null; candidates: any }>(
-          `select id, topic, doc_url, candidates from pa24.minutes order by created_at desc limit 3`,
-        )
-        .catch(() => ({ rows: [] as never[] }));
-      const match = rows.rows.find(m => m.topic.includes(keyword.slice(0, 4))) ?? rows.rows[0] ?? null;
+      const rows = await this.repos!.minutes.recent(3).catch(() => [] as Array<{ id: string; topic: string; doc_url: string | null; candidates: unknown }>);
+      const match = rows.find(m => m.topic.includes(keyword.slice(0, 4))) ?? rows[0] ?? null;
       if (match) lastMinutes = { topic: match.topic, url: match.doc_url, actions: (Array.isArray(match.candidates) ? match.candidates : []).map((c: { summary: string }) => c.summary).slice(0, 5) };
     }
     let memoryFacts: string[] = [];
@@ -4079,17 +4048,9 @@ export class PaRuntime {
    */
   private async notesSearch(args: Record<string, unknown>): Promise<unknown> {
     const query = args.query ? text(args.query, 200) : '';
-    const versions = await this.dbRef
-      .query<any>(
-        `select v.id, v.note_id, v.version, v.status, v.fingerprint, v.doc_id, v.doc_url, v.content, v.decided_at,
-                d.decision, d.reviewer_open_id, d.decided_at as decision_at
-         from pa24.note_version v
-         left join pa24.review_decision d on d.version_id = v.id
-         order by v.created_at desc limit 30`,
-      )
-      .catch(() => ({ rows: [] as any[] }));
+    const versions = await this.repos!.notes.versionsWithDecisions(30).catch(() => [] as Array<Record<string, any>>);
     const items = [];
-    for (const row of versions.rows) {
+    for (const row of versions) {
       const content = row.content ?? {};
       const transcript = String(content.transcript ?? '');
       const summary = String(content.summary ?? '');
@@ -4098,7 +4059,7 @@ export class PaRuntime {
       let unknownReason: string | null = null;
       if (row.status === 'approved') {
         try {
-          const live = await this.currentFingerprint(row.note_id, row.doc_id, row);
+          const live = await this.currentFingerprint(row.note_id, row.doc_id, row as { id: string; content: any });
           validity = live === row.fingerprint ? 'matches' : 'changed';
         } catch (error) {
           validity = 'unknown';
@@ -4256,7 +4217,10 @@ export class PaRuntime {
     };
     // 1. Ledger backup: PG dump or checkpointed SQLite copy, dialect-owned (F28).
     for (const part of await this.dbRef.backup()) {
-      await addPart(part.id, part.name, part.bytes);
+      // Optional parts (e.g. a vanished -wal) degrade the backup, not fail it.
+      const write = addPart(part.id, part.name, part.bytes);
+      if (part.optional) await write.catch(() => {});
+      else await write;
     }
     // 2. Workspace (AGENTS.md + .24pa memory/revisions/originals/crops) and
     // dsh state: real file CONTENTS are copied into the backup, not just
@@ -4800,11 +4764,7 @@ export class PaRuntime {
       // Revision impact (P34): objects created from older versions get a change
       // suggestion — never silent deletion or overwrite; one notice per new version.
       if (latest) {
-        const affected = (await this.dbRef
-          .query<{ id: string; params: any; status: string }>(
-            `select id, params, status from pa24.action_operation where id like 'note.action:${note.id}:v%' and status = 'succeeded'`,
-          )
-          .catch(() => ({ rows: [] as { id: string; params: any; status: string }[] }))).rows
+        const affected = (await this.repos!.operations.succeededWithIdPrefix(`note.action:${note.id}:v%`).catch(() => [] as Array<{ id: string; params: any; status: string }>))
           .filter(op => !op.id.startsWith(`note.action:${note.id}:v${version}:`));
         if (affected.length > 0 && this.config?.ownerOpenId) {
           const diff = diffNormalized(String(latest.normalized_text ?? ''), normalized);

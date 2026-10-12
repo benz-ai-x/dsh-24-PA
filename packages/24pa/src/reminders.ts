@@ -216,7 +216,7 @@ export class ReminderEngine {
       // Already-claimed (in dispatch) occurrences are canceled via the guarded
       // path below when their dispatch completes; unclaimedOnly here keeps the
       // race from sending after a stop only for unclaimed rows (P21/F28).
-      await this.repo.cancelPendingOccurrences(ruleId, { unclaimedOnly: true });
+      await this.repo.cancelPendingOccurrences(ruleId, true);
     }
     const next = status === 'active' && rule.kind !== 'once' ? await this.recomputeNext(rule, Date.now()) : rule.next_due_at;
     const updated = await this.repo.updateRule(ruleId, { status, next_due_at: next });
