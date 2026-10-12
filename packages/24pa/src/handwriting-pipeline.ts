@@ -19,7 +19,8 @@ import {
 } from './handwriting.js';
 import type { PaDb } from './db.js';
 import type { Repos, NoteRow, NotePageRow, WorkItemRow, ActionOperationRow, ReviewReminderRow } from './repo.js';
-import { text, nowIso, isoDate, type RuntimeRole } from './runtime.js';
+import { text, nowIso, isoDate } from './util.js';
+import type { RuntimeRole } from './runtime.js';
 
 export interface HandwritingDeps extends SharedChannelDeps {
   workspace(): { statePath: string } | null;

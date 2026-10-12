@@ -15,7 +15,7 @@ import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
 import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
-export { text, nowIso, isoDate };
+
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
   WORKER_PROMPTS,

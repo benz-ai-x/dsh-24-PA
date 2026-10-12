@@ -44,7 +44,7 @@ describe('client.js 挂载面（F17/F20）', () => {
     }
   });
 
-  it('能力卡片体系（F26/P58）：三分类 tab、11 卡注册表、角标聚合、管理态与详情导航', () => {
+  it('能力卡片体系（F26/P58）：三分类 tab、12 卡注册表、角标聚合、管理态与详情导航', () => {
     // 一级导航＝三分类 tab（用户原型评审裁决，prototypes/pa24-card-panel v0.3）
     expect(client).toContain("const CATEGORY_TABS = [['biz', 'grid', 'blue'], ['access', 'plug', 'green'], ['system', 'shield', 'violet']];");
     expect(client).toContain("biz: '业务内容', access: '接入与通讯', system: '系统维护'");
