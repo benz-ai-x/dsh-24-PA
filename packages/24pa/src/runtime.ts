@@ -186,8 +186,6 @@ export class PaRuntime {
   private reviewReminderTimer: NodeJS.Timeout | null = null;
   private reviewReminding = false;
 
-  /** Handwriting note pipeline (F29): submit→publish→review→verify→republish
-   *  behind a deep module; the runtime keeps role bindings and tick loops. */
   /** Common deep-module dependency subset (F31): wired once, spread into
    *  each channel module's initializer. */
   private baseChannelDeps() {
@@ -200,6 +198,8 @@ export class PaRuntime {
     };
   }
 
+  /** Handwriting note pipeline (F29): submit→publish→review→verify→republish
+   *  behind a deep module; the runtime keeps role bindings and tick loops. */
   private readonly handwriting: HandwritingPipeline = new HandwritingPipeline({
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
