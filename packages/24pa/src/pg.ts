@@ -1,5 +1,5 @@
 import pg from 'pg';
-import type { PaDb } from './db.js';
+import type { BackupPart, PaDb } from './db.js';
 
 // Business ledger lives in a dedicated `pa24` schema of the configured
 // PostgreSQL instance. The DSN itself comes from the environment variable
@@ -437,9 +437,12 @@ export interface PaPoolOptions {
 export class PaDatabase implements PaDb {
   readonly kind = 'postgres' as const;
   private readonly pool: pg.Pool;
+  /** Kept for pg_dump (backup); never logged. */
+  private readonly dsn: string;
   private closed = false;
 
   constructor(dsn: string, options: PaPoolOptions = {}) {
+    this.dsn = dsn;
     this.pool = new pg.Pool({
       connectionString: dsn,
       max: options.max ?? 5,
@@ -513,6 +516,28 @@ export class PaDatabase implements PaDb {
   async nextNoteSeq(): Promise<number> {
     const result = await this.pool.query<{ next: string }>(`select nextval('pa24.note_seq') as next`);
     return Number(result.rows[0]!.next);
+  }
+
+  /** F28: pg_dump of the pa24 schema only; the DSN is redacted from any
+   *  surfaced stderr so credentials stay out of diagnostics. */
+  async backup(): Promise<BackupPart[]> {
+    const { spawn } = await import('node:child_process');
+    const bytes = await new Promise<Buffer>((resolve, reject) => {
+      const child = spawn('pg_dump', ['--schema=pa24', '--no-owner', '--no-privileges', '--dbname', this.dsn], { stdio: ['ignore', 'pipe', 'pipe'] });
+      const chunks: Buffer[] = [];
+      let stderr = '';
+      child.stdout.on('data', (c: Buffer) => chunks.push(c));
+      child.stderr.on('data', (c: Buffer) => { stderr += c; });
+      child.on('error', reject);
+      child.on('close', code => {
+        if (code === 0) resolve(Buffer.concat(chunks));
+        else {
+          const detail = stderr.split(this.dsn).join('[已隐藏]').slice(0, 300) || '无诊断输出';
+          reject(new Error(`pg_dump 退出码 ${code}：${detail}`));
+        }
+      });
+    });
+    return [{ id: 'postgres', name: 'pa24.sql', bytes }];
   }
 
   async close(): Promise<void> {

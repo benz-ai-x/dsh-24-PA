@@ -112,4 +112,84 @@ describe('PostgreSQL 业务账本', () => {
     expect(updated.content).toContain('（更新）');
     expect((await repos.memos.search({})).length).toBe(2);
   });
+
+  // F28 存储缝收口：以下方法平移了此前散在 runtime/reminders 的裸 SQL。
+  it('F28 inbox：resetProcessing 回队、listAdmitted 只取 admitted（重启对账）', async () => {
+    await repos.inbox.insert({ eventId: 'f28-stuck', source: 'feishu', kind: 'message', payload: {} });
+    await repos.inbox.insert({ eventId: 'f28-open', source: 'feishu', kind: 'message', payload: {} });
+    await repos.inbox.insert({ eventId: 'f28-done', source: 'feishu', kind: 'message', payload: {} });
+    const claimed = await repos.inbox.claim(10);
+    expect(claimed.map(r => r.event_id)).toEqual(expect.arrayContaining(['f28-stuck', 'f28-open', 'f28-done']));
+    await repos.inbox.mark('f28-open', { status: 'admitted', requestId: 'r1', targetSession: 's1' });
+    await repos.inbox.mark('f28-done', { status: 'delivered' });
+    await repos.inbox.resetProcessing();
+    expect((await repos.inbox.get('f28-stuck')).status).toBe('received');
+    expect((await repos.inbox.listAdmitted()).map(r => r.event_id)).toEqual(expect.arrayContaining(['f28-open', 'evt-1']));
+  });
+
+  it('F28 workspace_state：latestPath 取最近更新的工作区', async () => {
+    await repos.workspaceState.save('/tmp/ws-f28-a', { localSessionId: 'a' });
+    await repos.workspaceState.save('/tmp/ws-f28-b', { localSessionId: 'b' });
+    // updated_at 显式拨序，避免 PG now() 微秒精度导致两条 save 同拍
+    await db.query(`update pa24.workspace_state set updated_at = now() - interval '1 hour' where path = '/tmp/ws-f28-a'`);
+    expect(await repos.workspaceState.latestPath()).toBe('/tmp/ws-f28-b');
+    await db.query(`update pa24.workspace_state set updated_at = now() where path = '/tmp/ws-f28-a'`);
+    expect(await repos.workspaceState.latestPath()).toBe('/tmp/ws-f28-a');
+  });
+
+  it('F28 maintenance：水位计数、unknown 操作计数与重试合计', async () => {
+    const watermarks = await repos.maintenance.watermarks();
+    const byTable = Object.fromEntries(watermarks.map(w => [w.table, w.rows]));
+    expect(byTable.work_item).toBeGreaterThan(0); // wip-1 已在上方插入
+    expect(Object.keys(byTable).sort()).toEqual(['note', 'outbox', 'reminder_rule', 'work_item']);
+    expect(await repos.maintenance.unknownOperationCount()).toBeGreaterThanOrEqual(0);
+    const totals = await repos.maintenance.attemptTotals();
+    expect(totals.operations).toBeGreaterThanOrEqual(0);
+    expect(totals.outbox).toBeGreaterThanOrEqual(0);
+  });
+
+  it('F28 第二轮收口：recovery 代数、会前准备守卫、行动前缀与纪要近况', async () => {
+    // workItems.setRecoveryGen
+    await repos.workItems.setRecoveryGen('wip-1', 3);
+    expect((await repos.workItems.get('wip-1')).recovery_gen).toBe(3);
+    // inbox.settleDelivered：admitted 的目标会话消息关账
+    await repos.inbox.mark('f28-open', { status: 'admitted', requestId: 'r2', targetSession: 'wip-1' });
+    await repos.inbox.settleDelivered('wip-1');
+    expect((await repos.inbox.get('f28-open')).status).toBe('delivered');
+    // digests.activeMeetingPreps：按 eventId 找活跃会前准备（重复守卫/取消共用）
+    expect(await repos.digests.activeMeetingPreps('evt-none')).toEqual([]);
+    await repos.digests.insertPlan({ id: 'prep-f28', kind: 'meeting_prep', status: 'active', title: '会前', schedule_spec: { eventId: 'evt-f28' }, session_id: 's-prep', schedule_id: null, last_window: null });
+    const preps = await repos.digests.activeMeetingPreps('evt-f28');
+    expect(preps.map(p => p.id)).toEqual(['prep-f28']);
+    // projects.listIdNames
+    await repos.projects.create({ id: 'pj-f28', name: 'F28 项目' });
+    expect((await repos.projects.listIdNames()).map(p => p.name)).toContain('F28 项目');
+    // minutes.recent
+    await repos.minutes.insert({ id: 'min-f28', work_item_id: null, event_id: null, memo_id: null, doc_url: null, topic: 'F28 纪要', candidates: [], status: 'draft' });
+    expect((await repos.minutes.recent(3)).map(m => m.topic)).toContain('F28 纪要');
+    // operations.succeededWithIdPrefix
+    await repos.operations.begin({ id: 'note.action:n1:v1:task', workItemId: 'wip-1', action: 'task.create', params: { summary: 'x' } });
+    await repos.operations.update('note.action:n1:v1:task', { status: 'succeeded' });
+    const hits = await repos.operations.succeededWithIdPrefix('note.action:n1:v%');
+    expect(hits.map(o => o.id)).toContain('note.action:n1:v1:task');
+    // notes.versionsWithDecisions：带审核决定列
+    const withDecisions = await repos.notes.versionsWithDecisions(10);
+    expect(Array.isArray(withDecisions)).toBe(true);
+  });
+
+  it('F28 reminder：cancelPendingOccurrences(unclaimedOnly) 保留已到期实例', async () => {
+    const due = new Date(Date.now() - 60_000);
+    await repos.reminders.insertRule({ id: 'rr-f28', kind: 'daily', text: '试验提醒', record: {}, status: 'active', next_due_at: due, time_zone: 'Asia/Shanghai', origin_expression: 'daily 9:00', source: 'test' });
+    await repos.reminders.insertOccurrence({ id: 'occ-elapsed', ruleId: 'rr-f28', dueAt: due });
+    await repos.reminders.insertOccurrence({ id: 'occ-later', ruleId: 'rr-f28', dueAt: new Date(Date.now() + 7200_000) });
+    // occ-later 处于延期窗口内（未来）→ 未被领取；occ-elapsed 的延期已过 → 视为派发中
+    await db.query(`update pa24.reminder_occurrence set deferred_until = now() - interval '1 minute' where id = 'occ-elapsed'`);
+    await db.query(`update pa24.reminder_occurrence set deferred_until = now() + interval '1 hour' where id = 'occ-later'`);
+    const canceled = await repos.reminders.cancelPendingOccurrences('rr-f28', true);
+    expect(canceled).toBe(1); // 只取消 occ-later
+    const all = await db.query(`select id, status from pa24.reminder_occurrence where rule_id = 'rr-f28'`);
+    const byId = Object.fromEntries(all.rows.map(r => [r.id, r.status]));
+    expect(byId['occ-elapsed']).toBe('pending');
+    expect(byId['occ-later']).toBe('canceled');
+  });
 });

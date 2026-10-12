@@ -2,7 +2,7 @@
 // repos use, migrate the shared DDL list, and round-trip business rows with
 // the same JS shapes PostgreSQL hands back (Date timestamps, parsed jsonb,
 // booleans).
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -72,6 +72,11 @@ describe('F25：SQLite 账本（迁移＋业务往返）', () => {
   let db;
   let root;
 
+  afterAll(async () => {
+    await db?.close();
+    if (root) await rm(root, { recursive: true, force: true });
+  });
+
   it('共享迁移清单建全 29 表骨架，schema 版本与 PG 一致', async () => {
     root = await mkdtemp(join(tmpdir(), 'pa24-sqlite-'));
     db = new SqliteDb(join(root, 'pa24.db'));
@@ -131,6 +136,16 @@ describe('F25：SQLite 账本（迁移＋业务往返）', () => {
 
   it('备份 checkpoint 后文件可整体拷贝（WAL 收拢）', async () => {
     db.checkpoint();
-    await rm(root, { recursive: true, force: true });
+  });
+
+  it('F28 backup()：返回可恢复的账本件（sqlite 主件，busy 时附 WAL）', async () => {
+    await db.query(`insert into pa24.memo (id, topic, content, source) values ($1, $2, $3, $4)`, ['memo-bk', 'bk', '备份前写入', 'test']);
+    const parts = await db.backup();
+    expect(parts.length).toBeGreaterThanOrEqual(1);
+    expect(parts[0].id).toBe('sqlite');
+    expect(parts[0].name).toBe('pa24.db');
+    expect(parts[0].bytes.length).toBeGreaterThan(0);
+    // WAL 为条件件：checkpoint truncate 忙时才有；件 id 只允许这两个
+    expect(parts.every(p => ['sqlite', 'sqlite-wal'].includes(p.id))).toBe(true);
   });
 });

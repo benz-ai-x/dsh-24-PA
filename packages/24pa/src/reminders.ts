@@ -213,14 +213,10 @@ export class ReminderEngine {
     // Cancelling/pausing also cancels not-yet-dispatched occurrences so a
     // snoozed follow-up never fires after its rule is gone (P21).
     if (status !== 'active') {
-      await this.db.query(
-        `update pa24.reminder_occurrence set status = 'canceled', updated_at = now()
-         where rule_id = $1 and status = 'pending' and (deferred_until is null or deferred_until > now())`,
-        [ruleId],
-      );
       // Already-claimed (in dispatch) occurrences are canceled via the guarded
-      // path below when their dispatch completes; cancel() from pending here
-      // keeps the race from sending after a stop only for unclaimed rows.
+      // path below when their dispatch completes; unclaimedOnly here keeps the
+      // race from sending after a stop only for unclaimed rows (P21/F28).
+      await this.repo.cancelPendingOccurrences(ruleId, true);
     }
     const next = status === 'active' && rule.kind !== 'once' ? await this.recomputeNext(rule, Date.now()) : rule.next_due_at;
     const updated = await this.repo.updateRule(ruleId, { status, next_due_at: next });

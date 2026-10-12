@@ -227,7 +227,7 @@ export class PaRuntime {
   readonly usage = { modelRequests: 0, notePagesInput: 0, noteCrops: 0 };
   private db: PaDb | null = null;
   private get dbRef(): PaDb {
-    if (!this.db) throw new Error('PostgreSQL 业务账本未连接。');
+    if (!this.db) throw new Error('业务账本未连接。');
     return this.db;
   }
   repos: Repos | null = null;
@@ -643,9 +643,8 @@ export class PaRuntime {
   }
 
   private async readSavedWorkspacePath(): Promise<string | null> {
-    if (!this.db) return null;
-    const result = await this.db!.query<{ path: string }>('select path from pa24.workspace_state order by updated_at desc limit 1');
-    return result.rows[0]?.path ?? null;
+    if (!this.repos) return null;
+    return this.repos.workspaceState.latestPath();
   }
 
   async stop(): Promise<void> {
@@ -703,15 +702,11 @@ export class PaRuntime {
     if (!this.repos) return;
     // Inbox rows claimed but never processed run again (admission is
     // idempotent through the stable requestId).
-    await this.dbRef
-      .query(`update pa24.inbox set status = 'received' where status = 'processing'`)
-      .catch(() => {});
+    await this.repos!.inbox.resetProcessing().catch(() => {});
     // Admitted-but-undelivered rows cannot be attributed to a turn across a
     // crash: surface them instead of guessing an outcome.
-    const orphaned = await this.dbRef.query<{ event_id: string; payload: any }>(
-      `select event_id, payload from pa24.inbox where status = 'admitted'`,
-    );
-    for (const row of orphaned.rows) {
+    const orphaned = await this.repos!.inbox.listAdmitted();
+    for (const row of orphaned) {
       await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '重启中断；请重新发送该消息' });
       if (this.config?.ownerOpenId) {
         await this.notifyOwner(
@@ -734,9 +729,7 @@ export class PaRuntime {
       }
       const gen = (item.recovery_gen ?? 0) + 1;
       await this.repos.workItems.update(item.id, { progress: `重启恢复（第 ${gen} 代）；等待 Worker 核对后续办` } as any);
-      await this.dbRef
-        .query(`update pa24.work_item set recovery_gen = $2 where id = $1`, [item.id, gen])
-        .catch(() => {});
+      await this.repos.workItems.setRecoveryGen(item.id, gen).catch(() => {});
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id).catch(() => null);
       if (!parent || 'error' in parent) continue;
       await this.ctx.subagents
@@ -753,7 +746,7 @@ export class PaRuntime {
         )
         .catch(() => {});
     }
-    if (interrupted.length > 0 || orphaned.rows.length > 0) void this.pump();
+    if (interrupted.length > 0 || orphaned.length > 0) void this.pump();
   }
 
   /** After a restart, re-attach the in-memory role map from the durable ledger. */
@@ -1363,12 +1356,7 @@ export class PaRuntime {
     });
     await this.deliverWorkItemResult(item.id, output, turn);
     // Follow-up inputs routed to this child are settled by this turn.
-    await this.dbRef
-      .query(
-        `update pa24.inbox set status = 'delivered', processed_at = now() where target_session = $1 and status = 'admitted'`,
-        [item.id],
-      )
-      .catch(() => {});
+    await this.repos!.inbox.settleDelivered(item.id).catch(() => {});
   }
 
   private async deliverWorkItemResult(workItemId: string, output: string, turn?: number): Promise<void> {
@@ -2892,15 +2880,7 @@ export class PaRuntime {
    * never observed and must not be falsely canceled. */
   private async linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]> {
     if (!this.repos) return [];
-    const result = await this.dbRef
-      .query<{ link_source_id: string }>(
-        `select distinct r.link_source_id from pa24.reminder_rule r
-         join pa24.calendar_event e on e.event_id = r.link_source_id
-         where r.link_source_type = 'calendar' and not (e.end_time <= $1 or e.start_time >= $2)`,
-        [from, to],
-      )
-      .catch(() => ({ rows: [] as { link_source_id: string }[] }));
-    return result.rows.map(r => r.link_source_id);
+    return this.repos.reminders.linkedEventIdsInWindow(from, to).catch(() => [] as string[]);
   }
 
   /**
@@ -2937,12 +2917,7 @@ export class PaRuntime {
     }
     if (sourceType === 'calendar') {
       // Prep packages bound to this meeting stop too (P26): no stale packages.
-      const preps = (await this.dbRef
-        .query<{ id: string; schedule_id: string | null; session_id: string }>(
-          `select id, schedule_id, session_id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1`,
-          [sourceId],
-        )
-        .catch(() => ({ rows: [] as { id: string; schedule_id: string | null; session_id: string }[] }))).rows;
+      const preps = await this.repos!.digests.activeMeetingPreps(sourceId).catch(() => [] as Array<{ id: string; schedule_id: string | null; session_id: string }>);
       const schedule = this.nativeSchedule();
       for (const prep of preps) {
         if (prep.schedule_id && schedule) {
@@ -3389,15 +3364,13 @@ export class PaRuntime {
     const queue = await this.reviewQueue().catch(() => null);
     const reviewedNotes: { noteId: string; version: number; summary: string; docUrl: string | null; reviewedAt: string | null }[] = [];
     try {
-      const recent = await this.dbRef.query<any>(
-        `select id, note_id, version, fingerprint, doc_id, content, doc_url, decided_at from pa24.note_version where status = 'approved' order by decided_at desc nulls last limit 5`,
-      );
-      for (const row of recent.rows) {
+      const recent = await this.repos!.notes.recentApproved(5);
+      for (const row of recent) {
         if (reviewedNotes.length >= 3) break;
         // Overview facts must be currently valid: re-verify the live document
         // so an externally edited note stops being presented as confirmed (P35).
         try {
-          const live = await this.currentFingerprint(row.note_id, row.doc_id, row);
+          const live = await this.currentFingerprint(row.note_id, row.doc_id!, row);
           if (live !== row.fingerprint) continue;
         } catch (error) {
           missing.push(`已审笔记 ${row.note_id} v${row.version} 暂无法核验（${(error as Error).message}），未列入概览`);
@@ -3414,9 +3387,7 @@ export class PaRuntime {
     } catch {
       missing.push('已审笔记列表读取失败；概览未包含该部分，不按零处理');
     }
-    const projectRows = (await this.dbRef
-      .query<{ id: string; name: string }>('select id, name from pa24.project')
-      .catch(() => ({ rows: [] as { id: string; name: string }[] }))).rows;
+    const projectRows = await this.repos!.projects.listIdNames().catch(() => [] as Array<{ id: string; name: string }>);
     const projects: { id: string; name: string; completed: number; total: number }[] = [];
     for (const project of projectRows) {
       const projectTasks = await this.repos!.projects.tasksOf(project.id);
@@ -3757,12 +3728,7 @@ export class PaRuntime {
       tasks: args.scopeTasks === false ? false : true,
       minutes: args.scopeMinutes === false ? false : true,
     };
-    const active = (await this.dbRef
-      .query<{ id: string }>(
-        `select id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1 limit 1`,
-        [eventId],
-      )
-      .catch(() => ({ rows: [] as { id: string }[] }))).rows;
+    const active = await this.repos!.digests.activeMeetingPreps(eventId).catch(() => [] as Array<{ id: string; schedule_id: string | null; session_id: string }>);
     if (active.length > 0) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；不要重复设置，如需调整请先停止原计划。`);
     const id = `prep-${randomUUID().slice(0, 12)}`;
     const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: new Date(event.start_time).toISOString(), scope };
@@ -3830,12 +3796,8 @@ export class PaRuntime {
     }
     let lastMinutes: { topic: string; url: string | null; actions: string[] } | null = null;
     if (scope.minutes !== false) {
-      const rows = await this.dbRef
-        .query<{ id: string; topic: string; doc_url: string | null; candidates: any }>(
-          `select id, topic, doc_url, candidates from pa24.minutes order by created_at desc limit 3`,
-        )
-        .catch(() => ({ rows: [] as never[] }));
-      const match = rows.rows.find(m => m.topic.includes(keyword.slice(0, 4))) ?? rows.rows[0] ?? null;
+      const rows = await this.repos!.minutes.recent(3).catch(() => [] as Array<{ id: string; topic: string; doc_url: string | null; candidates: unknown }>);
+      const match = rows.find(m => m.topic.includes(keyword.slice(0, 4))) ?? rows[0] ?? null;
       if (match) lastMinutes = { topic: match.topic, url: match.doc_url, actions: (Array.isArray(match.candidates) ? match.candidates : []).map((c: { summary: string }) => c.summary).slice(0, 5) };
     }
     let memoryFacts: string[] = [];
@@ -4086,17 +4048,9 @@ export class PaRuntime {
    */
   private async notesSearch(args: Record<string, unknown>): Promise<unknown> {
     const query = args.query ? text(args.query, 200) : '';
-    const versions = await this.dbRef
-      .query<any>(
-        `select v.id, v.note_id, v.version, v.status, v.fingerprint, v.doc_id, v.doc_url, v.content, v.decided_at,
-                d.decision, d.reviewer_open_id, d.decided_at as decision_at
-         from pa24.note_version v
-         left join pa24.review_decision d on d.version_id = v.id
-         order by v.created_at desc limit 30`,
-      )
-      .catch(() => ({ rows: [] as any[] }));
+    const versions = await this.repos!.notes.versionsWithDecisions(30).catch(() => [] as Array<Record<string, any>>);
     const items = [];
-    for (const row of versions.rows) {
+    for (const row of versions) {
       const content = row.content ?? {};
       const transcript = String(content.transcript ?? '');
       const summary = String(content.summary ?? '');
@@ -4105,7 +4059,7 @@ export class PaRuntime {
       let unknownReason: string | null = null;
       if (row.status === 'approved') {
         try {
-          const live = await this.currentFingerprint(row.note_id, row.doc_id, row);
+          const live = await this.currentFingerprint(row.note_id, row.doc_id, row as { id: string; content: any });
           validity = live === row.fingerprint ? 'matches' : 'changed';
         } catch (error) {
           validity = 'unknown';
@@ -4253,7 +4207,6 @@ export class PaRuntime {
     if (!targetDir || !isAbsolute(targetDir)) throw new Error('需要绝对目标目录 targetDir。');
     const { mkdir, writeFile: wf, readdir, readFile: rf } = await import('node:fs/promises');
     const { dirname } = await import('node:path');
-    const { spawn } = await import('node:child_process');
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     const dir = join(targetDir, `pa24-backup-${stamp}`);
     await mkdir(dir, { recursive: true });
@@ -4262,37 +4215,12 @@ export class PaRuntime {
       await wf(join(dir, name), bytes);
       parts.push({ id, path: name, bytes: bytes.length, sha256: sha256Hex(bytes) });
     };
-    // 1. Ledger backup: PG dump, or a checkpointed SQLite file copy (F25).
-    if (this.db!.kind === 'sqlite') {
-      const sqlite = this.db as SqliteDb;
-      const { busy } = sqlite.checkpoint();
-      await addPart('sqlite', 'pa24.db', await rf(sqlite.filePath!));
-      // A busy checkpoint means frames stayed in the WAL — ship it too, or
-      // the backup would silently miss committed writes.
-      if (busy > 0) {
-        await addPart('sqlite-wal', 'pa24.db-wal', await rf(`${sqlite.filePath}-wal`)).catch(async () => {
-          // -wal absent between checkpoints: nothing to append.
-        });
-      }
-    } else {
-    const dsn = resolveDsn(this.config!.pgDsnEnv, this.env);
-    const dump = await new Promise<Buffer>((resolve, reject) => {
-      // DSN via env keeps it out of the process argv; stderr is surfaced.
-      const child = spawn('pg_dump', ['--schema=pa24', '--no-owner', '--no-privileges', '--dbname', dsn], { stdio: ['ignore', 'pipe', 'pipe'] });
-      const chunks: Buffer[] = [];
-      let stderr = '';
-      child.stdout.on('data', (c: Buffer) => chunks.push(c));
-      child.stderr.on('data', (c: Buffer) => { stderr += c; });
-      child.on('error', reject);
-      child.on('close', code => {
-        if (code === 0) resolve(Buffer.concat(chunks));
-        else {
-          const detail = stderr.split(dsn).join('[已隐藏]').slice(0, 300) || '无诊断输出';
-          reject(new Error(`pg_dump 退出码 ${code}：${detail}`));
-        }
-      });
-    });
-    await addPart('postgres', 'pa24.sql', dump);
+    // 1. Ledger backup: PG dump or checkpointed SQLite copy, dialect-owned (F28).
+    for (const part of await this.dbRef.backup()) {
+      // Optional parts (e.g. a vanished -wal) degrade the backup, not fail it.
+      const write = addPart(part.id, part.name, part.bytes);
+      if (part.optional) await write.catch(() => {});
+      else await write;
     }
     // 2. Workspace (AGENTS.md + .24pa memory/revisions/originals/crops) and
     // dsh state: real file CONTENTS are copied into the backup, not just
@@ -4321,14 +4249,12 @@ export class PaRuntime {
     const sessionsFiles = await packDir(this.options.stateDirectory, 'dsh-state', () => true);
     // 3. Watermarks + credential references (names only).
     const schemaVersion = await this.dbRef.schemaVersion();
-    const counts = await this.dbRef.query<{ table: string; n: string }>(
-      `select 'work_item' as table, count(*) as n from pa24.work_item union all select 'note', count(*) from pa24.note union all select 'reminder_rule', count(*) from pa24.reminder_rule union all select 'outbox', count(*) from pa24.outbox`,
-    ).catch(() => ({ rows: [] as { table: string; n: string }[] }));
+    const watermarks = await this.repos!.maintenance.watermarks().catch(() => [] as Array<{ table: string; rows: number }>);
     const manifest = {
       createdAt: new Date().toISOString(),
       plugin: { name: '@benz-ai-x/dsh-24pa', dsh: '0.2.1-alpha.1' },
       schemaVersion,
-      watermarks: counts.rows.map(r => ({ table: r.table, rows: Number(r.n) })),
+      watermarks,
       parts,
       credentialReferences: [this.config!.pgDsnEnv, this.config!.appIdEnv, this.config!.appSecretEnv],
       note: '凭据不包含在备份中，仅记录环境变量名；恢复顺序与对账规则见 packages/24pa/README.md「数据与备份/恢复」。',
@@ -4441,14 +4367,10 @@ export class PaRuntime {
     }
     const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
     const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));
-    const unknownOps = await this.dbRef.query<{ n: string }>(`select count(*) as n from pa24.action_operation where status = 'unknown'`).catch(() => null);
+    const unknownOps = await this.repos!.maintenance.unknownOperationCount().catch(() => null);
     const latencies = outboxRows.filter(o => o.status === 'sent' && o.sent_at).map(o => new Date(o.sent_at!).getTime() - new Date(o.created_at).getTime()).sort((a, b) => a - b);
-    const retryRows = await this.dbRef
-      .query<{ ops: string; obx: string }>(
-        `select (select coalesce(sum(attempt),0) from pa24.action_operation) as ops, (select coalesce(sum(attempts),0) from pa24.outbox) as obx`,
-      )
-      .catch(() => null);
-    const retries = retryRows ? Number(retryRows.rows[0]!.ops) + Number(retryRows.rows[0]!.obx) : null;
+    const retryTotals = await this.repos!.maintenance.attemptTotals().catch(() => null);
+    const retries = retryTotals ? retryTotals.operations + retryTotals.outbox : null;
     const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
     return {
       readiness: ready,
@@ -4460,7 +4382,7 @@ export class PaRuntime {
         noteCrops: this.usage.noteCrops,
         outboxQueued: pending.length,
         outboxUnknown: outboxRows.filter(o => o.status === 'unknown').length,
-        operationsUnknown: unknownOps ? Number(unknownOps.rows[0]!.n) : null,
+        operationsUnknown: unknownOps,
         outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
         ledgerRetries: retries,
         quota: '未配置模型限额（当前版本无 quota 配置项；如需硬限额请在模型路由侧设置）',
@@ -4842,11 +4764,7 @@ export class PaRuntime {
       // Revision impact (P34): objects created from older versions get a change
       // suggestion — never silent deletion or overwrite; one notice per new version.
       if (latest) {
-        const affected = (await this.dbRef
-          .query<{ id: string; params: any; status: string }>(
-            `select id, params, status from pa24.action_operation where id like 'note.action:${note.id}:v%' and status = 'succeeded'`,
-          )
-          .catch(() => ({ rows: [] as { id: string; params: any; status: string }[] }))).rows
+        const affected = (await this.repos!.operations.succeededWithIdPrefix(`note.action:${note.id}:v%`).catch(() => [] as Array<{ id: string; params: any; status: string }>))
           .filter(op => !op.id.startsWith(`note.action:${note.id}:v${version}:`));
         if (affected.length > 0 && this.config?.ownerOpenId) {
           const diff = diffNormalized(String(latest.normalized_text ?? ''), normalized);

@@ -521,7 +521,7 @@ window.__ModuleLoader__.load({
             detail: helpers => (helpers.workspace ? h(MemoryView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('memory', 'violet', L('尚未绑定工作区', 'No workspace bound'), L('绑定工作区后，记忆会按确认状态显示在这里。', 'Once a workspace is bound, memories show up here with their confirmation status.'))),
           },
           {
-            id: 'digest', cat: 'biz', tone: 'green', icon: 'pulse', title: ['晨报与复盘', 'Digest & retrospective'], sub: ['周期服务 · 原生 Schedule 唤醒', 'Scheduled services · native Schedule wake'], action: ['调整计划', 'Adjust plans'],
+            id: 'digest', cat: 'biz', tone: 'green', icon: 'pulse', title: ['晨报与复盘', 'Digest & retrospective'], sub: ['周期服务 · 原生定时唤醒', 'Scheduled services · native Schedule wake'], action: ['调整计划', 'Adjust plans'],
             tier: () => 'unchecked', label: () => L('对话管理', 'Managed in chat'),
             body: () => h('p', { className: 'pa24-meta' }, L('晨报/晚间/每周回顾计划经24私助会话开启与调整', 'Morning/evening/weekly digest plans are enabled and adjusted in the 24PA session')),
             detail: helpers => empty('pulse', 'green', L('周期服务经对话管理', 'Scheduled services are managed in chat'), L('对24私助说「开启晨报」或「调整每周回顾时间」即可；到点由原生 Schedule 唤醒后投递。', 'Say “enable the morning digest” or “move the weekly retrospective” — the native Schedule wakes and delivers on time.'),

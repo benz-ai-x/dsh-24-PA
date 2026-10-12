@@ -66,6 +66,26 @@ export class InboxRepo {
     return result.rows;
   }
 
+  /** Restart reconcile (F28): rows stuck mid-dispatch requeue for retry. */
+  async resetProcessing(): Promise<void> {
+    await this.db.query(`update pa24.inbox set status = 'received' where status = 'processing'`);
+  }
+
+  /** Restart reconcile (F28): admitted-but-undelivered events, surfaced to
+   *  the owner instead of guessing an outcome across the crash. */
+  async listAdmitted(): Promise<InboxRow[]> {
+    const result = await this.db.query<InboxRow>(`select * from pa24.inbox where status = 'admitted'`);
+    return result.rows;
+  }
+
+  /** Close out admitted events a finished work-item turn consumed (F28). */
+  async settleDelivered(targetSession: string): Promise<void> {
+    await this.db.query(
+      `update pa24.inbox set status = 'delivered', processed_at = now() where target_session = $1 and status = 'admitted'`,
+      [targetSession],
+    );
+  }
+
   async mark(eventId: string, patch: { status: InboxStatus; requestId?: string; targetSession?: string; error?: string }): Promise<void> {
     await this.db.query(
       `update pa24.inbox set status = $2,
@@ -154,6 +174,12 @@ export class WorkItemRepo {
     return result.rows;
   }
 
+  /** Bump the crash-recovery generation counter (F28): outside the generic
+   *  update() patch whitelist because it is reconcile-internal state. */
+  async setRecoveryGen(id: string, gen: number): Promise<void> {
+    await this.db.query(`update pa24.work_item set recovery_gen = $2 where id = $1`, [id, gen]);
+  }
+
   async countByStatus(status: WorkItemStatus): Promise<number> {
     const result = await this.db.query<{ count: string }>('select count(*) as count from pa24.work_item where status = $1', [status]);
     return Number(result.rows[0]!.count);
@@ -201,6 +227,16 @@ export class ActionOperationRepo {
       return { created: false, row: existing.rows[0]! };
     }
     return { created: true, row: result.rows[0]! };
+  }
+
+  /** Succeeded operations whose id starts with prefix (F28): revision-impact
+   *  notices fan out to objects created from OLDER note versions. */
+  async succeededWithIdPrefix(prefix: string): Promise<Array<Pick<ActionOperationRow, 'id' | 'params' | 'status'>>> {
+    const result = await this.db.query<Pick<ActionOperationRow, 'id' | 'params' | 'status'>>(
+      `select id, params, status from pa24.action_operation where id like $1 and status = 'succeeded'`,
+      [prefix],
+    );
+    return result.rows;
   }
 
   async update(id: string, patch: { status: OperationStatus; receipt?: unknown; error?: string }): Promise<ActionOperationRow | null> {
@@ -369,6 +405,12 @@ export class WorkspaceStateRepo {
     const result = await this.db.query<WorkspaceStateRow>('select * from pa24.workspace_state where path = $1', [path]);
     return result.rows[0] ?? null;
   }
+
+  /** Most recently touched workspace path, for host restart rebinding (F28). */
+  async latestPath(): Promise<string | null> {
+    const result = await this.db.query<{ path: string }>('select path from pa24.workspace_state order by updated_at desc limit 1');
+    return result.rows[0]?.path ?? null;
+  }
 }
 
 export interface MemoRow {
@@ -519,6 +561,12 @@ export interface ProjectRow {
 
 export class ProjectRepo {
   constructor(private readonly db: PaDb) {}
+
+  /** Id+name pairs for the today overview's project rollup (F28). */
+  async listIdNames(): Promise<Array<{ id: string; name: string }>> {
+    const result = await this.db.query<{ id: string; name: string }>('select id, name from pa24.project');
+    return result.rows;
+  }
 
   async create(row: { id: string; name: string; goal?: string }): Promise<ProjectRow> {
     const result = await this.db.query<ProjectRow>(
@@ -721,7 +769,7 @@ export class ReminderRepo {
   }
 
   /** Rules following a source, including finished one-shots: a completed rule
-   * may still owe its owner a correction for what was already sent (P19). */
+   *  may still owe its owner a correction for what was already sent (P19). */
   async rulesLinkedTo(sourceType: string, sourceId: string): Promise<ReminderRuleRow[]> {
     const result = await this.db.query<ReminderRuleRow>(
       `select * from pa24.reminder_rule where link_source_type = $1 and link_source_id = $2 and status in ('active', 'paused', 'completed')`,
@@ -730,10 +778,26 @@ export class ReminderRepo {
     return result.rows;
   }
 
-  /** Cancel not-yet-sent occurrences of one rule (source-change path, P19). */
-  async cancelPendingOccurrences(ruleId: string): Promise<number> {
+  /** Distinct calendar event ids linked to reminders overlapping [from, to)
+   *  (calendar sync cancel path, F28): events outside the window were never
+   *  observed and must not be falsely canceled. */
+  async linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]> {
+    const result = await this.db.query<{ link_source_id: string }>(
+      `select distinct r.link_source_id from pa24.reminder_rule r
+       join pa24.calendar_event e on e.event_id = r.link_source_id
+       where r.link_source_type = 'calendar' and not (e.end_time <= $1 or e.start_time >= $2)`,
+      [from, to],
+    );
+    return result.rows.map(r => r.link_source_id);
+  }
+
+  /** Cancel not-yet-sent occurrences of one rule (source-change path, P19).
+   *  unclaimedOnly (F28): leave rows whose defer window already elapsed —
+   *  they are mid-claim by a dispatcher and cancel through the guarded path. */
+  async cancelPendingOccurrences(ruleId: string, unclaimedOnly = false): Promise<number> {
+    const guard = unclaimedOnly ? ' and (deferred_until is null or deferred_until > now())' : '';
     const result = await this.db.query(
-      `update pa24.reminder_occurrence set status = 'canceled', updated_at = now() where rule_id = $1 and status = 'pending'`,
+      `update pa24.reminder_occurrence set status = 'canceled', updated_at = now() where rule_id = $1 and status = 'pending'${guard}`,
       [ruleId],
     );
     return result.rowCount ?? 0;
@@ -1184,6 +1248,30 @@ export class NoteRepo {
     );
     return result.rows;
   }
+
+  /** Recently approved versions for today's overview (F28); live documents
+   *  are re-verified by the caller so stale approvals drop out (P35). */
+  async recentApproved(limit: number): Promise<NoteVersionRow[]> {
+    const result = await this.db.query<NoteVersionRow>(
+      `select * from pa24.note_version where status = 'approved' order by decided_at desc nulls last limit $1`,
+      [limit],
+    );
+    return result.rows;
+  }
+
+  /** Versions with their review decisions for notes search (F28): unreviewed
+   *  states are labeled from the decision join, never inherited. */
+  async versionsWithDecisions(limit: number): Promise<Array<Record<string, any>>> {
+    const result = await this.db.query<Record<string, any>>(
+      `select v.id, v.note_id, v.version, v.status, v.fingerprint, v.doc_id, v.doc_url, v.content, v.decided_at,
+              d.decision, d.reviewer_open_id, d.decided_at as decision_at
+       from pa24.note_version v
+       left join pa24.review_decision d on d.version_id = v.id
+       order by v.created_at desc limit $1`,
+      [limit],
+    );
+    return result.rows;
+  }
 }
 
 export interface ReviewReminderRow {
@@ -1572,6 +1660,16 @@ export class DigestRepo {
     return result.rows;
   }
 
+  /** Active meeting-prep plans bound to one calendar event (F28): the
+   *  duplicate-start guard and the source-change cancel path share it. */
+  async activeMeetingPreps(eventId: string): Promise<Array<{ id: string; schedule_id: string | null; session_id: string }>> {
+    const result = await this.db.query<{ id: string; schedule_id: string | null; session_id: string }>(
+      `select id, schedule_id, session_id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1`,
+      [eventId],
+    );
+    return result.rows;
+  }
+
   /** Claim one window for one plan; a repeat delivery in the same window returns the existing row. */
   async claimOccurrence(row: { planId: string; windowKey: string }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
     const id = `${row.planId}:${row.windowKey}`;
@@ -1637,6 +1735,40 @@ export class MinutesRepo {
     digestPatch(sets, values, patch, ['candidates']);
     await this.db.query(`update pa24.minutes set ${sets.join(', ')} where id = $1`, values);
   }
+
+  /** Latest minutes for meeting-prep scoping (F28). */
+  async recent(limit: number): Promise<Array<Pick<MinutesRow, 'id' | 'topic' | 'doc_url' | 'candidates'>>> {
+    const result = await this.db.query<Pick<MinutesRow, 'id' | 'topic' | 'doc_url' | 'candidates'>>(
+      `select id, topic, doc_url, candidates from pa24.minutes order by created_at desc limit $1`,
+      [limit],
+    );
+    return result.rows;
+  }
+}
+
+/** Cross-table maintenance statistics (F28): backup manifest watermarks and
+ *  health/retry figures that previously lived as raw SQL in the runtime. */
+export class MaintenanceRepo {
+  constructor(private readonly db: PaDb) {}
+
+  async watermarks(): Promise<Array<{ table: string; rows: number }>> {
+    const result = await this.db.query<{ table: string; n: string }>(
+      `select 'work_item' as table, count(*) as n from pa24.work_item union all select 'note', count(*) from pa24.note union all select 'reminder_rule', count(*) from pa24.reminder_rule union all select 'outbox', count(*) from pa24.outbox`,
+    );
+    return result.rows.map(r => ({ table: r.table, rows: Number(r.n) }));
+  }
+
+  async unknownOperationCount(): Promise<number> {
+    const result = await this.db.query<{ n: string }>(`select count(*) as n from pa24.action_operation where status = 'unknown'`);
+    return Number(result.rows[0]?.n ?? 0);
+  }
+
+  async attemptTotals(): Promise<{ operations: number; outbox: number }> {
+    const result = await this.db.query<{ ops: string; obx: string }>(
+      `select (select coalesce(sum(attempt),0) from pa24.action_operation) as ops, (select coalesce(sum(attempts),0) from pa24.outbox) as obx`,
+    );
+    return { operations: Number(result.rows[0]?.ops ?? 0), outbox: Number(result.rows[0]?.obx ?? 0) };
+  }
 }
 
 export interface Repos {
@@ -1659,6 +1791,7 @@ export interface Repos {
   waiting: WaitingRepo;
   digests: DigestRepo;
   minutes: MinutesRepo;
+  maintenance: MaintenanceRepo;
 }
 
 export function createRepos(db: PaDb): Repos {
@@ -1682,5 +1815,6 @@ export function createRepos(db: PaDb): Repos {
     waiting: new WaitingRepo(db),
     digests: new DigestRepo(db),
     minutes: new MinutesRepo(db),
+    maintenance: new MaintenanceRepo(db),
   };
 }

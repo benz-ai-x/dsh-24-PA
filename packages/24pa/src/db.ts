@@ -13,6 +13,16 @@ export interface PaQueryer {
   query<T extends Record<string, any> = Record<string, any>>(text: string, values?: readonly unknown[]): Promise<PaQueryResult<T>>;
 }
 
+/** One self-contained ledger artifact a backup ships as a part (F28). */
+export interface BackupPart {
+  id: string;
+  name: string;
+  bytes: Buffer;
+  /** Best-effort part: a write failure degrades the backup but does not
+   *  fail it (e.g. the SQLite WAL append when -wal vanished mid-backup). */
+  optional?: boolean;
+}
+
 export interface PaDb extends PaQueryer {
   readonly kind: 'postgres' | 'sqlite';
   /** SQLite only: absolute path of the ledger file (backup support). */
@@ -23,5 +33,8 @@ export interface PaDb extends PaQueryer {
   /** Note numbering N-1, N-2… (PG sequence / SQLite counter table). */
   nextNoteSeq(): Promise<number>;
   withTransaction<T>(work: (client: PaQueryer) => Promise<T>): Promise<T>;
+  /** Ledger bytes for backup: SQLite checkpoints + file copy (WAL appended
+   *  when a truncate left frames behind), PostgreSQL runs pg_dump. */
+  backup(): Promise<BackupPart[]>;
   close(): Promise<void>;
 }
