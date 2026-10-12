@@ -1,6 +1,6 @@
 # F18 研究：QwenNote 听记接入（钉talk 录音卡 · dsh-mcp-client 通道）
 
-日期：2026-10-07。研究先于实现完成；本文记录来源、已核验事实与取舍。背景：用户提出「在24PA 直接使用钉talk（QwenNote A2）录音卡」，并确认先完善设计与工单、开发后置。本文分两类陈述：**已核验**（有源码/官方页面证据）与**真机待验**（需首次授权后实测回填）。
+日期：2026-10-07（2026-10-12 二次调研更新：OAuth 真机结论回填、WP1/WP2 交付后的剩余面规划、诊断观测面核验）。研究先于实现完成；本文记录来源、已核验事实与取舍。背景：用户提出「在24PA 直接使用钉talk（QwenNote A2）录音卡」，并确认先完善设计与工单、开发后置。本文分两类陈述：**已核验**（有源码/官方页面证据）与**真机待验**（需授权后实测回填）。
 
 ## 一、需求定位与规格约束
 
@@ -58,6 +58,29 @@
 7. **存储零改动**：听记是按需读取的外部资料，不落 PG 投影（无同步账本、无迁移）；候选行动一旦创建即走既有事项/审核数据流，与来源解耦。
 
 ## 五、未决 / 真机待验（本票第一步实测后回填本文）
+
+### 2026-10-12 更新：OAuth 形态已真机核验（ali 生产实例，WP0 进行中）
+
+- **动态客户端注册**：`minutes.qwennote.cn/mcp` 走 OAuth 2.0 动态注册，实测获得 `client_id: qnmcp-fa7cef0f8e814761ba9a7699f1f3e094`；授权请求带 **PKCE S256 ＋ state ＋ resource 参数**——授权 URL 只能用 mcp-remote 发起的那一条（手工重构缺 state 会被拒），且轮换周期约 4–5 分钟；
+- **回调端口**：本地回调 `http://127.0.0.1:8905/callback`（端口由 server URL 推导）——意味着**宿主上必须由 mcp-remote 进程持有回调监听**，授权必须发生在「宿主已启动 mcp-client 条目、且由主人浏览器可达宿主」的场景（ali 实例经 magic-proxy 隧道不转发 localhost，需在宿主本机或 SSH 端口转发下完成）；
+- **scopes**：`qwennote:read` / `qwennote:write`；**refresh_token 已签发**（`~/.mcp-auth/mcp-remote-v1/` 下 token 缓存实测存在）——过期自动续期预期成立，剩余寿命待长稳观察；
+- 孤儿 mcp-remote 进程（ppid=1、持有 8905）会卡住重新授权，处置＝`pkill -f "npm-cache/_npx.*mcp-remote"` 后重启宿主；
+- 授权完成后待办：`tools/list` 盘点（工具清单/参数/只读性/配额）、token 寿命观察、长稳断线重连表现——仍是「五」原有待验项。
+
+### 2026-10-12 更新：诊断三态的观测面（源码核验 dsh-mcp-client）
+
+WP3 诊断三态（未配置/未授权或失效/正常）的数据源核验（`@deepseek-ai/dsh-mcp-client` lib/index.js）：
+
+- mcp-client **不向 registry/reflect 暴露任何服务**（export 仅 Config/apply/createMcpToolDefinition/inject/name）——插件侧无 `ctx.get('mcp-…')` 可查连接状态；连接世代/outage 是插件内部状态；
+- 对 24PA 可观测的只有两处：①**宿主工具面**——`tools.schemas()` 中 `mcp__qwennote__*` 前缀的存在性（tools.ts 的存在性过滤已用同一数据源）；token 失效→重连失败→工具列表「整代回滚」→前缀消失；②systemPrompt 的 `mcp:<server>` instructions section（不适合做诊断源）；
+- **三态设计**（WP3 实施）：`extraLocalTools` 配置（AGENTS.md）× 工具前缀存在性（tools.schemas()）× token 缓存文件存在性（`$DSH_HOME/.mcp-auth/mcp-remote-v1/` 目录探测，只看存在与 mtime，不读内容）三信号合成——配置在＋前缀在＝正常；配置在＋前缀无＋缓存无＝未授权（首次授权未完成）；配置在＋前缀无＋缓存有＝连接失败或 token 过期；配置无＋extraLocalTools 未配＝未配置（不出诊断项）。挂在既有 `extra-local-tools` health capability 上（WP1 已建）。
+
+### 2026-10-12 更新：架构落点（F28–F33 之后）
+
+WP1/WP2 已交付（PR #95，2026-10-10 合并）：`extraLocalTools` 通配/精确放行＋存在性过滤＋`resolveExtraLocalTools`＋`extra-local-tools` health capability＋听记教学（prompts.ts「### 听记资料」节）。剩余＝WP0 真机授权（上述）＋WP3 诊断三态（挂 health capability 扩展）＋WP4 指南「听记接入」节——初始化指南现为阶段 0–5＋飞书下一跳结构，听记节按「阶段 5 后的可选接入」并列（对齐 F16 企微接入的同款定位），不做 minutes-setup.md 三件套（2026-10-11 已裁决）。
+
+---
+
 
 - **OAuth 形态**：401 的 `WWW-Authenticate`/发现端点、授权服务器（预计钉钉登录页）、mcp-remote 兼容性——未实测（计划模式探测被权限拦截）。
 - **工具面**：tools/list 清单、参数语义、只读还是有写工具（设计按只读定位，出现写工具则评估是否放行）。
