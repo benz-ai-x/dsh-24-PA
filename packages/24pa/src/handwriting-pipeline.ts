@@ -8,6 +8,7 @@ import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { DshAgent } from './host.js';
 import type { PaConfig } from './config.js';
+import type { SharedChannelDeps } from './channel-deps.js';
 import { runLarkCli } from './lark.js';
 import { cliOptions, type FeishuTransport, type InboundEvent } from './feishu.js';
 import {
@@ -20,18 +21,12 @@ import type { PaDb } from './db.js';
 import type { Repos, NoteRow, NotePageRow, WorkItemRow, ActionOperationRow, ReviewReminderRow } from './repo.js';
 import { text, nowIso, isoDate, type RuntimeRole } from './runtime.js';
 
-export interface HandwritingDeps {
-  repos(): Repos;
-  config(): PaConfig;
-  cli(): { larkCliBin: string; cliTimeoutMs: number };
+export interface HandwritingDeps extends SharedChannelDeps {
   workspace(): { statePath: string } | null;
   transport(): FeishuTransport | null;
   accessSessionId(): string | null;
-  notifyOwner(dedupKey: string, body: string): Promise<void>;
   assertLive(context: string): void;
   trackWorkItem(item: WorkItemRow): void;
-  stagedOperation(item: WorkItemRow, kind: string, paramsKey: string, params: Record<string, unknown>, reconcileHint?: string): Promise<{ created: boolean; row: ActionOperationRow }>;
-  failStaged(operationId: string, error: unknown): Promise<void>;
   roleFor(agent: DshAgent | undefined): RuntimeRole;
   reviewQueue(): Promise<unknown>;
   usage: { modelRequests: number; notePagesInput: number; noteCrops: number };
@@ -43,7 +38,7 @@ export class HandwritingPipeline {
 
   /** CLI invocation options resolved once per call (config may reload). */
   private cli() {
-    return cliOptions(this.deps.config(), this.deps.cli().larkCliBin, this.deps.cli().cliTimeoutMs);
+    return cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs);
   }
 
   // ---- handwriting notes (F06) ----------------------------------------------

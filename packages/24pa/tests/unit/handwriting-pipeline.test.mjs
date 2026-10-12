@@ -3,19 +3,15 @@
 // pin the contract edge cases that are cheapest to assert here.
 import { describe, expect, it } from 'vitest';
 import { HandwritingPipeline } from '../../lib/handwriting-pipeline.js';
+import { makeBaseDeps } from '../helpers/channel-deps.mjs';
 
 const makeDeps = (repos) => ({
-  repos: () => repos,
-  config: () => { throw new Error('not needed'); },
-  cli: () => ({ larkCliBin: 'lark-cli', cliTimeoutMs: 1000 }),
+  ...makeBaseDeps({ repos: () => repos }),
   workspace: () => null,
   transport: () => null,
   accessSessionId: () => null,
-  notifyOwner: async () => {},
   assertLive: () => {},
   trackWorkItem: () => {},
-  stagedOperation: async () => { throw new Error('not needed'); },
-  failStaged: async () => {},
   roleFor: () => null,
   usage: { modelRequests: 0, notePagesInput: 0, noteCrops: 0 },
   dbRef: () => { throw new Error('not needed'); },

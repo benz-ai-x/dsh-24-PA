@@ -3,17 +3,16 @@
 // these pin the contract edges cheapest to assert here.
 import { describe, expect, it } from 'vitest';
 import { WecomChannels } from '../../lib/wecom-channels.js';
+import { makeBaseDeps } from '../helpers/channel-deps.mjs';
 
 const makeDeps = (over = {}) => ({
-  repos: () => { throw new Error('not needed'); },
-  config: () => ({ calendarChannel: 'wecom', todoChannel: 'feishu', notifyChannel: 'feishu', timeZone: 'Asia/Shanghai' }),
-  cli: () => ({ wecomCliBin: 'definitely-missing-wecom-cli-bin', cliTimeoutMs: 2000 }),
-  notifyOwner: async () => {},
+  ...makeBaseDeps({
+    config: () => ({ calendarChannel: 'wecom', todoChannel: 'feishu', notifyChannel: 'feishu', timeZone: 'Asia/Shanghai' }),
+    cli: () => ({ bin: 'definitely-missing-wecom-cli-bin', timeoutMs: 2000 }),
+  }),
   notifySourceChanged: async () => {},
   gate: (_key, work) => work(),
-  stagedOperation: async () => { throw new Error('not needed'); },
   stagedOperationWithId: async () => { throw new Error('not needed'); },
-  failStaged: async () => {},
   linkedEventIdsInWindow: async () => [],
   isClosed: () => false,
   ...over,

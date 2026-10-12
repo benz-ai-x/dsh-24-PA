@@ -186,20 +186,28 @@ export class PaRuntime {
   private reviewReminderTimer: NodeJS.Timeout | null = null;
   private reviewReminding = false;
 
+  /** Common deep-module dependency subset (F31): wired once, spread into
+   *  each channel module's initializer. */
+  private baseChannelDeps() {
+    return {
+      repos: () => this.repos!,
+      config: () => this.config!,
+      notifyOwner: (dedupKey: string, body: string) => this.notifyOwner(dedupKey, body),
+      stagedOperation: (item: WorkItemRow, kind: string, paramsKey: string, params: Record<string, unknown>, hint?: string) => this.stagedOperation(item, kind, paramsKey, params, hint),
+      failStaged: (operationId: string, error: unknown) => this.failStaged(operationId, error),
+    };
+  }
+
   /** Handwriting note pipeline (F29): submit→publish→review→verify→republish
    *  behind a deep module; the runtime keeps role bindings and tick loops. */
   private readonly handwriting: HandwritingPipeline = new HandwritingPipeline({
-    repos: () => this.repos!,
-    config: () => this.config!,
-    cli: () => ({ larkCliBin: this.options.larkCliBin, cliTimeoutMs: this.options.cliTimeoutMs }),
+    ...this.baseChannelDeps(),
+    cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
     workspace: () => this.workspace,
     transport: () => this.transport,
     accessSessionId: () => this.accessSessionId,
-    notifyOwner: (dedupKey, body) => this.notifyOwner(dedupKey, body),
     assertLive: context => this.assertFeishuLive(context),
     trackWorkItem: item => this.trackWorkItem(item),
-    stagedOperation: (item, kind, paramsKey, params, hint) => this.stagedOperation(item, kind, paramsKey, params, hint),
-    failStaged: (operationId, error) => this.failStaged(operationId, error),
     roleFor: agent => this.roleFor(agent),
     reviewQueue: () => this.reviewQueue(),
     usage: this.usage,
@@ -209,15 +217,11 @@ export class PaRuntime {
   /** WeCom channel module (F30): calendar/todo/notify + auth monitoring. The
    *  runtime keeps channel selection (config semantics) and role bindings. */
   private readonly wecomChannels = new WecomChannels({
-    repos: () => this.repos!,
-    config: () => this.config!,
-    cli: () => ({ wecomCliBin: this.options.wecomCliBin, cliTimeoutMs: this.options.cliTimeoutMs }),
-    notifyOwner: (dedupKey, body) => this.notifyOwner(dedupKey, body),
+    ...this.baseChannelDeps(),
+    cli: () => ({ bin: this.options.wecomCliBin, timeoutMs: this.options.cliTimeoutMs }),
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
     gate: (key, work) => this.gate(key, work),
-    stagedOperation: (item, kind, paramsKey, params, hint) => this.stagedOperation(item, kind, paramsKey, params, hint),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
-    failStaged: (operationId, error) => this.failStaged(operationId, error),
     linkedEventIdsInWindow: (from, to) => this.linkedEventIdsInWindow(from, to),
     isClosed: () => this.closed,
   });
