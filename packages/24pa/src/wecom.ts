@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { runCliProcess } from './cli-gateway.js';
 
 // Controlled wecom-cli gateway (F16): fixed argv arrays (never a shell
 // string), the CLI's JSON output decides success, and the three observed
@@ -60,98 +60,57 @@ function stripPrefixFields(parsed: Record<string, any>): Record<string, any> {
 }
 
 export function runWecomCli(options: WecomCliOptions, args: readonly string[]): Promise<WecomCliResult> {
-  return new Promise((resolve, reject) => {
-    if (args.some(a => typeof a !== 'string')) {
-      reject(new WecomCliError('CLI 参数必须是固定字符串数组。', 'invalid-envelope'));
-      return;
-    }
-    // wecom-cli has no --profile and no --json flag: JSON is the default
-    // output shape and credentials are machine-global (~/.config/wecom).
-    const argv = [...args];
-    const child = spawn(options.bin, argv, {
-      cwd: options.cwd,
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...options.env, NO_COLOR: '1' },
-    });
-    let stdout = '';
-    let stderr = '';
-    let limitError: WecomCliError | null = null;
-    let settled = false;
-    const timer = setTimeout(() => {
-      limitError = new WecomCliError(
-        '企微 CLI 超时；结果未知，请先核对企微中的实际对象，不要盲目重试。',
-        'unknown',
+  // wecom-cli has no --profile and no --json flag: JSON is the default
+  // output shape and credentials are machine-global (~/.config/wecom).
+  // Process management lives in the shared cli-gateway skeleton (F33); the
+  // three observed envelope shapes are judged below.
+  return runCliProcess({
+    bin: options.bin,
+    argv: args,
+    timeoutMs: options.timeoutMs,
+    env: { ...options.env, NO_COLOR: '1' },
+    cwd: options.cwd,
+    fail: (kind, cause) => {
+      if (kind === 'timeout') return new WecomCliError('企微 CLI 超时；结果未知，请先核对企微中的实际对象，不要盲目重试。', 'unknown');
+      if (kind === 'limit') return new WecomCliError('企微 CLI 输出超过读取上限。', 'invalid-envelope');
+      if (kind === 'argv') return new WecomCliError('CLI 参数必须是固定字符串数组。', 'invalid-envelope');
+      return new WecomCliError(`无法启动企微 CLI（${options.bin}）：${cause?.message ?? ''}`, 'failed', undefined, undefined, cause);
+    },
+  }).then(({ stdout, stderr, exitCode: code }) => {
+    let parsed: any;
+    try {
+      parsed = JSON.parse(stdout.trim());
+    } catch {
+      throw new WecomCliError(
+        `企微 CLI 未返回 JSON（exit ${code}）；检查安装与授权${stderr ? `：${stderr.trim().slice(0, 200)}` : '。'}`,
+        'invalid-envelope',
+        undefined,
+        undefined,
+        { stdout, stderr },
       );
-      child.kill('SIGTERM');
-    }, options.timeoutMs);
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk;
-      if (stdout.length > 16 * 1024 * 1024) {
-        limitError = new WecomCliError('企微 CLI 输出超过读取上限。', 'invalid-envelope');
-        child.kill('SIGTERM');
-      }
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      if (stderr.length < 65536) stderr += chunk;
-    });
-    child.on('error', error => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(new WecomCliError(`无法启动企微 CLI（${options.bin}）：${error.message}`, 'failed', undefined, undefined, error));
-    });
-    child.on('close', code => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (limitError) {
-        reject(limitError);
-        return;
-      }
-      let parsed: any;
-      try {
-        parsed = JSON.parse(stdout.trim());
-      } catch {
-        reject(new WecomCliError(
-          `企微 CLI 未返回 JSON（exit ${code}）；检查安装与授权${stderr ? `：${stderr.trim().slice(0, 200)}` : '。'}`,
-          'invalid-envelope',
-          undefined,
-          undefined,
-          { stdout, stderr },
-        ));
-        return;
-      }
-      if (code === 0) {
-        resolve({ data: stripPrefixFields(parsed), raw: parsed });
-        return;
-      }
-      if (typeof parsed.errcode === 'number') {
-        reject(new WecomCliError(
-          `企微 CLI 失败（errcode ${parsed.errcode}）：${parsed.errmsg ?? '无错误说明'}`,
-          'failed',
-          parsed.errcode,
-          typeof parsed.help_message === 'string' ? parsed.help_message : undefined,
-          parsed,
-        ));
-        return;
-      }
-      if (parsed?.error && typeof parsed.error.code !== 'undefined') {
-        reject(new WecomCliError(
-          `企微 CLI 失败（${parsed.error.code}）：${parsed.error.message ?? '无错误说明'}`,
-          'failed',
-          undefined,
-          undefined,
-          parsed,
-        ));
-        return;
-      }
-      reject(new WecomCliError(`企微 CLI 返回不受支持的结果信封（exit ${code}）。`, 'invalid-envelope', undefined, undefined, parsed));
-    });
-    child.stdin.on('error', () => {
-      // Early process exit surfaces through the close handler above.
-    });
-    child.stdin.end();
+    }
+    if (code === 0) {
+      return { data: stripPrefixFields(parsed), raw: parsed };
+    }
+    if (typeof parsed.errcode === 'number') {
+      throw new WecomCliError(
+        `企微 CLI 失败（errcode ${parsed.errcode}）：${parsed.errmsg ?? '无错误说明'}`,
+        'failed',
+        parsed.errcode,
+        typeof parsed.help_message === 'string' ? parsed.help_message : undefined,
+        parsed,
+      );
+    }
+    if (parsed?.error && typeof parsed.error.code !== 'undefined') {
+      throw new WecomCliError(
+        `企微 CLI 失败（${parsed.error.code}）：${parsed.error.message ?? '无错误说明'}`,
+        'failed',
+        undefined,
+        undefined,
+        parsed,
+      );
+    }
+    throw new WecomCliError(`企微 CLI 返回不受支持的结果信封（exit ${code}）。`, 'invalid-envelope', undefined, undefined, parsed);
   });
 }
 
