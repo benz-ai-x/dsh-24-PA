@@ -9,7 +9,7 @@ import type { PaDb } from './db.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, type PaConfig } from './config.js';
-import { qwennoteChannelState } from './tools.js';
+import { qwennoteChannelState, hostGlobalToolNames } from './tools.js';
 import { runLarkCli } from './lark.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
@@ -947,27 +947,17 @@ export class PaRuntime {
     this.extraToolResolution = resolution;
   }
 
-  /** Host-plane tool names (F18 WP3); probe failure degrades to empty. */
-  private hostToolNames(): string[] {
-    try {
-      return (this.ctx.tools?.schemas?.() ?? []).map(schema => schema.name);
-    } catch {
-      return [];
-    }
-  }
-
   /** mcp-remote token cache presence for the qwennote channel (F18 WP3):
    *  existence + mtime only — token contents are never read. */
   private async qwennoteTokenCache(): Promise<{ exists: boolean; updatedAt: Date | null }> {
     try {
-      const { stat } = await import('node:fs/promises');
+      const { stat, readdir } = await import('node:fs/promises');
       const { homedir } = await import('node:os');
       const { join } = await import('node:path');
       const dir = join(homedir(), '.mcp-auth', 'mcp-remote-v1');
       const info = await stat(dir).catch(() => null);
       if (!info?.isDirectory()) return { exists: false, updatedAt: null };
       // The newest file mtime approximates the last token refresh.
-      const { readdir } = await import('node:fs/promises');
       let latest: Date | null = null;
       for (const name of await readdir(dir)) {
         const file = await stat(join(dir, name)).catch(() => null);
@@ -3423,7 +3413,7 @@ export class PaRuntime {
     if (config && config.extraLocalTools.some(e => e === QWENNOTE_TOOL_WILDCARD || e.startsWith(QWENNOTE_TOOL_PREFIX))) {
       const channel = qwennoteChannelState({
         configured: true,
-        mounted: this.hostToolNames().some(n => n.startsWith(QWENNOTE_TOOL_PREFIX)),
+        mounted: hostGlobalToolNames(this.ctx).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX)),
         tokenCache: await this.qwennoteTokenCache(),
       });
       capabilities.push({ id: 'qwennote-channel', state: channel.state, message: channel.message, detail: channel.nextSteps.length ? { nextSteps: channel.nextSteps } : undefined });

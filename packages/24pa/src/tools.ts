@@ -91,7 +91,7 @@ export function qwennoteChannelState(signals: QwennoteChannelSignals): { state: 
 }
 
 /** Host-plane tool names; any probe failure degrades to an empty view. */
-function hostGlobalToolNames(ctx: DshContext): string[] {
+export function hostGlobalToolNames(ctx: DshContext): string[] {
   try {
     return (ctx.tools.schemas?.() ?? []).map(schema => schema.name);
   } catch {
