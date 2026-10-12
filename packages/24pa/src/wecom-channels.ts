@@ -5,8 +5,7 @@
 // operations first (spec 1.6).
 
 import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
-import { text, nowIso, isoDate } from './util.js';
-import { eventFingerprint, parseZonedRange, parseDue } from './runtime.js';
+import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint } from './util.js';
 import type { PaConfig } from './config.js';
 import type { Repos, TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
 

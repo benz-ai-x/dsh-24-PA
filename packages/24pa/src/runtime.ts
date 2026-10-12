@@ -13,7 +13,7 @@ import { runLarkCli } from './lark.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
-import { text, nowIso, isoDate } from './util.js';
+import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
 export { text, nowIso, isoDate };
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
@@ -42,34 +42,12 @@ import {
 } from './handwriting.js';
 import type { NoteRow, NotePageRow, ReviewReminderRow } from './repo.js';
 
-const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
 
 let BUILTIN_ROLE_IDS: string[] = [];
 
-export function parseDue(value: unknown): { dueAt: Date | null; dueHasTime: boolean; dueArg: string | null } {
-  if (value == null || value === '') return { dueAt: null, dueHasTime: false, dueArg: null };
-  const raw = String(value).trim();
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) throw new Error(`截止时间无法解析：${raw}`);
-  const dueHasTime = /[:T]/.test(raw) || raw.toLowerCase().startsWith('+');
-  return { dueAt: date, dueHasTime, dueArg: raw };
-}
-
-
-export function parseZonedRange(args: Record<string, unknown>): { from: Date; to: Date } {
-  const from = new Date(String(args.from ?? ''));
-  const to = new Date(String(args.to ?? ''));
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to <= from) {
-    throw new Error('需要明确的时间范围（from/to，ISO 格式，to 晚于 from）。');
-  }
-  if (to.getTime() - from.getTime() > 62 * 24 * 3600 * 1000) {
-    throw new Error('单次查询范围不能超过 62 天；请分段查询。');
-  }
-  return { from, to };
-}
 
 function mapRemoteEvent(raw: any): { eventId: string; summary: string; start: Date; end: Date; isAllDay: boolean; timezone: string | null; canceled: boolean; recurring: boolean; attendees: unknown; url: string | null } | null {
   const eventId = String(raw?.event_id ?? raw?.eventId ?? raw?.id ?? '');
@@ -106,11 +84,6 @@ export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
 /** Stable fingerprint of a followed task: identity + content + due (P19). */
 function taskFingerprint(task: { task_guid: string; summary: string; due_at: Date | null }): string {
   return hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`);
-}
-
-/** Stable fingerprint of a followed calendar event: identity + summary + start. */
-export function eventFingerprint(event: { event_id: string; summary: string; start_time: Date }): string {
-  return hash(`${event.event_id}\n${event.summary}\n${isoDate(event.start_time) ?? ''}`);
 }
 
 /**
@@ -205,13 +178,10 @@ export class PaRuntime {
   private lastSentAt: string | null = null;
   private diagnostics: AccessDiagnostics | null = null;
   private checking: Promise<AccessDiagnostics> | null = null;
-  // F16: wecom identity target (resolved via `identity whoami`) and the last
-  // wecom access inspection, mirroring the lark diagnostics pattern.
 
   private dispatchTimer: NodeJS.Timeout | null = null;
   private outboxTimer: NodeJS.Timeout | null = null;
   private wecomAuthTimer: NodeJS.Timeout | null = null;
-  /** F23: in-memory suppression window for the wecom auth renewal alert. */
   private noteVerifyTimer: NodeJS.Timeout | null = null;
   private reviewReminderTimer: NodeJS.Timeout | null = null;
   private reviewReminding = false;
