@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DshContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
 import { DIGEST_UNCONFIRMED_GRACE_MS } from './runtime.js';
-import { FakeFeishuTransport } from './runtime.js';
+import { FakeFeishuTransport } from './feishu.js';
 import type { InboundEvent } from './feishu.js';
 
 // Read-mostly admin endpoint for the 24私助工作区 panel. It rides the dsh
