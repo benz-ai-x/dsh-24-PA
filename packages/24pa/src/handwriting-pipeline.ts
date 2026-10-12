@@ -41,6 +41,11 @@ export interface HandwritingDeps {
 export class HandwritingPipeline {
   constructor(private readonly deps: HandwritingDeps) {}
 
+  /** CLI invocation options resolved once per call (config may reload). */
+  private cli() {
+    return cliOptions(this.deps.config(), this.deps.cli().larkCliBin, this.deps.cli().cliTimeoutMs);
+  }
+
   // ---- handwriting notes (F06) ----------------------------------------------
 
   isImageFileMessage(event: InboundEvent): boolean {
@@ -259,7 +264,7 @@ export class HandwritingPipeline {
    * (P30): normalized regions map through the page's intrinsic size with
    * clamping; each crop keeps its transform record and sha256.
    */
-  async generateCrops(noteId: string, pages: NotePageRow[], doubts: DoubtSpec[], diagrams: DiagramSpec[]): Promise<CropSpec[]> {
+  private async generateCrops(noteId: string, pages: NotePageRow[], doubts: DoubtSpec[], diagrams: DiagramSpec[]): Promise<CropSpec[]> {
     const entries: { kind: 'doubt' | 'diagram'; pageNo: number; region: Region }[] = [];
     for (const doubt of doubts) if (doubt.region) entries.push({ kind: 'doubt', pageNo: doubt.pageNo, region: doubt.region });
     for (const diagram of diagrams) if (diagram.region) entries.push({ kind: 'diagram', pageNo: diagram.pageNo, region: diagram.region });
@@ -304,7 +309,7 @@ export class HandwritingPipeline {
    * `republishFromDoc` (P32) skips creation and captures the current document
    * as the next candidate instead.
    */
-  async publishNoteVersion(
+  private async publishNoteVersion(
     item: WorkItemRow,
     note: NoteRow,
     recognized: RecognizedNote | null,
@@ -337,7 +342,7 @@ export class HandwritingPipeline {
       if (!docId) {
         if (!recognized) throw new Error('发布新版本需要结构化识别结果。');
         const xmlBody = noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size, sourceType: p.source_type })));
-        const { data } = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().larkCliBin, this.deps.cli().cliTimeoutMs), [
+        const { data } = await runLarkCli(this.cli(), [
           'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', this.deps.config().folderToken, '--content', '-',
         ], xmlBody);
         const doc = data?.document;
@@ -352,7 +357,7 @@ export class HandwritingPipeline {
       if (!republishFromDoc && !insertedMedia) {
         const mediaFiles = [...pages.map(p => p.storage_path), ...crops.map(c => c.path)];
         for (const file of mediaFiles) {
-          await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().larkCliBin, this.deps.cli().cliTimeoutMs), [
+          await runLarkCli(this.cli(), [
             'docs', '+media-insert', '--as', 'user', '--doc', docId, '--type', 'image', '--file', file,
           ]);
         }
@@ -430,8 +435,8 @@ export class HandwritingPipeline {
     }
   }
 
-  async fetchNoteDocument(docId: string): Promise<{ content: string; revision: string | null }> {
-    const readback = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().larkCliBin, this.deps.cli().cliTimeoutMs), [
+  private async fetchNoteDocument(docId: string): Promise<{ content: string; revision: string | null }> {
+    const readback = await runLarkCli(this.cli(), [
       'docs', '+fetch', '--as', 'user', '--doc', docId, '--doc-format', 'xml', '--detail', 'full',
     ]);
     const content = readback.data?.document?.content;
@@ -440,7 +445,7 @@ export class HandwritingPipeline {
   }
 
   /** Enqueue the durable review card with opaque, server-verified tokens (P31). */
-  async sendReviewCard(noteId: string, versionId: string): Promise<void> {
+  private async sendReviewCard(noteId: string, versionId: string): Promise<void> {
     const notes = this.deps.repos().notes;
     const version = await notes.getVersion(versionId);
     if (!version) throw new Error('版本不存在，无法发送审核卡。');
@@ -555,7 +560,7 @@ export class HandwritingPipeline {
         const newLine = decision === 'approve'
           ? systemLine(`本人已审核 ${row.note_id} v${version.version}（${decidedAt}；覆盖指纹 ${row.fingerprint.slice(0, 12)}…）`)
           : systemLine(`本人退回 ${row.note_id} v${version.version}（${decidedAt}）；修改后可要求重新发布候选`);
-        await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().larkCliBin, this.deps.cli().cliTimeoutMs), [
+        await runLarkCli(this.cli(), [
           'docs', '+update', '--as', 'user', '--doc', version.doc_id!,
           '--command', 'str_replace', '--pattern', pendingReviewLine(row.note_id, version.version),
           '--content', newLine,
@@ -603,7 +608,7 @@ export class HandwritingPipeline {
    * Retry document status-block sync for decisions whose refresh failed: the
    * credential is durable, only the projection lags (P32 恢复).
    */
-  async repairDecisionSync(noteId: string): Promise<number> {
+  private async repairDecisionSync(noteId: string): Promise<number> {
     const notes = this.deps.repos().notes;
     const failed = await notes.failedSyncDecisions(noteId);
     let repaired = 0;
@@ -614,7 +619,7 @@ export class HandwritingPipeline {
         const newLine = decision.decision === 'approve'
           ? systemLine(`本人已审核 ${noteId} v${version.version}（${new Date(decision.decided_at).toISOString()}；覆盖指纹 ${decision.fingerprint.slice(0, 12)}…）`)
           : systemLine(`本人退回 ${noteId} v${version.version}（${new Date(decision.decided_at).toISOString()}）；修改后可要求重新发布候选`);
-        await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().larkCliBin, this.deps.cli().cliTimeoutMs), [
+        await runLarkCli(this.cli(), [
           'docs', '+update', '--as', 'user', '--doc', version.doc_id,
           '--command', 'str_replace', '--pattern', pendingReviewLine(noteId, version.version),
           '--content', newLine,
@@ -706,7 +711,7 @@ export class HandwritingPipeline {
     // Point the document's status line at the new candidate version; the
     // system line is fingerprint-excluded, so this never invalidates it.
     try {
-      await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().larkCliBin, this.deps.cli().cliTimeoutMs), [
+      await runLarkCli(this.cli(), [
         'docs', '+update', '--as', 'user', '--doc', latest.doc_id!,
         '--command', 'str_replace', '--pattern', pendingReviewLine(noteId, latest.version),
         '--content', pendingReviewLine(noteId, Number(result.version)),

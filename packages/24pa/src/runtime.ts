@@ -11,9 +11,10 @@ import { acquireHostLock, type HostLock } from './lock.js';
 import { parseAgentsMd, template, ConfigError, type PaConfig } from './config.js';
 import { runLarkCli } from './lark.js';
 import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
-import { SdkFeishuTransport, inspectAccess, type FeishuTransport, type InboundEvent, type AccessDiagnostics, cliOptions } from './feishu.js';
+import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
-import { FakeFeishuTransport } from './feishu.js';
+import { text, nowIso, isoDate } from './util.js';
+export { text, nowIso, isoDate };
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
   WORKER_PROMPTS,
@@ -33,39 +34,16 @@ import {
   type RecurringScheduleRecord,
 } from '@deepseek-ai/dsh-schedule';
 import {
-  cropBox,
-  detectImageMediaType,
-  extensionOf,
-  fingerprintOf,
-  MAX_PAGES_PER_NOTE,
-  MAX_PAGE_BYTES,
-  newReviewToken,
-  normalizeDocument,
-  noteDocumentXml,
-  pendingReviewLine,
   RECOGNITION_PAGE_LIMIT,
-  REVIEW_TOKEN_TTL_MS,
-  reviewCard,
-  sha256Hex,
-  systemLine,
-  diffNormalized,
   advanceReminder,
   looksLikeVisionModel,
-  type CropSpec,
-  type DoubtSpec,
-  type DiagramSpec,
+  sha256Hex,
   type NoteCandidate,
-  type RecognizedNote,
-  type Region,
 } from './handwriting.js';
 import type { NoteRow, NotePageRow, ReviewReminderRow } from './repo.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
-export const nowIso = () => new Date().toISOString();
-export const text = (value: unknown, max = 12000): string => {
-  if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`请输入 1–${max} 字的内容。`);
-  return value.trim();
-};
+
 const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
 
@@ -80,7 +58,6 @@ function parseDue(value: unknown): { dueAt: Date | null; dueHasTime: boolean; du
   return { dueAt: date, dueHasTime, dueArg: raw };
 }
 
-export const isoDate = (value: Date | string | null): string | null => (value == null ? null : new Date(value).toISOString());
 
 function parseZonedRange(args: Record<string, unknown>): { from: Date; to: Date } {
   const from = new Date(String(args.from ?? ''));
