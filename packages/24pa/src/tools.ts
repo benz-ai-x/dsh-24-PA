@@ -60,6 +60,36 @@ export interface ExtraToolSignals {
   providerAvailable(name: string): boolean;
 }
 
+/** QwenNote channel diagnostics (F18 WP3): three observable signals compose
+ *  the three states — the dsh-mcp-client plugin exposes no status service
+ *  (verified in its source), so presence is inferred: workspace config asks
+ *  for qwennote tools, the host tool plane either mounted the mcp__qwennote__
+ *  prefix or rolled it back (token failure breaks the whole tool generation),
+ *  and mcp-remote's token cache directory records that authorization ever
+ *  succeeded. No tool is ever called for diagnosis. */
+export interface QwennoteChannelSignals {
+  configured: boolean;
+  mounted: boolean;
+  tokenCache: { exists: boolean; updatedAt: Date | null };
+}
+
+export function qwennoteChannelState(signals: QwennoteChannelSignals): { state: 'ok' | 'warn' | 'error'; message: string; nextSteps: string[] } {
+  if (signals.configured && signals.mounted) {
+    return { state: 'ok', message: '听记通道正常：工具已挂载，可用 mcp__qwennote__ 工具读取听记。', nextSteps: [] };
+  }
+  if (!signals.configured) {
+    return { state: 'warn', message: '未配置：AGENTS.md 的 extraLocalTools 未包含 mcp__qwennote__ 条目。', nextSteps: ['在 AGENTS.md 的 extraLocalTools 中加入 "mcp__qwennote__*"，并确认 profile 配置了 dsh-mcp-client 条目（见初始化指南「听记接入」）。'] };
+  }
+  if (!signals.tokenCache.exists) {
+    return { state: 'error', message: '未授权：通道已配置但首次 OAuth 授权未完成，工具未挂载。', nextSteps: ['由本人浏览器完成首次授权（初始化指南「听记接入」节：重启宿主触发 mcp-remote 发起，授权链接约 5 分钟轮换，需重新触发取新链接）。'] };
+  }
+  return {
+    state: 'warn',
+    message: `连接失败或 token 过期：曾授权过（缓存 ${signals.tokenCache.updatedAt?.toISOString() ?? '时间未知'}）但当前工具未挂载。`,
+    nextSteps: ['重启宿主让 mcp-remote 重连；仍失败则按「听记接入」节重新授权（旧缓存会被新授权覆盖）。'],
+  };
+}
+
 /** Host-plane tool names; any probe failure degrades to an empty view. */
 function hostGlobalToolNames(ctx: DshContext): string[] {
   try {
