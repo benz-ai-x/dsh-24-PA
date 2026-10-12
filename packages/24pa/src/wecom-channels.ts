@@ -7,6 +7,7 @@
 import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint } from './util.js';
 import type { PaConfig } from './config.js';
+import type { SharedChannelDeps } from './channel-deps.js';
 import type { Repos, TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
 
 export const WECOM_CALENDAR_ID = 'wecom';
@@ -33,16 +34,10 @@ function anyWecomChannel(config: PaConfig): boolean {
   return config.calendarChannel === 'wecom' || config.todoChannel === 'wecom' || config.notifyChannel === 'wecom';
 }
 
-export interface WecomDeps {
-  repos(): Repos;
-  config(): PaConfig;
-  cli(): { wecomCliBin: string; cliTimeoutMs: number };
-  notifyOwner(dedupKey: string, body: string): Promise<void>;
+export interface WecomDeps extends SharedChannelDeps {
   notifySourceChanged(sourceType: 'task' | 'calendar', sourceId: string, currentFingerprint: string | null): Promise<void>;
   gate<T>(key: string, work: () => Promise<T>): Promise<T>;
-  stagedOperation(item: WorkItemRow, kind: string, paramsKey: string, params: Record<string, unknown>, reconcileHint?: string): Promise<{ created: boolean; row: ActionOperationRow }>;
   stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;
-  failStaged(operationId: string, error: unknown): Promise<void>;
   linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]>;
   isClosed(): boolean;
 }
@@ -67,7 +62,7 @@ export class WecomChannels {
   // 幂等键（实测重复 create 产生重复对象），操作键是唯一防线。
 
   wecomRun(args: readonly string[]) {
-    return runWecomCli({ bin: this.deps.cli().wecomCliBin, timeoutMs: this.deps.cli().cliTimeoutMs }, args);
+    return runWecomCli(this.deps.cli(), args);
   }
 
   /** Resolve the push target via `identity whoami` once per workspace session. */
@@ -422,10 +417,10 @@ export class WecomChannels {
       const { execFile } = await import('node:child_process');
       const { promisify } = await import('node:util');
       const run = promisify(execFile);
-      const { stdout } = await run(this.deps.cli().wecomCliBin, ['--version'], { timeout: Math.min(this.deps.cli().cliTimeoutMs, 10_000) });
+      const { stdout } = await run(this.deps.cli().bin, ['--version'], { timeout: Math.min(this.deps.cli().timeoutMs, 10_000) });
       cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}` };
     } catch (error) {
-      cli = { state: 'error', message: `无法运行 ${this.deps.cli().wecomCliBin}：${(error as Error).message}` };
+      cli = { state: 'error', message: `无法运行 ${this.deps.cli().bin}：${(error as Error).message}` };
       nextSteps.push('安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 准备节）。');
       const result: WecomDiagnostics = { checkedAt, cli, auth: { state: 'error', message: 'CLI 不可用，跳过。' }, identity: { state: 'missing', message: '未解析。' }, services, nextSteps };
       this.wecomDiagnostics = result;
