@@ -80,7 +80,7 @@ function taskExternal(data: any): { guid: string; url: string | null } {
 const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', calendar: '日程' };
 
 /** Bounded grace before an unattributable delivery pauses its digest plan (P24). */
-export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
+export { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
 
 /** Stable fingerprint of a followed task: identity + content + due (P19). */
 function taskFingerprint(task: { task_guid: string; summary: string; due_at: Date | null }): string {
@@ -236,7 +236,7 @@ export class PaRuntime {
     accessSessionId: () => this.accessSessionId,
     workspace: () => this.workspace,
     startedAt: () => this.startedAt,
-    reviewQueue: () => this.reviewQueue(),
+    reviewQueueCount: async () => Number(((await this.reviewQueue()) as { count?: number }).count ?? 0),
     memory: () => this.memory,
     nativeSchedule: () => this.nativeSchedule(),
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),

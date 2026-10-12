@@ -8,21 +8,22 @@ import type { MemoryStore } from './memory.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import type { WorkItemRow } from './repo.js';
 import { randomUUID } from 'node:crypto';
-import { text, isoDate, hash } from './util.js';
+import { isoDate, hash } from './util.js';
 import { digestWakePrompt } from './prompts.js';
-import { DIGEST_UNCONFIRMED_GRACE_MS } from './runtime.js';
 
 export interface DigestDeps extends SharedChannelDeps {
   accessSessionId(): string | null;
   workspace(): { statePath: string } | null;
   startedAt(): string | null;
-  reviewQueue(): Promise<unknown>;
+  reviewQueueCount(): Promise<number>;
   memory(): MemoryStore | null;
   nativeSchedule(): NativeScheduleService | null;
   syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }>;
   calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown>;
   currentFingerprint(noteId: string, docId: string, versionRow?: { id: string; content: any } | null): Promise<string>;
 }
+
+export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
 
 export type DigestFacts = {
     calendar: { fresh: boolean; syncedAt: string | null; events: { summary: string; start: string; end: string; allDay: boolean }[] };
@@ -186,7 +187,7 @@ export class DigestService {
   }
 
   /** Gather planning facts once: calendar (with freshness), tasks, waiting, review queue, preferences. */
-  async planningFacts(now: Date): Promise<DigestFacts> {
+  private async planningFacts(now: Date): Promise<DigestFacts> {
     const tz = this.deps.config().timeZone;
     const dayStart = new Date(now.getTime() - 24 * 3600 * 1000);
     const dayEnd = new Date(now.getTime() + 36 * 3600 * 1000);
@@ -207,7 +208,7 @@ export class DigestService {
     });
     const completedToday = tasks.filter(t => t.status === 'completed' && t.last_synced_at && now.getTime() - t.last_synced_at.getTime() < 24 * 3600 * 1000);
     const waiting = await this.deps.repos().waiting.list('waiting');
-    const queue = await this.deps.reviewQueue().catch(() => null);
+    const reviewQueueCount = await this.deps.reviewQueueCount().catch(() => 0);
     const reviewedNotes: { noteId: string; version: number; summary: string; docUrl: string | null; reviewedAt: string | null }[] = [];
     try {
       const recent = await this.deps.repos().notes.recentApproved(5);
@@ -255,7 +256,7 @@ export class DigestService {
       })),
       tasksCompletedToday: completedToday.map(t => ({ guid: t.task_guid, summary: t.summary })),
       waiting: waiting.map(w => ({ id: w.id, title: w.title, checkpointAt: w.checkpoint_at?.toISOString() ?? null })),
-      reviewQueueCount: queue ? (queue as { count: number }).count : -1,
+      reviewQueueCount,
       reviewedNotes,
       projects,
       missing,
@@ -373,7 +374,7 @@ export class DigestService {
         const lastDone = oldest[0]?.completed_at ? new Date(oldest[0].completed_at).getTime() : 0;
         // Unattributable deliveries older than the grace pause the plan.
         const startedAt = this.deps.startedAt();
-          const startedAtMs = startedAt ? new Date(startedAt).getTime() : Date.now();
+        const startedAtMs = startedAt ? new Date(startedAt).getTime() : Date.now();
         if (Date.now() - Math.max(lastDone, startedAtMs) > graceMs) {
           try {
             await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id });

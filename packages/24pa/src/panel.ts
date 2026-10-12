@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DshContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
-import { DIGEST_UNCONFIRMED_GRACE_MS } from './runtime.js';
+import { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
 import { FakeFeishuTransport } from './feishu.js';
 import type { InboundEvent } from './feishu.js';
 
