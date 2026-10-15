@@ -9,13 +9,13 @@ kind: "package-bundle"
 
 ## 摘要
 
-把 `@benz-ai-x/dsh-24pa` 安装进 Profile，即获得「24私助」助理预设及其宿主插件：飞书＋本地双入口协调、六类业务 Worker，PostgreSQL 账本承载事项、提醒、手写审核、简报与发送回执。预设携带按角色裁剪的标准模式工具面——本地会话可编程，飞书入口与 Worker 保持业务白名单。版本号跟随 dsh 基线（`<dsh 版本>.<序号>`），支持 dsh `0.2.0-rc.2`、`0.2.1-alpha.1` 与 `0.2.1-alpha.2`。
+把 `@benz-ai-x/dsh-24pa` 安装进 Profile，即获得「24私助」助理预设及其宿主插件：飞书＋本地双入口协调、六类业务 Worker，PostgreSQL 账本承载事项、提醒、手写审核、简报与发送回执。预设携带按角色裁剪的标准模式工具面——本地会话可编程，飞书入口与 Worker 保持业务白名单。版本号跟随 dsh 基线（`<dsh 版本>.<序号>`），支持 dsh `0.2.0-rc.2`、`0.2.1-alpha.1`–`0.2.1-alpha.4`。
 
 ## 常见问题
 
 **24私助（24PA）是什么？**——面向 dsh 的飞书私人助理插件（profile bundle）：本地 dsh 会话与飞书机器人协调六类业务 Worker，PostgreSQL 账本承载任务、日程、提醒、备忘、简报与手写审核。
 
-**支持哪些 dsh 运行时？**——dsh `0.2.0-rc.2`、`0.2.1-alpha.1` 与 `0.2.1-alpha.2`；版本号按 `<dsh 基线>.<序号>` 命名，npm dist-tag 按基线分通道。
+**支持哪些 dsh 运行时？**——dsh `0.2.0-rc.2`、`0.2.1-alpha.1`–`0.2.1-alpha.4`；版本号按 `<dsh 基线>.<序号>` 命名，npm dist-tag 按基线分通道。
 
 **怎么安装？**——`dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<基线序号>`，然后重启 profile（见[安装 Bundle](#安装-bundle)）。
 
