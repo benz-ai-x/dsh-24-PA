@@ -9,7 +9,7 @@ import type { PaDb } from './db.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, type PaConfig } from './config.js';
-import { qwennoteChannelState, hostGlobalToolNames } from './tools.js';
+import { qwennoteChannelState } from './tools.js';
 import { runLarkCli } from './lark.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
@@ -3411,12 +3411,22 @@ export class PaRuntime {
     // F18 WP3: qwennote channel three-state diagnosis (presence inference —
     // mcp-client exposes no status service; no tool is called to diagnose).
     if (config && config.extraLocalTools.some(e => e === QWENNOTE_TOOL_WILDCARD || e.startsWith(QWENNOTE_TOOL_PREFIX))) {
-      const channel = qwennoteChannelState({
-        configured: true,
-        mounted: hostGlobalToolNames(this.ctx).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX)),
-        tokenCache: await this.qwennoteTokenCache(),
-      });
-      capabilities.push({ id: 'qwennote-channel', state: channel.state, message: channel.message, detail: channel.nextSteps.length ? { nextSteps: channel.nextSteps } : undefined });
+      // F18 fix: the mount signal must come from the agent-resolution snapshot
+      // (this.ctx's tool view cannot see the mcp-client layer — different
+      // scope; verified on a live reproduction). No snapshot yet = unverified.
+      const snapshot = this.extraToolResolution;
+      const mounted = (snapshot?.active ?? []).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX));
+      if (!snapshot) {
+        capabilities.push({ id: 'qwennote-channel', state: 'info', message: '听记通道未验证：本地24私助会话尚未创建（工具挂载以会话解析为准）。' });
+      } else {
+        const channel = qwennoteChannelState({
+          configured: true,
+          mounted,
+          tokenCache: await this.qwennoteTokenCache(),
+        });
+        const nextSteps = mounted ? channel.nextSteps : [...channel.nextSteps, '宿主重启后 mcp 工具注册约需半分钟——听记通道显示正常后再打开本地会话，该会话才会带上听记工具。'];
+        capabilities.push({ id: 'qwennote-channel', state: channel.state, message: channel.message, detail: { nextSteps } });
+      }
     }
     const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
     const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));

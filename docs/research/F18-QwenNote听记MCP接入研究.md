@@ -94,3 +94,20 @@ WP1/WP2 已交付（PR #95，2026-10-10 合并）：`extraLocalTools` 通配/精
 - **配额与会员**：A1 权益为每月 1000 分钟转写＋10GB；MCP 读取是否消耗/受限于配额未知。
 - **数据边界**：「转后即焚」下 MCP 暴露的实体（预计仅转写文本/纪要/待办提炼，无音频）。
 - dsh-mcp-client 与 mcp-remote 断线重连叠加行为（harness reconnect vs mcp-remote 自身重试）在长稳实例上的表现。
+
+## 六、2026-10-15 调查终报：「宿主内工具未挂载」三因叠加与修复（#70 收尾）
+
+**调查方法**：本地 checkout 加 [f18dbg] 补丁（syncTools/global-view/agent-view 三探针）完整复现＋ali 同款补丁实测，时间线铁证定位。
+
+**三因叠加**：
+1. **结构性时序竞态（主因）**：宿主启动即自动创建本地 agent（解析 extraLocalTools 时刻 mcp=0），而 mcp-remote 连接链（OAuth 发现→连接→tools/list→注册）需 30s+——**解析永远先于注册**，该 agent 生命周期内 qwennote 条目被过滤（journal 证据：`pa24-agent view: total=12 mcp=0` → `syncTools listed=16` → `global-view visible=16`）。本地复刻能成功只因新会话的 agent 创建晚于注册。
+2. **WP3 mounted 信号选错 ctx**：runtime 插件 ctx 的 `tools.schemas()` 视图**看不到** mcp-client 注册层（dsh-scope 层级；本地实证：agent 解析 16 项时该探测仍 false）。
+3. **token 异地轮换失效（放大器）**：本地成功连接后 refresh token 轮换写回本地缓存、旧 token 作废——ali 持旧 token 走 sign-in，授权 URL 被吞（部分 mcp-remote 实例 stderr→/dev/null）→ 持 8905 死等 → 多实例协调死锁后续实例；且宿主重启遗留孤儿 mcp-remote（上游 dispose 不杀子进程）使死锁常态化。10-12 的 13:47 唯一成功＝恰好清干净全部实例的窗口。
+
+**修复（24pa 侧，PR fix/f18-mounted-signal）**：
+- tools.ts：agent 解析前，配置了 qwennote 且未挂载时**有界等待**（2s×30 轮）注册完成再解析——结构性竞态消除；
+- runtime.ts：mounted 信号改用 **agent 解析快照**（extraToolResolution.active 前缀匹配，同源可见）；无快照→info「未验证」；warn 态 nextSteps 补「重启后等通道正常再开会话」。
+
+**ali 实测终态**：`extra-local-tools ok 放行 16 项` ＋ `qwennote-channel ok 听记通道正常`（还原 mcp-client 补丁后重启保持）。
+
+**遗留上游问题**（deepseek-harness，待报）：① mcp-client dispose 不终止 mcp-remote 子进程（孤儿堆积）；② spawn 链 stderr 偶发 /dev/null（sign-in URL 不可见）；③ 多实例 sign-in 死锁无超时让位。运维兜底：宿主重启后如听记通道卡「连接失败」，清 `bin/mcp-remote` 进程后重启宿主。
