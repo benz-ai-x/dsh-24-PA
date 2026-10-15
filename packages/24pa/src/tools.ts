@@ -10,6 +10,11 @@ import { DELEGATION_TOOL_PROVIDER, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD 
 
 export const name = 'pa24-agent';
 export const inject = ['tools', 'systemPrompt', 'pa24'];
+
+/** F18: how long an agent-creation resolution may wait for the qwennote
+ *  mcp-client generation to finish registering (~30s connect chain). */
+const QWENNOTE_MOUNT_WAIT_MS = 60_000;
+const QWENNOTE_MOUNT_POLL_MS = 2_000;
 export const Config = z.object({});
 
 // The local session carries the full standard-mode tool base beside the pa24
@@ -142,6 +147,9 @@ export function resolveExtraLocalTools(extras: readonly string[], signals: Extra
 
 export function apply(ctx: DshContext) {
   const runtime = ctx.get('pa24') as PaRuntime;
+  // F18: flipped by plugin disposal so bounded mount waits end with the host.
+  let mountWaitAborted = false;
+  ctx.effect(() => () => { mountWaitAborted = true; });
 
   ctx.on('agent/created', async ({ agent }) => {
     const role = runtime.roleFor(agent);
@@ -158,8 +166,10 @@ export function apply(ctx: DshContext) {
     // instead of filtering them out permanently.
     const wantsQwennote = extras.some(e => e === QWENNOTE_TOOL_WILDCARD || e.startsWith(QWENNOTE_TOOL_PREFIX));
     if (role === 'local-robot' && wantsQwennote) {
-      for (let i = 0; i < 30 && !hostGlobalToolNames(ctx).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX)); i++) {
-        await new Promise(r => setTimeout(r, 2000));
+      // Bounded poll with a disposal escape: host teardown flips the flag so
+      // the serial agent/created dispatch never waits the full window.
+      for (let waited = 0; waited < QWENNOTE_MOUNT_WAIT_MS && !mountWaitAborted && !hostGlobalToolNames(ctx).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX)); waited += QWENNOTE_MOUNT_POLL_MS) {
+        await new Promise(r => setTimeout(r, QWENNOTE_MOUNT_POLL_MS));
       }
     }
     const signals: ExtraToolSignals = {
