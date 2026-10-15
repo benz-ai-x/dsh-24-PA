@@ -150,6 +150,18 @@ export function apply(ctx: DshContext) {
     // unconditionally would fail restrict() wherever the provider bundle or
     // profile mcp-client entry is absent — so resolve against live mounts.
     const extras = role === 'local-robot' ? (runtime.config?.extraLocalTools ?? []) : [];
+    // F18 fix: the boot-time local agent is created structurally BEFORE the
+    // mcp-client registers its tools (the mcp-remote connect chain takes
+    // ~30s+), so a one-shot resolution at that moment drops every qwennote
+    // entry for the agent's whole lifetime. When the workspace asks for
+    // qwennote tools that are not mounted yet, wait (bounded) for the mount
+    // instead of filtering them out permanently.
+    const wantsQwennote = extras.some(e => e === QWENNOTE_TOOL_WILDCARD || e.startsWith(QWENNOTE_TOOL_PREFIX));
+    if (role === 'local-robot' && wantsQwennote) {
+      for (let i = 0; i < 30 && !hostGlobalToolNames(ctx).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX)); i++) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
     const signals: ExtraToolSignals = {
       // A probe failure must degrade to "nothing mounted", never fail agent
       // creation — the very crash path this resolution exists to eliminate.
