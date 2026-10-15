@@ -9,13 +9,13 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to six business workers, with a PostgreSQL ledger for items, reminders, handwritten-note review, digests, and delivery receipts. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2`, `0.2.1-alpha.1`, and `0.2.1-alpha.2`.
+Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to six business workers, with a PostgreSQL ledger for items, reminders, handwritten-note review, digests, and delivery receipts. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.4`.
 
 ## FAQ
 
 **What is 24私助 (24PA)?** — A Feishu personal-assistant plugin for dsh, shipped as a profile bundle: local dsh sessions and a Feishu bot coordinate six business workers over a PostgreSQL ledger — tasks, calendar, reminders, memos, digests, and handwritten-note review.
 
-**Which dsh runtimes are supported?** — dsh `0.2.0-rc.2`, `0.2.1-alpha.1`, and `0.2.1-alpha.2`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
+**Which dsh runtimes are supported?** — dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.4`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
 
 **How do I install it?** — `dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<baseline serial>`, then restart the profile (see [Installing the Bundle](#installing-the-bundle)).
 
