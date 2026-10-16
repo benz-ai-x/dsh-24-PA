@@ -110,6 +110,11 @@ describe('client.js 挂载面（F17/F20）', () => {
     // 浅色为主参考（F26 裁决）：主文字/次要双层令牌，暗色跟随不掉层级
     expect(client).toContain('--pa-ink:var(--dsw-alias-label-primary,#1f2937)');
     expect(client).toContain('body[data-ds-dark-theme] .pa24{');
+    // 深色黑底对齐 dsh 用色：底色挂 dsw alias 链回退 950 纯黑，
+    // surface/soft 上调至 layer-2/3（卡片面板比宿主 flat 页面高一档分层）
+    expect(client).toContain('--pa-canvas:var(--dsw-alias-bg-base,var(--dsw-static-neutral-bluish-950,rgb(21 21 23)))');
+    expect(client).toContain('--pa-surface:var(--dsw-alias-bg-layer-2,var(--dsw-static-neutral-bluish-850,rgb(44 44 46)))');
+    expect(client).toContain('--pa-soft:var(--dsw-alias-bg-layer-3,var(--dsw-static-neutral-bluish-800,rgb(53 54 56)))');
   });
 
   it('中英双语（F27/P59）：en 命名空间注册＋resolveText L 通道＋无空英文', () => {
