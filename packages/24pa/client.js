@@ -110,6 +110,7 @@ window.__ModuleLoader__.load({
       .pa24-cap-head{display:flex;align-items:flex-start;gap:10px}
       .pa24-cap-title{flex:1;min-width:0}.pa24-cap-title b{display:block;font-size:14px;font-weight:650;color:var(--pa-ink)}.pa24-cap-title small{display:-webkit-box;font-size:11px;color:var(--pa-muted);margin-top:2px;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}
       .pa24-cap-att{border-color:color-mix(in srgb,var(--tone) 55%,var(--pa-line))}.pa24-cap-att .pa24-icon-tile{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tone) 35%,transparent)}
+      .pa24-cap-att .pa24-cap-foot button{border-color:color-mix(in srgb,var(--tone) 45%,var(--pa-line));color:var(--tone);font-weight:650}
       .pa24-manage-done{background:var(--pa-blue-bg);color:var(--pa-blue);border-color:var(--pa-blue)}
       .pa24-cap-body{flex:1;font-size:12.5px;line-height:1.7}
       .pa24-cap-kpi{display:flex;gap:18px;flex-wrap:wrap}.pa24-cap-kpi strong{display:block;font-size:19px;line-height:1.25;font-weight:650;color:var(--tone);font-variant-numeric:tabular-nums}.pa24-cap-kpi small{display:block;font-size:11px;color:var(--pa-muted)}
@@ -363,6 +364,8 @@ window.__ModuleLoader__.load({
         const wecomTier = config => (wecomChannelsOn(config) ? 'ok' : 'unchecked');
         const qwennoteConfigured = config => !!(config && (config.extraLocalTools || []).some(x => String(x).startsWith('mcp__qwennote__')));
         const extraToolCap = extra => (extra.health?.capabilities || []).find(c => c.id === 'extra-local-tools');
+        // F34: 「需注意」档位统一口径——卡片描边、接入进度行与 tab 角标共用。
+        const ATTENTION_TIERS = ['warn', 'error', 'missing'];
 
         // 二级详情：原 work tab 的统计与事项列表（运行就绪移入系统维护）。
         function WorkDetail({ state, button, busy, workspace, openRobot }) {
@@ -618,7 +621,7 @@ window.__ModuleLoader__.load({
               // 未跑主动检查时说明当前结论来自静态聚合，消除「有数字却说未检查」的矛盾。
               return h('div', null,
                 capKpi([[String(a.ok), L('正常', 'OK')], [String(a.warn), L('待核验', 'Needs review')], [String(a.error), L('需要处理', 'Needs attention')]]),
-                h('p', { className: 'pa24-meta', style: { marginTop: 6 } }, last ? L('最近主动检查 ' + date(last.toISOString(), helpers.tz), 'Last active check ' + date(last.toISOString(), helpers.tz)) : L('尚未执行主动检查；以上为就绪与能力健康的静态聚合', 'No active check yet; the counts above are the passive readiness/capability aggregate')),
+                h('p', { className: 'pa24-meta', style: { marginTop: 6 } }, last ? L('最近主动检查 ' + date(last.toISOString(), helpers.tz) + '；以下数字按检查项计', 'Last active check ' + date(last.toISOString(), helpers.tz) + '; counts below are per check item') : L('尚未执行主动检查；以上为就绪与能力健康的静态聚合，按检查项计', 'No active check yet; the counts above are the passive readiness/capability aggregate, per check item')),
                 pending > 0 && nextStrip(L('共 ' + (a.ok + a.warn + a.error) + ' 项检查：待核验 ' + a.warn + ' · 需要处理 ' + a.error + '——打开全量报告查看 nextSteps。', (a.ok + a.warn + a.error) + ' checks total: ' + a.warn + ' need review · ' + a.error + ' need attention — open the full report for next steps.')));
             },
             quick: helpers => helpers.button('refresh', helpers.busy ? L('检查中…', 'Checking…') : L('一键全量检查', 'Run full check'), () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy }),
@@ -816,7 +819,7 @@ window.__ModuleLoader__.load({
         }
 
         function CardShell({ card, tier, label, manage, hidden, onToggleHidden, body, foot }) {
-          return h('section', { className: 'pa24-cap pa24-tone-' + card.tone + (hidden ? ' pa24-cap-hidden' : '') + (tier === 'warn' || tier === 'error' || tier === 'missing' ? ' pa24-cap-att' : '') },
+          return h('section', { className: 'pa24-cap pa24-tone-' + card.tone + (hidden ? ' pa24-cap-hidden' : '') + (ATTENTION_TIERS.includes(tier) ? ' pa24-cap-att' : '') },
             manage && h('button', { type: 'button', className: 'pa24-quiet pa24-cap-hide', 'aria-pressed': hidden ? 'true' : 'false', onClick: onToggleHidden }, hidden ? L('显示', 'Show') : L('隐藏', 'Hide')),
             h('div', { className: 'pa24-cap-head' },
               tile(card.icon, card.tone),
@@ -828,22 +831,24 @@ window.__ModuleLoader__.load({
 
         function CardGrid({ cat, helpers, manage, hidden, toggleHidden, openDetail }) {
           const cards = CARDS.filter(c => c.cat === cat);
-          // F34: 接入分类总进度行——就绪/待处理/未启用各几张，先给「还差几步」的全局感。
+          const tierById = new Map(cards.map(c => [c.id, c.tier(helpers)]));
+          // F34: 接入分类总进度行——就绪/需处理/未检查各几张（与角标同口径、
+          // 不计已隐藏卡），先给「还差几步」的全局感。
           const progress = cat === 'access' && !manage ? (() => {
-            const tiers = cards.map(c => c.tier(helpers));
+            const tiers = cards.filter(c => !(hidden[cat] || []).includes(c.id)).map(c => tierById.get(c.id));
             const ok = tiers.filter(x => x === 'ok').length;
-            const pending = tiers.filter(x => ['warn', 'error', 'missing'].includes(x)).length;
-            const rest = tiers.length - ok - pending;
+            const pending = tiers.filter(x => ATTENTION_TIERS.includes(x)).length;
+            const unchecked = tiers.length - ok - pending;
             return h('p', { className: 'pa24-meta', style: { margin: '0 2px 12px' } },
               L('接入进度：就绪 ' + ok + ' / ' + tiers.length, 'Access progress: ' + ok + ' ready / ' + tiers.length),
               pending > 0 ? L(' · 需处理 ' + pending, ' · ' + pending + ' need attention') : '',
-              rest > 0 ? L(' · 未检查或未启用 ' + rest, ' · ' + rest + ' unchecked or off') : '',
+              unchecked > 0 ? L(' · 未检查或未启用 ' + unchecked, ' · ' + unchecked + ' unchecked or off') : '',
               pending > 0 ? L('——从需处理的卡片开始。', ' — start with the cards needing attention.') : '');
           })() : null;
           return h('div', null, progress, h('div', { className: 'pa24-cardgrid' }, cards.map(card => {
             const isHidden = (hidden[cat] || []).includes(card.id);
             if (isHidden && !manage) return null;
-            const tier = card.tier(helpers);
+            const tier = tierById.get(card.id);
             const label = card.label ? card.label(helpers) : null;
             return h(CardShell, {
               key: card.id, card, tier, label: label || '', manage, hidden: isHidden,
@@ -865,6 +870,7 @@ window.__ModuleLoader__.load({
           // 说明去哪恢复——不留悬念也不打断（无确认弹窗）。
           const [hideNote, setHideNote] = React.useState('');
           const hideNoteTimer = React.useRef(null);
+          React.useEffect(() => () => clearTimeout(hideNoteTimer.current), []);
           React.useEffect(() => {
             if (!manage) return undefined;
             const onKey = e => { if (e.key === 'Escape') setManage(false); };

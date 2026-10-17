@@ -132,6 +132,7 @@ describe('client.js 挂载面（F17/F20）', () => {
       for (let i = open; i < client.length; i++) {
         const c = client[i];
         if (inStr) { if (c === inStr && client[i - 1] !== '\\') inStr = null; }
+        else if (c === '/' && client[i + 1] === '/') { while (i < client.length && client[i] !== '\n') i++; }
         else if (c === "'" || c === '"' || c === '`') inStr = c;
         else if (c === '(') depth++;
         else if (c === ')') { depth--; if (depth === 0) return client.slice(open, i + 1); }
