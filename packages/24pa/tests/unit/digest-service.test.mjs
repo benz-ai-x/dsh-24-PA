@@ -2,7 +2,7 @@
 // own seam, no Host involved. Deep coverage stays in the f09 e2e (real
 // Schedule wake); these pin the pure-assembly edges cheapest to assert here.
 import { describe, expect, it, vi } from 'vitest';
-import { DigestService } from '../../lib/digest-service.js';
+import { DigestService, buildSpokenVariant, DIGEST_SPOKEN_MAX_CHARS } from '../../lib/digest-service.js';
 import { makeBaseDeps } from '../helpers/channel-deps.mjs';
 
 const makeDeps = (over = {}) => ({
@@ -44,7 +44,6 @@ describe('F32：DigestService 接口直测', () => {
 
 describe('F19：口播变体与语音入队', () => {
   it('buildSpokenVariant：剥元数据行（syncedAt/来源/URL/缺失节/页脚）', async () => {
-    const { buildSpokenVariant } = await import('../../lib/digest-service.js');
     const report = [
       '【晨报】窗口 2026-10-18',
       '',
@@ -71,7 +70,6 @@ describe('F19：口播变体与语音入队', () => {
   });
 
   it('buildSpokenVariant：超限截断并播报提示', async () => {
-    const { buildSpokenVariant, DIGEST_SPOKEN_MAX_CHARS } = await import('../../lib/digest-service.js');
     const long = `【晨报】\n${'今天有非常多的事情要做。'.repeat(200)}`;
     const spoken = buildSpokenVariant(long);
     expect(spoken.length).toBeGreaterThan(DIGEST_SPOKEN_MAX_CHARS);
@@ -79,19 +77,15 @@ describe('F19：口播变体与语音入队', () => {
     expect(buildSpokenVariant('【晨报】今天两件事。')).toBe('【晨报】今天两件事。');
   });
 
-  it('digestBuild：plan.voice＋引擎可用时先入 audio 行，再入全文文本行', async () => {
-    const enqueued = [];
-    const notified = [];
+  // 两个 digestBuild 用例共享的仓库/依赖桩（仅 tts 与 notifyChannel 变化）。
+  const makeBuildDeps = (tts, notifyChannelOverride) => {
     const plan = {
       id: 'dig-morning-x', kind: 'morning', title: '晨报', schedule_id: null, session_id: 'sess-access',
       schedule_spec: {}, status: 'active', last_window: null, voice: true, created_at: new Date(), updated_at: new Date(),
     };
     const deps = makeDeps({
-      config: () => ({
-        timeZone: 'Asia/Shanghai', notifyChannel: 'feishu', ownerOpenId: 'ou_owner',
-        tts: { engine: 'volcengine', voice: 'zh_female_cancan_uranus_bigtts', volcKeyEnv: 'PA24_VOLC_TTS_KEY', meloDir: '' },
-      }),
-      notifyOwner: async (key, body) => notified.push([key, body]),
+      config: () => ({ timeZone: 'Asia/Shanghai', notifyChannel: tts.notifyChannel ?? notifyChannelOverride ?? 'feishu', ownerOpenId: 'ou_owner', tts }),
+      notifyOwner: async () => {},
       repos: () => ({
         digests: {
           getPlan: async () => plan,
@@ -100,7 +94,7 @@ describe('F19：口播变体与语音入队', () => {
           updatePlan: async () => {},
           occurrencesOf: async () => [],
         },
-        outbox: { enqueue: async row => { enqueued.push(row); return { created: true, row }; } },
+        outbox: { enqueue: async () => {} },
         workItems: { update: async () => {} },
         calendar: { eventsIn: async () => [], getSync: async () => null },
         tasks: { list: async () => [] },
@@ -110,54 +104,40 @@ describe('F19：口播变体与语音入队', () => {
       }),
       reviewQueueCount: async () => 0,
     });
-    const service = new DigestService(deps);
-    await service.digestBuild({ id: 'w1' }, { planId: plan.id });
+    return { deps, plan };
+  };
+
+  it('digestBuild：plan.voice＋引擎可用时先入 audio 行，再入全文文本行', async () => {
+    const enqueued = [];
+    const notified = [];
+    const { deps } = makeBuildDeps({ engine: 'volcengine', voice: 'zh_female_cancan_uranus_bigtts', volcKeyEnv: 'PA24_VOLC_TTS_KEY', meloDir: '' }, 'feishu');
+    const baseRepos = deps.repos();
+    deps.repos = () => ({ ...baseRepos, outbox: { enqueue: async row => { enqueued.push(row); return { created: true, row }; } } });
+    deps.notifyOwner = async (key, body) => { notified.push([key, body]); };
+    await new DigestService(deps).digestBuild({ id: 'w1' }, { planId: 'dig-morning-x' });
     expect(enqueued).toHaveLength(1);
     expect(enqueued[0].kind).toBe('audio');
     expect(enqueued[0].dedupKey).toBe('digest:501:voice');
     expect(enqueued[0].target).toBe('ou_owner');
     expect(String(enqueued[0].content.text)).not.toContain('来源：');
-    expect(notified).toHaveLength(1);
     expect(notified[0][0]).toBe('digest:501');
   });
 
   it('digestBuild：engine=none 或 wecom 通道时不入 audio 行（降级文本＋告警）', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const build = async (tts, notifyChannel) => {
+      const run = async ttsConfig => {
+        const { deps } = makeBuildDeps(ttsConfig, ttsConfig.notifyChannel);
         const enqueued = [];
-        const plan = {
-          id: 'dig-morning-y', kind: 'morning', title: '晨报', schedule_id: null, session_id: 's',
-          schedule_spec: {}, status: 'active', last_window: null, voice: true, created_at: new Date(), updated_at: new Date(),
-        };
-        const deps = makeDeps({
-          config: () => ({ timeZone: 'Asia/Shanghai', notifyChannel, ownerOpenId: 'ou_owner', tts }),
-          notifyOwner: async () => {},
-          repos: () => ({
-            digests: {
-              getPlan: async () => plan,
-              claimOccurrence: async () => ({ created: true, row: { id: 502, status: 'delivering' } }),
-              updateOccurrence: async () => {},
-              updatePlan: async () => {},
-              occurrencesOf: async () => [],
-            },
-            outbox: { enqueue: async row => { enqueued.push(row); return { created: true, row }; } },
-            workItems: { update: async () => {} },
-        calendar: { eventsIn: async () => [], getSync: async () => null },
-        tasks: { list: async () => [] },
-        waiting: { list: async () => [] },
-        projects: { listIdNames: async () => [], tasksOf: async () => [] },
-        notes: { recentApproved: async () => [] },
-          }),
-          reviewQueueCount: async () => 0,
-        });
-        await new DigestService(deps).digestBuild({ id: 'w1' }, { planId: plan.id });
+        const baseRepos = deps.repos();
+        deps.repos = () => ({ ...baseRepos, outbox: { enqueue: async row => { enqueued.push(row); return { created: true, row }; } } });
+        await new DigestService(deps).digestBuild({ id: 'w1' }, { planId: 'dig-morning-x' });
         return enqueued;
       };
-      const noneTts = { engine: 'none', voice: '', volcKeyEnv: '', meloDir: '' };
-      expect(await build(noneTts, 'feishu')).toHaveLength(0);
+      const noneTts = { engine: 'none', voice: '', volcKeyEnv: '', meloDir: '', notifyChannel: 'feishu' };
+      expect(await run(noneTts)).toHaveLength(0);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('未配置 TTS 引擎'));
-      expect(await build(noneTts, 'wecom')).toHaveLength(0);
+      expect(await run({ ...noneTts, notifyChannel: 'wecom' })).toHaveLength(0);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('企微'));
     } finally {
       warn.mockRestore();

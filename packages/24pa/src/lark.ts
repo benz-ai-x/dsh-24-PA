@@ -4,6 +4,9 @@
 // shared cli-gateway skeleton (F33); only the lark envelope semantics are
 // judged here.
 
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { runCliProcess } from './cli-gateway.js';
 
 export interface LarkCliOptions {
@@ -77,9 +80,6 @@ export async function sendLarkAudioMessage(
   ogg: Buffer,
   idempotencyKey: string,
 ): Promise<{ messageId: string }> {
-  const { mkdtemp, writeFile } = await import('node:fs/promises');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
   const dir = await mkdtemp(join(tmpdir(), 'pa24-audio-'));
   try {
     const rel = 'digest.ogg';
@@ -94,7 +94,6 @@ export async function sendLarkAudioMessage(
     }
     return { messageId };
   } finally {
-    const { rm } = await import('node:fs/promises');
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 }

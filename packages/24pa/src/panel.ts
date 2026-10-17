@@ -12,10 +12,11 @@ import type { InboundEvent } from './feishu.js';
 
 const PATH = '/api/24pa';
 
-// Single source of the panel RPC surface (F19 前置：RPC 常量化). Endpoints and
-// action types live here once; the dispatcher and every future action (voice
-// settings, digest voice toggles, …) extend these tables instead of adding
-// another layer of scattered string literals in comparisons.
+// Backend half of the panel RPC surface's single source (F19 前置：RPC 常量化).
+// Endpoints and action types live here once for the dispatcher; the browser
+// half (client.js) still carries its own literals and follows up separately.
+// Future actions (digest voice toggles, …) extend this table instead of
+// adding another layer of scattered string literals in comparisons.
 export const PANEL_RPC = {
   endpoints: {
     snapshot: 'snapshot',

@@ -480,6 +480,9 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-helper' }, L('听记是按需读取的外部资料，不落业务账本；从中提炼的候选行动走既有审核与行动授权，不因来源是听记跳过确认。', 'Minutes are external material read on demand and never land in the ledger; candidate actions go through the existing review and action authorization — the source never skips confirmation.'))));
         }
 
+        // F19：tts 引擎是否启用（多卡判断收敛一处；none/未配置都按关闭）。
+        const voiceOn = config => !!config?.tts?.engine && config.tts.engine !== 'none';
+
         // 卡片注册表：tier 为纯函数（角标聚合复用同一结果）；label 可覆盖状态词。
         const CARDS = [
           {
@@ -522,12 +525,12 @@ window.__ModuleLoader__.load({
           },
           {
             id: 'digest', cat: 'biz', tone: 'green', icon: 'pulse', title: ['晨报与复盘', 'Digest & retrospective'], sub: ['周期服务 · 原生定时唤醒 · 语音版', 'Scheduled services · native Schedule wake · voice'], action: ['调整计划', 'Adjust plans'],
-            tier: helpers => (helpers.config?.tts?.engine && helpers.config.tts.engine !== 'none' ? 'unchecked' : 'unchecked'),
+            tier: () => 'unchecked',
             label: () => L('对话管理', 'Managed in chat'),
             body: helpers => h('p', { className: 'pa24-meta' }, L('晨报/晚间/每周回顾计划经24私助会话开启与调整', 'Morning/evening/weekly digest plans are enabled and adjusted in the 24PA session')
-              + (helpers.config?.tts?.engine && helpers.config.tts.engine !== 'none' ? L('；语音引擎 ' + helpers.config.tts.engine, '; voice engine ' + helpers.config.tts.engine) : '')),
+              + (voiceOn(helpers.config) ? L('；语音引擎 ' + helpers.config.tts.engine, '; voice engine ' + helpers.config.tts.engine) : '')),
             detail: helpers => {
-              const tts = helpers.state?.tts, engine = helpers.config?.tts?.engine || 'none';
+              const tts = helpers.state?.tts, engine = helpers.config?.tts?.engine || 'none', on = voiceOn(helpers.config);
               const probe = tts?.probe?.result;
               const engineLine = engine === 'none'
                 ? L('语音版未启用：在 AGENTS.md 配置块设置 tts.engine（melo 或 volcengine）。', 'Voice is off: set tts.engine (melo or volcengine) in the AGENTS.md config block.')
@@ -539,9 +542,10 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'pa24-note' },
                     h('p', { className: 'pa24-meta' }, engineLine),
                     probe ? h('p', { className: 'pa24-meta' }, (probe.ready ? L('引擎预检通过。', 'Engine probe passed.') : L('引擎预检未通过：', 'Engine probe failed: ') + (probe.problems || []).join('；'))) : h('p', { className: 'pa24-meta' }, L('尚未预检（引擎/密钥/依赖存在性只读检查）。', 'Not probed yet (read-only check of engine/key/dependencies).'))),
+                  on && h('p', { className: 'pa24-meta', style: { marginTop: 8 } }, L('引擎与音色经 AGENTS.md 配置块 tts 字段调整（密钥环境变量见初始化指南「语音晨报/复盘」节）。', 'Engine and voice are set via the tts field of the AGENTS.md config block; the key environment variable is documented in the setup guide.')),
                   h('div', { className: 'pa24-row' },
                     helpers.button('refresh', L('检测语音引擎', 'Probe voice engine'), () => rpc('action', { type: 'tts.probe' }), { className: 'pa24-quiet' }),
-                    engine !== 'none' && helpers.button('bot', L('发一条测试语音', 'Send a test voice'), () => rpc('action', { type: 'tts.test' }), { key: 'test', className: 'pa24-quiet' }))));
+                    on && helpers.button('bot', L('发一条测试语音', 'Send a test voice'), () => rpc('action', { type: 'tts.test' }), { key: 'test', className: 'pa24-quiet' }))));
             },
           },
           {

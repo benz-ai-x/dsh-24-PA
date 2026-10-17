@@ -79,11 +79,13 @@ export interface TtsConfig {
   meloDir: string;
 }
 
-/** 豆包云首发音色（生产真机验证或官方文档示例来源；自定义 ID 经格式校验放行）。 */
+/** 豆包云首发五音色（2026-10-17 全部经生产 unidirectional 真机合成验证；自定义 ID 经格式校验放行）。 */
 export const VOLC_TTS_VOICES: readonly { id: string; label: string }[] = [
   { id: 'zh_female_cancan_uranus_bigtts', label: '知性灿灿（女声·晨报主推）' },
+  { id: 'zh_female_zhixingnv_uranus_bigtts', label: '知性女声（女声·沉稳）' },
   { id: 'zh_male_m191_uranus_bigtts', label: '云舟（男声·稳重）' },
   { id: 'zh_female_vv_uranus_bigtts', label: 'Vivi（女声·元气）' },
+  { id: 'zh_female_xiaohe_uranus_bigtts', label: '小何（女声·甜）' },
 ];
 
 /** Provider-gated delegation tools; they mount only after their provider bundles are installed. */

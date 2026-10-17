@@ -4,8 +4,7 @@
 // 降级为全文文本；引擎选择来自工作区 AGENTS.md 的 tts 配置块。
 
 import { randomUUID } from 'node:crypto';
-import { stat } from 'node:fs/promises';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -73,7 +72,8 @@ export function volcengineTts(config: TtsConfig, apiKey: string, fetchImpl: Fetc
       } catch {
         throw new TtsError('豆包 TTS 返回了无法解析的分块。');
       }
-      if (!VOLC_OK_CODES.has(obj.code ?? 0)) throw new TtsError(`豆包 TTS 合成失败（code ${obj.code}）：${obj.message ?? ''}`);
+      // 行必须携带明确 code；缺失按失败处理（fail-loud，不做宽松默认）。
+      if (typeof obj.code !== 'number' || !VOLC_OK_CODES.has(obj.code)) throw new TtsError(`豆包 TTS 合成失败（code ${obj.code ?? '无'}）：${obj.message ?? ''}`);
       if (obj.data) chunks.push(Buffer.from(obj.data, 'base64'));
     };
     const decoder = new TextDecoder();
@@ -95,10 +95,15 @@ export function volcengineTts(config: TtsConfig, apiKey: string, fetchImpl: Fetc
 
 /** Melo 本地适配器：两次子进程（sherpa-onnx 合成 wav → ffmpeg libopus 转 ogg），
  * 共享 CLI 网关骨架；meloDir 内可放 `python` 符号链接指向带 sherpa-onnx 的解释器。 */
+/** meloDir 内可放 `python` 符号链接指向带 sherpa-onnx 的解释器；缺省回落 PATH 的 python3。 */
+async function resolveMeloPython(meloDir: string): Promise<string> {
+  const linked = join(meloDir, 'python');
+  return stat(linked).then(() => linked, () => 'python3');
+}
+
 export function meloTts(config: TtsConfig, scriptPath: string): TtsSynth {
   return async text => {
-    const interpreter = join(config.meloDir, 'python');
-    const python = await stat(interpreter).then(() => interpreter, () => 'python3');
+    const python = await resolveMeloPython(config.meloDir);
     const work = await mkdtemp(join(tmpdir(), 'pa24-tts-'));
     try {
       const wav = join(work, 'melo.wav');
@@ -168,8 +173,7 @@ export async function probeTts(
   const problems: string[] = [];
   if (!config.meloDir) problems.push('未配置 Melo 部署目录（tts.meloDir）。');
   else if (!await stat(config.meloDir).then(() => true, () => false)) problems.push(`Melo 目录不存在：${config.meloDir}`);
-  const interpreter = config.meloDir ? join(config.meloDir, 'python') : null;
-  const python = interpreter && await stat(interpreter).then(() => interpreter, () => 'python3');
+  const python = config.meloDir ? await resolveMeloPython(config.meloDir) : null;
   if (python) {
     const probe = await run({ bin: python, argv: ['--version'], timeoutMs: 5_000, fail }).then(r => r.exitCode === 0).catch(() => false);
     if (!probe) problems.push(`Python 解释器不可用（${python}；需含 sherpa-onnx）。`);
