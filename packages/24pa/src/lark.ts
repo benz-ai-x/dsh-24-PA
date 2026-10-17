@@ -67,3 +67,34 @@ export function runLarkCli(options: LarkCliOptions, args: readonly string[], std
     return { data: parsed.data ?? parsed, raw: parsed };
   });
 }
+
+// F19（spec 2.3）：原生语音消息发送。lark-cli --audio 只收 cwd 相对路径的
+// opus/ogg 本地文件（自动上传），因此字节先落临时目录、发送后必清理；
+// 幂等键与 outbox dedup 语义对齐（≤50 字符、同键 1 小时去重）。
+export async function sendLarkAudioMessage(
+  options: LarkCliOptions,
+  userId: string,
+  ogg: Buffer,
+  idempotencyKey: string,
+): Promise<{ messageId: string }> {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'pa24-audio-'));
+  try {
+    const rel = 'digest.ogg';
+    await writeFile(join(dir, rel), ogg);
+    const result = await runLarkCli(
+      { ...options, cwd: dir },
+      ['im', '+messages-send', '--as', 'bot', '--user-id', userId, '--audio', `./${rel}`, '--idempotency-key', idempotencyKey.slice(0, 50)],
+    );
+    const messageId = result.data?.message_id ?? result.data?.data?.message_id;
+    if (typeof messageId !== 'string' || !messageId) {
+      throw new LarkCliError('飞书 CLI 未返回语音 message_id。', 'invalid-envelope', result.raw);
+    }
+    return { messageId };
+  } finally {
+    const { rm } = await import('node:fs/promises');
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}

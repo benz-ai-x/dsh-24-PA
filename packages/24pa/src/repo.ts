@@ -264,7 +264,7 @@ export interface OutboxRow {
   dedup_key: string;
   channel: 'feishu' | 'local' | 'wecom';
   target: string;
-  kind: 'text' | 'card';
+  kind: 'text' | 'card' | 'audio';
   content: any;
   status: OutboxStatus;
   message_id: string | null;
@@ -279,7 +279,7 @@ export interface NewOutbox {
   dedupKey: string;
   channel: 'feishu' | 'local' | 'wecom';
   target: string;
-  kind: 'text' | 'card';
+  kind: 'text' | 'card' | 'audio';
   content: unknown;
 }
 

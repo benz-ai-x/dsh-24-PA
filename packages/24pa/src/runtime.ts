@@ -10,7 +10,8 @@ import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, typ
 import { acquireHostLock, type HostLock } from './lock.js';
 import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
-import { runLarkCli } from './lark.js';
+import { runLarkCli, sendLarkAudioMessage } from './lark.js';
+import { resolveTtsEngine } from './tts.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
@@ -3656,6 +3657,29 @@ export class PaRuntime {
           // Feishu rows cannot be delivered on a wecom-only host; park them
           // visibly instead of silently looping through claim().
           await this.repos.outbox.mark(row.id, { status: 'pending', error: '飞书传输未连接，暂缓投递', retryInMs: 60_000 }).catch(() => {});
+          continue;
+        }
+        if (row.kind === 'audio') {
+          // F19（spec 2.3）：语音行只在投递时合成（自包含可重放）。行内存的
+          // 是口播正文；合成或发送失败走共享 outbox 失败策略（退避重试，
+          // 3 次后 failed），紧跟的全文文本行独立投递、不受此行牵连。
+          try {
+            const synth = resolveTtsEngine(this.config!.tts, process.env);
+            const spoken = String(row.content?.text ?? '');
+            if (!synth) throw new Error('TTS 引擎未配置（tts.engine=none），语音行无法投递。');
+            const ogg = await synth(spoken);
+            const sent = await sendLarkAudioMessage(
+              cliOptions(this.config!, this.options.larkCliBin, 120_000),
+              row.target,
+              ogg,
+              row.dedup_key,
+            );
+            this.lastSentAt = nowIso();
+            await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
+            await this.recordMessageRoute(row.dedup_key, sent.messageId);
+          } catch (error) {
+            await this.markOutboxFailure(row, error);
+          }
           continue;
         }
         try {
