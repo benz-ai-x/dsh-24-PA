@@ -76,7 +76,7 @@ window.__ModuleLoader__.load({
     const STATUS = { ok: ['status.ok', 'blue', 'check'], warn: ['status.warn', 'amber', 'clock'], error: ['status.error', 'danger', 'alert'], missing: ['status.missing', 'amber', 'info'], unchecked: ['status.unchecked', 'neutral', 'clock'] };
     const style = `
       .pa24{--pa-ink:var(--dsw-alias-label-primary,#1f2937);--pa-muted:#667085;--pa-line:#e4e7ec;--pa-canvas:#f7f8fa;--pa-surface:var(--dsw-alias-bg-base,#fff);--pa-soft:#f2f4f7;--pa-brand:#2b5da8;--pa-brand-hover:#244f8e;--pa-blue:#2b5da8;--pa-blue-bg:#edf2fa;--pa-green:#1f7a4d;--pa-green-bg:#e9f5ef;--pa-violet:#6941c6;--pa-violet-bg:#f0ebfa;--pa-amber:#8a5b18;--pa-amber-bg:#fff7e8;--pa-danger:#b42318;--pa-danger-bg:#fff1f0;--pa-shadow:none;height:100%;overflow:auto;container-type:inline-size;padding:32px;color:var(--pa-ink);background:var(--pa-canvas);font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;scrollbar-gutter:stable}
-      body[data-ds-dark-theme] .pa24{--pa-ink:var(--dsw-alias-label-primary,rgb(249 250 251));--pa-muted:var(--dsw-alias-label-caption,rgb(129 133 140));--pa-line:var(--dsw-alias-border-l2,rgba(255 255 255/12%));--pa-canvas:var(--dsw-alias-bg-base,var(--dsw-static-neutral-bluish-950,rgb(21 21 23)));--pa-surface:var(--dsw-alias-bg-layer-2,var(--dsw-static-neutral-bluish-850,rgb(44 44 46)));--pa-soft:var(--dsw-alias-bg-layer-3,var(--dsw-static-neutral-bluish-800,rgb(53 54 56)));--pa-brand:#3764ab;--pa-brand-hover:#4174c2;--pa-blue:#a0bdf0;--pa-blue-bg:#25364f;--pa-green:#7cc7a2;--pa-green-bg:#1f3226;--pa-violet:#b9a5ef;--pa-violet-bg:#2b2447;--pa-amber:#dfbc83;--pa-amber-bg:#3b3225;--pa-danger:#f0aaa5;--pa-danger-bg:#412b2c;--pa-shadow:none}
+      body[data-ds-dark-theme] .pa24{--pa-ink:var(--dsw-alias-label-primary,rgb(249 250 251));--pa-muted:color-mix(in srgb,var(--dsw-alias-label-caption,rgb(129 133 140)) 75%,#fff);--pa-line:color-mix(in srgb,var(--dsw-alias-border-l2,rgba(255 255 255/12%)) 55%,#fff);--pa-canvas:var(--dsw-alias-bg-base,var(--dsw-static-neutral-bluish-950,rgb(21 21 23)));--pa-surface:color-mix(in srgb,var(--dsw-alias-bg-layer-2,var(--dsw-static-neutral-bluish-850,rgb(44 44 46))) 90%,#fff);--pa-soft:color-mix(in srgb,var(--dsw-alias-bg-layer-3,var(--dsw-static-neutral-bluish-800,rgb(53 54 56))) 87%,#fff);--pa-brand:#3764ab;--pa-brand-hover:#4174c2;--pa-blue:#a0bdf0;--pa-blue-bg:#25364f;--pa-green:#7cc7a2;--pa-green-bg:#1f3226;--pa-violet:#b9a5ef;--pa-violet-bg:#2b2447;--pa-amber:#dfbc83;--pa-amber-bg:#3b3225;--pa-danger:#f0aaa5;--pa-danger-bg:#412b2c;--pa-shadow:none}
       .pa24 *{box-sizing:border-box}.pa24 svg{flex-shrink:0;vertical-align:middle}.pa24 h1,.pa24 h2,.pa24 h3,.pa24 p{margin:0}.pa24 h1{font-size:21px;line-height:1.35;letter-spacing:-.4px;font-weight:700}.pa24 h2{font-size:17px;line-height:1.5;font-weight:650}.pa24 h3{font-size:15px;line-height:1.55;font-weight:650}.pa24 p+p{margin-top:6px}.pa24-wrap{max-width:1100px;margin:auto;min-width:0}
       .pa24-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pa24-between{justify-content:space-between}.pa24-muted{color:var(--pa-muted)}.pa24-meta{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-ellip{display:inline-block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}.pa24-note{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85}
       .pa24 button,.pa24 .pa24-link-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 14px;border:1px solid var(--pa-line);border-radius:10px;color:var(--pa-ink);background:var(--pa-surface);font:inherit;font-size:13px;font-weight:550;cursor:pointer;transition:background .15s,border-color .15s;text-decoration:none}
@@ -108,7 +108,9 @@ window.__ModuleLoader__.load({
       .pa24-cap:hover{border-color:color-mix(in srgb,var(--tone) 45%,var(--pa-line))}
       .pa24-cap .pa24-icon-tile{width:34px;height:34px;border-radius:10px}.pa24-cap .pa24-icon-tile svg{width:17px;height:17px}
       .pa24-cap-head{display:flex;align-items:flex-start;gap:10px}
-      .pa24-cap-title{flex:1;min-width:0}.pa24-cap-title b{display:block;font-size:14px;font-weight:650;color:var(--pa-ink)}.pa24-cap-title small{display:block;font-size:11px;color:var(--pa-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .pa24-cap-title{flex:1;min-width:0}.pa24-cap-title b{display:block;font-size:14px;font-weight:650;color:var(--pa-ink)}.pa24-cap-title small{display:-webkit-box;font-size:11px;color:var(--pa-muted);margin-top:2px;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2}
+      .pa24-cap-att{border-color:color-mix(in srgb,var(--tone) 55%,var(--pa-line))}.pa24-cap-att .pa24-icon-tile{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tone) 35%,transparent)}
+      .pa24-manage-done{background:var(--pa-blue-bg);color:var(--pa-blue);border-color:var(--pa-blue)}
       .pa24-cap-body{flex:1;font-size:12.5px;line-height:1.7}
       .pa24-cap-kpi{display:flex;gap:18px;flex-wrap:wrap}.pa24-cap-kpi strong{display:block;font-size:19px;line-height:1.25;font-weight:650;color:var(--tone);font-variant-numeric:tabular-nums}.pa24-cap-kpi small{display:block;font-size:11px;color:var(--pa-muted)}
       .pa24-cap-line{display:flex;justify-content:space-between;gap:8px}.pa24-cap-line b{font-weight:600;color:var(--pa-ink)}
@@ -123,7 +125,7 @@ window.__ModuleLoader__.load({
       .pa24-detail-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
       .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
-      .pa24-form-actions{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-top:16px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);box-shadow:var(--pa-shadow)}
+      .pa24-form-actions{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-top:16px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);box-shadow:0 -4px 14px color-mix(in srgb,var(--pa-ink) 9%,transparent)}
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
       @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24-form-row{grid-template-columns:1fr;gap:4px;padding:10px 0}.pa24 h1{font-size:19px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}}
@@ -152,7 +154,7 @@ window.__ModuleLoader__.load({
         const date = (value, timeZone) => (value ? new Date(value).toLocaleString('zh-CN', { timeZone: timeZone || 'Asia/Shanghai', hour12: false }) : L('尚无记录', 'No record yet'));
         const badgeOf = status => badge(t(status) || status, ...(statusStyle[status] || ['neutral', 'info']));
         const fields = items => h('dl', { className: 'pa24-dl' }, items.map(([label, value]) => h('div', { key: String(label), className: 'pa24-field' }, h('dt', null, label), h('dd', null, value ?? L('未配置', 'Not configured')))));
-        const sectionHead = (name, title, description, action, tone = 'neutral') => h('div', { className: 'pa24-section-head' }, h('div', null, h('div', { className: 'pa24-section-title' }, h('span', { className: 'pa24-tone-' + tone, style: { color: 'var(--tone)' } }, icon(name)), h('h2', null, title)), description && h('p', { className: 'pa24-section-desc' }, description)), action);
+        const sectionHead = (name, title, description, action, tone = 'neutral') => h('div', { className: 'pa24-section-head' }, h('div', null, h('div', { className: 'pa24-section-title' }, h('span', { className: 'pa24-tone-' + tone, style: { color: 'var(--tone)' } }, icon(name)), title && h('h2', null, title)), description && h('p', { className: 'pa24-section-desc' }, description)), action);
         const empty = (name, tone, title, description, actions) => h('div', { className: 'pa24-empty' }, tile(name, tone), h('h3', null, title), h('p', null, description), actions && h('div', { className: 'pa24-row' }, actions));
 
         function MemoryView({ workspace, openRobot }) {
@@ -612,10 +614,12 @@ window.__ModuleLoader__.load({
               const a = healthAggregate(helpers);
               const last = lastActiveCheck(helpers.state);
               const pending = a.warn + a.error;
+              // F34: 口径单位明确化——数字是「检查项」，tab 角标是「卡片」；
+              // 未跑主动检查时说明当前结论来自静态聚合，消除「有数字却说未检查」的矛盾。
               return h('div', null,
                 capKpi([[String(a.ok), L('正常', 'OK')], [String(a.warn), L('待核验', 'Needs review')], [String(a.error), L('需要处理', 'Needs attention')]]),
-                h('p', { className: 'pa24-meta', style: { marginTop: 6 } }, last ? L('最近主动检查 ' + date(last.toISOString(), helpers.tz), 'Last active check ' + date(last.toISOString(), helpers.tz)) : L('尚未执行主动检查', 'No active check yet')),
-                pending > 0 && nextStrip(L('有 ' + pending + ' 项待核验或需要处理——打开全量报告查看 nextSteps。', pending + ' item(s) need review or attention — open the full report for next steps.')));
+                h('p', { className: 'pa24-meta', style: { marginTop: 6 } }, last ? L('最近主动检查 ' + date(last.toISOString(), helpers.tz), 'Last active check ' + date(last.toISOString(), helpers.tz)) : L('尚未执行主动检查；以上为就绪与能力健康的静态聚合', 'No active check yet; the counts above are the passive readiness/capability aggregate')),
+                pending > 0 && nextStrip(L('共 ' + (a.ok + a.warn + a.error) + ' 项检查：待核验 ' + a.warn + ' · 需要处理 ' + a.error + '——打开全量报告查看 nextSteps。', (a.ok + a.warn + a.error) + ' checks total: ' + a.warn + ' need review · ' + a.error + ' need attention — open the full report for next steps.')));
             },
             quick: helpers => helpers.button('refresh', helpers.busy ? L('检查中…', 'Checking…') : L('一键全量检查', 'Run full check'), () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy }),
             detail: helpers => h(HealthReportDetail, { key: 'healthcheck', helpers }),
@@ -708,6 +712,8 @@ window.__ModuleLoader__.load({
           const set = (key, value) => { setForm(f => ({ ...f, [key]: value })); setSaveState(null); };
           const setTts = (key, value) => { setForm(f => ({ ...f, tts: { ...f.tts, [key]: value } })); setSaveState(null); };
           const authOpenId = state.diagnostics?.auth?.openId;
+          // F34: diagnostics 未加载时不再断言「尚未取得授权身份」（走查 P3）。
+          const diagChecked = !!(state.diagnostics && state.diagnostics.checkedAt);
           const row = (label, control, hint) => h('div', { className: 'pa24-form-row' }, h('label', null, label), h('div', { style: { minWidth: 0 } }, control, hint && h('p', { className: 'pa24-meta', style: { marginTop: 2, marginBottom: 0 } }, hint)));
           const txt = (value, onSet, extra = {}) => h('input', { type: 'text', value, onChange: e => onSet(e.target.value), ...extra });
           const sel = (options, value, onSet) => h('select', { value, onChange: e => onSet(e.target.value) }, options.map(([v, l]) => h('option', { key: v, value: v }, l)));
@@ -744,47 +750,48 @@ window.__ModuleLoader__.load({
             finally { setBusy(false); }
           };
           if (!config) return empty('code', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在 dsh 设置的「24私助」分区绑定工作区后可编辑参数。', 'Bind a workspace in the dsh settings “24PA” section to edit parameters.'));
+          // F34: 保存/试听反馈随保存栏展示（sticky 常驻视口底）——原先渲染在
+          // 表单顶部，用户在表单中下部点保存时错误在视口外不可见（走查 S6）。
           return h('div', null,
-            sectionHead('code', L('参数配置', 'Configuration'), L('保存＝校验→写回 AGENTS.md 配置块→重载生效；工作规则不受影响，校验失败保留原文。', 'Save = validate → rewrite the AGENTS.md config block → reload; prose rules untouched, file kept on validation failure.')),
-            saveState && h('div', { role: saveState.ok ? 'status' : 'alert', className: saveState.ok ? 'pa24-example' : 'pa24-error' }, icon(saveState.ok ? 'check' : 'alert', { width: 16, height: 16 }), h('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } }, saveState.message)),
+            sectionHead('code', null, L('保存＝校验→写回 AGENTS.md 配置块→重载生效；工作规则不受影响，校验失败保留原文。', 'Save = validate → rewrite the AGENTS.md config block → reload; prose rules untouched, file kept on validation failure.'), null, 'blue'),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('模式与身份', 'Mode & identity')),
-              row('mode', sel([['demo', 'demo'], ['feishu', 'feishu']], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('飞书应用凭据需在环境变量中就位（引用名见下方）。', 'Feishu app credentials must be present in env vars (see below).') : null),
-              row('larkProfile', txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 固定 profile 名。', 'The pinned lark-cli profile name.')),
-              row('ownerOpenId', h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
+              row(L('模式（mode）', 'Mode (mode)'), sel([['demo', 'demo'], ['feishu', 'feishu']], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('飞书应用凭据需在环境变量中就位（引用名见下方）。', 'Feishu app credentials must be present in env vars (see below).') : null),
+              row(L('lark-cli profile（larkProfile）', 'lark-cli profile (larkProfile)'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 固定 profile 名。', 'The pinned lark-cli profile name.')),
+              row(L('主人 OpenID（ownerOpenId）', 'Owner OpenID (ownerOpenId)'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
                 h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),
-                L('身份字段只读；一键应用当前 CLI 授权的 open_id' + (authOpenId ? '' : '（尚未取得授权身份）') + '。', 'Identity is read-only; one-click apply of the CLI-authorized open_id' + (authOpenId ? '' : ' (not yet available)') + '.')),
-              row('timeZone', h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
+                L('身份字段只读；一键应用当前 CLI 授权的 open_id' + (authOpenId ? '' : diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）') + '。', 'Identity is read-only; one-click apply of the CLI-authorized open_id' + (authOpenId ? '' : diagChecked ? ' (checked, not yet acquired)' : ' (run a check under Access to acquire)') + '.')),
+              row(L('时区（timeZone）', 'Time zone (timeZone)'), h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
                 h('datalist', { id: 'pa24-tz-list' }, ['Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'UTC'].map(z => h('option', { key: z, value: z })))), L('IANA 时区名，保存时即时校验。', 'IANA timezone name; validated on save.'))),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('渠道选择', 'Channels')),
-              row('calendarChannel', sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.calendarChannel, v => set('calendarChannel', v))),
-              row('todoChannel', sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.todoChannel, v => set('todoChannel', v))),
-              row('notifyChannel', sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.notifyChannel, v => set('notifyChannel', v)), L('提醒与汇报的推送出口；企微为单向推送，收信仍在飞书。', 'Reminder & digest push outlet; WeCom is one-way, inbound stays on Feishu.'))),
+              row(L('日程渠道（calendarChannel）', 'Calendar channel (calendarChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.calendarChannel, v => set('calendarChannel', v)), L('日程事件的写入渠道。', 'Where calendar events are written.')),
+              row(L('待办渠道（todoChannel）', 'Todo channel (todoChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.todoChannel, v => set('todoChannel', v)), L('待办的写入渠道。', 'Where todos are written.')),
+              row(L('推送渠道（notifyChannel）', 'Push channel (notifyChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.notifyChannel, v => set('notifyChannel', v)), L('提醒与汇报的推送出口；企微为单向推送，收信仍在飞书。', 'Reminder & digest push outlet; WeCom is one-way, inbound stays on Feishu.'))),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('飞书资源', 'Feishu resources')),
-              row('folderToken', txt(form.folderToken, v => set('folderToken', v), { onBlur: e => set('folderToken', extractToken(e.target.value)), placeholder: L('粘贴文件夹链接或 token', 'Paste folder link or token') })),
-              row('tasklistId', txt(form.tasklistId, v => set('tasklistId', v), { onBlur: e => set('tasklistId', extractToken(e.target.value)), placeholder: L('粘贴任务清单链接或 guid', 'Paste task-list link or guid') })),
-              row('calendarId', txt(form.calendarId, v => set('calendarId', v), { placeholder: 'primary' }), L('默认 primary（本人日历）。', 'Defaults to primary (your calendar).'))),
+              row(L('飞书文件夹（folderToken）', 'Feishu folder (folderToken)'), txt(form.folderToken, v => set('folderToken', v), { onBlur: e => set('folderToken', extractToken(e.target.value)), placeholder: L('粘贴文件夹链接或 token', 'Paste folder link or token') })),
+              row(L('任务清单（tasklistId）', 'Task list (tasklistId)'), txt(form.tasklistId, v => set('tasklistId', v), { onBlur: e => set('tasklistId', extractToken(e.target.value)), placeholder: L('粘贴任务清单链接或 guid', 'Paste task-list link or guid') })),
+              row(L('日历（calendarId）', 'Calendar (calendarId)'), txt(form.calendarId, v => set('calendarId', v), { placeholder: 'primary' }), L('默认 primary（本人日历）。', 'Defaults to primary (your calendar).'))),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('运行参数', 'Runtime')),
-              row('maxWorkers', h('input', { type: 'number', min: 1, max: 8, step: 1, value: form.maxWorkers, onChange: e => set('maxWorkers', e.target.value) }), L('1–8 的整数。', 'An integer from 1 to 8.')),
-              row('enabledWorkers', h('div', { style: { minWidth: 0 } }, WORKER_IDS.map(r =>
+              row(L('并发数（maxWorkers）', 'Parallelism (maxWorkers)'), h('input', { type: 'number', min: 1, max: 8, step: 1, value: form.maxWorkers, onChange: e => set('maxWorkers', e.target.value) }), L('1–8 的整数。', 'An integer from 1 to 8.')),
+              row(L('启用的 Worker（enabledWorkers）', 'Enabled workers (enabledWorkers)'), h('div', { style: { minWidth: 0 } }, WORKER_IDS.map(r =>
                 h('label', { key: r, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.enabledWorkers.includes(r), onChange: e => toggleIn('enabledWorkers')(r, e.target.checked) }), r)))),
-              row('workerModels', h('div', { style: { minWidth: 0 } },
+              row(L('模型路由（workerModels）', 'Model routes (workerModels)'), h('div', { style: { minWidth: 0 } },
                 roleRows.length ? roleRows.map(role => h('div', { key: role, className: 'pa24-row', style: { flexWrap: 'nowrap', marginBottom: 6 } },
                   h('span', { style: { width: 86, fontSize: 12, color: 'var(--pa-muted)', flexShrink: 0 } }, role),
-                  txt(wmGet(role).provider || '', v => wmSet(role, { provider: v }), { placeholder: 'provider', style: { flex: 1, minWidth: 80 } }),
-                  txt(wmGet(role).model || '', v => wmSet(role, { model: v }), { placeholder: 'model', style: { flex: 1, minWidth: 80 } }),
+                  txt(wmGet(role).provider || '', v => wmSet(role, { provider: v }), { placeholder: L('provider（留空继承默认）', 'provider (blank inherits default)') }),
+                  txt(wmGet(role).model || '', v => wmSet(role, { model: v }), { placeholder: L('model（留空继承默认）', 'model (blank inherits default)') }),
                   h('label', { className: 'pa24-check', style: { margin: 0 } }, h('input', { type: 'checkbox', checked: !!wmGet(role).simplePersona, onChange: e => wmSet(role, { simplePersona: e.target.checked }) }), L('简 persona', 'simple'))))
                   : h('p', { className: 'pa24-meta' }, L('先勾选上方 Worker。', 'Check a worker above first.'))),
-                L('按角色覆盖 provider/model。', 'Per-role provider/model overrides.'),
+                L('按角色覆盖 provider/model，留空即继承默认路由。', 'Per-role provider/model overrides; blank fields inherit the default route.'),
                 form.enabledWorkers.includes('handwriting') && !(form.workerModels.handwriting && (form.workerModels.handwriting.model || form.workerModels.handwriting.provider)) && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-amber)' } }, L('已启用 handwriting 但未配置视觉模型路由——手写整理将不可用。', 'handwriting is enabled without a vision model route — note-intake stays unavailable.'))),
               h('details', { style: { marginTop: 4 } }, h('summary', null, L('extraLocalTools（高级，默认收起）', 'extraLocalTools (advanced, collapsed)')),
                 h('div', { style: { minWidth: 0, paddingTop: 6 } }, KNOWN_EXTRA.map(x =>
                   h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),
-                  h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat.')))),
+                  h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat.'))))),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('存储与密钥引用（只读）', 'Storage & secret refs (read-only)')),
               row('storage', h('strong', null, config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'), L('切换存储后端涉及数据迁移，请按初始化指南的迁移流程办理。', 'Switching backends involves data migration — follow the migration procedure in the init guide.')),
@@ -793,19 +800,23 @@ window.__ModuleLoader__.load({
               row('pgDsnEnv', h('code', null, config.pgDsnEnv || '—'), config.storage === 'sqlite' ? L('SQLite 模式不使用。', 'Unused under SQLite.') : null)),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('语音 TTS（晨报复盘）', 'Voice TTS (digests)')),
-              row('tts.engine', sel([['none', 'none'], ['melo', 'melo'], ['volcengine', 'volcengine']], form.tts.engine, v => setTts('engine', v))),
-              form.tts.engine === 'volcengine' && row('tts.voice', h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
+              row(L('语音引擎（tts.engine）', 'Voice engine (tts.engine)'), sel([['none', 'none'], ['melo', 'melo'], ['volcengine', 'volcengine']], form.tts.engine, v => setTts('engine', v))),
+              form.tts.engine === 'volcengine' && row(L('音色（tts.voice）', 'Voice (tts.voice)'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 sel(form.tts.voice && !VOICES.some(([v]) => v === form.tts.voice) ? [[form.tts.voice, form.tts.voice], ...VOICES] : VOICES, form.tts.voice, v => setTts('voice', v)),
                 h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void tryVoice() }, icon('chat', { width: 15, height: 15 }), L('试听', 'Sample'))), L('试听发送到飞书，使用当前已保存的配置。', 'The sample goes to Feishu using the saved config.')),
-              form.tts.engine === 'volcengine' && row('tts.volcKeyEnv', txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('火山引擎密钥所在环境变量名。', 'Env var name holding the Volcengine key.')),
-              form.tts.engine === 'melo' && row('tts.meloDir', txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),
+              form.tts.engine === 'volcengine' && row(L('密钥引用（tts.volcKeyEnv）', 'Key env ref (tts.volcKeyEnv)'), txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('火山引擎密钥所在环境变量名。', 'Env var name holding the Volcengine key.')),
+              form.tts.engine === 'melo' && row(L('部署目录（tts.meloDir）', 'Deploy dir (tts.meloDir)'), txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),
+            // F34: 保存栏与三个分组同层级（此前被嵌进「运行参数」section，
+            // sticky 包含块被钳制导致首屏不可见——走查 P1 回归锚点见
+            // client.test.mjs「表单结构守卫」）；保存/试听反馈随栏展示。
             h('div', { className: 'pa24-form-actions' },
+              saveState && h('div', { role: saveState.ok ? 'status' : 'alert', className: saveState.ok ? 'pa24-example' : 'pa24-error', style: { flex: '1 1 100%', margin: 0 } }, icon(saveState.ok ? 'check' : 'alert', { width: 16, height: 16 }), h('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } }, saveState.message)),
               h('button', { type: 'button', className: 'pa24-primary', disabled: busy, onClick: () => void save() }, icon('check', { width: 16, height: 16 }), busy ? L('保存中…', 'Saving…') : L('保存并重载', 'Save & reload')),
-              h('span', { className: 'pa24-meta' }, L('保存后立即重载生效；对话修改与表单等价（同一配置源）。', 'Reload applies immediately; chat edits and the form share the same config source.')))));
+              h('span', { className: 'pa24-meta' }, L('保存后立即重载生效；对话修改与表单等价（同一配置源）。', 'Reload applies immediately; chat edits and the form share the same config source.'))));
         }
 
         function CardShell({ card, tier, label, manage, hidden, onToggleHidden, body, foot }) {
-          return h('section', { className: 'pa24-cap pa24-tone-' + card.tone + (hidden ? ' pa24-cap-hidden' : '') },
+          return h('section', { className: 'pa24-cap pa24-tone-' + card.tone + (hidden ? ' pa24-cap-hidden' : '') + (tier === 'warn' || tier === 'error' || tier === 'missing' ? ' pa24-cap-att' : '') },
             manage && h('button', { type: 'button', className: 'pa24-quiet pa24-cap-hide', 'aria-pressed': hidden ? 'true' : 'false', onClick: onToggleHidden }, hidden ? L('显示', 'Show') : L('隐藏', 'Hide')),
             h('div', { className: 'pa24-cap-head' },
               tile(card.icon, card.tone),
@@ -817,7 +828,19 @@ window.__ModuleLoader__.load({
 
         function CardGrid({ cat, helpers, manage, hidden, toggleHidden, openDetail }) {
           const cards = CARDS.filter(c => c.cat === cat);
-          return h('div', { className: 'pa24-cardgrid' }, cards.map(card => {
+          // F34: 接入分类总进度行——就绪/待处理/未启用各几张，先给「还差几步」的全局感。
+          const progress = cat === 'access' && !manage ? (() => {
+            const tiers = cards.map(c => c.tier(helpers));
+            const ok = tiers.filter(x => x === 'ok').length;
+            const pending = tiers.filter(x => ['warn', 'error', 'missing'].includes(x)).length;
+            const rest = tiers.length - ok - pending;
+            return h('p', { className: 'pa24-meta', style: { margin: '0 2px 12px' } },
+              L('接入进度：就绪 ' + ok + ' / ' + tiers.length, 'Access progress: ' + ok + ' ready / ' + tiers.length),
+              pending > 0 ? L(' · 需处理 ' + pending, ' · ' + pending + ' need attention') : '',
+              rest > 0 ? L(' · 未检查或未启用 ' + rest, ' · ' + rest + ' unchecked or off') : '',
+              pending > 0 ? L('——从需处理的卡片开始。', ' — start with the cards needing attention.') : '');
+          })() : null;
+          return h('div', null, progress, h('div', { className: 'pa24-cardgrid' }, cards.map(card => {
             const isHidden = (hidden[cat] || []).includes(card.id);
             if (isHidden && !manage) return null;
             const tier = card.tier(helpers);
@@ -828,7 +851,7 @@ window.__ModuleLoader__.load({
               body: card.body(helpers),
               foot: [...(card.quick ? [card.quick(helpers)] : []), h('button', { key: 'open', type: 'button', onClick: () => openDetail(card.id) }, icon('arrow'), card.action ? L(...card.action) : L('查看详情', 'Open'))],
             });
-          }));
+          })));
         }
 
         function Panel() {
@@ -838,6 +861,16 @@ window.__ModuleLoader__.load({
           React.useSyncExternalStore(cb => ctx.locale.subscribe(cb), () => ctx.locale.getSnapshot());
           const [manage, setManage] = React.useState(false), [hidden, setHidden] = React.useState(readHiddenPrefs());
           const [extraTick, setExtraTick] = React.useState(0);
+          // F34: 管理态 Esc 可退（与「完成」等效）；隐藏动作给一条轻反馈，
+          // 说明去哪恢复——不留悬念也不打断（无确认弹窗）。
+          const [hideNote, setHideNote] = React.useState('');
+          const hideNoteTimer = React.useRef(null);
+          React.useEffect(() => {
+            if (!manage) return undefined;
+            const onKey = e => { if (e.key === 'Escape') setManage(false); };
+            window.addEventListener('keydown', onKey);
+            return () => window.removeEventListener('keydown', onKey);
+          }, [manage]);
           const main = React.useRef(null);
           const refresh = async () => { const s = await rpc('snapshot'); setState(s); setConnError(''); setExtraTick(v => v + 1); return s; };
           React.useEffect(() => {
@@ -858,8 +891,15 @@ window.__ModuleLoader__.load({
           const openDetail = id => { setDetail(id); main.current?.scrollTo({ top: 0 }); };
           const toggleHidden = (cat, id) => {
             const list = hidden[cat] || [];
-            const next = { ...hidden, [cat]: list.includes(id) ? list.filter(x => x !== id) : [...list, id] };
+            const wasHidden = list.includes(id);
+            const next = { ...hidden, [cat]: wasHidden ? list.filter(x => x !== id) : [...list, id] };
             setHidden(next); writeHiddenPrefs(next);
+            if (!wasHidden) {
+              const card = CARDS.find(c => c.id === id);
+              setHideNote(L('已隐藏「' + L(...card.title) + '」——本管理态中点「显示」可恢复。', 'Hidden "' + L(...card.title) + '" — Show in this manage mode brings it back.'));
+              clearTimeout(hideNoteTimer.current);
+              hideNoteTimer.current = setTimeout(() => setHideNote(''), 5000);
+            }
           };
           if (!state) return h('main', { className: 'pa24' }, h('style', null, style), h('div', { className: 'pa24-wrap' }, empty(connError ? 'alert' : 'bot', connError ? 'danger' : 'blue', connError ? L('暂时无法连接工作区', 'Cannot reach the workspace right now') : L('正在连接你的工作区', 'Connecting to your workspace'), connError || L('正在读取配置与当前事项…', 'Reading configuration and current items…'))));
           const workspace = state.workspace, config = workspace?.config, tz = config?.timeZone;
@@ -893,8 +933,8 @@ window.__ModuleLoader__.load({
           return h('main', { className: 'pa24' + (manage ? ' pa24-manage' : ''), ref: main }, h('style', null, style), h('div', { className: 'pa24-wrap' },
             h('header', { className: 'pa24-header' },
               h('div', { className: 'pa24-identity' }, h('span', { className: 'pa24-brand' }, icon('bot')), h('div', null, h('div', { className: 'pa24-title-row' }, h('h1', null, t('title')), h('p', { className: 'pa24-tagline' }, L('日常交给我，重要的事由你决定。', 'Leave the routine to me; the important calls stay yours.'))))),
-              h('div', { className: 'pa24-row' }, button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { className: 'pa24-primary', disabled: busy || !workspace }), button('refresh', L('刷新', 'Refresh'), () => refresh(), { className: 'pa24-quiet' }), button('grid', manage ? L('完成', 'Done') : L('管理卡片', 'Manage cards'), () => setManage(v => !v), { className: 'pa24-quiet', 'aria-pressed': manage ? 'true' : 'false' }))),
-            manage && h('div', { className: 'pa24-notice pa24-tone-blue' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, L('管理态', 'Manage')), L(' · 点卡片右上角「隐藏」收起（再点「显示」恢复）；偏好保存在本浏览器，按分类分别记忆。', ' · Use Hide on a card top-right to tuck it away (Show brings it back); preferences persist in this browser, remembered per category.'))),
+              h('div', { className: 'pa24-row' }, button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { className: 'pa24-primary', disabled: busy || !workspace }), button('refresh', L('刷新', 'Refresh'), () => refresh(), { className: 'pa24-quiet' }), button('grid', manage ? L('完成（Esc）', 'Done (Esc)') : L('管理卡片', 'Manage cards'), () => setManage(v => !v), { className: manage ? 'pa24-manage-done' : 'pa24-quiet', 'aria-pressed': manage ? 'true' : 'false' }))),
+            manage && h('div', { className: 'pa24-notice pa24-tone-blue' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, L('管理态', 'Manage')), L(' · 点卡片右上角「隐藏」收起（再点「显示」恢复）；偏好保存在本浏览器，按分类分别记忆；Esc 退出。', ' · Use Hide on a card top-right to tuck it away (Show brings it back); preferences persist in this browser, remembered per category; Esc exits.'), hideNote && h('p', { className: 'pa24-meta', style: { marginTop: 4 } }, hideNote))),
             config?.mode === 'demo' && !noticeClosed && h('div', { className: 'pa24-notice pa24-tone-amber' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, L('体验模式', 'Demo mode')), L(' · 未连接飞书；数据保存在本机数据库，不会发到飞书。', ' · Not connected to Feishu; data stays in the local database and never reaches Feishu.')), h('button', { type: 'button', className: 'pa24-quiet', 'aria-label': L('关闭体验模式提示', 'Dismiss demo-mode notice'), onClick: () => setNoticeClosed(true) }, icon('close', { width: 15, height: 15 }))),
             (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? L('连接暂时中断，以下为上次读取的状态', 'Connection lost — showing the last read state') : L('操作未完成', 'Action did not complete')), h('p', null, error || connError)),
             h('nav', { className: 'pa24-tabs', role: 'tablist', 'aria-label': L('24私助工作区导航', '24PA workspace navigation') }, CATEGORY_TABS.map(([id, name, tone], index) => {
@@ -902,7 +942,7 @@ window.__ModuleLoader__.load({
               return h('button', { key: id, id: 'pa24-tab-' + id, type: 'button', role: 'tab', className: 'pa24-tone-' + tone, 'aria-selected': tab === id, 'aria-controls': 'pa24-content', tabIndex: tab === id ? 0 : -1, onClick: () => selectTab(id), onKeyDown: e => {
                 const next = e.key === 'ArrowRight' ? (index + 1) % CATEGORY_TABS.length : e.key === 'ArrowLeft' ? (index + CATEGORY_TABS.length - 1) % CATEGORY_TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? CATEGORY_TABS.length - 1 : null;
                 if (next === null) return; e.preventDefault(); selectTab(CATEGORY_TABS[next][0]); e.currentTarget.parentElement.querySelectorAll('[role=tab]')[next].focus();
-              } }, icon(name, { width: 17, height: 17 }), t(id), chip && h('span', { className: 'pa24-chip show' + (chip.tone === 'error' ? ' error' : ''), 'aria-label': L('待核验或需要处理 ', 'Needs review or attention ') + chip.n + L(' 项', ' item(s)') }, String(chip.n)));
+              } }, icon(name, { width: 17, height: 17 }), t(id), chip && h('span', { className: 'pa24-chip show' + (chip.tone === 'error' ? ' error' : ''), 'aria-label': L('该分类有 ' + chip.n + ' 张卡片需要关注（角标按卡片计，健康卡内的数字按检查项计）', chip.n + ' card(s) in this category need attention (the chip counts cards; health-card numbers count checks)') }, String(chip.n)));
             })),
             h('div', { id: 'pa24-content', role: 'tabpanel', 'aria-labelledby': 'pa24-tab-' + tab, tabIndex: 0 }, content),
             h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), L('数据保存在本机（业务账本随工作区配置，默认 SQLite、可选 PostgreSQL）；参数可经表单或对话维护，界面只显示真实结果。', 'Data stays on this machine (ledger per workspace config — SQLite by default, PostgreSQL optional); parameters are maintained via the form or chat, and the UI only shows real results.'))));
