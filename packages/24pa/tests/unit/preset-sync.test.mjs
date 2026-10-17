@@ -68,3 +68,16 @@ describe('预设同步生成器', () => {
     expect(() => generatePa24Patch(broken, 'test')).toThrow(/anchor missing/);
   });
 });
+
+describe('宿主版本三串一致性（#114/#118 守卫）', () => {
+  it('engines.dsh 与 peer dsh / dsh-schedule 逐字相同——engines 是装载校验实际读点', () => {
+    const pkg = JSON.parse(readFileSync(resolve(pkgDir, 'package.json'), 'utf8'));
+    const engines = pkg.engines.dsh;
+    expect(pkg.peerDependencies['@deepseek-ai/dsh']).toBe(engines);
+    expect(pkg.peerDependencies['@deepseek-ai/dsh-schedule']).toBe(engines);
+    // 兼容清单只增不减地覆盖已发布宿主基线；出现新基线时三处必须同扩
+    for (const baseline of ['0.2.0-rc.2', '0.2.1-alpha.1', '0.2.1-alpha.2', '0.2.1-rc.1']) {
+      expect(engines).toContain(baseline);
+    }
+  });
+});

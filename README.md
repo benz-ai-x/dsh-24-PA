@@ -45,11 +45,11 @@ Pick the release matching your dsh runtime, then restart the Profile. The reconc
 # dsh 0.2.1-alpha.1 host (schedule service built in)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
-# dsh 0.2.1-alpha.2 – alpha.5 hosts (peers span these baselines; alpha.5 is the active release line)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
+# dsh 0.2.1-alpha.2 – 0.2.1-rc.1 hosts (peers span these baselines; rc.1 is the active release line)
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.1.1
 
-# alpha.2 – alpha.4 hosts may also pin the .2 line (frozen at 0.2.1-alpha.2.7, identical content)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.7
+# alpha.2 – alpha.5 hosts may also pin the alpha line (frozen at 0.2.1-alpha.5.1; preset content identical, only engines/peer range and docs differ)
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
 
 # dsh 0.2.0-rc.2 host — line frozen at 0.2.0-rc.2.3, no further releases (also add the two schedule companions for digests)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
@@ -59,7 +59,7 @@ dsh plugin --profile <name> add <rc.2 harness checkout>/packages/schedule/schedu
 dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 ```
 
-Removal withdraws the preset and host plugin on the next Profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched. Version naming follows `<dsh baseline version>.<serial>`; npm dist-tags track baselines (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`, `dsh-0.2.1-alpha.2`, `dsh-0.2.1-alpha.5`).
+Removal withdraws the preset and host plugin on the next Profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched. Version naming follows `<dsh baseline version>.<serial>`; npm dist-tags track baselines (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`, `dsh-0.2.1-alpha.2`, `dsh-0.2.1-alpha.5`, `dsh-0.2.1-rc.1`).
 
 ### Configuration
 
