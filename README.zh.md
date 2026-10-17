@@ -45,11 +45,11 @@ kind: "package-bundle"
 # dsh 0.2.1-alpha.1 宿主（自带 schedule 服务）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
-# dsh 0.2.1-alpha.2 – alpha.5 宿主（peer 覆盖这些基线；alpha.5 为活跃发版线）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
+# dsh 0.2.1-alpha.2 – 0.2.1-rc.1 宿主（peer 覆盖这些基线；rc.1 为活跃发版线）
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.1.1
 
-# alpha.2 – alpha.4 宿主也可固定停在 .2 线（已冻结于 0.2.1-alpha.2.7，内容与 .5.1 相同）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.2.7
+# alpha.2 – alpha.5 宿主也可固定停在 alpha 线（已冻结于 0.2.1-alpha.5.1；preset 内容相同，仅 engines/peer 扩围与文档差异）
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
 
 # dsh 0.2.0-rc.2 宿主——该线已冻结于 0.2.0-rc.2.3、不再迭代（简报功能另需两个 schedule 伴随件）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
@@ -59,7 +59,7 @@ dsh plugin --profile <name> add <rc.2 harness 源码>/packages/schedule/schedule
 dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 ```
 
-删除在下一次 Profile 启动时收回预设与宿主插件；PostgreSQL 数据、dsh 会话与工作区目录不受影响。版本命名遵循 `<dsh 基线版本>.<序号>`；npm dist-tag 按基线分通道（`dsh-0.2.0-rc.2`、`dsh-0.2.1-alpha.1`、`dsh-0.2.1-alpha.2`、`dsh-0.2.1-alpha.5`）。
+删除在下一次 Profile 启动时收回预设与宿主插件；PostgreSQL 数据、dsh 会话与工作区目录不受影响。版本命名遵循 `<dsh 基线版本>.<序号>`；npm dist-tag 按基线分通道（`dsh-0.2.0-rc.2`、`dsh-0.2.1-alpha.1`、`dsh-0.2.1-alpha.2`、`dsh-0.2.1-alpha.5`、`dsh-0.2.1-rc.1`）。
 
 ### 配置
 
