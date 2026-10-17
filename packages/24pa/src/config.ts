@@ -293,10 +293,15 @@ export interface ParsedAgentsMd {
 
 const JSON_BLOCK = /^```json\s*\n([\s\S]*?)^```\s*$/gm;
 
-export function parseAgentsMd(source: string): ParsedAgentsMd {
+/** The single (unique) fenced json block of an AGENTS.md document. */
+function findJsonBlock(source: string): RegExpMatchArray {
   const blocks = [...source.matchAll(JSON_BLOCK)];
-  if (blocks.length !== 1) throw new ConfigError('AGENTS.md 必须包含唯一的一个 ```json 配置块。');
-  const block = blocks[0]!;
+  if (blocks.length !== 1 || !blocks[0]![1]) throw new ConfigError('AGENTS.md 必须包含唯一的一个 ```json 配置块。');
+  return blocks[0]!;
+}
+
+export function parseAgentsMd(source: string): ParsedAgentsMd {
+  const block = findJsonBlock(source);
   let config: unknown;
   try {
     config = JSON.parse(block[1]!);
@@ -324,10 +329,8 @@ export const CONFIG_UPDATE_ALLOWED: ReadonlySet<string> = new Set([
 
 /** Parse the raw JSON object of the unique config block; ConfigError on malformed input. */
 export function rawAgentsMdConfig(source: string): Record<string, unknown> {
-  const blocks = [...source.matchAll(JSON_BLOCK)];
-  if (blocks.length !== 1) throw new ConfigError('AGENTS.md 必须包含唯一的一个 ```json 配置块。');
   try {
-    const parsed = JSON.parse(blocks[0]![1]!);
+    const parsed = JSON.parse(findJsonBlock(source)[1]!);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
     return parsed as Record<string, unknown>;
   } catch (error) {
@@ -337,12 +340,10 @@ export function rawAgentsMdConfig(source: string): Record<string, unknown> {
 
 /** Replace the unique config block in place; prose rules stay byte-identical. */
 export function replaceAgentsMdConfig(source: string, config: Record<string, unknown>): string {
-  const blocks = [...source.matchAll(JSON_BLOCK)];
-  if (blocks.length !== 1) throw new ConfigError('AGENTS.md 必须包含唯一的一个 ```json 配置块。');
   // Splice by match index instead of source.replace(searchText, …): a literal
   // replace would hit the FIRST identical substring anywhere in the prose,
   // while the block's own index pins the swap to the actual config block.
-  const block = blocks[0]!;
+  const block = findJsonBlock(source);
   const start = block.index! + block[0]!.indexOf(block[1]!);
   // The capture includes the newline before the closing fence (^``` needs a
   // line start), so the replacement re-appends it to stay byte-compatible.

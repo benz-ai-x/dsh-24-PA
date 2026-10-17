@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DshContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
 import { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
+import { ConfigError } from './config.js';
 import { FakeFeishuTransport } from './feishu.js';
 import type { InboundEvent } from './feishu.js';
 
@@ -123,7 +124,7 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
   if (type === A.workspaceReload) return runtime.reloadWorkspace().then(() => snapshot(runtime));
   if (type === A.workspaceConfigUpdate) {
     const config = payload.config as Record<string, unknown> | undefined;
-    if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('缺少配置补丁。');
+    if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ConfigError('缺少配置补丁。');
     return runtime.updateWorkspaceConfig(config).then(() => snapshot(runtime));
   }
   if (type === A.connectionCheck) return runtime.checkAccess();

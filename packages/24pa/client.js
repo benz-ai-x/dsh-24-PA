@@ -1,6 +1,8 @@
 // 24私助工作区 panel (F01): business overview / access modules with the
-// shared SVG + semantic-color + keyboard/focus vocabulary. Read-mostly; all
-// maintenance happens through the assistant conversation.
+// shared SVG + semantic-color + keyboard/focus vocabulary. Read-mostly for
+// business content; parameters are editable through the System-category
+// configuration form (F33), whose save path validates, rewrites the AGENTS.md
+// config block, and reloads — chat and the form share one config source.
 // F20 (1.6 补充): workspace configuration management moved to the dsh
 // settings「24私助」section entirely (binding/reload/config/health) — the
 // panel shows business tabs only, plus the WeCom access module.
@@ -124,7 +126,7 @@ window.__ModuleLoader__.load({
       .pa24-form-actions{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-top:16px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);box-shadow:var(--pa-shadow)}
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
-      @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24 h1{font-size:19px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}}
+      @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24-form-row{grid-template-columns:1fr;gap:4px;padding:10px 0}.pa24 h1{font-size:19px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}}
       .pa24-settings{padding:22px;height:auto;min-width:0;width:100%}
       .pa24-settings-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px}
       .pa24-settings-brand{width:34px;height:34px;border-radius:9px}
@@ -778,7 +780,7 @@ window.__ModuleLoader__.load({
                   h('label', { className: 'pa24-check', style: { margin: 0 } }, h('input', { type: 'checkbox', checked: !!wmGet(role).simplePersona, onChange: e => wmSet(role, { simplePersona: e.target.checked }) }), L('简 persona', 'simple'))))
                   : h('p', { className: 'pa24-meta' }, L('先勾选上方 Worker。', 'Check a worker above first.'))),
                 L('按角色覆盖 provider/model。', 'Per-role provider/model overrides.'),
-                form.enabledWorkers.includes('handwriting') && !(form.workerModels.handwriting && (form.workerModels.handwriting.model || form.workerModels.handwriting.provider)) && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-amber)' } }, L('已启用 handwriting 但未配置视觉模型路由——手写整理将不可用。', 'handwriting is enabled without a vision model route — note整理 stays unavailable.'))),
+                form.enabledWorkers.includes('handwriting') && !(form.workerModels.handwriting && (form.workerModels.handwriting.model || form.workerModels.handwriting.provider)) && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-amber)' } }, L('已启用 handwriting 但未配置视觉模型路由——手写整理将不可用。', 'handwriting is enabled without a vision model route — note-intake stays unavailable.'))),
               h('details', { style: { marginTop: 4 } }, h('summary', null, L('extraLocalTools（高级，默认收起）', 'extraLocalTools (advanced, collapsed)')),
                 h('div', { style: { minWidth: 0, paddingTop: 6 } }, KNOWN_EXTRA.map(x =>
                   h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),
