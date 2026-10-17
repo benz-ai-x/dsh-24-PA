@@ -325,12 +325,12 @@ export class DigestService {
     await this.deps.repos().digests.updateOccurrence(row.id, { status: 'model_done', report: { facts, report }, completed_at: new Date() });
     await this.deps.repos().digests.updatePlan(plan.id, { last_window: windowKey });
     const outboxKey = `digest:${row.id}`;
-    if (this.deps.config().notifyChannel === 'wecom' || this.deps.config().ownerOpenId) {
+    const config = this.deps.config();
+    if (config.notifyChannel === 'wecom' || config.ownerOpenId) {
       // F19（spec 2.3）：plan.voice 且引擎可用时，先入语音行（口播正文、投递时
       // 现场合成），全文文本行紧随其后兜底。wecom 通知通道与 tts.engine=none
       // 都按降级处理——只发文本，可观测告警，不中断。
       if (plan.voice) {
-        const config = this.deps.config();
         if (config.notifyChannel === 'wecom') {
           console.warn('[pa24] 语音简报降级为文本：通知通道为企微（wecom 语音 parity 后置）。');
         } else if (config.tts.engine === 'none') {

@@ -252,6 +252,8 @@ export class PaRuntime {
   }
   private dispatching = false;
   private outboxSending = false;
+  /** 最近一次 tts.probe 结果（健康面只读缓存，不做子进程探测）。 */
+  private ttsProbeCache: { at: string; result: TtsReadiness } | null = null;
   private noteVerifying = false;
   closed = false;
   startedAt: string | null = null;
@@ -3478,7 +3480,6 @@ export class PaRuntime {
     };
   }
 
-  private ttsProbeCache: { at: string; result: TtsReadiness } | null = null;
 
   /** F19（spec 2.3）：语音引擎只读预检（面板按需触发；结果缓存供健康面与快照展示）。 */
   async ttsProbe(): Promise<unknown> {

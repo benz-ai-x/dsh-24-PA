@@ -78,13 +78,13 @@ describe('F19：口播变体与语音入队', () => {
   });
 
   // 两个 digestBuild 用例共享的仓库/依赖桩（仅 tts 与 notifyChannel 变化）。
-  const makeBuildDeps = (tts, notifyChannelOverride) => {
+  const makeBuildDeps = (tts, notifyChannel = 'feishu') => {
     const plan = {
       id: 'dig-morning-x', kind: 'morning', title: '晨报', schedule_id: null, session_id: 'sess-access',
       schedule_spec: {}, status: 'active', last_window: null, voice: true, created_at: new Date(), updated_at: new Date(),
     };
     const deps = makeDeps({
-      config: () => ({ timeZone: 'Asia/Shanghai', notifyChannel: tts.notifyChannel ?? notifyChannelOverride ?? 'feishu', ownerOpenId: 'ou_owner', tts }),
+      config: () => ({ timeZone: 'Asia/Shanghai', notifyChannel, ownerOpenId: 'ou_owner', tts }),
       notifyOwner: async () => {},
       repos: () => ({
         digests: {
@@ -126,18 +126,18 @@ describe('F19：口播变体与语音入队', () => {
   it('digestBuild：engine=none 或 wecom 通道时不入 audio 行（降级文本＋告警）', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const run = async ttsConfig => {
-        const { deps } = makeBuildDeps(ttsConfig, ttsConfig.notifyChannel);
+      const run = async (ttsConfig, notifyChannel) => {
+        const { deps } = makeBuildDeps(ttsConfig, notifyChannel);
         const enqueued = [];
         const baseRepos = deps.repos();
         deps.repos = () => ({ ...baseRepos, outbox: { enqueue: async row => { enqueued.push(row); return { created: true, row }; } } });
         await new DigestService(deps).digestBuild({ id: 'w1' }, { planId: 'dig-morning-x' });
         return enqueued;
       };
-      const noneTts = { engine: 'none', voice: '', volcKeyEnv: '', meloDir: '', notifyChannel: 'feishu' };
+      const noneTts = { engine: 'none', voice: '', volcKeyEnv: '', meloDir: '' };
       expect(await run(noneTts)).toHaveLength(0);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('未配置 TTS 引擎'));
-      expect(await run({ ...noneTts, notifyChannel: 'wecom' })).toHaveLength(0);
+      expect(await run(noneTts, 'wecom')).toHaveLength(0);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('企微'));
     } finally {
       warn.mockRestore();

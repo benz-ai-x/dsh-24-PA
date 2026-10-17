@@ -93,14 +93,14 @@ export function volcengineTts(config: TtsConfig, apiKey: string, fetchImpl: Fetc
   };
 }
 
-/** Melo 本地适配器：两次子进程（sherpa-onnx 合成 wav → ffmpeg libopus 转 ogg），
- * 共享 CLI 网关骨架；meloDir 内可放 `python` 符号链接指向带 sherpa-onnx 的解释器。 */
 /** meloDir 内可放 `python` 符号链接指向带 sherpa-onnx 的解释器；缺省回落 PATH 的 python3。 */
 async function resolveMeloPython(meloDir: string): Promise<string> {
   const linked = join(meloDir, 'python');
   return stat(linked).then(() => linked, () => 'python3');
 }
 
+/** Melo 本地适配器：两次子进程（sherpa-onnx 合成 wav → ffmpeg libopus 转 ogg），
+ * 共享 CLI 网关骨架；解释器解析见 resolveMeloPython。 */
 export function meloTts(config: TtsConfig, scriptPath: string): TtsSynth {
   return async text => {
     const python = await resolveMeloPython(config.meloDir);
