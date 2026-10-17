@@ -3,9 +3,10 @@
 // business content; parameters are editable through the System-category
 // configuration form (F33), whose save path validates, rewrites the AGENTS.md
 // config block, and reloads — chat and the form share one config source.
-// F20 (1.6 补充): workspace configuration management moved to the dsh
-// settings「24私助」section entirely (binding/reload/config/health) — the
-// panel shows business tabs only, plus the WeCom access module.
+// F35 (2.6): workspace configuration management (binding/reload/effective
+// config/health & budget) lives on the panel's System category under the
+// Workspace & config card — the dsh settings「24私助」section is retired;
+// the panel is the single entry for workspace management.
 // F21 (P53): UI/UX walkthrough fixes — tighter vertical rhythm, one primary
 // action per view, unified status-badge vocabulary, human-first copy with
 // tech detail folded away, and design-doc tab color semantics.
@@ -19,7 +20,7 @@ window.__ModuleLoader__.load({
     const React = require('react'), h = React.createElement;
     const zh = {
       panel: '24私助工作区', title: '24私助',
-      settings: '24私助', biz: '业务内容', access: '接入与通讯', system: '系统维护',
+      biz: '业务内容', access: '接入与通讯', system: '系统维护',
       review: '手写审核', awaiting_review: '待审核', needs_rereview: '需重新审核', returned: '已退回', collecting: '收集中',
       collected: '已收齐', approved: '已通过', pending_review: '待审核', stale: '已失效', superseded: '已取代',
       reminderOnce: '单次', reminderDaily: '每日', reminderPaused: '已暂停', reminderCanceled: '已取消', reminderDone: '已结束',
@@ -32,7 +33,7 @@ window.__ModuleLoader__.load({
     // 同址维护）；切换即时生效由 Panel 的 useSyncExternalStore 订阅保证。
     const en = {
       panel: '24PA Workspace', title: '24PA',
-      settings: '24PA', biz: 'Business', access: 'Access & Messaging', system: 'System Maintenance',
+      biz: 'Business', access: 'Access & Messaging', system: 'System Maintenance',
       review: 'Handwriting Review', awaiting_review: 'Awaiting review', needs_rereview: 'Needs re-review', returned: 'Returned', collecting: 'Collecting',
       collected: 'All pages in', approved: 'Approved', pending_review: 'Awaiting review', stale: 'Stale', superseded: 'Superseded',
       reminderOnce: 'Once', reminderDaily: 'Daily', reminderPaused: 'Paused', reminderCanceled: 'Canceled', reminderDone: 'Done',
@@ -130,14 +131,11 @@ window.__ModuleLoader__.load({
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
       @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24-form-row{grid-template-columns:1fr;gap:4px;padding:10px 0}.pa24 h1{font-size:19px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}}
-      .pa24-settings{padding:22px;height:auto;min-width:0;width:100%}
-      .pa24-settings-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:18px}
-      .pa24-settings-brand{width:34px;height:34px;border-radius:9px}
       @media(max-width:760px){.pa24{padding:20px 16px}.pa24 button{min-height:44px}.pa24-tabs button{min-height:44px}.pa24 summary{min-height:40px;display:list-item}}
       @media(prefers-reduced-motion:reduce){.pa24 *{animation:none!important;transition:none!important}}
     `;
     return {
-      inject: ['slots', 'locale', 'connection', 'uiWorkspace', 'layout'],
+      inject: ['slots', 'locale', 'connection', 'uiWorkspace'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register('pa24', { zh, en }));
         const t = ctx.locale.bind('pa24');
@@ -239,21 +237,21 @@ window.__ModuleLoader__.load({
                   h('p', { className: 'pa24-meta' }, L('需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。', 'For a later nudge, pausing follow-ups, or republishing a candidate, just tell 24PA.'))))));
         }
 
-        // F17: Panel 与 SettingsSection 共用的动作外壳（busy/error/run/button）。
-        // reloadAfter：动作成功后立即重读 snapshot——设置分区无轮询需要；
-        // 面板有 2.5s 轮询，保持原行为不重读。
-        // 打开固定本地助理会话——面板与设置分区共用。
+        // 面板动作外壳（busy/error/run/button）。reloadAfter 曾服务设置分区
+        // （无轮询，动作后立即重读）；F35 设置分区撤销后无调用方，参数移除，
+        // 面板自身有 2.5s 轮询。
+        // 打开固定本地助理会话——面板各视图共用。
         const openRobot = async () => { const r = await rpc('action', { type: 'robot.open' }); ctx.uiWorkspace.openSession(r.sessionId); };
-        function usePanelActions({ reloadAfter } = {}) {
+        function usePanelActions() {
           const [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
-          const run = async fn => { setBusy(true); setError(''); try { const r = await fn(); if (reloadAfter) await reloadAfter(); return r; } catch (e) { setError(e.message); return null; } finally { setBusy(false); } };
+          const run = async fn => { setBusy(true); setError(''); try { return await fn(); } catch (e) { setError(e.message); return null; } finally { setBusy(false); } };
           const button = (name, label, fn, props = {}) => h('button', { type: 'button', disabled: busy, onClick: () => void run(fn), ...props }, name && icon(name), label);
           return { busy, error, run, button };
         }
 
-        // F17: 工作区管理两张卡（绑定/切换 + 生效配置）独立成组件，
-        // 面板 workspace tab 与设置分区共用；动作走既有 RPC，不新增端点。
-        // path 为受控值由父级持有，面板侧保证切 tab 不丢已选未绑定的目录。
+        // F17: 工作区管理两张卡（绑定/切换 + 生效配置）独立成组件，F35 起
+        // 仅由主面板「工作区与配置」卡的详情挂载；动作走既有 RPC，不新增端点。
+        // path 为受控值由父级持有，详情返回即弃（切卡不丢已选未绑定的目录）。
         function WorkspaceCards({ snapshot, busy, button, openRobot, path, onPathChange }) {
           const workspace = snapshot.workspace, config = workspace ? workspace.config : null;
           const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: L('备忘整理', 'Memo worker') }[w] || w)).join('、') || L('无', 'None');
@@ -310,6 +308,19 @@ window.__ModuleLoader__.load({
               view.data.degraded && h('div', { className: 'pa24-example' }, icon('info', { width: 16, height: 16 }), view.data.degraded.modelDown + ' ' + view.data.degraded.pgDown)));
         }
 
+        // F35: 设置「24私助」分区整体迁回主面板——「工作区与配置」卡的二级
+        // 详情＝WorkspaceCards（绑定/切换＋生效配置/重载）＋健康与预算；
+        // 复用既有组件与 RPC，零新增端点。path 受控于本组件（详情返回即弃）；
+        // 动作成功后立即重读快照（原设置分区 reloadAfter 的即时性，不等轮询）。
+        function WorkspaceDetail({ helpers }) {
+          const [path, setPath] = React.useState('');
+          const refreshAfter = fn => async () => { const r = await fn(); await helpers.refresh(); return r; };
+          const wButton = (name, label, fn, props) => helpers.button(name, label, refreshAfter(fn), props);
+          return h('div', null,
+            h(WorkspaceCards, { snapshot: helpers.state, busy: helpers.busy, button: wButton, openRobot: helpers.openRobot, path, onPathChange: setPath }),
+            h(HealthBlock));
+        }
+
         // ---- F26: 能力卡片体系（原型 prototypes/pa24-card-panel v0.3 裁决）----
         // 一级导航＝三分类 tab；卡片＝内容单元：元数据＋tier（角标聚合的纯函数）
         // ＋body（摘要）＋detail（二级详情，原视图平移）。注册即生卡。
@@ -336,6 +347,8 @@ window.__ModuleLoader__.load({
           return view.data || {};
         };
         const capLine = (label, value) => h('div', { className: 'pa24-cap-line' }, h('span', { className: 'pa24-muted' }, label), h('b', null, value));
+        // F35: 模式显示词收敛一处（config/workspace 两卡 label＋body 共用）。
+        const modeLabel = config => (config && config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo');
         const capKpi = items => h('div', { className: 'pa24-cap-kpi' }, items.map(([value, label]) => h('div', { key: label }, h('strong', null, value), h('small', null, label))));
         const nextStrip = text => h('div', { className: 'pa24-next' }, icon('info', { width: 13, height: 13 }), h('span', null, text));
         const readinessTier = (state, ids) => {
@@ -525,7 +538,7 @@ window.__ModuleLoader__.load({
             body: ({ extra }) => (extra.review && extra.review.count > 0
               ? h('div', null, capLine(L('待审版本', 'Awaiting review'), extra.review.count + L(' 份', '')), h('p', { className: 'pa24-meta' }, L('批准/退回在飞书审核卡上完成', 'Approve/return happens on the Feishu review card')))
               : h('p', { className: 'pa24-meta' }, L('拍照整理后的待审版本会出现在这里', 'Pending versions from photographed notes appear here'))),
-            detail: helpers => (helpers.workspace ? h(ReviewView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('pen', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在 dsh 设置的「24私助」分区绑定工作区后，手写审核队列会显示在这里。', 'Bind a workspace in the dsh settings “24PA” section and the review queue will show up here.'))),
+            detail: helpers => (helpers.workspace ? h(ReviewView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('pen', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在系统维护的「工作区与配置」绑定工作区后，手写审核队列会显示在这里。', 'Bind a workspace via Workspace & config under System Maintenance and the review queue will show up here.'))),
           },
           {
             id: 'memory', cat: 'biz', tone: 'violet', icon: 'memory', title: ['结构化记忆', 'Structured memory'], sub: ['偏好 · 事实 · 项目背景', 'Preferences · facts · project background'], action: ['检索记忆', 'Search memories'],
@@ -611,6 +624,17 @@ window.__ModuleLoader__.load({
               [helpers.button('chat', L('与24私助对话', 'Chat with 24PA'), helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
           },
           {
+            id: 'workspace', cat: 'system', tone: 'blue', icon: 'folder', title: ['工作区与配置', 'Workspace & config'], sub: ['绑定 · 切换 · 生效配置 · 健康预算', 'Bind · switch · effective config · health'], action: ['管理工作区', 'Manage workspace'],
+            tier: ({ state }) => (state.workspace ? 'ok' : 'missing'),
+            label: ({ config }) => (config ? modeLabel(config) : null),
+            body: ({ state, config }) => (state.workspace
+              ? h('div', null,
+                capLine(L('当前目录', 'Directory'), h('span', { className: 'pa24-ellip', title: state.workspace.path }, state.workspace.path)),
+                capLine(L('模式 / 存储', 'Mode / storage'), modeLabel(config) + ' / ' + (config && config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite')))
+              : h('p', { className: 'pa24-meta' }, L('尚未绑定工作区——点开本卡选择并绑定。', 'No workspace bound yet — open this card to pick and bind one.'))),
+            detail: helpers => h(WorkspaceDetail, { key: 'workspace', helpers }),
+          },
+          {
             id: 'healthcheck', cat: 'system', tone: 'blue', icon: 'shield', title: ['全应用健康检查', 'Full-app health check'], sub: ['一键全量检查与总体结论', 'One-click full check & verdict'], action: ['全量报告', 'Full report'],
             tier: helpers => healthAggregate(helpers).tier,
             body: helpers => {
@@ -640,9 +664,9 @@ window.__ModuleLoader__.load({
           {
             id: 'config', cat: 'system', tone: 'blue', icon: 'code', title: ['参数配置', 'Configuration'], sub: ['六组 22 项 · 校验写回', '22 fields · validated write-back'], action: ['打开表单', 'Open form'],
             tier: ({ state }) => (state.workspace?.configError ? 'warn' : 'ok'),
-            label: ({ config }) => (config ? (config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo') : null),
+            label: ({ config }) => (config ? modeLabel(config) : null),
             body: ({ config, state }) => (config ? h('div', null,
-              capLine(L('模式', 'Mode'), config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo'),
+              capLine(L('模式', 'Mode'), modeLabel(config)),
               capLine(L('渠道', 'Channels'), [config.calendarChannel, config.todoChannel, config.notifyChannel].map(v => (v === 'wecom' ? L('企微', 'WeCom') : L('飞书', 'Feishu'))).join(' / ')),
               capLine(L('存储', 'Storage'), config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'),
               state.workspace?.configError && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-danger)' } }, state.workspace.configError))
@@ -752,7 +776,7 @@ window.__ModuleLoader__.load({
             catch (e) { setSaveState({ ok: false, message: L('试听失败：', 'Sample failed: ') + ((e && e.message) || e) }); }
             finally { setBusy(false); }
           };
-          if (!config) return empty('code', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在 dsh 设置的「24私助」分区绑定工作区后可编辑参数。', 'Bind a workspace in the dsh settings “24PA” section to edit parameters.'));
+          if (!config) return empty('code', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在系统维护的「工作区与配置」绑定工作区后可编辑参数。', 'Bind a workspace via Workspace & config under System Maintenance to edit parameters.'));
           // F34: 保存/试听反馈随保存栏展示（sticky 常驻视口底）——原先渲染在
           // 表单顶部，用户在表单中下部点保存时错误在视口外不可见（走查 S6）。
           return h('div', null,
@@ -916,7 +940,7 @@ window.__ModuleLoader__.load({
             if (wecomChannelsOn(config)) await rpc('action', { type: 'connection.wecom-check' }).catch(() => {});
             await refresh();
           };
-          const helpers = { state, extra, workspace, config, tz, busy, button, run, runFullCheck, openRobot: () => void run(openRobot) };
+          const helpers = { state, extra, workspace, config, tz, busy, button, run, runFullCheck, refresh, openRobot: () => void run(openRobot) };
           // F26: tab 角标＝分类内「需注意/需处理」卡片数；出现 error 时角标转红，
           // 仅 warn 时保持琥珀（口径为实施默认，后续可裁决调整）。
           const chipOf = cat => {
@@ -997,41 +1021,13 @@ window.__ModuleLoader__.load({
             !wecom && h('section', { className: 'pa24-card' }, empty('bot', 'blue', L('尚未检查企微接入', 'WeCom access not checked yet'), L('点击右上方「检查企微接入」发起一次只读检查：CLI 可执行、机器人绑定与授权真人、按启用域的服务级授权探测。', 'Click “Check WeCom access” above for a read-only pass: CLI binary, bot binding and authorized user, and service-level probes per enabled domain.'), button('chat', L('让24私助带我做接入', 'Walk me through it'), openRobot, { className: 'pa24-primary' }))));
         }
 
-        // F17: 设置模态里的「24私助」分区——复用 WorkspaceCards 与既有 RPC，
-        // 自取 snapshot（settings.section 的 owner props 只有 close）。
-        function SettingsSection({ close }) {
-          const [state, setState] = React.useState(null), [connError, setConnError] = React.useState('');
-          const [path, setPath] = React.useState('');
-          const load = async () => { const s = await rpc('snapshot'); setState(s); setConnError(''); return s; };
-          React.useEffect(() => {
-            let live = true;
-            void load().catch(e => { if (live) setConnError(e.message); });
-            return () => { live = false; };
-          }, []);
-          const { busy, error, button } = usePanelActions({ reloadAfter: load });
-          const openPanel = () => {
-            try { if (ctx.layout) ctx.layout.selectPanel('pa24'); } catch (e) { console.warn('pa24: failed to open the 24PA panel, closing settings only', e); }
-            close();
-          };
-          return h('div', { className: 'pa24 pa24-settings' }, h('style', null, style),
-            h('div', { className: 'pa24-settings-head' },
-              h('div', { className: 'pa24-row' },
-                h('span', { className: 'pa24-brand pa24-settings-brand' }, icon('bot', { width: 18, height: 18 })),
-                h('div', null, h('h2', null, t('settings')), h('p', { className: 'pa24-meta' }, L('工作区绑定、配置重载、生效配置查看与健康预算；日常操作与接入诊断在24私助面板。', 'Workspace binding, config reload, effective-config review, and health & budget; daily actions and access diagnostics live in the 24PA panel.')))),
-              h('div', { className: 'pa24-row' }, button('external', L('打开24私助面板', 'Open the 24PA panel'), openPanel, { className: 'pa24-quiet' }))),
-            (error || connError) && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, connError ? L('连接暂时中断', 'Connection lost') : L('操作未完成', 'Action did not complete')), h('p', null, error || connError)),
-            !state
-              ? h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), connError ? L('无法读取工作区状态。', 'Cannot read workspace state.') : L('正在读取工作区状态…', 'Reading workspace state…'))
-              : h('div', null,
-                h(WorkspaceCards, { snapshot: state, busy, button, openRobot, path, onPathChange: setPath }),
-                h(HealthBlock)));
-        }
         // P53: 宿主侧栏只有图标位——无障碍名由宿主 register 的 label 提供，
         // title 仅补悬停提示。
         const SidebarIcon = () => h('span', { title: t('panel'), style: { display: 'inline-flex' } }, icon('bot', { width: 22, height: 22 }));
         ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'pa24' }, Panel));
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'pa24', order: 24, label: () => t('panel') }, SidebarIcon));
-        ctx.slots.inject('settings.section', () => ctx.slots.register({ name: 'settings.section', id: 'pa24', order: 25, label: () => t('settings') }, SettingsSection));
+        // F35: settings.section 注入撤销——「24私助」分区整体迁回主面板
+        // （系统维护 → 工作区与配置），设置模态不再出现本插件分区。
       },
     };
   },
