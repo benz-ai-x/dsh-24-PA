@@ -119,6 +119,9 @@ window.__ModuleLoader__.load({
       .pa24-chip{display:none;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:99px;font-size:10px;font-weight:700;background:var(--pa-amber-bg);color:var(--pa-amber)}
       .pa24-chip.show{display:inline-flex}.pa24-chip.error{background:var(--pa-danger-bg);color:var(--pa-danger)}
       .pa24-detail-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+      .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
+      .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
+      .pa24-form-actions{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-top:16px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);box-shadow:var(--pa-shadow)}
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
       @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24 h1{font-size:19px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}}
@@ -626,6 +629,18 @@ window.__ModuleLoader__.load({
             detail: helpers => h(ReadinessDetail, helpers),
           },
           {
+            id: 'config', cat: 'system', tone: 'blue', icon: 'code', title: ['参数配置', 'Configuration'], sub: ['六组 22 项 · 校验写回', '22 fields · validated write-back'], action: ['打开表单', 'Open form'],
+            tier: ({ state }) => (state.workspace?.configError ? 'warn' : 'ok'),
+            label: ({ config }) => (config ? (config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo') : null),
+            body: ({ config, state }) => (config ? h('div', null,
+              capLine(L('模式', 'Mode'), config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo'),
+              capLine(L('渠道', 'Channels'), [config.calendarChannel, config.todoChannel, config.notifyChannel].map(v => (v === 'wecom' ? L('企微', 'WeCom') : L('飞书', 'Feishu'))).join(' / ')),
+              capLine(L('存储', 'Storage'), config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'),
+              state.workspace?.configError && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-danger)' } }, state.workspace.configError))
+              : h('p', { className: 'pa24-meta' }, L('尚未绑定工作区', 'No workspace bound'))),
+            detail: helpers => h(ConfigFormDetail, { key: 'config', helpers }),
+          },
+          {
             id: 'budget', cat: 'system', tone: 'green', icon: 'pulse', title: ['模型与预算', 'Models & budget'], sub: ['路由 · 用量 · 健康判定', 'Routing · usage · health verdict'], action: ['健康报告', 'Health report'],
             tier: ({ extra }) => (extra.health ? 'ok' : 'unchecked'),
             body: ({ extra }) => (extra.health && extra.health.usage
@@ -653,6 +668,136 @@ window.__ModuleLoader__.load({
               h('p', { className: 'pa24-meta' }, last ? L('最近主动检查：' + date(last.toISOString(), helpers.tz), 'Last active check: ' + date(last.toISOString(), helpers.tz)) : L('尚未执行主动检查——点击右上方按钮开始（只读，不创建平台对象）。', 'No active check yet — click the button above to start (read-only, creates no platform objects).'))),
             h(ReadinessDetail, { state }),
             h(HealthBlock));
+        }
+
+        // F33/P60: 参数配置表单——六组 22 项。保存＝workspace.config-update
+        // （服务端校验→AGENTS.md 唯一 json 块替换→重载）；失败保留输入并显示
+        // 字段级错误。storage/version/密钥引用名不在表单（白名单在服务端强制）。
+        function ConfigFormDetail({ helpers }) {
+          const { config, state } = helpers;
+          const VOICES = [
+            ['zh_female_cancan_uranus_bigtts', L('知性灿灿（女声·晨报主推）', 'Cancan (female, digest pick)')],
+            ['zh_female_zhixingnv_uranus_bigtts', L('知性女声（女声·沉稳）', 'Zhixing female (steady)')],
+            ['zh_male_m191_uranus_bigtts', L('云舟（男声·稳重）', 'Yunzhou (male, steady)')],
+            ['zh_female_vv_uranus_bigtts', L('Vivi（女声·元气）', 'Vivi (female, lively)')],
+            ['zh_female_xiaohe_uranus_bigtts', L('小何（女声·甜）', 'Xiaohe (female, sweet)')],
+          ];
+          const WORKER_IDS = ['memo', 'tasks', 'calendar', 'reminders', 'handwriting', 'digest'];
+          const KNOWN_EXTRA = ['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*'];
+          const [form, setForm] = React.useState(() => ({
+            mode: config?.mode ?? 'demo',
+            larkProfile: config?.larkProfile ?? '',
+            ownerOpenId: config?.ownerOpenId ?? '',
+            timeZone: config?.timeZone ?? 'Asia/Shanghai',
+            calendarChannel: config?.calendarChannel ?? 'feishu',
+            todoChannel: config?.todoChannel ?? 'feishu',
+            notifyChannel: config?.notifyChannel ?? 'feishu',
+            folderToken: config?.folderToken ?? '',
+            tasklistId: config?.tasklistId ?? '',
+            calendarId: config?.calendarId ?? 'primary',
+            maxWorkers: config?.maxWorkers ?? 2,
+            enabledWorkers: [...(config?.enabledWorkers ?? ['memo'])],
+            workerModels: JSON.parse(JSON.stringify(config?.workerModels ?? {})),
+            extraKnown: KNOWN_EXTRA.filter(x => (config?.extraLocalTools ?? []).includes(x)),
+            tts: { engine: config?.tts?.engine ?? 'none', voice: config?.tts?.voice ?? '', volcKeyEnv: config?.tts?.volcKeyEnv ?? '', meloDir: config?.tts?.meloDir ?? '' },
+          }));
+          const [saveState, setSaveState] = React.useState(null);
+          const [busy, setBusy] = React.useState(false);
+          const set = (key, value) => { setForm(f => ({ ...f, [key]: value })); setSaveState(null); };
+          const setTts = (key, value) => { setForm(f => ({ ...f, tts: { ...f.tts, [key]: value } })); setSaveState(null); };
+          const authOpenId = state.diagnostics?.auth?.openId;
+          const row = (label, control, hint) => h('div', { className: 'pa24-form-row' }, h('label', null, label), h('div', { style: { minWidth: 0 } }, control, hint && h('p', { className: 'pa24-meta', style: { marginTop: 2, marginBottom: 0 } }, hint)));
+          const txt = (value, onSet, extra = {}) => h('input', { type: 'text', value, onChange: e => onSet(e.target.value), ...extra });
+          const sel = (options, value, onSet) => h('select', { value, onChange: e => onSet(e.target.value) }, options.map(([v, l]) => h('option', { key: v, value: v }, l)));
+          // 粘贴飞书链接自动提取末段 token（folder/tasklist 链接形态）。
+          const extractToken = v => { const s = String(v).trim(); if (!s.includes('://')) return s; const q = s.match(/[?&](?:token|node_token|guid)=([A-Za-z0-9_-]{10,})/); if (q) return q[1]; const tail = s.split('?')[0].split('/').filter(Boolean).pop() || ''; return /^[A-Za-z0-9_-]{16,}$/.test(tail) ? tail : s; };
+          const toggleIn = key => (value, on) => setForm(f => { const cur = new Set(f[key]); if (on) cur.add(value); else cur.delete(value); return { ...f, [key]: [...cur] }; });
+          const wmGet = role => form.workerModels[role] || {};
+          const wmSet = (role, patch) => { setForm(f => ({ ...f, workerModels: { ...f.workerModels, [role]: { ...wmGet(role), ...patch } } })); setSaveState(null); };
+          const roleRows = [...new Set([...(form.enabledWorkers || []), ...Object.keys(form.workerModels)])].filter(r => WORKER_IDS.includes(r) || form.workerModels[r]);
+          const save = async () => {
+            setBusy(true);
+            try {
+              const models = {};
+              for (const [role, route] of Object.entries(form.workerModels)) {
+                const provider = String(route.provider || '').trim(), model = String(route.model || '').trim();
+                if (provider || model) models[role] = { ...(provider ? { provider } : {}), ...(model ? { model } : {}), ...(route.simplePersona ? { simplePersona: true } : {}) };
+              }
+              const extra = [...new Set([...form.extraKnown, ...(config?.extraLocalTools ?? []).filter(v => !KNOWN_EXTRA.includes(v))])];
+              await rpc('action', { type: 'workspace.config-update', config: {
+                mode: form.mode, larkProfile: form.larkProfile.trim(), ownerOpenId: form.ownerOpenId.trim(), timeZone: form.timeZone.trim(),
+                calendarChannel: form.calendarChannel, todoChannel: form.todoChannel, notifyChannel: form.notifyChannel,
+                folderToken: form.folderToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
+                maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra,
+                tts: form.tts,
+              } });
+              setSaveState({ ok: true, message: L('已保存并重载生效。', 'Saved and reloaded.') });
+            } catch (e) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
+            finally { setBusy(false); }
+          };
+          const tryVoice = async () => {
+            setBusy(true);
+            try { await rpc('action', { type: 'tts.test' }); setSaveState({ ok: true, message: L('试听已发送（使用当前已保存的配置）。', 'Sample sent (uses the saved config).') }); }
+            catch (e) { setSaveState({ ok: false, message: L('试听失败：', 'Sample failed: ') + ((e && e.message) || e) }); }
+            finally { setBusy(false); }
+          };
+          if (!config) return empty('code', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在 dsh 设置的「24私助」分区绑定工作区后可编辑参数。', 'Bind a workspace in the dsh settings “24PA” section to edit parameters.'));
+          return h('div', null,
+            sectionHead('code', L('参数配置', 'Configuration'), L('保存＝校验→写回 AGENTS.md 配置块→重载生效；工作规则不受影响，校验失败保留原文。', 'Save = validate → rewrite the AGENTS.md config block → reload; prose rules untouched, file kept on validation failure.')),
+            saveState && h('div', { role: saveState.ok ? 'status' : 'alert', className: saveState.ok ? 'pa24-example' : 'pa24-error' }, icon(saveState.ok ? 'check' : 'alert', { width: 16, height: 16 }), h('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } }, saveState.message)),
+            h('section', { className: 'pa24-card' },
+              h('h2', null, L('模式与身份', 'Mode & identity')),
+              row('mode', sel([['demo', 'demo'], ['feishu', 'feishu']], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('飞书应用凭据需在环境变量中就位（引用名见下方）。', 'Feishu app credentials must be present in env vars (see below).') : null),
+              row('larkProfile', txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 固定 profile 名。', 'The pinned lark-cli profile name.')),
+              row('ownerOpenId', h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
+                txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
+                h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),
+                L('身份字段只读；一键应用当前 CLI 授权的 open_id' + (authOpenId ? '' : '（尚未取得授权身份）') + '。', 'Identity is read-only; one-click apply of the CLI-authorized open_id' + (authOpenId ? '' : ' (not yet available)') + '.')),
+              row('timeZone', h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
+                h('datalist', { id: 'pa24-tz-list' }, ['Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'UTC'].map(z => h('option', { key: z, value: z })))), L('IANA 时区名，保存时即时校验。', 'IANA timezone name; validated on save.'))),
+            h('section', { className: 'pa24-card' },
+              h('h2', null, L('渠道选择', 'Channels')),
+              row('calendarChannel', sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.calendarChannel, v => set('calendarChannel', v))),
+              row('todoChannel', sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.todoChannel, v => set('todoChannel', v))),
+              row('notifyChannel', sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.notifyChannel, v => set('notifyChannel', v)), L('提醒与汇报的推送出口；企微为单向推送，收信仍在飞书。', 'Reminder & digest push outlet; WeCom is one-way, inbound stays on Feishu.'))),
+            h('section', { className: 'pa24-card' },
+              h('h2', null, L('飞书资源', 'Feishu resources')),
+              row('folderToken', txt(form.folderToken, v => set('folderToken', v), { onBlur: e => set('folderToken', extractToken(e.target.value)), placeholder: L('粘贴文件夹链接或 token', 'Paste folder link or token') })),
+              row('tasklistId', txt(form.tasklistId, v => set('tasklistId', v), { onBlur: e => set('tasklistId', extractToken(e.target.value)), placeholder: L('粘贴任务清单链接或 guid', 'Paste task-list link or guid') })),
+              row('calendarId', txt(form.calendarId, v => set('calendarId', v), { placeholder: 'primary' }), L('默认 primary（本人日历）。', 'Defaults to primary (your calendar).'))),
+            h('section', { className: 'pa24-card' },
+              h('h2', null, L('运行参数', 'Runtime')),
+              row('maxWorkers', h('input', { type: 'number', min: 1, max: 8, step: 1, value: form.maxWorkers, onChange: e => set('maxWorkers', e.target.value) }), L('1–8 的整数。', 'An integer from 1 to 8.')),
+              row('enabledWorkers', h('div', { style: { minWidth: 0 } }, WORKER_IDS.map(r =>
+                h('label', { key: r, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.enabledWorkers.includes(r), onChange: e => toggleIn('enabledWorkers')(r, e.target.checked) }), r)))),
+              row('workerModels', h('div', { style: { minWidth: 0 } },
+                roleRows.length ? roleRows.map(role => h('div', { key: role, className: 'pa24-row', style: { flexWrap: 'nowrap', marginBottom: 6 } },
+                  h('span', { style: { width: 86, fontSize: 12, color: 'var(--pa-muted)', flexShrink: 0 } }, role),
+                  txt(wmGet(role).provider || '', v => wmSet(role, { provider: v }), { placeholder: 'provider', style: { flex: 1, minWidth: 80 } }),
+                  txt(wmGet(role).model || '', v => wmSet(role, { model: v }), { placeholder: 'model', style: { flex: 1, minWidth: 80 } }),
+                  h('label', { className: 'pa24-check', style: { margin: 0 } }, h('input', { type: 'checkbox', checked: !!wmGet(role).simplePersona, onChange: e => wmSet(role, { simplePersona: e.target.checked }) }), L('简 persona', 'simple'))))
+                  : h('p', { className: 'pa24-meta' }, L('先勾选上方 Worker。', 'Check a worker above first.'))),
+                L('按角色覆盖 provider/model；handwriting 需视觉模型路由，未配置则手写整理不可用。', 'Per-role provider/model overrides; handwriting needs a vision route or note整理 stays unavailable.')),
+              row('extraLocalTools', h('div', { style: { minWidth: 0 } }, KNOWN_EXTRA.map(x =>
+                h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),
+                h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat.')))),
+            h('section', { className: 'pa24-card' },
+              h('h2', null, L('存储与密钥引用（只读）', 'Storage & secret refs (read-only)')),
+              row('storage', h('strong', null, config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'), L('切换存储后端涉及数据迁移，请按初始化指南的迁移流程办理。', 'Switching backends involves data migration — follow the migration procedure in the init guide.')),
+              row('appIdEnv', h('code', null, config.appIdEnv || '—'), L('环境变量引用名；密钥值永不进界面。', 'Env var reference; secret values never appear in the UI.')),
+              row('appSecretEnv', h('code', null, config.appSecretEnv || '—')),
+              row('pgDsnEnv', h('code', null, config.pgDsnEnv || '—'), config.storage === 'sqlite' ? L('SQLite 模式不使用。', 'Unused under SQLite.') : null)),
+            h('section', { className: 'pa24-card' },
+              h('h2', null, L('语音 TTS（晨报复盘）', 'Voice TTS (digests)')),
+              row('tts.engine', sel([['none', 'none'], ['melo', 'melo'], ['volcengine', 'volcengine']], form.tts.engine, v => setTts('engine', v))),
+              form.tts.engine === 'volcengine' && row('tts.voice', h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
+                sel(form.tts.voice && !VOICES.some(([v]) => v === form.tts.voice) ? [[form.tts.voice, form.tts.voice], ...VOICES] : VOICES, form.tts.voice, v => setTts('voice', v)),
+                h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void tryVoice() }, icon('chat', { width: 15, height: 15 }), L('试听', 'Sample'))), L('试听发送到飞书，使用当前已保存的配置。', 'The sample goes to Feishu using the saved config.')),
+              form.tts.engine === 'volcengine' && row('tts.volcKeyEnv', txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('火山引擎密钥所在环境变量名。', 'Env var name holding the Volcengine key.')),
+              form.tts.engine === 'melo' && row('tts.meloDir', txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),
+            h('div', { className: 'pa24-form-actions' },
+              h('button', { type: 'button', className: 'pa24-primary', disabled: busy, onClick: () => void save() }, icon('check', { width: 16, height: 16 }), busy ? L('保存中…', 'Saving…') : L('保存并重载', 'Save & reload')),
+              h('span', { className: 'pa24-meta' }, L('保存后立即重载生效；对话修改与表单等价（同一配置源）。', 'Reload applies immediately; chat edits and the form share the same config source.')))));
         }
 
         function CardShell({ card, tier, label, manage, hidden, onToggleHidden, body, foot }) {
@@ -756,7 +901,7 @@ window.__ModuleLoader__.load({
               } }, icon(name, { width: 17, height: 17 }), t(id), chip && h('span', { className: 'pa24-chip show' + (chip.tone === 'error' ? ' error' : ''), 'aria-label': L('待核验或需要处理 ', 'Needs review or attention ') + chip.n + L(' 项', ' item(s)') }, String(chip.n)));
             })),
             h('div', { id: 'pa24-content', role: 'tabpanel', 'aria-labelledby': 'pa24-tab-' + tab, tabIndex: 0 }, content),
-            h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), L('数据保存在本机（业务账本随工作区配置，默认 SQLite、可选 PostgreSQL）；配置与记忆通过对话维护，界面只显示真实结果。', 'Data stays on this machine (ledger per workspace config — SQLite by default, PostgreSQL optional); config and memories are maintained in chat, and the UI only shows real results.'))));
+            h('footer', { className: 'pa24-footer' }, icon('shield', { width: 13, height: 13 }), L('数据保存在本机（业务账本随工作区配置，默认 SQLite、可选 PostgreSQL）；参数可经表单或对话维护，界面只显示真实结果。', 'Data stays on this machine (ledger per workspace config — SQLite by default, PostgreSQL optional); parameters are maintained via the form or chat, and the UI only shows real results.'))));
         }
 
         // F20: 企微接入面板模块——对标飞书接入：渠道配置、CLI 与身份、

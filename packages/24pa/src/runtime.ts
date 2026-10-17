@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { mkdir, realpath, stat, readFile } from 'node:fs/promises';
+import { mkdir, realpath, stat, readFile, writeFile, rename } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
@@ -8,7 +8,7 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
-import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, type PaConfig } from './config.js';
+import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, rawAgentsMdConfig, replaceAgentsMdConfig, validateConfig, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
 import { runLarkCli, sendLarkAudioMessage } from './lark.js';
 import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
@@ -843,6 +843,42 @@ export class PaRuntime {
         throw error;
       }
       // Non-destructive reload: keep sessions, work items and diagnostics.
+      if (previousConfig?.mode !== this.config!.mode) {
+        await this.connectTransport();
+      }
+    });
+  }
+
+  /**
+   * F33/P60: 参数配置表单保存——以磁盘当前 raw 配置为底合并补丁（防快照过期
+   * 覆盖），先跑完整校验器再原子写回唯一 ```json 块（工作规则区逐字节不变），
+   * 随后走与 reload 相同的装载路径。storage/version/密钥引用名不在表单白名单。
+   */
+  async updateWorkspaceConfig(patch: Record<string, unknown>): Promise<void> {
+    if (!this.workspace) throw new Error('尚未绑定工作区。');
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new ConfigError('配置补丁必须是对象。');
+    const rejected = Object.keys(patch).filter(key => !CONFIG_UPDATE_ALLOWED.has(key));
+    if (rejected.length) throw new ConfigError(`不接受从表单更新的字段：${rejected.join('、')}（storage 切换走迁移流程；version 固定；密钥引用名按指南维护）。`);
+    return this.enqueue(async () => {
+      const path = join(this.workspace!.statePath, 'AGENTS.md');
+      const source = await readFile(path, 'utf8');
+      const merged = { ...rawAgentsMdConfig(source), ...patch };
+      // 校验通过才落盘：失败时 AGENTS.md 保持原文，表单拿字段级错误。
+      const validated = validateConfig(merged);
+      if (this.config && this.config.mode !== validated.mode && (await this.hasActiveWork())) {
+        throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
+      }
+      const next = replaceAgentsMdConfig(source, merged);
+      const tmp = `${path}.pa24-tmp`;
+      await writeFile(tmp, next, 'utf8');
+      await rename(tmp, path);
+      const previousConfig = this.config;
+      try {
+        await this.loadConfig();
+      } catch (error) {
+        this.configError = `表单保存后重载失败（文件已写入，保留旧生效配置）：${(error as Error).message}`;
+        throw error;
+      }
       if (previousConfig?.mode !== this.config!.mode) {
         await this.connectTransport();
       }

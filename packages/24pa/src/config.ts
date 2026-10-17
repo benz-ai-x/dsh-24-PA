@@ -313,3 +313,35 @@ export function parseAgentsMd(source: string): ParsedAgentsMd {
 export function template(): string {
   return agentsMdTemplate(JSON.stringify(DEFAULT_CONFIG, null, 2));
 }
+
+// F33/P60: 参数配置表单的可更新字段白名单——storage（涉及数据迁移）、
+// version（固定 1）与三个密钥引用名不走表单（安全红线与迁移流程）。
+export const CONFIG_UPDATE_ALLOWED: ReadonlySet<string> = new Set([
+  'mode', 'larkProfile', 'ownerOpenId', 'folderToken', 'tasklistId', 'calendarId',
+  'calendarChannel', 'todoChannel', 'notifyChannel', 'timeZone', 'maxWorkers',
+  'enabledWorkers', 'workerModels', 'extraLocalTools', 'tts',
+]);
+
+/** Parse the raw JSON object of the unique config block; ConfigError on malformed input. */
+export function rawAgentsMdConfig(source: string): Record<string, unknown> {
+  const blocks = [...source.matchAll(JSON_BLOCK)];
+  if (blocks.length !== 1) throw new ConfigError('AGENTS.md 必须包含唯一的一个 ```json 配置块。');
+  try {
+    const parsed = JSON.parse(blocks[0]![1]!);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
+    return parsed as Record<string, unknown>;
+  } catch (error) {
+    throw new ConfigError(`配置块不是有效 JSON：${(error as Error).message}`);
+  }
+}
+
+/** Replace the unique config block in place; prose rules stay byte-identical. */
+export function replaceAgentsMdConfig(source: string, config: Record<string, unknown>): string {
+  const blocks = [...source.matchAll(JSON_BLOCK)];
+  if (blocks.length !== 1) throw new ConfigError('AGENTS.md 必须包含唯一的一个 ```json 配置块。');
+  // Only the captured JSON text is swapped; fences and surrounding whitespace
+  // stay byte-identical. The capture includes the newline before the closing
+  // fence (^``` needs a line start), so the replacement re-appends it.
+  // Function form so JSON containing '$' never triggers replacement patterns.
+  return source.replace(blocks[0]![1]!, () => JSON.stringify(config, null, 2) + '\n');
+}

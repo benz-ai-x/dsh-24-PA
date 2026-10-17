@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateConfig, parseAgentsMd, template, ConfigError, DEFAULT_CONFIG, VOLC_TTS_VOICES } from '../../lib/config.js';
+import { validateConfig, parseAgentsMd, template, ConfigError, DEFAULT_CONFIG, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, rawAgentsMdConfig, replaceAgentsMdConfig } from '../../lib/config.js';
 
 describe('AGENTS.md 配置校验', () => {
   it('接受默认模板并完整往返', () => {
@@ -104,5 +104,39 @@ describe('AGENTS.md 配置校验', () => {
     expect(volc.tts.engine).toBe('volcengine');
     // 切回 none 时残留值不报错（格式合法即保留）。
     expect(validateConfig({ ...volc, tts: { ...volc.tts, engine: 'none' } }).tts.engine).toBe('none');
+  });
+});
+
+describe('参数配置表单写回（F33/P60）', () => {
+  const doc = template();
+
+  it('replaceAgentsMdConfig：json 块替换、工作规则区逐字节不变', () => {
+    const next = replaceAgentsMdConfig(doc, { ...DEFAULT_CONFIG, maxWorkers: 5, timeZone: 'UTC' });
+    expect(rawAgentsMdConfig(next).maxWorkers).toBe(5);
+    expect(parseAgentsMd(next).config.timeZone).toBe('UTC');
+    // 规则区（块外内容）不变：去掉 json 块后逐字节相等
+    const strip = src => src.replace(/^```json\s*\n[\s\S]*?^```\s*$/gm, '<CFG>');
+    expect(strip(next)).toBe(strip(doc));
+  });
+
+  it('raw/replace 往返保持配置语义', () => {
+    const raw = rawAgentsMdConfig(doc);
+    const round = replaceAgentsMdConfig(doc, raw);
+    expect(round).toBe(doc);
+  });
+
+  it('非唯一 json 块报 ConfigError', () => {
+    const two = doc + '\n```json\n{}\n```\n';
+    expect(() => rawAgentsMdConfig(two)).toThrow(ConfigError);
+    expect(() => replaceAgentsMdConfig('', {})).toThrow(ConfigError);
+  });
+
+  it('表单白名单不含 storage/version/密钥引用名', () => {
+    for (const banned of ['storage', 'version', 'appIdEnv', 'appSecretEnv', 'pgDsnEnv']) {
+      expect(CONFIG_UPDATE_ALLOWED.has(banned)).toBe(false);
+    }
+    for (const allowed of ['mode', 'calendarChannel', 'workerModels', 'tts']) {
+      expect(CONFIG_UPDATE_ALLOWED.has(allowed)).toBe(true);
+    }
   });
 });
