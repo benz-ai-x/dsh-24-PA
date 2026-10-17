@@ -12,6 +12,34 @@ import type { InboundEvent } from './feishu.js';
 
 const PATH = '/api/24pa';
 
+// Single source of the panel RPC surface (F19 前置：RPC 常量化). Endpoints and
+// action types live here once; the dispatcher and every future action (voice
+// settings, digest voice toggles, …) extend these tables instead of adding
+// another layer of scattered string literals in comparisons.
+export const PANEL_RPC = {
+  endpoints: {
+    snapshot: 'snapshot',
+    action: 'action',
+    memory: 'memory',
+    health: 'health',
+    notesQueue: 'notes.queue',
+    roles: 'roles',
+  },
+  actions: {
+    workspaceBind: 'workspace.bind',
+    workspaceReload: 'workspace.reload',
+    connectionCheck: 'connection.check',
+    connectionWecomCheck: 'connection.wecom-check',
+    notesPoll: 'notes.poll',
+    notesRemindPoll: 'notes.remind-poll',
+    digestSupervise: 'digest.supervise',
+    robotOpen: 'robot.open',
+    roleRegister: 'role.register',
+    workList: 'work.list',
+    testInject: 'test.inject',
+  },
+} as const;
+
 interface PanelAction {
   type?: string;
   [key: string]: unknown;
@@ -29,9 +57,10 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           const body = (await request.json()) as { endpoint?: string; payload?: PanelAction };
           const endpoint = body.endpoint ?? '';
           const payload = body.payload ?? {};
-          if (endpoint === 'snapshot') return respond({ ok: true, value: await snapshot(runtime) });
-          if (endpoint === 'action') return respond({ ok: true, value: await action(runtime, payload) });
-          if (endpoint === 'memory') {
+          const E = PANEL_RPC.endpoints;
+          if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
+          if (endpoint === E.action) return respond({ ok: true, value: await action(runtime, payload) });
+          if (endpoint === E.memory) {
             if (!runtime.memory) throw new Error('尚未绑定工作区。');
             return respond({
               ok: true,
@@ -45,24 +74,14 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
               }),
             });
           }
-          if (endpoint === 'health') {
+          if (endpoint === E.health) {
             return respond({ ok: true, value: await runtime.maintenanceHealth() });
           }
-          if (endpoint === 'notes.queue') {
+          if (endpoint === E.notesQueue) {
             return respond({ ok: true, value: await runtime.reviewQueue() });
           }
-          if (endpoint === 'roles') {
+          if (endpoint === E.roles) {
             return respond({ ok: true, value: { roles: runtime.listRoles() } });
-          }
-          if (endpoint === 'memo') {
-            const memos = runtime.repos
-              ? await runtime.repos.memos.search({
-                  topic: str(payload.topic),
-                  query: str(payload.query),
-                  limit: 50,
-                })
-              : [];
-            return respond({ ok: true, value: { memos } });
           }
           throw new Error('未知管理接口。');
         } catch (error) {
@@ -92,21 +111,22 @@ async function snapshot(runtime: PaRuntime): Promise<Record<string, unknown>> {
 
 async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown> {
   const type = String(payload.type ?? '');
-  if (type === 'workspace.bind') {
+  const A = PANEL_RPC.actions;
+  if (type === A.workspaceBind) {
     const path = String(payload.path ?? '');
     return runtime.bind(path, true).then(() => snapshot(runtime));
   }
-  if (type === 'workspace.reload') return runtime.reloadWorkspace().then(() => snapshot(runtime));
-  if (type === 'connection.check') return runtime.checkAccess();
-  if (type === 'connection.wecom-check') return runtime.wecomCheck();
-  if (type === 'notes.poll') return { verified: await runtime.pollPendingNotes() };
-  if (type === 'notes.remind-poll') return { sent: await runtime.dispatchReviewReminders() };
-  if (type === 'digest.supervise') {
+  if (type === A.workspaceReload) return runtime.reloadWorkspace().then(() => snapshot(runtime));
+  if (type === A.connectionCheck) return runtime.checkAccess();
+  if (type === A.connectionWecomCheck) return runtime.wecomCheck();
+  if (type === A.notesPoll) return { verified: await runtime.pollPendingNotes() };
+  if (type === A.notesRemindPoll) return { sent: await runtime.dispatchReviewReminders() };
+  if (type === A.digestSupervise) {
     const graceMs = Number(payload.graceMs);
     return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : DIGEST_UNCONFIRMED_GRACE_MS);
   }
-  if (type === 'robot.open') return { sessionId: await runtime.openLocalSession() };
-  if (type === 'role.register') {
+  if (type === A.robotOpen) return { sessionId: await runtime.openLocalSession() };
+  if (type === A.roleRegister) {
     const definition = payload.definition as Record<string, unknown> | undefined;
     if (!definition || typeof definition !== 'object') throw new Error('缺少角色定义。');
     await runtime.registerRole(
@@ -122,10 +142,10 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
     );
     return { roles: runtime.listRoles() };
   }
-  if (type === 'work.list') {
+  if (type === A.workList) {
     return { items: runtime.repos ? await runtime.repos.workItems.list(undefined, 100) : [] };
   }
-  if (type === 'test.inject') {
+  if (type === A.testInject) {
     const transport = runtime.getTransport();
     if (!transport || typeof (transport as FakeFeishuTransport).inject !== 'function') {
       throw new Error('test.inject 仅在显式启用 fake 通道（PA24_TRANSPORT=fake）时可用。');
