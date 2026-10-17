@@ -29,6 +29,7 @@ export const PANEL_RPC = {
   actions: {
     workspaceBind: 'workspace.bind',
     workspaceReload: 'workspace.reload',
+    workspaceConfigUpdate: 'workspace.config-update',
     connectionCheck: 'connection.check',
     connectionWecomCheck: 'connection.wecom-check',
     notesPoll: 'notes.poll',
@@ -120,6 +121,11 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
     return runtime.bind(path, true).then(() => snapshot(runtime));
   }
   if (type === A.workspaceReload) return runtime.reloadWorkspace().then(() => snapshot(runtime));
+  if (type === A.workspaceConfigUpdate) {
+    const config = payload.config as Record<string, unknown> | undefined;
+    if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('缺少配置补丁。');
+    return runtime.updateWorkspaceConfig(config).then(() => snapshot(runtime));
+  }
   if (type === A.connectionCheck) return runtime.checkAccess();
   if (type === A.connectionWecomCheck) return runtime.wecomCheck();
   if (type === A.notesPoll) return { verified: await runtime.pollPendingNotes() };

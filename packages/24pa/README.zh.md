@@ -81,7 +81,7 @@ dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 
 - 「24私助」预设：标准插件全集（平台 shell、文件、检索、jobs、skill、goal、plan-mode、压缩、通用委派、ask-user、todo、web、present、ralph）＋`pa24-agent`；persona 文案已并入助理身份；`tool-schedule` 刻意不并入——提醒统一走账本。
 - 按角色裁剪的工具面：本地会话获得完整标准工具面＋全部 `pa24_*` 工具；飞书接入会话与 Worker 保持业务白名单（同一预设绝不意味着同一权限）。
-- 宿主插件：固定飞书接入与本地会话，`pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`，PostgreSQL 账本＋Outbox 回执＋离线可发提醒、手写审核卡片、简报、备份/健康与 Web 面板，并在 dsh 设置模态提供「24私助」分区管理工作区（绑定/重载/生效配置查看；侧栏面板保持不变）；企微渠道接入走随包 `wecom-setup.md`（`pa24_connection action=wecom_guide` / `wecom_check`）。
+- 宿主插件：固定飞书接入与本地会话，`pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`，PostgreSQL 账本＋Outbox 回执＋离线可发提醒、手写审核卡片、简报、备份/健康与 Web 面板（系统维护分类含参数配置表单：校验→写回 AGENTS.md 配置块→重载，与对话共享同一配置源），并在 dsh 设置模态提供「24私助」分区管理工作区（绑定/重载/生效配置查看；侧栏面板保持不变）；企微渠道接入走随包 `wecom-setup.md`（`pa24_connection action=wecom_guide` / `wecom_check`）。
 
 ### 失败与恢复
 

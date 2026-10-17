@@ -50,7 +50,7 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain("biz: '业务内容', access: '接入与通讯', system: '系统维护'");
     // 注册表驱动：注册即生卡；每卡必有 tier（角标聚合纯函数）＋body＋detail
     const ids = [...client.matchAll(/id: '([a-z]+)', cat: '(biz|access|system)'/g)].map(m => m[1]);
-    expect(ids).toEqual(['work', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'healthcheck', 'storage', 'budget']);
+    expect(ids).toEqual(['work', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'healthcheck', 'storage', 'config', 'budget']);
     expect((client.match(/^            tier: /gm) || []).length).toBe(ids.length);
     // tab 角标＝分类内 warn/error 卡片数，error 转红
     expect(client).toContain('const chipOf = cat =>');
@@ -96,7 +96,7 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain('.pa24-settings{padding:22px;height:auto;min-width:0;width:100%}');
     // 一屏一主按钮：页头对话＋工作/记忆/企微空态 CTA＋设置分区绑定＋F26 对话管理
     // 引导空态（提醒/晨报/知识库三卡详情各一）＋全量健康报告的一键检查＝9 处为实心
-    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(9);
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(10); // F33 表单保存按钮
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
     // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留
@@ -140,6 +140,22 @@ describe('client.js 挂载面（F17/F20）', () => {
       return [...block.matchAll(/'?([A-Za-z][A-Za-z0-9_.-]*)'?\s*:/g)].map(m => m[1]).sort();
     };
     expect(dictKeys('en')).toEqual(dictKeys('zh'));
+  });
+
+  it('参数配置表单（F33/P60）：system 分类卡＋六组表单＋config-update 动作', () => {
+    expect(client).toContain("id: 'config', cat: 'system'");
+    expect(client).toContain('function ConfigFormDetail({ helpers })');
+    expect(client).toContain("type: 'workspace.config-update'");
+    // 只读红线与一键应用授权值
+    expect(client).toContain("readOnly: true, style: { flex: 1, minWidth: 0 }");
+    expect(client).toContain('应用授权值');
+    expect(client).toContain('切换存储后端涉及数据迁移');
+    // 链接提取、试听复用、保存反馈
+    expect(client).toContain('extractToken');
+    expect(client).toContain("type: 'tts.test'");
+    expect(client).toContain('已保存并重载生效');
+    // 页脚口径：参数可经表单或对话维护
+    expect(client).toContain('参数可经表单或对话维护');
   });
 
   it('设置分区跳转面板走 layout 服务并保留关闭兜底', () => {
