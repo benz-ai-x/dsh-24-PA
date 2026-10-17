@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateConfig, parseAgentsMd, template, ConfigError, DEFAULT_CONFIG } from '../../lib/config.js';
+import { validateConfig, parseAgentsMd, template, ConfigError, DEFAULT_CONFIG, VOLC_TTS_VOICES } from '../../lib/config.js';
 
 describe('AGENTS.md 配置校验', () => {
   it('接受默认模板并完整往返', () => {
@@ -82,5 +82,27 @@ describe('AGENTS.md 配置校验', () => {
     expect(() => parseAgentsMd('# t\n\n```json\n{"version":1}\n```\n\n```json\n{}\n```\n')).toThrow(/唯一/);
     expect(() => parseAgentsMd('# t\n')).toThrow(/唯一/);
     expect(() => parseAgentsMd('```json\n{broken\n```')).toThrow(/有效 JSON/);
+  });
+  it('tts 引擎（F19/spec 2.3）：缺省 none、显式非法报错、按引擎要求必填', () => {
+    expect(validateConfig(DEFAULT_CONFIG).tts).toEqual({ engine: 'none', voice: '', volcKeyEnv: '', meloDir: '' });
+    const legacy = { ...DEFAULT_CONFIG };
+    delete legacy.tts;
+    expect(validateConfig(legacy).tts.engine).toBe('none');
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: null })).toThrow(/tts/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'azure' } })).toThrow(/tts.engine/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'melo' } })).toThrow(/meloDir/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine' } })).toThrow(/volcKeyEnv/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine', volcKeyEnv: 'PA24_VOLC_TTS_KEY' } })).toThrow(/voice/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine', volcKeyEnv: 'pa24-key', voice: 'zh_female_cancan_uranus_bigtts' } })).toThrow(/volcKeyEnv/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine', volcKeyEnv: 'PA24_VOLC_TTS_KEY', voice: '不是音色' } })).toThrow(/voice/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'melo', meloDir: 'relative/path' } })).toThrow(/meloDir/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'none', extra: 1 } })).toThrow(/tts/);
+    const volc = validateConfig({
+      ...DEFAULT_CONFIG,
+      tts: { engine: 'volcengine', volcKeyEnv: 'PA24_VOLC_TTS_KEY', voice: VOLC_TTS_VOICES[0].id, meloDir: '' },
+    });
+    expect(volc.tts.engine).toBe('volcengine');
+    // 切回 none 时残留值不报错（格式合法即保留）。
+    expect(validateConfig({ ...volc, tts: { ...volc.tts, engine: 'none' } }).tts.engine).toBe('none');
   });
 });

@@ -25,6 +25,38 @@ export interface DigestDeps extends SharedChannelDeps {
 
 export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
 
+/** 口播正文上限（spec 2.2）：超限截断并在语音内播报提示。 */
+export const DIGEST_SPOKEN_MAX_CHARS = 1200;
+
+/**
+ * 口播变体（F19）：剥离只对阅读有意义的元数据——同步时间戳、来源括注、
+ * 文档链接、数据缺失清单与页脚——再截断到上限并播报提示。纯文本变换，
+ * 不依赖 facts 结构，对 renderDigest 的最终输出做稳定降维。
+ */
+export function buildSpokenVariant(report: string): string {
+  const spoken: string[] = [];
+  let dropping = false;
+  for (const raw of report.split('\n')) {
+    const line = raw.trim();
+    if (line === '三、数据缺失') {
+      dropping = true; // 缺失清单与页脚是给主人核对的元数据，不进语音（缺失节后即报告结尾）
+      continue;
+    }
+    if (dropping) continue;
+    if (line.startsWith('来源：')) continue; // 页脚
+    const out = line
+      .replace(/（日历同步于[^）]*）/g, '')
+      .replace(/（审核于[^）]*）/g, '')
+      .replace(/（来源：[^）]*）/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .trimEnd();
+    spoken.push(out);
+  }
+  const text = spoken.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (text.length <= DIGEST_SPOKEN_MAX_CHARS) return text;
+  return `${text.slice(0, DIGEST_SPOKEN_MAX_CHARS)}\n……正文较长，语音版到此截断，完整内容请看随后的文字版。`;
+}
+
 export type DigestFacts = {
     calendar: { fresh: boolean; syncedAt: string | null; events: { summary: string; start: string; end: string; allDay: boolean }[] };
     tasksDue: { guid: string; summary: string; dueAt: string | null; plannedAt: string | null; estimateMinutes: number | null; overdue: boolean }[];
@@ -96,6 +128,8 @@ export class DigestService {
       schedule_spec: request,
       status: 'active',
       last_window: null,
+      // F19：开启时可选语音版（引擎取工作区 tts 配置，默认文本）。
+      voice: args.voice === true,
     });
     return {
       planId: plan.id,
@@ -127,6 +161,12 @@ export class DigestService {
         nativeWarning,
         message: `${op === 'pause' ? '计划已暂停' : '计划已停止'}（业务历史保留）${nativeWarning ? `；注意：${nativeWarning}` : ''}。`,
       };
+    }
+    if (op === 'voice') {
+      // F19（spec 2.3）：per-plan 语音开关（引擎取工作区 tts 配置）。
+      const voice = args.voice === true;
+      await this.deps.repos().digests.updatePlan(plan.id, { voice });
+      return { planId: plan.id, voice, message: voice ? '本计划改为语音版＋全文文本兜底。' : '本计划改为纯文本。' };
     }
     if (op === 'resume') {
       if (plan.status !== 'paused') throw new Error(`计划当前状态为 ${plan.status}，无法恢复。`);
@@ -166,7 +206,7 @@ export class DigestService {
       await this.deps.repos().digests.updatePlan(plan.id, { status: 'active', schedule_id: String(created.id), schedule_spec: request });
       return { planId: plan.id, scheduleId: String(created.id), message: '计划已按新安排调整（同一计划保留历史，只影响以后）。' };
     }
-    throw new Error('未知计划操作（pause/resume/stop/adjust）。');
+    throw new Error('未知计划操作（pause/resume/stop/adjust/voice）。');
   }
 
   async digestList(): Promise<unknown> {
@@ -180,6 +220,7 @@ export class DigestService {
         status: plan.status,
         scheduleId: plan.schedule_id,
         lastWindow: plan.last_window,
+        voice: plan.voice,
         recent: occurrences.map(o => ({ window: o.window_key, status: o.status, completedAt: isoDate(o.completed_at) })),
       });
     }
@@ -284,7 +325,26 @@ export class DigestService {
     await this.deps.repos().digests.updateOccurrence(row.id, { status: 'model_done', report: { facts, report }, completed_at: new Date() });
     await this.deps.repos().digests.updatePlan(plan.id, { last_window: windowKey });
     const outboxKey = `digest:${row.id}`;
-    if (this.deps.config().notifyChannel === 'wecom' || this.deps.config().ownerOpenId) {
+    const config = this.deps.config();
+    if (config.notifyChannel === 'wecom' || config.ownerOpenId) {
+      // F19（spec 2.3）：plan.voice 且引擎可用时，先入语音行（口播正文、投递时
+      // 现场合成），全文文本行紧随其后兜底。wecom 通知通道与 tts.engine=none
+      // 都按降级处理——只发文本，可观测告警，不中断。
+      if (plan.voice) {
+        if (config.notifyChannel === 'wecom') {
+          console.warn('[pa24] 语音简报降级为文本：通知通道为企微（wecom 语音 parity 后置）。');
+        } else if (config.tts.engine === 'none') {
+          console.warn('[pa24] 语音简报降级为文本：未配置 TTS 引擎（AGENTS.md tts.engine=none）。');
+        } else {
+          await this.deps.repos().outbox.enqueue({
+            dedupKey: `${outboxKey}:voice`,
+            channel: 'feishu',
+            target: config.ownerOpenId,
+            kind: 'audio',
+            content: { text: buildSpokenVariant(report) },
+          });
+        }
+      }
       await this.deps.notifyOwner(outboxKey, report);
       // model_done = model work finished and the send intent is durably
       // queued; platform acceptance is the outbox row's own state (P24 区分).

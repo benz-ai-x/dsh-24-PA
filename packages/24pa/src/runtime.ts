@@ -8,9 +8,10 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
-import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, type PaConfig } from './config.js';
+import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
-import { runLarkCli } from './lark.js';
+import { runLarkCli, sendLarkAudioMessage } from './lark.js';
+import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
@@ -251,6 +252,8 @@ export class PaRuntime {
   }
   private dispatching = false;
   private outboxSending = false;
+  /** 最近一次 tts.probe 结果（健康面只读缓存，不做子进程探测）。 */
+  private ttsProbeCache: { at: string; result: TtsReadiness } | null = null;
   private noteVerifying = false;
   closed = false;
   startedAt: string | null = null;
@@ -2789,6 +2792,7 @@ export class PaRuntime {
       schedule_spec: spec,
       status: 'active',
       last_window: null,
+      voice: false,
     });
     return {
       planId: id,
@@ -3396,6 +3400,17 @@ export class PaRuntime {
           : '企微渠道已启用但尚未执行接入检查（用 pa24_connection action=wecom_check 发起只读检查）',
       });
     }
+    // F19: voice engine readiness mirrors the lark-cli pattern — verdict from
+    // the last on-demand tts.probe; no subprocess spawns during health.
+    if (config && config.tts.engine !== 'none') {
+      capabilities.push({
+        id: 'tts',
+        state: this.ttsProbeCache ? (this.ttsProbeCache.result.ready ? 'ok' : 'warn') : 'info',
+        message: this.ttsProbeCache
+          ? `语音引擎 ${config.tts.engine}${this.ttsProbeCache.result.ready ? ' 就绪' : `：${this.ttsProbeCache.result.problems.join('；')}`}`
+          : `语音引擎 ${config.tts.engine} 已配置（面板「晨报与复盘」里发起只读预检）`,
+      });
+    }
     // F18: extraLocalTools resolution — configured names that never mounted
     // (missing provider bundle or profile mcp-client entry) surface here
     // instead of failing agent creation.
@@ -3463,6 +3478,34 @@ export class PaRuntime {
         offlineAlert: '完全离线告警依赖独立服务器监控（声明边界）。',
       },
     };
+  }
+
+
+  /** F19（spec 2.3）：语音引擎只读预检（面板按需触发；结果缓存供健康面与快照展示）。 */
+  async ttsProbe(): Promise<unknown> {
+    if (!this.config) throw new Error('尚未绑定工作区。');
+    const result = await probeTts(this.config.tts, process.env);
+    this.ttsProbeCache = { at: nowIso(), result };
+    return { ...result, voice: this.config.tts.voice, voices: VOLC_TTS_VOICES };
+  }
+
+  /** F19（spec 2.3）：入队一条测试语音，经真实引擎合成后送达主人飞书。 */
+  async ttsTestSend(): Promise<unknown> {
+    if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    if (this.config.tts.engine === 'none') throw new Error('未配置 TTS 引擎：先在 AGENTS.md 配置块设置 tts.engine（melo 或 volcengine）。');
+    if (this.config.notifyChannel === 'wecom') throw new Error('通知通道为企微，暂不支持语音（wecom 语音 parity 后置）。');
+    if (!this.config.ownerOpenId) throw new Error('尚未绑定主人飞书身份（ownerOpenId）。');
+    // 「二十四私助」为口播形态：TTS 朗读数字串不如汉字自然（研究第六节实测口径）。
+    const text = '主人你好，这是二十四私助的语音测试。听到这条消息，说明语音投递链路已经打通。';
+    const dedupKey = `tts-test:${randomUUID().slice(0, 8)}`;
+    await this.repos.outbox.enqueue({
+      dedupKey,
+      channel: 'feishu',
+      target: this.config.ownerOpenId,
+      kind: 'audio',
+      content: { text },
+    });
+    return { queued: true, dedupKey, message: '测试语音已入发送队列，稍后送达主人飞书。' };
   }
 
     async notesTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
@@ -3657,6 +3700,30 @@ export class PaRuntime {
           await this.repos.outbox.mark(row.id, { status: 'pending', error: '飞书传输未连接，暂缓投递', retryInMs: 60_000 }).catch(() => {});
           continue;
         }
+        if (row.kind === 'audio') {
+          // F19（spec 2.3）：语音行只在投递时合成（自包含可重放）。行内存的
+          // 是口播正文；合成或发送失败走共享 outbox 失败策略（退避重试，
+          // 3 次后 failed），紧跟的全文文本行独立投递、不受此行牵连。
+          try {
+            const synth = resolveTtsEngine(this.config!.tts, process.env);
+            const spoken = String(row.content?.text ?? '');
+            if (!synth) throw new Error('TTS 引擎未配置（tts.engine=none），语音行无法投递。');
+            const ogg = await synth(spoken);
+            const sent = await sendLarkAudioMessage(
+              cliOptions(this.config!, this.options.larkCliBin, 120_000),
+              row.target,
+              ogg,
+              row.dedup_key,
+            );
+            this.lastSentAt = nowIso();
+            await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
+            await this.recordMessageRoute(row.dedup_key, sent.messageId);
+          } catch (error) {
+            console.warn(`[pa24] 语音行投递失败（${row.dedup_key}）：${(error as Error).message}；按 outbox 策略退避重试，全文文本行不受牵连。`);
+            await this.markOutboxFailure(row, error);
+          }
+          continue;
+        }
         try {
           const uuid = row.dedup_key.slice(0, 50);
           const sent =
@@ -3767,6 +3834,11 @@ export class PaRuntime {
       },
       diagnostics: this.diagnostics,
       wecom: this.wecomChannels.wecomDiagnosticsSnapshot(),
+      tts: {
+        engine: this.config?.tts.engine ?? 'none',
+        voice: this.config?.tts.voice ?? '',
+        probe: this.ttsProbeCache,
+      },
     };
   }
 }

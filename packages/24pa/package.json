@@ -18,6 +18,7 @@
     "cordis.patch.yml",
     "feishu-setup.md",
     "wecom-setup.md",
+    "melo",
     "README.md"
   ],
   "scripts": {

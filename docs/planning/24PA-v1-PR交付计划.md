@@ -50,7 +50,7 @@ F06 是最早可实际使用的手写完整流程：收图、识别、写文档�
 | F32 周期服务域深化 | [P64 / #107](https://github.com/benz-ai-x/dsh-24-PA/issues/107)（故事 136，已交付 PR #109） | F31 合并 | 纯搬家：周期服务簇 13 方法（~533 行）→ `src/digest-service.ts` DigestService（DigestDeps extends SharedChannelDeps 首个复用者）；**F19 语音投递在此模块内扩展**。 |
 | F33 CLI 网关合一 | [P65 / #110](https://github.com/benz-ai-x/dsh-24-PA/issues/110)（故事 137，已交付 PR #111） | 无 | 纯重构：lark/wecom 网关 8 段同构进程管理提取 `src/cli-gateway.ts` runCliProcess 骨架＋fail(kind) 四态错误工厂；信封判定留域薄层；对外签名/错误类零改动，两域测试原地绿证零行为变化。 |
 | F18 QwenNote 听记接入 | [P50 / #70](https://github.com/benz-ai-x/dsh-24-PA/issues/70)（故事 125，已交付 PR #95＋#113，#70 已关，研究见 [F18 研究](../research/F18-QwenNote听记MCP接入研究.md)） | F01–F12 全部合并（extraLocalTools/prompts.ts/向导三件套随 F13–F15 已交付） | profile 配置 dsh-mcp-client 条目（stdio＋mcp-remote OAuth 桥，serverName=qwennote）并经 extraLocalTools 放行后：本地24私助会话可查询主人 QwenNote 录音卡的听记（最近列表、转写与纪要读取），引用带来源标注；行动提炼走既有候选行动→审核→行动授权；仅本地会话可用，飞书入口与 Worker 不放行；初始化指南含听记接入节（首次授权本人浏览器完成）与诊断三态。 |
-| F19 晨报复盘语音投递 | [P51 / #72](https://github.com/benz-ai-x/dsh-24-PA/issues/72)（故事 126，研究见 [F19 研究](../research/F19-晨报复盘语音投递实现研究.md)） | F01–F12 全部合并（建议排 F16 之后：同改 outbox 投递分派） | digest 计划开启 voice 后：晨报/复盘到点先送达本机 TTS 合成的原生语音消息（say＋ffmpeg 转 opus，bot 身份经 lark-cli --audio），紧跟全文文本兜底；语音正文为口播变体（剥离元数据行）并截断上限；say/ffmpeg 缺失降级文本不中断；`digest_control` 可调 voice；初始化指南补 macOS/ffmpeg 前置项。 |
+| F19 晨报复盘语音投递 | [P51 / #72](https://github.com/benz-ai-x/dsh-24-PA/issues/72)（故事 126，2.3 修订，研究见 [F19 研究](../research/F19-晨报复盘语音投递实现研究.md)） | F01–F12 全部合并（建议排 F16 之后：同改 outbox 投递分派） | AGENTS.md `tts` 配置块二选一引擎（Melo 本地＝子进程 sherpa-onnx＋ffmpeg、需 `meloDir`；豆包云＝HTTP unidirectional、需 `volcKeyEnv` 环境变量引用＋音色）后：digest 计划开启 voice（per-plan，`digest_control` 可调）到点先送达合成的原生语音消息（bot 身份经 lark-cli --audio），紧跟全文文本兜底；语音正文为口播变体（剥离元数据行）并截断上限；引擎未配置/缺依赖/合成失败降级文本不中断；面板语音设置区（预检/测试语音）；初始化指南补 TTS 前置项（含豆包控制台两坑）。 |
 | F23 接入绑定体验 | [P55 / #80](https://github.com/benz-ai-x/dsh-24-PA/issues/80)（故事 129，研究见 [F23 研究](../research/F23-接入绑定体验实现研究.md)） | F01–F12 全部合并（F15/F16 向导已交付） | 新向导「先全量、后集中」：配置开始即交付本人操作全量清单＋提前发起的授权链接，一口气做完一次集中验收（往返 N → ≈2）；本人报完成后 agent 自动循环 check/wecom_check 按 nextSteps 收敛一次汇总；wecom 服务授权失效（850002/850003）经通知渠道主动推送续期链接。面板承载 QR/Secret 输入后置另立项。 |
 | F20 设置单入口与企微接入模块 | [P52 / #73](https://github.com/benz-ai-x/dsh-24-PA/issues/73)（故事 124 修订＋127，已交付 PR #74） | F01–F12 全部合并（F16 渠道已交付） | dsh 设置单入口收编工作区配置（故事 124 修订）；面板「企微接入」模块：渠道配置（日程/待办/推送各自 feishu 或 wecom）、CLI 与授权真人身份、服务级授权状态（通过/未授权/已过期/企业不可用）与平台续期指引原文，一键发起只读检查。 |
 | F21 面板 UI/UX 走查修复 | [P53 / #75](https://github.com/benz-ai-x/dsh-24-PA/issues/75)（已交付 PR #76） | F01–F12 全部合并 | 面板走查三根因修复（黑屏级联防护、连接状态误显、加载态/空态/错误态补齐）＋149 单测＋逐屏视觉验证。 |
@@ -63,7 +63,7 @@ F16/F17 是用户 2026-10-07 确认的设计变更（规格 1.6 / 设计 v0.7）
 
 F18（P50 / #70，故事 125，规格 1.7 / 设计 v0.8）：用户 2026-10-07 提出的 QwenNote 录音卡听记接入。通道复用 dsh 内建 dsh-mcp-client（不自研 MCP 客户端、不新增包依赖），OAuth 经 mcp-remote stdio 桥（锁版本）；QwenNote MCP 的工具面与 token 形态以真机实测为准（工单第一步），架构不成立时回提案重审。
 
-F19（P51 / #72，故事 126，规格 1.8）：用户 2026-10-07 提出的晨报复盘语音投递。三段链路已真机验证（digest 模板渲染既有、say＋ffmpeg 合成实测、lark-cli `--audio` bot 身份送达实测）；投递形态扩展，不新增服务；与 F16 同改 outbox 分派，建议串行实施。
+F19（P51 / #72，故事 126，规格 1.8，2.3 修订）：用户 2026-10-07 提出的晨报复盘语音投递，2026-10-17 裁决 TTS 双引擎（Melo 本地/豆包云二选一，配置层选择，say 适配器废止）。三段链路已真机验证（digest 模板渲染既有、豆包 unidirectional 接口＋Melo sherpa-onnx 合成实测、lark-cli `--audio` bot 身份送达实测）；投递形态扩展，不新增服务；与 F16 同改 outbox 分派，建议串行实施。
 
 F04 使用 F03 的实际任务查询呈现日程变更的关联影响，外部操作底座由 F01 的备忘流程建立。F09 的周回顾读取 F08 等待项；F10 会前准备复用 F09 智能 Schedule。F12 汇总运维能力，各早期功能仍须自行交付基础迁移和恢复说明，不把可靠性拖到最后。管理页和共同视觉规范同样随功能交付：F01 建立统一入口、SVG/主题/键盘基础和只读接入页，F02 交付事项与记忆内容，F07 补齐审核查阅，F12 扩展健康与日志。F12 的 T20 是全量复核，不是届时才开发全部界面。
 

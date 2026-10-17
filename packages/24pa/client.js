@@ -480,6 +480,9 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-helper' }, L('听记是按需读取的外部资料，不落业务账本；从中提炼的候选行动走既有审核与行动授权，不因来源是听记跳过确认。', 'Minutes are external material read on demand and never land in the ledger; candidate actions go through the existing review and action authorization — the source never skips confirmation.'))));
         }
 
+        // F19：tts 引擎是否启用（多卡判断收敛一处；none/未配置都按关闭）。
+        const voiceOn = config => !!config?.tts?.engine && config.tts.engine !== 'none';
+
         // 卡片注册表：tier 为纯函数（角标聚合复用同一结果）；label 可覆盖状态词。
         const CARDS = [
           {
@@ -521,11 +524,29 @@ window.__ModuleLoader__.load({
             detail: helpers => (helpers.workspace ? h(MemoryView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('memory', 'violet', L('尚未绑定工作区', 'No workspace bound'), L('绑定工作区后，记忆会按确认状态显示在这里。', 'Once a workspace is bound, memories show up here with their confirmation status.'))),
           },
           {
-            id: 'digest', cat: 'biz', tone: 'green', icon: 'pulse', title: ['晨报与复盘', 'Digest & retrospective'], sub: ['周期服务 · 原生定时唤醒', 'Scheduled services · native Schedule wake'], action: ['调整计划', 'Adjust plans'],
-            tier: () => 'unchecked', label: () => L('对话管理', 'Managed in chat'),
-            body: () => h('p', { className: 'pa24-meta' }, L('晨报/晚间/每周回顾计划经24私助会话开启与调整', 'Morning/evening/weekly digest plans are enabled and adjusted in the 24PA session')),
-            detail: helpers => empty('pulse', 'green', L('周期服务经对话管理', 'Scheduled services are managed in chat'), L('对24私助说「开启晨报」或「调整每周回顾时间」即可；到点由原生 Schedule 唤醒后投递。', 'Say “enable the morning digest” or “move the weekly retrospective” — the native Schedule wakes and delivers on time.'),
-              [helpers.button('chat', L('与24私助对话', 'Chat with 24PA'), helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
+            id: 'digest', cat: 'biz', tone: 'green', icon: 'pulse', title: ['晨报与复盘', 'Digest & retrospective'], sub: ['周期服务 · 原生定时唤醒 · 语音版', 'Scheduled services · native Schedule wake · voice'], action: ['调整计划', 'Adjust plans'],
+            tier: () => 'unchecked',
+            label: () => L('对话管理', 'Managed in chat'),
+            body: helpers => h('p', { className: 'pa24-meta' }, L('晨报/晚间/每周回顾计划经24私助会话开启与调整', 'Morning/evening/weekly digest plans are enabled and adjusted in the 24PA session')
+              + (voiceOn(helpers.config) ? L('；语音引擎 ' + helpers.config.tts.engine, '; voice engine ' + helpers.config.tts.engine) : '')),
+            detail: helpers => {
+              const tts = helpers.state?.tts, engine = helpers.config?.tts?.engine || 'none', on = voiceOn(helpers.config);
+              const probe = tts?.probe?.result;
+              const engineLine = engine === 'none'
+                ? L('语音版未启用：在 AGENTS.md 配置块设置 tts.engine（melo 或 volcengine）。', 'Voice is off: set tts.engine (melo or volcengine) in the AGENTS.md config block.')
+                : L(`语音引擎：${engine}${tts?.voice ? ' · ' + tts.voice : ''}`, `Voice engine: ${engine}${tts?.voice ? ' · ' + tts.voice : ''}`);
+              return h('div', null,
+                empty('pulse', 'green', L('周期服务经对话管理', 'Scheduled services are managed in chat'), L('对24私助说「开启晨报」或「调整每周回顾时间」即可；开启语音版后到点先送达语音、紧跟全文文本。', 'Say “enable the morning digest” or “move the weekly retrospective”; with voice on, the audio lands first, then the full text.'),
+                  [helpers.button('chat', L('与24私助对话', 'Chat with 24PA'), helpers.openRobot, { key: 'chat', className: 'pa24-primary' })]),
+                h('div', { className: 'pa24-card', style: { marginTop: 14 } },
+                  h('div', { className: 'pa24-note' },
+                    h('p', { className: 'pa24-meta' }, engineLine),
+                    probe ? h('p', { className: 'pa24-meta' }, (probe.ready ? L('引擎预检通过。', 'Engine probe passed.') : L('引擎预检未通过：', 'Engine probe failed: ') + (probe.problems || []).join('；'))) : h('p', { className: 'pa24-meta' }, L('尚未预检（引擎/密钥/依赖存在性只读检查）。', 'Not probed yet (read-only check of engine/key/dependencies).'))),
+                  on && h('p', { className: 'pa24-meta', style: { marginTop: 8 } }, L('引擎与音色经 AGENTS.md 配置块 tts 字段调整（密钥环境变量见初始化指南「语音晨报/复盘」节）。', 'Engine and voice are set via the tts field of the AGENTS.md config block; the key environment variable is documented in the setup guide.')),
+                  h('div', { className: 'pa24-row' },
+                    helpers.button('refresh', L('检测语音引擎', 'Probe voice engine'), () => rpc('action', { type: 'tts.probe' }), { className: 'pa24-quiet' }),
+                    on && helpers.button('bot', L('发一条测试语音', 'Send a test voice'), () => rpc('action', { type: 'tts.test' }), { key: 'test', className: 'pa24-quiet' }))));
+            },
           },
           {
             id: 'feishu', cat: 'access', tone: 'green', icon: 'plug', title: ['飞书', 'Feishu'], sub: ['唯一收信入口 · 发件与审核卡', 'The only inbound · outbound & review cards'], action: ['接入详情', 'Access details'],

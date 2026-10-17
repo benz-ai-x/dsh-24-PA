@@ -158,7 +158,7 @@ describe('PostgreSQL 业务账本', () => {
     expect((await repos.inbox.get('f28-open')).status).toBe('delivered');
     // digests.activeMeetingPreps：按 eventId 找活跃会前准备（重复守卫/取消共用）
     expect(await repos.digests.activeMeetingPreps('evt-none')).toEqual([]);
-    await repos.digests.insertPlan({ id: 'prep-f28', kind: 'meeting_prep', status: 'active', title: '会前', schedule_spec: { eventId: 'evt-f28' }, session_id: 's-prep', schedule_id: null, last_window: null });
+    await repos.digests.insertPlan({ id: 'prep-f28', kind: 'meeting_prep', status: 'active', title: '会前', schedule_spec: { eventId: 'evt-f28' }, session_id: 's-prep', schedule_id: null, last_window: null, voice: false });
     const preps = await repos.digests.activeMeetingPreps('evt-f28');
     expect(preps.map(p => p.id)).toEqual(['prep-f28']);
     // projects.listIdNames
