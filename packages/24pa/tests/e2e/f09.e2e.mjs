@@ -238,6 +238,14 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     const adjusted = await waitToolResult('pa24_work', '已按新安排调整', '调整回执', 60_000, before);
     expect(adjusted).toContain(planId);
     expect((await rows(`select count(*)::int as n from pa24.digest_plan where id='${planId}'`))[0].n).toBe(1);
+    // F19（spec 2.3）：per-plan 语音开关（迁移 v12 的 voice 列读写，引擎仍为 none 时投递降级文本）
+    await writeScript(rmdScript('改为语音版', { action: 'digest_control', planId, op: 'voice', voice: true }));
+    before = llm.log.length;
+    await inject(ownerEvent('evt-e3v', { text: '晚间回顾改成语音版' }));
+    await waitWorkItem('改为语音版', '语音开关完成');
+    const voiced = await waitToolResult('pa24_work', '语音版', '语音开关回执', 60_000, before);
+    expect(voiced).toContain('全文文本兜底');
+    expect((await rows(`select voice from pa24.digest_plan where id='${planId}'`))[0].voice).toBeTruthy();
   });
 
   it('P24/P25：once 晨报经原生 Schedule 唤醒 Lead→digest Worker→Outbox，事实与建议分离', async () => {

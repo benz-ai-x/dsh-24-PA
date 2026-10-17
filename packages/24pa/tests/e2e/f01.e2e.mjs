@@ -254,7 +254,7 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
     expect(snap.outbox.filter(o => o.dedup_key === 'status:evt-status-1')).toHaveLength(1);
     // 历史事项与备忘仍从账本可见。
     expect((snap.work ?? []).length).toBeGreaterThan(0);
-    const memos = await host.api('memo', { query: '合作' });
-    expect(memos.memos.length).toBeGreaterThan(0);
+    // 备忘账本经 SQL 直读断言（memo 检索端点已随 RPC 常量化删除：面板面只保留 client 在用接口）
+    expect(Number(await cluster.query(`select count(*) from pa24.memo where topic like '%合作%'`))).toBeGreaterThan(0);
   });
 });
