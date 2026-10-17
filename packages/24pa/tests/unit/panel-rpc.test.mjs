@@ -12,7 +12,7 @@ describe('面板 RPC 常量表', () => {
   it('action 表覆盖既有动作且无重复', () => {
     const actions = Object.values(PANEL_RPC.actions);
     expect(new Set(actions).size).toBe(actions.length);
-    for (const known of ['workspace.bind', 'workspace.reload', 'connection.check', 'connection.wecom-check', 'digest.supervise', 'test.inject']) {
+    for (const known of ['workspace.bind', 'workspace.reload', 'connection.check', 'connection.wecom-check', 'digest.supervise', 'tts.probe', 'tts.test', 'test.inject']) {
       expect(actions).toContain(known);
     }
   });

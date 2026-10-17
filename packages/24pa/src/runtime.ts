@@ -8,10 +8,10 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
-import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, type PaConfig } from './config.js';
+import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
 import { runLarkCli, sendLarkAudioMessage } from './lark.js';
-import { resolveTtsEngine } from './tts.js';
+import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
@@ -3377,6 +3377,34 @@ export class PaRuntime {
    * state, sync freshness, usage counters, and data-flow disclosure. Secrets
    * never appear; a down dependency is an error, never a silent zero.
    */
+  private ttsProbeCache: { at: string; result: TtsReadiness } | null = null;
+
+  /** F19（spec 2.3）：语音引擎只读预检（面板按需触发；结果缓存供健康面与快照展示）。 */
+  async ttsProbe(): Promise<unknown> {
+    if (!this.config) throw new Error('尚未绑定工作区。');
+    const result = await probeTts(this.config.tts, process.env);
+    this.ttsProbeCache = { at: nowIso(), result };
+    return { ...result, voice: this.config.tts.voice, voices: VOLC_TTS_VOICES };
+  }
+
+  /** F19（spec 2.3）：入队一条测试语音，经真实引擎合成后送达主人飞书。 */
+  async ttsTestSend(): Promise<unknown> {
+    if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    if (this.config.tts.engine === 'none') throw new Error('未配置 TTS 引擎：先在 AGENTS.md 配置块设置 tts.engine（melo 或 volcengine）。');
+    if (this.config.notifyChannel === 'wecom') throw new Error('通知通道为企微，暂不支持语音（wecom 语音 parity 后置）。');
+    if (!this.config.ownerOpenId) throw new Error('尚未绑定主人飞书身份（ownerOpenId）。');
+    const text = '主人你好，这是二十四私助的语音测试。听到这条消息，说明语音投递链路已经打通。';
+    const dedupKey = `tts-test:${randomUUID().slice(0, 8)}`;
+    await this.repos.outbox.enqueue({
+      dedupKey,
+      channel: 'feishu',
+      target: this.config.ownerOpenId,
+      kind: 'audio',
+      content: { text },
+    });
+    return { queued: true, dedupKey, message: '测试语音已入发送队列，稍后送达主人飞书。' };
+  }
+
   async maintenanceHealth(): Promise<unknown> {
     const ready = this.readiness();
     const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string; detail?: unknown }[] = [];
@@ -3396,6 +3424,17 @@ export class PaRuntime {
         message: this.wecomChannels.diagnostics
           ? `最近检查：${this.wecomChannels.diagnostics.cli.state === 'ok' ? 'CLI 可用' : this.wecomChannels.diagnostics.cli.message}；${this.wecomChannels.diagnostics.identity.message}`
           : '企微渠道已启用但尚未执行接入检查（用 pa24_connection action=wecom_check 发起只读检查）',
+      });
+    }
+    // F19: voice engine readiness mirrors the lark-cli pattern — verdict from
+    // the last on-demand tts.probe; no subprocess spawns during health.
+    if (config && config.tts.engine !== 'none') {
+      capabilities.push({
+        id: 'tts',
+        state: this.ttsProbeCache ? (this.ttsProbeCache.result.ready ? 'ok' : 'warn') : 'info',
+        message: this.ttsProbeCache
+          ? `语音引擎 ${config.tts.engine}${this.ttsProbeCache.result.ready ? ' 就绪' : `：${this.ttsProbeCache.result.problems.join('；')}`}`
+          : `语音引擎 ${config.tts.engine} 已配置（面板「晨报与复盘」里发起只读预检）`,
       });
     }
     // F18: extraLocalTools resolution — configured names that never mounted
@@ -3792,6 +3831,11 @@ export class PaRuntime {
       },
       diagnostics: this.diagnostics,
       wecom: this.wecomChannels.wecomDiagnosticsSnapshot(),
+      tts: {
+        engine: this.config?.tts.engine ?? 'none',
+        voice: this.config?.tts.voice ?? '',
+        probe: this.ttsProbeCache,
+      },
     };
   }
 }

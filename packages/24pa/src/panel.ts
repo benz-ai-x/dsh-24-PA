@@ -33,6 +33,8 @@ export const PANEL_RPC = {
     notesPoll: 'notes.poll',
     notesRemindPoll: 'notes.remind-poll',
     digestSupervise: 'digest.supervise',
+    ttsProbe: 'tts.probe',
+    ttsTest: 'tts.test',
     robotOpen: 'robot.open',
     roleRegister: 'role.register',
     workList: 'work.list',
@@ -125,6 +127,8 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
     const graceMs = Number(payload.graceMs);
     return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : DIGEST_UNCONFIRMED_GRACE_MS);
   }
+  if (type === A.ttsProbe) return runtime.ttsProbe();
+  if (type === A.ttsTest) return runtime.ttsTestSend();
   if (type === A.robotOpen) return { sessionId: await runtime.openLocalSession() };
   if (type === A.roleRegister) {
     const definition = payload.definition as Record<string, unknown> | undefined;
