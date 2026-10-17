@@ -1,6 +1,6 @@
 # 24私助（24PA）v1 PR 交付计划
 
-更新：2026-10-07。用户已确定“一个 PR 交付一个可以实际使用的功能，可以包含多个 Issue”，已发布的工单按本轮命名与原型反馈同步到 [规格](../24PA-v1-SPEC.md)（现 1.3）和 [父规格 #1](https://github.com/benz-ai-x/dsh-24-PA/issues/1) 重新校准；v1 的 44 张工单已全部发布。
+更新：2026-10-07。用户已确定“一个 PR 交付一个可以实际使用的功能，可以包含多个 Issue”，已发布的工单按本轮命名与原型反馈同步到 [规格](../24PA-v1-SPEC.md)（现 2.2）和 [父规格 #1](https://github.com/benz-ai-x/dsh-24-PA/issues/1) 重新校准；v1 的 44 张工单已全部发布。
 
 本次只发布实施计划，正式实现和生产部署仍按用户后续授权执行。可丢弃原型及其证据见 [原型验收记录](../prototypes/24PA-原型验收记录.md)，不计入下面 12 个生产功能 PR。
 
@@ -41,7 +41,7 @@ F06 是最早可实际使用的手写完整流程：收图、识别、写文档�
 | F14 提示词结构化（LangGPT 对标） | [P46 / #62](https://github.com/benz-ai-x/dsh-24-PA/issues/62)（调研见 [研究清单](../research/提示词结构化-LangGPT对标与改进清单.md)） | F01–F12 全部合并 | 内置提示词集中于 `src/prompts.ts` 并带版本；Lead 规则按「身份/协调/业务/安全」分节注入；Worker persona 统一「职责/完成标准/边界/输出要求」四节；工作区 AGENTS.md 自然语言规则注入系统提示（只能收紧不能放宽）；委派与定时唤醒 prompt 模板化并带安全重申；`workerModels` 路由可选 `simplePersona` 简化结构；提示词关键锚点有快照测试守护。 |
 | F16 企微日程待办渠道 | P48（故事 122–123，研究见 [F16 研究](../research/F16-企微日程待办实现研究.md)） | F17 合并（设置分区先行，无代码依赖，仅交付顺序） | 工作区配置 `calendarChannel`/`todoChannel`/`notifyChannel` 按域切换到企业微信后：助理经 wecom-cli 查询/创建/取消企微日程、创建/完成企微待办（写操作过 staged 账防重，unknown 提示核对）；提醒与汇报经企微机器人 markdown 单向推送（目标取授权真人）；`pa24_connection` 提供 wecom-setup 指南与授权诊断（未授权/过期/企业不可用 nextSteps）；wecom-cli 状态进入维护健康面板。 |
 | F17 设置分区管理工作区 | P49（故事 124） | F01–F12 全部合并 | dsh 设置模态出现「24私助」分区：完成工作区绑定/切换、配置重载、生效配置查看（复用面板既有 RPC 与组件）；顶部可跳转打开24私助面板；侧栏面板入口保持不变。 |
-| F24 手写识别质量 | [P56 / #81](https://github.com/benz-ai-x/dsh-24-PA/issues/81)（故事 130，已交付 PR #82） | F01–F12 全部合并 | vision-route 健康项升级能力判定（疑似纯文本模型显式 warn）；待审文档空段省略、单页不重复分页转写；handwriting persona v2 长度纪律。 |
+| F24 手写识别质量 | [P56 / #81](https://github.com/benz-ai-x/dsh-24-PA/issues/81)（故事 130，已交付 PR #82，研究见 [F24 研究](../research/F24-手写识别质量实现研究.md)） | F01–F12 全部合并 | vision-route 健康项升级能力判定（疑似纯文本模型显式 warn）；待审文档空段省略、单页不重复分页转写；handwriting persona v2 长度纪律。 |
 | F25 默认 SQLite 存储 | [P57 / #84](https://github.com/benz-ai-x/dsh-24-PA/issues/84)（故事 131，研究见 [F25 研究](../research/F25-SQLite默认存储实现研究.md)） | F01–F12 全部合并 | 存储改默认 SQLite（工作区 data/pa24.db、WAL、node:sqlite，宿主 Node ≥ 23.4）、可选 PostgreSQL（`storage: "postgres"` 显式声明）；方言适配层（共享迁移清单与业务 SQL，残留 PG 方言即抛错）；备份改 checkpoint 文件拷贝；双后端测试矩阵；随票反向修订 SPEC 三处「不使用 SQLite」条款。 |
 | F28 存储缝收口 | [P60 / #100](https://github.com/benz-ai-x/dsh-24-PA/issues/100)（故事 132，已交付 PR #103） | F25 合并 | 纯重构：runtime/reminders 裸 SQL 清零，repo 成为唯一 SQL 作者；PaDb 新增 `backup()`（SQLite=checkpoint+WAL optional 件、PG=pg_dump）；`as SqliteDb` 强转消失；死文案修正。 |
 | F29 手写审核管线提取 | [P61 / #101](https://github.com/benz-ai-x/dsh-24-PA/issues/101)（故事 133，已交付 PR #104） | F28 合并 | 纯搬家：手写簇 13 方法（-842 行）→ `src/handwriting-pipeline.ts` HandwritingPipeline（HandwritingDeps 15 项注入，接口 8 方法）；FakeFeishuTransport 归宿 feishu.ts（demo 模式生产传输）。 |
@@ -49,18 +49,17 @@ F06 是最早可实际使用的手写完整流程：收图、识别、写文档�
 | F31 深模块 deps 公共子集 | [P63 / #106](https://github.com/benz-ai-x/dsh-24-PA/issues/106)（故事 135，已交付 PR #108） | F30 合并 | 纯接口收敛：`src/channel-deps.ts` SharedChannelDeps 六字段基接口（两实例逐字重复证明）；cli 统一 `{bin, timeoutMs}`；runtime `baseChannelDeps()` 单点接线＋共享测试桩。 |
 | F32 周期服务域深化 | [P64 / #107](https://github.com/benz-ai-x/dsh-24-PA/issues/107)（故事 136，已交付 PR #109） | F31 合并 | 纯搬家：周期服务簇 13 方法（~533 行）→ `src/digest-service.ts` DigestService（DigestDeps extends SharedChannelDeps 首个复用者）；**F19 语音投递在此模块内扩展**。 |
 | F33 CLI 网关合一 | [P65 / #110](https://github.com/benz-ai-x/dsh-24-PA/issues/110)（故事 137，已交付 PR #111） | 无 | 纯重构：lark/wecom 网关 8 段同构进程管理提取 `src/cli-gateway.ts` runCliProcess 骨架＋fail(kind) 四态错误工厂；信封判定留域薄层；对外签名/错误类零改动，两域测试原地绿证零行为变化。 |
-| F18 QwenNote 听记接入 | [P50 / #70](https://github.com/benz-ai-x/dsh-24-PA/issues/70)（故事 125，研究见 [F18 研究](../research/F18-QwenNote听记MCP接入研究.md)） | F01–F12 全部合并（extraLocalTools/prompts.ts/向导三件套随 F13–F15 已交付） | profile 配置 dsh-mcp-client 条目（stdio＋mcp-remote OAuth 桥，serverName=qwennote）并经 extraLocalTools 放行后：本地24私助会话可查询主人 QwenNote 录音卡的听记（最近列表、转写与纪要读取），引用带来源标注；行动提炼走既有候选行动→审核→行动授权；仅本地会话可用，飞书入口与 Worker 不放行；初始化指南含听记接入节（首次授权本人浏览器完成）与诊断三态。 |
+| F18 QwenNote 听记接入 | [P50 / #70](https://github.com/benz-ai-x/dsh-24-PA/issues/70)（故事 125，已交付 PR #95＋#113，#70 已关，研究见 [F18 研究](../research/F18-QwenNote听记MCP接入研究.md)） | F01–F12 全部合并（extraLocalTools/prompts.ts/向导三件套随 F13–F15 已交付） | profile 配置 dsh-mcp-client 条目（stdio＋mcp-remote OAuth 桥，serverName=qwennote）并经 extraLocalTools 放行后：本地24私助会话可查询主人 QwenNote 录音卡的听记（最近列表、转写与纪要读取），引用带来源标注；行动提炼走既有候选行动→审核→行动授权；仅本地会话可用，飞书入口与 Worker 不放行；初始化指南含听记接入节（首次授权本人浏览器完成）与诊断三态。 |
 | F19 晨报复盘语音投递 | [P51 / #72](https://github.com/benz-ai-x/dsh-24-PA/issues/72)（故事 126，研究见 [F19 研究](../research/F19-晨报复盘语音投递实现研究.md)） | F01–F12 全部合并（建议排 F16 之后：同改 outbox 投递分派） | digest 计划开启 voice 后：晨报/复盘到点先送达本机 TTS 合成的原生语音消息（say＋ffmpeg 转 opus，bot 身份经 lark-cli --audio），紧跟全文文本兜底；语音正文为口播变体（剥离元数据行）并截断上限；say/ffmpeg 缺失降级文本不中断；`digest_control` 可调 voice；初始化指南补 macOS/ffmpeg 前置项。 |
 | F23 接入绑定体验 | [P55 / #80](https://github.com/benz-ai-x/dsh-24-PA/issues/80)（故事 129，研究见 [F23 研究](../research/F23-接入绑定体验实现研究.md)） | F01–F12 全部合并（F15/F16 向导已交付） | 新向导「先全量、后集中」：配置开始即交付本人操作全量清单＋提前发起的授权链接，一口气做完一次集中验收（往返 N → ≈2）；本人报完成后 agent 自动循环 check/wecom_check 按 nextSteps 收敛一次汇总；wecom 服务授权失效（850002/850003）经通知渠道主动推送续期链接。面板承载 QR/Secret 输入后置另立项。 |
 | F20 设置单入口与企微接入模块 | [P52 / #73](https://github.com/benz-ai-x/dsh-24-PA/issues/73)（故事 124 修订＋127，已交付 PR #74） | F01–F12 全部合并（F16 渠道已交付） | dsh 设置单入口收编工作区配置（故事 124 修订）；面板「企微接入」模块：渠道配置（日程/待办/推送各自 feishu 或 wecom）、CLI 与授权真人身份、服务级授权状态（通过/未授权/已过期/企业不可用）与平台续期指引原文，一键发起只读检查。 |
 | F21 面板 UI/UX 走查修复 | [P53 / #75](https://github.com/benz-ai-x/dsh-24-PA/issues/75)（已交付 PR #76） | F01–F12 全部合并 | 面板走查三根因修复（黑屏级联防护、连接状态误显、加载态/空态/错误态补齐）＋149 单测＋逐屏视觉验证。 |
-| F24 手写识别质量 | [P56 / #81](https://github.com/benz-ai-x/dsh-24-PA/issues/81)（故事 130，研究见 [F24 研究](../research/F24-手写识别质量实现研究.md)） | F01–F12 全部合并（F06/F07 手写体系已交付） | vision-route 健康项从「路由存在即 ok」升级为能力判定：路由＝纯文本模型（如 deepseek-flash）时显式 warn「疑似非视觉模型」并在 check/read/向导透出，nextSteps 指向配置指引；handwriting persona v2 输出分级与长度纪律（短笔记只出转写＋候选行动、摘要≤100 字等），待审文档不再六段灌满；换视觉模型后置（改 AGENTS.md 一行＋配 key）。 |
 
 F13 是用户 2026-10-07 确认的设计变更（规格 1.3 / 设计 v0.5 / ADR-0001 修订）：预设携带标准插件全集，权限仍按角色白名单裁剪；tool-schedule 不并入，提醒保持账本单轨。
 
 F15（P47 / #63，故事 121，规格 1.5 / 设计 v0.6）：飞书接入配置向导——feishu-setup.md 随插件分发，pa24_connection 提供 guide 与带 nextSteps 的 check；解决「助理无配置知识导致多轮无法接通」的问题。F14（提示词结构化）由 P46 / #62 交付。
 
-F16/F17 是用户 2026-10-07 确认的设计变更（规格 1.6 / 设计 v0.7）：F16 企业微信定位为日程/待办第二操作渠道＋单向推送出口，不做企微收信，Out of Scope 相应收敛为「第二聊天平台的收信接入」；提醒保持 PG 账本单轨（ADR-0001），仅扩投递出口。F17 纯 UI 小迭代先行交付，两者无代码依赖，交付顺序 F17 → F16 仅为了小 PR 先落地。
+F16/F17 是用户 2026-10-07 确认的设计变更（规格 1.6 / 设计 v0.7）：F16 企业微信定位为日程/待办第二操作渠道＋单向推送出口，不做企微收信，Out of Scope 相应收敛为「第二聊天平台的收信接入」；提醒保持账本单轨（ADR-0001；存储自规格 2.1 起默认 SQLite、可选 PG），仅扩投递出口。F17 纯 UI 小迭代先行交付，两者无代码依赖，交付顺序 F17 → F16 仅为了小 PR 先落地。
 
 F18（P50 / #70，故事 125，规格 1.7 / 设计 v0.8）：用户 2026-10-07 提出的 QwenNote 录音卡听记接入。通道复用 dsh 内建 dsh-mcp-client（不自研 MCP 客户端、不新增包依赖），OAuth 经 mcp-remote stdio 桥（锁版本）；QwenNote MCP 的工具面与 token 形态以真机实测为准（工单第一步），架构不成立时回提案重审。
 
@@ -89,7 +88,7 @@ F04 使用 F03 的实际任务查询呈现日程变更的关联影响，外部�
 
 ## 发布验收 P40
 
-F01–F12 全部合并并通过各自验收后，[P40 / #46](https://github.com/benz-ai-x/dsh-24-PA/issues/46) 汇总真实服务器安装、飞书兼容性、S01–S30、30–50 页手写样本及至少覆盖一次周回顾的试运行结果。检查单一24私助预设、按实际父会话回传、只读接入与记忆展示、UI/UX、工作区配置与 JSON 维护、至少五项真实 Worker、版本审核、固定 profile、无 SQLite I/O、模型不可用时固定提醒及联合恢复。
+F01–F12 全部合并并通过各自验收后，[P40 / #46](https://github.com/benz-ai-x/dsh-24-PA/issues/46) 汇总真实服务器安装、飞书兼容性、S01–S30、30–50 页手写样本及至少覆盖一次周回顾的试运行结果。检查单一24私助预设、按实际父会话回传、只读接入与记忆展示、UI/UX、工作区配置与 JSON 维护、至少五项真实 Worker、版本审核、固定 profile、存储后端按声明运行（默认 SQLite／可选 PG，规格 2.1）、模型不可用时固定提醒及联合恢复。
 
 该票没有预设独立 PR；验收中的代码缺陷按受影响功能修复。各功能从自身 PR 起交付安装包和说明；全量验收不用于补齐前面缺失的功能。缺少真实凭据、授权或样本时明确未验证，原型边界模型结果不能替代真机验收。
 
