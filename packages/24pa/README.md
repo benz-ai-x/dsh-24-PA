@@ -46,7 +46,7 @@ Pick the release matching your dsh runtime, then restart the Profile. The reconc
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
 # dsh 0.2.1-alpha.2 – 0.2.1-rc.2 hosts (peers span these baselines; rc.2 is the active release line)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.2.1
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.2.2
 
 # alpha.2 – alpha.5 hosts may also pin the alpha line (frozen at 0.2.1-alpha.5.1; preset content identical, only engines/peer range and docs differ)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
