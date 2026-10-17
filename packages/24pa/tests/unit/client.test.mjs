@@ -111,10 +111,69 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain('--pa-ink:var(--dsw-alias-label-primary,#1f2937)');
     expect(client).toContain('body[data-ds-dark-theme] .pa24{');
     // 深色黑底对齐 dsh 用色：底色挂 dsw alias 链回退 950 纯黑，
-    // surface/soft 上调至 layer-2/3（卡片面板比宿主 flat 页面高一档分层）
+    // surface/soft 上调至 layer-2/3（卡片面板比宿主 flat 页面高一档分层）；
+    // F34 走查校准：layer-2/3 基础上向白色 color-mix 提亮（surface 90%/soft 87%），
+    // muted/line 同步提亮拉开深色层次与灰字对比（canvas 仍 950 纯黑）
     expect(client).toContain('--pa-canvas:var(--dsw-alias-bg-base,var(--dsw-static-neutral-bluish-950,rgb(21 21 23)))');
-    expect(client).toContain('--pa-surface:var(--dsw-alias-bg-layer-2,var(--dsw-static-neutral-bluish-850,rgb(44 44 46)))');
-    expect(client).toContain('--pa-soft:var(--dsw-alias-bg-layer-3,var(--dsw-static-neutral-bluish-800,rgb(53 54 56)))');
+    expect(client).toContain('--pa-surface:color-mix(in srgb,var(--dsw-alias-bg-layer-2,var(--dsw-static-neutral-bluish-850,rgb(44 44 46))) 90%,#fff)');
+    expect(client).toContain('--pa-soft:color-mix(in srgb,var(--dsw-alias-bg-layer-3,var(--dsw-static-neutral-bluish-800,rgb(53 54 56))) 87%,#fff)');
+    expect(client).toContain('--pa-muted:color-mix(in srgb,var(--dsw-alias-label-caption,rgb(129 133 140)) 75%,#fff)');
+  });
+
+  it('F34 表单结构守卫：保存栏与分组卡同层级＋保存反馈随保存栏', () => {
+    // 「运行参数」section 的 h( 调用区间不得吞掉后续兄弟节点（走查 P1：
+    // 括号错位曾把存储/TTS/保存栏嵌进该 section，sticky 包含块被钳制，
+    // 首屏保存栏不可见）。用括号深度走区间，字符串包含法测不出嵌套。
+    const spanOf = (client, marker, back = "h('section'") => {
+      const mi = client.indexOf(marker);
+      expect(mi).toBeGreaterThan(0);
+      const open = client.indexOf('(', client.lastIndexOf(back, mi));
+      let depth = 0, inStr = null;
+      for (let i = open; i < client.length; i++) {
+        const c = client[i];
+        if (inStr) { if (c === inStr && client[i - 1] !== '\\') inStr = null; }
+        else if (c === '/' && client[i + 1] === '/') { while (i < client.length && client[i] !== '\n') i++; }
+        else if (c === "'" || c === '"' || c === '`') inStr = c;
+        else if (c === '(') depth++;
+        else if (c === ')') { depth--; if (depth === 0) return client.slice(open, i + 1); }
+      }
+      return null;
+    };
+    const runtime = spanOf(client, "L('运行参数', 'Runtime')");
+    for (const swallowed of ['存储与密钥引用', '语音 TTS', 'form-actions']) {
+      expect(runtime.includes(swallowed)).toBe(false);
+    }
+    // 保存/试听反馈（saveState）渲染在 .pa24-form-actions 区间内——
+    // 用户在表单任意位置点保存，错误信息都在贴底常驻的保存栏里可见。
+    const actions = spanOf(client, "className: 'pa24-form-actions'", "h('div");
+    expect(actions.includes('saveState')).toBe(true);
+    expect(actions.includes("role: saveState.ok ? 'status' : 'alert'")).toBe(true);
+    // sticky 保存栏自带投影（贴底浮起的可供性）
+    expect(client).toContain('box-shadow:0 -4px 14px color-mix(in srgb,var(--pa-ink) 9%,transparent)');
+  });
+
+  it('F34 走查第二轮：口径单位、接入进度、管理态键盘与反馈、表单双语 label', () => {
+    // 健康卡口径：数字按检查项、说明静态聚合来源；tab 角标按卡片计（单位区分）
+    expect(client).toContain('以上为就绪与能力健康的静态聚合');
+    expect(client).toContain("L('该分类有 ' + chip.n + ' 张卡片需要关注");
+    // 接入分类总进度行
+    expect(client).toContain("cat === 'access' && !manage");
+    expect(client).toContain('接入进度：就绪');
+    // 管理态：Esc 退出＋隐藏轻反馈＋「完成」专用样式（不与页头主按钮抢主色）
+    expect(client).toContain("if (e.key === 'Escape') setManage(false)");
+    expect(client).toContain('已隐藏「');
+    expect(client).toContain("className: manage ? 'pa24-manage-done' : 'pa24-quiet'");
+    expect(client).toContain('.pa24-manage-done{');
+    // 表单 label 双语化（中文语义＋括号内保留配置键名）；ownerOpenId 三态文案
+    expect(client).toContain("L('模式（mode）', 'Mode (mode)')");
+    expect(client).toContain("L('并发数（maxWorkers）', 'Parallelism (maxWorkers)')");
+    expect(client).toContain("diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）'");
+    // 表单不再双 h2：sectionHead 允许无标题（详情栏已有 entry.title）
+    expect(client).toContain('title && h(\'h2\', null, title)');
+    expect(client).toContain("sectionHead('code', null, L('保存＝校验");
+    // 卡片注意态描边＋副标题两行显示
+    expect(client).toContain('.pa24-cap-att{');
+    expect(client).toContain('-webkit-line-clamp:2');
   });
 
   it('中英双语（F27/P59）：en 命名空间注册＋resolveText L 通道＋无空英文', () => {
