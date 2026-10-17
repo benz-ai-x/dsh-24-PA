@@ -30,6 +30,6 @@
 ## 四、未决 / 真机待验
 
 - SQLite 全量 e2e 矩阵与 PG 回归（实施中；一次并行会话污染的旧跑批 41 失败已作废）。
-- ali_code_agent 服务器 Node 版本（SQLite 模式需 ≥ 23.4）——重装时核验。
+- ali_code_agent 服务器 Node 版本（满足包 engines `^22.19.0 || >=24.0.0` 即可跑 SQLite，22.22.1 实证；原「≥ 23.4」表述 2026-10-17 勘误）——重装时核验。
 - 真机：全新工作区 demo 模式零依赖起步；既有 Ops-Space PG 实例升级时补 `"storage": "postgres"`（升级说明随发版）。
 - WAL 长稳写频观察（提醒轮询/outbox tick 量级远低于 SQLite 上限，判断无虞）。
