@@ -713,7 +713,7 @@ window.__ModuleLoader__.load({
           const extractToken = v => { const s = String(v).trim(); if (!s.includes('://')) return s; const q = s.match(/[?&](?:token|node_token|guid)=([A-Za-z0-9_-]{10,})/); if (q) return q[1]; const tail = s.split('?')[0].split('/').filter(Boolean).pop() || ''; return /^[A-Za-z0-9_-]{16,}$/.test(tail) ? tail : s; };
           const toggleIn = key => (value, on) => setForm(f => { const cur = new Set(f[key]); if (on) cur.add(value); else cur.delete(value); return { ...f, [key]: [...cur] }; });
           const wmGet = role => form.workerModels[role] || {};
-          const wmSet = (role, patch) => { setForm(f => ({ ...f, workerModels: { ...f.workerModels, [role]: { ...wmGet(role), ...patch } } })); setSaveState(null); };
+          const wmSet = (role, patch) => { setForm(f => ({ ...f, workerModels: { ...f.workerModels, [role]: { ...(f.workerModels[role] || {}), ...patch } } })); setSaveState(null); };
           const roleRows = [...new Set([...(form.enabledWorkers || []), ...Object.keys(form.workerModels)])].filter(r => WORKER_IDS.includes(r) || form.workerModels[r]);
           const save = async () => {
             setBusy(true);
@@ -777,10 +777,12 @@ window.__ModuleLoader__.load({
                   txt(wmGet(role).model || '', v => wmSet(role, { model: v }), { placeholder: 'model', style: { flex: 1, minWidth: 80 } }),
                   h('label', { className: 'pa24-check', style: { margin: 0 } }, h('input', { type: 'checkbox', checked: !!wmGet(role).simplePersona, onChange: e => wmSet(role, { simplePersona: e.target.checked }) }), L('简 persona', 'simple'))))
                   : h('p', { className: 'pa24-meta' }, L('先勾选上方 Worker。', 'Check a worker above first.'))),
-                L('按角色覆盖 provider/model；handwriting 需视觉模型路由，未配置则手写整理不可用。', 'Per-role provider/model overrides; handwriting needs a vision route or note整理 stays unavailable.')),
-              row('extraLocalTools', h('div', { style: { minWidth: 0 } }, KNOWN_EXTRA.map(x =>
-                h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),
-                h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat.')))),
+                L('按角色覆盖 provider/model。', 'Per-role provider/model overrides.'),
+                form.enabledWorkers.includes('handwriting') && !(form.workerModels.handwriting && (form.workerModels.handwriting.model || form.workerModels.handwriting.provider)) && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-amber)' } }, L('已启用 handwriting 但未配置视觉模型路由——手写整理将不可用。', 'handwriting is enabled without a vision model route — note整理 stays unavailable.'))),
+              h('details', { style: { marginTop: 4 } }, h('summary', null, L('extraLocalTools（高级，默认收起）', 'extraLocalTools (advanced, collapsed)')),
+                h('div', { style: { minWidth: 0, paddingTop: 6 } }, KNOWN_EXTRA.map(x =>
+                  h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),
+                  h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat.')))),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('存储与密钥引用（只读）', 'Storage & secret refs (read-only)')),
               row('storage', h('strong', null, config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'), L('切换存储后端涉及数据迁移，请按初始化指南的迁移流程办理。', 'Switching backends involves data migration — follow the migration procedure in the init guide.')),

@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { mkdir, realpath, stat, readFile, writeFile, rename } from 'node:fs/promises';
+import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
@@ -870,8 +870,13 @@ export class PaRuntime {
       }
       const next = replaceAgentsMdConfig(source, merged);
       const tmp = `${path}.pa24-tmp`;
-      await writeFile(tmp, next, 'utf8');
-      await rename(tmp, path);
+      try {
+        await writeFile(tmp, next, 'utf8');
+        await rename(tmp, path);
+      } catch (error) {
+        await rm(tmp, { force: true }).catch(() => {});
+        throw error;
+      }
       const previousConfig = this.config;
       try {
         await this.loadConfig();

@@ -339,9 +339,12 @@ export function rawAgentsMdConfig(source: string): Record<string, unknown> {
 export function replaceAgentsMdConfig(source: string, config: Record<string, unknown>): string {
   const blocks = [...source.matchAll(JSON_BLOCK)];
   if (blocks.length !== 1) throw new ConfigError('AGENTS.md 必须包含唯一的一个 ```json 配置块。');
-  // Only the captured JSON text is swapped; fences and surrounding whitespace
-  // stay byte-identical. The capture includes the newline before the closing
-  // fence (^``` needs a line start), so the replacement re-appends it.
-  // Function form so JSON containing '$' never triggers replacement patterns.
-  return source.replace(blocks[0]![1]!, () => JSON.stringify(config, null, 2) + '\n');
+  // Splice by match index instead of source.replace(searchText, …): a literal
+  // replace would hit the FIRST identical substring anywhere in the prose,
+  // while the block's own index pins the swap to the actual config block.
+  const block = blocks[0]!;
+  const start = block.index! + block[0]!.indexOf(block[1]!);
+  // The capture includes the newline before the closing fence (^``` needs a
+  // line start), so the replacement re-appends it to stay byte-compatible.
+  return source.slice(0, start) + JSON.stringify(config, null, 2) + '\n' + source.slice(start + block[1]!.length);
 }
