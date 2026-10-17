@@ -427,6 +427,14 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `alter table pa24.calendar_sync_state add column if not exists channel text not null default 'feishu'`,
     ],
   },
+  {
+    // F19 (spec 2.3): per-plan voice-delivery switch, default off — existing
+    // plans keep text-only delivery until the owner opts in per plan.
+    version: 12,
+    statements: [
+      `alter table pa24.digest_plan add column if not exists voice boolean not null default false`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

@@ -2789,6 +2789,7 @@ export class PaRuntime {
       schedule_spec: spec,
       status: 'active',
       last_window: null,
+      voice: false,
     });
     return {
       planId: id,

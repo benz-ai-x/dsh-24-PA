@@ -96,6 +96,8 @@ export class DigestService {
       schedule_spec: request,
       status: 'active',
       last_window: null,
+      // F19：开启时可选语音版（引擎取工作区 tts 配置，默认文本）。
+      voice: args.voice === true,
     });
     return {
       planId: plan.id,

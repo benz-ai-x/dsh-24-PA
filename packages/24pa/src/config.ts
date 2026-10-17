@@ -58,7 +58,33 @@ export interface PaConfig {
    * in stays a workspace decision recorded here, never a startup crash.
    */
   extraLocalTools: string[];
+  /**
+   * Voice-delivery engine (spec 2.3, F19): which TTS backend synthesizes
+   * digest audio. 'none' keeps text-only delivery and is the default for
+   * existing files; choosing an engine makes its own fields required.
+   */
+  tts: TtsConfig;
 }
+
+/** TTS 引擎（spec 2.3/F19）：none＝语音关闭（默认，存量配置零影响）。 */
+export type TtsEngine = 'none' | 'melo' | 'volcengine';
+
+export interface TtsConfig {
+  engine: TtsEngine;
+  /** 豆包语音合成 2.0 speaker ID（VOLC_TTS_VOICES 为首发清单，允许自定义）。 */
+  voice: string;
+  /** 豆包 API Key 的环境变量名；密钥本体只进宿主环境，不落 AGENTS.md。 */
+  volcKeyEnv: string;
+  /** Melo 部署目录（含合成脚本、venv 与模型文件）。 */
+  meloDir: string;
+}
+
+/** 豆包云首发音色（生产真机验证或官方文档示例来源；自定义 ID 经格式校验放行）。 */
+export const VOLC_TTS_VOICES: readonly { id: string; label: string }[] = [
+  { id: 'zh_female_cancan_uranus_bigtts', label: '知性灿灿（女声·晨报主推）' },
+  { id: 'zh_male_m191_uranus_bigtts', label: '云舟（男声·稳重）' },
+  { id: 'zh_female_vv_uranus_bigtts', label: 'Vivi（女声·元气）' },
+];
 
 /** Provider-gated delegation tools; they mount only after their provider bundles are installed. */
 export const DELEGATION_EXTRA_TOOLS = ['subagent_codex', 'subagent_claude_code'] as const;
@@ -112,9 +138,43 @@ export const DEFAULT_CONFIG: PaConfig = {
   enabledWorkers: ['memo'],
   workerModels: {},
   extraLocalTools: [],
+  tts: { engine: 'none', voice: '', volcKeyEnv: '', meloDir: '' },
 };
 
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
+// 豆包 speaker ID：zh_female_cancan_uranus_bigtts 形态（小写开头、字/下划线，长度封顶防误粘）。
+const VOLC_VOICE_ID = /^[a-z][a-z0-9_]{7,63}$/;
+const DEFAULT_TTS: TtsConfig = { engine: 'none', voice: '', volcKeyEnv: '', meloDir: '' };
+
+/** F19/spec 2.3：tts 引擎选择校验。缺省视作 none（存量零影响）；显式 null 报错。 */
+function validateTts(raw: unknown): TtsConfig {
+  if (raw === undefined) return { ...DEFAULT_TTS };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ConfigError('tts 必须是对象。');
+  const input = raw as Record<string, unknown>;
+  const unknownKeys = Object.keys(input).filter(k => !(k in DEFAULT_TTS));
+  if (unknownKeys.length) throw new ConfigError(`tts 只接受 ${Object.keys(DEFAULT_TTS).join('、')} 字段。`);
+  for (const key of Object.keys(DEFAULT_TTS) as (keyof TtsConfig)[]) {
+    if (input[key] !== undefined && typeof input[key] !== 'string') throw new ConfigError(`tts.${key} 必须为字符串。`);
+  }
+  const engine = (input.engine ?? 'none') as TtsEngine;
+  if (engine !== 'none' && engine !== 'melo' && engine !== 'volcengine') throw new ConfigError('tts.engine 必须是 none、melo 或 volcengine。');
+  const tts: TtsConfig = {
+    engine,
+    voice: (input.voice ?? '') as string,
+    volcKeyEnv: (input.volcKeyEnv ?? '') as string,
+    meloDir: (input.meloDir ?? '') as string,
+  };
+  // 非空即校验格式（切换引擎时保留他引擎残留值不报错，但格式必须合法）。
+  if (tts.volcKeyEnv && !ENV_NAME.test(tts.volcKeyEnv)) throw new ConfigError('tts.volcKeyEnv 应填写环境变量名称（大写字母、数字、下划线）。');
+  if (tts.voice && !VOLC_VOICE_ID.test(tts.voice)) throw new ConfigError('tts.voice 应填写豆包语音合成 2.0 音色 ID（如 zh_female_cancan_uranus_bigtts）。');
+  if (tts.meloDir && !tts.meloDir.startsWith('/')) throw new ConfigError('tts.meloDir 必须是绝对路径。');
+  if (engine === 'volcengine') {
+    if (!tts.volcKeyEnv) throw new ConfigError('volcengine 引擎必须填写 tts.volcKeyEnv（密钥所在环境变量名）。');
+    if (!tts.voice) throw new ConfigError('volcengine 引擎必须选择 tts.voice 音色。');
+  }
+  if (engine === 'melo' && !tts.meloDir) throw new ConfigError('melo 引擎必须填写 tts.meloDir 部署目录。');
+  return tts;
+}
 const STRING_FIELDS = [
   'larkProfile',
   'ownerOpenId',
@@ -192,6 +252,7 @@ export function validateConfig(raw: unknown): PaConfig {
   ) {
     throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${QWENNOTE_TOOL_WILDCARD} 或 ${QWENNOTE_TOOL_PREFIX}<工具名>。`);
   }
+  const tts = validateTts(input.tts);
   const config: PaConfig = {
     version: 1,
     mode: input.mode,
@@ -212,6 +273,7 @@ export function validateConfig(raw: unknown): PaConfig {
     enabledWorkers: enabledWorkers as string[],
     workerModels: workerModels as PaConfig['workerModels'],
     extraLocalTools: extraLocalTools as string[],
+    tts,
   };
   if (config.mode === 'feishu') {
     for (const key of ['ownerOpenId', 'folderToken', 'tasklistId'] as const) {
