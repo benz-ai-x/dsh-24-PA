@@ -4,20 +4,13 @@
 
 ## 仓库定位
 
-已由用户确认的目标仓库：`benz-ai-x/dsh-24-PA`，网页地址为 https://github.com/benz-ai-x/dsh-24-PA，Git SSH 地址为 `git@github.com:benz-ai-x/dsh-24-PA.git`。当前目录尚未配置 Git remote 时，使用 `--repo benz-ai-x/dsh-24-PA` 显式操作该仓库。
+已由用户确认的目标仓库：`benz-ai-x/dsh-24-PA`（`git@github.com:benz-ai-x/dsh-24-PA.git`）。当前目录尚未配置 Git remote 时，用 `--repo benz-ai-x/dsh-24-PA` 显式操作；此配置不授权自动创建远程仓库。
 
-从 `git remote -v` 确定目标 GitHub 仓库。没有远程地址或目标不明确时，先向用户确认仓库 URL 或 `owner/repo`；确定后可用 `--repo <owner/repo>` 显式指定。此配置不授权自动创建远程仓库。
+## 操作约定
 
-## 常用操作
-
-- 创建：`gh issue create --title "..." --body-file <path>`。
-- 读取：`gh issue view <number> --comments`，需要结构化结果时使用 `--json`。
-- 列出：`gh issue list --state open --json number,title,body,labels,comments`，按任务增加标签或状态筛选。
-- 评论：`gh issue comment <number> --body-file <path>`。
-- 标签：`gh issue edit <number> --add-label "<label>"` 或 `--remove-label "<label>"`；名称遵循 `triage-labels.md`。
-- 关闭：需要说明时先发表评论，再执行 `gh issue close <number>`。
-
-多行正文先保存到临时文件，使用 `--body-file` 保留换行与字面内容。
+- 多行正文一律先存临时文件、用 `--body-file` 传入，保留换行与字面内容。
+- 关闭需要说明时，先发评论再关闭。
+- 标签名称遵循 [triage-labels.md](triage-labels.md) 的角色映射。
 
 ## 技能指令的含义
 
