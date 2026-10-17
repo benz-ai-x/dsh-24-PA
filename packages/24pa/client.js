@@ -3,9 +3,10 @@
 // business content; parameters are editable through the System-category
 // configuration form (F33), whose save path validates, rewrites the AGENTS.md
 // config block, and reloads — chat and the form share one config source.
-// F20 (1.6 补充): workspace configuration management moved to the dsh
-// settings「24私助」section entirely (binding/reload/config/health) — the
-// panel shows business tabs only, plus the WeCom access module.
+// F35 (2.6): workspace configuration management (binding/reload/effective
+// config/health & budget) lives on the panel's System category under the
+// Workspace & config card — the dsh settings「24私助」section is retired;
+// the panel is the single entry for workspace management.
 // F21 (P53): UI/UX walkthrough fixes — tighter vertical rhythm, one primary
 // action per view, unified status-badge vocabulary, human-first copy with
 // tech detail folded away, and design-doc tab color semantics.
@@ -248,9 +249,9 @@ window.__ModuleLoader__.load({
           return { busy, error, run, button };
         }
 
-        // F17: 工作区管理两张卡（绑定/切换 + 生效配置）独立成组件，
-        // 面板 workspace tab 与设置分区共用；动作走既有 RPC，不新增端点。
-        // path 为受控值由父级持有，面板侧保证切 tab 不丢已选未绑定的目录。
+        // F17: 工作区管理两张卡（绑定/切换 + 生效配置）独立成组件，F35 起
+        // 仅由主面板「工作区与配置」卡的详情挂载；动作走既有 RPC，不新增端点。
+        // path 为受控值由父级持有，详情返回即弃（切卡不丢已选未绑定的目录）。
         function WorkspaceCards({ snapshot, busy, button, openRobot, path, onPathChange }) {
           const workspace = snapshot.workspace, config = workspace ? workspace.config : null;
           const enabledNames = (config && config.enabledWorkers ? config.enabledWorkers : []).map(w => ({ memo: L('备忘整理', 'Memo worker') }[w] || w)).join('、') || L('无', 'None');
@@ -309,11 +310,14 @@ window.__ModuleLoader__.load({
 
         // F35: 设置「24私助」分区整体迁回主面板——「工作区与配置」卡的二级
         // 详情＝WorkspaceCards（绑定/切换＋生效配置/重载）＋健康与预算；
-        // 复用既有组件与 RPC，零新增端点。path 受控于本组件（详情返回即弃）。
+        // 复用既有组件与 RPC，零新增端点。path 受控于本组件（详情返回即弃）；
+        // 动作成功后立即重读快照（原设置分区 reloadAfter 的即时性，不等轮询）。
         function WorkspaceDetail({ helpers }) {
           const [path, setPath] = React.useState('');
+          const refreshAfter = fn => async () => { const r = await fn(); await helpers.refresh(); return r; };
+          const wButton = (name, label, fn, props) => helpers.button(name, label, refreshAfter(fn), props);
           return h('div', null,
-            h(WorkspaceCards, { snapshot: helpers.state, busy: helpers.busy, button: helpers.button, openRobot: helpers.openRobot, path, onPathChange: setPath }),
+            h(WorkspaceCards, { snapshot: helpers.state, busy: helpers.busy, button: wButton, openRobot: helpers.openRobot, path, onPathChange: setPath }),
             h(HealthBlock));
         }
 
@@ -343,6 +347,8 @@ window.__ModuleLoader__.load({
           return view.data || {};
         };
         const capLine = (label, value) => h('div', { className: 'pa24-cap-line' }, h('span', { className: 'pa24-muted' }, label), h('b', null, value));
+        // F35: 模式显示词收敛一处（config/workspace 两卡 label＋body 共用）。
+        const modeLabel = config => (config && config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo');
         const capKpi = items => h('div', { className: 'pa24-cap-kpi' }, items.map(([value, label]) => h('div', { key: label }, h('strong', null, value), h('small', null, label))));
         const nextStrip = text => h('div', { className: 'pa24-next' }, icon('info', { width: 13, height: 13 }), h('span', null, text));
         const readinessTier = (state, ids) => {
@@ -620,11 +626,11 @@ window.__ModuleLoader__.load({
           {
             id: 'workspace', cat: 'system', tone: 'blue', icon: 'folder', title: ['工作区与配置', 'Workspace & config'], sub: ['绑定 · 切换 · 生效配置 · 健康预算', 'Bind · switch · effective config · health'], action: ['管理工作区', 'Manage workspace'],
             tier: ({ state }) => (state.workspace ? 'ok' : 'missing'),
-            label: ({ config }) => (config ? (config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo') : null),
+            label: ({ config }) => (config ? modeLabel(config) : null),
             body: ({ state, config }) => (state.workspace
               ? h('div', null,
                 capLine(L('当前目录', 'Directory'), h('span', { className: 'pa24-ellip', title: state.workspace.path }, state.workspace.path)),
-                capLine(L('模式 / 存储', 'Mode / storage'), (config && config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo') + ' / ' + (config && config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite')))
+                capLine(L('模式 / 存储', 'Mode / storage'), modeLabel(config) + ' / ' + (config && config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite')))
               : h('p', { className: 'pa24-meta' }, L('尚未绑定工作区——点开本卡选择并绑定。', 'No workspace bound yet — open this card to pick and bind one.'))),
             detail: helpers => h(WorkspaceDetail, { key: 'workspace', helpers }),
           },
@@ -658,9 +664,9 @@ window.__ModuleLoader__.load({
           {
             id: 'config', cat: 'system', tone: 'blue', icon: 'code', title: ['参数配置', 'Configuration'], sub: ['六组 22 项 · 校验写回', '22 fields · validated write-back'], action: ['打开表单', 'Open form'],
             tier: ({ state }) => (state.workspace?.configError ? 'warn' : 'ok'),
-            label: ({ config }) => (config ? (config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo') : null),
+            label: ({ config }) => (config ? modeLabel(config) : null),
             body: ({ config, state }) => (config ? h('div', null,
-              capLine(L('模式', 'Mode'), config.mode === 'feishu' ? L('飞书', 'Feishu') : 'demo'),
+              capLine(L('模式', 'Mode'), modeLabel(config)),
               capLine(L('渠道', 'Channels'), [config.calendarChannel, config.todoChannel, config.notifyChannel].map(v => (v === 'wecom' ? L('企微', 'WeCom') : L('飞书', 'Feishu'))).join(' / ')),
               capLine(L('存储', 'Storage'), config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'),
               state.workspace?.configError && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-danger)' } }, state.workspace.configError))
@@ -934,7 +940,7 @@ window.__ModuleLoader__.load({
             if (wecomChannelsOn(config)) await rpc('action', { type: 'connection.wecom-check' }).catch(() => {});
             await refresh();
           };
-          const helpers = { state, extra, workspace, config, tz, busy, button, run, runFullCheck, openRobot: () => void run(openRobot) };
+          const helpers = { state, extra, workspace, config, tz, busy, button, run, runFullCheck, refresh, openRobot: () => void run(openRobot) };
           // F26: tab 角标＝分类内「需注意/需处理」卡片数；出现 error 时角标转红，
           // 仅 warn 时保持琥珀（口径为实施默认，后续可裁决调整）。
           const chipOf = cat => {

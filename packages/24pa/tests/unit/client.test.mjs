@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 // copy guard（与 prompts.test.mjs 的锚点思路一致）；交互验收走 T20 真机。
 const client = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../client.js'), 'utf8');
 
-describe('client.js 挂载面（F17/F20）', () => {
+describe('client.js 挂载面', () => {
   it('语法可解析', () => {
     expect(() => new Function(client)).not.toThrow();
   });
@@ -95,8 +95,8 @@ describe('client.js 挂载面（F17/F20）', () => {
     // 右列短卡收缩（设置模态样式随 F35 分区撤销一并移除）
     expect(client).toContain('align-items:start');
     expect(client).not.toContain('.pa24-settings{');
-    // 一屏一主按钮：页头对话＋工作/记忆/企微空态 CTA＋设置分区绑定＋F26 对话管理
-    // 引导空态（提醒/晨报/知识库三卡详情各一）＋全量健康报告的一键检查＝9 处为实心
+    // 一屏一主按钮：页头对话＋工作/记忆/企微空态 CTA＋工作区卡绑定＋F26 对话管理
+    // 引导空态（提醒/晨报/知识库三卡详情各一）＋全量健康报告的一键检查＝10 处为实心
     expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(10); // F33 表单保存按钮
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
