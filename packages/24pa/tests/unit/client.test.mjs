@@ -12,23 +12,24 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(() => new Function(client)).not.toThrow();
   });
 
-  it('三个插槽注册齐全：主面板、侧栏图标、设置分区', () => {
+  it('两个插槽注册齐全：主面板、侧栏图标（F35：settings.section 撤销）', () => {
     expect(client).toContain("ctx.slots.inject('main'");
     expect(client).toContain("ctx.slots.register({ name: 'main', key: 'pa24' }");
     expect(client).toContain("ctx.slots.inject('sidebar.panellist'");
-    expect(client).toContain("ctx.slots.inject('settings.section'");
-    expect(client).toMatch(/slots\.register\(\{ name: 'settings\.section', id: 'pa24', order: 25, label: \(\) => t\('settings'\) \}/);
+    expect(client).not.toContain("ctx.slots.inject('settings.section'");
+    expect(client).not.toContain('SettingsSection');
   });
 
-  it('工作区配置收进设置（F20）：主界面无 workspace tab/strip，设置分区承载 WorkspaceCards＋HealthBlock', () => {
+  it('工作区管理在主面板系统维护（F35）：工作区与配置卡承载绑定/重载/生效配置/健康', () => {
     expect(client).toContain('function WorkspaceCards({ snapshot, busy, button, openRobot, path, onPathChange })');
     expect(client).not.toContain("tab === 'workspace'");
-    expect(client).not.toContain('pa24-workspace-strip\', ');
-    // WorkspaceCards 只在设置分区挂载（后续复用也合法，但不允许主面板私挂）
+    // WorkspaceCards 只在「工作区与配置」卡详情挂载
     expect(client.match(/h\(WorkspaceCards,/g)?.length).toBeGreaterThanOrEqual(1);
-    expect(client).toContain('h(HealthBlock)));');
+    expect(client).toContain('function WorkspaceDetail({ helpers })');
+    expect(client).toContain("id: 'workspace', cat: 'system'");
+    expect(client).toContain("state.workspace ? 'ok' : 'missing'");
     // 动作外壳与机器人入口共享
-    expect(client).toContain('function usePanelActions({ reloadAfter } = {})');
+    expect(client).toContain('function usePanelActions()');
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板 RPC 面不变（F19 的新动作走既有 action 端点）
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
@@ -50,7 +51,7 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain("biz: '业务内容', access: '接入与通讯', system: '系统维护'");
     // 注册表驱动：注册即生卡；每卡必有 tier（角标聚合纯函数）＋body＋detail
     const ids = [...client.matchAll(/id: '([a-z]+)', cat: '(biz|access|system)'/g)].map(m => m[1]);
-    expect(ids).toEqual(['work', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'healthcheck', 'storage', 'config', 'budget']);
+    expect(ids).toEqual(['work', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'healthcheck', 'storage', 'config', 'budget']);
     expect((client.match(/^            tier: /gm) || []).length).toBe(ids.length);
     // tab 角标＝分类内 warn/error 卡片数，error 转红
     expect(client).toContain('const chipOf = cat =>');
@@ -91,9 +92,9 @@ describe('client.js 挂载面（F17/F20）', () => {
     // header 压缩：eyebrow 退役、口号并入标题行
     expect(client).not.toContain('pa24-eyebrow');
     expect(client).toContain('pa24-title-row');
-    // 右列短卡收缩与设置模态防横向裁切
+    // 右列短卡收缩（设置模态样式随 F35 分区撤销一并移除）
     expect(client).toContain('align-items:start');
-    expect(client).toContain('.pa24-settings{padding:22px;height:auto;min-width:0;width:100%}');
+    expect(client).not.toContain('.pa24-settings{');
     // 一屏一主按钮：页头对话＋工作/记忆/企微空态 CTA＋设置分区绑定＋F26 对话管理
     // 引导空态（提醒/晨报/知识库三卡详情各一）＋全量健康报告的一键检查＝9 处为实心
     expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(10); // F33 表单保存按钮
@@ -217,10 +218,9 @@ describe('client.js 挂载面（F17/F20）', () => {
     expect(client).toContain('参数可经表单或对话维护');
   });
 
-  it('设置分区跳转面板走 layout 服务并保留关闭兜底', () => {
-    expect(client).toContain("'layout'");
-    expect(client).toContain("ctx.layout.selectPanel('pa24')");
-    expect(client).toContain('console.warn');
-    expect(client).toContain('close()');
+  it('F35：inject 面不再含 layout（设置分区撤销，面板内无跳转需求）', () => {
+    expect(client).toContain("inject: ['slots', 'locale', 'connection', 'uiWorkspace']");
+    expect(client).not.toContain("ctx.layout");
+    expect(client).not.toContain('selectPanel');
   });
 });
