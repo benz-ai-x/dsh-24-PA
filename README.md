@@ -9,13 +9,13 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to six business workers, with a PostgreSQL ledger for items, reminders, handwritten-note review, digests, and delivery receipts. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`.
+Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to six business workers, with a PostgreSQL ledger for items, reminders, handwritten-note review, digests, and delivery receipts. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`, `0.2.1-rc.1`–`0.2.1-rc.2`.
 
 ## FAQ
 
 **What is 24私助 (24PA)?** — A Feishu personal-assistant plugin for dsh, shipped as a profile bundle: local dsh sessions and a Feishu bot coordinate six business workers over a PostgreSQL ledger — tasks, calendar, reminders, memos, digests, and handwritten-note review.
 
-**Which dsh runtimes are supported?** — dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
+**Which dsh runtimes are supported?** — dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`, `0.2.1-rc.1`–`0.2.1-rc.2`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
 
 **How do I install it?** — `dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<baseline serial>`, then restart the profile (see [Installing the Bundle](#installing-the-bundle)).
 
@@ -45,8 +45,8 @@ Pick the release matching your dsh runtime, then restart the Profile. The reconc
 # dsh 0.2.1-alpha.1 host (schedule service built in)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
-# dsh 0.2.1-alpha.2 – 0.2.1-rc.1 hosts (peers span these baselines; rc.1 is the active release line)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.1.1
+# dsh 0.2.1-alpha.2 – 0.2.1-rc.2 hosts (peers span these baselines; rc.2 is the active release line)
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.2.1
 
 # alpha.2 – alpha.5 hosts may also pin the alpha line (frozen at 0.2.1-alpha.5.1; preset content identical, only engines/peer range and docs differ)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
@@ -59,7 +59,7 @@ dsh plugin --profile <name> add <rc.2 harness checkout>/packages/schedule/schedu
 dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 ```
 
-Removal withdraws the preset and host plugin on the next Profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched. Version naming follows `<dsh baseline version>.<serial>`; npm dist-tags track baselines (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`, `dsh-0.2.1-alpha.2`, `dsh-0.2.1-alpha.5`, `dsh-0.2.1-rc.1`).
+Removal withdraws the preset and host plugin on the next Profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched. Version naming follows `<dsh baseline version>.<serial>`; npm dist-tags track baselines (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`, `dsh-0.2.1-alpha.2`, `dsh-0.2.1-alpha.5`, `dsh-0.2.1-rc.1`, `dsh-0.2.1-rc.2`).
 
 ### Configuration
 
