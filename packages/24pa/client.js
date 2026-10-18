@@ -697,7 +697,7 @@ window.__ModuleLoader__.load({
           const planStatus = status => status === 'active' ? badge(L('已启用', 'Active'), 'blue', 'check') : status === 'paused' ? badge(L('已暂停', 'Paused'), 'amber', 'clock') : badge(L('已停止', 'Stopped'), 'neutral', 'close');
           const planKind = kind => ({ morning: L('晨报', 'Morning digest'), evening: L('晚间回顾', 'Evening review'), weekly: L('每周回顾', 'Weekly review'), once: L('一次性简报', 'One-off digest') }[kind] || kind);
           // F40（spec 2.11）：计划行配置面——时间内联编辑、语音开关、skill 选择、立即运行一次。
-          const PlanCard = plan => {
+          const PlanCard = ({ plan, skills, config, button, refresh }) => {
             const [time, setTime] = React.useState((plan.schedule?.daily ?? plan.schedule?.weekly)?.time ?? '');
             const [busy, setBusy] = React.useState(false);
             const [note, setNote] = React.useState('');
@@ -755,7 +755,7 @@ window.__ModuleLoader__.load({
             extra._errors?.digests && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, L('计划读取失败', 'Failed to read plans')), h('p', null, extra._errors.digests)),
             !extra.digests && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取周期计划…', 'Reading digest plans…')),
             extra.digests && plans.length === 0 && h('div', { className: 'pa24-card' }, empty('pulse', 'green', L('还没有周期服务计划', 'No digest plans yet'), L('对24私助说「开启晨报」或「开启每周回顾」即可建立计划。', 'Ask 24PA to enable the morning digest or weekly retrospective.'), button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { className: 'pa24-primary' }))),
-            plans.length > 0 && h('section', { className: 'pa24-card' }, plans.map(PlanCard)),
+            plans.length > 0 && h('section', { className: 'pa24-card' }, plans.map(p => h(PlanCard, { key: p.planId, plan: p, skills, tz, config, button, refresh }))),
             h('section', { className: 'pa24-card' },
               sectionHead('bot', L('语音 TTS', 'Voice TTS'), L('语音版到点先送达语音，随后紧跟全文文本。', 'Voice plans deliver audio first, then the full text.'),
                 button('code', L('打开语音配置', 'Open voice config'), () => openCard('config', 'pa24-tts-config'), { className: 'pa24-quiet' }), 'green'),

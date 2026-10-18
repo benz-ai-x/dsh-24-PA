@@ -8,6 +8,7 @@ import type { MemoryStore } from './memory.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import type { WorkItemRow } from './repo.js';
 import { randomUUID } from 'node:crypto';
+import { assertToolDeclaration } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { digestWakePrompt } from './prompts.js';
 
@@ -101,10 +102,9 @@ export class DigestService {
     const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
     const schedule = this.deps.nativeSchedule();
     if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务，无法建立智能计划。');
-    // F40（spec 2.11）：绑定任务 skill；缺省按类型映射内置三件，点名需在目录中且为模板轨（agent 轨随 F41）。
+    // F40/F41（spec 2.11）：绑定任务 skill；缺省按类型映射内置件，点名须在目录中（模板/agent 双轨均可绑定）。
     const skill = args.skill ? String(args.skill) : kind === 'once' ? 'digest-morning' : `digest-${kind}`;
-    const catalogSkill = await this.deps.skillCatalog().find(skill);
-    if (!catalogSkill) throw new Error(`任务 skill 不存在：${skill}；可用清单见 digest_list 或面板。`);
+    await this.requireSkill(skill);
     const title = { morning: '晨报', evening: '晚间回顾', weekly: '每周回顾', once: '一次性简报' }[kind]!;
     const id = `dig-${kind === 'once' ? 'once-' + randomUUID().slice(0, 8) : kind + '-' + hash(this.deps.workspace()!.statePath + kind).slice(0, 8)}`;
     const existing = await this.deps.repos().digests.getPlan(id);
@@ -171,10 +171,9 @@ export class DigestService {
       };
     }
     if (op === 'skill') {
-      // F40（spec 2.11）：per-plan 任务 skill 切换（须在目录中；agent 轨随后续版本）。
+      // F40/F41（spec 2.11）：per-plan 任务 skill 切换（须在目录中，双轨可绑）。
       const skill = String(args.skill ?? '');
-      const catalogSkill = await this.deps.skillCatalog().find(skill);
-      if (!catalogSkill) throw new Error(`任务 skill 不存在：${skill}；可用清单见 digest_list 或面板。`);
+      await this.requireSkill(skill);
       await this.deps.repos().digests.updatePlan(plan.id, { skill });
       return { planId: plan.id, skill, message: `本计划任务 skill 已切换为 ${skill}。` };
     }
@@ -341,13 +340,12 @@ export class DigestService {
     }
     // F41（spec 2.11）：agent 轨＝任务指令交接——Worker（模型）亲自按 skill 正文
     // 与事实生成简报，再经 digest_deliver 交付；模板轨才走确定性组装。
-    const boundSkill = plan.skill ? await this.deps.skillCatalog().find(plan.skill) : null;
-    if (plan.skill && !boundSkill) {
-      throw new Error(`计划绑定的任务 skill ${plan.skill} 已不在目录中（可能被删除）；用 digest_control op=skill 重绑或恢复该 skill。`);
-    }
+    const boundSkill = await this.boundSkillOrThrow(plan);
     if (boundSkill?.track === 'agent') {
       const content = await this.deps.skillCatalog().content(boundSkill.name);
       if (!content) throw new Error(`任务 skill ${boundSkill.name} 正文加载失败；请检查该 skill 文件。`);
+      // spec 2.11 红线：agent 轨交接同样过工具声明门（digest Worker 执行面）。
+      assertToolDeclaration(await this.deps.skillCatalog().meta(boundSkill.name), ['pa24_work', 'pa24_memory'], boundSkill.name);
       const facts = await this.planningFacts(new Date());
       return {
         planId,
@@ -359,10 +357,27 @@ export class DigestService {
       };
     }
     const { facts, report, outboxKey } = await this.buildAndDeliver(plan, windowKey, row.id, boundSkill);
-    await this.deps.repos().digests.updateOccurrence(row.id, { status: 'model_done', report: { facts, report }, completed_at: new Date() });
-    await this.deps.repos().digests.updatePlan(plan.id, { last_window: windowKey });
     await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey, outboxKey } });
     return { planId, windowKey, outboxKey, message: '简报已生成并入发送队列（Outbox 持久，平台接受状态以发送记录为准）。' };
+  }
+
+  /** F40：点名 skill 必须在目录中；报错携带可用清单（spec AC）。 */
+  private async requireSkill(skill: string): Promise<import('./skills.js').TaskSkill> {
+    const catalogSkill = await this.deps.skillCatalog().find(skill);
+    if (!catalogSkill) {
+      const available = (await this.deps.skillCatalog().list()).map(s => s.name).join('、');
+      throw new Error(`任务 skill 不存在：${skill}；可用清单：${available || '（目录为空）'}。`);
+    }
+    return catalogSkill;
+  }
+
+  /** F41：绑定失联/agent 轨的共享校验（digestBuild 与 run-now 同口径）。 */
+  private async boundSkillOrThrow(plan: import('./repo.js').DigestPlanRow): Promise<import('./skills.js').TaskSkill | null> {
+    const boundSkill = plan.skill ? await this.deps.skillCatalog().find(plan.skill) : null;
+    if (plan.skill && !boundSkill) {
+      throw new Error(`计划绑定的任务 skill ${plan.skill} 已不在目录中（可能被删除）；用 digest_control op=skill 重绑或恢复该 skill。`);
+    }
+    return boundSkill;
   }
 
   /**
@@ -372,7 +387,6 @@ export class DigestService {
    */
   private async buildAndDeliver(plan: import('./repo.js').DigestPlanRow, windowKey: string, occurrenceId: string, boundSkill: import('./skills.js').TaskSkill | null): Promise<{ facts: DigestFacts; report: string; outboxKey: string }> {
     const renderKind = boundSkill?.kind ?? plan.kind;
-    const config = this.deps.config();
     const facts = await this.planningFacts(new Date());
     const report = this.renderDigest({ ...plan, kind: renderKind }, windowKey, facts);
     const outboxKey = await this.deliverReport(plan, windowKey, occurrenceId, report);
@@ -450,10 +464,7 @@ export class DigestService {
     if (!created && row.status === 'model_done') {
       return { planId, windowKey, reused: true, message: '本次手动运行已生成过，不重复发布。' };
     }
-    const bound = plan.skill ? await this.deps.skillCatalog().find(plan.skill) : null;
-    if (plan.skill && !bound) {
-      throw new Error(`计划绑定的任务 skill ${plan.skill} 已不在目录中（可能被删除）；用 digest_control op=skill 重绑或恢复该 skill。`);
-    }
+    const bound = await this.boundSkillOrThrow(plan);
     if (bound?.track === 'agent') {
       throw new Error(`计划绑定 agent 轨 skill ${plan.skill}；「立即运行一次」经对话发起（委派 digest Worker），面板直跑仅支持模板轨。`);
     }

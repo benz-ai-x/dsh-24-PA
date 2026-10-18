@@ -23,6 +23,8 @@ import { text, nowIso, isoDate } from './util.js';
 import type { RuntimeRole } from './runtime.js';
 
 export interface HandwritingDeps extends SharedChannelDeps {
+  /** F44：工作流口径参数（handwriting-review-flow 的 frontmatter params）。 */
+  skillParams(name: string): Promise<Record<string, unknown>>;
   workspace(): { statePath: string } | null;
   transport(): FeishuTransport | null;
   accessSessionId(): string | null;
@@ -451,7 +453,9 @@ export class HandwritingPipeline {
     await notes.insertToken({ token: approveToken, note_id: noteId, version_id: versionId, action: 'approve', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
     await notes.insertToken({ token: returnToken, note_id: noteId, version_id: versionId, action: 'return', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
     const summary = String(version.content?.summary ?? '（见文档）');
-    const card = reviewCard(noteId, version.version, version.doc_url, summary, version.fingerprint.slice(0, 12), approveToken, returnToken);
+    const flowParams = await this.deps.skillParams('handwriting-review-flow');
+    const card = reviewCard(noteId, version.version, version.doc_url, summary, version.fingerprint.slice(0, 12), approveToken, returnToken,
+      typeof flowParams.cardHeader === 'string' ? flowParams.cardHeader : undefined);
     await this.deps.repos().outbox.enqueue({
       dedupKey: `notereview:${noteId}:v${version.version}`,
       channel: 'feishu',

@@ -1,8 +1,8 @@
 // 任务 skill 目录（F40/spec 2.11）：「做什么」的统一单元骑宿主原生 dsh-skill
-// 体系——插件内置三件经 ctx.skills 注册（runtime provider），工作区自定义经
+// 体系——插件内置件经 ctx.skills 注册（runtime provider），工作区自定义经
 // dsh-skill-filesystem 发现于 <workspace>/.dsh/skills/（<name>.md 或
-// <name>/SKILL.md，frontmatter 必需 name/description）。宿主未挂载 skill 三包
-// 时 ctx.skills 缺席，目录回落内置三件——模板轨照常可执行，只是无自定义面。
+// <name>/SKILL.md，frontmatter 必需 name/description）。宿主未提供 skill registry
+// 时 ctx.skills 缺席，目录回落内置件——模板轨照常可执行，只是无自定义面。
 // 执行轨（spec 2.11）：metadata.track＝'template'（确定性组装，不过模型）或
 // 'agent'（任务指令进模型回合，F41 交付）；缺省按 agent。
 
@@ -33,7 +33,7 @@ export interface SkillRegistryLike {
   get(name: string, options?: { cwd?: string }): Promise<{ name: string; content: string; metadata?: Record<string, unknown>; provider?: string; source?: string } | undefined>;
 }
 
-/** 内置三件（spec 2.11/F40）：正文＝渲染规则与输出契约，模板轨组装在代码层。 */
+/** 内置任务 skill（spec 2.11/F40/F44）：digest 三件＋审核流口径＋会前准备；模板轨组装在代码层。 */
 export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; whenToUse: string; content: string; metadata: { track: SkillTrack; kind: string; pa24: true; params?: Record<string, unknown> } }[] = [
   {
     name: 'digest-morning',
@@ -98,6 +98,25 @@ export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; 
   },
 ];
 
+/** 平台层工具声明强制（spec 2.11 红线：skill 只能收紧不能放宽）：
+ * skill 可在 frontmatter metadata.tools 声明本 skill 执行所需的工具子集；
+ * 声明中出现执行面白名单之外的工具＝越权声明，平台层直接拒绝执行。
+ * 不声明＝不额外约束（沿用角色白名单）。 */
+export function assertToolDeclaration(metadata: Record<string, unknown> | undefined, allowedTools: readonly string[], skillName: string): void {
+  const declared = metadata?.tools;
+  if (!Array.isArray(declared) || declared.length === 0) return;
+  const allowed = new Set(allowedTools);
+  const beyond = declared.filter(t => typeof t === 'string' && !allowed.has(t));
+  if (beyond.length > 0) {
+    throw new Error(`任务 skill ${skillName} 的工具声明越权（${beyond.join('、')} 不在执行面白名单内）；skill 只能收紧不能放宽权限，请修正该 skill 的 metadata.tools。`);
+  }
+}
+
+/** 待审提醒默认文案（handwriting-review-flow 内置 params；runtime 兜底引用此处单一来源）。 */
+export const DEFAULT_PENDING_REMIND_TEMPLATE: Readonly<{ pendingRemindTemplate: string }> = {
+  pendingRemindTemplate: '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。',
+};
+
 /** 经 DigestService/DigestPlanRow 绑定的计划 skill 目录访问面。 */
 export class SkillCatalog {
   constructor(
@@ -155,12 +174,20 @@ export class SkillCatalog {
     // （user-dsh/user-agents）是主人自己的 agent 技能库，不进周期任务下拉。
     return [...entries, ...builtins]
       .map(e => this.toTaskSkill(e))
-      .filter(s => s.source === 'builtin' || s.source === 'project-dsh' || s.source === 'runtime');
+      .filter(s => s.source === 'builtin' || s.source === 'project-dsh');
   }
 
   /** 按 kebab-case 名校验存在性；返回 null＝目录中无此名。 */
   async find(name: string): Promise<TaskSkill | null> {
     return (await this.list()).find(s => s.name === name) ?? null;
+  }
+
+  /** 指定 skill 的完整 frontmatter metadata（registry 优先；缺省空对象）。 */
+  async meta(name: string): Promise<Record<string, unknown>> {
+    const def = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
+    if (def?.metadata && typeof def.metadata === 'object') return def.metadata;
+    const builtin = BUILTIN_TASK_SKILLS.find(s => s.name === name)?.metadata;
+    return builtin ? { ...builtin } : {};
   }
 
   /** 指定 skill 的 frontmatter params（工作流参数；未载/无 params 返回空对象）。 */

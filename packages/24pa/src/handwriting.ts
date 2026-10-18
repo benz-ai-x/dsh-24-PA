@@ -309,13 +309,15 @@ export function newReviewToken(): string {
 }
 
 /** Feishu interactive card for a pending review version (P31). */
-export function reviewCard(noteId: string, version: number, docUrl: string | null, summary: string, fingerprintStart: string, approveToken: string, returnToken: string): Record<string, unknown> {
+export function reviewCard(noteId: string, version: number, docUrl: string | null, summary: string, fingerprintStart: string, approveToken: string, returnToken: string, headerTemplate?: string): Record<string, unknown> {
   const elements: Record<string, unknown>[] = [
     {
       tag: 'div',
       text: {
         tag: 'lark_md',
-        content: `**手写笔记 ${noteId} 待审版本 v${version}**\n摘要：${summary}\n内容指纹：${fingerprintStart}…\n请先打开文档核对完整正文、疑点定位与原稿，再批准这一具体版本；按钮仅对本版本指纹有效。`,
+        content: (headerTemplate && headerTemplate.includes('{noteId}')
+            ? headerTemplate.replaceAll('{noteId}', noteId).replaceAll('{version}', String(version))
+            : `**手写笔记 ${noteId} 待审版本 v${version}**`) + `\n摘要：${summary}\n内容指纹：${fingerprintStart}…\n请先打开文档核对完整正文、疑点定位与原稿，再批准这一具体版本；按钮仅对本版本指纹有效。`,
       },
     },
   ];

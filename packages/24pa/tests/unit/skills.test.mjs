@@ -57,3 +57,14 @@ describe('F44：工作流参数与受控接入', () => {
     expect((await mounted.params('handwriting-review-flow')).pendingRemindTemplate).toBe('私稿提醒 {noteId}');
   });
 });
+
+describe('F41/F44：工具声明平台层强制', () => {
+  it('声明白名单外工具＝越权拒绝；子集与缺省放行', async () => {
+    const { assertToolDeclaration } = await import('../../lib/skills.js');
+    expect(() => assertToolDeclaration({ tools: ['bash', 'read'] }, ['pa24_work', 'pa24_memory'], 's1')).toThrow(/越权.*bash/);
+    expect(() => assertToolDeclaration(undefined, ['pa24_work'], 's2')).not.toThrow();
+    expect(() => assertToolDeclaration({}, ['pa24_work'], 's3')).not.toThrow();
+    expect(() => assertToolDeclaration({ tools: ['pa24_work'] }, ['pa24_work', 'pa24_memory'], 's4')).not.toThrow();
+    expect(() => assertToolDeclaration({ tools: [] }, ['pa24_work'], 's5')).not.toThrow();
+  });
+});

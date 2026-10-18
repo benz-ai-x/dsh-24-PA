@@ -17,7 +17,7 @@ import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, typ
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
-import { SkillCatalog } from './skills.js';
+import { SkillCatalog, assertToolDeclaration, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 
 /** dsh-skill 未挂载时 ctx.skills 是 cordis 惰性服务 getter（读即抛「without
  * inject」），防御性探测必须 try/catch 而非可选链。 */
@@ -27,6 +27,8 @@ function hostSkillRegistry(ctx: DshContext): ConstructorParameters<typeof SkillC
   } catch {
     return null;
   }
+
+
 }
 import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
 
@@ -218,6 +220,7 @@ export class PaRuntime {
   /** Handwriting note pipeline (F29): submit→publish→review→verify→republish
    *  behind a deep module; the runtime keeps role bindings and tick loops. */
   private readonly handwriting: HandwritingPipeline = new HandwritingPipeline({
+      skillParams: name => this.skillCatalog.params(name),
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
     workspace: () => this.workspace,
@@ -246,9 +249,12 @@ export class PaRuntime {
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  supervise/overview behind one deep module; F19 voice delivery extends
    *  here. The runtime keeps role bindings and the follow-up tick. */
-  /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置三件。 */
+  /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
   private readonly skillCatalog: SkillCatalog;
 
+  /** Recurring-digest & daily-planning service (F32): plans/build/render/
+   *  delivery; F19 voice + F40/F41 skill tracks extend here. The runtime
+   *  keeps role bindings, the follow-up tick and channel selection. */
   private readonly digest = new DigestService({
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
@@ -422,6 +428,8 @@ export class PaRuntime {
           if (!bound) throw new Error(`任务 skill ${name} 不在目录中（内置＋工作区 .dsh/skills）。`);
           const content = await this.skillCatalog.content(name);
           if (!content) throw new Error(`任务 skill ${name} 正文加载失败。`);
+          // spec 2.11 红线：工具声明只能收紧——越权声明在平台层拒绝执行。
+          assertToolDeclaration(await this.skillCatalog.meta(name), ['pa24_work', 'pa24_memory'], name);
           return { skill: name, track: bound.track, content, message: '按上述任务指令执行，完成后汇报（含完成标准核对）；工具面以白名单为准，越权项如实报拒因。' };
         },
       },
@@ -3792,7 +3800,7 @@ export class PaRuntime {
       const flowParams = await this.skillCatalog.params('handwriting-review-flow');
       const template = typeof flowParams.pendingRemindTemplate === 'string' && flowParams.pendingRemindTemplate.includes('{noteId}')
         ? flowParams.pendingRemindTemplate
-        : '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。';
+        : DEFAULT_PENDING_REMIND_TEMPLATE.pendingRemindTemplate;
       await this.notifyOwner(
         `noteremind:${reminder.id}:${reminder.sent_count + 1}`,
         template
