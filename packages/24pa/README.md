@@ -1,5 +1,5 @@
 ---
-description: "Feishu-backed personal-assistant profile bundle for dsh: one 24私助 preset carrying the full standard tool base plus ledger-driven business workers, reminders, handwriting review, and a staged access-setup wizard."
+description: "Feishu-backed personal-assistant profile bundle for dsh: one 24私助 preset carrying the full standard tool base plus a SQLite-by-default ledger, seven business workers, task skills, voice digests, calendar-native reminders, handwriting review, and a staged access-setup wizard."
 kind: "package-bundle"
 ---
 
@@ -9,17 +9,19 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to six business workers, with a PostgreSQL ledger for items, reminders, handwritten-note review, digests, and delivery receipts. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`, `0.2.1-rc.1`–`0.2.1-rc.2`.
+Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to seven business workers over a SQLite-by-default ledger (workspace `data/pa24.db`; optional PostgreSQL) for items, handwritten-note review, digests, and delivery receipts. Behavior ships as task skills — built-in plus workspace-customizable (`<workspace>/.dsh/skills/`, hot-reloaded), each declaring a deterministic template track or a model-executed track — covering voice digests and calendar-native clock reminders that fire from the Feishu/WeCom app with the host offline. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`, `0.2.1-rc.1`–`0.2.1-rc.2`.
 
 ## FAQ
 
-**What is 24私助 (24PA)?** — A Feishu personal-assistant plugin for dsh, shipped as a profile bundle: local dsh sessions and a Feishu bot coordinate six business workers over a PostgreSQL ledger — tasks, calendar, reminders, memos, digests, and handwritten-note review.
+**What is 24私助 (24PA)?** — A Feishu personal-assistant plugin for dsh, shipped as a profile bundle: local dsh sessions and a Feishu bot coordinate seven business workers over a SQLite-by-default ledger — tasks, calendar, memos, digests, handwriting review, and a skill runner — while clock-type reminders ride native calendar events.
 
 **Which dsh runtimes are supported?** — dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`, `0.2.1-rc.1`–`0.2.1-rc.2`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
 
 **How do I install it?** — `dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<baseline serial>`, then restart the profile (see [Installing the Bundle](#installing-the-bundle)).
 
-**Do reminders require the model to be online?** — No: reminders fire from PostgreSQL occurrence rows through the outbox, so fixed reminders deliver while the model is offline.
+**Do reminders require the model to be online?** — No. Clock-type reminders are written as calendar events with native app alerts (Feishu or WeCom, per `calendarChannel`) — they fire with both the model and the 24私助 host offline; the ledger keeps a delegated backup row. Follow-up and conditional reminders run as agent-track skills.
+
+**Can I add or change routines without touching plugin code?** — Yes: periodic tasks, worker personas, access wizards, and workflows all ship as task skills. Drop a `<name>.md` into the workspace `.dsh/skills/` directory (picked up hot) or rebind from the panel's plan cards; each skill declares a deterministic template track or a model-executed track with completion criteria, and can only tighten — never loosen — tool permissions.
 
 **How do I connect Feishu?** — Tell the local 24私助 session「帮我接通飞书」; the built-in wizard (`pa24_connection` `guide`, and `check` with `nextSteps`) walks app creation, authorization, resource ids, and health checks. The Feishu entry session can also run this read-only wizard and `wecom_guide`/`wecom_check` for channel diagnostics; configuration writes stay local-only (ADR-0001).
 
@@ -46,7 +48,7 @@ Pick the release matching your dsh runtime, then restart the Profile. The reconc
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
 # dsh 0.2.1-alpha.2 – 0.2.1-rc.2 hosts (peers span these baselines; rc.2 is the active release line)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.2.8
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.2.9
 
 # alpha.2 – alpha.5 hosts may also pin the alpha line (frozen at 0.2.1-alpha.5.1; preset content identical, only engines/peer range and docs differ)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
@@ -71,7 +73,7 @@ Secrets live only in the server environment; the workspace `AGENTS.md` holds one
 | `PA24_WORKSPACE` | Absolute workspace directory bound on first start (or pick one in the panel / dsh settings) |
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | Feishu custom-app credentials (feishu mode) |
 
-`AGENTS.md` fields: `mode` (demo/feishu), `storage` (sqlite/postgres, default sqlite — the ledger is the workspace `data/pa24.db` file; SQLite uses the built-in `node:sqlite`, unflagged across this package's supported Node range; `postgres` requires `pgDsnEnv` and an external database), `larkProfile`, `ownerOpenId`, `folderToken`, `tasklistId`, `calendarId`, `calendarChannel`/`todoChannel`/`notifyChannel` (feishu|wecom, default feishu — WeCom as the second operation channel for calendar/todo plus one-way reminder push, never inbound), `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraLocalTools` (`subagent_codex`, `subagent_claude_code`, and QwenNote minutes tools via `mcp__qwennote__*` wildcard or precise names; entries naming unmounted tools are filtered out with a health note). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`; the bundled `feishu-setup.md` is the single authority.
+`AGENTS.md` fields: `mode` (demo/feishu), `storage` (sqlite/postgres, default sqlite — the ledger is the workspace `data/pa24.db` file; SQLite uses the built-in `node:sqlite`, unflagged across this package's supported Node range; `postgres` requires `pgDsnEnv` and an external database), `larkProfile`, `ownerOpenId`, `folderToken`, `tasklistId`, `calendarId`, `calendarChannel`/`todoChannel`/`notifyChannel` (feishu|wecom, default feishu — WeCom as the second operation channel for calendar/todo plus one-way reminder push, never inbound), `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraBusinessSkills` (kebab-case allow list releasing workspace business skills to model-driven runs), `tts` (`engine` none/melo/volcengine, `voice`, `volcKeyEnv`, `meloDir` — voice digests via cloud Doubao TTS or local Melo), `extraLocalTools` (`subagent_codex`, `subagent_claude_code`, and QwenNote minutes tools via `mcp__qwennote__*` wildcard or precise names; entries naming unmounted tools are filtered out with a health note). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`; the bundled `feishu-setup.md` is the single authority.
 
 ### Exposing the tool
 
@@ -79,9 +81,9 @@ External CLI delegation rows ship enabled but stay dormant: `subagent_codex` and
 
 ### What you get
 
-- The「24私助」preset: standard plugin set (platform shell, fs, search, jobs, skill, goal, plan-mode, compaction, delegation, ask-user, todo, web, present, ralph) plus `pa24-agent`; persona text merged into the assistant identity; `tool-schedule` deliberately excluded — reminders stay on the ledger.
+- The「24私助」preset: standard plugin set (platform shell, fs, search, jobs, skill, skill-filesystem, tool-skill, goal, plan-mode, compaction, delegation, ask-user, todo, web, present, ralph) plus `pa24-agent`; persona text merged into the assistant identity; `tool-schedule` deliberately excluded — clock-type reminders ride native calendar events, with the ledger as backup record.
 - Role-restricted tool surfaces: local sessions get the full standard base plus all `pa24_*` tools; the Feishu entry session and workers keep business-only whitelists (one preset never implies one permission set).
-- The host plugin: fixed Feishu access and local sessions, `pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`, PostgreSQL ledger with outbox delivery and offline-capable reminders, handwriting review cards, digests, backup/health, the web panel (whose System category carries a parameter-configuration form: validate → rewrite the AGENTS.md config block → reload, with chat and the form sharing one config source; secrets are written via the Secrets group into a 0600 workspace store — write-only in the UI, env vars become optional overrides, and AGENTS.md/system prompts/backups never contain secret values), with workspace binding, switching, AGENTS.md reload, effective-config review, and health & budget living on the panel's System category under the Workspace & config card. WeCom access setup follows the bundled `wecom-setup.md` via `pa24_connection action=wecom_guide` / `wecom_check`.
+- The host plugin: fixed Feishu access and local sessions, `pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`, the SQLite-by-default ledger (optional PostgreSQL) with outbox delivery, the task-skill runtime (built-in plus workspace `.dsh/skills/`), calendar-native clock reminders, voice-capable digests, handwriting review cards, backup/health, the web panel (whose System category carries a parameter-configuration form: validate → rewrite the AGENTS.md config block → reload, with chat and the form sharing one config source; secrets are written via the Secrets group into a 0600 workspace store — write-only in the UI, env vars become optional overrides, and AGENTS.md/system prompts/backups never contain secret values), with workspace binding, switching, AGENTS.md reload, effective-config review, and health & budget living on the panel's System category under the Workspace & config card. WeCom access setup follows the bundled `wecom-setup.md` via `pa24_connection action=wecom_guide` / `wecom_check`.
 
 ### Failure and recovery
 
@@ -100,7 +102,7 @@ This section explains how the assistant organizes work and where the observable 
 ### Design concept
 
 - **One preset, many permission sets.** Every session composes the same「24私助」preset; role whitelists applied at agent creation decide the visible tools, so inheriting the preset never inherits maintenance authority (ADR-0001).
-- **The ledger is the reminder authority.** `tool-schedule` is excluded on purpose: reminders occur from PostgreSQL occurrence rows through the outbox, so they fire with the model offline and every delivery keeps a receipt.
+- **Calendars own clock-type reminders.** `tool-schedule` is excluded on purpose: clock-type reminders are written as calendar events with native alerts (per `calendarChannel`), firing even with 24私助 offline; the ledger keeps delegated backup rows for history and dedup (ADR-0001, revised 2026-10-18).
 - **Material never becomes authorization.** Notes, documents, subagent replies, and fetched web content are inputs; only the owner's explicit instruction authorizes an external write, and secrets are referenced by environment variable name only.
 
 ### Source map
@@ -117,7 +119,7 @@ This section explains how the assistant organizes work and where the observable 
 
 ### Run flow
 
-On start the host plugin takes a single-writer lock on `$DSH_HOME/24pa`, connects PostgreSQL, loads and validates the workspace `AGENTS.md`, and establishes the fixed Feishu access and local sessions through the SessionController. Inbound Feishu events durably enter an inbox before acknowledgment, the coordinator delegates to workers through the continuable child API, and each item records its origin, parent, and delivery target. Ticks drain the outbox with receipts, fire due reminder occurrences, verify published note fingerprints, and wake digest plans through the native Schedule service; results return to the entry that originated the work. At agent creation the role whitelist restricts the inherited tool catalog, and an `AGENTS.md` reload replaces the workspace-rules prompt section without touching the effective configuration on failure.
+On start the host plugin takes a single-writer lock on `$DSH_HOME/24pa`, opens the ledger (SQLite workspace file by default, or PostgreSQL), loads and validates the workspace `AGENTS.md`, and establishes the fixed Feishu access and local sessions through the SessionController. Inbound Feishu events durably enter an inbox before acknowledgment, the coordinator delegates to workers through the continuable child API, and each item records its origin, parent, and delivery target. Ticks drain the outbox with receipts, fire due non-delegated reminder occurrences, verify published note fingerprints, and wake digest plans through the native Schedule service; results return to the entry that originated the work. At agent creation the role whitelist restricts the inherited tool catalog, and an `AGENTS.md` reload replaces the workspace-rules prompt section without touching the effective configuration on failure.
 
 </details>
 
@@ -181,7 +183,7 @@ Indirectly, through the preset rows this bundle composes, each inserted standard
 
 These limits define when this assistant needs special operational care. They are current package constraints, not a general Feishu comparison or a task backlog.
 
-- **Real Feishu tenants are untested** — long-connection, dual identities, and token renewal were verified against a stubbed Feishu side; the first real integration may surface wire differences, and console permission scope names are keyword-based pending on-console verification.
+- **Real-tenant operation is single-instance so far** — long-connection, identity, and renewal paths now run on one production Feishu tenant (WeCom channels and voice digests included); broader tenant and zone compatibility remains untested, and console permission scope names are keyword-based pending on-console verification.
 - **Handwriting recognition quality is unquantified** — multi-page transcription fidelity needs a 30–50 page real-sample evaluation before any accuracy claim; the visual route must be configured in `workerModels`.
 - **dsh 0.2.0-rc.2 hosts ship no schedule service** — digests and meeting prep stay honestly unavailable until the schedule companions are installed, and the host-plane `schedule_*` tools those companions add cannot be hidden by preset restriction.
 - **External CLI delegation is dormant by default** — `subagent_codex`/`subagent_claude_code` mount only after their provider bundles are installed and `extraLocalTools` opts in; unconfigured tools stay absent rather than erroring.
@@ -195,7 +197,7 @@ These limits define when this assistant needs special operational care. They are
 
 This Dev Note is working context for maintainers: open questions and undecided directions. It is explicitly non-authoritative — shipped behavior and limits live in the sections above and in the package code.
 
-- **Multi-baseline verification** — regression runs select the runtime with `DSH_BIN` and append the rc.2 schedule companions with `PA24_E2E_EXTRA_PLUGINS`; the active baseline is 0.2.1-alpha.2 plain (156/156), while 0.2.0-rc.2 and 0.2.1-alpha.1 remain covered by the dual-API fallback paths.
+- **Multi-baseline verification** — regression runs select the runtime with `DSH_BIN` and append the rc.2 schedule companions with `PA24_E2E_EXTRA_PLUGINS`; the active release line is 0.2.1-rc.2 with the full suite at 258/258, while 0.2.0-rc.2 and 0.2.1-alpha.1 remain covered by the dual-API fallback paths.
 - **Preset patch is generated** — `cordis.patch.yml` is produced by `scripts/sync-preset.mjs` from the `@deepseek-ai/dsh-web-app` standard preset pinned as a devDependency; never edit it by hand. On a new dsh baseline, bump the pin and run `npm run preset:sync`; `npm run preset:check` and unit tests fail when the checked-in copy drifts.
 - **Local harness adjacency** — dev type-checking links vendored peers from an adjacent `deepseek-harness` checkout through `scripts/link-peer.mjs`; registry installs never depend on that checkout.
 
