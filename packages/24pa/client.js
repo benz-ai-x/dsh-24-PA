@@ -186,7 +186,7 @@ window.__ModuleLoader__.load({
           const [draft, setDraft] = React.useState(''), [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0);
           const [view, retryFetch] = useRpc('memory', { query, offset }, [workspace.path, query, offset]);
           const categories = { preference: [L('个人偏好', 'Preference'), 'neutral'], fact: [L('事实', 'Fact'), 'neutral'], project: [L('项目', 'Project'), 'blue'], decision: [L('决定', 'Decision'), 'neutral'] };
-          const search = () => { setOffset(0); setQuery(draft.trim()); };
+          const search = () => { setOffset(0); setQuery(draft.trim()); retryFetch(); };
           const clear = () => { setDraft(''); setQuery(''); setOffset(0); };
           const data = view.data;
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
@@ -212,7 +212,7 @@ window.__ModuleLoader__.load({
                     h('div', { className: 'pa24-note' }, r.content),
                     h('div', { className: 'pa24-row pa24-between' },
                       h('div', { className: 'pa24-memory-source' }, icon('note', { width: 13, height: 13 }), h('span', null, L('来源：', 'Source: ') + r.source)),
-                      h('time', { className: 'pa24-meta', dateTime: r.updatedAt }, date(r.updatedAt, workspace.config ? workspace.config.timeZone : 'Asia/Shanghai')))),
+                      h('time', { className: 'pa24-meta', dateTime: r.updatedAt }, date(r.updatedAt, workspace.config?.timeZone || 'Asia/Shanghai')))),
                   h('div', { className: 'pa24-memory-footer' }, h('details', null, h('summary', null, L('修订依据与 JSON', 'Revision basis & JSON')), h('p', { className: 'pa24-meta' }, L('修订依据：', 'Reason: ') + r.reason), h('p', { className: 'pa24-meta' }, L('修改会话：', 'Updated by: ') + r.updatedBy), r.validUntil && h('p', { className: 'pa24-meta' }, L('有效期至：', 'Valid until: ') + r.validUntil), h('pre', null, JSON.stringify(r, null, 2)))));
               })),
               data.matched > data.limit && h('nav', { className: 'pa24-page-nav', 'aria-label': L('记忆分页', 'Memory pagination') }, button('chevron', L('上一页', 'Previous'), () => setOffset(Math.max(0, data.offset - data.limit)), { disabled: data.offset === 0 }), h('span', null, L('第 ' + (Math.floor(data.offset / data.limit) + 1) + ' / ' + Math.ceil(data.matched / data.limit) + L(' 页', ''), 'Page ' + (Math.floor(data.offset / data.limit) + 1) + ' / ' + Math.ceil(data.matched / data.limit))), button('chevron', L('下一页', 'Next'), () => setOffset(data.offset + data.limit), { disabled: data.offset + data.limit >= data.matched }))),
@@ -224,7 +224,7 @@ window.__ModuleLoader__.load({
           const [mode, setMode] = React.useState('pending');
           const [historyFilter, setHistoryFilter] = React.useState('all');
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
-          const tz = workspace.config ? workspace.config.timeZone : 'Asia/Shanghai';
+          const tz = workspace.config?.timeZone || 'Asia/Shanghai';
           const verifyBadge = v => {
             if (!v || !v.verifyResult) return badge(L('尚未核验', 'Not verified'), 'neutral', 'info');
             if (v.verifyResult === 'matches') return badge(L('内容一致', 'Content matches'), 'blue', 'check');
@@ -1217,7 +1217,7 @@ window.__ModuleLoader__.load({
               h('h2', null, L('语音 TTS（晨报复盘）', 'Voice TTS (digests)')),
               row(L('语音引擎（tts.engine）', 'Voice engine (tts.engine)'), sel([['none', L('不启用', 'Off')], ['melo', L('Melo 本地', 'Melo local')], ['volcengine', L('豆包云', 'Volcengine')]], form.tts.engine, v => setTts('engine', v))),
               form.tts.engine === 'volcengine' && row(L('音色（tts.voice）', 'Voice (tts.voice)'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
-                sel(form.tts.voice && !VOICES.some(o => o.value === form.tts.voice) ? [{ value: form.tts.voice, label: form.tts.voice }, ...VOICES] : VOICES.map(o => [o.value, o.label]), form.tts.voice, v => setTts('voice', v)),
+                sel(form.tts.voice && !VOICES.some(o => o.value === form.tts.voice) ? [[form.tts.voice, form.tts.voice], ...VOICES.map(o => [o.value, o.label])] : VOICES.map(o => [o.value, o.label]), form.tts.voice, v => setTts('voice', v)),
                 h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void tryVoice() }, icon('chat', { width: 15, height: 15 }), L('试听', 'Sample'))), L('试听发送到飞书，使用当前已保存的配置。', 'The sample goes to Feishu using the saved config.')),
               form.tts.engine === 'volcengine' && row(L('密钥引用（tts.volcKeyEnv）', 'Key env ref (tts.volcKeyEnv)'), txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('可选：环境变量引用名（优先于密钥库）；密钥本体在「密钥」组填写。', 'Optional env-var reference (overrides the store); the key itself goes in the Secrets group.')),
               form.tts.engine === 'melo' && row(L('部署目录（tts.meloDir）', 'Deploy dir (tts.meloDir)'), txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),

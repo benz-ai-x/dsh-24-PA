@@ -74,8 +74,6 @@ const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', cal
 /** Bounded grace before an unattributable delivery pauses its digest plan (P24). */
 export { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
 
-/** Stable fingerprint of a followed task: identity + content + due (P19). */
-
 /**
  * Next occurrence for a template schedule. resolveRecurringOccurrence refuses
  * dispatches before the record's scheduledAt (the first fire); in that window
@@ -219,8 +217,6 @@ export class PaRuntime {
   private readonly feishu = new FeishuChannels({
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
-    workspace: () => this.workspace,
-    accessSessionId: () => this.accessSessionId,
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
@@ -1534,7 +1530,7 @@ export class PaRuntime {
 
   // ---- delegation & worker control -----------------------------------------
 
-  async delegate(args: { worker: string; title: string; instruction: string; noteId?: string }, agent: DshAgent): Promise<unknown> {
+  async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string }, agent: DshAgent): Promise<unknown> {
     const role = this.roleFor(agent);
     if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
     const config = this.config!;

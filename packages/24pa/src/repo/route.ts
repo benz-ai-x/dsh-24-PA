@@ -29,8 +29,3 @@ export class MessageRouteRepo {
     return result.rows[0] ?? null;
   }
 }
-
-// ---- handwriting notes (F06) ----------------------------------------------
-// Originals are stored under the workspace (.24pa/originals/) with hashes in
-// PG; versions keep immutable snapshots and fingerprints so review decisions
-// always name the exact content they cover.

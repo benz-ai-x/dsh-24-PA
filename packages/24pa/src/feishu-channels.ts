@@ -10,11 +10,11 @@ import { cliOptions } from './feishu.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint, hash } from './util.js';
 import { noteParentToken } from './config.js';
 import type { PaConfig } from './config.js';
-import type { ChannelContextDeps } from './channel-deps.js';
+import type { SharedChannelDeps } from './channel-deps.js';
 import type { TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
 import type { MemoryStore } from './memory.js';
 
-export interface FeishuDeps extends ChannelContextDeps {
+export interface FeishuDeps extends SharedChannelDeps {
   gate<T>(key: string, work: () => Promise<T>): Promise<T>;
   stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;
   notifySourceChanged(sourceType: 'task' | 'calendar', sourceId: string, currentFingerprint: string | null): Promise<void>;
@@ -52,11 +52,6 @@ export function taskExternal(data: any): { guid: string; url: string | null } {
   if (!guid) throw new Error('未取得真实任务 ID；请先核对飞书任务清单，不要盲目重试。');
   return { guid: String(guid), url: task?.url ? String(task.url) : null };
 }
-
-const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', calendar: '日程' };
-
-/** Bounded grace before an unattributable delivery pauses its digest plan (P24). */
-export { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
 
 /** Stable fingerprint of a followed task: identity + content + due (P19). */
 export function taskFingerprint(task: { task_guid: string; summary: string; due_at: Date | null }): string {
@@ -243,10 +238,11 @@ export class FeishuChannels {
         unresolved.push('未提供姓名或 openId 的参会人');
         continue;
       }
-      const memory = this.deps.memory();
-      if (!memory) throw new Error('联系人检索需要结构化记忆可用；当前未就绪，请改用显式 openId 邀请。');
-      const records = await memory.search({ query: name, limit: 50 });
-      const contactRecords = records.records.filter(r => (r.topic === `联系人：${name}` || r.content.includes(`联系人 ${name}：`)) && r.status === 'confirmed');
+      // Verbatim move from runtime: memory is non-null on the live path (the
+      // original used a non-null assertion); the null-store TypeError is the
+      // preserved failure mode, not a new guard message.
+      const memory = await this.deps.memory()!.search({ query: name, limit: 50 });
+      const contactRecords = memory.records.filter(r => (r.topic === `联系人：${name}` || r.content.includes(`联系人 ${name}：`)) && r.status === 'confirmed');
       const ids = [...new Set(contactRecords.flatMap(r => r.content.match(/ou_[A-Za-z0-9_]+/g) ?? []))];
       if (ids.length === 1) resolved.push({ name, openId: ids[0]! });
       else unresolved.push(`${name}（${ids.length === 0 ? '记忆中没有对应 open_id' : `记忆中有 ${ids.length} 位候选`}）`);
