@@ -386,7 +386,7 @@ describe('F41：agent 轨任务 skill', () => {
     expect(listed, '目录应发现工作区 skill').toBeTruthy();
     expect(listed.track).toBe('agent');
     // 开计划绑定自定义 skill（经 reminders Worker 路由）
-    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '开自定义晨报', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'digest_enable', kind: 'morning', time: '08:00:00', skill: 'e2e-custom-brief', voice: true }, workerReply: 'ok' });
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '开自定义晨报', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'digest_enable', kind: 'weekly', time: '08:00:00', weekdays: [1], skill: 'e2e-custom-brief', voice: true }, workerReply: 'ok' });
     let before = llm.log.length;
     await inject(ownerEvent('evt-f41a', { text: '开启自定义 skill 晨报' }));
     await waitWorkItem('开自定义晨报', '自定义晨报开启');
@@ -414,5 +414,50 @@ describe('F41：agent 轨任务 skill', () => {
     // 会前准备计划绑定 meeting-prep（存量迁移口径）
     const all = (await host.api('digests')).plans;
     expect(all.every(p => p.skill)).toBe(true);
+  });
+});
+
+describe('F44：任务 skill 受控接入（双门）', () => {
+  it('未放行拒绝且不留事项；放行后 skill 执行 Worker 载入正文执行', async () => {
+    const { readFile: rf, writeFile: wf } = await import('node:fs/promises');
+    const currentConfig = async () => {
+      const m = (await rf(join(workspace, 'AGENTS.md'), 'utf8')).match(/```json\n([\s\S]*?)\n```/);
+      return JSON.parse(m[1]);
+    };
+    const writeWorkspaceConfig = async patch => {
+      const cfg = { ...(await currentConfig()), ...patch };
+      await wf(join(workspace, 'AGENTS.md'), '# 24私助工作区\n\n```json\n' + JSON.stringify(cfg, null, 2) + '\n```\n');
+      await host.api('action', { type: 'workspace.reload' });
+    };
+    // 门一（角色未启用）：enabledWorkers 无 skill → 角色门拒绝
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'skill', title: '跑未放行 skill', instruction: 'x', skill: 'e2e-custom-brief' }, leadReply: '被拒绝了。', workerAction: { action: 'skill_run', skill: 'e2e-custom-brief' }, workerReply: 'ok' });
+    let before = llm.log.length;
+    await inject(ownerEvent('evt-f44a', { text: '帮我跑一下自定义 skill' }));
+    await new Promise(r => setTimeout(r, 4000));
+    expect(llm.log.slice(before).some(r => JSON.stringify(r).includes('未在配置中启用')), '角色门应拒绝').toBe(true);
+    // 门一（放行面为空）：角色启用但 extraBusinessSkills 空 → 放行门拒绝
+    const cfg = await currentConfig();
+    await writeWorkspaceConfig({ enabledWorkers: [...new Set([...cfg.enabledWorkers, 'skill'])], extraBusinessSkills: [] });
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'skill', title: '跑空放行面 skill', instruction: 'x', skill: 'e2e-custom-brief' }, leadReply: '被拒绝了。', workerAction: { action: 'skill_run', skill: 'e2e-custom-brief' }, workerReply: 'ok' });
+    before = llm.log.length;
+    await inject(ownerEvent('evt-f44a2', { text: '再试试跑自定义 skill' }));
+    await new Promise(r => setTimeout(r, 4000));
+    expect(llm.log.slice(before).some(r => JSON.stringify(r).includes('未在 extraBusinessSkills')), '放行门应拒绝').toBe(true);
+    // 门二开：角色＋放行面 → 委派成立，skill_run 载入正文
+    await writeWorkspaceConfig({ extraBusinessSkills: ['e2e-custom-brief'] });
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'skill', title: '跑放行 skill', instruction: '执行该 skill', skill: 'e2e-custom-brief' }, leadReply: '已安排。', workerAction: { action: 'skill_run', skill: 'e2e-custom-brief' }, workerReply: '按指令完成。' });
+    before = llm.log.length;
+    await inject(ownerEvent('evt-f44b', { text: '再跑一次刚才放行的 skill' }));
+    await waitWorkItem('跑放行 skill', '放行委派成立');
+    const loaded = await waitToolResult('pa24_work', '完成标准', 'skill_run 载入正文', 60_000, before);
+    expect(unescapeJsonish(loaded)).toContain('e2e-custom-brief');
+    // 目录外名（放行面内点名但目录无）→ skill_run 拒绝
+    await writeWorkspaceConfig({ extraBusinessSkills: ['e2e-custom-brief', 'ghost-skill'] });
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'skill', title: '跑幽灵 skill', instruction: 'x', skill: 'ghost-skill' }, leadReply: '目录里没有。', workerAction: { action: 'skill_run', skill: 'ghost-skill' }, workerReply: 'ok' });
+    before = llm.log.length;
+    await inject(ownerEvent('evt-f44c', { text: '跑 ghost-skill' }));
+    await new Promise(r => setTimeout(r, 4000));
+    expect(llm.log.slice(before).some(r => JSON.stringify(r).includes('不在目录中')), '目录外名应被拒绝').toBe(true);
+    await writeWorkspaceConfig({ extraBusinessSkills: [] });
   });
 });

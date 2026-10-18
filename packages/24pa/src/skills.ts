@@ -34,7 +34,7 @@ export interface SkillRegistryLike {
 }
 
 /** 内置三件（spec 2.11/F40）：正文＝渲染规则与输出契约，模板轨组装在代码层。 */
-export const BUILTIN_DIGEST_SKILLS: readonly { name: string; description: string; whenToUse: string; content: string; metadata: { track: SkillTrack; kind: string; pa24: true } }[] = [
+export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; whenToUse: string; content: string; metadata: { track: SkillTrack; kind: string; pa24: true; params?: Record<string, unknown> } }[] = [
   {
     name: 'digest-morning',
     description: '晨报：当日计划的事实聚合与建议（模板轨，确定性组装）',
@@ -73,6 +73,20 @@ export const BUILTIN_DIGEST_SKILLS: readonly { name: string; description: string
     metadata: { track: 'template', kind: 'weekly', pa24: true },
   },
   {
+    name: 'handwriting-review-flow',
+    description: '手写审核流口径（模板轨）：待审提醒文案等工作流参数（spec 2.11/F44）',
+    whenToUse: '手写待审提醒分派读取本 skill 的 params；工作区同名覆盖可调口径。',
+    content: [
+      '# 手写审核流口径',
+      '',
+      '可调参数（frontmatter metadata.params，工作区同名 skill 覆盖即生效）：',
+      '- pendingRemindTemplate：待审提醒文案模板，占位符 {noteId} {version} {docPart}；',
+      '',
+      '默认口径与既有行为一致；改模板不改代码。',
+    ].join('\n'),
+    metadata: { track: 'template', kind: 'review', pa24: true, params: { pendingRemindTemplate: '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。' } },
+  },
+  {
     name: 'meeting-prep',
     description: '会前准备：按日程生成资料包与纪要行动（模板轨，专属构建管线）',
     whenToUse: '会前准备计划到点（meeting_prep_build），或主人要求会前资料。',
@@ -95,7 +109,7 @@ export class SkillCatalog {
   /** 内置三件注册进宿主目录（runtime provider）；宿主未挂载时安全跳过。 */
   registerBuiltins(): void {
     if (!this.registry) return;
-    for (const skill of BUILTIN_DIGEST_SKILLS) {
+    for (const skill of BUILTIN_TASK_SKILLS) {
       this.registry.register({
         name: skill.name,
         description: skill.description,
@@ -122,7 +136,7 @@ export class SkillCatalog {
   /** 全目录（内置＋工作区自定义）；宿主目录缺席时回落内置三件。 */
   async list(): Promise<TaskSkill[]> {
     if (!this.registry) {
-      return BUILTIN_DIGEST_SKILLS.map(s => ({ name: s.name, description: s.description, track: s.metadata.track, source: 'builtin', kind: s.metadata.kind }));
+      return BUILTIN_TASK_SKILLS.map(s => ({ name: s.name, description: s.description, track: s.metadata.track, source: 'builtin', kind: s.metadata.kind }));
     }
     const raw = await this.registry.list({ cwd: this.cwd() ?? undefined });
     // list() 的 SkillSummary 不带 metadata（track/kind 在 get() 的 Definition）——
@@ -136,7 +150,7 @@ export class SkillCatalog {
       }
     }));
     const seen = new Set(entries.map(e => e.name));
-    const builtins = BUILTIN_DIGEST_SKILLS.filter(s => !seen.has(s.name)).map(s => ({ name: s.name, description: s.description, provider: 'runtime', metadata: { ...s.metadata } }));
+    const builtins = BUILTIN_TASK_SKILLS.filter(s => !seen.has(s.name)).map(s => ({ name: s.name, description: s.description, provider: 'runtime', metadata: { ...s.metadata } }));
     // spec 2.11：计划绑定面＝内置＋工作区（project-dsh）；用户全局目录
     // （user-dsh/user-agents）是主人自己的 agent 技能库，不进周期任务下拉。
     return [...entries, ...builtins]
@@ -149,10 +163,20 @@ export class SkillCatalog {
     return (await this.list()).find(s => s.name === name) ?? null;
   }
 
+  /** 指定 skill 的 frontmatter params（工作流参数；未载/无 params 返回空对象）。 */
+  async params(name: string): Promise<Record<string, unknown>> {
+    // registry 定义优先：工作区同名覆盖内置（与目录胜者规则一致）。
+    const def = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
+    const fromDef = (def?.metadata as { params?: Record<string, unknown> } | undefined)?.params;
+    if (fromDef && typeof fromDef === 'object') return fromDef;
+    const builtin = BUILTIN_TASK_SKILLS.find(s => s.name === name)?.metadata as { params?: Record<string, unknown> } | undefined;
+    return builtin?.params && typeof builtin.params === 'object' ? builtin.params : {};
+  }
+
   /** 加载 skill 正文（agent 轨任务指令；内置三件返回契约正文）。 */
   async content(name: string): Promise<string | null> {
     const loaded = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
     if (loaded?.content) return loaded.content;
-    return BUILTIN_DIGEST_SKILLS.find(s => s.name === name)?.content ?? null;
+    return BUILTIN_TASK_SKILLS.find(s => s.name === name)?.content ?? null;
   }
 }

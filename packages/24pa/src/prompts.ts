@@ -101,7 +101,7 @@ export interface WorkerPromptSet {
   version: number;
 }
 
-export type BuiltinWorkerId = 'memo' | 'tasks' | 'digest' | 'calendar' | 'reminders' | 'handwriting';
+export type BuiltinWorkerId = 'memo' | 'tasks' | 'digest' | 'calendar' | 'reminders' | 'handwriting' | 'skill';
 
 /** All six builtin sets are present; string keys (runtime role ids) may miss. */
 export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleId: string]: WorkerPromptSet | undefined } = {
@@ -141,6 +141,21 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     brief: 'task_*（创建/更新/完成/查询/取消）、project_*（拆解与入账）、outreach_send/task_assign（需 instruction 依据）、task_repeat_*（周期模板）、waiting_*（等待事项与检查点，只提醒本人不催办他人）。',
     doneCriteria: '平台回执（任务链接/操作编号）已取得并交回；结果未知时已核对后再答复。',
     version: 2,
+  },
+  skill: {
+    persona: [
+      '## 职责',
+      '你是通用任务 skill 执行 Worker：按委派指定的任务 skill 正文完成一次工作。',
+      '## 完成标准',
+      'skill 正文的指令与完成标准全部满足（或如实说明未达项）；结果交回发起会话，附 skill 名与关键产出。',
+      '## 边界',
+      '只使用业务白名单工具；skill 声明的工具面超出白名单时如实报告拒因，不冒充执行；不写记忆、不改配置。',
+      '## 输出要求',
+      '结果一段式汇报：做了什么、依据 skill 哪些指令、完成标准达成情况。',
+    ].join('\n'),
+    brief: 'skill_run {skill}（载入放行的任务 skill 正文并按其执行；仅 extraBusinessSkills 放行面内可达）。',
+    doneCriteria: 'skill 指令执行完毕且完成标准逐项核对（含未达项说明）。',
+    version: 1,
   },
   digest: {
     persona: [
