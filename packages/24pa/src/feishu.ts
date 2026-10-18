@@ -299,9 +299,11 @@ async function collectAccess(
     auth: status('unchecked', '尚未检查'),
     resources: [],
   };
+  // F22：知识库节点为可选资源（未配置回退文档目录），探测只读 node-get；
+  // 缺省文案与探测循环共用一个常量（两处 map 同口径）。
+  const WIKI_UNSET_MESSAGE = '未配置（可选；备忘与待审文档回退文档目录）';
   const resources: [string, string, string, string[]][] = [
     ['folder', '文档目录', config.folderToken, ['drive', 'files', 'list', '--folder-token', config.folderToken, '--page-size', '1']],
-    // F22：知识库节点为可选资源（未配置回退文档目录），探测只读 node-get。
     ['wiki', '知识库', config.wikiNodeToken, ['wiki', '+node-get', '--node-token', config.wikiNodeToken]],
     ['tasklist', '任务清单', config.tasklistId, ['task', 'tasklists', 'get', '--tasklist-guid', config.tasklistId]],
     ['calendar', '本人日历', config.calendarId, config.calendarId === 'primary' ? ['calendar', 'calendars', 'primary'] : ['calendar', 'calendars', 'get', '--calendar-id', config.calendarId]],
@@ -311,7 +313,7 @@ async function collectAccess(
     label,
     value,
     // 可选资源（wiki）的缺省语义与必填资源不同：提示回退而不是配置缺口。
-    ...status(value ? 'unchecked' : 'missing', value ? '未检查可读性' : id === 'wiki' ? '未配置（可选；备忘与待审文档回退文档目录）' : '未配置'),
+    ...status(value ? 'unchecked' : 'missing', value ? '未检查可读性' : id === 'wiki' ? WIKI_UNSET_MESSAGE : '未配置'),
   }));
   try {
     const file = await readFile(join(workspace.path, 'AGENTS.md'), 'utf8');
@@ -356,7 +358,7 @@ async function collectAccess(
     result.resources = await Promise.all(
       resources.map(async ([id, label, value, args]) => {
         // 与上方初始 map 同口径：wiki 缺省是合法回退，不是配置缺口。
-        if (!value) return { id, label, value, ...status('missing', id === 'wiki' ? '未配置（可选；备忘与待审文档回退文档目录）' : '未配置') };
+        if (!value) return { id, label, value, ...status('missing', id === 'wiki' ? WIKI_UNSET_MESSAGE : '未配置') };
         try {
           await runLarkCli(readOptions, [...args, '--as', 'user']);
           return { id, label, value, ...status('ok', '读取接口成功；写入权限由实际任务回执验证') };

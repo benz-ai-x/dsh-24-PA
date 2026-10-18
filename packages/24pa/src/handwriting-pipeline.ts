@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { DshAgent } from './host.js';
-import type { PaConfig } from './config.js';
+import { noteParentToken, type PaConfig } from './config.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import { runLarkCli } from './lark.js';
 import { cliOptions, type FeishuTransport, type InboundEvent } from './feishu.js';
@@ -341,8 +341,7 @@ export class HandwritingPipeline {
         if (!recognized) throw new Error('发布新版本需要结构化识别结果。');
         const xmlBody = noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size, sourceType: p.source_type })));
         // F22：待审文档同样落在知识库节点（wiki 优先、folder 回退）。
-        const noteConfig = this.deps.config();
-        const parentToken = noteConfig.wikiNodeToken || noteConfig.folderToken;
+        const parentToken = noteParentToken(this.deps.config());
         const { data } = await runLarkCli(this.cli(), [
           'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', parentToken, '--content', '-',
         ], xmlBody);

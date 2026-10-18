@@ -281,9 +281,6 @@ if (plain[0] === 'wiki' && plain[1] === '+node-get') {
 if (plain[0] === 'wiki' && plain[1] === '+space-list') {
   ok({ spaces: [{ space_id: 'spw_test', name: '工作笔记', space_type: 'team' }, { space_id: 'spw_other', name: '另一个空间', space_type: 'team' }] });
 }
-if (plain[0] === 'wiki' && plain[1] === '+node-list') {
-  ok({ nodes: [{ node_token: 'wikinode_test', obj_token: 'objwikinode_test', obj_type: 'docx', title: '节点下已有文档' }] });
-}
 if (plain[0] === 'task' && plain[1] === 'tasklists' && plain[2] === 'get') ok({ tasklist: { guid: 'tl_test', name: '体验清单' } });
 if (plain[0] === 'calendar') ok({ calendar: { calendar_id: 'cal_test', summary: '测试主人' } });
 fail(`stub-lark-cli 未实现的命令：${args.join(' ')}`);

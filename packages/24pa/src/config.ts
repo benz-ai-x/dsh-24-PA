@@ -127,6 +127,16 @@ export function isExtraLocalToolEntry(value: string): boolean {
   );
 }
 
+/**
+ * Parent token for note-type doc creation (spec 2.12, F22): the wiki node
+ * when configured, the docs folder otherwise. Memo docs and handwriting
+ * review docs share this one selection so the fallback rule lives in one
+ * place (asserted by unit tests; exercised end-to-end by f01/f22).
+ */
+export function noteParentToken(config: Pick<PaConfig, 'wikiNodeToken' | 'folderToken'>): string {
+  return config.wikiNodeToken || config.folderToken;
+}
+
 export class ConfigError extends Error {
   constructor(message: string) {
     super(message);

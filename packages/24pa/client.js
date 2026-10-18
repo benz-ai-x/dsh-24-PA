@@ -560,6 +560,10 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-helper' }, L('恢复前先执行备份校验；旧 Outbox 与远端对象先对账再继续发送，避免重复投递。', 'Verify a backup before restoring. Reconcile old outbox rows and remote objects before sending again.'))));
         }
 
+        // F22：wiki 资源行的查找与定档收敛一处（卡片 tier/body 与 WikiDetail 共用）。
+        const wikiResource = state => (state.diagnostics && state.diagnostics.resources ? state.diagnostics.resources.find(r => r.id === 'wiki') : null);
+        const resourceTierOf = row => (!row ? 'unchecked' : row.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(row.state) ? 'error' : row.state === 'missing' ? 'missing' : 'warn');
+
         // 二级详情：原 feishu tab 全量内容平移。
         function FeishuDetail({ state, busy, button, openRobot }) {
           const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
@@ -624,8 +628,7 @@ window.__ModuleLoader__.load({
         // 二级详情：飞书知识库（F22 转正——落库节点配置与可读性诊断）。
         function WikiDetail({ state, button, openRobot }) {
           const config = state.workspace ? state.workspace.config : null;
-          const check = state.diagnostics;
-          const row = check && check.resources ? check.resources.find(r => r.id === 'wiki') : null;
+          const row = wikiResource(state);
           return h('div', null,
             sectionHead('folder', L('飞书知识库', 'Feishu wiki'), L('备忘与手写待审文档的落库节点；未配置时回退文档目录。', 'Where memos and pending review docs land; falls back to the docs folder when unset.'),
               h('div', { className: 'pa24-row' },
@@ -907,15 +910,10 @@ window.__ModuleLoader__.load({
             // F22：知识库落库转正——已配置按诊断行定档，未配置保持「未检查或
             // 未启用」档（可选能力不催办，与占位期进度口径一致）。
             id: 'wiki', cat: 'setup', tone: 'blue', icon: 'folder', title: ['飞书知识库', 'Feishu wiki'], sub: ['备忘/待审文档落库节点', 'Where memos and pending docs land'], action: ['查看详情', 'Access details'],
-            tier: ({ state, config }) => {
-              if (!config || !config.wikiNodeToken) return 'unchecked';
-              const row = state.diagnostics && state.diagnostics.resources ? state.diagnostics.resources.find(r => r.id === 'wiki') : null;
-              if (!row) return 'unchecked';
-              return row.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(row.state) ? 'error' : row.state === 'missing' ? 'missing' : 'warn';
-            },
+            tier: ({ state, config }) => (!config || !config.wikiNodeToken ? 'unchecked' : resourceTierOf(wikiResource(state))),
             label: ({ state, config }) => (!config || !config.wikiNodeToken ? L('未配置（可选）', 'Not configured (optional)') : null),
             body: ({ state, config }) => {
-              const row = state.diagnostics && state.diagnostics.resources ? state.diagnostics.resources.find(r => r.id === 'wiki') : null;
+              const row = wikiResource(state);
               return h('div', null,
                 capLine(L('节点 token', 'Node token'), config && config.wikiNodeToken
                   ? h('span', { className: 'pa24-ellip', title: config.wikiNodeToken }, config.wikiNodeToken)
