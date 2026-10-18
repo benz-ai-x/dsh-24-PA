@@ -125,7 +125,7 @@ export class SkillCatalog {
     private readonly cwd: () => string | null = () => null,
   ) {}
 
-  /** 内置三件注册进宿主目录（runtime provider）；宿主未挂载时安全跳过。 */
+  /** 内置件注册进宿主目录（runtime provider）；宿主未挂载时安全跳过。 */
   registerBuiltins(): void {
     if (!this.registry) return;
     for (const skill of BUILTIN_TASK_SKILLS) {
@@ -152,7 +152,7 @@ export class SkillCatalog {
     };
   }
 
-  /** 全目录（内置＋工作区自定义）；宿主目录缺席时回落内置三件。 */
+  /** 全目录（内置＋工作区自定义）；宿主目录缺席时回落内置件。 */
   async list(): Promise<TaskSkill[]> {
     if (!this.registry) {
       return BUILTIN_TASK_SKILLS.map(s => ({ name: s.name, description: s.description, track: s.metadata.track, source: 'builtin', kind: s.metadata.kind }));
@@ -200,7 +200,7 @@ export class SkillCatalog {
     return builtin?.params && typeof builtin.params === 'object' ? builtin.params : {};
   }
 
-  /** 加载 skill 正文（agent 轨任务指令；内置三件返回契约正文）。 */
+  /** 加载 skill 正文（agent 轨任务指令；内置件返回契约正文）。 */
   async content(name: string): Promise<string | null> {
     const loaded = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
     if (loaded?.content) return loaded.content;

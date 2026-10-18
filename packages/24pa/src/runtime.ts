@@ -18,18 +18,6 @@ import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
 import { SkillCatalog, assertToolDeclaration, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
-
-/** dsh-skill 未挂载时 ctx.skills 是 cordis 惰性服务 getter（读即抛「without
- * inject」），防御性探测必须 try/catch 而非可选链。 */
-function hostSkillRegistry(ctx: DshContext): ConstructorParameters<typeof SkillCatalog>[0] {
-  try {
-    return (ctx as unknown as { skills?: ConstructorParameters<typeof SkillCatalog>[0] }).skills ?? null;
-  } catch {
-    return null;
-  }
-
-
-}
 import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
 
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
@@ -59,6 +47,15 @@ import {
 } from './handwriting.js';
 import type { NoteRow, NotePageRow, ReviewReminderRow } from './repo.js';
 
+/** dsh-skill 未挂载时 ctx.skills 是 cordis 惰性服务 getter（读即抛「without
+ * inject」），防御性探测必须 try/catch 而非可选链。 */
+function hostSkillRegistry(ctx: DshContext): ConstructorParameters<typeof SkillCatalog>[0] {
+  try {
+    return (ctx as unknown as { skills?: ConstructorParameters<typeof SkillCatalog>[0] }).skills ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
