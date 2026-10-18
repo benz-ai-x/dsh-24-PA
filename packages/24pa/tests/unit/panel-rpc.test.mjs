@@ -5,7 +5,7 @@ import { PANEL_RPC } from '../../lib/panel.js';
 // 新动作必须进表而不是散装字符串；死端点（memo）不回潮。
 describe('面板 RPC 常量表', () => {
   it('endpoint 表稳定（memo 死端点已删）', () => {
-    expect(Object.values(PANEL_RPC.endpoints)).toEqual(['snapshot', 'action', 'memory', 'health', 'notes.queue', 'roles']);
+    expect(Object.values(PANEL_RPC.endpoints)).toEqual(['snapshot', 'action', 'memory', 'health', 'notes.queue', 'roles', 'reminders', 'digests']);
     expect(Object.values(PANEL_RPC.endpoints)).not.toContain('memo');
   });
 
