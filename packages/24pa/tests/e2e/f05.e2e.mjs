@@ -216,7 +216,7 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
       mode: 'dispatch',
       delegate: { worker: 'reminders', title: '设暂停用提醒', instruction: '4 秒后提醒缴费' },
       leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 4, text: '缴费', __forceLedger: true },
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 8, text: '缴费', __forceLedger: true },
       workerReply: '已设置。',
     });
     await inject(ownerEvent('evt-rmd-8', '四秒后提醒我缴费'));
@@ -265,7 +265,7 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
       mode: 'dispatch',
       delegate: { worker: 'reminders', title: '休假中设提醒', instruction: '2 秒后提醒签收' },
       leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 2, text: '签收快递', __forceLedger: true },
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 6, text: '签收快递', __forceLedger: true },
       workerReply: '已设置。',
     });
     await inject(ownerEvent('evt-rmd-7', '两秒后提醒我签收快递'));

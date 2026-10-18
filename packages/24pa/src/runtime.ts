@@ -3481,7 +3481,10 @@ export class PaRuntime {
     // schedule the plugin creates is mirrored there with its schedule_id);
     // dsh's own archive gate remains the authoritative blocker.
     const digestPlans = (await this.repos.digests.listPlans('active')).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null }));
-    const reminderRules = (await this.repos.reminders.listRules('active')).map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null }));
+    // F45：delegated 行（日程化备份）也列出——归档处置需要看到它们，带渠道标记。
+    const reminderRules = (await this.repos.reminders.listRules())
+      .filter(rule => rule.status === 'active' || rule.status === 'delegated')
+      .map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, status: rule.status, nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null }));
     const reviewReminders = (await this.repos.reviewReminders.activeAll(50)).map(r => ({ id: r.id, noteId: r.note_id, kind: r.kind, remindAt: new Date(r.remind_at).toISOString() }));
     const outboxPending = (await this.repos.outbox.recent(200)).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length;
     const blocking = running.length > 0 || digestPlans.some(p => p.native) || outboxPending > 0;
