@@ -3608,7 +3608,7 @@ export class PaRuntime {
   /** F19（spec 2.3）：入队一条测试语音，经真实引擎合成后送达主人飞书。 */
   async ttsTestSend(): Promise<unknown> {
     if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
-    if (this.config.tts.engine === 'none') throw new Error('未配置 TTS 引擎：请先在「系统维护 → 参数配置 → 语音 TTS」选择引擎。');
+    if (this.config.tts.engine === 'none') throw new Error('未配置 TTS 引擎：请先在「接入与设置 → 参数配置 → 语音 TTS」选择引擎。');
     if (this.config.notifyChannel === 'wecom') throw new Error('通知通道为企微，暂不支持语音（wecom 语音 parity 后置）。');
     if (!this.config.ownerOpenId) throw new Error('尚未绑定主人飞书身份（ownerOpenId）。');
     // 「二十四私助」为口播形态：TTS 朗读数字串不如汉字自然（研究第六节实测口径）。
