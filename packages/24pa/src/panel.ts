@@ -127,41 +127,48 @@ async function snapshot(runtime: PaRuntime): Promise<Record<string, unknown>> {
   };
 }
 
-async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown> {
-  const type = String(payload.type ?? '');
-  const A = PANEL_RPC.actions;
-  if (type === A.workspaceBind) {
+
+/**
+ * Action registry (round-3 arch-2): one entry per panel action — validation
+ * and dispatch live together here, and a new action is one table row instead
+ * of a dispatcher branch plus a runtime forwarder plus client literals. The
+ * PANEL_RPC vocabulary stays the single source for the string surface.
+ */
+type PanelActionHandler = (runtime: PaRuntime, payload: PanelAction) => Promise<unknown>;
+
+const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
+  [PANEL_RPC.actions.workspaceBind]: async (runtime, payload) => {
     const path = String(payload.path ?? '');
     return runtime.bind(path, true).then(() => snapshot(runtime));
-  }
-  if (type === A.workspaceReload) return runtime.reloadWorkspace().then(() => snapshot(runtime));
-  if (type === A.workspaceConfigUpdate) {
+  },
+  [PANEL_RPC.actions.workspaceReload]: runtime => runtime.reloadWorkspace().then(() => snapshot(runtime)),
+  [PANEL_RPC.actions.workspaceConfigUpdate]: (runtime, payload) => {
     const config = payload.config as Record<string, unknown> | undefined;
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ConfigError('缺少配置补丁。');
     return runtime.updateWorkspaceConfig(config).then(() => snapshot(runtime));
-  }
+  },
   // F36: 密钥值进工作区密钥库（.24pa/secrets.json，0600），与 AGENTS.md 解耦。
-  if (type === A.workspaceSecretUpdate) {
+  [PANEL_RPC.actions.workspaceSecretUpdate]: (runtime, payload) => {
     const values = payload.values as Record<string, unknown> | undefined;
     if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ConfigError('缺少密钥补丁。');
     return runtime.updateWorkspaceSecrets(values).then(() => snapshot(runtime));
-  }
-  if (type === A.connectionCheck) return runtime.checkAccess();
-  if (type === A.connectionWecomCheck) return runtime.wecomCheck();
-  if (type === A.notesPoll) return { verified: await runtime.pollPendingNotes() };
-  if (type === A.notesRemindPoll) return { sent: await runtime.dispatchReviewReminders() };
-  if (type === A.digestSupervise) {
+  },
+  [PANEL_RPC.actions.connectionCheck]: runtime => runtime.checkAccess(),
+  [PANEL_RPC.actions.connectionWecomCheck]: runtime => runtime.wecomCheck(),
+  [PANEL_RPC.actions.notesPoll]: async runtime => ({ verified: await runtime.pollPendingNotes() }),
+  [PANEL_RPC.actions.notesRemindPoll]: async runtime => ({ sent: await runtime.dispatchReviewReminders() }),
+  [PANEL_RPC.actions.digestSupervise]: (runtime, payload) => {
     const graceMs = Number(payload.graceMs);
     return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : DIGEST_UNCONFIRMED_GRACE_MS);
-  }
-  if (type === A.digestReschedule) return runtime.digestReschedule(payload as Record<string, unknown>);
-  if (type === A.digestSetSkill) return runtime.digestSetSkill(payload as Record<string, unknown>);
-  if (type === A.digestSetVoice) return runtime.digestSetVoice(payload as Record<string, unknown>);
-  if (type === A.digestRunNow) return runtime.digestRunNow(String(payload.planId ?? ''));
-  if (type === A.ttsProbe) return runtime.ttsProbe();
-  if (type === A.ttsTest) return runtime.ttsTestSend();
-  if (type === A.robotOpen) return { sessionId: await runtime.openLocalSession() };
-  if (type === A.roleRegister) {
+  },
+  [PANEL_RPC.actions.digestReschedule]: (runtime, payload) => runtime.digestReschedule(payload as Record<string, unknown>),
+  [PANEL_RPC.actions.digestSetSkill]: (runtime, payload) => runtime.digestSetSkill(payload as Record<string, unknown>),
+  [PANEL_RPC.actions.digestSetVoice]: (runtime, payload) => runtime.digestSetVoice(payload as Record<string, unknown>),
+  [PANEL_RPC.actions.digestRunNow]: (runtime, payload) => runtime.digestRunNow(String(payload.planId ?? '')),
+  [PANEL_RPC.actions.ttsProbe]: runtime => runtime.ttsProbe(),
+  [PANEL_RPC.actions.ttsTest]: runtime => runtime.ttsTestSend(),
+  [PANEL_RPC.actions.robotOpen]: async runtime => ({ sessionId: await runtime.openLocalSession() }),
+  [PANEL_RPC.actions.roleRegister]: async (runtime, payload) => {
     const definition = payload.definition as Record<string, unknown> | undefined;
     if (!definition || typeof definition !== 'object') throw new Error('缺少角色定义。');
     await runtime.registerRole(
@@ -176,11 +183,9 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
       Array.isArray(definition.actionNames) ? definition.actionNames.map(String) : [],
     );
     return { roles: runtime.listRoles() };
-  }
-  if (type === A.workList) {
-    return { items: runtime.repos ? await runtime.repos.workItems.list(undefined, 100) : [] };
-  }
-  if (type === A.testInject) {
+  },
+  [PANEL_RPC.actions.workList]: async runtime => ({ items: runtime.repos ? await runtime.repos.workItems.list(undefined, 100) : [] }),
+  [PANEL_RPC.actions.testInject]: async (runtime, payload) => {
     const transport = runtime.getTransport();
     if (!transport || typeof (transport as FakeFeishuTransport).inject !== 'function') {
       throw new Error('test.inject 仅在显式启用 fake 通道（PA24_TRANSPORT=fake）时可用。');
@@ -206,6 +211,16 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
     };
     await (transport as FakeFeishuTransport).inject(inbound, event.imageData ? String(event.imageData) : undefined);
     return { injected: true, eventId: inbound.eventId };
+  },
+};
+
+/** Dispatch one panel action through the registry (exported for seam tests). */
+export async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown> {
+  const type = String(payload.type ?? '');
+  const handler = ACTION_HANDLERS[type];
+  if (!handler) {
+    throw new Error('管理台只提供工作区绑定、配置重载、只读检查、事项查询与测试注入。');
   }
-  throw new Error('管理台只提供工作区绑定、配置重载、只读检查、事项查询与测试注入。');
+  return handler(runtime, payload);
 }
+
