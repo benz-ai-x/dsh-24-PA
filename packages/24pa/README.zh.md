@@ -1,5 +1,5 @@
 ---
-description: "面向 dsh 的飞书私人助理 profile bundle：一个「24私助」预设，携带标准模式完整工具面与账本驱动的业务 Worker、提醒、手写审核和分阶段接入向导。"
+description: "面向 dsh 的飞书私人助理 profile bundle：一个「24私助」预设，携带标准模式完整工具面与默认 SQLite 账本、七类业务 Worker、任务 skill、语音简报、日历原生提醒、手写审核和分阶段接入向导。"
 kind: "package-bundle"
 ---
 
@@ -9,17 +9,19 @@ kind: "package-bundle"
 
 ## 摘要
 
-把 `@benz-ai-x/dsh-24pa` 安装进 Profile，即获得「24私助」助理预设及其宿主插件：飞书＋本地双入口协调、六类业务 Worker，PostgreSQL 账本承载事项、提醒、手写审核、简报与发送回执。预设携带按角色裁剪的标准模式工具面——本地会话可编程，飞书入口与 Worker 保持业务白名单。版本号跟随 dsh 基线（`<dsh 版本>.<序号>`），支持 dsh `0.2.0-rc.2`、`0.2.1-alpha.1`–`0.2.1-alpha.5`、`0.2.1-rc.1`–`0.2.1-rc.2`。
+把 `@benz-ai-x/dsh-24pa` 安装进 Profile，即获得「24私助」助理预设及其宿主插件：飞书＋本地双入口协调、七类业务 Worker，默认 SQLite 账本（工作区 `data/pa24.db`，可选 PostgreSQL）承载事项、手写审核、简报与发送回执。行为层以任务 skill 交付——内置＋工作区自定义（`<workspace>/.dsh/skills/`，热生效），各自声明模板轨或模型执行轨——覆盖语音简报与日历原生时钟提醒（宿主离线也由飞书/企微 App 照发）。预设携带按角色裁剪的标准模式工具面——本地会话可编程，飞书入口与 Worker 保持业务白名单。版本号跟随 dsh 基线（`<dsh 版本>.<序号>`），支持 dsh `0.2.0-rc.2`、`0.2.1-alpha.1`–`0.2.1-alpha.5`、`0.2.1-rc.1`–`0.2.1-rc.2`。
 
 ## 常见问题
 
-**24私助（24PA）是什么？**——面向 dsh 的飞书私人助理插件（profile bundle）：本地 dsh 会话与飞书机器人协调六类业务 Worker，PostgreSQL 账本承载任务、日程、提醒、备忘、简报与手写审核。
+**24私助（24PA）是什么？**——面向 dsh 的飞书私人助理插件（profile bundle）：本地 dsh 会话与飞书机器人协调七类业务 Worker，默认 SQLite 账本承载任务、日程、备忘、简报、手写审核与 skill 执行；时钟型提醒走日历原生送达。
 
 **支持哪些 dsh 运行时？**——dsh `0.2.0-rc.2`、`0.2.1-alpha.1`–`0.2.1-alpha.5`、`0.2.1-rc.1`–`0.2.1-rc.2`；版本号按 `<dsh 基线>.<序号>` 命名，npm dist-tag 按基线分通道。
 
 **怎么安装？**——`dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<基线序号>`，然后重启 profile（见[安装 Bundle](#安装-bundle)）。
 
-**提醒需要模型在线吗？**——不需要：提醒由 PostgreSQL 发生实例经 Outbox 触发，模型离线时固定提醒照发。
+**提醒需要模型在线吗？**——不需要。时钟型提醒写入带原生提醒的日历日程（按 `calendarChannel` 走飞书或企微）——模型与24私助宿主都离线也照发；账本保留 delegated 备份行。跟进与条件型提醒由 agent 轨 skill 承接。
+
+**不改插件代码能新增或调整例程吗？**——能：周期任务、Worker 职责、接入向导与业务工作流都以任务 skill 交付。往工作区 `.dsh/skills/` 放一个 `<name>.md`（热生效）或在面板计划卡换绑即可；每个 skill 自声明模板轨或带完成标准的模型执行轨，且只能收紧、绝不放宽工具权限。
 
 **怎么接通飞书？**——对本地24私助会话说「帮我接通飞书」；内置向导（`pa24_connection` 的 `guide` 与带 `nextSteps` 的 `check`）带你完成建应用、授权、资源标识与健康检查。飞书接入会话也可运行这套只读向导及 `wecom_guide`/`wecom_check` 渠道诊断；配置写入仍仅限本地会话（ADR-0001）。
 
@@ -46,7 +48,7 @@ kind: "package-bundle"
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
 # dsh 0.2.1-alpha.2 – 0.2.1-rc.2 宿主（peer 覆盖这些基线；rc.2 为活跃发版线）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.2.8
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.2.9
 
 # alpha.2 – alpha.5 宿主也可固定停在 alpha 线（已冻结于 0.2.1-alpha.5.1；preset 内容相同，仅 engines/peer 扩围与文档差异）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
@@ -71,7 +73,7 @@ dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 | `PA24_WORKSPACE` | 首次启动绑定的绝对工作区目录（也可在面板或设置里选择） |
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | 飞书自建应用凭据（feishu 模式） |
 
-`AGENTS.md` 字段：`mode`（demo/feishu）、`storage`（sqlite/postgres，默认 sqlite——账本默认是工作区 `data/pa24.db`，SQLite 用 Node 内建 `node:sqlite`（本包支持的 Node 范围内均免 flag）；显式 `postgres` 时才需要 `pgDsnEnv` 与外部数据库）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`calendarChannel`/`todoChannel`/`notifyChannel`（feishu|wecom，默认 feishu——企微作日程/待办第二操作渠道＋提醒单向推送，永不收信）、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraLocalTools`（subagent_codex、subagent_claude_code，以及经 `mcp__qwennote__*` 通配或精确名放行的 QwenNote 听记工具；点名未挂载工具的条目会被过滤并在健康里提示）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
+`AGENTS.md` 字段：`mode`（demo/feishu）、`storage`（sqlite/postgres，默认 sqlite——账本默认是工作区 `data/pa24.db`，SQLite 用 Node 内建 `node:sqlite`（本包支持的 Node 范围内均免 flag）；显式 `postgres` 时才需要 `pgDsnEnv` 与外部数据库）、`larkProfile`、`ownerOpenId`、`folderToken`、`tasklistId`、`calendarId`、`calendarChannel`/`todoChannel`/`notifyChannel`（feishu|wecom，默认 feishu——企微作日程/待办第二操作渠道＋提醒单向推送，永不收信）、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraBusinessSkills`（kebab-case 放行名单，把工作区业务 skill 释放给模型执行）、`tts`（`engine` none/melo/volcengine、`voice`、`volcKeyEnv`、`meloDir`——语音简报走火山豆包云端或本地 Melo）、`extraLocalTools`（subagent_codex、subagent_claude_code，以及经 `mcp__qwennote__*` 通配或精确名放行的 QwenNote 听记工具；点名未挂载工具的条目会被过滤并在健康里提示）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
 
 ### 暴露工具
 
@@ -79,9 +81,9 @@ dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
 
 ### 你会得到什么
 
-- 「24私助」预设：标准插件全集（平台 shell、文件、检索、jobs、skill、goal、plan-mode、压缩、通用委派、ask-user、todo、web、present、ralph）＋`pa24-agent`；persona 文案已并入助理身份；`tool-schedule` 刻意不并入——提醒统一走账本。
+- 「24私助」预设：标准插件全集（平台 shell、文件、检索、jobs、skill、skill-filesystem、tool-skill、goal、plan-mode、压缩、通用委派、ask-user、todo、web、present、ralph）＋`pa24-agent`；persona 文案已并入助理身份；`tool-schedule` 刻意不并入——时钟型提醒走日历原生日程，账本留备份行。
 - 按角色裁剪的工具面：本地会话获得完整标准工具面＋全部 `pa24_*` 工具；飞书接入会话与 Worker 保持业务白名单（同一预设绝不意味着同一权限）。
-- 宿主插件：固定飞书接入与本地会话，`pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`，PostgreSQL 账本＋Outbox 回执＋离线可发提醒、手写审核卡片、简报、备份/健康与 Web 面板（系统维护分类含参数配置表单：校验→写回 AGENTS.md 配置块→重载，与对话共享同一配置源；密钥经「密钥」组写入工作区密钥库 0600 文件、只写不回显，环境变量降为可选覆盖，AGENTS.md/系统提示/备份永不包含密钥值），工作区管理（绑定/切换/重载/生效配置查看/健康预算）在面板「系统维护 → 工作区与配置」卡；企微渠道接入走随包 `wecom-setup.md`（`pa24_connection action=wecom_guide` / `wecom_check`）。
+- 宿主插件：固定飞书接入与本地会话，`pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`，默认 SQLite 账本（可选 PostgreSQL）＋Outbox 回执、任务 skill 运行时（内置＋工作区 `.dsh/skills/`）、日历原生时钟提醒、语音简报、手写审核卡片、备份/健康与 Web 面板（系统维护分类含参数配置表单：校验→写回 AGENTS.md 配置块→重载，与对话共享同一配置源；密钥经「密钥」组写入工作区密钥库 0600 文件、只写不回显，环境变量降为可选覆盖，AGENTS.md/系统提示/备份永不包含密钥值），工作区管理（绑定/切换/重载/生效配置查看/健康预算）在面板「系统维护 → 工作区与配置」卡；企微渠道接入走随包 `wecom-setup.md`（`pa24_connection action=wecom_guide` / `wecom_check`）。
 
 ### 失败与恢复
 
@@ -100,7 +102,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 ### 设计概念
 
 - **一个预设，多套权限。** 每个会话组装的都是同一个「24私助」预设；agent 创建时套用的角色白名单决定可见工具，因此继承预设绝不继承维护授权（ADR-0001）。
-- **账本是提醒的权威。** `tool-schedule` 的排除是有意为之：提醒由 PostgreSQL 发生实例经 Outbox 触发，模型离线也能发出，每次投递都有回执。
+- **日历是时钟型提醒的权威。** `tool-schedule` 的排除是有意为之：时钟型提醒按 `calendarChannel` 写成带原生提醒的日程，24私助离线也照发；账本保留 delegated 备份行供历史与防重（ADR-0001，2026-10-18 修订）。
 - **材料永远不构成授权。** 笔记、文档、子 Agent 回复与抓取的网页内容都只是输入；只有本人的明确指令才授权外部写入，密钥只以环境变量名引用。
 
 ### 源码地图
@@ -117,7 +119,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 
 ### 运行流程
 
-启动时宿主插件对 `$DSH_HOME/24pa` 取单写锁，连接 PostgreSQL，加载并校验工作区 `AGENTS.md`，经 SessionController 建立固定的飞书接入与本地会话。入站飞书事件先耐久落 inbox 再确认；协调者经 continuable child API 委派 Worker，每个事项记录 origin、父会话与固定投递目标。定时循环带回执地排空 Outbox、触发到期提醒、核验已发布笔记指纹、经原生 Schedule 服务唤醒简报计划；结果回到实际发起入口。agent 创建时角色白名单裁剪继承的工具目录；`AGENTS.md` 重载只替换工作区规则提示段，失败时不触碰生效配置。
+启动时宿主插件对 `$DSH_HOME/24pa` 取单写锁，打开账本（默认 SQLite 工作区文件，或 PostgreSQL），加载并校验工作区 `AGENTS.md`，经 SessionController 建立固定的飞书接入与本地会话。入站飞书事件先耐久落 inbox 再确认；协调者经 continuable child API 委派 Worker，每个事项记录 origin、父会话与固定投递目标。定时循环带回执地排空 Outbox、触发到期的非 delegated 提醒、核验已发布笔记指纹、经原生 Schedule 服务唤醒简报计划；结果回到实际发起入口。agent 创建时角色白名单裁剪继承的工具目录；`AGENTS.md` 重载只替换工作区规则提示段，失败时不触碰生效配置。
 
 </details>
 
@@ -181,7 +183,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 
 这些限制说明本助理何时需要特别的运维注意。它们是当前的包约束，不是与飞书的一般性对比，也不是任务清单。
 
-- **真实飞书租户未验证**——长连接、双身份与令牌续期仅在桩化的飞书侧验证过；首次真实接入可能暴露线路差异，控制台权限点为关键词表述、精确 scope 名待控制台核对。
+- **真实租户运营目前仅单实例**——长连接、身份与续期路径已在一个生产飞书租户上运行（含企微渠道与语音简报）；更广的租户与地区兼容性未验证，控制台权限点为关键词表述、精确 scope 名待控制台核对。
 - **手写识别质量未量化**——多页转写保真度需 30–50 页真实样本评测后才能作任何准确率表述；视觉路由须在 `workerModels` 配置。
 - **dsh 0.2.0-rc.2 宿主不带 schedule 服务**——安装 schedule 伴随件之前，简报与会前准备如实不可用；伴随件在宿主面新增的 `schedule_*` 工具无法被预设裁剪隐藏。
 - **外部 CLI 委派默认休眠**——`subagent_codex`/`subagent_claude_code` 须安装对应 provider 包并经 `extraLocalTools` 显式开启后才挂载；未配置时工具缺席而非报错。
@@ -195,7 +197,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 
 本备注是面向维护者的工作上下文：待决问题与未定方向。它明确不具权威性——已交付的行为与限制以正文章节与包代码为准。
 
-- **多基线验证**——回归运行用 `DSH_BIN` 选运行时、`PA24_E2E_EXTRA_PLUGINS` 附加 rc.2 的 schedule 伴随件；当前活跃基线为 0.2.1-alpha.2 无附加（156/156），0.2.0-rc.2 与 0.2.1-alpha.1 由双 API 回退路径保持兼容。
+- **多基线验证**——回归运行用 `DSH_BIN` 选运行时、`PA24_E2E_EXTRA_PLUGINS` 附加 rc.2 的 schedule 伴随件；当前活跃发版线为 0.2.1-rc.2、全量测试 258/258，0.2.0-rc.2 与 0.2.1-alpha.1 由双 API 回退路径保持兼容。
 - **预设补丁为生成物**——`cordis.patch.yml` 由 `scripts/sync-preset.mjs` 对 devDependency 钉住的 `@deepseek-ai/dsh-web-app` 标准预设应用 delta 生成，勿手改；换新 dsh 基线时先改 pin 再跑 `npm run preset:sync`，`npm run preset:check` 与单测守护已提交副本不漂移。
 - **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
 
