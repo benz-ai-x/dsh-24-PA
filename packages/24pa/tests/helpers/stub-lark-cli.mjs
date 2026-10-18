@@ -108,7 +108,9 @@ if (plain[0] === 'docs' && plain[1] === '+create') {
     process.stdin.on('error', () => resolveStdin(data));
   });
   const id = `docstub-${docs.length + 1}`;
-  await appendFile(docsPath, JSON.stringify({ id, content: stdin, revision: 1 }) + '\n');
+  // F22: record the parent token so e2e can assert where a doc landed
+  // (wiki node vs. folder) without re-parsing raw call args.
+  await appendFile(docsPath, JSON.stringify({ id, content: stdin, revision: 1, parentToken: argOf('--parent-token') ?? null }) + '\n');
   ok({ document: { document_id: id, url: `https://example.feishu.cn/wiki/${id}`, revision_id: 1 }, warnings: [] });
 }
 if (plain[0] === 'docs' && plain[1] === '+fetch') {
@@ -264,6 +266,21 @@ if (plain[0] === 'task' && plain[1] === '+assign') {
   ok({ task: { guid: taskId, assignees: add.split(',') } });
 }
 if (plain[0] === 'drive' && plain[1] === 'files' && plain[2] === 'list') ok({ files: [{ token: 'fld_test', name: '体验目录', type: 'folder' }] });
+// F22: wiki domain — node-get doubles as the readability probe; field shapes
+// (data.spaces / data.nodes, node fields at the data root) match the real CLI
+// as verified in docs/research/F22-飞书知识库笔记落库实现研究.md.
+if (plain[0] === 'wiki' && plain[1] === '+node-get') {
+  const token = argOf('--node-token');
+  if (!token) fail('缺少 --node-token');
+  if (state.failNext?.command === 'wiki.node-get') {
+    await writeState({ ...state, failNext: null });
+    fail(state.failNext.error ?? 'wiki node-get injected failure');
+  }
+  ok({ node_token: token, obj_token: `obj_${token}`, space_id: 'spw_test', title: '测试知识库节点' });
+}
+if (plain[0] === 'wiki' && plain[1] === '+space-list') {
+  ok({ spaces: [{ space_id: 'spw_test', name: '工作笔记', space_type: 'team' }, { space_id: 'spw_other', name: '另一个空间', space_type: 'team' }] });
+}
 if (plain[0] === 'task' && plain[1] === 'tasklists' && plain[2] === 'get') ok({ tasklist: { guid: 'tl_test', name: '体验清单' } });
 if (plain[0] === 'calendar') ok({ calendar: { calendar_id: 'cal_test', summary: '测试主人' } });
 fail(`stub-lark-cli 未实现的命令：${args.join(' ')}`);

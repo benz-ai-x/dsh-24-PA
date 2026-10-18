@@ -560,6 +560,10 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-helper' }, L('恢复前先执行备份校验；旧 Outbox 与远端对象先对账再继续发送，避免重复投递。', 'Verify a backup before restoring. Reconcile old outbox rows and remote objects before sending again.'))));
         }
 
+        // F22：wiki 资源行的查找与定档收敛一处（卡片 tier/body 与 WikiDetail 共用）。
+        const wikiResource = state => (state.diagnostics && state.diagnostics.resources ? state.diagnostics.resources.find(r => r.id === 'wiki') : null);
+        const resourceTierOf = row => (!row ? 'unchecked' : row.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(row.state) ? 'error' : row.state === 'missing' ? 'missing' : 'warn');
+
         // 二级详情：原 feishu tab 全量内容平移。
         function FeishuDetail({ state, busy, button, openRobot }) {
           const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
@@ -570,7 +574,7 @@ window.__ModuleLoader__.load({
             ? statusBadge(configured ? 'unchecked' : 'missing')
             : statusBadge(item.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(item.state) ? 'error' : item.state === 'missing' ? 'missing' : 'warn');
           const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + L(' 条', ' pending');
-          const resourceRows = [['folder', L('文档目录', 'Docs folder'), config ? config.folderToken : null, 'folder'], ['tasklist', L('任务清单', 'Task list'), config ? config.tasklistId : null, 'tasks'], ['calendar', L('本人日历', 'Owner calendar'), config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
+          const resourceRows = [['folder', L('文档目录', 'Docs folder'), config ? config.folderToken : null, 'folder'], ['wiki', L('知识库', 'Wiki node'), config ? config.wikiNodeToken : null, 'wiki'], ['tasklist', L('任务清单', 'Task list'), config ? config.tasklistId : null, 'tasks'], ['calendar', L('本人日历', 'Owner calendar'), config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
             const resource = check && check.resources ? check.resources.find(r => r.id === id) : null;
             return h('div', { key: id, className: 'pa24-resource' },
               h('div', { className: 'pa24-row' },
@@ -619,6 +623,24 @@ window.__ModuleLoader__.load({
               resourceRows,
               h('details', null, h('summary', null, L('配置来源与生效时间', 'Source & effective time')),
                 fields([[L('配置来源', 'Source'), (workspace ? workspace.path : '') + '/AGENTS.md'], [L('生效时间', 'Effective at'), date(workspace ? workspace.loadedAt : null, tz)], [L('文件与生效版本', 'File vs. effective version'), check && check.source ? check.source.message : L('尚未检查', 'Not checked')]]))));
+        }
+
+        // 二级详情：飞书知识库（F22 转正——落库节点配置与可读性诊断）。
+        function WikiDetail({ state, button, openRobot }) {
+          const config = state.workspace ? state.workspace.config : null;
+          const row = wikiResource(state);
+          return h('div', null,
+            sectionHead('folder', L('飞书知识库', 'Feishu wiki'), L('备忘与手写待审文档的落库节点；未配置时回退文档目录。', 'Where memos and pending review docs land; falls back to the docs folder when unset.'),
+              h('div', { className: 'pa24-row' },
+                button('refresh', L('检查接入状态', 'Check access'), () => rpc('action', { type: 'connection.check' })),
+                button('chat', L('通过对话配置', 'Configure in chat'), openRobot, { className: 'pa24-quiet' })), 'blue'),
+            h('section', { className: 'pa24-card' },
+              fields([
+                [L('节点 token（wikiNodeToken）', 'Node token (wikiNodeToken)'), config && config.wikiNodeToken ? h('span', { className: 'pa24-ellip', title: config.wikiNodeToken }, config.wikiNodeToken) : L('未配置（可选）', 'Not configured (optional)')],
+                [L('可读性诊断', 'Readability'), row ? row.message : L('尚未检查，点击上方按钮开始', 'Not checked yet — click the button above to start')],
+                [L('落库去向', 'Landing target'), config && config.wikiNodeToken ? L('备忘与手写待审文档都建到该知识库节点下', 'Memos and pending review docs land under this wiki node') : L('回退文档目录（folderToken）', 'Falls back to the docs folder (folderToken)')],
+              ]),
+              h('div', { className: 'pa24-helper' }, L('待审文档直接建在知识库里，审核卡片即「写完了请审核」通知；批准或退回走版本状态机，文档位置不变。', 'Pending review docs are created inside the wiki; the review card is the “done, please review” notice. Approve/reject work through the version state machine and never move the doc.'))));
         }
 
         // 二级详情：QwenNote 听记（F18 WP3 的面板落点，状态来自维护健康）。
@@ -885,10 +907,20 @@ window.__ModuleLoader__.load({
             detail: helpers => h(MinutesDetail, helpers),
           },
           {
-            id: 'wiki', cat: 'setup', tone: 'neutral', icon: 'folder', title: ['飞书知识库', 'Feishu wiki'], sub: ['备忘/待审文档落库节点', 'Where memos and pending docs land'], action: ['查看说明', 'Learn more'],
-            tier: () => 'unchecked', label: () => L('即将推出', 'Coming soon'),
-            body: () => h('p', { className: 'pa24-meta' }, L('知识库落库能力尚未开放；当前不需要配置，也不计入接入待办。', 'Wiki landing is not available yet. No setup is required and it is excluded from access tasks.')),
-            detail: () => empty('folder', 'neutral', L('知识库落库尚未开放', 'Wiki landing is not available yet'), L('能力开放后，这里会显示授权节点与最近落库文档；当前无需处理。', 'When available, this will show the authorized node and recent documents. No action is needed now.')),
+            // F22：知识库落库转正——已配置按诊断行定档，未配置保持「未检查或
+            // 未启用」档（可选能力不催办，与占位期进度口径一致）。
+            id: 'wiki', cat: 'setup', tone: 'blue', icon: 'folder', title: ['飞书知识库', 'Feishu wiki'], sub: ['备忘/待审文档落库节点', 'Where memos and pending docs land'], action: ['查看详情', 'Access details'],
+            tier: ({ state, config }) => (!config || !config.wikiNodeToken ? 'unchecked' : resourceTierOf(wikiResource(state))),
+            label: ({ state, config }) => (!config || !config.wikiNodeToken ? L('未配置（可选）', 'Not configured (optional)') : null),
+            body: ({ state, config }) => {
+              const row = wikiResource(state);
+              return h('div', null,
+                capLine(L('节点 token', 'Node token'), config && config.wikiNodeToken
+                  ? h('span', { className: 'pa24-ellip', title: config.wikiNodeToken }, config.wikiNodeToken)
+                  : L('未配置——备忘与待审文档回退文档目录', 'Not set — memos and pending docs fall back to the docs folder')),
+                capLine(L('可读性', 'Readability'), row ? row.message : L('尚未检查', 'Not checked')));
+            },
+            detail: helpers => h(WikiDetail, helpers),
           },
           {
             id: 'workspace', cat: 'setup', tone: 'blue', icon: 'folder', title: ['工作区与配置', 'Workspace & config'], sub: ['绑定 · 切换 · 生效配置 · 健康预算', 'Bind · switch · effective config · health'], action: ['管理工作区', 'Manage workspace'],
@@ -994,6 +1026,7 @@ window.__ModuleLoader__.load({
             todoChannel: config?.todoChannel ?? 'feishu',
             notifyChannel: config?.notifyChannel ?? 'feishu',
             folderToken: config?.folderToken ?? '',
+            wikiNodeToken: config?.wikiNodeToken ?? '',
             tasklistId: config?.tasklistId ?? '',
             calendarId: config?.calendarId ?? 'primary',
             maxWorkers: config?.maxWorkers ?? 2,
@@ -1051,7 +1084,7 @@ window.__ModuleLoader__.load({
               await rpc('action', { type: 'workspace.config-update', config: {
                 mode: form.mode, larkProfile: form.larkProfile.trim(), ownerOpenId: form.ownerOpenId.trim(), timeZone: form.timeZone.trim(),
                 calendarChannel: form.calendarChannel, todoChannel: form.todoChannel, notifyChannel: form.notifyChannel,
-                folderToken: form.folderToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
+                folderToken: form.folderToken.trim(), wikiNodeToken: form.wikiNodeToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
                 maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra,
                 appIdEnv: form.appIdEnv.trim(), appSecretEnv: form.appSecretEnv.trim(), pgDsnEnv: form.pgDsnEnv.trim(),
                 tts: form.tts,
@@ -1137,6 +1170,7 @@ window.__ModuleLoader__.load({
             h('section', { className: 'pa24-card' },
               h('h2', null, L('飞书资源', 'Feishu resources')),
               row(L('飞书文件夹（folderToken）', 'Feishu folder (folderToken)'), txt(form.folderToken, v => set('folderToken', v), { onBlur: e => set('folderToken', extractToken(e.target.value)), placeholder: L('粘贴文件夹链接或 token', 'Paste folder link or token') })),
+              row(L('知识库节点（wikiNodeToken，可选）', 'Wiki node (wikiNodeToken, optional)'), txt(form.wikiNodeToken, v => set('wikiNodeToken', v), { onBlur: e => set('wikiNodeToken', extractToken(e.target.value)), placeholder: L('粘贴知识库节点链接或 token，留空回退文件夹', 'Paste wiki node link or token; empty falls back to the folder') }), L('已配置时备忘与手写待审文档建到该节点下；留空沿用 folderToken。', 'When set, memos and pending review docs land under this node; empty keeps folderToken.')),
               row(L('任务清单（tasklistId）', 'Task list (tasklistId)'), txt(form.tasklistId, v => set('tasklistId', v), { onBlur: e => set('tasklistId', extractToken(e.target.value)), placeholder: L('粘贴任务清单链接或 guid', 'Paste task-list link or guid') })),
               row(L('日历（calendarId）', 'Calendar (calendarId)'), txt(form.calendarId, v => set('calendarId', v), { placeholder: 'primary' }), L('默认 primary（本人日历）。', 'Defaults to primary (your calendar).'))),
             h('section', { className: 'pa24-card' },

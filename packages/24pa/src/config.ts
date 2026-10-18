@@ -32,6 +32,13 @@ export interface PaConfig {
   larkProfile: string;
   ownerOpenId: string;
   folderToken: string;
+  /**
+   * Feishu wiki node token for note landing (spec 2.12, F22): when set, memo
+   * docs and handwriting review docs are created under this wiki node
+   * (docs +create accepts a wiki node as --parent-token); empty falls back to
+   * folderToken, so existing workspaces keep their behavior unchanged.
+   */
+  wikiNodeToken: string;
   tasklistId: string;
   calendarId: string;
   /**
@@ -120,6 +127,16 @@ export function isExtraLocalToolEntry(value: string): boolean {
   );
 }
 
+/**
+ * Parent token for note-type doc creation (spec 2.12, F22): the wiki node
+ * when configured, the docs folder otherwise. Memo docs and handwriting
+ * review docs share this one selection so the fallback rule lives in one
+ * place (asserted by unit tests; exercised end-to-end by f01/f22).
+ */
+export function noteParentToken(config: Pick<PaConfig, 'wikiNodeToken' | 'folderToken'>): string {
+  return config.wikiNodeToken || config.folderToken;
+}
+
 export class ConfigError extends Error {
   constructor(message: string) {
     super(message);
@@ -134,6 +151,7 @@ export const DEFAULT_CONFIG: PaConfig = {
   larkProfile: 'default',
   ownerOpenId: '',
   folderToken: '',
+  wikiNodeToken: '',
   tasklistId: '',
   calendarId: 'primary',
   calendarChannel: 'feishu',
@@ -209,6 +227,11 @@ export function validateConfig(raw: unknown): PaConfig {
     const value = input[key] ?? 'feishu';
     if (value !== 'feishu' && value !== 'wecom') throw new ConfigError(`${key} 必须是 feishu 或 wecom。`);
   }
+  // F22：知识库节点 token 可选；缺省空串＝沿用 folderToken（存量零影响），
+  // 显式 null 报错不静默吞（与 storage 同一缺省纪律）。
+  if (input.wikiNodeToken !== undefined && typeof input.wikiNodeToken !== 'string') {
+    throw new ConfigError('配置 wikiNodeToken 必须为字符串。');
+  }
   for (const key of STRING_FIELDS) {
     if (typeof input[key] !== 'string') throw new ConfigError(`配置 ${key} 必须为字符串。`);
   }
@@ -280,6 +303,7 @@ export function validateConfig(raw: unknown): PaConfig {
     larkProfile: input.larkProfile as string,
     ownerOpenId: input.ownerOpenId as string,
     folderToken: input.folderToken as string,
+    wikiNodeToken: (input.wikiNodeToken ?? '') as string,
     tasklistId: input.tasklistId as string,
     calendarId: input.calendarId as string,
     calendarChannel: (input.calendarChannel ?? 'feishu') as PaConfig['calendarChannel'],
@@ -342,7 +366,7 @@ export function template(): string {
 // （固定 1）仍不走表单；F36 起三个密钥引用名开放表单编辑（env 为可选覆盖，
 // 密钥值本身经 workspace.secret-update 进工作区密钥库，不进配置块）。
 export const CONFIG_UPDATE_ALLOWED: ReadonlySet<string> = new Set([
-  'mode', 'larkProfile', 'ownerOpenId', 'folderToken', 'tasklistId', 'calendarId',
+  'mode', 'larkProfile', 'ownerOpenId', 'folderToken', 'wikiNodeToken', 'tasklistId', 'calendarId',
   'calendarChannel', 'todoChannel', 'notifyChannel', 'timeZone', 'maxWorkers',
   'enabledWorkers', 'workerModels', 'extraLocalTools', 'tts',
   'appIdEnv', 'appSecretEnv', 'pgDsnEnv',

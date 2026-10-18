@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateConfig, parseAgentsMd, template, ConfigError, DEFAULT_CONFIG, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, rawAgentsMdConfig, replaceAgentsMdConfig } from '../../lib/config.js';
+import { validateConfig, parseAgentsMd, template, ConfigError, DEFAULT_CONFIG, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, noteParentToken, rawAgentsMdConfig, replaceAgentsMdConfig } from '../../lib/config.js';
 
 describe('AGENTS.md 配置校验', () => {
   it('接受默认模板并完整往返', () => {
@@ -76,6 +76,29 @@ describe('AGENTS.md 配置校验', () => {
     expect(
       () => validateConfig({ ...DEFAULT_CONFIG, mode: 'feishu', ownerOpenId: 'ou_x', folderToken: 'fld', tasklistId: 'tl' }),
     ).not.toThrow();
+  });
+
+  it('wikiNodeToken（F22）：可选缺省空串、非字符串与显式 null 拒绝、feishu 模式不强制', () => {
+    // 缺省（旧 AGENTS.md 无该字段）＝空串回退 folderToken，存量零影响。
+    expect(validateConfig(DEFAULT_CONFIG).wikiNodeToken).toBe('');
+    const legacy = { ...DEFAULT_CONFIG };
+    delete legacy.wikiNodeToken;
+    expect(validateConfig(legacy).wikiNodeToken).toBe('');
+    expect(validateConfig({ ...DEFAULT_CONFIG, wikiNodeToken: 'wikinode_x' }).wikiNodeToken).toBe('wikinode_x');
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, wikiNodeToken: 123 })).toThrow(/wikiNodeToken/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, wikiNodeToken: null })).toThrow(/wikiNodeToken/);
+    // feishu 模式必填集合不含 wiki（可选资源）。
+    expect(
+      () => validateConfig({ ...DEFAULT_CONFIG, mode: 'feishu', ownerOpenId: 'ou_x', folderToken: 'fld', tasklistId: 'tl' }),
+    ).not.toThrow();
+    // 表单可更新白名单包含 wikiNodeToken（F33 表单面）。
+    expect(CONFIG_UPDATE_ALLOWED.has('wikiNodeToken')).toBe(true);
+  });
+
+  it('noteParentToken（F22）：wiki 优先、folder 回退的单一选择点', () => {
+    expect(noteParentToken({ wikiNodeToken: 'wikinode_x', folderToken: 'fld' })).toBe('wikinode_x');
+    expect(noteParentToken({ wikiNodeToken: '', folderToken: 'fld' })).toBe('fld');
+    expect(noteParentToken({ wikiNodeToken: '', folderToken: '' })).toBe('');
   });
 
   it('AGENTS.md 必须恰好一个 json 配置块且为合法 JSON', () => {

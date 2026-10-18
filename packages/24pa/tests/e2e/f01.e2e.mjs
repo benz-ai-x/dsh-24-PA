@@ -154,6 +154,8 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
     const docLines = (await readFile(`${stubStatePath}.docs.jsonl`, 'utf8')).split('\n').filter(Boolean);
     expect(docLines).toHaveLength(1);
     expect(JSON.parse(docLines[0]).content).toContain('下周讨论新的合作方向');
+    // F22 回归锚：未配置 wikiNodeToken 时 parent-token 沿用 folderToken。
+    expect(JSON.parse(docLines[0]).parentToken).toBe('fld_test');
 
     expect((await cluster.query(`select count(*) from pa24.memo where topic='合作方向'`)).trim()).toBe('1');
     expect((await cluster.query(`select count(*) from pa24.action_operation where status='succeeded'`)).trim()).toBe('1');

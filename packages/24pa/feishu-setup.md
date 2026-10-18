@@ -64,6 +64,7 @@ lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,d
    |---|---|---|
    | `ownerOpenId` | `auth status` 输出 `identities.user.openId` | 已预填则核对一致即可 |
    | `folderToken` | 飞书云文档新建（或选定）一个文件夹，从其网页链接复制 token（`…/drive/folder/<token>`）；或 `lark-cli drive files list …` 从既有目录取 | 备忘/纪要/笔记文档都建在此目录 |
+   | `wikiNodeToken` | **可选**。飞书知识库打开目标知识库或其分区节点，从网页链接复制 token（`…/wiki/<token>`）；对话里说「把我的知识库『工作笔记』配进来」也可按名称解析（`wiki +space-list` 按名找空间 → `wiki +node-get` 校验节点） | 已配置时备忘与手写待审文档建到该节点下；留空沿用 folderToken |
    | `tasklistId` | 飞书任务（网页或客户端）打开目标清单，从链接复制 guid；或用 lark-cli task 清单命令创建/列出 | 待办任务的真实归属 |
    | `calendarId` | 默认 `primary` 即本人主日历，**无需改动** | 除非明确要用其他日历 |
 
@@ -78,7 +79,7 @@ lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,d
    - `source.state=ok`（AGENTS.md 与生效版本一致；`changed` 表示改后未 reload）
    - `cli.state=ok`
    - `auth.state=ok`（用户令牌有效且与 ownerOpenId 一致）
-   - `resources` 三项 `state=ok`（folder/tasklist/calendar 可读；写入权限由首个真实任务回执验证）
+   - `resources` 必配三项 `state=ok`（folder/tasklist/calendar 可读；写入权限由首个真实任务回执验证）；`wiki`（知识库）为可选项——未配置属正常回退，已配置则须可读
    - 面板 readiness：`feishu` 显示「飞书长连接已启动」，收/发时间戳非空
 3. **端到端**：请本人在飞书里对机器人发送 `/24pa` → 应收到状态回复；再发一条非主人账号的消息验证被拒（安全默认）。
 4. **首次业务试单**：委派一条 memo（验证 docs 写入）或一个任务（验证 task 写入），核对回执链接真实可开。

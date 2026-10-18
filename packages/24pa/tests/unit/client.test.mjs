@@ -75,9 +75,15 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('function MinutesDetail({ state, extra, button, openRobot, openCard })');
     // 听记卡：F18 合流入口，状态来自维护健康 extra-local-tools
     expect(client).toContain("extraToolCap = extra => (extra.health?.capabilities || []).find(c => c.id === 'extra-local-tools')");
-    // 未交付知识库只作说明，不形成配置待办或主 CTA
-    expect(client).toContain("tier: () => 'unchecked', label: () => L('即将推出', 'Coming soon')");
-    expect(client).toContain('当前不需要配置，也不计入接入待办');
+    // 知识库卡（F22 转正）：未配置保持「未检查或未启用」档，可选能力不进接入待办；
+    // 已配置按诊断行定档，detail 由 WikiDetail 承载
+    expect(client).toContain("id: 'wiki', cat: 'setup'");
+    expect(client).toContain("L('未配置（可选）', 'Not configured (optional)')");
+    expect(client).toContain('function WikiDetail({ state, button, openRobot })');
+    // 使用的飞书资源第四行：知识库
+    expect(client).toContain("['wiki', L('知识库', 'Wiki node')");
+    // 参数表单「飞书资源」组含 wikiNodeToken（留空回退 folderToken）
+    expect(client).toContain('知识库节点（wikiNodeToken，可选）');
     // 全应用健康检查卡（用户 2026-10-11 裁决）：聚合 tier＋一键全量检查含主动探测
     expect(client).toContain("id: 'healthcheck', cat: 'ops', tone: 'blue', icon: 'shield'");
     expect(client).toContain('const healthAggregate = ({ state, extra }) =>');

@@ -12,7 +12,7 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
-import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, rawAgentsMdConfig, replaceAgentsMdConfig, validateConfig, type PaConfig } from './config.js';
+import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, noteParentToken, rawAgentsMdConfig, replaceAgentsMdConfig, validateConfig, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
 import { runLarkCli, sendLarkAudioMessage } from './lark.js';
 import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
@@ -2557,7 +2557,7 @@ export class PaRuntime {
         };
       }
       if (operation.status === 'unknown') {
-        throw new Error('上次保存的结果未知（超时或响应丢失）；请先核对飞书目录是否已生成文档，确认后再继续，不会自动重试。');
+        throw new Error('上次保存的结果未知（超时或响应丢失）；请先核对配置的目录或知识库是否已生成文档，确认后再继续，不会自动重试。');
       }
     }
     await this.repos!.operations.update(operationId, { status: 'running' });
@@ -2621,15 +2621,17 @@ export class PaRuntime {
       .join('\n');
     const title = `[24PA] ${topic}`;
     const body = `<title>${xml(title)}</title><p>来源事项：${xml(item.id)}</p><p>保存时间：${nowIso()}</p><h1>内容</h1>${paragraphs}`;
+    // F22：知识库节点优先，未配置沿用文档目录（wiki 优先、folder 回退）。
+    const parentToken = noteParentToken(config);
     const { data } = await runLarkCli(cliOptions(config, this.options.larkCliBin, this.options.cliTimeoutMs), [
-      'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', config.folderToken, '--content', '-',
+      'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', parentToken, '--content', '-',
     ], body);
     const doc = data?.document;
     const warnings = Array.isArray(data?.warnings) ? data.warnings.map((x: unknown) => String(x)) : [];
     // A returned document id wins even with warnings: the external object
     // exists, so the failure must not orphan it — read back and record it.
     if (!doc?.document_id || !doc?.url) {
-      throw new Error(warnings.length ? `文档创建未完成（${warnings.join('；')}）；请先核对体验目录，不要盲目重试。` : '未取得文档标识；请先核对体验目录，不要盲目重试。');
+      throw new Error(warnings.length ? `文档创建未完成（${warnings.join('；')}）；请先核对配置的目录或知识库，不要盲目重试。` : '未取得文档标识；请先核对配置的目录或知识库，不要盲目重试。');
     }
     return { docId: doc.document_id, url: doc.url, revision: null, warnings };
   }
