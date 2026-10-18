@@ -34,7 +34,8 @@ import {
   workspaceRulesSection,
 } from './prompts.js';
 import { MemoryStore, type MemoryChange } from './memory.js';
-import { ReminderEngine, ReminderError, firstOccurrence, type SilencePolicy } from './reminders.js';
+import { ReminderEngine, type SilencePolicy } from './reminders.js';
+import { ReminderRouter } from './reminder-router.js';
 import {
   createEveryScheduleRecord,
   createDailyScheduleRecord,
@@ -226,6 +227,21 @@ export class PaRuntime {
     linkedEventIdsInWindow: (from, to) => this.linkedEventIdsInWindow(from, to),
     refreshTaskFromRemote: task => this.refreshTaskFromRemote(task),
     memory: () => this.memory,
+  });
+
+  /** Reminder routing (round-3 arch-8): the F45 delegated-vs-ledger decision
+   *  lives beside the ledger engine; the role table stays declarative. The
+   *  ledger reference resolves lazily because repos bind at workspace load. */
+  private readonly reminderRouter = new ReminderRouter({
+    config: () => this.config!,
+    repos: () => this.repos!,
+    calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
+    channelsLive: () => {
+      if (this.config?.calendarChannel === 'wecom') return true;
+      return this.config?.mode === 'feishu' && !!this.transport;
+    },
+    ledger: () => this.reminders!,
+    resolveTask: args => this.resolveTask(args),
   });
 
   /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
@@ -456,53 +472,16 @@ export class PaRuntime {
       brief: WORKER_PROMPTS.reminders.brief,
       available: true,
       actions: {
-        reminder_create: async (args, item) => {
-          // F45（spec 2.11，ADR-0001 修订）：时钟型提醒＝带提醒的日程写入
-          // calendarChannel 所选渠道，由对应 App 原生提醒（默认提前 5 分钟）；
-          // 账本只留 delegated 备份行（面板视图/历史/防重）。跟随来源型
-          // （linkTaskGuid/linkEventId）继续账本引擎——它依赖任务/日程状态联动，
-          // 属条件型，智能 skill 化后置。
-          const clockKind = String(args.kind ?? 'once');
-          const hasLink = !!(args.linkTaskGuid || args.linkEventId);
-          // 测试缝：__forceLedger 显式走账本保留面（every/跟随型回归同路径）。
-          const forceLedger = args.__forceLedger === true;
-          if (!hasLink && !forceLedger && ['once', 'daily', 'weekly'].includes(clockKind) && this.calendarChannelsLive()) {
-            return this.reminderToCalendar(item, args);
-          }
-          let link: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string } | undefined;
-          if (args.linkTaskGuid || args.linkEventId) {
-            if (args.linkTaskGuid && args.linkEventId) throw new Error('一次只能跟随一个来源（任务或日程）。');
-            if (args.linkTaskGuid) {
-              const task = await this.resolveTask({ taskId: args.linkTaskGuid, guid: args.linkTaskGuid });
-              link = { sourceType: 'task', sourceId: task.task_guid, fingerprint: taskFingerprint(task) };
-            } else {
-              const event = await this.repos!.calendar.findEvent(String(args.linkEventId));
-              if (!event) throw new Error('日程不存在；请先 calendar_query 同步并取得 event_id。');
-              link = { sourceType: 'calendar', sourceId: event.event_id, fingerprint: eventFingerprint(event) };
-            }
-          }
-          const result = await this.reminders!.create({
-            kind: String(args.kind ?? 'once') as any,
-            text: text(args.text, 500),
-            afterSeconds: args.afterSeconds == null ? undefined : Number(args.afterSeconds),
-            at: args.at == null ? undefined : String(args.at),
-            everySeconds: args.everySeconds == null ? undefined : Number(args.everySeconds),
-            time: args.time == null ? undefined : String(args.time),
-            weekdays: Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined,
-            timeZone: String(args.timeZone ?? this.config!.timeZone),
-            source: args.source ? text(args.source, 500) : undefined,
-            link,
-          });
-          return result;
-        },
+        // arch-8：F45 路由与 delegated 生命周期收进 ReminderRouter（提示语义不变）。
+        reminder_create: (args, item) => this.reminderRouter.route(item, args),
         reminder_list: async () => this.reminders!.list(),
-        reminder_cancel: async (args, item) => this.reminderCancel(item, String(args.ruleId ?? ''), String(args.reason ?? '')),
+        reminder_cancel: async (args, item) => this.reminderRouter.cancel(item, String(args.ruleId ?? ''), String(args.reason ?? '')),
         // F45：delegated 行的账本侧生命周期操作如实拒绝（日历事件照常，
         // 暂停/改期在 App 内或经日历更新进行）。
-        reminder_pause: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '暂停'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')); },
-        reminder_resume: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '恢复'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')); },
-        reminder_skip: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '跳过'); return this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')); },
-        reminder_snooze: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '稍后'); return this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')); },
+        reminder_pause: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '暂停'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')); },
+        reminder_resume: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '恢复'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')); },
+        reminder_skip: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '跳过'); return this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')); },
+        reminder_snooze: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '稍后'); return this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')); },
         reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
         digest_enable: async args => this.digest.digestEnable(args),
         digest_control: async args => this.digest.digestControl(args),
@@ -1864,10 +1843,6 @@ export class PaRuntime {
   }
 
   /** F45：时钟型提醒是否可走日历渠道（demo/无连接时回落账本引擎，演示与测试不受损）。 */
-  private calendarChannelsLive(): boolean {
-    if (this.config?.calendarChannel === 'wecom') return true;
-    return this.config?.mode === 'feishu' && !!this.transport;
-  }
 
   /**
    * F45（spec 2.11，ADR-0001 修订）：时钟型提醒日程化——按 calendarChannel 写
@@ -1876,101 +1851,10 @@ export class PaRuntime {
    * 不投递该状态行）。once 的 at/afterSeconds 与 daily/weekly 的本地时刻
    * 语义与账本引擎完全一致（next 时刻计算复用同一 schedule 助手）。
    */
-  private async reminderToCalendar(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const summary = text(args.text, 500);
-    if (!summary) throw new ReminderError('提醒内容不能为空。');
-    const kind = String(args.kind ?? 'once');
-    const timeZone = String(args.timeZone ?? this.config!.timeZone);
-    let start: Date;
-    let rrule: string | undefined;
-    let originExpression: string;
-    const now = Date.now();
-    if (kind === 'once') {
-      if (args.at) {
-        const at = new Date(String(args.at));
-        if (Number.isNaN(at.getTime())) throw new ReminderError('once 的 at 需为可解析的 ISO 时间。');
-        start = at;
-        originExpression = at.toISOString();
-      } else {
-        const seconds = Number(args.afterSeconds);
-        if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new ReminderError('once 需要 1 秒–365 天的延迟（afterSeconds）或绝对时间（at）。');
-        start = new Date(now + seconds * 1000);
-        originExpression = `after ${seconds}s`;
-      }
-    } else if (kind === 'daily') {
-      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new ReminderError('daily 需要本地时间 HH:mm:ss。');
-      const record = createDailyScheduleRecord(ScheduleId('f45'), summary, { time: String(args.time), time_zone: timeZone }, now, summary);
-      start = firstOccurrence(record, now);
-      rrule = 'FREQ=DAILY;INTERVAL=1';
-      originExpression = `daily ${args.time} ${timeZone}`;
-    } else if (kind === 'weekly') {
-      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new ReminderError('weekly 需要本地时间 HH:mm:ss。');
-      const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : [];
-      if (!weekdays.length || weekdays.some(d => !Number.isInteger(d) || d < 1 || d > 7)) throw new ReminderError('weekly 需要 weekdays（ISO 1–7，周一=1）。');
-      const sorted = [...new Set(weekdays)].sort();
-      const record = createWeeklyScheduleRecord(ScheduleId('f45'), summary, { time: String(args.time), time_zone: timeZone, weekdays: sorted }, now, summary);
-      start = firstOccurrence(record, now);
-      rrule = `FREQ=WEEKLY;BYDAY=${sorted.map(d => ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][d - 1]).join(',')}`;
-      originExpression = `weekly ${args.time} ${sorted.join(',')} ${timeZone}`;
-    } else {
-      throw new ReminderError('时钟型日程化支持 once/daily/weekly；every 与跟随来源型仍走账本引擎。');
-    }
-    const end = new Date(start.getTime() + 15 * 60 * 1000);
-    const created = (await this.calendarWrite(item, 'create', {
-      summary: `提醒：${summary}`,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      ...(rrule ? { rrule } : {}),
-    })) as { event_id?: string; eventId?: string; operationId?: string };
-    const eventId = created.event_id ?? created.eventId ?? null;
-    // 备份行：delegated 状态＝引擎不投递，仅面板/历史/取消路径数据源。
-    const ruleId = `rmd-cal-${randomUUID().slice(0, 10)}`;
-    await this.repos!.reminders.insertRule({
-      id: ruleId,
-      kind,
-      text: summary,
-      record: { type: 'calendar', channel: this.config!.calendarChannel, event_id: eventId, start: start.toISOString(), rrule: rrule ?? null, operation_id: created.operationId ?? null },
-      status: 'delegated',
-      next_due_at: start,
-      time_zone: timeZone,
-      origin_expression: originExpression,
-      source: args.source ? text(args.source, 500) : null,
-      work_item_id: item.id,
-      link_source_type: null,
-      link_source_id: null,
-      link_fingerprint: null,
-    });
-    return {
-      ruleId,
-      eventId,
-      calendarChannel: this.config!.calendarChannel,
-      start: start.toISOString(),
-      ...(rrule ? { rrule } : {}),
-      message: `提醒已写入${this.config!.calendarChannel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；到点由对应 App 原生日程提醒（默认提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
-    };
-  }
 
   /** F45：delegated 行不参与账本侧暂停/恢复/跳过/稍后——如实拒绝并指引。 */
-  private async rejectDelegated(ruleId: string, op: string): Promise<unknown> {
-    const rule = await this.repos!.reminders.getRule(ruleId);
-    if (rule?.status === 'delegated') {
-      throw new Error(`该提醒已日程化（App 原生提醒），账本侧「${op}」不适用；请在对应日历 App 内操作，或让我更新/删除该日程事件。`);
-    }
-    return undefined;
-  }
 
   /** F45：取消——delegated 行同步取消日历事件，其余走账本引擎。 */
-  private async reminderCancel(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
-    const rule = await this.repos!.reminders.getRule(ruleId);
-    if (rule?.status === 'delegated') {
-      const record = rule.record as { event_id?: string | null };
-      if (record?.event_id) {
-        await this.calendarWrite(item, 'cancel', { eventId: record.event_id });
-      }
-      return this.reminders!.setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
-    }
-    return this.reminders!.setStatus(ruleId, 'stopped', reason);
-  }
 
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
     if (this.config!.calendarChannel === 'wecom') {
