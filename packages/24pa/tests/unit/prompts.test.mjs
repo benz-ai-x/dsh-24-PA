@@ -8,7 +8,6 @@ import {
   PROMPTS_VERSION,
   LEAD_SECTIONS,
   WORKER_PROMPTS,
-  SIMPLIFIED_WORKER_PERSONAS,
   workerPersonaFor,
   workerStartPrompt,
   digestWakePrompt,

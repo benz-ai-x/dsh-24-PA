@@ -6,7 +6,7 @@ const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任�
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
-import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec } from './host.js';
+import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -154,11 +154,6 @@ export interface RuntimeOptions {
 // (latest condition wins), the probe itself always runs.
 const WECOM_AUTH_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const WECOM_AUTH_FIRST_CHECK_DELAY_MS = 10 * 60 * 1000;
-export interface NativeScheduleService {
-  create(sessionId: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<{ id: string; scheduledAt?: string } & Record<string, unknown>>;
-  delete(request: { sessionId: string; id: string }): Promise<unknown>;
-  history(request: { sessionId: string; id: string; limit: number }): Promise<{ records?: unknown[] } & Record<string, unknown>>;
-}
 
 export class PaRuntime {
   private readonly ctx: DshContext;

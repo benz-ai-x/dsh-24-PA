@@ -93,7 +93,6 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
 // the two no longer duplicate each other.
 
 export interface WorkerPromptSet {
-  persona: string;
   /** Tool list annotation appended to the delegation prompt; no responsibilities. */
   brief: string;
   /** Done Criteria for the delegation prompt; omitted line when absent. */
@@ -107,65 +106,39 @@ export type BuiltinWorkerId = 'memo' | 'tasks' | 'digest' | 'calendar' | 'remind
 /** All six builtin sets are present; string keys (runtime role ids) may miss. */
 export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleId: string]: WorkerPromptSet | undefined } = {
   memo: {
-    persona: '',
     brief: 'memo_save（保存到配置的飞书目录或知识库，演示模式仅入账本）、memo_find（按主题/日期/关键词检索）、minutes_build/minutes_adopt_actions（会议纪要与行动）。',
     doneCriteria: '保存/检索结果已返回，且带文档出处或账本操作编号。',
     version: 2,
   },
   tasks: {
-    persona: '',
     brief: 'task_*（创建/更新/完成/查询/取消）、project_*（拆解与入账）、outreach_send/task_assign（需 instruction 依据）、task_repeat_*（周期模板）、waiting_*（等待事项与检查点，只提醒本人不催办他人）。',
     doneCriteria: '平台回执（任务链接/操作编号）已取得并交回；结果未知时已核对后再答复。',
     version: 2,
   },
   skill: {
-    persona: '',
     brief: 'skill_run {skill}（载入放行的任务 skill 正文并按其执行；仅 extraBusinessSkills 放行面内可达）。',
     doneCriteria: 'skill 指令执行完毕且完成标准逐项核对（含未达项说明）。',
     version: 1,
   },
   digest: {
-    persona: '',
     brief: 'digest_build {planId}（模板轨直接交付；agent 轨返回任务指令与事实，由你按指令生成简报全文后以 digest_deliver {planId, report} 交付，未达完成标准时如实说明）。',
     doneCriteria: '简报文本已产出：事实/建议分开、逐条带来源、缺失如实列出。',
     version: 1,
   },
   calendar: {
-    persona: '',
     brief: 'calendar_query/calendar_busy（同步水位/冲突/新鲜度）、calendar_create/update/cancel（staged 幂等）、meeting_schedule、plan_today/plan_preview/plan_adopt、meeting_prep_*、overview_today。',
     doneCriteria: '读操作带新鲜度说明；写操作取得平台回执（日程标识）后交回；规划建议按事实/建议/来源/缺失四栏给出。',
     version: 2,
   },
   reminders: {
-    persona: '',
     brief: 'reminder_create（once/every/daily/weekly，可 linkTaskGuid/linkEventId 跟随任务或日程）、reminder_list/cancel/pause/resume/skip/snooze/status、digest_enable/control/list。',
     doneCriteria: '平台接受状态（规则/实例编号）已返回；绑定来源的提醒已带来源标识。',
     version: 1,
   },
   handwriting: {
-    persona: '',
     brief: 'note_submit（转写/摘要/AI建议/疑点/候选行动/相对日期）、notes_search。',
     doneCriteria: 'note_submit 已提交结构化候选内容；无法辨认处已列为未知；空的可选部分留空未硬凑。',
     version: 2,
-  },
-};
-
-/**
- * Simplified personas (B7): second-level structure without deep headings for
- * weaker model routes, selected per route via `workerModels[role].simplePersona`.
- * Only roles with a reviewed simplified copy are listed; others fall back to
- * the structured persona.
- */
-export interface SimplifiedWorkerPersona {
-  persona: string;
-  /** Copy version within PROMPTS_VERSION; bump when this copy changes. */
-  version: number;
-}
-
-export const SIMPLIFIED_WORKER_PERSONAS: Partial<Record<string, SimplifiedWorkerPersona>> = {
-  memo: {
-    persona: '',
-    version: 1,
   },
 };
 

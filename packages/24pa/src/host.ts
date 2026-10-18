@@ -98,6 +98,18 @@ export interface WorkspaceInfo {
   path: string;
 }
 
+/**
+ * Host-native scheduling surface (moved from runtime in the round-3 review):
+ * the contract digest-service consumes and the runtime adapts from the host
+ * context — defined beside the other host interfaces so no module imports
+ * runtime just for a type (the old circular seam).
+ */
+export interface NativeScheduleService {
+  create(sessionId: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<{ id: string; scheduledAt?: string } & Record<string, unknown>>;
+  delete(request: { sessionId: string; id: string }): Promise<unknown>;
+  history(request: { sessionId: string; id: string; limit: number }): Promise<{ records?: unknown[] } & Record<string, unknown>>;
+}
+
 export interface FsTarget {
   path: string;
   [key: string]: unknown;

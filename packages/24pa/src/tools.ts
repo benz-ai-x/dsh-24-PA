@@ -235,8 +235,8 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_delegate',
-    '将明确的本人委托交给专业 Worker（memo=备忘、tasks=待办、calendar=日程、reminders=提醒、handwriting=手写整理；可用性以运行时校验为准，不可用会明确报错）。一段输入含多件事时分别委派。handwriting 必须携带 noteId（笔记编号 N-x）。返回接纳编号；接纳不代表完成。',
-    { worker: string, title: string, instruction: string, noteId: string },
+    '将明确的本人委托交给专业 Worker（memo=备忘、tasks=待办、calendar=日程、reminders=提醒、handwriting=手写整理、skill=任务 skill；可用性以运行时校验为准，不可用会明确报错）。一段输入含多件事时分别委派。handwriting 必须携带 noteId（笔记编号 N-x）；skill 必须携带 skill 名且该名已在 extraBusinessSkills 放行。返回接纳编号；接纳不代表完成。',
+    { worker: string, title: string, instruction: string, noteId: string, skill: string },
     ['worker', 'title', 'instruction'],
     (args, exec) => runtime.delegate(args, exec.agent!),
   );

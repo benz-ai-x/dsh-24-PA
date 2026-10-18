@@ -190,6 +190,11 @@ export const WORKER_PERSONA_SKILLS: readonly { name: string; description: string
   },
 ];
 
+/** 待审提醒默认文案（handwriting-review-flow 内置 params 的单一来源；runtime 兜底引用此处）。 */
+export const DEFAULT_PENDING_REMIND_TEMPLATE: Readonly<{ pendingRemindTemplate: string }> = {
+  pendingRemindTemplate: '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。',
+};
+
 /** 内置任务 skill（spec 2.11/F40/F44）：digest 三件＋审核流口径＋会前准备；模板轨组装在代码层。 */
 export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; whenToUse: string; content: string; metadata: { track: SkillTrack; kind: string; pa24: true; params?: Record<string, unknown> } }[] = [
   {
@@ -241,7 +246,7 @@ export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; 
       '',
       '默认口径与既有行为一致；改模板不改代码。',
     ].join('\n'),
-    metadata: { track: 'template', kind: 'review', pa24: true, params: { pendingRemindTemplate: '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。' } },
+    metadata: { track: 'template', kind: 'review', pa24: true, params: { ...DEFAULT_PENDING_REMIND_TEMPLATE } },
   },
   {
     name: 'meeting-prep',
@@ -280,11 +285,6 @@ export function assertToolDeclaration(metadata: Record<string, unknown> | undefi
     throw new Error(`任务 skill ${skillName} 的工具声明越权（${beyond.join('、')} 不在执行面白名单内）；skill 只能收紧不能放宽权限，请修正该 skill 的 metadata.tools。`);
   }
 }
-
-/** 待审提醒默认文案（handwriting-review-flow 内置 params；runtime 兜底引用此处单一来源）。 */
-export const DEFAULT_PENDING_REMIND_TEMPLATE: Readonly<{ pendingRemindTemplate: string }> = {
-  pendingRemindTemplate: '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。',
-};
 
 /** 经 DigestService/DigestPlanRow 绑定的计划 skill 目录访问面。 */
 export class SkillCatalog {

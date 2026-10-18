@@ -16,3 +16,13 @@ export interface SharedChannelDeps {
   stagedOperation(item: WorkItemRow, kind: string, paramsKey: string, params: Record<string, unknown>, reconcileHint?: string): Promise<{ created: boolean; row: ActionOperationRow }>;
   failStaged(operationId: string, error: unknown): Promise<void>;
 }
+
+/**
+ * Second proven tier (round-3 review): the context subset HandwritingDeps and
+ * DigestDeps both re-declared verbatim. Same discipline as above — only fields
+ * two real consumers share get promoted; wecom-channels stays on the base tier.
+ */
+export interface ChannelContextDeps extends SharedChannelDeps {
+  accessSessionId(): string | null;
+  workspace(): { statePath: string } | null;
+}

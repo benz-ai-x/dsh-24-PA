@@ -2,11 +2,12 @@
 // repos use, migrate the shared DDL list, and round-trip business rows with
 // the same JS shapes PostgreSQL hands back (Date timestamps, parsed jsonb,
 // booleans).
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SqliteDb, translateQuery } from '../../lib/sqlite.js';
+import { defineRepoEquivalenceSuite } from '../helpers/repo-scenarios.mjs';
 import { createRepos } from '../../lib/repo.js';
 
 describe('F25：方言翻译（translateQuery）', () => {
@@ -149,3 +150,15 @@ describe('F25：SQLite 账本（迁移＋业务往返）', () => {
     expect(parts.every(p => ['sqlite', 'sqlite-wal'].includes(p.id))).toBe(true);
   });
 });
+
+// Round-3 equivalence matrix: the shared business-behavior table runs against
+// the SQLite factory too — new repo methods covered by the table are proven on
+// both adapters by derivation, not by hand-copying cases.
+defineRepoEquivalenceSuite(
+  { describe, it, expect, beforeAll, afterAll },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pa24-sqlite-eq-'));
+    const db = new SqliteDb(join(root, 'pa24.db'));
+    return { db, cleanup: () => rm(root, { recursive: true, force: true }) };
+  },
+);
