@@ -902,8 +902,9 @@ export class PaRuntime {
       feishuAppId: this.config?.appIdEnv || 'PA24_FEISHU_APP_ID',
       feishuAppSecret: this.config?.appSecretEnv || 'PA24_FEISHU_APP_SECRET',
       pgDsn: this.config?.pgDsnEnv || 'PA24_PG_DSN',
-      // tts.volcKeyEnv 模板默认空串——空引用名会让密钥库兜底失效，落规范名。
-      volcTtsKey: this.config?.tts?.volcKeyEnv || 'VOLC_TTS_KEY',
+      // tts.volcKeyEnv 模板默认空串——空引用名会让密钥库兜底失效，落规范名
+      // （与初始化指南 env 示例同名）。
+      volcTtsKey: this.config?.tts?.volcKeyEnv || 'PA24_VOLC_TTS_KEY',
     };
   }
 
@@ -957,7 +958,8 @@ export class PaRuntime {
   }
 
   private async hasActiveWork(): Promise<boolean> {
-    if (!this.repos) return false;    let count = 0;
+    if (!this.repos) return false;
+    let count = 0;
     for (const status of ['accepted', 'queued', 'running', 'waiting_input'] as const) {
       count += await this.repos.workItems.countByStatus(status);
     }
@@ -3857,7 +3859,9 @@ export class PaRuntime {
     const workspace = this.workspace;
     const config = this.config;
     const bin = this.options.larkCliBin;
-    const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash })
+    // F36: 报错脱敏覆盖密钥库来源的真实值（env 值 safeError 自行读）。
+    const extraSecrets = [this.secretValue('feishuAppId'), this.secretValue('feishuAppSecret')].filter(Boolean);
+    const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets)
       .then(result => {
         if (this.workspace === workspace) this.diagnostics = result;
         return result;

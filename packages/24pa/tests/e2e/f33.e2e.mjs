@@ -33,6 +33,7 @@ beforeAll(async () => {
       PA24_WORKSPACE: workspace,
       DEEPSEEK_BASE_URL: 'http://127.0.0.1:9', // 占位：本用例不发起模型调用
       DEEPSEEK_API_KEY: 'test-key',
+      PA24_FEISHU_APP_ID: 'env-app-id-wins', // F36：验证同名 env 优先于密钥库
     },
   });
   await host.waitUntil(s => s.workspace?.config, { label: '配置加载' });
@@ -78,12 +79,18 @@ describe('F33 参数配置表单（真实 Loader + 面板 API）', () => {
     expect(check.workspace.config.maxWorkers).toBe(4);
   });
 
-  it('F36 密钥库：secret-update 只写密钥库、AGENTS.md 逐字节不变、快照状态无值', async () => {
+  it('F36 密钥库：secret-update 只写密钥库、AGENTS.md 逐字节不变、快照状态无值、env 优先', async () => {
     const before = await readAgents();
-    const snap = await host.api('action', { type: 'workspace.secret-update', values: { volcTtsKey: 'k-e2e-secret', feishuAppId: '' } });
+    // 四位全设（feishuAppId 的 env 值在 bootHost 注入——验证同名 env 优先于库）。
+    const snap = await host.api('action', { type: 'workspace.secret-update', values: {
+      volcTtsKey: 'k-e2e-secret', feishuAppId: 'store-app-id-should-lose', feishuAppSecret: 's-e2e', pgDsn: 'dsn-e2e',
+    } });
+    expect(snap.secrets.feishuAppId).toEqual({ set: true, source: 'env' });
+    expect(snap.secrets.feishuAppSecret).toEqual({ set: true, source: 'store' });
+    expect(snap.secrets.pgDsn).toEqual({ set: true, source: 'store' });
     expect(snap.secrets.volcTtsKey).toEqual({ set: true, source: 'store' });
-    expect(snap.secrets.feishuAppId).toEqual({ set: false, source: null });
     expect(JSON.stringify(snap)).not.toContain('k-e2e-secret');
+    expect(JSON.stringify(snap)).not.toContain('dsn-e2e');
     // AGENTS.md 完全不动（密钥与配置块解耦）。
     expect(await readAgents()).toBe(before);
     const { readFile: rf, stat } = await import('node:fs/promises');
@@ -92,7 +99,14 @@ describe('F33 参数配置表单（真实 Loader + 面板 API）', () => {
     expect(st.mode & 0o777).toBe(0o600);
     const stored = JSON.parse(await rf(storeFile, 'utf8'));
     expect(stored.volcTtsKey).toBe('k-e2e-secret');
-    expect(stored.feishuAppId).toBeUndefined();
+    // 逐位清除：空串＝清该位（feishuAppId 清库后 env 仍在→仍 set:env；pgDsn→未设置）。
+    const cleared = await host.api('action', { type: 'workspace.secret-update', values: { feishuAppId: '', pgDsn: '' } });
+    expect(cleared.secrets.feishuAppId).toEqual({ set: true, source: 'env' });
+    expect(cleared.secrets.pgDsn).toEqual({ set: false, source: null });
+    const after = JSON.parse(await rf(storeFile, 'utf8'));
+    expect(after.feishuAppId).toBeUndefined();
+    expect(after.pgDsn).toBeUndefined();
+    expect(after.feishuAppSecret).toBe('s-e2e');
     // 未知密钥位拒绝。
     await expect(host.api('action', { type: 'workspace.secret-update', values: { nope: 'x' } })).rejects.toThrow(/未知密钥字段/);
   });

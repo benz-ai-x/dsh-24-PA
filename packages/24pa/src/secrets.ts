@@ -10,13 +10,6 @@ export type SecretStore = Partial<Record<SecretKey, string>>;
 /** 面板/快照可见的状态（永不包含值）。 */
 export type SecretStatus = Partial<Record<SecretKey, { set: true; source: 'env' | 'store' } | { set: false; source: null }>>;
 
-export const SECRET_LABELS: Record<SecretKey, string> = {
-  feishuAppId: '飞书 App ID',
-  feishuAppSecret: '飞书 App Secret',
-  pgDsn: 'PostgreSQL DSN',
-  volcTtsKey: '豆包 TTS Key',
-};
-
 export function secretsPath(statePath: string): string {
   return join(statePath, '.24pa', 'secrets.json');
 }
@@ -44,7 +37,7 @@ export async function writeSecretStore(statePath: string, store: SecretStore): P
   await mkdir(dirname(path), { recursive: true });
   try {
     await writeFile(tmp, JSON.stringify(store, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
-    await chmod(tmp, 0o600).catch(() => {}); // 显式补一遍：写入与权限不该有窗口
+    await chmod(tmp, 0o600); // 显式补一遍：权限失败应让写入响亮失败，不静默 0644
     await rename(tmp, path);
   } catch (error) {
     await rm(tmp, { force: true }).catch(() => {});

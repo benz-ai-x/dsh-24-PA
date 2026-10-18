@@ -230,9 +230,9 @@ describe('client.js 挂载面', () => {
     // 引用名改为可编辑（env 为可选覆盖）
     expect(client).toContain("L('App ID 引用（appIdEnv）', 'App ID ref (appIdEnv)')");
     expect(client).toContain("L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')");
-    // 状态行不回显值：placeholder 只用 set/source
-    expect(client).toContain("secretPlaceholder");
-    expect(client).not.toContain("secretDraft[key]] ?");
+    // 状态行不回显值：placeholder/helper 只消费 set/source，draft 只进密码框与提交值
+    expect(client).toContain('secretPlaceholder');
+    expect(client).not.toContain('title: secretDraft');
   });
 
   it('F35：inject 面不再含 layout（设置分区撤销，面板内无跳转需求）', () => {

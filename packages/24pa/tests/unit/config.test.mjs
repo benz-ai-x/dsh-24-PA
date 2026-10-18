@@ -91,7 +91,8 @@ describe('AGENTS.md 配置校验', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: null })).toThrow(/tts/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'azure' } })).toThrow(/tts.engine/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'melo' } })).toThrow(/meloDir/);
-    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine' } })).toThrow(/volcKeyEnv/);
+    // F36 起 volcKeyEnv 可空（密钥走工作区密钥库，空引用名落规范名）；只校验格式。
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine' } })).toThrow(/voice/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine', volcKeyEnv: 'PA24_VOLC_TTS_KEY' } })).toThrow(/voice/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine', volcKeyEnv: 'pa24-key', voice: 'zh_female_cancan_uranus_bigtts' } })).toThrow(/volcKeyEnv/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, tts: { engine: 'volcengine', volcKeyEnv: 'PA24_VOLC_TTS_KEY', voice: '不是音色' } })).toThrow(/voice/);

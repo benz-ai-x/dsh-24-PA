@@ -171,7 +171,8 @@ function validateTts(raw: unknown): TtsConfig {
   if (tts.voice && !VOLC_VOICE_ID.test(tts.voice)) throw new ConfigError('tts.voice 应填写豆包语音合成 2.0 音色 ID（如 zh_female_cancan_uranus_bigtts）。');
   if (tts.meloDir && !tts.meloDir.startsWith('/')) throw new ConfigError('tts.meloDir 必须是绝对路径。');
   if (engine === 'volcengine') {
-    if (!tts.volcKeyEnv) throw new ConfigError('volcengine 引擎必须填写 tts.volcKeyEnv（密钥所在环境变量名）。');
+    // F36: volcKeyEnv 可空——密钥可走工作区密钥库（空引用名落规范名
+    // PA24_VOLC_TTS_KEY 由运行时兜底），环境变量只是可选覆盖。
     if (!tts.voice) throw new ConfigError('volcengine 引擎必须选择 tts.voice 音色。');
   }
   if (engine === 'melo' && !tts.meloDir) throw new ConfigError('melo 引擎必须填写 tts.meloDir 部署目录。');
