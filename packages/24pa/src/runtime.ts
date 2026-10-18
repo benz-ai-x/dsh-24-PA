@@ -3507,7 +3507,7 @@ export class PaRuntime {
     // 是 info，「读取失败」（查询异常）才是 error；两者此前坍缩成同一句
     // 假红「不可读取」（8010/3080 常年误报）。catch 记 message 不吞。
     const calendarChannel = config?.calendarChannel ?? 'feishu';
-    let calendarState: import('./repo.js').CalendarSyncRow | null = null;
+    let calendarState: CalendarSyncRow | null = null;
     let calendarError = '';
     if (this.repos) {
       try {
