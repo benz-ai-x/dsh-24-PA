@@ -252,7 +252,7 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
 
   it('P15/P21：临时休假把到期提醒扣住不放，到期后补发', async () => {
     const nowIso = new Date().toISOString();
-    const vacationEnd = new Date(Date.now() + 4000).toISOString();
+    const vacationEnd = new Date(Date.now() + 12000).toISOString(); // 覆盖 6s 到期＋派发链路耗时
     await writeScript({
       mode: 'dispatch',
       leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-1', category: 'preference', topic: '休假', content: '本人休假中，暂停提醒推送', source: '本人指示', status: 'confirmed', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } },
@@ -273,8 +273,8 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
     const created = await waitToolResult('ruleId', '创建回执5');
     const ruleId = (created.match(/(rmd-[a-z0-9-]+)/) || [])[1];
 
-    // 休假窗口内被扣住（pending+deferred），不发
-    await new Promise(r => setTimeout(r, 3500));
+    // 休假窗口内被扣住（pending+deferred），不发（等待到期 6s＋派发 tick）
+    await new Promise(r => setTimeout(r, 8000));
     const held = await cluster.query(`select status, (deferred_until is not null) as deferred from pa24.reminder_occurrence where rule_id='${ruleId}'`);
     expect(held).toContain('pending');
     expect(held).toContain('t'); // deferred_until set
