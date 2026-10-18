@@ -247,9 +247,6 @@ export class PaRuntime {
     isClosed: () => this.closed,
   });
 
-  /** Recurring-digest & daily-planning service (F32): plans/build/render/
-   *  supervise/overview behind one deep module; F19 voice delivery extends
-   *  here. The runtime keeps role bindings and the follow-up tick. */
   /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
   private readonly skillCatalog: SkillCatalog;
 
