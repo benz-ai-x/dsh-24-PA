@@ -1264,8 +1264,10 @@ export class NoteRepo {
   async versionsWithDecisions(limit: number): Promise<Array<Record<string, any>>> {
     const result = await this.db.query<Record<string, any>>(
       `select v.id, v.note_id, v.version, v.status, v.fingerprint, v.doc_id, v.doc_url, v.content, v.decided_at,
+              v.verified_at, v.verify_result, v.created_at, n.title,
               d.decision, d.reviewer_open_id, d.decided_at as decision_at
        from pa24.note_version v
+       left join pa24.note n on n.id = v.note_id
        left join pa24.review_decision d on d.version_id = v.id
        order by v.created_at desc limit $1`,
       [limit],

@@ -26,6 +26,8 @@ export const PANEL_RPC = {
     health: 'health',
     notesQueue: 'notes.queue',
     roles: 'roles',
+    reminders: 'reminders',
+    digests: 'digests',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -88,6 +90,12 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           }
           if (endpoint === E.roles) {
             return respond({ ok: true, value: { roles: runtime.listRoles() } });
+          }
+          if (endpoint === E.reminders) {
+            return respond({ ok: true, value: runtime.reminders ? await runtime.reminders.list() : { rules: [], occurrences: [] } });
+          }
+          if (endpoint === E.digests) {
+            return respond({ ok: true, value: await runtime.digestPlans() });
           }
           throw new Error('未知管理接口。');
         } catch (error) {

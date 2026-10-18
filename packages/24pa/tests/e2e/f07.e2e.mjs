@@ -250,6 +250,10 @@ describe('F07 多页笔记与集中复核（真实 Loader + 隔离 PG）', () =>
     const after = await host.api('notes.queue', {});
     expect(after.count).toBe(1);
     expect(after.items[0].noteId).toBe(noteA);
+    const historyRow = after.history.find(row => row.noteId === noteB && row.version === 1);
+    expect(historyRow.status).toBe('approved');
+    expect(historyRow.decision).toBe('approve');
+    expect(historyRow.docUrl).toBeTruthy();
   });
 
   it('P33：催办到期经 Outbox 发出；暂停不再发送；稍后改时间仍绑定原版本', async () => {

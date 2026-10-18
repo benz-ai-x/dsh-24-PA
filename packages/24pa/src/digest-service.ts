@@ -217,8 +217,10 @@ export class DigestService {
       view.push({
         planId: plan.id,
         kind: plan.kind,
+        title: plan.title,
         status: plan.status,
         scheduleId: plan.schedule_id,
+        schedule: plan.schedule_spec,
         lastWindow: plan.last_window,
         voice: plan.voice,
         recent: occurrences.map(o => ({ window: o.window_key, status: o.status, completedAt: isoDate(o.completed_at) })),

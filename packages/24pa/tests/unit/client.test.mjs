@@ -20,24 +20,24 @@ describe('client.js 挂载面', () => {
     expect(client).not.toContain('SettingsSection');
   });
 
-  it('工作区管理在主面板系统维护（F35）：工作区与配置卡承载绑定/重载/生效配置/健康', () => {
-    expect(client).toContain('function WorkspaceCards({ snapshot, busy, button, openRobot, path, onPathChange })');
+  it('工作区管理在主面板接入与设置（F35）：工作区与配置卡承载绑定/重载/生效配置/健康', () => {
+    expect(client).toContain('function WorkspaceCards({ snapshot, busy, button, openRobot, openConfig, path, onPathChange })');
     expect(client).not.toContain("tab === 'workspace'");
     // WorkspaceCards 只在「工作区与配置」卡详情挂载
     expect(client.match(/h\(WorkspaceCards,/g)?.length).toBeGreaterThanOrEqual(1);
     expect(client).toContain('function WorkspaceDetail({ helpers })');
-    expect(client).toContain("id: 'workspace', cat: 'system'");
+    expect(client).toContain("id: 'workspace', cat: 'setup'");
     expect(client).toContain("state.workspace ? 'ok' : 'missing'");
     // 动作外壳与机器人入口共享
     expect(client).toContain('function usePanelActions()');
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
-    // 面板 RPC 面不变（F19 的新动作走既有 action 端点）
+    // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
-    expect(client).toContain("id: 'wecom', cat: 'access', tone: 'amber', icon: 'bot'");
+    expect(client).toContain("id: 'wecom', cat: 'setup', tone: 'amber', icon: 'bot'");
     expect(client).toContain('function WecomView({ state, busy, button, openRobot })');
     expect(client).toContain("type: 'connection.wecom-check'");
     for (const anchor of ['正常', '未授权', '已过期', '企业不可用', 's.helpMessage', '下一步（nextSteps）']) {
@@ -45,59 +45,71 @@ describe('client.js 挂载面', () => {
     }
   });
 
-  it('能力卡片体系（F26/P58）：三分类 tab、12 卡注册表、角标聚合、管理态与详情导航', () => {
-    // 一级导航＝三分类 tab（用户原型评审裁决，prototypes/pa24-card-panel v0.3）
-    expect(client).toContain("const CATEGORY_TABS = [['biz', 'grid', 'blue'], ['access', 'plug', 'green'], ['system', 'shield', 'violet']];");
-    expect(client).toContain("biz: '业务内容', access: '接入与通讯', system: '系统维护'");
+  it('能力卡片体系（F26/P58）：四分类 tab、15 卡注册表、角标聚合、管理态与详情导航', () => {
+    // 一级导航＝事务与计划 / 知识与资料 / 接入与设置 / 运行与维护
+    expect(client).toContain("const CATEGORY_TABS = [['work', 'grid', 'blue'], ['knowledge', 'memory', 'violet'], ['setup', 'plug', 'green'], ['ops', 'shield', 'amber']];");
+    expect(client).toContain("const [tab, setTab] = React.useState('work')");
+    expect(client).toContain("work: '事务与计划', knowledge: '知识与资料', setup: '接入与设置', ops: '运行与维护'");
+    expect(client).toContain("work: 'Work & plans', knowledge: 'Knowledge & content', setup: 'Connections & setup', ops: 'Operations & maintenance'");
     // 注册表驱动：注册即生卡；每卡必有 tier（角标聚合纯函数）＋body＋detail
-    const ids = [...client.matchAll(/id: '([a-z]+)', cat: '(biz|access|system)'/g)].map(m => m[1]);
-    expect(ids).toEqual(['work', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'healthcheck', 'storage', 'config', 'budget']);
+    const ids = [...client.matchAll(/id: '([a-z]+)', cat: '(work|knowledge|setup|ops)'/g)].map(m => m[1]);
+    expect(ids).toEqual(['work', 'activity', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'healthcheck', 'storage', 'config', 'budget']);
     expect((client.match(/^            tier: /gm) || []).length).toBe(ids.length);
+    expect(client).toContain("const CARD_ORDER = ['work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];");
     // tab 角标＝分类内 warn/error 卡片数，error 转红
     expect(client).toContain('const chipOf = cat =>');
     expect(client).toContain("chip.tone === 'error' ? ' error' : ''");
-    // 管理态：显隐按分类记忆，localStorage 持久化
+    // 管理态：显隐按分类记忆，localStorage 持久化并迁移旧分类
     expect(client).toContain("const CARD_HIDDEN_KEY = 'pa24.panelCards.hidden'");
+    expect(client).toContain('const CATEGORY_MIGRATION = {');
     expect(client).toContain('pa24-manage');
     expect(client).toContain('管理卡片');
+    // 接入进度只覆盖四个接入卡
+    expect(client).toContain("const ACCESS_CARD_IDS = new Set(['feishu', 'wecom', 'qwennote', 'wiki'])");
+    expect(client).toContain("cat === 'setup' && !manage");
     // 二级详情：返回卡片导航＋原视图平移（飞书详情全量保留）
     expect(client).toContain("'返回卡片'");
     expect(client).toContain('function FeishuDetail({ state, busy, button, openRobot })');
-    expect(client).toContain('function WorkDetail({ state, button, busy, workspace, openRobot })');
+    expect(client).toContain('function WorkDetail({ state, extra, button, busy, workspace, openRobot })');
     expect(client).toContain('function ReadinessDetail({ state })');
-    expect(client).toContain('function MinutesDetail({ state, extra, button, openRobot })');
+    expect(client).toContain('function MinutesDetail({ state, extra, button, openRobot, openCard })');
     // 听记卡：F18 合流入口，状态来自维护健康 extra-local-tools
     expect(client).toContain("extraToolCap = extra => (extra.health?.capabilities || []).find(c => c.id === 'extra-local-tools')");
-    // 未配置卡占位（知识库 F22 预留）
-    expect(client).toContain("tier: () => 'missing', label: () => L('未配置', 'Not configured')");
+    // 未交付知识库只作说明，不形成配置待办或主 CTA
+    expect(client).toContain("tier: () => 'unchecked', label: () => L('即将推出', 'Coming soon')");
+    expect(client).toContain('当前不需要配置，也不计入接入待办');
     // 全应用健康检查卡（用户 2026-10-11 裁决）：聚合 tier＋一键全量检查含主动探测
-    expect(client).toContain("id: 'healthcheck', cat: 'system', tone: 'blue', icon: 'shield'");
+    expect(client).toContain("id: 'healthcheck', cat: 'ops', tone: 'blue', icon: 'shield'");
     expect(client).toContain('const healthAggregate = ({ state, extra }) =>');
     expect(client).toContain("'一键全量检查'");
     expect(client).toContain('helpers.run(helpers.runFullCheck)');
     // 快照轮询不变；卡片补充数据一次性读取并随手动刷新重取
     expect(client).toContain('const useExtra = (workspacePath, tick)');
     expect(client).toContain('setExtraTick');
-    // 键盘 ←→/Home/End 三 tab 轮转
+    // 键盘 ←→/Home/End 四 tab 轮转
     expect(client).toContain('% CATEGORY_TABS.length');
+    // 旧三分类不再回潮
+    expect(client).not.toContain("biz: '业务内容'");
+    expect(client).not.toContain("access: '接入与通讯'");
+    expect(client).not.toContain("system: '系统维护'");
   });
 
   it('UI 制度锚点（P53/F26）：语义配色、单主按钮、统一状态词汇、可关闭提示与防溢出', () => {
-    // tab 配色语义（F26 三分类）：蓝业务 / 蓝绿接入 / 紫系统；卡片 tone 沿用同一语义色
+    // tab 配色语义：蓝事务 / 紫知识 / 绿接入 / 琥珀维护；卡片 tone 沿用同一语义色
     expect(client).toContain('.pa24-tone-green{');
     expect(client).toContain('.pa24-tone-violet{');
-    expect(client).toContain("id: 'feishu', cat: 'access', tone: 'green', icon: 'plug'");
-    expect(client).toContain("id: 'memory', cat: 'biz', tone: 'violet', icon: 'memory'");
-    expect(client).toContain("id: 'review', cat: 'biz', tone: 'danger', icon: 'pen'");
+    expect(client).toContain("id: 'feishu', cat: 'setup', tone: 'green', icon: 'plug'");
+    expect(client).toContain("id: 'memory', cat: 'knowledge', tone: 'violet', icon: 'memory'");
+    expect(client).toContain("id: 'review', cat: 'knowledge', tone: 'danger', icon: 'pen'");
     // header 压缩：eyebrow 退役、口号并入标题行
     expect(client).not.toContain('pa24-eyebrow');
     expect(client).toContain('pa24-title-row');
     // 右列短卡收缩（设置模态样式随 F35 分区撤销一并移除）
     expect(client).toContain('align-items:start');
     expect(client).not.toContain('.pa24-settings{');
-    // 一屏一主按钮：页头对话＋工作/记忆/企微空态 CTA＋工作区卡绑定＋F26 对话管理
-    // 引导空态（提醒/晨报/知识库三卡详情各一）＋全量健康报告的一键检查＝10 处为实心
-    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(10); // F33 表单保存按钮
+    // 一屏一主按钮：页头对话＋工作/记忆/提醒/晨报空态 CTA＋工作区卡绑定＋全量健康检查；
+    // 未开放的知识库不再提供误导性的主 CTA。
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(9); // F33 表单保存按钮
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
     // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留
@@ -158,7 +170,7 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('以上为就绪与能力健康的静态聚合');
     expect(client).toContain("L('该分类有 ' + chip.n + ' 张卡片需要关注");
     // 接入分类总进度行
-    expect(client).toContain("cat === 'access' && !manage");
+    expect(client).toContain("cat === 'setup' && !manage");
     expect(client).toContain('接入进度：就绪');
     // 管理态：Esc 退出＋隐藏轻反馈＋「完成」专用样式（不与页头主按钮抢主色）
     expect(client).toContain("if (e.key === 'Escape') setManage(false)");
@@ -192,7 +204,7 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('useSyncExternalStore(cb => ctx.locale.subscribe(cb), () => ctx.locale.getSnapshot())');
     // 卡片元数据消费点必须惰性解析（foot 曾漏改致中英拼接，回归锚点）
     expect(client).toContain('card.action ? L(...card.action) : L(\'查看详情\', \'Open\')');
-    expect(client).toContain('h(\'b\', null, L(...card.title))');
+    expect(client).toContain('h(\'b\', null, cardTitle)');
     expect(client).toContain('L(...entry.title)');
     // zh/en 命名空间键集一致（解析两个字典块的键名）
     const dictKeys = name => {
@@ -202,8 +214,8 @@ describe('client.js 挂载面', () => {
     expect(dictKeys('en')).toEqual(dictKeys('zh'));
   });
 
-  it('参数配置表单（F33/P60）：system 分类卡＋六组表单＋config-update 动作', () => {
-    expect(client).toContain("id: 'config', cat: 'system'");
+  it('参数配置表单（F33/P60）：setup 分类卡＋七组表单＋config-update 动作', () => {
+    expect(client).toContain("id: 'config', cat: 'setup'");
     expect(client).toContain('function ConfigFormDetail({ helpers })');
     expect(client).toContain("type: 'workspace.config-update'");
     // 只读红线与一键应用授权值
@@ -233,6 +245,38 @@ describe('client.js 挂载面', () => {
     // 状态行不回显值：placeholder/helper 只消费 set/source，draft 只进密码框与提交值
     expect(client).toContain('secretPlaceholder');
     expect(client).not.toContain('title: secretDraft');
+  });
+
+  it('UI/UX 全量走查修复：真实数据详情、状态诚实与可访问性', () => {
+    // 运行记录、提醒、周期计划、审核历史、备份说明均接到实际只读数据面。
+    for (const anchor of ["id: 'activity', cat: 'work'", 'function ActivityDetail', 'function ReminderDetail', 'function DigestDetail', 'function BackupDetail', '备份与恢复', '审核记录', 'Worker 可用状态']) {
+      expect(client).toContain(anchor);
+    }
+    expect(client).toContain("capture('roles', rpc('roles'");
+    expect(client).toContain("capture('reminders', rpc('reminders'");
+    expect(client).toContain("capture('digests', rpc('digests'");
+    // 飞书整体状态纳入授权与资源检查；健康报告复用已读数据并显示处理建议。
+    expect(client).toContain('const rows = [check.auth, ...(check.resources ?? [])]');
+    expect(client).toContain('function HealthBlock({ data: providedData, title })');
+    expect(client).toContain('h(HealthBlock, { data: helpers.extra.health })');
+    expect(client).toContain("h('summary', null, L('处理建议', 'Next steps'))");
+    // 空库与筛选无结果必须分开，无匹配分支在前。
+    expect(client.indexOf('data.matched === 0')).toBeLessThan(client.indexOf('data.total === 0'));
+    // 表单控件建立程序化标签，Worker 字段带角色上下文；变更可重置，离开有保护。
+    expect(client).toContain('const withFieldId =');
+    expect(client).toContain('htmlFor: id');
+    expect(client).toContain("'aria-label': roleName(role)");
+    expect(client).toContain('const dirty = configDirty || secretDirty');
+    expect(client).toContain('disabled: busy || !dirty');
+    expect(client).toContain('重置修改');
+    expect(client).toContain('setFormDirty');
+    expect(client).toContain("window.confirm(L('有未保存修改，确定放弃吗？'");
+    // 管理按钮带卡片名且不再覆盖状态；刷新有完成时间，窄屏保存栏压缩。
+    expect(client).toContain("'aria-label': (card.action ? L(...card.action)");
+    expect(client).toContain("'aria-label': (hidden ? L('显示 '");
+    expect(client).not.toContain('position:absolute;top:8px;right:8px');
+    expect(client).toContain('lastRefreshAt');
+    expect(client).toContain('.pa24-form-actions>.pa24-meta{display:none}');
   });
 
   it('F35：inject 面不再含 layout（设置分区撤销，面板内无跳转需求）', () => {

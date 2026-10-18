@@ -100,6 +100,12 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     await waitWorkItem('设外部提醒', '外部提醒建立');
     await waitToolResult('pa24_work', 'ruleId', '提醒回执', 60_000, before);
 
+    const panelPlans = await host.api('digests', {});
+    expect(panelPlans.plans.find(plan => plan.kind === 'evening').schedule.daily.time).toBe('23:30:00');
+    const panelReminders = await host.api('reminders', {});
+    expect(panelReminders.rules.find(rule => rule.text === '晨间例行').kind).toBe('daily');
+    expect(panelReminders.rules[0].nextDueAt).toBeTruthy();
+
     // 检查：原生计划与外部提醒分开列出
     await localMaint('f12-chk-1', 'archive_check');
     before = llm.log.length;

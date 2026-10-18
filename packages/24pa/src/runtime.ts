@@ -253,6 +253,11 @@ export class PaRuntime {
   async superviseDigests(graceMs?: number): Promise<unknown> {
     return this.digest.superviseDigests(graceMs);
   }
+
+  async digestPlans(): Promise<unknown> {
+    if (!this.repos) return { plans: [] };
+    return this.digest.digestList();
+  }
   private dispatching = false;
   private outboxSending = false;
   /** 最近一次 tts.probe 结果（健康面只读缓存，不做子进程探测）。 */
@@ -3603,7 +3608,7 @@ export class PaRuntime {
   /** F19（spec 2.3）：入队一条测试语音，经真实引擎合成后送达主人飞书。 */
   async ttsTestSend(): Promise<unknown> {
     if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
-    if (this.config.tts.engine === 'none') throw new Error('未配置 TTS 引擎：先在 AGENTS.md 配置块设置 tts.engine（melo 或 volcengine）。');
+    if (this.config.tts.engine === 'none') throw new Error('未配置 TTS 引擎：请先在「接入与设置 → 参数配置 → 语音 TTS」选择引擎。');
     if (this.config.notifyChannel === 'wecom') throw new Error('通知通道为企微，暂不支持语音（wecom 语音 parity 后置）。');
     if (!this.config.ownerOpenId) throw new Error('尚未绑定主人飞书身份（ownerOpenId）。');
     // 「二十四私助」为口播形态：TTS 朗读数字串不如汉字自然（研究第六节实测口径）。
@@ -3729,11 +3734,12 @@ export class PaRuntime {
     throw new Error('未知维护操作。');
   }
 
-  /** Review queue view for the Lead tool and the panel (P33). */
+  /** Review queue and read-only decision history for the Lead tool and the panel (P33). */
   async reviewQueue(): Promise<unknown> {
     if (!this.repos) throw new Error('业务账本未就绪。');
     const queue = await this.repos.notes.reviewQueue();
     const reminders = await this.repos.reviewReminders.activeAll();
+    const history = await this.repos.notes.versionsWithDecisions(30);
     return {
       count: queue.length,
       items: queue.map(note => ({
@@ -3754,6 +3760,20 @@ export class PaRuntime {
         reminders: reminders
           .filter(r => r.note_id === note.id)
           .map(r => ({ id: r.id, kind: r.kind, status: r.status, remindAt: new Date(r.remind_at).toISOString(), sent: r.sent_count })),
+      })),
+      history: history.map(row => ({
+        noteId: row.note_id,
+        title: row.title ?? row.note_id,
+        version: row.version,
+        status: row.status,
+        decision: row.decision ?? null,
+        summary: String(row.content?.summary ?? ''),
+        docUrl: row.doc_url ?? null,
+        fingerprint: String(row.fingerprint ?? '').slice(0, 12) + '…',
+        decidedAt: isoDate(row.decision_at ?? row.decided_at),
+        verifiedAt: isoDate(row.verified_at),
+        verifyResult: row.verify_result ?? null,
+        createdAt: isoDate(row.created_at),
       })),
     };
   }
@@ -3889,7 +3909,7 @@ export class PaRuntime {
       id: 'config',
       state: config ? 'ok' : 'error',
       message: config
-        ? `配置有效：mode=${config.mode}，profile=${config.larkProfile}，加载于 ${this.loadedAt}`
+        ? `配置有效：模式=${config.mode === 'feishu' ? '飞书' : '体验'}，profile=${config.larkProfile}，加载于 ${this.loadedAt ? new Date(this.loadedAt).toLocaleString('zh-CN', { timeZone: config.timeZone, hour12: false }) : '未知'}`
         : (this.configError ?? '尚未加载配置'),
       detail: config ? { source: join(this.workspace?.statePath ?? '', 'AGENTS.md'), hash: this.sourceHash.slice(0, 16) } : undefined,
     });
