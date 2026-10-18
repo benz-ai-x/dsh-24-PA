@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { DshContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
 import { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
-import { ConfigError } from './config.js';
+import { ConfigError, CONFIG_FIELDS } from './config.js';
 import { FakeFeishuTransport } from './feishu.js';
 import type { InboundEvent } from './feishu.js';
 
@@ -124,6 +124,9 @@ async function snapshot(runtime: PaRuntime): Promise<Record<string, unknown>> {
     ...base,
     work: repos ? await repos.workItems.list(undefined, 50) : [],
     outbox: repos ? await repos.outbox.recent(20) : [],
+    // arch-4: the config field descriptors ride the snapshot so the form and
+    // the voice list have one source (config.ts) — client.js carries no copy.
+    configMeta: { fields: CONFIG_FIELDS },
   };
 }
 

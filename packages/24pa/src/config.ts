@@ -365,12 +365,51 @@ export function template(): string {
 // F33/P60: 参数配置表单的可更新字段白名单。storage（数据迁移）与 version
 // （固定 1）仍不走表单；F36 起三个密钥引用名开放表单编辑（env 为可选覆盖，
 // 密钥值本身经 workspace.secret-update 进工作区密钥库，不进配置块）。
-export const CONFIG_UPDATE_ALLOWED: ReadonlySet<string> = new Set([
-  'mode', 'larkProfile', 'ownerOpenId', 'folderToken', 'wikiNodeToken', 'tasklistId', 'calendarId',
-  'calendarChannel', 'todoChannel', 'notifyChannel', 'timeZone', 'maxWorkers',
-  'enabledWorkers', 'workerModels', 'extraLocalTools', 'tts',
-  'appIdEnv', 'appSecretEnv', 'pgDsnEnv',
-]);
+// Round-3 arch-4：白名单从 CONFIG_FIELDS 描述符派生（单一来源），并补齐
+// extraBusinessSkills（F44 既有字段的表单缺口）。
+export interface ConfigFieldDescriptor {
+  name: string;
+  group: 'identity' | 'channels' | 'resources' | 'runtime' | 'storage' | 'tts';
+  label: string;
+  kind: 'string' | 'number' | 'enum' | 'boolean' | 'list';
+  /** enum 选项（如音色表——client 不再持有第二份）。 */
+  options?: readonly { value: string; label: string }[];
+  /** 表单可更新（CONFIG_UPDATE_ALLOWED 的派生源）。 */
+  formAllowed: boolean;
+  default: unknown;
+}
+
+/** 配置字段的单一描述表（arch-4）：标签/分组/类型/默认/可更新一处声明，面板与文档从这里取。 */
+export const CONFIG_FIELDS: readonly ConfigFieldDescriptor[] = [
+  { name: 'mode', group: 'identity', label: '接入模式（mode）', kind: 'enum', options: [{ value: 'demo', label: '体验' }, { value: 'feishu', label: '飞书' }], formAllowed: true, default: DEFAULT_CONFIG.mode },
+  { name: 'larkProfile', group: 'identity', label: '固定 CLI profile（larkProfile）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.larkProfile },
+  { name: 'ownerOpenId', group: 'identity', label: '配置主人（ownerOpenId）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.ownerOpenId },
+  { name: 'calendarChannel', group: 'channels', label: '日程渠道（calendarChannel）', kind: 'enum', options: [{ value: 'feishu', label: '飞书' }, { value: 'wecom', label: '企微' }], formAllowed: true, default: 'feishu' },
+  { name: 'todoChannel', group: 'channels', label: '待办渠道（todoChannel）', kind: 'enum', options: [{ value: 'feishu', label: '飞书' }, { value: 'wecom', label: '企微' }], formAllowed: true, default: 'feishu' },
+  { name: 'notifyChannel', group: 'channels', label: '通知渠道（notifyChannel）', kind: 'enum', options: [{ value: 'feishu', label: '飞书' }, { value: 'wecom', label: '企微' }], formAllowed: true, default: 'feishu' },
+  { name: 'folderToken', group: 'resources', label: '飞书文件夹（folderToken）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.folderToken },
+  { name: 'wikiNodeToken', group: 'resources', label: '知识库节点（wikiNodeToken，可选）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.wikiNodeToken },
+  { name: 'tasklistId', group: 'resources', label: '任务清单（tasklistId）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.tasklistId },
+  { name: 'calendarId', group: 'resources', label: '本人日历（calendarId）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.calendarId },
+  { name: 'timeZone', group: 'runtime', label: '时区（timeZone）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.timeZone },
+  { name: 'maxWorkers', group: 'runtime', label: '并行上限（maxWorkers）', kind: 'number', formAllowed: true, default: DEFAULT_CONFIG.maxWorkers },
+  { name: 'enabledWorkers', group: 'runtime', label: '启用角色（enabledWorkers）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.enabledWorkers },
+  { name: 'workerModels', group: 'runtime', label: '模型路由（workerModels）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.workerModels },
+  { name: 'extraLocalTools', group: 'runtime', label: '本地额外工具（extraLocalTools）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraLocalTools },
+  { name: 'extraBusinessSkills', group: 'runtime', label: '业务 skill 放行面（extraBusinessSkills）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraBusinessSkills },
+  { name: 'tts', group: 'tts', label: '语音 TTS（tts）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.tts },
+  { name: 'tts.engine', group: 'tts', label: 'TTS 引擎（tts.engine）', kind: 'enum', options: [{ value: 'none', label: '关闭' }, { value: 'melo', label: 'Melo 本地' }, { value: 'volcengine', label: '豆包云' }], formAllowed: true, default: 'none' },
+  { name: 'tts.voice', group: 'tts', label: '音色（tts.voice）', kind: 'enum', options: VOLC_TTS_VOICES.map(v => ({ value: v.id, label: v.label })), formAllowed: true, default: '' },
+  { name: 'tts.volcKeyEnv', group: 'tts', label: '豆包密钥环境变量名（tts.volcKeyEnv）', kind: 'string', formAllowed: true, default: '' },
+  { name: 'tts.meloDir', group: 'tts', label: 'Melo 部署目录（tts.meloDir）', kind: 'string', formAllowed: true, default: '' },
+  { name: 'appIdEnv', group: 'storage', label: 'App ID 环境变量名（appIdEnv）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.appIdEnv },
+  { name: 'appSecretEnv', group: 'storage', label: 'App Secret 环境变量名（appSecretEnv）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.appSecretEnv },
+  { name: 'pgDsnEnv', group: 'storage', label: 'PG DSN 环境变量名（pgDsnEnv）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.pgDsnEnv },
+];
+
+export const CONFIG_UPDATE_ALLOWED: ReadonlySet<string> = new Set(
+  CONFIG_FIELDS.filter(f => f.formAllowed && !f.name.includes('.')).map(f => f.name),
+);
 
 /** Parse the raw JSON object of the unique config block; ConfigError on malformed input. */
 export function rawAgentsMdConfig(source: string): Record<string, unknown> {

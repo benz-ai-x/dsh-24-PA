@@ -560,13 +560,17 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-helper' }, L('恢复前先执行备份校验；旧 Outbox 与远端对象先对账再继续发送，避免重复投递。', 'Verify a backup before restoring. Reconcile old outbox rows and remote objects before sending again.'))));
         }
 
+        // arch-4: timezone resolves once through this helper — the snapshot
+        // config is authoritative, the literal fallback covers the unbound state.
+        const tzOf = state => (state.workspace && state.workspace.config ? state.workspace.config.timeZone : null) || 'Asia/Shanghai';
+
         // F22：wiki 资源行的查找与定档收敛一处（卡片 tier/body 与 WikiDetail 共用）。
         const wikiResource = state => (state.diagnostics && state.diagnostics.resources ? state.diagnostics.resources.find(r => r.id === 'wiki') : null);
         const resourceTierOf = row => (!row ? 'unchecked' : row.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(row.state) ? 'error' : row.state === 'missing' ? 'missing' : 'warn');
 
         // 二级详情：原 feishu tab 全量内容平移。
         function FeishuDetail({ state, busy, button, openRobot }) {
-          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
+          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = tzOf(state);
           const check = state.diagnostics;
           const cli = check ? check.cli : null;
           const auth = check ? check.auth : null;
@@ -886,7 +890,7 @@ window.__ModuleLoader__.load({
             },
             body: ({ state, config }) => h('div', null,
                 capLine(L('启用渠道', 'Channels'), wecomChannelsOn(config) ? L('已启用', 'Enabled') : L('未启用', 'Not enabled')),
-                capLine(L('上次检查', 'Last check'), state.wecom ? date(state.wecom.checkedAt, config ? config.timeZone : 'Asia/Shanghai') : L('尚未检查', 'Not checked'))),
+                capLine(L('上次检查', 'Last check'), state.wecom ? date(state.wecom.checkedAt, tzOf(state)) : L('尚未检查', 'Not checked'))),
             detail: helpers => h(WecomView, helpers),
           },
           {
@@ -1009,13 +1013,10 @@ window.__ModuleLoader__.load({
         // 字段级错误。storage/version/密钥引用名不在表单（白名单在服务端强制）。
         function ConfigFormDetail({ helpers }) {
           const { config, state } = helpers;
-          const VOICES = [
-            ['zh_female_cancan_uranus_bigtts', L('知性灿灿（女声·晨报主推）', 'Cancan (female, digest pick)')],
-            ['zh_female_zhixingnv_uranus_bigtts', L('知性女声（女声·沉稳）', 'Zhixing female (steady)')],
-            ['zh_male_m191_uranus_bigtts', L('云舟（男声·稳重）', 'Yunzhou (male, steady)')],
-            ['zh_female_vv_uranus_bigtts', L('Vivi（女声·元气）', 'Vivi (female, lively)')],
-            ['zh_female_xiaohe_uranus_bigtts', L('小何（女声·甜）', 'Xiaohe (female, sweet)')],
-          ];
+          // arch-4: the voice list rides the snapshot's configMeta (single
+          // source in config.ts) — client.js no longer carries a second copy.
+          const VOICES = (state.configMeta && state.configMeta.fields ? state.configMeta.fields : [])
+            .find(f => f.name === 'tts.voice')?.options ?? [];
           const KNOWN_EXTRA = ['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*'];
           const makeForm = () => ({
             mode: config?.mode ?? 'demo',
@@ -1033,6 +1034,7 @@ window.__ModuleLoader__.load({
             enabledWorkers: [...(config?.enabledWorkers ?? ['memo'])],
             workerModels: JSON.parse(JSON.stringify(config?.workerModels ?? {})),
             extraKnown: KNOWN_EXTRA.filter(x => (config?.extraLocalTools ?? []).includes(x)),
+            extraSkills: (config?.extraBusinessSkills ?? []).join(', '),
             tts: { engine: config?.tts?.engine ?? 'none', voice: config?.tts?.voice ?? '', volcKeyEnv: config?.tts?.volcKeyEnv ?? '', meloDir: config?.tts?.meloDir ?? '' },
             appIdEnv: config?.appIdEnv ?? 'PA24_FEISHU_APP_ID',
             appSecretEnv: config?.appSecretEnv ?? 'PA24_FEISHU_APP_SECRET',
@@ -1081,11 +1083,12 @@ window.__ModuleLoader__.load({
                 if (provider || model) models[role] = { ...(provider ? { provider } : {}), ...(model ? { model } : {}), ...(route.simplePersona ? { simplePersona: true } : {}) };
               }
               const extra = [...new Set([...form.extraKnown, ...(config?.extraLocalTools ?? []).filter(v => !KNOWN_EXTRA.includes(v))])];
+              const skills = (form.extraSkills || '').split(/[,，\n]/).map(x => x.trim()).filter(Boolean);
               await rpc('action', { type: 'workspace.config-update', config: {
                 mode: form.mode, larkProfile: form.larkProfile.trim(), ownerOpenId: form.ownerOpenId.trim(), timeZone: form.timeZone.trim(),
                 calendarChannel: form.calendarChannel, todoChannel: form.todoChannel, notifyChannel: form.notifyChannel,
                 folderToken: form.folderToken.trim(), wikiNodeToken: form.wikiNodeToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
-                maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra,
+                maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra, extraBusinessSkills: skills,
                 appIdEnv: form.appIdEnv.trim(), appSecretEnv: form.appSecretEnv.trim(), pgDsnEnv: form.pgDsnEnv.trim(),
                 tts: form.tts,
               } });
@@ -1160,6 +1163,7 @@ window.__ModuleLoader__.load({
                 txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
                 h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),
                 L('身份字段只读；一键应用当前 CLI 授权的 open_id' + (authOpenId ? '' : diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）') + '。', 'Identity is read-only; one-click apply of the CLI-authorized open_id' + (authOpenId ? '' : diagChecked ? ' (checked, not yet acquired)' : ' (run a check under Access to acquire)') + '.')),
+              row(L('业务 skill 放行面（extraBusinessSkills）', 'Business skills (extraBusinessSkills)'), h('textarea', { rows: 2, value: form.extraSkills, onChange: e => set('extraSkills', e.target.value), placeholder: 'standup-prep, my-routine' }, null), L('逗号或换行分隔的 kebab-case skill 名；点名目录外名会被过滤并在健康里提示。', 'Comma/newline-separated kebab-case skill names; unknown names are filtered with a health note.')),
               row(L('时区（timeZone）', 'Time zone (timeZone)'), h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
                 h('datalist', { id: 'pa24-tz-list' }, ['Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'UTC'].map(z => h('option', { key: z, value: z })))), L('IANA 时区名，保存时即时校验。', 'IANA timezone name; validated on save.'))),
             h('section', { className: 'pa24-card' },
@@ -1212,7 +1216,7 @@ window.__ModuleLoader__.load({
               h('h2', null, L('语音 TTS（晨报复盘）', 'Voice TTS (digests)')),
               row(L('语音引擎（tts.engine）', 'Voice engine (tts.engine)'), sel([['none', L('不启用', 'Off')], ['melo', L('Melo 本地', 'Melo local')], ['volcengine', L('豆包云', 'Volcengine')]], form.tts.engine, v => setTts('engine', v))),
               form.tts.engine === 'volcengine' && row(L('音色（tts.voice）', 'Voice (tts.voice)'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
-                sel(form.tts.voice && !VOICES.some(([v]) => v === form.tts.voice) ? [[form.tts.voice, form.tts.voice], ...VOICES] : VOICES, form.tts.voice, v => setTts('voice', v)),
+                sel(form.tts.voice && !VOICES.some(o => o.value === form.tts.voice) ? [{ value: form.tts.voice, label: form.tts.voice }, ...VOICES] : VOICES.map(o => [o.value, o.label]), form.tts.voice, v => setTts('voice', v)),
                 h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void tryVoice() }, icon('chat', { width: 15, height: 15 }), L('试听', 'Sample'))), L('试听发送到飞书，使用当前已保存的配置。', 'The sample goes to Feishu using the saved config.')),
               form.tts.engine === 'volcengine' && row(L('密钥引用（tts.volcKeyEnv）', 'Key env ref (tts.volcKeyEnv)'), txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('可选：环境变量引用名（优先于密钥库）；密钥本体在「密钥」组填写。', 'Optional env-var reference (overrides the store); the key itself goes in the Secrets group.')),
               form.tts.engine === 'melo' && row(L('部署目录（tts.meloDir）', 'Deploy dir (tts.meloDir)'), txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),
@@ -1408,7 +1412,7 @@ window.__ModuleLoader__.load({
         // 服务级授权（含平台 helpMessage 原文）与 nextSteps 导航。
         function WecomView({ state, busy, button, openRobot }) {
           const wecom = state.wecom;
-          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
+          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = tzOf(state);
           const channelBadge = value => value === 'wecom' ? badge(L('企微', 'WeCom'), 'neutral', 'bot') : badge(L('飞书', 'Feishu'), 'neutral', 'plug');
           const serviceMeta = { calendar: L('日程', 'Calendar'), todo: L('待办', 'Todo'), push: L('推送', 'Push') };
           const serviceBadge = s => statusBadge(
