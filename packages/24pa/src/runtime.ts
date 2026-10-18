@@ -1,5 +1,8 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+
+/** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
+const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任务 skill（worker-persona-*）在会话启动时装载；此处仅注册占位。';
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
@@ -348,7 +351,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'tasks',
       name: '待办管理',
-      persona: WORKER_PROMPTS.tasks.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.tasks.brief,
       available: true,
       actions: {
@@ -385,7 +388,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'memo',
       name: '备忘整理',
-      persona: WORKER_PROMPTS.memo.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.memo.brief,
       available: true,
       actions: {
@@ -419,7 +422,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'skill',
       name: '任务 skill 执行',
-      persona: WORKER_PROMPTS.skill.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.skill.brief,
       available: true,
       actions: {
@@ -442,7 +445,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'digest',
       name: '简报整理',
-      persona: WORKER_PROMPTS.digest.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.digest.brief,
       available: true,
       actions: {
@@ -453,7 +456,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'calendar',
       name: '日程编排',
-      persona: WORKER_PROMPTS.calendar.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.calendar.brief,
       available: true,
       actions: {
@@ -474,7 +477,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'reminders',
       name: '事项提醒',
-      persona: WORKER_PROMPTS.reminders.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.reminders.brief,
       available: true,
       actions: {
@@ -532,7 +535,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'handwriting',
       name: '手写笔记',
-      persona: WORKER_PROMPTS.handwriting.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.handwriting.brief,
       available: true,
       actions: {
@@ -1660,7 +1663,11 @@ export class PaRuntime {
         // B7: a route flagged simplePersona swaps in the reviewed simplified
         // copy when one exists; registered (dynamic) roles always use their
         // own persona as the fallback.
-        const persona = workerPersonaFor(item.role, modelRoute, roleDef.persona);
+        // F42：persona 单一来源迁任务 skill 目录（worker-persona-<role>，simple
+        // 变体随 simplePersona 路由）；registry 缺席时目录自带内置回落，
+        // 动态注册角色仍用自己的 persona 兜底。
+        const persona = (await this.skillCatalog.workerPersona(item.role, modelRoute?.simplePersona === true))
+          ?? workerPersonaFor(item.role, modelRoute, roleDef.persona);
         // Handwriting children receive the saved originals inline; the dsh
         // attachment service persists them and the vision route carries them
         // to the model (P29: the request really contains the image).

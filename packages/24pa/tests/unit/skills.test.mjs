@@ -13,8 +13,10 @@ describe('F40：任务 skill 目录', () => {
   it('宿主未挂载（registry 缺席）：目录回落内置三件，模板轨可用', async () => {
     const catalog = new SkillCatalog(null);
     const list = await catalog.list();
-    expect(list).toHaveLength(5);
-    expect(list.every(s => s.source === 'builtin' && s.track === 'template')).toBe(true);
+    const taskSkills = list.filter(s => !s.name.startsWith('worker-persona'));
+    expect(taskSkills.map(s => s.name)).toEqual(['digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
+    expect(taskSkills.every(s => s.source === 'builtin' && s.track === 'template')).toBe(true);
+    expect(list.filter(s => s.name.startsWith('worker-persona')).length).toBeGreaterThanOrEqual(8); // F42：persona 件随回落
     expect((await catalog.find('digest-morning'))?.kind).toBe('morning');
     expect(await catalog.find('nope')).toBeNull();
     expect(await catalog.content('digest-morning')).toContain('事实');
