@@ -2,7 +2,7 @@
 
 调研日期：2026-10-05（Asia/Shanghai）。源码：`/Users/pc2026/DSH-Space/deepseek-harness`，HEAD `5badb15009ae1756c3afe0ae0cef1faafc290ccc`；`dsh-base` manifest 版本为 `0.2.1-alpha.1`。本笔记只记录源码和文档核查，以及据此提出的设计建议；没有安装插件、启动 dsh、访问用户飞书、调用视觉模型或编写插件实现。因此文中的精简组合与识别效果仍需开发获批后的验证。[版本依据](/Users/pc2026/DSH-Space/deepseek-harness/packages/bundle/base/package.json:4)
 
-本文的设计建议已随第一次审核更新：业务直接使用 Docker PostgreSQL、常规助理为主线、同 Host 管理多个 dsh Session。更细的调度与会话限制见 [存储与调度](第一轮审核-存储与调度复用.md) 和 [多会话与恢复](第一轮审核-多会话与恢复.md)。
+本文的设计建议已随第一次审核更新：业务直接使用 Docker PostgreSQL、常规助理为主线、同 Host 管理多个 dsh Session。更细的调度与会话限制见 [存储与调度](../history/第一轮审核-存储与调度复用.md) 和 [多会话与恢复](../history/第一轮审核-多会话与恢复.md)。
 
 ## 1. 主要结论
 
@@ -86,7 +86,7 @@ dsh 提供 `storage` hub、`storage-domain` 与 JSON/SQLite backend；这里的 
 
 `update(key, fn)` 在队列位置读取最新记录，调用同步 transform，await backend 持久化后才更新内存；版本检查应放在 update 内。`await put/update` 已是其持久化完成点，close 排空已入队写后释放 unit。换成 PG backend 不会使两次 put 变成一个跨表事务。[Update 源码](/Users/pc2026/DSH-Space/deepseek-harness/packages/storage/storage-domain/src/domain.ts:332) [队列](/Users/pc2026/DSH-Space/deepseek-harness/packages/storage/storage-domain/src/domain.ts:263) [关闭](/Users/pc2026/DSH-Space/deepseek-harness/packages/storage/storage-domain/src/domain.ts:225)
 
-24PA 的 `PaRepository` 直接管理业务 PG 事务，例如审核决定、版本状态与文档同步 Outbox 同一事务提交；飞书网络调用在事务外执行。PG 与 dsh JSONL、飞书之间没有共同事务，仍需 requestId、执行回执和恢复对账。首版一个活跃 Host，不因 PG 已存在就宣称 dsh 内存域或 Session 自动支持多活。具体接口边界和无 SQLite query 配置见 [第一轮存储研究](第一轮审核-存储与调度复用.md)。
+24PA 的 `PaRepository` 直接管理业务 PG 事务，例如审核决定、版本状态与文档同步 Outbox 同一事务提交；飞书网络调用在事务外执行。PG 与 dsh JSONL、飞书之间没有共同事务，仍需 requestId、执行回执和恢复对账。首版一个活跃 Host，不因 PG 已存在就宣称 dsh 内存域或 Session 自动支持多活。具体接口边界和无 SQLite query 配置见 [第一轮存储研究](../history/第一轮审核-存储与调度复用.md)。
 
 ## 7. 手写识别、原图和审核
 
