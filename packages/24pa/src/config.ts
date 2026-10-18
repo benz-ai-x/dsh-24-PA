@@ -399,9 +399,9 @@ export const CONFIG_FIELDS: readonly ConfigFieldDescriptor[] = [
   { name: 'extraBusinessSkills', group: 'runtime', label: '业务 skill 放行面（extraBusinessSkills）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraBusinessSkills },
   { name: 'tts', group: 'tts', label: '语音 TTS（tts）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.tts },
   { name: 'tts.engine', group: 'tts', label: 'TTS 引擎（tts.engine）', kind: 'enum', options: [{ value: 'none', label: '关闭' }, { value: 'melo', label: 'Melo 本地' }, { value: 'volcengine', label: '豆包云' }], formAllowed: false, default: DEFAULT_CONFIG.tts.engine }, // dotted tts.* fields describe structure; updatability rides the top-level 'tts' entry
-  { name: 'tts.voice', group: 'tts', label: '音色（tts.voice）', kind: 'enum', options: VOLC_TTS_VOICES.map(v => ({ value: v.id, label: v.label })), formAllowed: false, default: '' },
-  { name: 'tts.volcKeyEnv', group: 'tts', label: '豆包密钥环境变量名（tts.volcKeyEnv）', kind: 'string', formAllowed: false, default: '' },
-  { name: 'tts.meloDir', group: 'tts', label: 'Melo 部署目录（tts.meloDir）', kind: 'string', formAllowed: false, default: '' },
+  { name: 'tts.voice', group: 'tts', label: '音色（tts.voice）', kind: 'enum', options: VOLC_TTS_VOICES.map(v => ({ value: v.id, label: v.label })), formAllowed: false, default: DEFAULT_CONFIG.tts.voice },
+  { name: 'tts.volcKeyEnv', group: 'tts', label: '豆包密钥环境变量名（tts.volcKeyEnv）', kind: 'string', formAllowed: false, default: DEFAULT_CONFIG.tts.volcKeyEnv },
+  { name: 'tts.meloDir', group: 'tts', label: 'Melo 部署目录（tts.meloDir）', kind: 'string', formAllowed: false, default: DEFAULT_CONFIG.tts.meloDir },
   { name: 'appIdEnv', group: 'storage', label: 'App ID 环境变量名（appIdEnv）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.appIdEnv },
   { name: 'appSecretEnv', group: 'storage', label: 'App Secret 环境变量名（appSecretEnv）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.appSecretEnv },
   { name: 'pgDsnEnv', group: 'storage', label: 'PG DSN 环境变量名（pgDsnEnv）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.pgDsnEnv },

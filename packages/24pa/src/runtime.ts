@@ -23,7 +23,7 @@ import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom
 import { DigestService } from './digest-service.js';
 import { SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
-import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
+import { text, nowIso, isoDate, eventFingerprint, hash } from './util.js';
 
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
@@ -67,7 +67,6 @@ const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
 
 let BUILTIN_ROLE_IDS: string[] = [];
-
 
 const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', calendar: '日程' };
 
@@ -1838,20 +1837,6 @@ export class PaRuntime {
     return this.feishu.calendarBusy(args);
   }
 
-  /** F45：时钟型提醒是否可走日历渠道（demo/无连接时回落账本引擎，演示与测试不受损）。 */
-
-  /**
-   * F45（spec 2.11，ADR-0001 修订）：时钟型提醒日程化——按 calendarChannel 写
-   * 带提醒的日程（渠道 CLI 默认提前 5 分钟 App 原生提醒；daily/weekly 走
-   * rrule 重复日程），账本只留 delegated 备份行（面板视图/历史/防重，引擎
-   * 不投递该状态行）。once 的 at/afterSeconds 与 daily/weekly 的本地时刻
-   * 语义与账本引擎完全一致（next 时刻计算复用同一 schedule 助手）。
-   */
-
-  /** F45：delegated 行不参与账本侧暂停/恢复/跳过/稍后——如实拒绝并指引。 */
-
-  /** F45：取消——delegated 行同步取消日历事件，其余走账本引擎。 */
-
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
     if (this.config!.calendarChannel === 'wecom') {
       if (operationIdOverride) throw new Error('企微日程渠道不支持操作键覆盖（meeting/minutes 流程限定飞书）。');
@@ -2146,8 +2131,6 @@ export class PaRuntime {
       throw error;
     }
   }
-
-
 
   // ---- outreach, recurring tasks, waiting items (F08) ------------------------
 
@@ -3333,7 +3316,6 @@ export class PaRuntime {
       },
     };
   }
-
 
   /** F19（spec 2.3）：语音引擎只读预检（面板按需触发；结果缓存供健康面与快照展示）。 */
   async ttsProbe(): Promise<unknown> {
