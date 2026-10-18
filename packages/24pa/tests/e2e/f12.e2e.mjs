@@ -215,5 +215,11 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     const panelHealth = await host.api('health', {});
     expect(panelHealth.capabilities.length).toBeGreaterThan(0);
     expect(panelHealth.usage.modelTurns).toBeGreaterThan(0);
+    // F38：calendar-sync 三态——本用例从未跑过日历投影（sync 表空行），
+    // 必须报 info「尚未执行」而不是假红「不可读取」。
+    const cal = panelHealth.capabilities.find(c => c.id === 'calendar-sync');
+    expect(cal.state).toBe('info');
+    expect(cal.message).toContain('尚未执行日历投影同步');
+    expect(cal.message).not.toContain('不可读取');
   });
 });
