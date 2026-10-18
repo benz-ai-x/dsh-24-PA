@@ -253,11 +253,15 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
     steps.push('auth status --verify 失败：按指南·阶段 6「auth error」行处置（config show 核对应用配置与网络，必要时由本人重新 config init）。');
   }
   for (const resource of result.resources) {
+    // wiki 是可选资源：未配置是合法回退状态，不产生阻断步骤，也不
+    // 打断下方 all-clear（否则存量工作区永远差一步「配置知识库」）。
     if (String(resource.state) === 'missing') {
+      if (resource.id === 'wiki') continue;
       const where = resource.id === 'folder' ? 'folderToken（飞书云文档文件夹链接复制 token）' : resource.id === 'tasklist' ? 'tasklistId（飞书任务清单链接复制 guid）' : 'calendarId';
       steps.push(`${String(resource.label)}未配置：获取 ${where} 并填入 AGENTS.md（指南·阶段 3）。`);
     } else if (String(resource.state) === 'error') {
-      steps.push(`${String(resource.label)}读取失败：多为权限点未开通或应用未发布新版本；对照指南·阶段 1 的权限清单并重新发布。`);
+      const extra = resource.id === 'wiki' ? '；核对 wikiNodeToken 是否为有效知识库节点链接 token' : '';
+      steps.push(`${String(resource.label)}读取失败：多为权限点未开通或应用未发布新版本；对照指南·阶段 1 的权限清单并重新发布${extra}。`);
     }
   }
   // All-clear needs every block healthy: a source error above must not be
@@ -297,10 +301,18 @@ async function collectAccess(
   };
   const resources: [string, string, string, string[]][] = [
     ['folder', '文档目录', config.folderToken, ['drive', 'files', 'list', '--folder-token', config.folderToken, '--page-size', '1']],
+    // F22：知识库节点为可选资源（未配置回退文档目录），探测只读 node-get。
+    ['wiki', '知识库', config.wikiNodeToken, ['wiki', '+node-get', '--node-token', config.wikiNodeToken]],
     ['tasklist', '任务清单', config.tasklistId, ['task', 'tasklists', 'get', '--tasklist-guid', config.tasklistId]],
     ['calendar', '本人日历', config.calendarId, config.calendarId === 'primary' ? ['calendar', 'calendars', 'primary'] : ['calendar', 'calendars', 'get', '--calendar-id', config.calendarId]],
   ];
-  result.resources = resources.map(([id, label, value]) => ({ id, label, value, ...status(value ? 'unchecked' : 'missing', value ? '未检查可读性' : '未配置') }));
+  result.resources = resources.map(([id, label, value]) => ({
+    id,
+    label,
+    value,
+    // 可选资源（wiki）的缺省语义与必填资源不同：提示回退而不是配置缺口。
+    ...status(value ? 'unchecked' : 'missing', value ? '未检查可读性' : id === 'wiki' ? '未配置（可选；备忘与待审文档回退文档目录）' : '未配置'),
+  }));
   try {
     const file = await readFile(join(workspace.path, 'AGENTS.md'), 'utf8');
     const { createHash } = await import('node:crypto');
@@ -343,7 +355,8 @@ async function collectAccess(
     if (!matched || !verified) return result;
     result.resources = await Promise.all(
       resources.map(async ([id, label, value, args]) => {
-        if (!value) return { id, label, value, ...status('missing', '未配置') };
+        // 与上方初始 map 同口径：wiki 缺省是合法回退，不是配置缺口。
+        if (!value) return { id, label, value, ...status('missing', id === 'wiki' ? '未配置（可选；备忘与待审文档回退文档目录）' : '未配置') };
         try {
           await runLarkCli(readOptions, [...args, '--as', 'user']);
           return { id, label, value, ...status('ok', '读取接口成功；写入权限由实际任务回执验证') };

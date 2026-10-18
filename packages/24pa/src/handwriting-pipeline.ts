@@ -328,7 +328,7 @@ export class HandwritingPipeline {
       'note.publish',
       `${versionId}\n${paramsKey}`,
       { noteId: note.id, version, republish: !!republishFromDoc },
-      '请先到飞书体验目录核对是否已生成待审文档，确认后再继续，不会自动重试。',
+      '请先到配置的目录或知识库核对是否已生成待审文档，确认后再继续，不会自动重试。',
     );
     if (!staged.created && staged.row.status === 'succeeded') {
       const existing = await notes.getVersion(versionId);
@@ -340,11 +340,14 @@ export class HandwritingPipeline {
       if (!docId) {
         if (!recognized) throw new Error('发布新版本需要结构化识别结果。');
         const xmlBody = noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size, sourceType: p.source_type })));
+        // F22：待审文档同样落在知识库节点（wiki 优先、folder 回退）。
+        const noteConfig = this.deps.config();
+        const parentToken = noteConfig.wikiNodeToken || noteConfig.folderToken;
         const { data } = await runLarkCli(this.cli(), [
-          'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', this.deps.config().folderToken, '--content', '-',
+          'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', parentToken, '--content', '-',
         ], xmlBody);
         const doc = data?.document;
-        if (!doc?.document_id || !doc?.url) throw new Error('文档创建未返回标识；请先核对体验目录，不要盲目重试。');
+        if (!doc?.document_id || !doc?.url) throw new Error('文档创建未返回标识；请先核对配置的目录或知识库，不要盲目重试。');
         docId = String(doc.document_id);
         docUrl = String(doc.url);
         await this.deps.repos().operations.update(staged.row.id, { status: 'running', receipt: { docId, docUrl, stage: 'created' } });

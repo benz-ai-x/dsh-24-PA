@@ -2621,15 +2621,17 @@ export class PaRuntime {
       .join('\n');
     const title = `[24PA] ${topic}`;
     const body = `<title>${xml(title)}</title><p>来源事项：${xml(item.id)}</p><p>保存时间：${nowIso()}</p><h1>内容</h1>${paragraphs}`;
+    // F22：知识库节点优先，未配置沿用文档目录（wiki 优先、folder 回退）。
+    const parentToken = config.wikiNodeToken || config.folderToken;
     const { data } = await runLarkCli(cliOptions(config, this.options.larkCliBin, this.options.cliTimeoutMs), [
-      'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', config.folderToken, '--content', '-',
+      'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', parentToken, '--content', '-',
     ], body);
     const doc = data?.document;
     const warnings = Array.isArray(data?.warnings) ? data.warnings.map((x: unknown) => String(x)) : [];
     // A returned document id wins even with warnings: the external object
     // exists, so the failure must not orphan it — read back and record it.
     if (!doc?.document_id || !doc?.url) {
-      throw new Error(warnings.length ? `文档创建未完成（${warnings.join('；')}）；请先核对体验目录，不要盲目重试。` : '未取得文档标识；请先核对体验目录，不要盲目重试。');
+      throw new Error(warnings.length ? `文档创建未完成（${warnings.join('；')}）；请先核对配置的目录或知识库，不要盲目重试。` : '未取得文档标识；请先核对配置的目录或知识库，不要盲目重试。');
     }
     return { docId: doc.document_id, url: doc.url, revision: null, warnings };
   }

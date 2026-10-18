@@ -99,6 +99,32 @@ describe('setupNextSteps 状态映射', () => {
     expect(steps.join('')).toContain('权限点');
   });
 
+  it('知识库（F22）未配置是合法回退：不产生阻断步骤，all-clear 不被打断', () => {
+    const steps = setupNextSteps(baseConfig, diag({
+      resources: [
+        { id: 'folder', label: '文档目录', value: 'fld_x', state: 'ok' },
+        { id: 'wiki', label: '知识库', value: '', state: 'missing' },
+        { id: 'tasklist', label: '任务清单', value: 'tl_x', state: 'ok' },
+        { id: 'calendar', label: '本人日历', value: 'primary', state: 'ok' },
+      ],
+    }));
+    expect(steps.join('')).not.toContain('wikiNodeToken');
+    expect(steps.join('')).toContain('就绪');
+  });
+
+  it('知识库（F22）已配置但读取失败 → 权限提示带 wikiNodeToken 核对指引', () => {
+    const steps = setupNextSteps(baseConfig, diag({
+      resources: [
+        { id: 'folder', label: '文档目录', value: 'fld_x', state: 'ok' },
+        { id: 'wiki', label: '知识库', value: 'wikinode_x', state: 'error' },
+        { id: 'tasklist', label: '任务清单', value: 'tl_x', state: 'ok' },
+        { id: 'calendar', label: '本人日历', value: 'primary', state: 'ok' },
+      ],
+    }));
+    expect(steps.join('')).toContain('wikiNodeToken');
+    expect(steps.join('')).toContain('权限');
+  });
+
   it('全部就绪：demo 指引切 feishu（用配置的环境变量名），feishu 指引端到端验收', () => {
     const demo = setupNextSteps(baseConfig, diag()).join('');
     expect(demo).toContain('PA24_FEISHU_APP_ID');

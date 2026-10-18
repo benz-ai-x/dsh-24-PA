@@ -78,6 +78,23 @@ describe('AGENTS.md 配置校验', () => {
     ).not.toThrow();
   });
 
+  it('wikiNodeToken（F22）：可选缺省空串、非字符串与显式 null 拒绝、feishu 模式不强制', () => {
+    // 缺省（旧 AGENTS.md 无该字段）＝空串回退 folderToken，存量零影响。
+    expect(validateConfig(DEFAULT_CONFIG).wikiNodeToken).toBe('');
+    const legacy = { ...DEFAULT_CONFIG };
+    delete legacy.wikiNodeToken;
+    expect(validateConfig(legacy).wikiNodeToken).toBe('');
+    expect(validateConfig({ ...DEFAULT_CONFIG, wikiNodeToken: 'wikinode_x' }).wikiNodeToken).toBe('wikinode_x');
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, wikiNodeToken: 123 })).toThrow(/wikiNodeToken/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, wikiNodeToken: null })).toThrow(/wikiNodeToken/);
+    // feishu 模式必填集合不含 wiki（可选资源）。
+    expect(
+      () => validateConfig({ ...DEFAULT_CONFIG, mode: 'feishu', ownerOpenId: 'ou_x', folderToken: 'fld', tasklistId: 'tl' }),
+    ).not.toThrow();
+    // 表单可更新白名单包含 wikiNodeToken（F33 表单面）。
+    expect(CONFIG_UPDATE_ALLOWED.has('wikiNodeToken')).toBe(true);
+  });
+
   it('AGENTS.md 必须恰好一个 json 配置块且为合法 JSON', () => {
     expect(() => parseAgentsMd('# t\n\n```json\n{"version":1}\n```\n\n```json\n{}\n```\n')).toThrow(/唯一/);
     expect(() => parseAgentsMd('# t\n')).toThrow(/唯一/);
