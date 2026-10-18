@@ -1,29 +1,10 @@
 # 24私助（24PA）
 
-中文产品与助理预设使用「24私助」，英文名使用「24PA」；更名保持已有技术标识与数据兼容。
+产品、界面与预设文案用「24私助」，英文语境用「24PA」；仓库名、包名、工具名等既有技术标识（24pa、pa24_*）保持不变，数据兼容。
 
-## Product baseline
-
-正式实现或需求、界面、权限、数据归属、规格变更，或涉及工作区 AGENTS.md 时，先读 `docs/agents/product.md`。
-
-## Agent skills
-
-### Issue tracker
-
-事项与规格使用 GitHub Issues；读取、创建或更新前，先读 `docs/agents/issue-tracker.md`。
-
-### Triage labels
-
-使用五个默认 triage 标签；分类或修改状态前，先读 `docs/agents/triage-labels.md`。
-
-### Domain docs
-
-采用 single-context：根目录 `GLOSSARY.md` 与 `docs/adr/`；探索代码或讨论领域设计前，先读 `docs/agents/domain.md`。
-
-### PR delivery
-
-领取实施 Issue、规划分支或创建/合并 PR 前，先读 `docs/planning/24PA-v1-PR交付计划.md`，按其中的功能分组和依赖规则执行。
-
-### Deployment runbook
-
-初始化24私助实例前，先读 `docs/24PA-初始化指南.md`，按其阶段达标标准推进。
+- **产品基线**：正式实现、改需求/界面/权限/数据归属/规格、写改工作区 AGENTS.md 前，先读 `docs/agents/product.md`。
+- **事项跟踪**：事项与规格用 GitHub Issues；读、建、改 Issue 前先读 `docs/agents/issue-tracker.md`。
+- **triage**：分类或改工单状态前，先读 `docs/agents/triage-labels.md`。
+- **领域文档**：领域知识 single-context（根 `GLOSSARY.md`＋`docs/adr/`）；探索代码或讨论领域设计前先读 `docs/agents/domain.md`。
+- **PR 交付**：领实施 Issue、规划分支、创建/合并 PR 前，先读 `docs/planning/24PA-v1-PR交付计划.md`。
+- **部署 runbook**：初始化 24私助 实例前，先读 `docs/24PA-初始化指南.md`。
