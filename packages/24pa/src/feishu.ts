@@ -183,10 +183,10 @@ const exec = promisify(execFile);
 type CheckState = 'ok' | 'unchecked' | 'missing' | 'unbound' | 'mismatch' | 'unverified' | 'error' | 'changed';
 const status = (state: CheckState, message: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ state, message, ...extra });
 
-function safeError(error: unknown, config: PaConfig): string {
+function safeError(error: unknown, config: PaConfig, extraSecrets: string[] = []): string {
   let message = String((error as Error)?.message ?? error);
-  for (const name of [config.appIdEnv, config.appSecretEnv]) {
-    const secret = process.env[name];
+  // F36: 环境变量与密钥库来源的值都要脱敏（extraSecrets＝解析后的真实值）。
+  for (const secret of [process.env[config.appIdEnv], process.env[config.appSecretEnv], ...extraSecrets]) {
     if (secret) message = message.split(secret).join('[已隐藏]');
   }
   return message.replace(/(?:access_token|refresh_token|app_secret|authorization)\s*[=:]\s*\S+/gi, '凭据=[已隐藏]').slice(0, 500);
@@ -266,7 +266,7 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
     steps.push(
       config.mode === 'feishu'
         ? '接入检查全部通过：若面板 readiness 的 feishu 项未显示长连接已启动，按指南·阶段 4 重启宿主；随后在飞书发送 /24pa 做端到端验证（指南·阶段 5）。'
-        : `接入前置全部就绪：由本人在启动环境填写 ${config.appIdEnv}/${config.appSecretEnv}，你把 AGENTS.md mode 改为 feishu 并重启宿主（指南·阶段 4），再按阶段 5 验收。`,
+        : `接入前置全部就绪：由本人在面板「系统维护 → 参数配置 → 密钥」填写 App ID/Secret（或设置 ${config.appIdEnv}/${config.appSecretEnv} 环境变量），再把 mode 改为 feishu 并保存/重启（指南·阶段 4），按阶段 5 验收。`,
     );
   }
   return steps;
@@ -276,8 +276,9 @@ export async function inspectAccess(
   config: PaConfig,
   bin: string,
   workspace: { path: string; sourceHash: string },
+  extraSecrets: string[] = [],
 ): Promise<AccessDiagnostics> {
-  const collected = await collectAccess(config, bin, workspace);
+  const collected = await collectAccess(config, bin, workspace, extraSecrets);
   return { ...collected, nextSteps: setupNextSteps(config, collected) };
 }
 
@@ -285,6 +286,7 @@ async function collectAccess(
   config: PaConfig,
   bin: string,
   workspace: { path: string; sourceHash: string },
+  extraSecrets: string[] = [],
 ): Promise<Omit<AccessDiagnostics, 'nextSteps'>> {
   const result: Omit<AccessDiagnostics, 'nextSteps'> = {
     checkedAt: new Date().toISOString(),
@@ -305,7 +307,7 @@ async function collectAccess(
     const hash = createHash('sha256').update(file).digest('hex');
     result.source = hash === workspace.sourceHash ? status('ok', '文件与当前生效版本一致') : status('changed', '文件已修改，尚未重载；下方仍显示当前生效配置');
   } catch (error) {
-    result.source = status('error', safeError(error, config));
+    result.source = status('error', safeError(error, config, extraSecrets));
   }
   try {
     const path = await resolveExecutable(bin);
@@ -316,7 +318,7 @@ async function collectAccess(
     });
     result.cli = status('ok', 'CLI 可执行', { path, version: stdout.trim().slice(0, 100) });
   } catch (error) {
-    result.cli = status('error', safeError(error, config));
+    result.cli = status('error', safeError(error, config, extraSecrets));
     return result;
   }
   const readOptions = cliOptions(config, bin, 10000);
@@ -346,12 +348,12 @@ async function collectAccess(
           await runLarkCli(readOptions, [...args, '--as', 'user']);
           return { id, label, value, ...status('ok', '读取接口成功；写入权限由实际任务回执验证') };
         } catch (error) {
-          return { id, label, value, ...status('error', safeError(error, config)) };
+          return { id, label, value, ...status('error', safeError(error, config, extraSecrets)) };
         }
       }),
     );
   } catch (error) {
-    result.auth = status('error', safeError(error, config), { profile: config.larkProfile });
+    result.auth = status('error', safeError(error, config, extraSecrets), { profile: config.larkProfile });
   }
   return result;
 }

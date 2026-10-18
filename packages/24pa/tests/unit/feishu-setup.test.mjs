@@ -44,7 +44,8 @@ describe('飞书接入指南（feishu-setup.md）', () => {
     expect(content).toContain('im.message.receive_v1');
     expect(content).toContain('card.action.trigger');
     // Ordering invariant: env before AGENTS.md, restart after.
-    expect(content).toContain('先环境变量，后 AGENTS.md，再重启');
+    expect(content).toContain('先凭据（块 C），后 mode，再验证');
+    expect(content).toContain('永不进 AGENTS.md、系统提示与备份');
   });
 });
 

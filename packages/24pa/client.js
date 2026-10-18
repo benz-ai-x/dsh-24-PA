@@ -733,6 +733,9 @@ window.__ModuleLoader__.load({
             workerModels: JSON.parse(JSON.stringify(config?.workerModels ?? {})),
             extraKnown: KNOWN_EXTRA.filter(x => (config?.extraLocalTools ?? []).includes(x)),
             tts: { engine: config?.tts?.engine ?? 'none', voice: config?.tts?.voice ?? '', volcKeyEnv: config?.tts?.volcKeyEnv ?? '', meloDir: config?.tts?.meloDir ?? '' },
+            appIdEnv: config?.appIdEnv ?? 'PA24_FEISHU_APP_ID',
+            appSecretEnv: config?.appSecretEnv ?? 'PA24_FEISHU_APP_SECRET',
+            pgDsnEnv: config?.pgDsnEnv ?? 'PA24_PG_DSN',
           }));
           const [saveState, setSaveState] = React.useState(null);
           const [busy, setBusy] = React.useState(false);
@@ -764,9 +767,44 @@ window.__ModuleLoader__.load({
                 calendarChannel: form.calendarChannel, todoChannel: form.todoChannel, notifyChannel: form.notifyChannel,
                 folderToken: form.folderToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
                 maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra,
+                appIdEnv: form.appIdEnv.trim(), appSecretEnv: form.appSecretEnv.trim(), pgDsnEnv: form.pgDsnEnv.trim(),
                 tts: form.tts,
               } });
               setSaveState({ ok: true, message: L('已保存并重载生效。', 'Saved and reloaded.') });
+            } catch (e) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
+            finally { setBusy(false); }
+          };
+          // F36: 密钥组——只写不回显；非空＝写入密钥库，勾选清除＝清空该位，
+          // 其余不动。走独立 action（workspace.secret-update），与 AGENTS.md 解耦。
+          const SECRET_FIELDS = [
+            ['feishuAppId', L('飞书 App ID（feishuAppId）', 'Feishu App ID (feishuAppId)')],
+            ['feishuAppSecret', L('飞书 App Secret（feishuAppSecret）', 'Feishu App Secret (feishuAppSecret)')],
+            ['pgDsn', L('PostgreSQL DSN（pgDsn）', 'PostgreSQL DSN (pgDsn)')],
+            ['volcTtsKey', L('豆包 TTS Key（volcTtsKey）', 'Volcengine TTS key (volcTtsKey)')],
+          ];
+          const secretPlaceholder = (secrets, key) => {
+            const s = secrets && secrets[key];
+            return s && s.set ? (s.source === 'env' ? L('已设置（来源：环境变量）', 'Set (from env var)') : L('已设置（来源：密钥库）', 'Set (from secret store)')) : L('未设置——在此填写', 'Not set — enter here');
+          };
+          const secretHelper = (secrets, key, clearing) => clearing
+            ? L('保存后将清除密钥库中的该值（环境变量不受影响）。', 'Saving clears this value from the store (env vars, if any, stay).')
+            : L('留空保存＝保持不变；填写后保存＝写入密钥库。', 'Leave blank to keep; enter a value to store it.');
+          const [secretDraft, setSecretDraft] = React.useState({});
+          const [secretClears, setSecretClears] = React.useState({});
+          const saveSecrets = async () => {
+            const values = {};
+            let changed = false;
+            for (const [key] of SECRET_FIELDS) {
+              const draft = (secretDraft[key] || '').trim();
+              if (draft) { values[key] = draft; changed = true; }
+              else if (secretClears[key]) { values[key] = ''; changed = true; }
+            }
+            if (!changed) { setSaveState({ ok: true, message: L('密钥无改动。', 'No secret changes.') }); return; }
+            setBusy(true);
+            try {
+              await rpc('action', { type: 'workspace.secret-update', values });
+              setSecretDraft({}); setSecretClears({});
+              setSaveState({ ok: true, message: L('密钥已保存到工作区密钥库；状态随下一次快照刷新。', 'Secrets saved to the workspace store; status refreshes with the next snapshot.') });
             } catch (e) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
             finally { setBusy(false); }
           };
@@ -819,19 +857,30 @@ window.__ModuleLoader__.load({
                 h('div', { style: { minWidth: 0, paddingTop: 6 } }, KNOWN_EXTRA.map(x =>
                   h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),
                   h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat.'))))),
+            // F36: 密钥值只写不回显——进工作区密钥库（.24pa/secrets.json，0600），
+            // 永不进 AGENTS.md/系统提示/备份；环境变量（下方引用名）存在时优先。
             h('section', { className: 'pa24-card' },
-              h('h2', null, L('存储与密钥引用（只读）', 'Storage & secret refs (read-only)')),
-              row('storage', h('strong', null, config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'), L('切换存储后端涉及数据迁移，请按初始化指南的迁移流程办理。', 'Switching backends involves data migration — follow the migration procedure in the init guide.')),
-              row('appIdEnv', h('code', null, config.appIdEnv || '—'), L('环境变量引用名；密钥值永不进界面。', 'Env var reference; secret values never appear in the UI.')),
-              row('appSecretEnv', h('code', null, config.appSecretEnv || '—')),
-              row('pgDsnEnv', h('code', null, config.pgDsnEnv || '—'), config.storage === 'sqlite' ? L('SQLite 模式不使用。', 'Unused under SQLite.') : null)),
+              h('h2', null, L('密钥（工作区密钥库）', 'Secrets (workspace store)')),
+              SECRET_FIELDS.map(([key, label]) => row(label, h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
+                txt(secretDraft[key] || '', v => setSecretDraft(d => ({ ...d, [key]: v })), { type: 'password', autoComplete: 'new-password', placeholder: secretPlaceholder(state.secrets, key), style: { flex: 1, minWidth: 0 } }),
+                h('button', { type: 'button', className: 'pa24-quiet', 'aria-pressed': secretClears[key] ? 'true' : 'false', onClick: () => setSecretClears(c => ({ ...c, [key]: !c[key] })) }, secretClears[key] ? L('撤销清除', 'Undo clear') : L('清除', 'Clear'))),
+                secretHelper(state.secrets, key, secretClears[key]))),
+              h('div', { className: 'pa24-row' },
+                h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void saveSecrets() }, icon('shield', { width: 15, height: 15 }), L('保存密钥', 'Save secrets')),
+                h('span', { className: 'pa24-meta' }, L('只写不回显；保存到工作区密钥库，AGENTS.md 与备份不含密钥值。', 'Write-only; saved to the workspace secret store — AGENTS.md and backups never contain secret values.')))),
+            h('section', { className: 'pa24-card' },
+              h('h2', null, L('存储与密钥引用', 'Storage & secret refs')),
+              row(L('存储（storage）', 'Storage (storage)'), h('strong', null, config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'), L('切换存储后端涉及数据迁移，请按初始化指南的迁移流程办理。', 'Switching backends involves data migration — follow the migration procedure in the init guide.')),
+              row(L('App ID 引用（appIdEnv）', 'App ID ref (appIdEnv)'), txt(form.appIdEnv, v => set('appIdEnv', v), { placeholder: 'PA24_FEISHU_APP_ID' }), L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')),
+              row(L('App Secret 引用（appSecretEnv）', 'App Secret ref (appSecretEnv)'), txt(form.appSecretEnv, v => set('appSecretEnv', v), { placeholder: 'PA24_FEISHU_APP_SECRET' }), L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')),
+              row(L('PG DSN 引用（pgDsnEnv）', 'PG DSN ref (pgDsnEnv)'), txt(form.pgDsnEnv, v => set('pgDsnEnv', v), { placeholder: 'PA24_PG_DSN' }), config.storage === 'sqlite' ? L('SQLite 模式不使用。', 'Unused under SQLite.') : L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.'))),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('语音 TTS（晨报复盘）', 'Voice TTS (digests)')),
               row(L('语音引擎（tts.engine）', 'Voice engine (tts.engine)'), sel([['none', 'none'], ['melo', 'melo'], ['volcengine', 'volcengine']], form.tts.engine, v => setTts('engine', v))),
               form.tts.engine === 'volcengine' && row(L('音色（tts.voice）', 'Voice (tts.voice)'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 sel(form.tts.voice && !VOICES.some(([v]) => v === form.tts.voice) ? [[form.tts.voice, form.tts.voice], ...VOICES] : VOICES, form.tts.voice, v => setTts('voice', v)),
                 h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void tryVoice() }, icon('chat', { width: 15, height: 15 }), L('试听', 'Sample'))), L('试听发送到飞书，使用当前已保存的配置。', 'The sample goes to Feishu using the saved config.')),
-              form.tts.engine === 'volcengine' && row(L('密钥引用（tts.volcKeyEnv）', 'Key env ref (tts.volcKeyEnv)'), txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('火山引擎密钥所在环境变量名。', 'Env var name holding the Volcengine key.')),
+              form.tts.engine === 'volcengine' && row(L('密钥引用（tts.volcKeyEnv）', 'Key env ref (tts.volcKeyEnv)'), txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('可选：环境变量引用名（优先于密钥库）；密钥本体在「密钥」组填写。', 'Optional env-var reference (overrides the store); the key itself goes in the Secrets group.')),
               form.tts.engine === 'melo' && row(L('部署目录（tts.meloDir）', 'Deploy dir (tts.meloDir)'), txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),
             // F34: 保存栏与三个分组同层级（此前被嵌进「运行参数」section，
             // sticky 包含块被钳制导致首屏不可见——走查 P1 回归锚点见

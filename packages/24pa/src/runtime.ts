@@ -12,6 +12,7 @@ import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TO
 import { qwennoteChannelState } from './tools.js';
 import { runLarkCli, sendLarkAudioMessage } from './lark.js';
 import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
+import { readSecretStore, writeSecretStore, secretStatus, resolveSecret, SECRET_KEYS, type SecretKey, type SecretStore, type SecretStatus } from './secrets.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
@@ -172,6 +173,8 @@ export class PaRuntime {
   memory: MemoryStore | null = null;
   reminders: ReminderEngine | null = null;
   workspace: (WorkspaceInfo & { statePath: string }) | null = null;
+  /** F36: 工作区密钥库（.24pa/secrets.json，0600）；env 引用优先、库兜底。 */
+  private secretStore: SecretStore = {};
   private accessSessionId: string | null = null;
   private localSessionId: string | null = null;
 
@@ -738,6 +741,7 @@ export class PaRuntime {
     }
     const workspace = await this.ctx.workspaceRegistry.create(real, '24私助');
     this.workspace = { ...workspace, statePath: real };
+    this.secretStore = await readSecretStore(real);
     this.memory = new MemoryStore(real, this.ctx);
     await this.restoreRegisteredRoles();
     this.reminders = new ReminderEngine(
@@ -772,7 +776,7 @@ export class PaRuntime {
     // only by explicit workspace choice. No silent fallback either way.
     let db: PaDb;
     if (probe.storage === 'postgres') {
-      db = new PaDatabase(resolveDsn(probe.pgDsnEnv, this.env));
+      db = new PaDatabase(resolveDsn(probe.pgDsnEnv, this.secretEnv()));
     } else {
       const dataDir = join(workspacePath, 'data');
       await mkdir(dataDir, { recursive: true });
@@ -858,7 +862,7 @@ export class PaRuntime {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new ConfigError('配置补丁必须是对象。');
     const rejected = Object.keys(patch).filter(key => !CONFIG_UPDATE_ALLOWED.has(key));
-    if (rejected.length) throw new ConfigError(`不接受从表单更新的字段：${rejected.join('、')}（storage 切换走迁移流程；version 固定；密钥引用名按指南维护）。`);
+    if (rejected.length) throw new ConfigError(`不接受从表单更新的字段：${rejected.join('、')}（storage 切换走迁移流程；version 固定；密钥值走「密钥」组，进工作区密钥库）。`);
     return this.enqueue(async () => {
       const path = join(this.workspace!.statePath, 'AGENTS.md');
       const source = await readFile(path, 'utf8');
@@ -890,6 +894,69 @@ export class PaRuntime {
     });
   }
 
+  // ---- F36: 工作区密钥库 ----------------------------------------------------
+
+  /** 每个能力位对应的配置引用名（env 优先时读哪个变量）；空配置落规范名。 */
+  private secretRefs(): Record<SecretKey, string> {
+    return {
+      feishuAppId: this.config?.appIdEnv || 'PA24_FEISHU_APP_ID',
+      feishuAppSecret: this.config?.appSecretEnv || 'PA24_FEISHU_APP_SECRET',
+      pgDsn: this.config?.pgDsnEnv || 'PA24_PG_DSN',
+      // tts.volcKeyEnv 模板默认空串——空引用名会让密钥库兜底失效，落规范名
+      // （与初始化指南 env 示例同名）。
+      volcTtsKey: this.config?.tts?.volcKeyEnv || 'PA24_VOLC_TTS_KEY',
+    };
+  }
+
+  /** env 副本＋密钥库兜底值按引用名回填——消费点统一用它，解析顺序单点成立。 */
+  private secretEnv(): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = { ...this.env };
+    const refs = this.secretRefs();
+    for (const key of SECRET_KEYS) {
+      const ref = refs[key];
+      if (!ref || (env[ref] ?? '').trim()) continue;
+      const fromStore = (this.secretStore[key] ?? '').trim();
+      if (fromStore) env[ref] = fromStore;
+    }
+    return env;
+  }
+
+  secretValue(key: SecretKey): string {
+    const refs = this.secretRefs();
+    return resolveSecret(refs[key], this.env, this.secretStore, key);
+  }
+
+  /** 面板/快照可见状态（不含值）。 */
+  secretStatusSnapshot(): SecretStatus {
+    return secretStatus(this.secretRefs(), this.env, this.secretStore);
+  }
+
+  /**
+   * 表单密钥更新：非空字符串＝写入密钥库，空串＝清除该位，缺省＝不动。
+   * 与 AGENTS.md 完全解耦（密钥值永不进配置块）；feishu 凭据变化时重连通道。
+   */
+  async updateWorkspaceSecrets(values: Record<string, unknown>): Promise<void> {
+    if (!this.workspace) throw new Error('尚未绑定工作区。');
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ConfigError('密钥补丁必须是对象。');
+    const unknown = Object.keys(values).filter(k => !(SECRET_KEYS as readonly string[]).includes(k));
+    if (unknown.length) throw new ConfigError(`未知密钥字段：${unknown.join('、')}。`);
+    return this.enqueue(async () => {
+      const next: SecretStore = { ...this.secretStore };
+      for (const key of SECRET_KEYS) {
+        if (!(key in values)) continue;
+        const value = values[key];
+        if (typeof value !== 'string') throw new ConfigError(`密钥 ${key} 必须是字符串。`);
+        const trimmed = value.trim();
+        if (trimmed) next[key] = trimmed;
+        else delete next[key];
+      }
+      await writeSecretStore(this.workspace!.statePath, next);
+      this.secretStore = next;
+      // 凭据可能刚到位/被清除：feishu 模式下按新解析结果重连（与配置保存同口径）。
+      await this.connectTransport();
+    });
+  }
+
   private async hasActiveWork(): Promise<boolean> {
     if (!this.repos) return false;
     let count = 0;
@@ -908,10 +975,11 @@ export class PaRuntime {
       this.transportError = 'demo：未连接飞书；业务账本按工作区配置运行。';
       return;
     }
-    const appId = this.env[this.config.appIdEnv];
-    const appSecret = this.env[this.config.appSecretEnv];
+    const env = this.secretEnv();
+    const appId = env[this.config.appIdEnv];
+    const appSecret = env[this.config.appSecretEnv];
     if (!appId || !appSecret) {
-      this.transportError = `feishu 模式缺少环境变量 ${this.config.appIdEnv}/${this.config.appSecretEnv}；机器人未启动。`;
+      this.transportError = `feishu 模式缺少凭据（${this.config.appIdEnv}/${this.config.appSecretEnv}）：在面板「工作区与配置 → 密钥」填写，或设置同名环境变量；机器人未启动。`;
       return;
     }
     if ((this.env.PA24_TRANSPORT || '').trim() === 'fake') {
@@ -1107,7 +1175,7 @@ export class PaRuntime {
     const config = this.config;
     if (!config || !this.repos) throw new Error('24私助尚未就绪。');
     this.lastReceivedAt = nowIso();
-    const expectedApp = this.env[config.appIdEnv] ?? '';
+    const expectedApp = this.secretEnv()[config.appIdEnv] ?? '';
     const appId = event.appId || expectedApp;
     // Rejections are written atomically: a 'received' row could otherwise be
     // claimed by the dispatcher between insert and mark.
@@ -3333,7 +3401,9 @@ export class PaRuntime {
       parts.push({ id: `${id}-manifest`, path: `${id}-manifest.json`, bytes: Buffer.byteLength(JSON.stringify({ root, files })), sha256: sha256Hex(JSON.stringify({ root, files })) });
       return files.length;
     };
-    const workspaceFiles = await packDir(this.workspace.statePath, 'workspace', p => p === 'AGENTS.md' || p.startsWith('.24pa/'));
+    // F36: 密钥库（.24pa/secrets.json）不入备份——沿用「凭据值不进备份」属性；
+    // 恢复后在面板「密钥」组重填即可。roles.json 等其余 .24pa 状态照旧进备份。
+    const workspaceFiles = await packDir(this.workspace.statePath, 'workspace', p => p === 'AGENTS.md' || (p.startsWith('.24pa/') && p !== join('.24pa', 'secrets.json')));
     const sessionsFiles = await packDir(this.options.stateDirectory, 'dsh-state', () => true);
     // 3. Watermarks + credential references (names only).
     const schemaVersion = await this.dbRef.schemaVersion();
@@ -3525,7 +3595,7 @@ export class PaRuntime {
   /** F19（spec 2.3）：语音引擎只读预检（面板按需触发；结果缓存供健康面与快照展示）。 */
   async ttsProbe(): Promise<unknown> {
     if (!this.config) throw new Error('尚未绑定工作区。');
-    const result = await probeTts(this.config.tts, process.env);
+    const result = await probeTts(this.config.tts, this.secretEnv());
     this.ttsProbeCache = { at: nowIso(), result };
     return { ...result, voice: this.config.tts.voice, voices: VOLC_TTS_VOICES };
   }
@@ -3746,7 +3816,7 @@ export class PaRuntime {
           // 是口播正文；合成或发送失败走共享 outbox 失败策略（退避重试，
           // 3 次后 failed），紧跟的全文文本行独立投递、不受此行牵连。
           try {
-            const synth = resolveTtsEngine(this.config!.tts, process.env);
+            const synth = resolveTtsEngine(this.config!.tts, this.secretEnv());
             const spoken = String(row.content?.text ?? '');
             if (!synth) throw new Error('TTS 引擎未配置（tts.engine=none），语音行无法投递。');
             const ogg = await synth(spoken);
@@ -3789,7 +3859,9 @@ export class PaRuntime {
     const workspace = this.workspace;
     const config = this.config;
     const bin = this.options.larkCliBin;
-    const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash })
+    // F36: 报错脱敏覆盖密钥库来源的真实值（env 值 safeError 自行读）。
+    const extraSecrets = [this.secretValue('feishuAppId'), this.secretValue('feishuAppSecret')].filter(Boolean);
+    const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets)
       .then(result => {
         if (this.workspace === workspace) this.diagnostics = result;
         return result;
@@ -3875,6 +3947,8 @@ export class PaRuntime {
       },
       diagnostics: this.diagnostics,
       wecom: this.wecomChannels.wecomDiagnosticsSnapshot(),
+      // F36: 密钥状态只含 {set, source}，永不回显值。
+      secrets: this.workspace ? this.secretStatusSnapshot() : null,
       tts: {
         engine: this.config?.tts.engine ?? 'none',
         voice: this.config?.tts.voice ?? '',

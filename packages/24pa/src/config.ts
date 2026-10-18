@@ -171,7 +171,8 @@ function validateTts(raw: unknown): TtsConfig {
   if (tts.voice && !VOLC_VOICE_ID.test(tts.voice)) throw new ConfigError('tts.voice 应填写豆包语音合成 2.0 音色 ID（如 zh_female_cancan_uranus_bigtts）。');
   if (tts.meloDir && !tts.meloDir.startsWith('/')) throw new ConfigError('tts.meloDir 必须是绝对路径。');
   if (engine === 'volcengine') {
-    if (!tts.volcKeyEnv) throw new ConfigError('volcengine 引擎必须填写 tts.volcKeyEnv（密钥所在环境变量名）。');
+    // F36: volcKeyEnv 可空——密钥可走工作区密钥库（空引用名落规范名
+    // PA24_VOLC_TTS_KEY 由运行时兜底），环境变量只是可选覆盖。
     if (!tts.voice) throw new ConfigError('volcengine 引擎必须选择 tts.voice 音色。');
   }
   if (engine === 'melo' && !tts.meloDir) throw new ConfigError('melo 引擎必须填写 tts.meloDir 部署目录。');
@@ -319,12 +320,14 @@ export function template(): string {
   return agentsMdTemplate(JSON.stringify(DEFAULT_CONFIG, null, 2));
 }
 
-// F33/P60: 参数配置表单的可更新字段白名单——storage（涉及数据迁移）、
-// version（固定 1）与三个密钥引用名不走表单（安全红线与迁移流程）。
+// F33/P60: 参数配置表单的可更新字段白名单。storage（数据迁移）与 version
+// （固定 1）仍不走表单；F36 起三个密钥引用名开放表单编辑（env 为可选覆盖，
+// 密钥值本身经 workspace.secret-update 进工作区密钥库，不进配置块）。
 export const CONFIG_UPDATE_ALLOWED: ReadonlySet<string> = new Set([
   'mode', 'larkProfile', 'ownerOpenId', 'folderToken', 'tasklistId', 'calendarId',
   'calendarChannel', 'todoChannel', 'notifyChannel', 'timeZone', 'maxWorkers',
   'enabledWorkers', 'workerModels', 'extraLocalTools', 'tts',
+  'appIdEnv', 'appSecretEnv', 'pgDsnEnv',
 ]);
 
 /** Parse the raw JSON object of the unique config block; ConfigError on malformed input. */
