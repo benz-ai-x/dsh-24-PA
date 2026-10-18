@@ -26,6 +26,7 @@ export interface SkillRegistryLike {
     description: string;
     whenToUse?: string;
     content: string;
+    source?: string;
     metadata?: Record<string, unknown>;
   }): () => void;
   list(options?: { cwd?: string }): Promise<readonly { name: string; description: string; metadata?: Record<string, unknown>; provider?: string; source?: string }[]>;
@@ -71,11 +72,25 @@ export const BUILTIN_DIGEST_SKILLS: readonly { name: string; description: string
     ].join('\n'),
     metadata: { track: 'template', kind: 'weekly', pa24: true },
   },
+  {
+    name: 'meeting-prep',
+    description: '会前准备：按日程生成资料包与纪要行动（模板轨，专属构建管线）',
+    whenToUse: '会前准备计划到点（meeting_prep_build），或主人要求会前资料。',
+    content: [
+      '会前准备的契约：按目标日程聚合相关笔记/纪要/任务与等待事项，',
+      '生成资料包（带来源）与建议议程；产出经 meeting_prep_build 专属管线交付。',
+    ].join('\n'),
+    metadata: { track: 'template', kind: 'meeting_prep', pa24: true },
+  },
 ];
 
 /** 经 DigestService/DigestPlanRow 绑定的计划 skill 目录访问面。 */
 export class SkillCatalog {
-  constructor(private readonly registry: SkillRegistryLike | null) {}
+  constructor(
+    private readonly registry: SkillRegistryLike | null,
+    /** 工作区根（fs provider 的 projectRoot 探测点；未绑定时内置回落不受影响）。 */
+    private readonly cwd: () => string | null = () => null,
+  ) {}
 
   /** 内置三件注册进宿主目录（runtime provider）；宿主未挂载时安全跳过。 */
   registerBuiltins(): void {
@@ -86,6 +101,8 @@ export class SkillCatalog {
         description: skill.description,
         whenToUse: skill.whenToUse,
         content: skill.content,
+        // registry 装载校验要求 source 为字符串（SkillSummary 必填位）。
+        source: 'runtime',
         metadata: { ...skill.metadata },
       });
     }
@@ -97,7 +114,7 @@ export class SkillCatalog {
       name: entry.name,
       description: entry.description,
       track: entry.metadata?.track === 'template' ? 'template' : 'agent',
-      source: builtin ? 'builtin' : entry.source ?? 'workspace',
+      source: builtin ? 'builtin' : entry.source === 'runtime' ? 'builtin' : entry.source ?? 'workspace',
       kind: typeof entry.metadata?.kind === 'string' ? entry.metadata.kind : undefined,
     };
   }
@@ -107,10 +124,24 @@ export class SkillCatalog {
     if (!this.registry) {
       return BUILTIN_DIGEST_SKILLS.map(s => ({ name: s.name, description: s.description, track: s.metadata.track, source: 'builtin', kind: s.metadata.kind }));
     }
-    const entries = await this.registry.list();
+    const raw = await this.registry.list({ cwd: this.cwd() ?? undefined });
+    // list() 的 SkillSummary 不带 metadata（track/kind 在 get() 的 Definition）——
+    // 逐名取一次补富；get 失败回退原条目（视为缺省 agent 轨）。
+    const entries = await Promise.all(raw.map(async e => {
+      try {
+        const def = await this.registry!.get(e.name, { cwd: this.cwd() ?? undefined });
+        return def ? { ...e, metadata: def.metadata ?? e.metadata } : e;
+      } catch {
+        return e;
+      }
+    }));
     const seen = new Set(entries.map(e => e.name));
     const builtins = BUILTIN_DIGEST_SKILLS.filter(s => !seen.has(s.name)).map(s => ({ name: s.name, description: s.description, provider: 'runtime', metadata: { ...s.metadata } }));
-    return [...entries, ...builtins].map(e => this.toTaskSkill(e));
+    // spec 2.11：计划绑定面＝内置＋工作区（project-dsh）；用户全局目录
+    // （user-dsh/user-agents）是主人自己的 agent 技能库，不进周期任务下拉。
+    return [...entries, ...builtins]
+      .map(e => this.toTaskSkill(e))
+      .filter(s => s.source === 'builtin' || s.source === 'project-dsh' || s.source === 'runtime');
   }
 
   /** 按 kebab-case 名校验存在性；返回 null＝目录中无此名。 */
@@ -120,7 +151,7 @@ export class SkillCatalog {
 
   /** 加载 skill 正文（agent 轨任务指令；内置三件返回契约正文）。 */
   async content(name: string): Promise<string | null> {
-    const loaded = await this.registry?.get(name);
+    const loaded = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
     if (loaded?.content) return loaded.content;
     return BUILTIN_DIGEST_SKILLS.find(s => s.name === name)?.content ?? null;
   }

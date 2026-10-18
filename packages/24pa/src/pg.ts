@@ -441,7 +441,7 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
     version: 13,
     statements: [
       `alter table pa24.digest_plan add column if not exists skill text not null default ''`,
-      `update pa24.digest_plan set skill = 'digest-' || kind where skill = '' and kind in ('morning', 'evening', 'weekly')`,
+      `update pa24.digest_plan set skill = case when kind = 'meeting_prep' then 'meeting-prep' else 'digest-' || kind end where skill = '' and kind in ('morning', 'evening', 'weekly', 'meeting_prep')`,
     ],
   },
 ];

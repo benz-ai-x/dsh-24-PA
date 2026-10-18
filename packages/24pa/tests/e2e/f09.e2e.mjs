@@ -361,3 +361,58 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     expect(['active', 'stopped']).toContain(plan.status);
   });
 });
+
+describe('F41：agent 轨任务 skill', () => {
+  it('自定义 skill 交接→Worker 生成→digest_deliver 交付', async () => {
+    // 工作区自定义 skill（宿主 fs provider 热发现）
+    const { mkdir, writeFile: wf } = await import('node:fs/promises');
+    const skillsDir = join(workspace, '.dsh', 'skills');
+    await mkdir(skillsDir, { recursive: true });
+    await wf(join(skillsDir, 'e2e-custom-brief.md'), [
+      '---',
+      'name: e2e-custom-brief',
+      'description: e2e 自定义简报（agent 轨）',
+      '---',
+      '',
+      '按完成标准生成简报：包含「自定义简报」字样与一条事实；未达标准时如实说明。',
+      '',
+    ].join('\n'));
+    // fs provider 的 watcher 失效通知是异步的——轮询等目录出现
+    let listed;
+    for (let i = 0; i < 20 && !listed; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      listed = ((await host.api('digests')).skills ?? []).find(s => s.name === 'e2e-custom-brief');
+    }
+    expect(listed, '目录应发现工作区 skill').toBeTruthy();
+    expect(listed.track).toBe('agent');
+    // 开计划绑定自定义 skill（经 reminders Worker 路由）
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '开自定义晨报', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'digest_enable', kind: 'morning', time: '08:00:00', skill: 'e2e-custom-brief', voice: true }, workerReply: 'ok' });
+    let before = llm.log.length;
+    await inject(ownerEvent('evt-f41a', { text: '开启自定义 skill 晨报' }));
+    await waitWorkItem('开自定义晨报', '自定义晨报开启');
+    const enabled = await waitToolResult('pa24_work', '"skill":"e2e-custom-brief"', '绑定回执', 60_000, before);
+    const planId = (enabled.match(/"planId":"(dig-[^"]+)"/) || [])[1];
+    expect(planId).toBeTruthy();
+    // 委派 digest Worker：digest_build → agent 轨交接
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '出自定义晨报', instruction: 'x', planId }, leadReply: '已生成。', workerAction: { action: 'digest_build', planId }, workerReply: '已交付。' });
+    before = llm.log.length;
+    await inject(ownerEvent('evt-f41b', { text: '现在出一份自定义晨报' }));
+    await waitWorkItem('出自定义晨报', '自定义晨报生成', 180_000);
+    const handoff = await waitToolResult('pa24_work', 'agentTrack', 'agent 轨交接', 60_000, before);
+    expect(unescapeJsonish(handoff)).toContain('e2e-custom-brief');
+    // 二次委派：digest_deliver 交付全文
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '交付自定义晨报', instruction: 'x', planId }, leadReply: '已交付。', workerAction: { action: 'digest_deliver', planId, report: '自定义简报：今日无到期事项（e2e 数据面为空，达到完成标准的可用部分已列出）。' }, workerReply: '完成。' });
+    before = llm.log.length;
+    await inject(ownerEvent('evt-f41c', { text: '交付刚才的自定义晨报' }));
+    await waitWorkItem('交付自定义晨报', '自定义晨报交付', 180_000);
+    const delivered = await waitToolResult('pa24_work', 'digest:', '交付回执', 60_000, before);
+    const outboxKey = (delivered.match(/"outboxKey":"(digest:[^"]+)"/) || [])[1];
+    expect(outboxKey).toBeTruthy();
+    await waitOutbox(outboxKey, '自定义全文投递', 90_000);
+    // tts.engine=none 的 e2e 环境：voice=1 如实降级纯文本（不冒充语音行）
+    expect((await host.api('snapshot')).outbox.find(o => o.dedup_key === `${outboxKey}:voice`)).toBeUndefined();
+    // 会前准备计划绑定 meeting-prep（存量迁移口径）
+    const all = (await host.api('digests')).plans;
+    expect(all.every(p => p.skill)).toBe(true);
+  });
+});

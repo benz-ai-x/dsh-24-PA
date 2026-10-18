@@ -303,7 +303,7 @@ export class PaRuntime {
   constructor(ctx: DshContext, options: RuntimeOptions) {
     this.ctx = ctx;
     this.options = options;
-    this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx));
+    this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx), () => this.workspace?.statePath ?? null);
     this.skillCatalog.registerBuiltins();
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
@@ -413,6 +413,7 @@ export class PaRuntime {
       available: true,
       actions: {
         digest_build: async (args, item) => this.digest.digestBuild(item, args),
+        digest_deliver: async (args, item) => this.digest.digestDeliver(item, args),
       },
     });
     this.roles.register({
@@ -2941,7 +2942,7 @@ export class PaRuntime {
       status: 'active',
       last_window: null,
       voice: false,
-      skill: '',
+      skill: 'meeting-prep',
     });
     return {
       planId: id,

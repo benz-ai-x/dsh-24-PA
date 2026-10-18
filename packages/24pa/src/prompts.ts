@@ -10,7 +10,7 @@
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.6.0';
+export const PROMPTS_VERSION = '1.7.0';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -158,7 +158,7 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
       '- 来源：每条事实的平台出处（任务/日程/账本标识）。',
       '- 缺失：取不到的数据逐项列出并注明原因。',
     ].join('\n'),
-    brief: 'digest_build {planId}（生成当前窗口简报：晨报/晚间/每周，交回 Lead 汇报）。',
+    brief: 'digest_build {planId}（模板轨直接交付；agent 轨返回任务指令与事实，由你按指令生成简报全文后以 digest_deliver {planId, report} 交付，未达完成标准时如实说明）。',
     doneCriteria: '简报文本已产出：事实/建议分开、逐条带来源、缺失如实列出。',
     version: 1,
   },
