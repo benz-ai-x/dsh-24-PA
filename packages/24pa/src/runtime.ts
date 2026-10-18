@@ -21,7 +21,7 @@ import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, typ
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
-import { SkillCatalog, assertToolDeclaration, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
+import { SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
 
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
@@ -419,18 +419,15 @@ export class PaRuntime {
       available: true,
       actions: {
         // F44（spec 2.11）：载入放行面内的任务 skill 正文；越权名直接拒绝。
+        // 轨判定收在 SkillCatalog.resolveForAgentRun（arch-6）：模板轨 skill
+        // 在该 seam 被拒绝，调用方无法遗忘分支而烧掉模型回合。
         skill_run: async args => {
           const name = String(args.skill ?? '');
           if (!this.config?.extraBusinessSkills.includes(name)) {
             throw new Error(`任务 skill ${name || '（未指定）'} 未在 extraBusinessSkills 放行面内；请在 AGENTS.md 配置后重试。`);
           }
-          const bound = await this.skillCatalog.find(name);
-          if (!bound) throw new Error(`任务 skill ${name} 不在目录中（内置＋工作区 .dsh/skills）。`);
-          const content = await this.skillCatalog.content(name);
-          if (!content) throw new Error(`任务 skill ${name} 正文加载失败。`);
-          // spec 2.11 红线：工具声明只能收紧——越权声明在平台层拒绝执行。
-          assertToolDeclaration(await this.skillCatalog.meta(name), ['pa24_work', 'pa24_memory'], name);
-          return { skill: name, track: bound.track, content, message: '按上述任务指令执行，完成后汇报（含完成标准核对）；工具面以白名单为准，越权项如实报拒因。' };
+          const resolved = await this.skillCatalog.resolveForAgentRun(name, ['pa24_work', 'pa24_memory']);
+          return { skill: resolved.name, track: 'agent' as const, content: resolved.content, message: '按上述任务指令执行，完成后汇报（含完成标准核对）；工具面以白名单为准，越权项如实报拒因。' };
         },
       },
     });

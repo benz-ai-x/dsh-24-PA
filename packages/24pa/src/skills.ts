@@ -399,4 +399,23 @@ export class SkillCatalog {
     if (loaded?.content) return loaded.content;
     return this.builtinAll().find(s => s.name === name)?.content ?? null;
   }
+
+  /**
+   * Agent-run resolution (round-3, spec 2.11 red line): the single gate every
+   * caller must pass to hand a skill to a model turn. Track dispatch lives
+   * here — a template-track skill never reaches a model round through this
+   * seam; callers cannot bypass the zero-model path by forgetting to branch.
+   */
+  async resolveForAgentRun(name: string, allowedTools: readonly string[]): Promise<{ name: string; content: string }> {
+    const bound = await this.find(name);
+    if (!bound) throw new Error(`任务 skill ${name} 不在目录中（内置＋工作区 .dsh/skills）。`);
+    if (bound.track === 'template') {
+      throw new Error(`任务 skill ${name} 是模板轨（确定性组装，不过模型）；它由对应平台管线执行（如晨报/复盘经 digest 计划与「立即运行一次」，审核流经手写管线），不能经 skill_run 进入模型回合。`);
+    }
+    const content = await this.content(name);
+    if (!content) throw new Error(`任务 skill ${name} 正文加载失败。`);
+    // spec 2.11 红线：工具声明只能收紧——越权声明在平台层拒绝执行。
+    assertToolDeclaration(await this.meta(name), allowedTools, name);
+    return { name, content };
+  }
 }
