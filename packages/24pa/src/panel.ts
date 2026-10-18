@@ -31,6 +31,7 @@ export const PANEL_RPC = {
     workspaceBind: 'workspace.bind',
     workspaceReload: 'workspace.reload',
     workspaceConfigUpdate: 'workspace.config-update',
+    workspaceSecretUpdate: 'workspace.secret-update',
     connectionCheck: 'connection.check',
     connectionWecomCheck: 'connection.wecom-check',
     notesPoll: 'notes.poll',
@@ -126,6 +127,12 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
     const config = payload.config as Record<string, unknown> | undefined;
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ConfigError('缺少配置补丁。');
     return runtime.updateWorkspaceConfig(config).then(() => snapshot(runtime));
+  }
+  // F36: 密钥值进工作区密钥库（.24pa/secrets.json，0600），与 AGENTS.md 解耦。
+  if (type === A.workspaceSecretUpdate) {
+    const values = payload.values as Record<string, unknown> | undefined;
+    if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ConfigError('缺少密钥补丁。');
+    return runtime.updateWorkspaceSecrets(values).then(() => snapshot(runtime));
   }
   if (type === A.connectionCheck) return runtime.checkAccess();
   if (type === A.connectionWecomCheck) return runtime.wecomCheck();

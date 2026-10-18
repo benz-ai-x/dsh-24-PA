@@ -266,7 +266,7 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
     steps.push(
       config.mode === 'feishu'
         ? '接入检查全部通过：若面板 readiness 的 feishu 项未显示长连接已启动，按指南·阶段 4 重启宿主；随后在飞书发送 /24pa 做端到端验证（指南·阶段 5）。'
-        : `接入前置全部就绪：由本人在启动环境填写 ${config.appIdEnv}/${config.appSecretEnv}，你把 AGENTS.md mode 改为 feishu 并重启宿主（指南·阶段 4），再按阶段 5 验收。`,
+        : `接入前置全部就绪：由本人在面板「系统维护 → 参数配置 → 密钥」填写 App ID/Secret（或设置 ${config.appIdEnv}/${config.appSecretEnv} 环境变量），再把 mode 改为 feishu 并保存/重启（指南·阶段 4），按阶段 5 验收。`,
     );
   }
   return steps;

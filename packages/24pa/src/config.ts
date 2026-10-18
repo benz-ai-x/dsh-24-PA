@@ -319,12 +319,14 @@ export function template(): string {
   return agentsMdTemplate(JSON.stringify(DEFAULT_CONFIG, null, 2));
 }
 
-// F33/P60: 参数配置表单的可更新字段白名单——storage（涉及数据迁移）、
-// version（固定 1）与三个密钥引用名不走表单（安全红线与迁移流程）。
+// F33/P60: 参数配置表单的可更新字段白名单。storage（数据迁移）与 version
+// （固定 1）仍不走表单；F36 起三个密钥引用名开放表单编辑（env 为可选覆盖，
+// 密钥值本身经 workspace.secret-update 进工作区密钥库，不进配置块）。
 export const CONFIG_UPDATE_ALLOWED: ReadonlySet<string> = new Set([
   'mode', 'larkProfile', 'ownerOpenId', 'folderToken', 'tasklistId', 'calendarId',
   'calendarChannel', 'todoChannel', 'notifyChannel', 'timeZone', 'maxWorkers',
   'enabledWorkers', 'workerModels', 'extraLocalTools', 'tts',
+  'appIdEnv', 'appSecretEnv', 'pgDsnEnv',
 ]);
 
 /** Parse the raw JSON object of the unique config block; ConfigError on malformed input. */

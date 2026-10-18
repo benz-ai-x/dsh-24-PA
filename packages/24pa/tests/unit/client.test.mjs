@@ -218,6 +218,23 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('参数可经表单或对话维护');
   });
 
+  it('F36 密钥组：只写不回显、独立 secret-update 动作、引用名可编辑', () => {
+    // 密钥组四个能力位＋密码框＋清除；快照状态只作 placeholder/helper 文案
+    expect(client).toContain("L('密钥（工作区密钥库）', 'Secrets (workspace store)')");
+    expect(client).toContain("type: 'password', autoComplete: 'new-password'");
+    expect(client).toContain("L('撤销清除', 'Undo clear')");
+    expect(client).toContain("['feishuAppId',");
+    expect(client).toContain("['volcTtsKey',");
+    // 独立动作（与 config-update 分离，密钥不触碰 AGENTS.md 写回路径）
+    expect(client).toContain("type: 'workspace.secret-update'");
+    // 引用名改为可编辑（env 为可选覆盖）
+    expect(client).toContain("L('App ID 引用（appIdEnv）', 'App ID ref (appIdEnv)')");
+    expect(client).toContain("L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')");
+    // 状态行不回显值：placeholder 只用 set/source
+    expect(client).toContain("secretPlaceholder");
+    expect(client).not.toContain("secretDraft[key]] ?");
+  });
+
   it('F35：inject 面不再含 layout（设置分区撤销，面板内无跳转需求）', () => {
     expect(client).toContain("inject: ['slots', 'locale', 'connection', 'uiWorkspace']");
     expect(client).not.toContain("ctx.layout");

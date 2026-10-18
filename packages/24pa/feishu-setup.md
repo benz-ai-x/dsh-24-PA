@@ -6,7 +6,7 @@
 
 1. **两种身份**：机器人身份（应用自己，宿主用它收发消息/卡片/下载图片）与用户身份（本人，lark-cli 以 `--as user` 操作任务/日历/文档）。两者授权相互独立，都要就绪。
 2. **依赖顺序**（块与块之间成立，块内步骤可连续完成）：建应用（块 A）→ CLI 绑定与用户授权（块 B）→ 资源标识与配置切换（你代办）→ 重启 → 端到端验证。乱序会在配置校验或资源获取处卡死。
-3. **四类事只有本人能做**：浏览器里的开放平台操作（建应用/开权限/发布）、授权点击、lark-cli 应用凭据绑定（`config init`，Secret 经本人终端输入）、在启动环境填写 App Secret。其余（发起授权流、查资源标识、改 AGENTS.md、健康检查）都可由你代办。
+3. **四类事只有本人能做**：浏览器里的开放平台操作（建应用/开权限/发布）、授权点击、lark-cli 应用凭据绑定（`config init`，Secret 经本人终端输入）、在面板「密钥」组（或启动环境）填写 App ID/App Secret。其余（发起授权流、查资源标识、改配置、健康检查）都可由你代办。
 
 ---
 
@@ -48,9 +48,11 @@ lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,d
 1. 在**自己的终端**运行 `lark-cli config init`（按提示填块 A 的 App ID、经 stdin 输入 App Secret；若此应用此前已绑定过且 App ID 正确可跳过——可让助理先用 `lark-cli config show` 核对；多应用时加 `--profile <名>`，与 AGENTS.md 的 `larkProfile` 一致）——Secret 不发给 AI、不粘贴到对话。
 2. 打开随清单交付的**授权验证 URL**，在浏览器完成登录授权。
 
-### 块 C：启动环境（依赖：块 A 的 App ID/App Secret）
+### 块 C：应用凭据（依赖：块 A 的 App ID/App Secret）
 
-在启动脚本/服务环境中设置 `PA24_FEISHU_APP_ID=<App ID>`、`PA24_FEISHU_APP_SECRET=<App Secret>`（变量名可在 AGENTS.md 的 `appIdEnv/appSecretEnv` 改，值只存在服务器环境里）。AGENTS.md 中只出现**变量名**，永不出现密钥值。
+**首选（F36 起，免改脚本）**：打开24私助面板「系统维护 → 参数配置 → 密钥」，把 App ID / App Secret 填进对应行（只写不回显），点「保存密钥」——值存进工作区密钥库（`.24pa/secrets.json`，权限 0600），**永不进 AGENTS.md、系统提示与备份**；保存即生效，无需重启。
+
+**可选（部署层覆盖）**：在启动脚本/服务环境中设置 `PA24_FEISHU_APP_ID=<App ID>`、`PA24_FEISHU_APP_SECRET=<App Secret>`——同名环境变量**优先于**密钥库；变量名可在表单「存储与密钥引用」组调整，AGENTS.md 中只出现变量名、永不出现密钥值。环境变量变更以重启宿主为准。
 
 ## 本人回报后你收尾（你代办）
 
@@ -65,7 +67,7 @@ lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,d
    | `tasklistId` | 飞书任务（网页或客户端）打开目标清单，从链接复制 guid；或用 lark-cli task 清单命令创建/列出 | 待办任务的真实归属 |
    | `calendarId` | 默认 `primary` 即本人主日历，**无需改动** | 除非明确要用其他日历 |
 
-3. **切换配置**——顺序不可颠倒，**先环境变量，后 AGENTS.md，再重启**：AGENTS.md `mode` 改为 `"feishu"`、填入 `ownerOpenId/folderToken/tasklistId`（配置块必须仍是唯一 json 块）；然后明确告诉本人重启命令（如 `./start.sh`）——环境变量变更与 mode 切换都以重启为准（`pa24_workspace reload` 只热载 AGENTS.md，不重载环境变量，也不重建长连接），你运行在宿主内，无法自重启。
+3. **切换配置**——顺序不可颠倒，**先凭据（块 C），后 mode，再验证**：确认「密钥」组状态行显示 App ID/Secret 已设置（或环境变量就位）；随后在面板参数配置表单把 `mode` 切为 `feishu`（表单保存＝校验→写回→重载，mode 变更会即时重建长连接；若经对话改 AGENTS.md，则以重启宿主为准——`pa24_workspace reload` 不重载环境变量），并填入 `ownerOpenId/folderToken/tasklistId`。环境变量方式的变更仍以重启为准，你运行在宿主内，无法自重启。
 
 ## 自动验收（一次汇总，不逐项追问）
 

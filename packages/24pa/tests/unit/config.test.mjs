@@ -131,11 +131,11 @@ describe('参数配置表单写回（F33/P60）', () => {
     expect(() => replaceAgentsMdConfig('', {})).toThrow(ConfigError);
   });
 
-  it('表单白名单不含 storage/version/密钥引用名', () => {
-    for (const banned of ['storage', 'version', 'appIdEnv', 'appSecretEnv', 'pgDsnEnv']) {
+  it('表单白名单：storage/version 仍禁；F36 起密钥引用名开放（env 为可选覆盖）', () => {
+    for (const banned of ['storage', 'version']) {
       expect(CONFIG_UPDATE_ALLOWED.has(banned)).toBe(false);
     }
-    for (const allowed of ['mode', 'calendarChannel', 'workerModels', 'tts']) {
+    for (const allowed of ['mode', 'calendarChannel', 'workerModels', 'tts', 'appIdEnv', 'appSecretEnv', 'pgDsnEnv']) {
       expect(CONFIG_UPDATE_ALLOWED.has(allowed)).toBe(true);
     }
   });
