@@ -279,6 +279,14 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('.pa24-form-actions>.pa24-meta{display:none}');
   });
 
+  it('F39：健康徽章 info 档按能力位配词（tts＝未预检、calendar-sync＝未运行）', () => {
+    expect(client).toContain("const INFO_WORDS = { tts: ['未预检', 'Not probed'], 'calendar-sync': ['未运行', 'Not run yet'] }");
+    expect(client).toContain("c.state === 'info' && INFO_WORDS[c.id] ? L(...INFO_WORDS[c.id]) : undefined");
+    // 折叠兜底仍在：未命中映射的 info（如 lark-cli 检查未发起）维持「尚未检查」
+    expect(client).toContain("['ok', 'warn', 'error'].includes(c.state) ? c.state : 'unchecked'");
+    expect(client).toContain("'status.unchecked': '尚未检查'");
+  });
+
   it('F35：inject 面不再含 layout（设置分区撤销，面板内无跳转需求）', () => {
     expect(client).toContain("inject: ['slots', 'locale', 'connection', 'uiWorkspace']");
     expect(client).not.toContain("ctx.layout");
