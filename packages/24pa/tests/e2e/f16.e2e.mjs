@@ -240,7 +240,7 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
       mode: 'dispatch',
       delegate: { worker: 'reminders', title: '设置企微提醒', instruction: '设置测试提醒' },
       leadReply: '已安排。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 3, text: '企微渠道推送验收' },
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 3, text: '企微渠道推送验收', __forceLedger: true }, // 账本保留面：本用例测 wecom OUTBOX 投递
       workerReply: '提醒已创建。',
     });
     await prompt('三秒后用企微提醒我：企微渠道推送验收');

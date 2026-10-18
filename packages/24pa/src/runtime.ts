@@ -1,4 +1,8 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+/** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
+const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任务 skill（worker-persona-*）在会话启动时装载；此处仅注册占位。';
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
@@ -29,7 +33,7 @@ import {
   workspaceRulesSection,
 } from './prompts.js';
 import { MemoryStore, type MemoryChange } from './memory.js';
-import { ReminderEngine, ReminderError, type SilencePolicy } from './reminders.js';
+import { ReminderEngine, ReminderError, firstOccurrence, type SilencePolicy } from './reminders.js';
 import {
   createEveryScheduleRecord,
   createDailyScheduleRecord,
@@ -243,9 +247,6 @@ export class PaRuntime {
     isClosed: () => this.closed,
   });
 
-  /** Recurring-digest & daily-planning service (F32): plans/build/render/
-   *  supervise/overview behind one deep module; F19 voice delivery extends
-   *  here. The runtime keeps role bindings and the follow-up tick. */
   /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
   private readonly skillCatalog: SkillCatalog;
 
@@ -306,7 +307,14 @@ export class PaRuntime {
   constructor(ctx: DshContext, options: RuntimeOptions) {
     this.ctx = ctx;
     this.options = options;
-    this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx), () => this.workspace?.statePath ?? null);
+    this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx), () => this.workspace?.statePath ?? null, file => {
+      try {
+        // F43：随包指南单一来源；读失败＝不注册该向导 skill（安全降级）。
+        return readFileSync(new URL(`../${file}`, import.meta.url), 'utf8') ?? null;
+      } catch {
+        return null;
+      }
+    });
     this.skillCatalog.registerBuiltins();
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
@@ -340,7 +348,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'tasks',
       name: '待办管理',
-      persona: WORKER_PROMPTS.tasks.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.tasks.brief,
       available: true,
       actions: {
@@ -377,7 +385,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'memo',
       name: '备忘整理',
-      persona: WORKER_PROMPTS.memo.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.memo.brief,
       available: true,
       actions: {
@@ -411,7 +419,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'skill',
       name: '任务 skill 执行',
-      persona: WORKER_PROMPTS.skill.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.skill.brief,
       available: true,
       actions: {
@@ -434,7 +442,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'digest',
       name: '简报整理',
-      persona: WORKER_PROMPTS.digest.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.digest.brief,
       available: true,
       actions: {
@@ -445,7 +453,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'calendar',
       name: '日程编排',
-      persona: WORKER_PROMPTS.calendar.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.calendar.brief,
       available: true,
       actions: {
@@ -466,11 +474,23 @@ export class PaRuntime {
     this.roles.register({
       id: 'reminders',
       name: '事项提醒',
-      persona: WORKER_PROMPTS.reminders.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.reminders.brief,
       available: true,
       actions: {
-        reminder_create: async args => {
+        reminder_create: async (args, item) => {
+          // F45（spec 2.11，ADR-0001 修订）：时钟型提醒＝带提醒的日程写入
+          // calendarChannel 所选渠道，由对应 App 原生提醒（默认提前 5 分钟）；
+          // 账本只留 delegated 备份行（面板视图/历史/防重）。跟随来源型
+          // （linkTaskGuid/linkEventId）继续账本引擎——它依赖任务/日程状态联动，
+          // 属条件型，智能 skill 化后置。
+          const clockKind = String(args.kind ?? 'once');
+          const hasLink = !!(args.linkTaskGuid || args.linkEventId);
+          // 测试缝：__forceLedger 显式走账本保留面（every/跟随型回归同路径）。
+          const forceLedger = args.__forceLedger === true;
+          if (!hasLink && !forceLedger && ['once', 'daily', 'weekly'].includes(clockKind) && this.calendarChannelsLive()) {
+            return this.reminderToCalendar(item, args);
+          }
           let link: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string } | undefined;
           if (args.linkTaskGuid || args.linkEventId) {
             if (args.linkTaskGuid && args.linkEventId) throw new Error('一次只能跟随一个来源（任务或日程）。');
@@ -498,11 +518,13 @@ export class PaRuntime {
           return result;
         },
         reminder_list: async () => this.reminders!.list(),
-        reminder_cancel: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'stopped', String(args.reason ?? '')),
-        reminder_pause: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')),
-        reminder_resume: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')),
-        reminder_skip: async args => this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')),
-        reminder_snooze: async args => this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')),
+        reminder_cancel: async (args, item) => this.reminderCancel(item, String(args.ruleId ?? ''), String(args.reason ?? '')),
+        // F45：delegated 行的账本侧生命周期操作如实拒绝（日历事件照常，
+        // 暂停/改期在 App 内或经日历更新进行）。
+        reminder_pause: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '暂停'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')); },
+        reminder_resume: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '恢复'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')); },
+        reminder_skip: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '跳过'); return this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')); },
+        reminder_snooze: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '稍后'); return this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')); },
         reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
         digest_enable: async args => this.digest.digestEnable(args),
         digest_control: async args => this.digest.digestControl(args),
@@ -512,7 +534,7 @@ export class PaRuntime {
     this.roles.register({
       id: 'handwriting',
       name: '手写笔记',
-      persona: WORKER_PROMPTS.handwriting.persona,
+      persona: SKILL_SOURCED_PERSONA_PLACEHOLDER,
       brief: WORKER_PROMPTS.handwriting.brief,
       available: true,
       actions: {
@@ -1640,7 +1662,11 @@ export class PaRuntime {
         // B7: a route flagged simplePersona swaps in the reviewed simplified
         // copy when one exists; registered (dynamic) roles always use their
         // own persona as the fallback.
-        const persona = workerPersonaFor(item.role, modelRoute, roleDef.persona);
+        // F42：persona 单一来源迁任务 skill 目录（worker-persona-<role>，simple
+        // 变体随 simplePersona 路由）；registry 缺席时目录自带内置回落，
+        // 动态注册角色仍用自己的 persona 兜底。
+        const persona = (await this.skillCatalog.workerPersona(item.role, modelRoute?.simplePersona === true))
+          ?? workerPersonaFor(item.role, modelRoute, roleDef.persona);
         // Handwriting children receive the saved originals inline; the dsh
         // attachment service persists them and the vision route carries them
         // to the model (P29: the request really contains the image).
@@ -1903,6 +1929,115 @@ export class PaRuntime {
     };
   }
 
+  /** F45：时钟型提醒是否可走日历渠道（demo/无连接时回落账本引擎，演示与测试不受损）。 */
+  private calendarChannelsLive(): boolean {
+    if (this.config?.calendarChannel === 'wecom') return true;
+    return this.config?.mode === 'feishu' && !!this.transport;
+  }
+
+  /**
+   * F45（spec 2.11，ADR-0001 修订）：时钟型提醒日程化——按 calendarChannel 写
+   * 带提醒的日程（渠道 CLI 默认提前 5 分钟 App 原生提醒；daily/weekly 走
+   * rrule 重复日程），账本只留 delegated 备份行（面板视图/历史/防重，引擎
+   * 不投递该状态行）。once 的 at/afterSeconds 与 daily/weekly 的本地时刻
+   * 语义与账本引擎完全一致（next 时刻计算复用同一 schedule 助手）。
+   */
+  private async reminderToCalendar(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const summary = text(args.text, 500);
+    if (!summary) throw new ReminderError('提醒内容不能为空。');
+    const kind = String(args.kind ?? 'once');
+    const timeZone = String(args.timeZone ?? this.config!.timeZone);
+    let start: Date;
+    let rrule: string | undefined;
+    let originExpression: string;
+    const now = Date.now();
+    if (kind === 'once') {
+      if (args.at) {
+        const at = new Date(String(args.at));
+        if (Number.isNaN(at.getTime())) throw new ReminderError('once 的 at 需为可解析的 ISO 时间。');
+        start = at;
+        originExpression = at.toISOString();
+      } else {
+        const seconds = Number(args.afterSeconds);
+        if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new ReminderError('once 需要 1 秒–365 天的延迟（afterSeconds）或绝对时间（at）。');
+        start = new Date(now + seconds * 1000);
+        originExpression = `after ${seconds}s`;
+      }
+    } else if (kind === 'daily') {
+      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new ReminderError('daily 需要本地时间 HH:mm:ss。');
+      const record = createDailyScheduleRecord(ScheduleId('f45'), summary, { time: String(args.time), time_zone: timeZone }, now, summary);
+      start = firstOccurrence(record, now);
+      rrule = 'FREQ=DAILY;INTERVAL=1';
+      originExpression = `daily ${args.time} ${timeZone}`;
+    } else if (kind === 'weekly') {
+      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new ReminderError('weekly 需要本地时间 HH:mm:ss。');
+      const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : [];
+      if (!weekdays.length || weekdays.some(d => !Number.isInteger(d) || d < 1 || d > 7)) throw new ReminderError('weekly 需要 weekdays（ISO 1–7，周一=1）。');
+      const sorted = [...new Set(weekdays)].sort();
+      const record = createWeeklyScheduleRecord(ScheduleId('f45'), summary, { time: String(args.time), time_zone: timeZone, weekdays: sorted }, now, summary);
+      start = firstOccurrence(record, now);
+      rrule = `FREQ=WEEKLY;BYDAY=${sorted.map(d => ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][d - 1]).join(',')}`;
+      originExpression = `weekly ${args.time} ${sorted.join(',')} ${timeZone}`;
+    } else {
+      throw new ReminderError('时钟型日程化支持 once/daily/weekly；every 与跟随来源型仍走账本引擎。');
+    }
+    const end = new Date(start.getTime() + 15 * 60 * 1000);
+    const created = (await this.calendarWrite(item, 'create', {
+      summary: `提醒：${summary}`,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      ...(rrule ? { rrule } : {}),
+    })) as { event_id?: string; eventId?: string; operationId?: string };
+    const eventId = created.event_id ?? created.eventId ?? null;
+    // 备份行：delegated 状态＝引擎不投递，仅面板/历史/取消路径数据源。
+    const ruleId = `rmd-cal-${randomUUID().slice(0, 10)}`;
+    await this.repos!.reminders.insertRule({
+      id: ruleId,
+      kind,
+      text: summary,
+      record: { type: 'calendar', channel: this.config!.calendarChannel, event_id: eventId, start: start.toISOString(), rrule: rrule ?? null, operation_id: created.operationId ?? null },
+      status: 'delegated',
+      next_due_at: start,
+      time_zone: timeZone,
+      origin_expression: originExpression,
+      source: args.source ? text(args.source, 500) : null,
+      work_item_id: item.id,
+      link_source_type: null,
+      link_source_id: null,
+      link_fingerprint: null,
+    });
+    return {
+      ruleId,
+      eventId,
+      calendarChannel: this.config!.calendarChannel,
+      start: start.toISOString(),
+      ...(rrule ? { rrule } : {}),
+      message: `提醒已写入${this.config!.calendarChannel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；到点由对应 App 原生日程提醒（默认提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
+    };
+  }
+
+  /** F45：delegated 行不参与账本侧暂停/恢复/跳过/稍后——如实拒绝并指引。 */
+  private async rejectDelegated(ruleId: string, op: string): Promise<unknown> {
+    const rule = await this.repos!.reminders.getRule(ruleId);
+    if (rule?.status === 'delegated') {
+      throw new Error(`该提醒已日程化（App 原生提醒），账本侧「${op}」不适用；请在对应日历 App 内操作，或让我更新/删除该日程事件。`);
+    }
+    return undefined;
+  }
+
+  /** F45：取消——delegated 行同步取消日历事件，其余走账本引擎。 */
+  private async reminderCancel(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
+    const rule = await this.repos!.reminders.getRule(ruleId);
+    if (rule?.status === 'delegated') {
+      const record = rule.record as { event_id?: string | null };
+      if (record?.event_id) {
+        await this.calendarWrite(item, 'cancel', { eventId: record.event_id });
+      }
+      return this.reminders!.setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
+    }
+    return this.reminders!.setStatus(ruleId, 'stopped', reason);
+  }
+
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
     if (this.config!.calendarChannel === 'wecom') {
       if (operationIdOverride) throw new Error('企微日程渠道不支持操作键覆盖（meeting/minutes 流程限定飞书）。');
@@ -1919,7 +2054,7 @@ export class PaRuntime {
     if (kind !== 'create' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询）。');
     if (kind === 'update' && !summary && !start && !end) throw new Error('需要至少一项修改（summary/start/end）。');
     const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
-    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}`;
+    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}\n${typeof args.rrule === 'string' ? args.rrule : ''}`;
     return this.gate(`calendar-event:${eventId || 'new'}`, async () => {
     const staged = operationIdOverride
       ? await this.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end })
@@ -1938,6 +2073,8 @@ export class PaRuntime {
       if (kind === 'create') {
         cliArgs.push('--summary', `[24PA] ${summary}`, '--start', start!.toISOString(), '--end', end!.toISOString());
         if (attendees && attendees.length > 0) cliArgs.push('--attendee-ids', attendees.join(','));
+        // F45：rrule 重复日程（RFC5545）；paramsKey 纳入以防同参数不同规则的误重放。
+        if (typeof args.rrule === 'string' && args.rrule) cliArgs.push('--rrule', args.rrule);
       } else if (kind === 'update') {
         cliArgs.push('--event-id', eventId);
         if (summary) cliArgs.push('--summary', `[24PA] ${summary}`);
@@ -3339,7 +3476,10 @@ export class PaRuntime {
     // schedule the plugin creates is mirrored there with its schedule_id);
     // dsh's own archive gate remains the authoritative blocker.
     const digestPlans = (await this.repos.digests.listPlans('active')).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null }));
-    const reminderRules = (await this.repos.reminders.listRules('active')).map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null }));
+    // F45：delegated 行（日程化备份）也列出——归档处置需要看到它们，带渠道标记。
+    const reminderRules = (await this.repos.reminders.listRules())
+      .filter(rule => rule.status === 'active' || rule.status === 'delegated')
+      .map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, status: rule.status, nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null }));
     const reviewReminders = (await this.repos.reviewReminders.activeAll(50)).map(r => ({ id: r.id, noteId: r.note_id, kind: r.kind, remindAt: new Date(r.remind_at).toISOString() }));
     const outboxPending = (await this.repos.outbox.recent(200)).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length;
     const blocking = running.length > 0 || digestPlans.some(p => p.native) || outboxPending > 0;

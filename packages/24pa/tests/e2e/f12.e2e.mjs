@@ -94,6 +94,7 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     await waitWorkItem('开晚间回顾计划', '计划开启');
     await waitToolResult('pa24_work', 'planId', '计划回执', 60_000, before);
 
+    // F45：时钟型 daily 走日历渠道（feishu 在线）
     await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '设外部提醒', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'reminder_create', kind: 'daily', time: '09:00:00', text: '晨间例行' }, workerReply: 'ok' });
     before = llm.log.length;
     await inject(ownerEvent('evt-m2', { text: '设一个每天 9 点的外部提醒' }));
@@ -103,7 +104,9 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     const panelPlans = await host.api('digests', {});
     expect(panelPlans.plans.find(plan => plan.kind === 'evening').schedule.daily.time).toBe('23:30:00');
     const panelReminders = await host.api('reminders', {});
-    expect(panelReminders.rules.find(rule => rule.text === '晨间例行').kind).toBe('daily');
+    const externalRule = panelReminders.rules.find(rule => rule.text === '晨间例行');
+    expect(externalRule.kind).toBe('daily');
+    expect(externalRule.status).toBe('delegated'); // F45：时钟型＝日历备份行
     expect(panelReminders.rules[0].nextDueAt).toBeTruthy();
 
     // 检查：原生计划与外部提醒分开列出
@@ -124,7 +127,7 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     const cancelled = await waitToolResult('pa24_maintenance', '未执行任何变更', '取消回执', 60_000, before);
     expect(cancelled).toContain('用户取消不产生副作用');
     expect((await rows(`select count(*)::int as n from pa24.digest_plan where status='active'`))[0].n).toBe(1);
-    expect((await rows(`select count(*)::int as n from pa24.reminder_rule where status='active'`))[0].n).toBe(1);
+    expect((await rows(`select count(*)::int as n from pa24.reminder_rule where status='delegated'`))[0].n).toBe(1); // F45：时钟型＝delegated 备份行
 
     // 确认执行（stopRules 不传 → 外部提醒保留）
     await localMaint('f12-exec-1', 'archive_execute', { confirmStop: true });
@@ -134,7 +137,7 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     expect(executed).toContain('外部提醒按你的选择保留');
     const planStates = await rows(`select distinct status from pa24.digest_plan where kind='evening'`);
     expect(planStates.map(r => r.status)).toEqual(['paused']);
-    expect((await rows(`select count(*)::int as n from pa24.reminder_rule where status='active'`))[0].n).toBe(1);
+    expect((await rows(`select count(*)::int as n from pa24.reminder_rule where status='delegated'`))[0].n).toBe(1); // F45：时钟型＝delegated 备份行
   });
 
   it('P38：联合备份创建→校验→恢复到全新 cluster→迁移→代表性数据可读、旧 Outbox 不重放', async () => {

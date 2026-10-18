@@ -13,8 +13,11 @@ describe('F40：任务 skill 目录', () => {
   it('宿主未挂载（registry 缺席）：目录回落内置三件，模板轨可用', async () => {
     const catalog = new SkillCatalog(null);
     const list = await catalog.list();
-    expect(list).toHaveLength(5);
-    expect(list.every(s => s.source === 'builtin' && s.track === 'template')).toBe(true);
+    const taskSkills = list.filter(s => !s.name.startsWith('worker-persona'));
+    expect(taskSkills.map(s => s.name)).toEqual(['digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
+    expect(taskSkills.every(s => s.source === 'builtin' && s.track === 'template')).toBe(true);
+    expect(list.every(s => !s.name.startsWith('worker-persona') && !s.name.endsWith('-setup-flow'))).toBe(true); // F42/F43：persona/向导件不进计划绑定面
+    expect(await catalog.content('worker-persona-memo')).toContain('备忘整理'); // persona 件经 content() 仍可载
     expect((await catalog.find('digest-morning'))?.kind).toBe('morning');
     expect(await catalog.find('nope')).toBeNull();
     expect(await catalog.content('digest-morning')).toContain('事实');
@@ -66,5 +69,23 @@ describe('F41/F44：工具声明平台层强制', () => {
     expect(() => assertToolDeclaration({}, ['pa24_work'], 's3')).not.toThrow();
     expect(() => assertToolDeclaration({ tools: ['pa24_work'] }, ['pa24_work', 'pa24_memory'], 's4')).not.toThrow();
     expect(() => assertToolDeclaration({ tools: [] }, ['pa24_work'], 's5')).not.toThrow();
+  });
+});
+
+describe('F43：接入向导 skill 化', () => {
+  it('指南可读时注册两向导件（正文=指南全文，agent 轨）；不可读时安全缺位', async () => {
+    const { setupGuideSkills } = await import('../../lib/skills.js');
+    const flows = setupGuideSkills(file => (file === 'feishu-setup.md' ? '# 飞书指南正文' : '# 企微指南正文'));
+    expect(flows.map(s => s.name)).toEqual(['feishu-setup-flow', 'wecom-setup-flow']);
+    expect(flows[0].content).toBe('# 飞书指南正文');
+    expect(flows.every(s => s.metadata.track === 'agent' && s.metadata.kind === 'setup')).toBe(true);
+    expect(setupGuideSkills(() => null)).toEqual([]);
+    // 目录回落态含向导件（readGuide 经构造器注入）
+    const catalog = new SkillCatalog(null, () => null, file => (file === 'feishu-setup.md' ? '# F' : null));
+    const list = await catalog.list();
+    // F45 修复后：向导件不进计划绑定面，但经 content() 可载（agent 按其执行）
+    expect(list.map(s => s.name)).not.toContain('feishu-setup-flow');
+    expect(await catalog.content('feishu-setup-flow')).toBe('# F');
+    expect(await catalog.content('wecom-setup-flow')).toBeNull();
   });
 });

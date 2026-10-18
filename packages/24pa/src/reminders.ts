@@ -52,7 +52,7 @@ export interface CreateReminderInput {
  * First occurrence for a fresh record. resolveRecurringOccurrence refuses
  * dispatches before scheduledAt; in that window the first fire IS scheduledAt.
  */
-function firstOccurrence(record: RecurringScheduleRecord, now: number): Date {
+export function firstOccurrence(record: RecurringScheduleRecord, now: number): Date {
   try {
     return new Date(resolveRecurringOccurrence(record, now).occurrenceAt);
   } catch {

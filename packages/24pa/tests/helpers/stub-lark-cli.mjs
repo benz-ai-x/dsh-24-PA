@@ -211,7 +211,7 @@ if (plain[0] === 'calendar' && plain[1] === '+create') {
   const end = argOf('--end');
   const attendeeIds = argOf('--attendee-ids');
   const event_id = `evtstub-${events.length + 1}`;
-  const record = { event_id, summary, start, end, status: 'active', all_day: false, url: `https://example.feishu.cn/calendar/event/${event_id}`, attendees: attendeeIds ? attendeeIds.split(',').map(id => ({ open_id: id })) : [] };
+  const record = { event_id, summary, start, end, status: 'active', all_day: false, rrule: argOf('--rrule') ?? null, url: `https://example.feishu.cn/calendar/event/${event_id}`, attendees: attendeeIds ? attendeeIds.split(',').map(id => ({ open_id: id })) : [] };
   await appendFile(eventsPath, JSON.stringify(record) + '\n');
   ok({ event: { event_id, url: record.url, summary } });
 }
