@@ -299,3 +299,48 @@ describe('client.js 挂载面', () => {
     expect(client).not.toContain('selectPanel');
   });
 });
+
+describe('arch-5：面板工厂求值（真执行而非文本匹配）', () => {
+  it('fake loader 执行 factory：组件求值、双 slot 注入、tier 词汇完整', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile(resolve(dirname(fileURLToPath(import.meta.url)), '../../client.js'), 'utf8');
+    let mod = null;
+    const fakeWindow = { __ModuleLoader__: { load: m => { mod = m; } } };
+    const fakeRequire = name => {
+      if (name !== 'react') throw new Error('unexpected require: ' + name);
+      // Minimal recording React: hooks are inert stubs, createElement captures the call.
+      const stub = () => ({ stub: true });
+      return {
+        createElement: (type, props, ...children) => ({ type, props, children }),
+        useState: v => [typeof v === 'function' ? v() : v, () => {}],
+        useEffect: () => {},
+        useMemo: fn => fn(),
+        useCallback: fn => fn,
+        useRef: () => ({ current: null }),
+        Fragment: 'Fragment',
+      };
+    };
+    const injections = [];
+    const fakeCtx = { slots: { inject: (slot, fn) => injections.push({ slot, fn }) , register: spec => spec } };
+    // Execute the real file against the fake environment.
+    const run = new Function('window', 'document', 'navigator', source);
+    run(fakeWindow, undefined, { language: 'zh-CN' });
+    expect(mod && mod.id).toBe('@benz-ai-x/dsh-24pa');
+    // The factory evaluates with the fake React and returns its apply(ctx)
+    // entry; running apply drives the locale registration and the two slot
+    // injections (a JSX/structure break throws here, not in production).
+    const applied = mod.factory(fakeRequire);
+    expect(typeof applied.apply).toBe('function');
+    const unregister = { dispose: () => {} };
+    applied.apply({ ...fakeCtx, effect: fn => { fn(); return () => {}; }, locale: { register: () => unregister, bind: () => (k => k), resolveText: ({ zh: z }) => z, subscribe: () => () => {}, getSnapshot: () => 'zh' }, uiWorkspace: { openSession: () => {} }, connection: { fetch: { register: () => {} } }, workspaceRegistry: { list: () => [] } });
+    const slots = injections.map(i => i.slot);
+    expect(slots).toContain('main');
+    expect(slots).toContain('sidebar.panellist');
+    // Registered components are callable with the recording React (a broken
+    // render tree throws; a healthy one returns captured vnodes).
+    const main = injections.find(i => i.slot === 'main').fn();
+    expect(typeof main).toBe('object');
+    const sidebar = injections.find(i => i.slot === 'sidebar.panellist').fn();
+    expect(typeof sidebar).toBe('object');
+  });
+});

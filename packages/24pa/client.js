@@ -166,30 +166,38 @@ window.__ModuleLoader__.load({
         const roleName = id => WORKER_NAMES[id] ? L(...WORKER_NAMES[id]) : id;
         const ACTIVE_WORK = ['accepted', 'queued', 'running', 'waiting_input'];
 
-        function MemoryView({ workspace, openRobot }) {
-          const [draft, setDraft] = React.useState(''), [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0), [retry, setRetry] = React.useState(0);
+        // arch-5: the loading/ready/error triplet behind one hook. Views declare
+        // the rpc key, payload and deps; abort-on-unmount and retry come along.
+        const useRpc = (key, payload, deps) => {
+          const [retry, setRetry] = React.useState(0);
           const [view, setView] = React.useState({ status: 'loading', data: null, error: '' });
           React.useEffect(() => {
             const abort = new AbortController();
             setView({ status: 'loading', data: null, error: '' });
-            void rpc('memory', { query, offset }, abort.signal).then(data => {
+            void rpc(key, payload, abort.signal).then(data => {
               if (!abort.signal.aborted) setView({ status: 'ready', data, error: '' });
             }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
             return () => abort.abort();
-          }, [workspace.path, query, offset, retry]);
+          }, [...deps, retry]);
+          return [view, () => setRetry(v => v + 1)];
+        };
+
+        function MemoryView({ workspace, openRobot }) {
+          const [draft, setDraft] = React.useState(''), [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0);
+          const [view, retryFetch] = useRpc('memory', { query, offset }, [workspace.path, query, offset]);
           const categories = { preference: [L('个人偏好', 'Preference'), 'neutral'], fact: [L('事实', 'Fact'), 'neutral'], project: [L('项目', 'Project'), 'blue'], decision: [L('决定', 'Decision'), 'neutral'] };
-          const search = () => { setOffset(0); setQuery(draft.trim()); setRetry(v => v + 1); };
+          const search = () => { setOffset(0); setQuery(draft.trim()); };
           const clear = () => { setDraft(''); setQuery(''); setOffset(0); };
           const data = view.data;
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           return h('section', null,
             sectionHead('memory', null, L('记住你的偏好与背景，让每次交办更有默契。', 'Your preferences and background, remembered so every handoff lands better.'),
-              h('div', { className: 'pa24-row' }, button('refresh', L('刷新记忆', 'Refresh memories'), () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', L('通过对话维护记忆', 'Manage memories in chat'), openRobot)), 'neutral'),
+              h('div', { className: 'pa24-row' }, button('refresh', L('刷新记忆', 'Refresh memories'), retryFetch, { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', L('通过对话维护记忆', 'Manage memories in chat'), openRobot)), 'neutral'),
             h('div', { className: 'pa24-searchbar' },
               h('div', { className: 'pa24-search' }, icon('search'), h('input', { value: draft, placeholder: L('搜索正文、主题或来源…', 'Search content, topic, or source…'), 'aria-label': L('筛选记忆', 'Filter memories'), onChange: e => setDraft(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) search(); } })),
               button('search', L('筛选', 'Filter'), search), (draft || query) && button('close', L('查看全部', 'Show all'), clear, { className: 'pa24-quiet' })),
             view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取记忆内容…', 'Reading memories…')),
-            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('记忆读取失败', 'Failed to read memories'))), h('p', null, view.error), h('p', null, L('请在 dsh 的24私助会话中检查记忆文件，修复后重试。', 'Check the memory file in the 24PA dsh session and retry after fixing.')), button('refresh', L('重试读取', 'Retry read'), () => setRetry(v => v + 1))),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('记忆读取失败', 'Failed to read memories'))), h('p', null, view.error), h('p', null, L('请在 dsh 的24私助会话中检查记忆文件，修复后重试。', 'Check the memory file in the 24PA dsh session and retry after fixing.')), button('refresh', L('重试读取', 'Retry read'), retryFetch)),
             data && h('div', null,
               h('div', { className: 'pa24-result-meta', role: 'status' }, h('span', null, L('共 ' + data.total + L(' 条记忆', ' memories') + (query ? L(' · 匹配 ', ' · ') + data.matched + L(' 条', ' matched') : ''), data.total + (query ? ' memories (' + data.matched + ' matched)' : ' memories total'))), h('span', null, L('记忆版本 ' + data.revision, 'Memory revision ' + data.revision))),
               data.matched === 0 ? h('div', { className: 'pa24-card' }, empty('search', 'neutral', L('没有找到匹配的记忆', 'No matching memories'), L('试试更短的关键词，或清空筛选查看所有记忆。', 'Try shorter keywords, or clear the filter to see everything.'), button('close', L('清空筛选', 'Clear filter'), clear))) :
@@ -212,18 +220,9 @@ window.__ModuleLoader__.load({
         }
 
         function ReviewView({ workspace, openRobot }) {
-          const [view, setView] = React.useState({ status: 'loading', data: null, error: '' });
-          const [retry, setRetry] = React.useState(0);
+          const [view, retryFetch] = useRpc('notes.queue', {}, [workspace.path]);
           const [mode, setMode] = React.useState('pending');
           const [historyFilter, setHistoryFilter] = React.useState('all');
-          React.useEffect(() => {
-            const abort = new AbortController();
-            setView({ status: 'loading', data: null, error: '' });
-            void rpc('notes.queue', {}, abort.signal).then(data => {
-              if (!abort.signal.aborted) setView({ status: 'ready', data, error: '' });
-            }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
-            return () => abort.abort();
-          }, [workspace.path, retry]);
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           const tz = workspace.config ? workspace.config.timeZone : 'Asia/Shanghai';
           const verifyBadge = v => {
@@ -257,13 +256,13 @@ window.__ModuleLoader__.load({
                 h('p', { className: 'pa24-meta' }, L('需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。', 'For a later nudge, pausing follow-ups, or republishing a candidate, just tell 24PA.')))));
           return h('section', null,
             sectionHead('pen', null, L('拍照笔记的待审版本、审核记录与版本核验都在这里；批准或退回请在飞书审核卡上完成。', 'Pending versions, review history, and verification; approve or return on the Feishu review card.'),
-              button('refresh', L('刷新队列', 'Refresh queue'), () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'danger'),
+              button('refresh', L('刷新队列', 'Refresh queue'), retryFetch, { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'danger'),
             h('div', { className: 'pa24-example' }, icon('shield', { width: 16, height: 16 }), L('审核裁决只由你在飞书卡片上作出；本页面为只读查阅，不提供网页批准按钮。', 'Review verdicts are made by you on the Feishu card only; this page is read-only and has no approve button.')),
             h('div', { className: 'pa24-row', role: 'group', 'aria-label': L('审核视图', 'Review views'), style: { margin: '14px 0' } },
               button('tasks', L('待处理 ' + (view.data?.count ?? 0), 'Pending ' + (view.data?.count ?? 0)), () => setMode('pending'), { className: mode === 'pending' ? 'pa24-filter-active' : 'pa24-quiet', 'aria-pressed': mode === 'pending' }),
               button('clock', L('审核记录 ' + history.length, 'History ' + history.length), () => setMode('history'), { className: mode === 'history' ? 'pa24-filter-active' : 'pa24-quiet', 'aria-pressed': mode === 'history' })),
             view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取审核队列…', 'Reading the review queue…')),
-            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('审核队列读取失败', 'Failed to read the review queue'))), h('p', null, view.error), button('refresh', L('重试读取', 'Retry read'), () => setRetry(v => v + 1))),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('审核队列读取失败', 'Failed to read the review queue'))), h('p', null, view.error), button('refresh', L('重试读取', 'Retry read'), retryFetch)),
             view.status === 'ready' && mode === 'pending' && pending,
             view.status === 'ready' && mode === 'history' && h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('审核记录', 'Review history')),
@@ -574,9 +573,11 @@ window.__ModuleLoader__.load({
           const check = state.diagnostics;
           const cli = check ? check.cli : null;
           const auth = check ? check.auth : null;
+          // arch-5: the resource tier cascade has one home (resourceTierOf);
+          // diagnosis is only the badge rendering of it plus the unconfigured shell.
           const diagnosis = (item, configured = true) => !item
             ? statusBadge(configured ? 'unchecked' : 'missing')
-            : statusBadge(item.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(item.state) ? 'error' : item.state === 'missing' ? 'missing' : 'warn');
+            : statusBadge(resourceTierOf(item));
           const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + L(' 条', ' pending');
           const resourceRows = [['folder', L('文档目录', 'Docs folder'), config ? config.folderToken : null, 'folder'], ['wiki', L('知识库', 'Wiki node'), config ? config.wikiNodeToken : null, 'wiki'], ['tasklist', L('任务清单', 'Task list'), config ? config.tasklistId : null, 'tasks'], ['calendar', L('本人日历', 'Owner calendar'), config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
             const resource = check && check.resources ? check.resources.find(r => r.id === id) : null;
