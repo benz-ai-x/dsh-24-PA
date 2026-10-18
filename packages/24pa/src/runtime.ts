@@ -522,10 +522,14 @@ export class PaRuntime {
         },
         reminder_list: async () => this.reminders!.list(),
         reminder_cancel: async (args, item) => this.reminderCancel(item, String(args.ruleId ?? ''), String(args.reason ?? '')),
-        reminder_pause: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')),
-        reminder_resume: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')),
-        reminder_skip: async args => this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')),
-        reminder_snooze: async args => this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')),
+        // F45：delegated 行的账本侧生命周期操作如实拒绝（日历事件照常，
+        // 暂停/改期在 App 内或经日历更新进行）。
+        reminder_pause: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '暂停'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')); },
+        reminder_resume: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '恢复'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')); },
+        reminder_skip: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '跳过'); return this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')); },
+        reminder_snooze: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '稍后'); return this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')); },
+        reminder_pause_ledger: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')),
+        reminder_resume_ledger: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')),
         reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
         digest_enable: async args => this.digest.digestEnable(args),
         digest_control: async args => this.digest.digestControl(args),
@@ -2015,6 +2019,15 @@ export class PaRuntime {
       ...(rrule ? { rrule } : {}),
       message: `提醒已写入${this.config!.calendarChannel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；到点由对应 App 原生日程提醒（默认提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
     };
+  }
+
+  /** F45：delegated 行不参与账本侧暂停/恢复/跳过/稍后——如实拒绝并指引。 */
+  private async rejectDelegated(ruleId: string, op: string): Promise<unknown> {
+    const rule = await this.repos!.reminders.getRule(ruleId);
+    if (rule?.status === 'delegated') {
+      throw new Error(`该提醒已日程化（App 原生提醒），账本侧「${op}」不适用；请在对应日历 App 内操作，或让我更新/删除该日程事件。`);
+    }
+    return undefined;
   }
 
   /** F45：取消——delegated 行同步取消日历事件，其余走账本引擎。 */

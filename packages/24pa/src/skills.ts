@@ -335,7 +335,9 @@ export class SkillCatalog {
   /** 全目录（内置＋工作区自定义）；宿主目录缺席时回落内置件。 */
   async list(): Promise<TaskSkill[]> {
     if (!this.registry) {
-      return this.builtinAll().map(s => ({ name: s.name, description: s.description, track: s.metadata.track === 'template' ? 'template' : 'agent', source: 'builtin', kind: typeof s.metadata.kind === 'string' ? s.metadata.kind : undefined }));
+      return this.builtinAll()
+        .map(s => ({ name: s.name, description: s.description, track: (s.metadata.track === 'template' ? 'template' : 'agent') as SkillTrack, source: 'builtin', kind: typeof s.metadata.kind === 'string' ? s.metadata.kind : undefined }))
+        .filter(s => !s.name.startsWith('worker-persona-') && !s.name.endsWith('-setup-flow'));
     }
     const raw = await this.registry.list({ cwd: this.cwd() ?? undefined });
     // list() 的 SkillSummary 不带 metadata（track/kind 在 get() 的 Definition）——
@@ -352,9 +354,13 @@ export class SkillCatalog {
     const builtins = this.builtinAll().filter(s => !seen.has(s.name)).map(s => ({ name: s.name, description: s.description, provider: 'runtime', metadata: s.metadata }));
     // spec 2.11：计划绑定面＝内置＋工作区（project-dsh）；用户全局目录
     // （user-dsh/user-agents）是主人自己的 agent 技能库，不进周期任务下拉。
+    const isBindable = (s: { name: string; source: string; track: SkillTrack }) =>
+      // spec 2.11 计划绑定面＝任务 skill：排除 persona 件（F42 内部指令）与
+      // 向导件（F43 接入流程）；工作区 project-dsh 同名仍可覆盖内置任务件。
+      !s.name.startsWith('worker-persona-') && !s.name.endsWith('-setup-flow') && (s.source === 'builtin' || s.source === 'project-dsh');
     return [...entries, ...builtins]
       .map(e => this.toTaskSkill(e))
-      .filter(s => s.source === 'builtin' || s.source === 'project-dsh');
+      .filter(isBindable);
   }
 
   /** 按 kebab-case 名校验存在性；返回 null＝目录中无此名。 */
@@ -364,7 +370,9 @@ export class SkillCatalog {
 
   /** F42：Worker 职责 persona（skill 正文；simple 变体随路由）。缺省 null＝回退调用方。 */
   async workerPersona(role: string, simple = false): Promise<string | null> {
-    return this.content(`worker-persona-${role}${simple ? '-simple' : ''}`) ?? this.builtinAll().find(s => s.name === `worker-persona-${role}${simple ? '-simple' : ''}`)?.content ?? null;
+    // 内置正文优先（零 IO，Worker 启动热路径）；registry 仅作同名覆盖扩展位。
+    const name = `worker-persona-${role}${simple ? '-simple' : ''}`;
+    return this.builtinAll().find(s => s.name === name)?.content ?? this.content(name);
   }
 
   /** 指定 skill 的完整 frontmatter metadata（registry 优先；缺省空对象）。 */
@@ -389,6 +397,6 @@ export class SkillCatalog {
   async content(name: string): Promise<string | null> {
     const loaded = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
     if (loaded?.content) return loaded.content;
-    return BUILTIN_TASK_SKILLS.find(s => s.name === name)?.content ?? null;
+    return this.builtinAll().find(s => s.name === name)?.content ?? null;
   }
 }
