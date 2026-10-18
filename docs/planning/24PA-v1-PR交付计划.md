@@ -53,12 +53,12 @@ F06 是最早可实际使用的手写完整流程：收图、识别、写文档�
 | F19 晨报复盘语音投递 | [P51 / #72](https://github.com/benz-ai-x/dsh-24-PA/issues/72)（故事 126，2.3 修订，研究见 [F19 研究](../research/F19-晨报复盘语音投递实现研究.md)） | F01–F12 全部合并（建议排 F16 之后：同改 outbox 投递分派） | AGENTS.md `tts` 配置块二选一引擎（Melo 本地＝子进程 sherpa-onnx＋ffmpeg、需 `meloDir`；豆包云＝HTTP unidirectional、需 `volcKeyEnv` 环境变量引用＋音色）后：digest 计划开启 voice（per-plan，`digest_control` 可调）到点先送达合成的原生语音消息（bot 身份经 lark-cli --audio），紧跟全文文本兜底；语音正文为口播变体（剥离元数据行）并截断上限；引擎未配置/缺依赖/合成失败降级文本不中断；面板语音设置区（预检/测试语音）；初始化指南补 TTS 前置项（含豆包控制台两坑）。 |
 | F23 接入绑定体验 | [P55 / #80](https://github.com/benz-ai-x/dsh-24-PA/issues/80)（故事 129，研究见 [F23 研究](../research/F23-接入绑定体验实现研究.md)） | F01–F12 全部合并（F15/F16 向导已交付） | 新向导「先全量、后集中」：配置开始即交付本人操作全量清单＋提前发起的授权链接，一口气做完一次集中验收（往返 N → ≈2）；本人报完成后 agent 自动循环 check/wecom_check 按 nextSteps 收敛一次汇总；wecom 服务授权失效（850002/850003）经通知渠道主动推送续期链接。面板承载 QR/Secret 输入后置另立项。 |
 | F20 设置单入口与企微接入模块 | [P52 / #73](https://github.com/benz-ai-x/dsh-24-PA/issues/73)（故事 124 修订＋127，已交付 PR #74） | F01–F12 全部合并（F16 渠道已交付） | dsh 设置单入口收编工作区配置（故事 124 修订）；面板「企微接入」模块：渠道配置（日程/待办/推送各自 feishu 或 wecom）、CLI 与授权真人身份、服务级授权状态（通过/未授权/已过期/企业不可用）与平台续期指引原文，一键发起只读检查。 |
-| F40 产品 skill 化地基＋晨报卡配置面 | P61（故事 142） | F01–F12 全部合并 | profile 挂 dsh-skill 三包；内置三任务 skill（模板轨）；`digest_plan.skill`（迁移 v13）；晨报复盘卡时间内联编辑/语音开关/skill 选择/立即运行一次（`digest.reschedule/set-skill/run-now`）。 |
-| F41 自定义任务 skill 与计划迁移 | P62（故事 143） | F40 合并 | 工作区 `skills/*.md` 自定义 skill 走 agent 轨（planningFacts 输入＋skill 完成标准验收）；会前准备等既有计划迁移；权限只收紧。 |
-| F42 Worker persona 迁 skill | P63（故事 144） | F40 合并 | 六角色 persona 自内置提示词源迁 runtime 注册的内置 skill（行为等价＋快照随迁；simplePersona 为 skill 变体）。 |
-| F43 接入向导 skill 化 | P64（故事 144） | F40 合并 | feishu-setup/wecom-setup 成为接入 skill 正文，agent 按其执行一次交付＋自动验收（F15/F23 口径不回退）。 |
-| F44 业务工作流 skill 化 | P65（故事 144） | F40、F41 合并 | 备忘审核流/手写管线行为参数经 skill 可调；自定义业务 skill 受控放行（权限平台层强制）。 |
-| F45 提醒日程化（ADR-0001 修订） | P66（故事 145＋54 修订） | F40 合并 | 时钟型提醒＝skill 按 `calendarChannel` 写飞书/企微带提醒日程→App 原生提醒；账本降级备份；非时钟型归智能 skill；F05 引擎退役；立票首项＝cli 日程提醒字段核验。 |
+| F40 产品 skill 化地基＋晨报卡配置面 | P61（故事 142，已交付 PR #142＋rc.2.9） | F01–F12 全部合并 | profile 挂 dsh-skill 三包；内置三任务 skill（模板轨）；`digest_plan.skill`（迁移 v13）；晨报复盘卡时间内联编辑/语音开关/skill 选择/立即运行一次（`digest.reschedule/set-skill/run-now`）。 |
+| F41 自定义任务 skill 与计划迁移 | P62（故事 143，已交付 PR #142＋rc.2.9） | F40 合并 | 工作区 `skills/*.md` 自定义 skill 走 agent 轨（planningFacts 输入＋skill 完成标准验收）；会前准备等既有计划迁移；权限只收紧。 |
+| F42 Worker persona 迁 skill | P63（故事 144，已交付 PR #143＋rc.2.9） | F40 合并 | 六角色 persona 自内置提示词源迁 runtime 注册的内置 skill（行为等价＋快照随迁；simplePersona 为 skill 变体）。 |
+| F43 接入向导 skill 化 | P64（故事 144，已交付 PR #143＋rc.2.9） | F40 合并 | feishu-setup/wecom-setup 成为接入 skill 正文，agent 按其执行一次交付＋自动验收（F15/F23 口径不回退）。 |
+| F44 业务工作流 skill 化 | P65（故事 144，已交付 PR #142＋rc.2.9） | F40、F41 合并 | 备忘审核流/手写管线行为参数经 skill 可调；自定义业务 skill 受控放行（权限平台层强制）。 |
+| F45 提醒日程化（ADR-0001 修订） | P66（故事 145＋54 修订，已交付 PR #143＋rc.2.9，真机 8010 验收含 wecom 日历路由） | F40 合并 | 时钟型提醒＝skill 按 `calendarChannel` 写飞书/企微带提醒日程→App 原生提醒；账本降级备份；非时钟型归智能 skill；F05 引擎退役；立票首项＝cli 日程提醒字段核验。 |
 | F21 面板 UI/UX 走查修复 | [P53 / #75](https://github.com/benz-ai-x/dsh-24-PA/issues/75)（已交付 PR #76） | F01–F12 全部合并 | 面板走查三根因修复（黑屏级联防护、连接状态误显、加载态/空态/错误态补齐）＋149 单测＋逐屏视觉验证。 |
 | F34 面板走查修复第二轮 | [P66 / #124](https://github.com/benz-ai-x/dsh-24-PA/issues/124)（故事 138，规格 2.5） | F33 合并 | 表单 JSX 嵌套 bug 归位（保存栏 sticky 全程贴底、存储/TTS 独立分组）＋保存反馈随保存栏＋健康/角标口径单位化＋接入进度行与注意态描边＋管理态 Esc/轻反馈/完成样式＋表单双语 label 与三态文案＋深色对比度校准（layer-2/3 令牌链上 color-mix 提亮）；宿主语言翻转以调查结论＋上游建议交付（#124 评论）。 |
 | F35 工作区管理迁回主面板 | [P67 / #126](https://github.com/benz-ai-x/dsh-24-PA/issues/126)（故事 139，故事 124 再修订，规格 2.6） | F34 合并 | 设置模态「24私助」分区撤销（settings.section 注入移除）；主面板「系统维护」新增「工作区与配置」卡（tier 已绑定 ok/未绑定 missing），详情复用 WorkspaceCards（绑定/切换＋生效配置/重载）＋HealthBlock（健康预算），RPC 零新增；空态文案指向同分类。 |
