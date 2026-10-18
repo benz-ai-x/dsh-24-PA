@@ -340,7 +340,10 @@ window.__ModuleLoader__.load({
             setView({ status: 'loading', data: null, error: '' });
             void rpc('health', {}).then(data => setView({ status: 'ready', data, error: '' })).catch(error => setView({ status: 'error', data: null, error: error.message }));
           };
-          const badgeOfCap = c => statusBadge(['ok', 'warn', 'error'].includes(c.state) ? c.state : 'unchecked');
+          // F39: info 档按能力位配词——tts＝预检未跑、calendar-sync＝同步未运行，
+          // 都不是「检查未做」；lark-cli 的 info（检查未发起）维持「尚未检查」。
+          const INFO_WORDS = { tts: ['未预检', 'Not probed'], 'calendar-sync': ['未运行', 'Not run yet'] };
+          const badgeOfCap = c => statusBadge(['ok', 'warn', 'error'].includes(c.state) ? c.state : 'unchecked', c.state === 'info' && INFO_WORDS[c.id] ? L(...INFO_WORDS[c.id]) : undefined);
           const capName = id => ({
             'vision-route': L('手写视觉路由', 'Handwriting vision route'), 'lark-cli': L('飞书 CLI', 'Feishu CLI'), 'calendar-sync': L('日历同步', 'Calendar sync'),
             'wecom-cli': L('企业微信 CLI', 'WeCom CLI'), tts: L('语音引擎', 'Voice engine'), 'extra-local-tools': L('本地工具扩展', 'Local tool extensions'), 'qwennote-channel': L('听记通道', 'Minutes channel'),
