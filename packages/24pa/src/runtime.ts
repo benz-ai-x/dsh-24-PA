@@ -6,7 +6,7 @@ import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, Con
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
-import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow } from './repo.js';
+import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, rawAgentsMdConfig, replaceAgentsMdConfig, validateConfig, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
@@ -3503,8 +3503,28 @@ export class PaRuntime {
     // CLI presence + authorization verdict from the last access inspection
     // (on-demand only; no platform calls happen for this report).
     capabilities.push({ id: 'lark-cli', state: this.diagnostics ? (this.diagnostics.auth?.state === 'ok' ? 'ok' : this.diagnostics.auth?.state === 'error' ? 'error' : 'warn') : 'info', message: this.diagnostics ? `最近检查：${this.diagnostics.auth?.message ?? '未见授权结论'}${this.diagnostics.auth?.state === 'unverified' || this.diagnostics.auth?.state === 'error' ? '；授权失效请在服务器重新执行 lark-cli 授权后再检查' : ''}` : '尚未执行接入检查（用 pa24_connection check 发起只读检查）' });
-    const calendarState = await this.repos?.calendar.getSync(config?.calendarChannel === 'wecom' ? WECOM_CALENDAR_ID : this.config!.calendarId).catch(() => null);
-    capabilities.push({ id: 'calendar-sync', state: calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'error', message: calendarState ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}（渠道 ${config?.calendarChannel ?? 'feishu'}）` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`) : '日历同步状态不可读取' });
+    // F38: calendar-sync 三态——「从未同步」（无状态行，首运行前的正常状态）
+    // 是 info，「读取失败」（查询异常）才是 error；两者此前坍缩成同一句
+    // 假红「不可读取」（8010/3080 常年误报）。catch 记 message 不吞。
+    const calendarChannel = config?.calendarChannel ?? 'feishu';
+    let calendarState: CalendarSyncRow | null = null;
+    let calendarError = '';
+    if (this.repos) {
+      try {
+        calendarState = await this.repos.calendar.getSync(calendarChannel === 'wecom' ? WECOM_CALENDAR_ID : this.config!.calendarId);
+      } catch (error) {
+        calendarError = (error as Error).message;
+      }
+    }
+    capabilities.push({
+      id: 'calendar-sync',
+      state: calendarError ? 'error' : calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'info',
+      message: calendarError
+        ? `日历同步状态读取失败：${calendarError}`
+        : calendarState
+          ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}（渠道 ${calendarChannel}）` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`)
+          : `尚未执行日历投影同步（渠道 ${calendarChannel}）——日程域首次运行后建立`,
+    });
     // F16: wecom channel health mirrors the lark-cli pattern — verdict comes
     // from the last on-demand wecom_check; no platform calls happen here.
     if (config && (config.calendarChannel === 'wecom' || config.todoChannel === 'wecom' || config.notifyChannel === 'wecom')) {
