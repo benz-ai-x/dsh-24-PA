@@ -1607,6 +1607,8 @@ export interface DigestPlanRow {
   last_window: string | null;
   /** F19（spec 2.3）：本计划是否投递语音版（引擎取工作区 tts 配置）。 */
   voice: boolean;
+  /** F40（spec 2.11）：绑定的任务 skill 名（内置 digest-* 或工作区自定义）。 */
+  skill: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -1637,9 +1639,9 @@ export class DigestRepo {
 
   async insertPlan(row: Omit<DigestPlanRow, 'created_at' | 'updated_at'>): Promise<DigestPlanRow> {
     const result = await this.db.query<DigestPlanRow>(
-      `insert into pa24.digest_plan (id, kind, title, schedule_id, session_id, schedule_spec, status, last_window, voice)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *`,
-      [row.id, row.kind, row.title, row.schedule_id, row.session_id, JSON.stringify(row.schedule_spec), row.status, row.last_window, row.voice],
+      `insert into pa24.digest_plan (id, kind, title, schedule_id, session_id, schedule_spec, status, last_window, voice, skill)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
+      [row.id, row.kind, row.title, row.schedule_id, row.session_id, JSON.stringify(row.schedule_spec), row.status, row.last_window, row.voice, row.skill],
     );
     return result.rows[0]!;
   }
@@ -1649,7 +1651,7 @@ export class DigestRepo {
     return result.rows[0] ?? null;
   }
 
-  async updatePlan(id: string, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'last_window' | 'title' | 'voice'>>): Promise<DigestPlanRow | null> {
+  async updatePlan(id: string, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'last_window' | 'title' | 'voice' | 'skill'>>): Promise<DigestPlanRow | null> {
     const sets = ['updated_at = now()'];
     const values: unknown[] = [id];
     digestPatch(sets, values, patch, ['schedule_spec']);

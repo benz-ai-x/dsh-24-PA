@@ -17,6 +17,17 @@ import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, typ
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
+import { SkillCatalog } from './skills.js';
+
+/** dsh-skill 未挂载时 ctx.skills 是 cordis 惰性服务 getter（读即抛「without
+ * inject」），防御性探测必须 try/catch 而非可选链。 */
+function hostSkillRegistry(ctx: DshContext): ConstructorParameters<typeof SkillCatalog>[0] {
+  try {
+    return (ctx as unknown as { skills?: ConstructorParameters<typeof SkillCatalog>[0] }).skills ?? null;
+  } catch {
+    return null;
+  }
+}
 import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
 
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
@@ -235,6 +246,9 @@ export class PaRuntime {
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  supervise/overview behind one deep module; F19 voice delivery extends
    *  here. The runtime keeps role bindings and the follow-up tick. */
+  /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置三件。 */
+  private readonly skillCatalog: SkillCatalog;
+
   private readonly digest = new DigestService({
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
@@ -247,6 +261,7 @@ export class PaRuntime {
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
     calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
     currentFingerprint: (noteId, docId, row) => this.handwriting.currentFingerprint(noteId, docId, row),
+    skillCatalog: () => this.skillCatalog,
   });
 
   /** Panel surface (digest.supervise action): stable runtime face (F32). */
@@ -255,8 +270,25 @@ export class PaRuntime {
   }
 
   async digestPlans(): Promise<unknown> {
-    if (!this.repos) return { plans: [] };
-    return this.digest.digestList();
+    if (!this.repos) return { plans: [], skills: await this.skillCatalog.list() };
+    return { ...((await this.digest.digestList()) as Record<string, unknown>), skills: await this.skillCatalog.list() };
+  }
+
+  /** F40（spec 2.11）：面板三动作——改时间/换 skill/立即运行一次。 */
+  async digestReschedule(args: Record<string, unknown>): Promise<unknown> {
+    return this.digest.digestControl({ ...args, op: 'adjust' });
+  }
+
+  async digestSetSkill(args: Record<string, unknown>): Promise<unknown> {
+    return this.digest.digestControl({ ...args, op: 'skill' });
+  }
+
+  async digestSetVoice(args: Record<string, unknown>): Promise<unknown> {
+    return this.digest.digestControl({ ...args, op: 'voice', voice: args.voice !== false });
+  }
+
+  async digestRunNow(planId: string): Promise<unknown> {
+    return this.digest.digestRunNow(planId);
   }
   private dispatching = false;
   private outboxSending = false;
@@ -271,6 +303,8 @@ export class PaRuntime {
   constructor(ctx: DshContext, options: RuntimeOptions) {
     this.ctx = ctx;
     this.options = options;
+    this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx));
+    this.skillCatalog.registerBuiltins();
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
     BUILTIN_ROLE_IDS = this.roles.list().map(r => r.id);
@@ -2907,6 +2941,7 @@ export class PaRuntime {
       status: 'active',
       last_window: null,
       voice: false,
+      skill: '',
     });
     return {
       planId: id,

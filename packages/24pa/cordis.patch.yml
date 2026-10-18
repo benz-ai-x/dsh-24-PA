@@ -165,3 +165,9 @@
         workspacePath: !!js process.env.PA24_WORKSPACE || ''
         larkCliBin: lark-cli
         wecomCliBin: wecom-cli
+    - id: pa24-skill-registry
+      name: '@deepseek-ai/dsh-skill'
+    - id: pa24-skill-filesystem
+      name: '@deepseek-ai/dsh-skill-filesystem'
+    - id: pa24-skill-tool
+      name: '@deepseek-ai/dsh-tool-skill'

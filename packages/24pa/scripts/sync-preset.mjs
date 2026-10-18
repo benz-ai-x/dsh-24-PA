@@ -219,7 +219,21 @@ function applyPa24Delta(doc) {
   const hostRow = createRow(doc, { id: 'pa24', name: '@benz-ai-x/dsh-24pa' });
   hostRow.set('config', hostConfig);
   presetInsert.items.push(hostRow);
+
+  // F40（spec 2.11）：任务 skill 体系三包——注册表＋文件发现（工作区 .dsh/skills/）
+  // ＋模型侧 skill 工具。宿主 dsh 包自带（rc.2 起），profile 行使其装载；插件
+  // 代码对 ctx.skills 的访问是防御性的，未挂载时目录回落内置三件。
+  for (const id of ['pa24-skill-registry', 'pa24-skill-filesystem', 'pa24-skill-tool']) {
+    presetInsert.items.push(createRow(doc, SKILL_STACK_ROWS[id]));
+  }
 }
+
+/** F40：skill 体系三行的固定定义（行 id 稳定，name 锁包名）。 */
+const SKILL_STACK_ROWS = {
+  'pa24-skill-registry': { id: 'pa24-skill-registry', name: '@deepseek-ai/dsh-skill' },
+  'pa24-skill-filesystem': { id: 'pa24-skill-filesystem', name: '@deepseek-ai/dsh-skill-filesystem' },
+  'pa24-skill-tool': { id: 'pa24-skill-tool', name: '@deepseek-ai/dsh-tool-skill' },
+};
 
 /** Generate the pa24 cordis.patch.yml text from the standard preset text. */
 export function generatePa24Patch(standardText, baselineVersion) {

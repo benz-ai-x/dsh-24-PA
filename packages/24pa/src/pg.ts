@@ -435,6 +435,15 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `alter table pa24.digest_plan add column if not exists voice boolean not null default false`,
     ],
   },
+  {
+    // F40 (spec 2.11): plan→task-skill binding; existing rows map to the
+    // builtin template-track skill of their kind.
+    version: 13,
+    statements: [
+      `alter table pa24.digest_plan add column if not exists skill text not null default ''`,
+      `update pa24.digest_plan set skill = 'digest-' || kind where skill = '' and kind in ('morning', 'evening', 'weekly')`,
+    ],
+  },
 ];
 
 export interface PaPoolOptions {

@@ -39,6 +39,10 @@ export const PANEL_RPC = {
     notesPoll: 'notes.poll',
     notesRemindPoll: 'notes.remind-poll',
     digestSupervise: 'digest.supervise',
+    digestReschedule: 'digest.reschedule',
+    digestSetSkill: 'digest.set-skill',
+    digestSetVoice: 'digest.set-voice',
+    digestRunNow: 'digest.run-now',
     ttsProbe: 'tts.probe',
     ttsTest: 'tts.test',
     robotOpen: 'robot.open',
@@ -150,6 +154,10 @@ async function action(runtime: PaRuntime, payload: PanelAction): Promise<unknown
     const graceMs = Number(payload.graceMs);
     return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : DIGEST_UNCONFIRMED_GRACE_MS);
   }
+  if (type === A.digestReschedule) return runtime.digestReschedule(payload as Record<string, unknown>);
+  if (type === A.digestSetSkill) return runtime.digestSetSkill(payload as Record<string, unknown>);
+  if (type === A.digestSetVoice) return runtime.digestSetVoice(payload as Record<string, unknown>);
+  if (type === A.digestRunNow) return runtime.digestRunNow(String(payload.planId ?? ''));
   if (type === A.ttsProbe) return runtime.ttsProbe();
   if (type === A.ttsTest) return runtime.ttsTestSend();
   if (type === A.robotOpen) return { sessionId: await runtime.openLocalSession() };

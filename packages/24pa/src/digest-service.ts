@@ -21,6 +21,8 @@ export interface DigestDeps extends SharedChannelDeps {
   syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }>;
   calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown>;
   currentFingerprint(noteId: string, docId: string, versionRow?: { id: string; content: any } | null): Promise<string>;
+  /** F40（spec 2.11）：任务 skill 目录（宿主挂载时含工作区自定义）。 */
+  skillCatalog(): import('./skills.js').SkillCatalog;
 }
 
 export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
@@ -99,6 +101,11 @@ export class DigestService {
     const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
     const schedule = this.deps.nativeSchedule();
     if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务，无法建立智能计划。');
+    // F40（spec 2.11）：绑定任务 skill；缺省按类型映射内置三件，点名需在目录中且为模板轨（agent 轨随 F41）。
+    const skill = args.skill ? String(args.skill) : kind === 'once' ? 'digest-morning' : `digest-${kind}`;
+    const catalogSkill = await this.deps.skillCatalog().find(skill);
+    if (!catalogSkill) throw new Error(`任务 skill 不存在：${skill}；可用清单见 digest_list 或面板。`);
+    if (catalogSkill.track !== 'template') throw new Error(`任务 skill ${skill} 为 agent 轨，周期执行支持随后续版本交付。`);
     const title = { morning: '晨报', evening: '晚间回顾', weekly: '每周回顾', once: '一次性简报' }[kind]!;
     const id = `dig-${kind === 'once' ? 'once-' + randomUUID().slice(0, 8) : kind + '-' + hash(this.deps.workspace()!.statePath + kind).slice(0, 8)}`;
     const existing = await this.deps.repos().digests.getPlan(id);
@@ -130,9 +137,11 @@ export class DigestService {
       last_window: null,
       // F19：开启时可选语音版（引擎取工作区 tts 配置，默认文本）。
       voice: args.voice === true,
+      skill,
     });
     return {
       planId: plan.id,
+      skill,
       scheduleId: plan.schedule_id,
       nextDueAt: (created as { scheduledAt?: string }).scheduledAt ?? null,
       message: `${title}计划已开启（原生 Schedule 持久入队，绑定飞书接入会话）；到点唤醒 Lead 委派简报 Worker。`,
@@ -161,6 +170,15 @@ export class DigestService {
         nativeWarning,
         message: `${op === 'pause' ? '计划已暂停' : '计划已停止'}（业务历史保留）${nativeWarning ? `；注意：${nativeWarning}` : ''}。`,
       };
+    }
+    if (op === 'skill') {
+      // F40（spec 2.11）：per-plan 任务 skill 切换（须在目录中；agent 轨随后续版本）。
+      const skill = String(args.skill ?? '');
+      const catalogSkill = await this.deps.skillCatalog().find(skill);
+      if (!catalogSkill) throw new Error(`任务 skill 不存在：${skill}；可用清单见 digest_list 或面板。`);
+      if (catalogSkill.track !== 'template') throw new Error(`任务 skill ${skill} 为 agent 轨，周期执行支持随后续版本交付。`);
+      await this.deps.repos().digests.updatePlan(plan.id, { skill });
+      return { planId: plan.id, skill, message: `本计划任务 skill 已切换为 ${skill}。` };
     }
     if (op === 'voice') {
       // F19（spec 2.3）：per-plan 语音开关（引擎取工作区 tts 配置）。
@@ -206,7 +224,7 @@ export class DigestService {
       await this.deps.repos().digests.updatePlan(plan.id, { status: 'active', schedule_id: String(created.id), schedule_spec: request });
       return { planId: plan.id, scheduleId: String(created.id), message: '计划已按新安排调整（同一计划保留历史，只影响以后）。' };
     }
-    throw new Error('未知计划操作（pause/resume/stop/adjust/voice）。');
+    throw new Error('未知计划操作（pause/resume/stop/adjust/voice/skill）。');
   }
 
   async digestList(): Promise<unknown> {
@@ -223,6 +241,7 @@ export class DigestService {
         schedule: plan.schedule_spec,
         lastWindow: plan.last_window,
         voice: plan.voice,
+        skill: plan.skill,
         recent: occurrences.map(o => ({ window: o.window_key, status: o.status, completedAt: isoDate(o.completed_at) })),
       });
     }
@@ -322,12 +341,31 @@ export class DigestService {
     if (!created && row.status === 'model_done') {
       return { planId, windowKey, reused: true, status: row.status, message: `本窗口（${windowKey}）简报已生成，不重复发布。` };
     }
-    const facts = await this.planningFacts(new Date());
-    const report = this.renderDigest(plan, windowKey, facts);
+    const { facts, report, outboxKey } = await this.buildAndDeliver(plan, windowKey, row.id);
     await this.deps.repos().digests.updateOccurrence(row.id, { status: 'model_done', report: { facts, report }, completed_at: new Date() });
     await this.deps.repos().digests.updatePlan(plan.id, { last_window: windowKey });
-    const outboxKey = `digest:${row.id}`;
+    await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey, outboxKey } });
+    return { planId, windowKey, outboxKey, message: '简报已生成并入发送队列（Outbox 持久，平台接受状态以发送记录为准）。' };
+  }
+
+  /**
+   * F40（spec 2.11）：按 plan.skill 解析渲染口径并投递。内置模板轨 skill 的
+   * metadata.kind 决定 renderDigest 口径（如 morning 计划绑 digest-weekly 则按
+   * 周报渲染）；agent 轨执行随 F41——在此 fail-loud，不静默换轨。
+   */
+  private async buildAndDeliver(plan: import('./repo.js').DigestPlanRow, windowKey: string, occurrenceId: string): Promise<{ facts: DigestFacts; report: string; outboxKey: string }> {
+    const boundSkill = plan.skill ? await this.deps.skillCatalog().find(plan.skill) : null;
+    if (plan.skill && !boundSkill) {
+      throw new Error(`计划绑定的任务 skill ${plan.skill} 已不在目录中（可能被删除）；用 digest_control op=skill 重绑或恢复该 skill。`);
+    }
+    if (boundSkill && boundSkill.track !== 'template') {
+      throw new Error(`计划绑定的任务 skill ${plan.skill} 为 agent 轨，周期执行支持随后续版本交付；用 digest_control op=skill 切回模板轨。`);
+    }
+    const renderKind = boundSkill?.kind ?? plan.kind;
     const config = this.deps.config();
+    const facts = await this.planningFacts(new Date());
+    const report = this.renderDigest({ ...plan, kind: renderKind }, windowKey, facts);
+    const outboxKey = `digest:${occurrenceId}`;
     if (config.notifyChannel === 'wecom' || config.ownerOpenId) {
       // F19（spec 2.3）：plan.voice 且引擎可用时，先入语音行（口播正文、投递时
       // 现场合成），全文文本行紧随其后兜底。wecom 通知通道与 tts.engine=none
@@ -350,10 +388,26 @@ export class DigestService {
       await this.deps.notifyOwner(outboxKey, report);
       // model_done = model work finished and the send intent is durably
       // queued; platform acceptance is the outbox row's own state (P24 区分).
-      await this.deps.repos().digests.updateOccurrence(row.id, { status: 'model_done', outbox_key: outboxKey });
+      await this.deps.repos().digests.updateOccurrence(occurrenceId, { status: 'model_done', outbox_key: outboxKey });
     }
-    await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey, outboxKey } });
-    return { planId, windowKey, outboxKey, message: '简报已生成并入发送队列（Outbox 持久，平台接受状态以发送记录为准）。' };
+    return { facts, report, outboxKey };
+  }
+
+  /**
+   * F40「立即运行一次」：以 manual-<ts> 窗口键执行当前 skill 口径，不占用当日
+   * 计划窗口（08:00 照常触发），不落 WorkItem（面板发起，无事项上下文）。
+   */
+  async digestRunNow(planId: string): Promise<unknown> {
+    const plan = await this.deps.repos().digests.getPlan(planId);
+    if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
+    const windowKey = `manual-${Date.now()}`;
+    const { created, row } = await this.deps.repos().digests.claimOccurrence({ planId: plan.id, windowKey });
+    if (!created && row.status === 'model_done') {
+      return { planId, windowKey, reused: true, message: '本次手动运行已生成过，不重复发布。' };
+    }
+    const { outboxKey } = await this.buildAndDeliver(plan, windowKey, row.id);
+    return { planId, windowKey, outboxKey, message: '已生成并入发送队列（手动运行不占用计划窗口）。' };
   }
 
   renderDigest(

@@ -246,6 +246,23 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     const voiced = await waitToolResult('pa24_work', '语音版', '语音开关回执', 60_000, before);
     expect(voiced).toContain('全文文本兜底');
     expect((await rows(`select voice from pa24.digest_plan where id='${planId}'`))[0].voice).toBeTruthy();
+    // F40（spec 2.11）：任务 skill 绑定＋面板三动作（改时间/换 skill/立即运行一次）
+    const view = await host.api('digests');
+    const current = view.plans.find(p => p.planId === planId);
+    expect(current.skill).toBe('digest-evening');
+    expect(view.skills.map(s => s.name)).toContain('digest-morning');
+    const swapped = await host.api('action', { type: 'digest.set-skill', planId, skill: 'digest-weekly' });
+    expect(swapped.skill).toBe('digest-weekly');
+    await expect(host.api('action', { type: 'digest.set-skill', planId, skill: 'ghost' })).rejects.toThrow(/不存在/);
+    const rescheduled = await host.api('action', { type: 'digest.reschedule', planId, kind: 'evening', time: '21:30:00' });
+    expect(rescheduled.planId).toBe(planId);
+    expect(rescheduled.scheduleId).toBeTruthy();
+    expect(JSON.stringify((await host.api('digests')).plans.find(p => p.planId === planId).schedule)).toContain('21:30:00');
+    const runNow = await host.api('action', { type: 'digest.run-now', planId });
+    expect(runNow.windowKey).toMatch(/^manual-\d+$/);
+    await waitOutbox(`${runNow.outboxKey}`, '手动运行投递', 90_000);
+    // 手动窗口不占用计划窗口：当日窗口键仍为本地日期
+    expect(runNow.windowKey).not.toBe(current.recent?.[0]?.window ?? '');
   });
 
   it('P24/P25：once 晨报经原生 Schedule 唤醒 Lead→digest Worker→Outbox，事实与建议分离', async () => {
