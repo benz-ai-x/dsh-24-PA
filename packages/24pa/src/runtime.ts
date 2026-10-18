@@ -29,7 +29,7 @@ import {
   workspaceRulesSection,
 } from './prompts.js';
 import { MemoryStore, type MemoryChange } from './memory.js';
-import { ReminderEngine, ReminderError, type SilencePolicy } from './reminders.js';
+import { ReminderEngine, ReminderError, firstOccurrence, type SilencePolicy } from './reminders.js';
 import {
   createEveryScheduleRecord,
   createDailyScheduleRecord,
@@ -470,7 +470,19 @@ export class PaRuntime {
       brief: WORKER_PROMPTS.reminders.brief,
       available: true,
       actions: {
-        reminder_create: async args => {
+        reminder_create: async (args, item) => {
+          // F45（spec 2.11，ADR-0001 修订）：时钟型提醒＝带提醒的日程写入
+          // calendarChannel 所选渠道，由对应 App 原生提醒（默认提前 5 分钟）；
+          // 账本只留 delegated 备份行（面板视图/历史/防重）。跟随来源型
+          // （linkTaskGuid/linkEventId）继续账本引擎——它依赖任务/日程状态联动，
+          // 属条件型，智能 skill 化后置。
+          const clockKind = String(args.kind ?? 'once');
+          const hasLink = !!(args.linkTaskGuid || args.linkEventId);
+          // 测试缝：__forceLedger 显式走账本保留面（every/跟随型回归同路径）。
+          const forceLedger = args.__forceLedger === true;
+          if (!hasLink && !forceLedger && ['once', 'daily', 'weekly'].includes(clockKind) && this.calendarChannelsLive()) {
+            return this.reminderToCalendar(item, args);
+          }
           let link: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string } | undefined;
           if (args.linkTaskGuid || args.linkEventId) {
             if (args.linkTaskGuid && args.linkEventId) throw new Error('一次只能跟随一个来源（任务或日程）。');
@@ -498,7 +510,7 @@ export class PaRuntime {
           return result;
         },
         reminder_list: async () => this.reminders!.list(),
-        reminder_cancel: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'stopped', String(args.reason ?? '')),
+        reminder_cancel: async (args, item) => this.reminderCancel(item, String(args.ruleId ?? ''), String(args.reason ?? '')),
         reminder_pause: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')),
         reminder_resume: async args => this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')),
         reminder_skip: async args => this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')),
@@ -1903,6 +1915,106 @@ export class PaRuntime {
     };
   }
 
+  /** F45：时钟型提醒是否可走日历渠道（demo/无连接时回落账本引擎，演示与测试不受损）。 */
+  private calendarChannelsLive(): boolean {
+    if (this.config?.calendarChannel === 'wecom') return true;
+    return this.config?.mode === 'feishu' && !!this.transport;
+  }
+
+  /**
+   * F45（spec 2.11，ADR-0001 修订）：时钟型提醒日程化——按 calendarChannel 写
+   * 带提醒的日程（渠道 CLI 默认提前 5 分钟 App 原生提醒；daily/weekly 走
+   * rrule 重复日程），账本只留 delegated 备份行（面板视图/历史/防重，引擎
+   * 不投递该状态行）。once 的 at/afterSeconds 与 daily/weekly 的本地时刻
+   * 语义与账本引擎完全一致（next 时刻计算复用同一 schedule 助手）。
+   */
+  private async reminderToCalendar(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const summary = text(args.text, 500);
+    if (!summary) throw new ReminderError('提醒内容不能为空。');
+    const kind = String(args.kind ?? 'once');
+    const timeZone = String(args.timeZone ?? this.config!.timeZone);
+    let start: Date;
+    let rrule: string | undefined;
+    let originExpression: string;
+    const now = Date.now();
+    if (kind === 'once') {
+      if (args.at) {
+        const at = new Date(String(args.at));
+        if (Number.isNaN(at.getTime())) throw new ReminderError('once 的 at 需为可解析的 ISO 时间。');
+        start = at;
+        originExpression = at.toISOString();
+      } else {
+        const seconds = Number(args.afterSeconds);
+        if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new ReminderError('once 需要 1 秒–365 天的延迟（afterSeconds）或绝对时间（at）。');
+        start = new Date(now + seconds * 1000);
+        originExpression = `after ${seconds}s`;
+      }
+    } else if (kind === 'daily') {
+      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new ReminderError('daily 需要本地时间 HH:mm:ss。');
+      const record = createDailyScheduleRecord(ScheduleId('f45'), summary, { time: String(args.time), time_zone: timeZone }, now, summary);
+      start = firstOccurrence(record, now);
+      rrule = 'FREQ=DAILY;INTERVAL=1';
+      originExpression = `daily ${args.time} ${timeZone}`;
+    } else if (kind === 'weekly') {
+      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new ReminderError('weekly 需要本地时间 HH:mm:ss。');
+      const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : [];
+      if (!weekdays.length || weekdays.some(d => !Number.isInteger(d) || d < 1 || d > 7)) throw new ReminderError('weekly 需要 weekdays（ISO 1–7，周一=1）。');
+      const sorted = [...new Set(weekdays)].sort();
+      const record = createWeeklyScheduleRecord(ScheduleId('f45'), summary, { time: String(args.time), time_zone: timeZone, weekdays: sorted }, now, summary);
+      start = firstOccurrence(record, now);
+      rrule = `FREQ=WEEKLY;BYDAY=${sorted.map(d => ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][d - 1]).join(',')}`;
+      originExpression = `weekly ${args.time} ${sorted.join(',')} ${timeZone}`;
+    } else {
+      throw new ReminderError('时钟型日程化支持 once/daily/weekly；every 与跟随来源型仍走账本引擎。');
+    }
+    const end = new Date(start.getTime() + 15 * 60 * 1000);
+    const created = (await this.calendarWrite(item, 'create', {
+      summary: `提醒：${summary}`,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      ...(rrule ? { rrule } : {}),
+    })) as { event_id?: string; eventId?: string; operationId?: string };
+    const eventId = created.event_id ?? created.eventId ?? null;
+    // 备份行：delegated 状态＝引擎不投递，仅面板/历史/取消路径数据源。
+    const ruleId = `rmd-cal-${randomUUID().slice(0, 10)}`;
+    await this.repos!.reminders.insertRule({
+      id: ruleId,
+      kind,
+      text: summary,
+      record: { type: 'calendar', channel: this.config!.calendarChannel, event_id: eventId, start: start.toISOString(), rrule: rrule ?? null, operation_id: created.operationId ?? null },
+      status: 'delegated',
+      next_due_at: start,
+      time_zone: timeZone,
+      origin_expression: originExpression,
+      source: args.source ? text(args.source, 500) : null,
+      work_item_id: item.id,
+      link_source_type: null,
+      link_source_id: null,
+      link_fingerprint: null,
+    });
+    return {
+      ruleId,
+      eventId,
+      calendarChannel: this.config!.calendarChannel,
+      start: start.toISOString(),
+      ...(rrule ? { rrule } : {}),
+      message: `提醒已写入${this.config!.calendarChannel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；到点由对应 App 原生日程提醒（默认提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
+    };
+  }
+
+  /** F45：取消——delegated 行同步取消日历事件，其余走账本引擎。 */
+  private async reminderCancel(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
+    const rule = await this.repos!.reminders.getRule(ruleId);
+    if (rule?.status === 'delegated') {
+      const record = rule.record as { event_id?: string | null };
+      if (record?.event_id) {
+        await this.calendarWrite(item, 'cancel', { eventId: record.event_id });
+      }
+      return this.reminders!.setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
+    }
+    return this.reminders!.setStatus(ruleId, 'stopped', reason);
+  }
+
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
     if (this.config!.calendarChannel === 'wecom') {
       if (operationIdOverride) throw new Error('企微日程渠道不支持操作键覆盖（meeting/minutes 流程限定飞书）。');
@@ -1919,7 +2031,7 @@ export class PaRuntime {
     if (kind !== 'create' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询）。');
     if (kind === 'update' && !summary && !start && !end) throw new Error('需要至少一项修改（summary/start/end）。');
     const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
-    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}`;
+    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}\n${typeof args.rrule === 'string' ? args.rrule : ''}`;
     return this.gate(`calendar-event:${eventId || 'new'}`, async () => {
     const staged = operationIdOverride
       ? await this.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end })
@@ -1938,6 +2050,8 @@ export class PaRuntime {
       if (kind === 'create') {
         cliArgs.push('--summary', `[24PA] ${summary}`, '--start', start!.toISOString(), '--end', end!.toISOString());
         if (attendees && attendees.length > 0) cliArgs.push('--attendee-ids', attendees.join(','));
+        // F45：rrule 重复日程（RFC5545）；paramsKey 纳入以防同参数不同规则的误重放。
+        if (typeof args.rrule === 'string' && args.rrule) cliArgs.push('--rrule', args.rrule);
       } else if (kind === 'update') {
         cliArgs.push('--event-id', eventId);
         if (summary) cliArgs.push('--summary', `[24PA] ${summary}`);

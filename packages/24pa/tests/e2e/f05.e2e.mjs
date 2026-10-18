@@ -33,6 +33,13 @@ const promptLocal = (requestId, text) =>
   host.remote('session/prompt', {
     request: { requestId, sessionId: localSessionId, mode: 'queue', content: [{ type: 'text', text }], clientTimeZone: 'Asia/Shanghai' },
   });
+const unescapeJsonish = text => text.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+
+const readEvents = async () => {
+  const lines = (await readFile(`${stubStatePath}.events.jsonl`, 'utf8')).split('\n').filter(Boolean);
+  return lines.map(l => JSON.parse(l));
+};
+
 const waitOutbox = async (prefix, label, timeoutMs = 30_000) => {
   for (let i = 0; i < timeoutMs / 500; i++) {
     const snap = await host.api('snapshot');
@@ -101,7 +108,7 @@ afterAll(async () => {
 });
 
 describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
-  it('P18：一次性提醒经账本+Outbox 发出，状态仅报平台接受', async () => {
+  it('F45：一次性时钟提醒写入日历渠道（App 原生提醒），账本只留 delegated 备份', async () => {
     await writeScript({
       mode: 'dispatch',
       delegate: { worker: 'reminders', title: '两秒后提醒喝水', instruction: '两秒后提醒喝水' },
@@ -112,19 +119,28 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
     await inject(ownerEvent('evt-rmd-1', '两秒后提醒我喝水'));
     await waitWorkItem('两秒后提醒喝水', '提醒创建完成');
     const created = await waitToolResult('ruleId', '创建回执');
-    const ruleId = (created.match(/(rmd-[a-z0-9-]+)/) || [])[1];
-    const row = await waitOutbox(`reminder:${ruleId}:`, '提醒发送');
-    expect(row.message_id).toMatch(/^fake-/);
-    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}' and status='sent'`)).trim()).toBe('1');
-    expect((await cluster.query(`select status from pa24.reminder_rule where id='${ruleId}'`)).trim()).toBe('completed');
+    const ruleId = (created.match(/(rmd-cal-[a-z0-9-]+)/) || [])[1];
+    expect(ruleId, '备份行 ruleId 应为 rmd-cal-*').toBeTruthy();
+    expect(unescapeJsonish(created)).toContain('"calendarChannel":"feishu"');
+    expect(unescapeJsonish(created)).toContain('App 原生日程提醒');
+    const eventId = (unescapeJsonish(created).match(/"eventId":"(evtstub-[^"]+)"/) || [])[1];
+    expect(eventId, '应返回日历事件 id').toBeTruthy();
+    // 备份行：delegated＝引擎不投递
+    expect((await cluster.query(`select status from pa24.reminder_rule where id='${ruleId}'`)).trim()).toBe('delegated');
+    // 无账本实例、无 outbox 提醒行（原生提醒不经 24PA）
+    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}'`)).trim()).toBe('0');
+    // 日历桩收到事件（默认提前 5 分钟由真实渠道保证；桩记录无 rrule）
+    const event = (await readEvents()).find(e => e.event_id === eventId);
+    expect(event?.summary).toContain('提醒：喝水');
+    expect(event?.rrule ?? null).toBeNull();
   });
 
   it('P18：取消停止后续实例；稍后只产生一份关联实例', async () => {
     await writeScript({
       mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '设长提醒', instruction: '60 秒后提醒复盘' },
+      delegate: { worker: 'reminders', title: '设长提醒', instruction: '每 60 秒提醒复盘（账本保留面）' },
       leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: '复盘' },
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: '复盘', __forceLedger: true },
       workerReply: '已设置。',
     });
     await inject(ownerEvent('evt-rmd-2', '一分钟后提醒我做晚间复盘'));
@@ -150,7 +166,7 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
       mode: 'dispatch',
       delegate: { worker: 'reminders', title: '设再一个提醒', instruction: '90 秒后提醒采购' },
       leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 90, text: '采购' },
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 90, text: '采购', __forceLedger: true },
       workerReply: '已设置。',
     });
     await inject(ownerEvent('evt-rmd-4', '再设一个九十秒后提醒采购的'));
@@ -177,7 +193,7 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
       mode: 'dispatch',
       delegate: { worker: 'reminders', title: '重启前设提醒', instruction: '8 秒后提醒续保' },
       leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 8, text: '续保' },
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 8, text: '续保', __forceLedger: true },
       workerReply: '已设置。',
     });
     await inject(ownerEvent('evt-rmd-6', '八秒后提醒我续保'));
@@ -200,7 +216,7 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
       mode: 'dispatch',
       delegate: { worker: 'reminders', title: '设暂停用提醒', instruction: '4 秒后提醒缴费' },
       leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 4, text: '缴费' },
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 4, text: '缴费', __forceLedger: true },
       workerReply: '已设置。',
     });
     await inject(ownerEvent('evt-rmd-8', '四秒后提醒我缴费'));
@@ -249,7 +265,7 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
       mode: 'dispatch',
       delegate: { worker: 'reminders', title: '休假中设提醒', instruction: '2 秒后提醒签收' },
       leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 2, text: '签收快递' },
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 2, text: '签收快递', __forceLedger: true },
       workerReply: '已设置。',
     });
     await inject(ownerEvent('evt-rmd-7', '两秒后提醒我签收快递'));
@@ -266,5 +282,45 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
     const row = await waitOutbox(`reminder:${ruleId}:`, '休假后补发', 30_000);
     expect(row.message_id).toMatch(/^fake-/);
     expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}' and status='sent'`)).trim()).toBe('1');
+  });
+});
+
+
+describe('F45 补充：delegated 取消与周期 rrule', () => {
+  it('取消时钟型提醒＝同步删除日历事件＋备份行置 stopped', async () => {
+    await writeScript({
+      mode: 'dispatch',
+      delegate: { worker: 'reminders', title: '设日历提醒后取消', instruction: 'x' },
+      leadReply: 'ok', workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 120, text: '临时事项' }, workerReply: 'ok',
+    });
+    await inject(ownerEvent('evt-f45c1', '两分钟后提醒我临时事项'));
+    await waitWorkItem('设日历提醒后取消', '创建完成');
+    const created = await waitToolResult('ruleId', '创建回执');
+    const ruleId = (created.match(/(rmd-cal-[a-z0-9-]+)/) || [])[1];
+    const eventId = (unescapeJsonish(created).match(/"eventId":"(evtstub-[^"]+)"/) || [])[1];
+    await writeScript({
+      mode: 'dispatch',
+      delegate: { worker: 'reminders', title: '取消刚才的提醒', instruction: 'x' },
+      leadReply: 'ok', workerAction: { action: 'reminder_cancel', ruleId, reason: '本人取消' }, workerReply: 'ok',
+    });
+    await inject(ownerEvent('evt-f45c2', '刚才那个提醒取消掉'));
+    await waitWorkItem('取消刚才的提醒', '取消完成');
+    expect((await cluster.query(`select status from pa24.reminder_rule where id='${ruleId}'`)).trim()).toBe('stopped');
+    const canceled = (await readEvents()).filter(e => e.event_id === eventId).at(-1);
+    expect(canceled?.status).toBe('canceled');
+  });
+
+  it('daily 时钟提醒＝rrule 重复日程（FREQ=DAILY）', async () => {
+    await writeScript({
+      mode: 'dispatch',
+      delegate: { worker: 'reminders', title: '每天八点提醒打卡', instruction: 'x' },
+      leadReply: 'ok', workerAction: { action: 'reminder_create', kind: 'daily', time: '08:00:00', text: '打卡' }, workerReply: 'ok',
+    });
+    await inject(ownerEvent('evt-f45d', '每天早上八点提醒我打卡'));
+    await waitWorkItem('每天八点提醒打卡', '创建完成');
+    const created = await waitToolResult('ruleId', '创建回执');
+    const eventId = (unescapeJsonish(created).match(/"eventId":"(evtstub-[^"]+)"/) || [])[1];
+    const event = (await readEvents()).filter(e => e.event_id === eventId).at(-1);
+    expect(event?.rrule).toBe('FREQ=DAILY;INTERVAL=1');
   });
 });
