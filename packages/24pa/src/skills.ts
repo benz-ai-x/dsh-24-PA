@@ -98,6 +98,18 @@ export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; 
   },
 ];
 
+/** 接入向导 skill（F43/spec 2.11）：正文＝随包指南全文（单一来源），agent 按其执行一次交付＋自动验收；用户不可直调（向导经对话/pa24_connection 发起）。 */
+export function setupGuideSkills(readGuide: (file: 'feishu-setup.md' | 'wecom-setup.md') => string | null): { name: string; description: string; whenToUse: string; content: string; metadata: { track: 'template' | 'agent'; kind: string; pa24: true } }[] {
+  const defs: [string, 'feishu-setup.md' | 'wecom-setup.md', string, string][] = [
+    ['feishu-setup-flow', 'feishu-setup.md', '飞书接入向导：一次交付＋一次验收（正文＝唯一权威指南）', '主人要求接通飞书，或 pa24_connection check 显示接入未收敛。'],
+    ['wecom-setup-flow', 'wecom-setup.md', '企微渠道接入向导：一次交付＋自动验收（正文＝唯一权威指南）', '启用企微渠道后要求接入，或 wecom_check 显示未收敛/授权过期。'],
+  ];
+  return defs
+    .map(([name, file, description, whenToUse]) => ({ name, description, whenToUse, file }))
+    .filter(e => readGuide(e.file))
+    .map(e => ({ name: e.name, description: e.description, whenToUse: e.whenToUse, content: readGuide(e.file)!, metadata: { track: 'agent' as const, kind: 'setup', pa24: true as const } }));
+}
+
 /** 平台层工具声明强制（spec 2.11 红线：skill 只能收紧不能放宽）：
  * skill 可在 frontmatter metadata.tools 声明本 skill 执行所需的工具子集；
  * 声明中出现执行面白名单之外的工具＝越权声明，平台层直接拒绝执行。
@@ -123,12 +135,22 @@ export class SkillCatalog {
     private readonly registry: SkillRegistryLike | null,
     /** 工作区根（fs provider 的 projectRoot 探测点；未绑定时内置回落不受影响）。 */
     private readonly cwd: () => string | null = () => null,
+    /** F43：随包指南读取器（接入向导 skill 的正文来源；缺省不注册向导 skill）。 */
+    private readonly readGuide: (file: 'feishu-setup.md' | 'wecom-setup.md') => string | null = () => null,
   ) {}
+
+  /** 全量内置件（任务件＋向导件；向导件仅在指南可读时出现）。 */
+  builtinAll(): { name: string; description: string; whenToUse: string; content: string; source: 'runtime'; metadata: Record<string, unknown> }[] {
+    return [
+      ...BUILTIN_TASK_SKILLS.map(s => ({ name: s.name, description: s.description, whenToUse: s.whenToUse, content: s.content, source: 'runtime' as const, metadata: { ...s.metadata } })),
+      ...setupGuideSkills(this.readGuide).map(s => ({ ...s, source: 'runtime' as const })),
+    ];
+  }
 
   /** 内置件注册进宿主目录（runtime provider）；宿主未挂载时安全跳过。 */
   registerBuiltins(): void {
     if (!this.registry) return;
-    for (const skill of BUILTIN_TASK_SKILLS) {
+    for (const skill of this.builtinAll()) {
       this.registry.register({
         name: skill.name,
         description: skill.description,
@@ -155,7 +177,7 @@ export class SkillCatalog {
   /** 全目录（内置＋工作区自定义）；宿主目录缺席时回落内置件。 */
   async list(): Promise<TaskSkill[]> {
     if (!this.registry) {
-      return BUILTIN_TASK_SKILLS.map(s => ({ name: s.name, description: s.description, track: s.metadata.track, source: 'builtin', kind: s.metadata.kind }));
+      return this.builtinAll().map(s => ({ name: s.name, description: s.description, track: s.metadata.track === 'template' ? 'template' : 'agent', source: 'builtin', kind: typeof s.metadata.kind === 'string' ? s.metadata.kind : undefined }));
     }
     const raw = await this.registry.list({ cwd: this.cwd() ?? undefined });
     // list() 的 SkillSummary 不带 metadata（track/kind 在 get() 的 Definition）——
@@ -169,7 +191,7 @@ export class SkillCatalog {
       }
     }));
     const seen = new Set(entries.map(e => e.name));
-    const builtins = BUILTIN_TASK_SKILLS.filter(s => !seen.has(s.name)).map(s => ({ name: s.name, description: s.description, provider: 'runtime', metadata: { ...s.metadata } }));
+    const builtins = this.builtinAll().filter(s => !seen.has(s.name)).map(s => ({ name: s.name, description: s.description, provider: 'runtime', metadata: s.metadata }));
     // spec 2.11：计划绑定面＝内置＋工作区（project-dsh）；用户全局目录
     // （user-dsh/user-agents）是主人自己的 agent 技能库，不进周期任务下拉。
     return [...entries, ...builtins]
@@ -196,7 +218,7 @@ export class SkillCatalog {
     const def = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
     const fromDef = (def?.metadata as { params?: Record<string, unknown> } | undefined)?.params;
     if (fromDef && typeof fromDef === 'object') return fromDef;
-    const builtin = BUILTIN_TASK_SKILLS.find(s => s.name === name)?.metadata as { params?: Record<string, unknown> } | undefined;
+    const builtin = this.builtinAll().find(s => s.name === name)?.metadata as { params?: Record<string, unknown> } | undefined;
     return builtin?.params && typeof builtin.params === 'object' ? builtin.params : {};
   }
 

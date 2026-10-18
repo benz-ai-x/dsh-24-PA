@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
@@ -306,7 +307,14 @@ export class PaRuntime {
   constructor(ctx: DshContext, options: RuntimeOptions) {
     this.ctx = ctx;
     this.options = options;
-    this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx), () => this.workspace?.statePath ?? null);
+    this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx), () => this.workspace?.statePath ?? null, file => {
+      try {
+        // F43：随包指南单一来源；读失败＝不注册该向导 skill（安全降级）。
+        return readFileSync(new URL(`../${file}`, import.meta.url), 'utf8') ?? null;
+      } catch {
+        return null;
+      }
+    });
     this.skillCatalog.registerBuiltins();
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();

@@ -68,3 +68,19 @@ describe('F41/F44：工具声明平台层强制', () => {
     expect(() => assertToolDeclaration({ tools: [] }, ['pa24_work'], 's5')).not.toThrow();
   });
 });
+
+describe('F43：接入向导 skill 化', () => {
+  it('指南可读时注册两向导件（正文=指南全文，agent 轨）；不可读时安全缺位', async () => {
+    const { setupGuideSkills } = await import('../../lib/skills.js');
+    const flows = setupGuideSkills(file => (file === 'feishu-setup.md' ? '# 飞书指南正文' : '# 企微指南正文'));
+    expect(flows.map(s => s.name)).toEqual(['feishu-setup-flow', 'wecom-setup-flow']);
+    expect(flows[0].content).toBe('# 飞书指南正文');
+    expect(flows.every(s => s.metadata.track === 'agent' && s.metadata.kind === 'setup')).toBe(true);
+    expect(setupGuideSkills(() => null)).toEqual([]);
+    // 目录回落态含向导件（readGuide 经构造器注入）
+    const catalog = new SkillCatalog(null, () => null, file => (file === 'feishu-setup.md' ? '# F' : null));
+    const list = await catalog.list();
+    expect(list.map(s => s.name)).toContain('feishu-setup-flow');
+    expect(list.map(s => s.name)).not.toContain('wecom-setup-flow');
+  });
+});
