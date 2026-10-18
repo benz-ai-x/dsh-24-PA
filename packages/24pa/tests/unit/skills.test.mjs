@@ -89,3 +89,38 @@ describe('F43：接入向导 skill 化', () => {
     expect(await catalog.content('wecom-setup-flow')).toBeNull();
   });
 });
+
+describe('arch-6：执行轨判定收进 SkillCatalog（resolveForAgentRun）', () => {
+  it('模板轨 skill 在 seam 被拒绝，不进模型回合（spec 2.11 零模型红线）', async () => {
+    const catalog = new SkillCatalog(null);
+    await expect(catalog.resolveForAgentRun('digest-morning', ['pa24_work'])).rejects.toThrow(/模板轨/);
+    await expect(catalog.resolveForAgentRun('handwriting-review-flow', ['pa24_work'])).rejects.toThrow(/模板轨/);
+  });
+
+  it('目录外名拒绝（含绑定面外的向导件）；工作区 agent 轨 skill 放行并返回正文', async () => {
+    const catalog = new SkillCatalog(null);
+    await expect(catalog.resolveForAgentRun('ghost-skill', ['pa24_work'])).rejects.toThrow(/不在目录中/);
+    // 向导件不在计划绑定面（isBindable 过滤），resolveForAgentRun 同样拒绝。
+    const withGuide = new SkillCatalog(null, () => null, file => (file === 'feishu-setup.md' ? '# 指南' : null));
+    await expect(withGuide.resolveForAgentRun('feishu-setup-flow', ['pa24_work'])).rejects.toThrow(/不在目录中/);
+    // 绑定面内的 agent 轨件只能来自工作区（内置任务件全是模板轨）。
+    const registry = {
+      register() {},
+      async list() { return [{ name: 'ws-agent-skill', description: 'x', source: 'project-dsh' }]; },
+      async get() { return { name: 'ws-agent-skill', description: 'x', source: 'project-dsh', content: '按此执行', metadata: { track: 'agent' } }; },
+    };
+    const resolved = await new SkillCatalog(registry).resolveForAgentRun('ws-agent-skill', ['pa24_work', 'pa24_memory']);
+    expect(resolved.name).toBe('ws-agent-skill');
+    expect(resolved.content).toBe('按此执行');
+  });
+
+  it('工具声明越权在 seam 拒绝（收紧红线随轨判定收口）', async () => {
+    const registry = {
+      register() {},
+      async list() { return [{ name: 'e2e-overclaim', description: 'x', source: 'project-dsh' }]; },
+      async get() { return { name: 'e2e-overclaim', description: 'x', source: 'project-dsh', content: '正文', metadata: { track: 'agent', tools: ['pa24_work', 'shell'] } }; },
+    };
+    const catalog = new SkillCatalog(registry);
+    await expect(catalog.resolveForAgentRun('e2e-overclaim', ['pa24_work', 'pa24_memory'])).rejects.toThrow(/越权/);
+  });
+});

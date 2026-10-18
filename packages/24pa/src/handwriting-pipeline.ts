@@ -8,7 +8,7 @@ import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { DshAgent } from './host.js';
 import { noteParentToken, type PaConfig } from './config.js';
-import type { SharedChannelDeps } from './channel-deps.js';
+import type { ChannelContextDeps } from './channel-deps.js';
 import { runLarkCli } from './lark.js';
 import { cliOptions, type FeishuTransport, type InboundEvent } from './feishu.js';
 import {
@@ -22,12 +22,10 @@ import type { Repos, NoteRow, NotePageRow, WorkItemRow, ActionOperationRow, Revi
 import { text, nowIso, isoDate } from './util.js';
 import type { RuntimeRole } from './runtime.js';
 
-export interface HandwritingDeps extends SharedChannelDeps {
+export interface HandwritingDeps extends ChannelContextDeps {
   /** F44：工作流口径参数（handwriting-review-flow 的 frontmatter params）。 */
   skillParams(name: string): Promise<Record<string, unknown>>;
-  workspace(): { statePath: string } | null;
   transport(): FeishuTransport | null;
-  accessSessionId(): string | null;
   assertLive(context: string): void;
   trackWorkItem(item: WorkItemRow): void;
   roleFor(agent: DshAgent | undefined): RuntimeRole;

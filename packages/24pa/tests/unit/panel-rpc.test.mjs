@@ -1,19 +1,49 @@
+// arch-2: the panel action seam — dispatch goes through the registry, so
+// tests hit the same interface the browser does (replace the old tautology
+// guard that only checked the table contains its own strings).
 import { describe, expect, it } from 'vitest';
-import { PANEL_RPC } from '../../lib/panel.js';
+import { PANEL_RPC, action } from '../../lib/panel.js';
 
-// F19 前置（RPC 常量化）：endpoint/action 表是面板 RPC 面的单一来源，
-// 新动作必须进表而不是散装字符串；死端点（memo）不回潮。
-describe('面板 RPC 常量表', () => {
-  it('endpoint 表稳定（memo 死端点已删）', () => {
-    expect(Object.values(PANEL_RPC.endpoints)).toEqual(['snapshot', 'action', 'memory', 'health', 'notes.queue', 'roles', 'reminders', 'digests']);
-    expect(Object.values(PANEL_RPC.endpoints)).not.toContain('memo');
+const fakeRuntime = overrides => ({
+  reloadWorkspace: async () => ({}),
+  updateWorkspaceConfig: async () => ({}),
+  digestRunNow: async planId => ({ planId }),
+  ttsProbe: async () => ({ ok: true }),
+  ...overrides,
+});
+
+describe('面板动作注册表（arch-2 seam 直测）', () => {
+  it('未知动作拒绝（不再落同义反复断言）', async () => {
+    await expect(action(fakeRuntime(), { type: 'nope.nope' })).rejects.toThrow(/只提供/);
+    await expect(action(fakeRuntime(), { type: '' })).rejects.toThrow(/只提供/);
   });
 
-  it('action 表覆盖既有动作且无重复', () => {
-    const actions = Object.values(PANEL_RPC.actions);
-    expect(new Set(actions).size).toBe(actions.length);
-    for (const known of ['workspace.bind', 'workspace.reload', 'connection.check', 'connection.wecom-check', 'digest.supervise', 'digest.reschedule', 'digest.set-skill', 'digest.set-voice', 'digest.run-now', 'tts.probe', 'tts.test', 'test.inject']) {
-      expect(actions).toContain(known);
+  it('注册表覆盖 PANEL_RPC.actions 全部词汇（词汇表与 dispatch 面等价）', async () => {
+    // actions 里的每个名字都可被 dispatch（未知名才被拒）——用受控 runtime
+    // 逐名打点，拒绝信息必须是业务校验而非「只提供」。
+    for (const name of Object.values(PANEL_RPC.actions)) {
+      const rt = fakeRuntime();
+      let caught;
+      try {
+        await action(rt, { type: name });
+      } catch (error) {
+        caught = error;
+      }
+      // 要么成功，要么是 handler 自身的业务校验错——不能是注册表缺失
+      expect(caught ? caught.message : '').not.toMatch(/只提供/);
     }
+  });
+
+  it('handler 自带 payload 校验：缺配置补丁在 seam 拒绝', async () => {
+    await expect(action(fakeRuntime(), { type: PANEL_RPC.actions.workspaceConfigUpdate })).rejects.toThrow(/缺少配置补丁/);
+    await expect(action(fakeRuntime(), { type: PANEL_RPC.actions.workspaceSecretUpdate, values: [] })).rejects.toThrow(/缺少密钥补丁/);
+    await expect(action(fakeRuntime(), { type: PANEL_RPC.actions.roleRegister })).rejects.toThrow(/缺少角色定义/);
+  });
+
+  it('payload 经 handler 传达到 runtime（空 planId 如实转发）', async () => {
+    const calls = [];
+    const rt = fakeRuntime({ digestRunNow: async planId => { calls.push(planId); return {}; } });
+    await action(rt, { type: PANEL_RPC.actions.digestRunNow });
+    expect(calls).toEqual(['']);
   });
 });

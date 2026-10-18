@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createRequire } from 'node:module';
 import type { BackupPart, PaDb, PaQueryResult, PaQueryer } from './db.js';
-import { MIGRATIONS } from './pg.js';
+import { MIGRATIONS } from './db.js';
 
 // F25: SQLite backend for the business ledger (default storage; PostgreSQL
 // stays available by explicit `storage: "postgres"`). The repos keep their

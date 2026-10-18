@@ -6,7 +6,7 @@ const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任�
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
-import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec } from './host.js';
+import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -21,8 +21,9 @@ import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, typ
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
-import { SkillCatalog, assertToolDeclaration, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
-import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
+import { SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
+import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
+import { text, nowIso, isoDate, eventFingerprint, hash } from './util.js';
 
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
@@ -33,7 +34,8 @@ import {
   workspaceRulesSection,
 } from './prompts.js';
 import { MemoryStore, type MemoryChange } from './memory.js';
-import { ReminderEngine, ReminderError, firstOccurrence, type SilencePolicy } from './reminders.js';
+import { ReminderEngine, type SilencePolicy } from './reminders.js';
+import { ReminderRouter } from './reminder-router.js';
 import {
   createEveryScheduleRecord,
   createDailyScheduleRecord,
@@ -66,43 +68,10 @@ const textOf = (content: readonly ContentBlock[] | undefined): string =>
 
 let BUILTIN_ROLE_IDS: string[] = [];
 
-
-function mapRemoteEvent(raw: any): { eventId: string; summary: string; start: Date; end: Date; isAllDay: boolean; timezone: string | null; canceled: boolean; recurring: boolean; attendees: unknown; url: string | null } | null {
-  const eventId = String(raw?.event_id ?? raw?.eventId ?? raw?.id ?? '');
-  const summary = String(raw?.summary ?? raw?.title ?? '');
-  const start = new Date(String(raw?.start_time ?? raw?.start ?? raw?.startTime ?? ''));
-  const end = new Date(String(raw?.end_time ?? raw?.end ?? raw?.endTime ?? ''));
-  if (!eventId || !summary || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  return {
-    eventId,
-    summary,
-    start,
-    end,
-    isAllDay: raw?.is_all_day === true || raw?.allDay === true,
-    timezone: raw?.timezone ? String(raw.timezone) : null,
-    canceled: raw?.status === 'canceled' || raw?.canceled === true,
-    recurring: !!(raw?.rrule ?? raw?.recurrence?.length),
-    attendees: raw?.attendees ?? raw?.attendee_ids ?? null,
-    url: raw?.url ? String(raw.url) : raw?.meeting_url ? String(raw.meeting_url) : null,
-  };
-}
-
-function taskExternal(data: any): { guid: string; url: string | null } {
-  const task = data?.task ?? data;
-  const guid = task?.guid ?? task?.task_guid ?? task?.taskId;
-  if (!guid) throw new Error('未取得真实任务 ID；请先核对飞书任务清单，不要盲目重试。');
-  return { guid: String(guid), url: task?.url ? String(task.url) : null };
-}
-
 const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', calendar: '日程' };
 
 /** Bounded grace before an unattributable delivery pauses its digest plan (P24). */
 export { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
-
-/** Stable fingerprint of a followed task: identity + content + due (P19). */
-function taskFingerprint(task: { task_guid: string; summary: string; due_at: Date | null }): string {
-  return hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`);
-}
 
 /**
  * Next occurrence for a template schedule. resolveRecurringOccurrence refuses
@@ -154,11 +123,6 @@ export interface RuntimeOptions {
 // (latest condition wins), the probe itself always runs.
 const WECOM_AUTH_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const WECOM_AUTH_FIRST_CHECK_DELAY_MS = 10 * 60 * 1000;
-export interface NativeScheduleService {
-  create(sessionId: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<{ id: string; scheduledAt?: string } & Record<string, unknown>>;
-  delete(request: { sessionId: string; id: string }): Promise<unknown>;
-  history(request: { sessionId: string; id: string; limit: number }): Promise<{ records?: unknown[] } & Record<string, unknown>>;
-}
 
 export class PaRuntime {
   private readonly ctx: DshContext;
@@ -245,6 +209,34 @@ export class PaRuntime {
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
     linkedEventIdsInWindow: (from, to) => this.linkedEventIdsInWindow(from, to),
     isClosed: () => this.closed,
+  });
+
+  /** Feishu channel module (round-3 arch-1): lark-cli writes, projection sync
+   *  and receipts behind one deep module; channel selection stays here. */
+  private readonly feishu = new FeishuChannels({
+    ...this.baseChannelDeps(),
+    cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
+    gate: (key, work) => this.gate(key, work),
+    stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
+    notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
+    linkedEventIdsInWindow: (from, to) => this.linkedEventIdsInWindow(from, to),
+    refreshTaskFromRemote: task => this.refreshTaskFromRemote(task),
+    memory: () => this.memory,
+  });
+
+  /** Reminder routing (round-3 arch-8): the F45 delegated-vs-ledger decision
+   *  lives beside the ledger engine; the role table stays declarative. The
+   *  ledger reference resolves lazily because repos bind at workspace load. */
+  private readonly reminderRouter = new ReminderRouter({
+    config: () => this.config!,
+    repos: () => this.repos!,
+    calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
+    channelsLive: () => {
+      if (this.config?.calendarChannel === 'wecom') return true;
+      return this.config?.mode === 'feishu' && !!this.transport;
+    },
+    ledger: () => this.reminders!,
+    resolveTask: args => this.resolveTask(args),
   });
 
   /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
@@ -424,18 +416,15 @@ export class PaRuntime {
       available: true,
       actions: {
         // F44（spec 2.11）：载入放行面内的任务 skill 正文；越权名直接拒绝。
+        // 轨判定收在 SkillCatalog.resolveForAgentRun（arch-6）：模板轨 skill
+        // 在该 seam 被拒绝，调用方无法遗忘分支而烧掉模型回合。
         skill_run: async args => {
           const name = String(args.skill ?? '');
           if (!this.config?.extraBusinessSkills.includes(name)) {
             throw new Error(`任务 skill ${name || '（未指定）'} 未在 extraBusinessSkills 放行面内；请在 AGENTS.md 配置后重试。`);
           }
-          const bound = await this.skillCatalog.find(name);
-          if (!bound) throw new Error(`任务 skill ${name} 不在目录中（内置＋工作区 .dsh/skills）。`);
-          const content = await this.skillCatalog.content(name);
-          if (!content) throw new Error(`任务 skill ${name} 正文加载失败。`);
-          // spec 2.11 红线：工具声明只能收紧——越权声明在平台层拒绝执行。
-          assertToolDeclaration(await this.skillCatalog.meta(name), ['pa24_work', 'pa24_memory'], name);
-          return { skill: name, track: bound.track, content, message: '按上述任务指令执行，完成后汇报（含完成标准核对）；工具面以白名单为准，越权项如实报拒因。' };
+          const resolved = await this.skillCatalog.resolveForAgentRun(name, ['pa24_work', 'pa24_memory']);
+          return { skill: resolved.name, track: 'agent' as const, content: resolved.content, message: '按上述任务指令执行，完成后汇报（含完成标准核对）；工具面以白名单为准，越权项如实报拒因。' };
         },
       },
     });
@@ -478,53 +467,16 @@ export class PaRuntime {
       brief: WORKER_PROMPTS.reminders.brief,
       available: true,
       actions: {
-        reminder_create: async (args, item) => {
-          // F45（spec 2.11，ADR-0001 修订）：时钟型提醒＝带提醒的日程写入
-          // calendarChannel 所选渠道，由对应 App 原生提醒（默认提前 5 分钟）；
-          // 账本只留 delegated 备份行（面板视图/历史/防重）。跟随来源型
-          // （linkTaskGuid/linkEventId）继续账本引擎——它依赖任务/日程状态联动，
-          // 属条件型，智能 skill 化后置。
-          const clockKind = String(args.kind ?? 'once');
-          const hasLink = !!(args.linkTaskGuid || args.linkEventId);
-          // 测试缝：__forceLedger 显式走账本保留面（every/跟随型回归同路径）。
-          const forceLedger = args.__forceLedger === true;
-          if (!hasLink && !forceLedger && ['once', 'daily', 'weekly'].includes(clockKind) && this.calendarChannelsLive()) {
-            return this.reminderToCalendar(item, args);
-          }
-          let link: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string } | undefined;
-          if (args.linkTaskGuid || args.linkEventId) {
-            if (args.linkTaskGuid && args.linkEventId) throw new Error('一次只能跟随一个来源（任务或日程）。');
-            if (args.linkTaskGuid) {
-              const task = await this.resolveTask({ taskId: args.linkTaskGuid, guid: args.linkTaskGuid });
-              link = { sourceType: 'task', sourceId: task.task_guid, fingerprint: taskFingerprint(task) };
-            } else {
-              const event = await this.repos!.calendar.findEvent(String(args.linkEventId));
-              if (!event) throw new Error('日程不存在；请先 calendar_query 同步并取得 event_id。');
-              link = { sourceType: 'calendar', sourceId: event.event_id, fingerprint: eventFingerprint(event) };
-            }
-          }
-          const result = await this.reminders!.create({
-            kind: String(args.kind ?? 'once') as any,
-            text: text(args.text, 500),
-            afterSeconds: args.afterSeconds == null ? undefined : Number(args.afterSeconds),
-            at: args.at == null ? undefined : String(args.at),
-            everySeconds: args.everySeconds == null ? undefined : Number(args.everySeconds),
-            time: args.time == null ? undefined : String(args.time),
-            weekdays: Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined,
-            timeZone: String(args.timeZone ?? this.config!.timeZone),
-            source: args.source ? text(args.source, 500) : undefined,
-            link,
-          });
-          return result;
-        },
+        // arch-8：F45 路由与 delegated 生命周期收进 ReminderRouter（提示语义不变）。
+        reminder_create: (args, item) => this.reminderRouter.route(item, args),
         reminder_list: async () => this.reminders!.list(),
-        reminder_cancel: async (args, item) => this.reminderCancel(item, String(args.ruleId ?? ''), String(args.reason ?? '')),
+        reminder_cancel: async (args, item) => this.reminderRouter.cancel(item, String(args.ruleId ?? ''), String(args.reason ?? '')),
         // F45：delegated 行的账本侧生命周期操作如实拒绝（日历事件照常，
         // 暂停/改期在 App 内或经日历更新进行）。
-        reminder_pause: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '暂停'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')); },
-        reminder_resume: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '恢复'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')); },
-        reminder_skip: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '跳过'); return this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')); },
-        reminder_snooze: async args => { await this.rejectDelegated(String(args.ruleId ?? ''), '稍后'); return this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')); },
+        reminder_pause: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '暂停'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'paused', String(args.reason ?? '')); },
+        reminder_resume: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '恢复'); return this.reminders!.setStatus(String(args.ruleId ?? ''), 'active', String(args.reason ?? '')); },
+        reminder_skip: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '跳过'); return this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')); },
+        reminder_snooze: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '稍后'); return this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')); },
         reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
         digest_enable: async args => this.digest.digestEnable(args),
         digest_control: async args => this.digest.digestControl(args),
@@ -1577,7 +1529,7 @@ export class PaRuntime {
 
   // ---- delegation & worker control -----------------------------------------
 
-  async delegate(args: { worker: string; title: string; instruction: string; noteId?: string }, agent: DshAgent): Promise<unknown> {
+  async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string }, agent: DshAgent): Promise<unknown> {
     const role = this.roleFor(agent);
     if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
     const config = this.config!;
@@ -1877,165 +1829,12 @@ export class PaRuntime {
 
   private async calendarQuery(args: Record<string, unknown>): Promise<unknown> {
     if (this.config!.calendarChannel === 'wecom') return this.wecomChannels.wecomCalendarQuery(args);
-    const calendarId = String(args.calendarId ?? this.config!.calendarId);
-    const { from, to } = parseZonedRange(args);
-    const sync = await this.syncCalendarWindow(calendarId, from, to);
-    const events = await this.repos!.calendar.eventsIn(calendarId, from, to);
-    const conflicts: { a: string; b: string }[] = [];
-    for (let i = 0; i < events.length; i++) {
-      for (let j = i + 1; j < events.length; j++) {
-        if (events[i]!.end_time > events[j]!.start_time && events[j]!.end_time > events[i]!.start_time) {
-          conflicts.push({ a: events[i]!.event_id, b: events[j]!.event_id });
-        }
-      }
-    }
-    const state = await this.repos!.calendar.getSync(calendarId);
-    return {
-      calendarId,
-      from: isoDate(from),
-      to: isoDate(to),
-      fresh: sync.ok,
-      syncedAt: isoDate(state?.last_synced_at ?? null),
-      message: sync.ok
-        ? `共 ${events.length} 个日程（不含已取消）；冲突 ${conflicts.length} 处。`
-        : `本次同步失败（${sync.error}）；以下为投影数据，可能过期，不视为完整日历。`,
-      conflicts: conflicts.map(c => ({
-        a: events.find(e => e.event_id === c.a)!.summary,
-        b: events.find(e => e.event_id === c.b)!.summary,
-      })),
-      events: events.map(e => ({
-        eventId: e.event_id,
-        summary: e.summary,
-        start: isoDate(e.start_time),
-        end: isoDate(e.end_time),
-        allDay: e.is_all_day,
-        timezone: e.timezone,
-        recurring: e.recurring,
-        url: e.url,
-      })),
-    };
+    return this.feishu.calendarQuery(args);
   }
 
   private async calendarBusy(args: Record<string, unknown>): Promise<unknown> {
     if (this.config!.calendarChannel === 'wecom') return this.wecomChannels.wecomCalendarBusy(args);
-    const calendarId = String(args.calendarId ?? this.config!.calendarId);
-    const { from, to } = parseZonedRange(args);
-    const sync = await this.syncCalendarWindow(calendarId, from, to);
-    const events = await this.repos!.calendar.eventsIn(calendarId, from, to);
-    return {
-      fresh: sync.ok,
-      message: sync.ok ? `该时段忙闲如下（${events.length} 项）。` : `本次同步失败（${sync.error}）；展示投影，可能过期。`,
-      busy: events.map(e => ({ summary: e.summary, start: isoDate(e.start_time), end: isoDate(e.end_time), allDay: e.is_all_day })),
-    };
-  }
-
-  /** F45：时钟型提醒是否可走日历渠道（demo/无连接时回落账本引擎，演示与测试不受损）。 */
-  private calendarChannelsLive(): boolean {
-    if (this.config?.calendarChannel === 'wecom') return true;
-    return this.config?.mode === 'feishu' && !!this.transport;
-  }
-
-  /**
-   * F45（spec 2.11，ADR-0001 修订）：时钟型提醒日程化——按 calendarChannel 写
-   * 带提醒的日程（渠道 CLI 默认提前 5 分钟 App 原生提醒；daily/weekly 走
-   * rrule 重复日程），账本只留 delegated 备份行（面板视图/历史/防重，引擎
-   * 不投递该状态行）。once 的 at/afterSeconds 与 daily/weekly 的本地时刻
-   * 语义与账本引擎完全一致（next 时刻计算复用同一 schedule 助手）。
-   */
-  private async reminderToCalendar(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const summary = text(args.text, 500);
-    if (!summary) throw new ReminderError('提醒内容不能为空。');
-    const kind = String(args.kind ?? 'once');
-    const timeZone = String(args.timeZone ?? this.config!.timeZone);
-    let start: Date;
-    let rrule: string | undefined;
-    let originExpression: string;
-    const now = Date.now();
-    if (kind === 'once') {
-      if (args.at) {
-        const at = new Date(String(args.at));
-        if (Number.isNaN(at.getTime())) throw new ReminderError('once 的 at 需为可解析的 ISO 时间。');
-        start = at;
-        originExpression = at.toISOString();
-      } else {
-        const seconds = Number(args.afterSeconds);
-        if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new ReminderError('once 需要 1 秒–365 天的延迟（afterSeconds）或绝对时间（at）。');
-        start = new Date(now + seconds * 1000);
-        originExpression = `after ${seconds}s`;
-      }
-    } else if (kind === 'daily') {
-      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new ReminderError('daily 需要本地时间 HH:mm:ss。');
-      const record = createDailyScheduleRecord(ScheduleId('f45'), summary, { time: String(args.time), time_zone: timeZone }, now, summary);
-      start = firstOccurrence(record, now);
-      rrule = 'FREQ=DAILY;INTERVAL=1';
-      originExpression = `daily ${args.time} ${timeZone}`;
-    } else if (kind === 'weekly') {
-      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new ReminderError('weekly 需要本地时间 HH:mm:ss。');
-      const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : [];
-      if (!weekdays.length || weekdays.some(d => !Number.isInteger(d) || d < 1 || d > 7)) throw new ReminderError('weekly 需要 weekdays（ISO 1–7，周一=1）。');
-      const sorted = [...new Set(weekdays)].sort();
-      const record = createWeeklyScheduleRecord(ScheduleId('f45'), summary, { time: String(args.time), time_zone: timeZone, weekdays: sorted }, now, summary);
-      start = firstOccurrence(record, now);
-      rrule = `FREQ=WEEKLY;BYDAY=${sorted.map(d => ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][d - 1]).join(',')}`;
-      originExpression = `weekly ${args.time} ${sorted.join(',')} ${timeZone}`;
-    } else {
-      throw new ReminderError('时钟型日程化支持 once/daily/weekly；every 与跟随来源型仍走账本引擎。');
-    }
-    const end = new Date(start.getTime() + 15 * 60 * 1000);
-    const created = (await this.calendarWrite(item, 'create', {
-      summary: `提醒：${summary}`,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      ...(rrule ? { rrule } : {}),
-    })) as { event_id?: string; eventId?: string; operationId?: string };
-    const eventId = created.event_id ?? created.eventId ?? null;
-    // 备份行：delegated 状态＝引擎不投递，仅面板/历史/取消路径数据源。
-    const ruleId = `rmd-cal-${randomUUID().slice(0, 10)}`;
-    await this.repos!.reminders.insertRule({
-      id: ruleId,
-      kind,
-      text: summary,
-      record: { type: 'calendar', channel: this.config!.calendarChannel, event_id: eventId, start: start.toISOString(), rrule: rrule ?? null, operation_id: created.operationId ?? null },
-      status: 'delegated',
-      next_due_at: start,
-      time_zone: timeZone,
-      origin_expression: originExpression,
-      source: args.source ? text(args.source, 500) : null,
-      work_item_id: item.id,
-      link_source_type: null,
-      link_source_id: null,
-      link_fingerprint: null,
-    });
-    return {
-      ruleId,
-      eventId,
-      calendarChannel: this.config!.calendarChannel,
-      start: start.toISOString(),
-      ...(rrule ? { rrule } : {}),
-      message: `提醒已写入${this.config!.calendarChannel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；到点由对应 App 原生日程提醒（默认提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
-    };
-  }
-
-  /** F45：delegated 行不参与账本侧暂停/恢复/跳过/稍后——如实拒绝并指引。 */
-  private async rejectDelegated(ruleId: string, op: string): Promise<unknown> {
-    const rule = await this.repos!.reminders.getRule(ruleId);
-    if (rule?.status === 'delegated') {
-      throw new Error(`该提醒已日程化（App 原生提醒），账本侧「${op}」不适用；请在对应日历 App 内操作，或让我更新/删除该日程事件。`);
-    }
-    return undefined;
-  }
-
-  /** F45：取消——delegated 行同步取消日历事件，其余走账本引擎。 */
-  private async reminderCancel(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
-    const rule = await this.repos!.reminders.getRule(ruleId);
-    if (rule?.status === 'delegated') {
-      const record = rule.record as { event_id?: string | null };
-      if (record?.event_id) {
-        await this.calendarWrite(item, 'cancel', { eventId: record.event_id });
-      }
-      return this.reminders!.setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
-    }
-    return this.reminders!.setStatus(ruleId, 'stopped', reason);
+    return this.feishu.calendarBusy(args);
   }
 
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
@@ -2043,100 +1842,7 @@ export class PaRuntime {
       if (operationIdOverride) throw new Error('企微日程渠道不支持操作键覆盖（meeting/minutes 流程限定飞书）。');
       return this.wecomChannels.wecomCalendarWrite(item, kind, args);
     }
-    const calendarId = String(args.calendarId ?? this.config!.calendarId);
-    const summary = kind === 'cancel' ? null : args.summary === undefined ? null : text(args.summary, 500);
-    const start = args.start !== undefined ? new Date(String(args.start)) : null;
-    const end = args.end !== undefined ? new Date(String(args.end)) : null;
-    if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) throw new Error('日程时间需为可解析的 ISO 时间。');
-    if (start && end && end <= start) throw new Error('结束时间须晚于开始时间。');
-    if (kind === 'create' && (!summary || !start || !end)) throw new Error('创建需要 summary、start、end。');
-    const eventId = kind === 'create' ? '' : String(args.eventId ?? '');
-    if (kind !== 'create' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询）。');
-    if (kind === 'update' && !summary && !start && !end) throw new Error('需要至少一项修改（summary/start/end）。');
-    const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
-    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}\n${typeof args.rrule === 'string' ? args.rrule : ''}`;
-    return this.gate(`calendar-event:${eventId || 'new'}`, async () => {
-    const staged = operationIdOverride
-      ? await this.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end })
-      : await this.stagedOperation(
-          item,
-          `calendar.${kind}`,
-          paramsKey,
-          { calendarId, kind, eventId, summary, start, end },
-          '请先用 calendar_query 重新同步窗口核对日程实际状态，确认后再继续。',
-        );
-    if (!staged.created && staged.row.status === 'succeeded') {
-      return { operationId: staged.row.id, reused: true, ...(staged.row.receipt ?? {}), message: '此日程操作此前已提交，未重复写入。' };
-    }
-    try {
-      const cliArgs = ['calendar', kind === 'create' ? '+create' : kind === 'update' ? '+update' : '+delete', '--as', 'user', '--calendar-id', calendarId];
-      if (kind === 'create') {
-        cliArgs.push('--summary', `[24PA] ${summary}`, '--start', start!.toISOString(), '--end', end!.toISOString());
-        if (attendees && attendees.length > 0) cliArgs.push('--attendee-ids', attendees.join(','));
-        // F45：rrule 重复日程（RFC5545）；paramsKey 纳入以防同参数不同规则的误重放。
-        if (typeof args.rrule === 'string' && args.rrule) cliArgs.push('--rrule', args.rrule);
-      } else if (kind === 'update') {
-        cliArgs.push('--event-id', eventId);
-        if (summary) cliArgs.push('--summary', `[24PA] ${summary}`);
-        if (start) cliArgs.push('--start', start.toISOString());
-        if (end) cliArgs.push('--end', end.toISOString());
-      } else {
-        cliArgs.push('--event-id', eventId);
-      }
-      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), cliArgs);
-      const event = data?.event ?? data;
-      const newEventId = String(event?.event_id ?? event?.eventId ?? eventId);
-      const url = event?.url ? String(event.url) : null;
-      if (newEventId && (kind === 'create' || kind === 'update')) {
-        // Merge with the prior projection and the platform receipt; never
-        // fabricate times that neither the request nor the receipt provided.
-        const prior = await this.repos!.calendar.findEvent(newEventId);
-        const receiptStart = Date.parse(String(event?.start_time ?? event?.start ?? '')) ? new Date(String(event.start_time ?? event.start)) : null;
-        const receiptEnd = Date.parse(String(event?.end_time ?? event?.end ?? '')) ? new Date(String(event.end_time ?? event.end)) : null;
-        const startTime = start ?? receiptStart ?? prior?.start_time;
-        const endTime = end ?? receiptEnd ?? prior?.end_time;
-        if (!startTime || !endTime) {
-          // No trustworthy time source: refresh the window instead of guessing.
-          await this.syncCalendarWindow(calendarId, new Date(Date.now() - 24 * 3600 * 1000), new Date(Date.now() + 7 * 24 * 3600 * 1000)).catch(() => {});
-        } else {
-          await this.repos!.calendar.upsertEvent({
-            event_id: newEventId,
-            calendar_id: calendarId,
-            summary: summary ?? String(event?.summary ?? prior?.summary ?? ''),
-            start_time: startTime,
-            end_time: endTime,
-            is_all_day: prior?.is_all_day ?? false,
-            timezone: prior?.timezone ?? null,
-            status: 'active',
-            recurring: prior?.recurring ?? false,
-            attendees: attendees ?? prior?.attendees ?? null,
-            url: url ?? prior?.url ?? null,
-            raw: event,
-          });
-        }
-      }
-      if (kind === 'cancel' && eventId) {
-        await this.repos!.calendar.markCanceled(eventId).catch(() => {});
-        await this.notifySourceChanged('calendar', eventId, null);
-      }
-      await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
-      if (kind === 'update') {
-        // Any successful update may have moved the source: linked reminders
-        // and prep plans re-derive their validity from the new fingerprint.
-        const prior = await this.repos!.calendar.findEvent(newEventId);
-        await this.notifySourceChanged('calendar', newEventId, eventFingerprint({ event_id: newEventId, summary: prior?.summary ?? summary ?? '', start_time: prior?.start_time ?? start! }));
-      }
-      return {
-        operationId: staged.row.id,
-        eventId: newEventId,
-        url,
-        message: kind === 'create' ? '日程已创建（以平台回执为准）。' : kind === 'update' ? '日程已修改（以平台回执为准）。' : '日程已取消（以平台回执为准）。',
-      };
-    } catch (error) {
-      await this.failStaged(staged.row.id, error);
-      throw error;
-    }
-    });
+    return this.feishu.calendarWrite(item, kind, args, operationIdOverride);
   }
 
   /**
@@ -2148,101 +1854,11 @@ export class PaRuntime {
     if (this.config!.calendarChannel === 'wecom') {
       throw new Error('会议邀请（meeting_schedule）依赖飞书联系人解析，企微日程渠道不可用；可先用 calendar_create 建企微日程（不含邀请），邀请由本人在企微发起。');
     }
-    const title = text(args.title, 200);
-    const start = new Date(String(args.start ?? ''));
-    const end = new Date(String(args.end ?? ''));
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) throw new Error('会议需要明确的开始/结束时间（ISO，含时区）。');
-    const attendeeInputs = Array.isArray(args.attendees) ? (args.attendees as Record<string, unknown>[]) : [];
-    if (attendeeInputs.length === 0) throw new Error('需要提供参会人；没有参会人时用 calendar_create 建个人日程。');
-    if (!String(args.instruction ?? '').trim()) throw new Error('缺少本人明确的邀请指令依据（instruction）。');
-    const resolved: { name: string; openId: string }[] = [];
-    const unresolved: string[] = [];
-    for (const attendee of attendeeInputs) {
-      const name = String(attendee.name ?? '').trim();
-      const openId = String(attendee.openId ?? '').trim();
-      if (openId) {
-        resolved.push({ name: name || openId, openId });
-        continue;
-      }
-      if (!name) {
-        unresolved.push('未提供姓名或 openId 的参会人');
-        continue;
-      }
-      const memory = await this.memory!.search({ query: name, limit: 50 });
-      const contactRecords = memory.records.filter(r => (r.topic === `联系人：${name}` || r.content.includes(`联系人 ${name}：`)) && r.status === 'confirmed');
-      const ids = [...new Set(contactRecords.flatMap(r => r.content.match(/ou_[A-Za-z0-9_]+/g) ?? []))];
-      if (ids.length === 1) resolved.push({ name, openId: ids[0]! });
-      else unresolved.push(`${name}（${ids.length === 0 ? '记忆中没有对应 open_id' : `记忆中有 ${ids.length} 位候选`}）`);
-    }
-    if (unresolved.length > 0) {
-      throw new Error(`以下参会人无法唯一确定，请先澄清后再邀请：${unresolved.join('；')}。未发出任何邀请。`);
-    }
-    const result = (await this.calendarWrite(item, 'create', {
-      summary: title,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      attendees: resolved.map(r => r.openId),
-      calendarId: args.calendarId,
-    })) as Record<string, unknown>;
-    return {
-      ...result,
-      attendees: resolved,
-      message: `已按本人明确指令创建会议并邀请 ${resolved.length} 位参会人（${resolved.map(r => r.name).join('、')}）；结果以平台回执为准。`,
-    };
+    return this.feishu.meetingSchedule(item, args);
   }
 
   private async syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }> {
-    try {
-      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-        'calendar', '+agenda', '--as', 'user', '--calendar-id', calendarId,
-        '--start', from.toISOString().slice(0, 10), '--end', to.toISOString().slice(0, 10),
-      ]);
-      const raw = (data?.events ?? data?.items ?? data ?? []);
-      // An unrecognized response shape means the full window is unknown;
-      // never run destructive cancellation marking in that case.
-      if (!Array.isArray(raw)) {
-        await this.repos!.calendar.saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: false, lastError: '同步返回形状无法识别' });
-        return { ok: false, error: '同步返回形状无法识别' };
-      }
-      const live: string[] = [];
-      for (const rawEvent of raw) {
-        const mapped = mapRemoteEvent(rawEvent);
-        if (!mapped) continue;
-        const existing = await this.repos!.calendar.findEvent(mapped.eventId);
-        if (existing) {
-          const afterFp = eventFingerprint({ event_id: mapped.eventId, summary: mapped.summary, start_time: mapped.start });
-          if (eventFingerprint(existing) !== afterFp) await this.notifySourceChanged('calendar', mapped.eventId, afterFp);
-        }
-        await this.repos!.calendar.upsertEvent({
-          event_id: mapped.eventId,
-          calendar_id: calendarId,
-          summary: mapped.summary,
-          start_time: mapped.start,
-          end_time: mapped.end,
-          is_all_day: mapped.isAllDay,
-          timezone: mapped.timezone,
-          status: mapped.canceled ? 'canceled' : 'active',
-          recurring: mapped.recurring,
-          attendees: mapped.attendees,
-          url: mapped.url,
-          raw: rawEvent,
-        });
-        live.push(mapped.eventId);
-      }
-      await this.repos!.calendar.markCanceledExcept(calendarId, live, from, to);
-      // Remote cancellations surface through linked reminders too: any linked
-      // event in this window that is no longer live gets its correction (P19).
-      for (const eventId of await this.linkedEventIdsInWindow(from, to)) {
-        if (!live.includes(eventId)) await this.notifySourceChanged('calendar', eventId, null);
-      }
-      await this.repos!.calendar.saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: true });
-      return { ok: true };
-    } catch (error) {
-      await this.repos!.calendar
-        .saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: false, lastError: (error as Error).message })
-        .catch(() => {});
-      return { ok: false, error: (error as Error).message };
-    }
+    return this.feishu.syncCalendarWindow(calendarId, from, to);
   }
 
   // ---- tasks & projects (F03) ----------------------------------------------
@@ -2306,111 +1922,15 @@ export class PaRuntime {
 
   private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     if (this.config!.todoChannel === 'wecom') return this.wecomChannels.wecomTaskCreate(item, args);
-    const summary = text(args.summary, 500);
-    const { dueAt, dueHasTime, dueArg } = parseDue(args.due);
-    const plannedAt = args.plannedAt ? new Date(String(args.plannedAt)) : null;
-    if (plannedAt && Number.isNaN(plannedAt.getTime())) throw new Error('计划投入时间无法解析。');
-    const estimateMinutes = args.estimateMinutes == null ? null : Number(args.estimateMinutes);
-    if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
-    const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : ''
-    const overrideId = args._operationId ? String(args._operationId) : null;
-    const authorization = args._instruction ? { instruction: text(args._instruction, 500) } : {};
-    const staged = overrideId
-      ? await this.stagedOperationWithId(overrideId, item, 'task.create', { tasklistId: this.config!.tasklistId, summary, due: dueArg, ...authorization })
-      : await this.stagedOperation(item, 'task.create', `${this.config!.tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
-          tasklistId: this.config!.tasklistId,
-          summary,
-          due: dueArg,
-          ...authorization,
-        });
-    if (!staged.created && staged.row.status === 'succeeded') {
-      const existing = await this.repos!.tasks.get(staged.row.id);
-      return { operationId: staged.row.id, reused: true, guid: existing?.task_guid ?? staged.row.receipt?.guid, url: existing?.url ?? staged.row.receipt?.url ?? null, message: '此任务此前已创建，未重复写入飞书。' };
-    }
-    try {
-      const cliArgs = ['task', '+create', '--as', 'user', '--summary', `[24PA] ${summary}`, '--tasklist-id', this.config!.tasklistId, '--idempotency-key', staged.row.id];
-      if (dueArg) cliArgs.push('--due', dueArg);
-      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), cliArgs);
-      const external = taskExternal(data);
-      const task = await this.repos!.tasks.save({
-        id: staged.row.id,
-        work_item_id: item.id,
-        task_guid: external.guid,
-        url: external.url,
-        summary,
-        due_at: dueAt,
-        due_has_time: dueHasTime,
-        planned_at: plannedAt,
-        estimate_minutes: estimateMinutes == null ? null : Math.round(estimateMinutes),
-        status: 'open',
-        external_updated_at: new Date(),
-        last_synced_at: new Date(),
-      });
-      if (args.projectId) await this.repos!.projects.link(String(args.projectId), task.id);
-      await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: external.guid, url: external.url, summary } });
-      return { operationId: staged.row.id, guid: external.guid, url: external.url, dueAt: isoDate(task.due_at), plannedAt: isoDate(task.planned_at), estimateMinutes: task.estimate_minutes, message: '任务已创建（飞书为权威对象）。' };
-    } catch (error) {
-      await this.failStaged(staged.row.id, error);
-      throw error;
-    }
+    return this.feishu.taskCreate(item, args);
   }
 
   private async resolveTask(args: Record<string, unknown>) {
-    const key = String(args.taskId ?? args.guid ?? '');
-    const task = (await this.repos!.tasks.byGuid(key)) ?? (await this.repos!.tasks.get(key));
-    if (!task) throw new Error('任务不存在；请先用 task_list 查看当前任务。');
-    return task;
+    return this.feishu.resolveTask(args);
   }
 
   private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const taskRef = await this.resolveTask(args);
-    if (taskRef.channel === 'wecom') {
-      throw new Error('企微待办首版不支持修改（F16 范围：创建/完成/删除）；如需调整，可删除后重建。');
-    }
-    const summary = args.summary == null ? null : text(args.summary, 500);
-    const { dueAt, dueHasTime, dueArg } = parseDue(args.due === undefined ? null : args.due);
-    const plannedAt = args.plannedAt === undefined ? undefined : args.plannedAt === null ? null : new Date(String(args.plannedAt));
-    if (plannedAt && Number.isNaN(plannedAt.getTime())) throw new Error('计划投入时间无法解析。');
-    const estimateMinutes = args.estimateMinutes === undefined ? undefined : args.estimateMinutes === null ? null : Number(args.estimateMinutes);
-    if (!summary && args.due === undefined && plannedAt === undefined && estimateMinutes === undefined) {
-      throw new Error('需要说明要修改的内容（summary、due、plannedAt 或 estimateMinutes）。');
-    }
-    return this.gate(`task:${taskRef.task_guid}`, async () => {
-      // Re-read inside the gate and refresh from the remote so a stale
-      // projection never overwrites another worker's or the owner's changes.
-      const stale = await this.repos!.tasks.get(taskRef.id);
-      if (!stale) throw new Error('任务不存在；请先用 task_list 查看。');
-      await this.refreshTaskFromRemote(stale);
-      const task = (await this.repos!.tasks.get(taskRef.id)) ?? stale;
-      const staged = await this.stagedOperation(item, 'task.update', `${task.task_guid}\n${summary ?? ''}\n${dueArg ?? ''}`, { guid: task.task_guid, summary, due: dueArg });
-      if (!staged.created && staged.row.status === 'succeeded') {
-        return { operationId: staged.row.id, reused: true, guid: task.task_guid, url: task.url, message: '此修改此前已提交，未重复写入。' };
-      }
-      try {
-        const cliArgs = ['task', '+update', '--as', 'user', '--task-id', task.task_guid];
-        if (summary) cliArgs.push('--summary', `[24PA] ${summary}`);
-        if (dueArg) cliArgs.push('--due', dueArg);
-        const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), cliArgs);
-        const external = taskExternal({ task: { guid: task.task_guid, url: task.url, ...(data?.task ?? {}) } });
-        const updated = await this.repos!.tasks.save({
-          ...task,
-          summary: summary ?? task.summary,
-          due_at: dueArg !== null ? dueAt : task.due_at,
-          due_has_time: dueArg !== null ? dueHasTime : task.due_has_time,
-          planned_at: plannedAt === undefined ? task.planned_at : plannedAt,
-          estimate_minutes: estimateMinutes === undefined ? task.estimate_minutes : estimateMinutes == null ? null : Math.round(estimateMinutes),
-          external_updated_at: new Date(),
-          last_synced_at: new Date(),
-          url: external.url ?? task.url,
-        });
-        await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, summary: updated.summary } });
-        await this.notifySourceChanged('task', task.task_guid, taskFingerprint(updated));
-        return { operationId: staged.row.id, guid: task.task_guid, url: updated.url, summary: updated.summary, dueAt: isoDate(updated.due_at), message: '任务已按本人指令修改；截止与计划/估时分别记录。' };
-      } catch (error) {
-        await this.failStaged(staged.row.id, error);
-        throw error;
-      }
-    });
+    return this.feishu.taskUpdate(item, args);
   }
 
   private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
@@ -2570,7 +2090,7 @@ export class PaRuntime {
         warnings: [],
       };
       if (live && this.config!.mode === 'feishu' && !external.docId) {
-        external = await this.createMemoDocument(item, topic, content);
+        external = await this.feishu.createMemoDocument(item, topic, content);
         // Persist the created document id before anything else can fail, so
         // a retry resumes instead of duplicating the external write.
         await this.repos!.operations.update(operationId, {
@@ -2579,7 +2099,7 @@ export class PaRuntime {
         });
       }
       if (external.docId && live && this.config!.mode === 'feishu') {
-        const readback = await this.readMemoDocument(external.docId);
+        const readback = await this.feishu.readMemoDocument(external.docId);
         external = { ...external, revision: readback.revision };
       }
       const memo = await this.repos!.memos.insert({
@@ -2610,38 +2130,6 @@ export class PaRuntime {
       await this.failStaged(operationId, error);
       throw error;
     }
-  }
-
-  private async createMemoDocument(item: WorkItemRow, topic: string, content: string): Promise<{ docId: string | null; url: string | null; revision: string | null; warnings: string[] }> {
-    const config = this.config!;
-    const xml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-    const paragraphs = content
-      .split('\n')
-      .map(line => `<p>${xml(line) || '<br/>'}</p>`)
-      .join('\n');
-    const title = `[24PA] ${topic}`;
-    const body = `<title>${xml(title)}</title><p>来源事项：${xml(item.id)}</p><p>保存时间：${nowIso()}</p><h1>内容</h1>${paragraphs}`;
-    // F22：知识库节点优先，未配置沿用文档目录（wiki 优先、folder 回退）。
-    const parentToken = noteParentToken(config);
-    const { data } = await runLarkCli(cliOptions(config, this.options.larkCliBin, this.options.cliTimeoutMs), [
-      'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', parentToken, '--content', '-',
-    ], body);
-    const doc = data?.document;
-    const warnings = Array.isArray(data?.warnings) ? data.warnings.map((x: unknown) => String(x)) : [];
-    // A returned document id wins even with warnings: the external object
-    // exists, so the failure must not orphan it — read back and record it.
-    if (!doc?.document_id || !doc?.url) {
-      throw new Error(warnings.length ? `文档创建未完成（${warnings.join('；')}）；请先核对配置的目录或知识库，不要盲目重试。` : '未取得文档标识；请先核对配置的目录或知识库，不要盲目重试。');
-    }
-    return { docId: doc.document_id, url: doc.url, revision: null, warnings };
-  }
-
-  private async readMemoDocument(docId: string): Promise<{ revision: string | null }> {
-    const readback = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-      'docs', '+fetch', '--as', 'user', '--doc', docId, '--doc-format', 'xml', '--detail', 'full',
-    ]);
-    if (!readback.data?.document?.content) throw new Error('文档回读不完整，保存结果未确认。');
-    return { revision: readback.data.document.revision_id != null ? String(readback.data.document.revision_id) : null };
   }
 
   // ---- outreach, recurring tasks, waiting items (F08) ------------------------
@@ -3828,7 +3316,6 @@ export class PaRuntime {
       },
     };
   }
-
 
   /** F19（spec 2.3）：语音引擎只读预检（面板按需触发；结果缓存供健康面与快照展示）。 */
   async ttsProbe(): Promise<unknown> {

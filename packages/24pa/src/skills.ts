@@ -190,6 +190,11 @@ export const WORKER_PERSONA_SKILLS: readonly { name: string; description: string
   },
 ];
 
+/** 待审提醒默认文案（handwriting-review-flow 内置 params 的单一来源；runtime 兜底引用此处）。 */
+export const DEFAULT_PENDING_REMIND_TEMPLATE: Readonly<{ pendingRemindTemplate: string }> = {
+  pendingRemindTemplate: '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。',
+};
+
 /** 内置任务 skill（spec 2.11/F40/F44）：digest 三件＋审核流口径＋会前准备；模板轨组装在代码层。 */
 export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; whenToUse: string; content: string; metadata: { track: SkillTrack; kind: string; pa24: true; params?: Record<string, unknown> } }[] = [
   {
@@ -241,7 +246,7 @@ export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; 
       '',
       '默认口径与既有行为一致；改模板不改代码。',
     ].join('\n'),
-    metadata: { track: 'template', kind: 'review', pa24: true, params: { pendingRemindTemplate: '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。' } },
+    metadata: { track: 'template', kind: 'review', pa24: true, params: { ...DEFAULT_PENDING_REMIND_TEMPLATE } },
   },
   {
     name: 'meeting-prep',
@@ -280,11 +285,6 @@ export function assertToolDeclaration(metadata: Record<string, unknown> | undefi
     throw new Error(`任务 skill ${skillName} 的工具声明越权（${beyond.join('、')} 不在执行面白名单内）；skill 只能收紧不能放宽权限，请修正该 skill 的 metadata.tools。`);
   }
 }
-
-/** 待审提醒默认文案（handwriting-review-flow 内置 params；runtime 兜底引用此处单一来源）。 */
-export const DEFAULT_PENDING_REMIND_TEMPLATE: Readonly<{ pendingRemindTemplate: string }> = {
-  pendingRemindTemplate: '手写笔记待审核提醒：{noteId} v{version} 仍在等待你的审核{docPart}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。',
-};
 
 /** 经 DigestService/DigestPlanRow 绑定的计划 skill 目录访问面。 */
 export class SkillCatalog {
@@ -398,5 +398,24 @@ export class SkillCatalog {
     const loaded = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
     if (loaded?.content) return loaded.content;
     return this.builtinAll().find(s => s.name === name)?.content ?? null;
+  }
+
+  /**
+   * Agent-run resolution (round-3, spec 2.11 red line): the single gate every
+   * caller must pass to hand a skill to a model turn. Track dispatch lives
+   * here — a template-track skill never reaches a model round through this
+   * seam; callers cannot bypass the zero-model path by forgetting to branch.
+   */
+  async resolveForAgentRun(name: string, allowedTools: readonly string[]): Promise<{ name: string; content: string }> {
+    const bound = await this.find(name);
+    if (!bound) throw new Error(`任务 skill ${name} 不在目录中（内置＋工作区 .dsh/skills）。`);
+    if (bound.track === 'template') {
+      throw new Error(`任务 skill ${name} 是模板轨（确定性组装，不过模型）；它由对应平台管线执行（如晨报/复盘经 digest 计划与「立即运行一次」，审核流经手写管线），不能经 skill_run 进入模型回合。`);
+    }
+    const content = await this.content(name);
+    if (!content) throw new Error(`任务 skill ${name} 正文加载失败。`);
+    // spec 2.11 红线：工具声明只能收紧——越权声明在平台层拒绝执行。
+    assertToolDeclaration(await this.meta(name), allowedTools, name);
+    return { name, content };
   }
 }

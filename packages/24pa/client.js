@@ -166,30 +166,38 @@ window.__ModuleLoader__.load({
         const roleName = id => WORKER_NAMES[id] ? L(...WORKER_NAMES[id]) : id;
         const ACTIVE_WORK = ['accepted', 'queued', 'running', 'waiting_input'];
 
-        function MemoryView({ workspace, openRobot }) {
-          const [draft, setDraft] = React.useState(''), [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0), [retry, setRetry] = React.useState(0);
+        // arch-5: the loading/ready/error triplet behind one hook. Views declare
+        // the rpc key, payload and deps; abort-on-unmount and retry come along.
+        const useRpc = (key, payload, deps) => {
+          const [retry, setRetry] = React.useState(0);
           const [view, setView] = React.useState({ status: 'loading', data: null, error: '' });
           React.useEffect(() => {
             const abort = new AbortController();
             setView({ status: 'loading', data: null, error: '' });
-            void rpc('memory', { query, offset }, abort.signal).then(data => {
+            void rpc(key, payload, abort.signal).then(data => {
               if (!abort.signal.aborted) setView({ status: 'ready', data, error: '' });
             }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
             return () => abort.abort();
-          }, [workspace.path, query, offset, retry]);
+          }, [...deps, retry]);
+          return [view, () => setRetry(v => v + 1)];
+        };
+
+        function MemoryView({ workspace, openRobot }) {
+          const [draft, setDraft] = React.useState(''), [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0);
+          const [view, retryFetch] = useRpc('memory', { query, offset }, [workspace.path, query, offset]);
           const categories = { preference: [L('个人偏好', 'Preference'), 'neutral'], fact: [L('事实', 'Fact'), 'neutral'], project: [L('项目', 'Project'), 'blue'], decision: [L('决定', 'Decision'), 'neutral'] };
-          const search = () => { setOffset(0); setQuery(draft.trim()); setRetry(v => v + 1); };
+          const search = () => { setOffset(0); setQuery(draft.trim()); retryFetch(); };
           const clear = () => { setDraft(''); setQuery(''); setOffset(0); };
           const data = view.data;
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
           return h('section', null,
             sectionHead('memory', null, L('记住你的偏好与背景，让每次交办更有默契。', 'Your preferences and background, remembered so every handoff lands better.'),
-              h('div', { className: 'pa24-row' }, button('refresh', L('刷新记忆', 'Refresh memories'), () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', L('通过对话维护记忆', 'Manage memories in chat'), openRobot)), 'neutral'),
+              h('div', { className: 'pa24-row' }, button('refresh', L('刷新记忆', 'Refresh memories'), retryFetch, { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('chat', L('通过对话维护记忆', 'Manage memories in chat'), openRobot)), 'neutral'),
             h('div', { className: 'pa24-searchbar' },
               h('div', { className: 'pa24-search' }, icon('search'), h('input', { value: draft, placeholder: L('搜索正文、主题或来源…', 'Search content, topic, or source…'), 'aria-label': L('筛选记忆', 'Filter memories'), onChange: e => setDraft(e.target.value), onKeyDown: e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) search(); } })),
               button('search', L('筛选', 'Filter'), search), (draft || query) && button('close', L('查看全部', 'Show all'), clear, { className: 'pa24-quiet' })),
             view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取记忆内容…', 'Reading memories…')),
-            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('记忆读取失败', 'Failed to read memories'))), h('p', null, view.error), h('p', null, L('请在 dsh 的24私助会话中检查记忆文件，修复后重试。', 'Check the memory file in the 24PA dsh session and retry after fixing.')), button('refresh', L('重试读取', 'Retry read'), () => setRetry(v => v + 1))),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('记忆读取失败', 'Failed to read memories'))), h('p', null, view.error), h('p', null, L('请在 dsh 的24私助会话中检查记忆文件，修复后重试。', 'Check the memory file in the 24PA dsh session and retry after fixing.')), button('refresh', L('重试读取', 'Retry read'), retryFetch)),
             data && h('div', null,
               h('div', { className: 'pa24-result-meta', role: 'status' }, h('span', null, L('共 ' + data.total + L(' 条记忆', ' memories') + (query ? L(' · 匹配 ', ' · ') + data.matched + L(' 条', ' matched') : ''), data.total + (query ? ' memories (' + data.matched + ' matched)' : ' memories total'))), h('span', null, L('记忆版本 ' + data.revision, 'Memory revision ' + data.revision))),
               data.matched === 0 ? h('div', { className: 'pa24-card' }, empty('search', 'neutral', L('没有找到匹配的记忆', 'No matching memories'), L('试试更短的关键词，或清空筛选查看所有记忆。', 'Try shorter keywords, or clear the filter to see everything.'), button('close', L('清空筛选', 'Clear filter'), clear))) :
@@ -204,7 +212,7 @@ window.__ModuleLoader__.load({
                     h('div', { className: 'pa24-note' }, r.content),
                     h('div', { className: 'pa24-row pa24-between' },
                       h('div', { className: 'pa24-memory-source' }, icon('note', { width: 13, height: 13 }), h('span', null, L('来源：', 'Source: ') + r.source)),
-                      h('time', { className: 'pa24-meta', dateTime: r.updatedAt }, date(r.updatedAt, workspace.config ? workspace.config.timeZone : 'Asia/Shanghai')))),
+                      h('time', { className: 'pa24-meta', dateTime: r.updatedAt }, date(r.updatedAt, workspace.config?.timeZone || 'Asia/Shanghai')))),
                   h('div', { className: 'pa24-memory-footer' }, h('details', null, h('summary', null, L('修订依据与 JSON', 'Revision basis & JSON')), h('p', { className: 'pa24-meta' }, L('修订依据：', 'Reason: ') + r.reason), h('p', { className: 'pa24-meta' }, L('修改会话：', 'Updated by: ') + r.updatedBy), r.validUntil && h('p', { className: 'pa24-meta' }, L('有效期至：', 'Valid until: ') + r.validUntil), h('pre', null, JSON.stringify(r, null, 2)))));
               })),
               data.matched > data.limit && h('nav', { className: 'pa24-page-nav', 'aria-label': L('记忆分页', 'Memory pagination') }, button('chevron', L('上一页', 'Previous'), () => setOffset(Math.max(0, data.offset - data.limit)), { disabled: data.offset === 0 }), h('span', null, L('第 ' + (Math.floor(data.offset / data.limit) + 1) + ' / ' + Math.ceil(data.matched / data.limit) + L(' 页', ''), 'Page ' + (Math.floor(data.offset / data.limit) + 1) + ' / ' + Math.ceil(data.matched / data.limit))), button('chevron', L('下一页', 'Next'), () => setOffset(data.offset + data.limit), { disabled: data.offset + data.limit >= data.matched }))),
@@ -212,20 +220,11 @@ window.__ModuleLoader__.load({
         }
 
         function ReviewView({ workspace, openRobot }) {
-          const [view, setView] = React.useState({ status: 'loading', data: null, error: '' });
-          const [retry, setRetry] = React.useState(0);
+          const [view, retryFetch] = useRpc('notes.queue', {}, [workspace.path]);
           const [mode, setMode] = React.useState('pending');
           const [historyFilter, setHistoryFilter] = React.useState('all');
-          React.useEffect(() => {
-            const abort = new AbortController();
-            setView({ status: 'loading', data: null, error: '' });
-            void rpc('notes.queue', {}, abort.signal).then(data => {
-              if (!abort.signal.aborted) setView({ status: 'ready', data, error: '' });
-            }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
-            return () => abort.abort();
-          }, [workspace.path, retry]);
           const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
-          const tz = workspace.config ? workspace.config.timeZone : 'Asia/Shanghai';
+          const tz = workspace.config?.timeZone || 'Asia/Shanghai';
           const verifyBadge = v => {
             if (!v || !v.verifyResult) return badge(L('尚未核验', 'Not verified'), 'neutral', 'info');
             if (v.verifyResult === 'matches') return badge(L('内容一致', 'Content matches'), 'blue', 'check');
@@ -257,13 +256,13 @@ window.__ModuleLoader__.load({
                 h('p', { className: 'pa24-meta' }, L('需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。', 'For a later nudge, pausing follow-ups, or republishing a candidate, just tell 24PA.')))));
           return h('section', null,
             sectionHead('pen', null, L('拍照笔记的待审版本、审核记录与版本核验都在这里；批准或退回请在飞书审核卡上完成。', 'Pending versions, review history, and verification; approve or return on the Feishu review card.'),
-              button('refresh', L('刷新队列', 'Refresh queue'), () => setRetry(v => v + 1), { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'danger'),
+              button('refresh', L('刷新队列', 'Refresh queue'), retryFetch, { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'danger'),
             h('div', { className: 'pa24-example' }, icon('shield', { width: 16, height: 16 }), L('审核裁决只由你在飞书卡片上作出；本页面为只读查阅，不提供网页批准按钮。', 'Review verdicts are made by you on the Feishu card only; this page is read-only and has no approve button.')),
             h('div', { className: 'pa24-row', role: 'group', 'aria-label': L('审核视图', 'Review views'), style: { margin: '14px 0' } },
               button('tasks', L('待处理 ' + (view.data?.count ?? 0), 'Pending ' + (view.data?.count ?? 0)), () => setMode('pending'), { className: mode === 'pending' ? 'pa24-filter-active' : 'pa24-quiet', 'aria-pressed': mode === 'pending' }),
               button('clock', L('审核记录 ' + history.length, 'History ' + history.length), () => setMode('history'), { className: mode === 'history' ? 'pa24-filter-active' : 'pa24-quiet', 'aria-pressed': mode === 'history' })),
             view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取审核队列…', 'Reading the review queue…')),
-            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('审核队列读取失败', 'Failed to read the review queue'))), h('p', null, view.error), button('refresh', L('重试读取', 'Retry read'), () => setRetry(v => v + 1))),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('审核队列读取失败', 'Failed to read the review queue'))), h('p', null, view.error), button('refresh', L('重试读取', 'Retry read'), retryFetch)),
             view.status === 'ready' && mode === 'pending' && pending,
             view.status === 'ready' && mode === 'history' && h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('审核记录', 'Review history')),
@@ -560,19 +559,25 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-helper' }, L('恢复前先执行备份校验；旧 Outbox 与远端对象先对账再继续发送，避免重复投递。', 'Verify a backup before restoring. Reconcile old outbox rows and remote objects before sending again.'))));
         }
 
+        // arch-4: timezone resolves once through this helper — the snapshot
+        // config is authoritative, the literal fallback covers the unbound state.
+        const tzOf = state => (state.workspace && state.workspace.config ? state.workspace.config.timeZone : null) || 'Asia/Shanghai';
+
         // F22：wiki 资源行的查找与定档收敛一处（卡片 tier/body 与 WikiDetail 共用）。
         const wikiResource = state => (state.diagnostics && state.diagnostics.resources ? state.diagnostics.resources.find(r => r.id === 'wiki') : null);
         const resourceTierOf = row => (!row ? 'unchecked' : row.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(row.state) ? 'error' : row.state === 'missing' ? 'missing' : 'warn');
 
         // 二级详情：原 feishu tab 全量内容平移。
         function FeishuDetail({ state, busy, button, openRobot }) {
-          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
+          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = tzOf(state);
           const check = state.diagnostics;
           const cli = check ? check.cli : null;
           const auth = check ? check.auth : null;
+          // arch-5: the resource tier cascade has one home (resourceTierOf);
+          // diagnosis is only the badge rendering of it plus the unconfigured shell.
           const diagnosis = (item, configured = true) => !item
             ? statusBadge(configured ? 'unchecked' : 'missing')
-            : statusBadge(item.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(item.state) ? 'error' : item.state === 'missing' ? 'missing' : 'warn');
+            : statusBadge(resourceTierOf(item));
           const pendingOutbox = String((state.outbox || []).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length) + L(' 条', ' pending');
           const resourceRows = [['folder', L('文档目录', 'Docs folder'), config ? config.folderToken : null, 'folder'], ['wiki', L('知识库', 'Wiki node'), config ? config.wikiNodeToken : null, 'wiki'], ['tasklist', L('任务清单', 'Task list'), config ? config.tasklistId : null, 'tasks'], ['calendar', L('本人日历', 'Owner calendar'), config ? config.calendarId : null, 'calendar']].map(([id, label, value]) => {
             const resource = check && check.resources ? check.resources.find(r => r.id === id) : null;
@@ -886,7 +891,7 @@ window.__ModuleLoader__.load({
             },
             body: ({ state, config }) => h('div', null,
                 capLine(L('启用渠道', 'Channels'), wecomChannelsOn(config) ? L('已启用', 'Enabled') : L('未启用', 'Not enabled')),
-                capLine(L('上次检查', 'Last check'), state.wecom ? date(state.wecom.checkedAt, config ? config.timeZone : 'Asia/Shanghai') : L('尚未检查', 'Not checked'))),
+                capLine(L('上次检查', 'Last check'), state.wecom ? date(state.wecom.checkedAt, tzOf(state)) : L('尚未检查', 'Not checked'))),
             detail: helpers => h(WecomView, helpers),
           },
           {
@@ -1009,13 +1014,10 @@ window.__ModuleLoader__.load({
         // 字段级错误。storage/version/密钥引用名不在表单（白名单在服务端强制）。
         function ConfigFormDetail({ helpers }) {
           const { config, state } = helpers;
-          const VOICES = [
-            ['zh_female_cancan_uranus_bigtts', L('知性灿灿（女声·晨报主推）', 'Cancan (female, digest pick)')],
-            ['zh_female_zhixingnv_uranus_bigtts', L('知性女声（女声·沉稳）', 'Zhixing female (steady)')],
-            ['zh_male_m191_uranus_bigtts', L('云舟（男声·稳重）', 'Yunzhou (male, steady)')],
-            ['zh_female_vv_uranus_bigtts', L('Vivi（女声·元气）', 'Vivi (female, lively)')],
-            ['zh_female_xiaohe_uranus_bigtts', L('小何（女声·甜）', 'Xiaohe (female, sweet)')],
-          ];
+          // arch-4: the voice list rides the snapshot's configMeta (single
+          // source in config.ts) — client.js no longer carries a second copy.
+          const VOICES = (state.configMeta && state.configMeta.fields ? state.configMeta.fields : [])
+            .find(f => f.name === 'tts.voice')?.options ?? [];
           const KNOWN_EXTRA = ['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*'];
           const makeForm = () => ({
             mode: config?.mode ?? 'demo',
@@ -1033,6 +1035,7 @@ window.__ModuleLoader__.load({
             enabledWorkers: [...(config?.enabledWorkers ?? ['memo'])],
             workerModels: JSON.parse(JSON.stringify(config?.workerModels ?? {})),
             extraKnown: KNOWN_EXTRA.filter(x => (config?.extraLocalTools ?? []).includes(x)),
+            extraSkills: (config?.extraBusinessSkills ?? []).join(', '),
             tts: { engine: config?.tts?.engine ?? 'none', voice: config?.tts?.voice ?? '', volcKeyEnv: config?.tts?.volcKeyEnv ?? '', meloDir: config?.tts?.meloDir ?? '' },
             appIdEnv: config?.appIdEnv ?? 'PA24_FEISHU_APP_ID',
             appSecretEnv: config?.appSecretEnv ?? 'PA24_FEISHU_APP_SECRET',
@@ -1081,11 +1084,12 @@ window.__ModuleLoader__.load({
                 if (provider || model) models[role] = { ...(provider ? { provider } : {}), ...(model ? { model } : {}), ...(route.simplePersona ? { simplePersona: true } : {}) };
               }
               const extra = [...new Set([...form.extraKnown, ...(config?.extraLocalTools ?? []).filter(v => !KNOWN_EXTRA.includes(v))])];
+              const skills = (form.extraSkills || '').split(/[,，\n]/).map(x => x.trim()).filter(Boolean);
               await rpc('action', { type: 'workspace.config-update', config: {
                 mode: form.mode, larkProfile: form.larkProfile.trim(), ownerOpenId: form.ownerOpenId.trim(), timeZone: form.timeZone.trim(),
                 calendarChannel: form.calendarChannel, todoChannel: form.todoChannel, notifyChannel: form.notifyChannel,
                 folderToken: form.folderToken.trim(), wikiNodeToken: form.wikiNodeToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
-                maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra,
+                maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra, extraBusinessSkills: skills,
                 appIdEnv: form.appIdEnv.trim(), appSecretEnv: form.appSecretEnv.trim(), pgDsnEnv: form.pgDsnEnv.trim(),
                 tts: form.tts,
               } });
@@ -1160,6 +1164,7 @@ window.__ModuleLoader__.load({
                 txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
                 h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),
                 L('身份字段只读；一键应用当前 CLI 授权的 open_id' + (authOpenId ? '' : diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）') + '。', 'Identity is read-only; one-click apply of the CLI-authorized open_id' + (authOpenId ? '' : diagChecked ? ' (checked, not yet acquired)' : ' (run a check under Access to acquire)') + '.')),
+              row(L('业务 skill 放行面（extraBusinessSkills）', 'Business skills (extraBusinessSkills)'), h('textarea', { rows: 2, value: form.extraSkills, onChange: e => set('extraSkills', e.target.value), placeholder: 'standup-prep, my-routine' }, null), L('逗号或换行分隔的 kebab-case skill 名；点名目录外名会被过滤并在健康里提示。', 'Comma/newline-separated kebab-case skill names; unknown names are filtered with a health note.')),
               row(L('时区（timeZone）', 'Time zone (timeZone)'), h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
                 h('datalist', { id: 'pa24-tz-list' }, ['Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'UTC'].map(z => h('option', { key: z, value: z })))), L('IANA 时区名，保存时即时校验。', 'IANA timezone name; validated on save.'))),
             h('section', { className: 'pa24-card' },
@@ -1212,7 +1217,7 @@ window.__ModuleLoader__.load({
               h('h2', null, L('语音 TTS（晨报复盘）', 'Voice TTS (digests)')),
               row(L('语音引擎（tts.engine）', 'Voice engine (tts.engine)'), sel([['none', L('不启用', 'Off')], ['melo', L('Melo 本地', 'Melo local')], ['volcengine', L('豆包云', 'Volcengine')]], form.tts.engine, v => setTts('engine', v))),
               form.tts.engine === 'volcengine' && row(L('音色（tts.voice）', 'Voice (tts.voice)'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
-                sel(form.tts.voice && !VOICES.some(([v]) => v === form.tts.voice) ? [[form.tts.voice, form.tts.voice], ...VOICES] : VOICES, form.tts.voice, v => setTts('voice', v)),
+                sel(form.tts.voice && !VOICES.some(o => o.value === form.tts.voice) ? [[form.tts.voice, form.tts.voice], ...VOICES.map(o => [o.value, o.label])] : VOICES.map(o => [o.value, o.label]), form.tts.voice, v => setTts('voice', v)),
                 h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void tryVoice() }, icon('chat', { width: 15, height: 15 }), L('试听', 'Sample'))), L('试听发送到飞书，使用当前已保存的配置。', 'The sample goes to Feishu using the saved config.')),
               form.tts.engine === 'volcengine' && row(L('密钥引用（tts.volcKeyEnv）', 'Key env ref (tts.volcKeyEnv)'), txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('可选：环境变量引用名（优先于密钥库）；密钥本体在「密钥」组填写。', 'Optional env-var reference (overrides the store); the key itself goes in the Secrets group.')),
               form.tts.engine === 'melo' && row(L('部署目录（tts.meloDir）', 'Deploy dir (tts.meloDir)'), txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),
@@ -1408,7 +1413,7 @@ window.__ModuleLoader__.load({
         // 服务级授权（含平台 helpMessage 原文）与 nextSteps 导航。
         function WecomView({ state, busy, button, openRobot }) {
           const wecom = state.wecom;
-          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = config ? config.timeZone : 'Asia/Shanghai';
+          const workspace = state.workspace, config = workspace ? workspace.config : null, tz = tzOf(state);
           const channelBadge = value => value === 'wecom' ? badge(L('企微', 'WeCom'), 'neutral', 'bot') : badge(L('飞书', 'Feishu'), 'neutral', 'plug');
           const serviceMeta = { calendar: L('日程', 'Calendar'), todo: L('待办', 'Todo'), push: L('推送', 'Push') };
           const serviceBadge = s => statusBadge(

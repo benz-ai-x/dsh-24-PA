@@ -3,18 +3,16 @@
 // planning behind one deep module. F19 voice delivery extends here. The
 // runtime keeps role bindings, the follow-up tick and channel selection.
 
-import type { NativeScheduleService } from './runtime.js';
+import type { NativeScheduleService } from './host.js';
 import type { MemoryStore } from './memory.js';
-import type { SharedChannelDeps } from './channel-deps.js';
+import type { ChannelContextDeps } from './channel-deps.js';
 import type { WorkItemRow } from './repo.js';
 import { randomUUID } from 'node:crypto';
 import { assertToolDeclaration } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { digestWakePrompt } from './prompts.js';
 
-export interface DigestDeps extends SharedChannelDeps {
-  accessSessionId(): string | null;
-  workspace(): { statePath: string } | null;
+export interface DigestDeps extends ChannelContextDeps {
   startedAt(): string | null;
   reviewQueueCount(): Promise<number>;
   memory(): MemoryStore | null;

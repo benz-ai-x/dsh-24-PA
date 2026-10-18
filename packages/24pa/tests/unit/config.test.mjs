@@ -172,4 +172,18 @@ describe('参数配置表单写回（F33/P60）', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, extraBusinessSkills: ['Bad_Name'] })).toThrow(/extraBusinessSkills/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, extraBusinessSkills: ['a', 'a'] })).toThrow(/extraBusinessSkills/);
   });
+  it('CONFIG_FIELDS（arch-4）：描述符单源派生白名单，extraBusinessSkills 补齐，音色表随描述符走', async () => {
+    const { CONFIG_FIELDS } = await import('../../lib/config.js');
+    // 每个顶层配置键都有描述符（storage/version 故意除外）
+    for (const key of Object.keys(DEFAULT_CONFIG)) {
+      if (key === 'storage' || key === 'version') continue;
+      expect(CONFIG_FIELDS.some(f => f.name === key), key).toBe(true);
+    }
+    // 白名单从描述符派生：F44 缺口补齐
+    expect(CONFIG_UPDATE_ALLOWED.has('extraBusinessSkills')).toBe(true);
+    expect(CONFIG_UPDATE_ALLOWED.has('storage')).toBe(false);
+    // tts.voice 描述符携带音色选项（client 不再有第二份）
+    const voice = CONFIG_FIELDS.find(f => f.name === 'tts.voice');
+    expect(voice.options.map(o => o.value)).toEqual(VOLC_TTS_VOICES.map(v => v.id));
+  });
 });
