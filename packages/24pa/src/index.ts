@@ -4,7 +4,7 @@ import { PaRuntime, HostStartupError } from './runtime.js';
 import { registerPanel } from './panel.js';
 
 export const name = 'pa24';
-export const inject = ['sessionController', 'sessions', 'connection', 'agentPresets', 'workspaceRegistry', 'subagents', 'fs'];
+export const inject = ['sessionController', 'sessions', 'connection', 'agentPresets', 'workspaceRegistry', 'subagents', 'fs', 'skills'];
 
 export const Config = z.object({
   stateDirectory: z.string().required(),

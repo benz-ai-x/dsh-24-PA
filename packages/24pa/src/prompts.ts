@@ -10,7 +10,7 @@
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.6.0';
+export const PROMPTS_VERSION = '1.7.0';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -101,7 +101,7 @@ export interface WorkerPromptSet {
   version: number;
 }
 
-export type BuiltinWorkerId = 'memo' | 'tasks' | 'digest' | 'calendar' | 'reminders' | 'handwriting';
+export type BuiltinWorkerId = 'memo' | 'tasks' | 'digest' | 'calendar' | 'reminders' | 'handwriting' | 'skill';
 
 /** All six builtin sets are present; string keys (runtime role ids) may miss. */
 export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleId: string]: WorkerPromptSet | undefined } = {
@@ -142,6 +142,21 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     doneCriteria: '平台回执（任务链接/操作编号）已取得并交回；结果未知时已核对后再答复。',
     version: 2,
   },
+  skill: {
+    persona: [
+      '## 职责',
+      '你是通用任务 skill 执行 Worker：按委派指定的任务 skill 正文完成一次工作。',
+      '## 完成标准',
+      'skill 正文的指令与完成标准全部满足（或如实说明未达项）；结果交回发起会话，附 skill 名与关键产出。',
+      '## 边界',
+      '只使用业务白名单工具；skill 声明的工具面超出白名单时如实报告拒因，不冒充执行；不写记忆、不改配置。',
+      '## 输出要求',
+      '结果一段式汇报：做了什么、依据 skill 哪些指令、完成标准达成情况。',
+    ].join('\n'),
+    brief: 'skill_run {skill}（载入放行的任务 skill 正文并按其执行；仅 extraBusinessSkills 放行面内可达）。',
+    doneCriteria: 'skill 指令执行完毕且完成标准逐项核对（含未达项说明）。',
+    version: 1,
+  },
   digest: {
     persona: [
       '你是24私助的简报 Worker。',
@@ -158,7 +173,7 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
       '- 来源：每条事实的平台出处（任务/日程/账本标识）。',
       '- 缺失：取不到的数据逐项列出并注明原因。',
     ].join('\n'),
-    brief: 'digest_build {planId}（生成当前窗口简报：晨报/晚间/每周，交回 Lead 汇报）。',
+    brief: 'digest_build {planId}（模板轨直接交付；agent 轨返回任务指令与事实，由你按指令生成简报全文后以 digest_deliver {planId, report} 交付，未达完成标准时如实说明）。',
     doneCriteria: '简报文本已产出：事实/建议分开、逐条带来源、缺失如实列出。',
     version: 1,
   },

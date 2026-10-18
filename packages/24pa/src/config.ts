@@ -59,6 +59,13 @@ export interface PaConfig {
    */
   extraLocalTools: string[];
   /**
+   * Workspace business skills the Lead may delegate to the generic skill
+   * runner (spec 2.11/F44) — the explicit opt-in surface, same shape as
+   * extraLocalTools: naming a skill that is not in the catalog is tolerated
+   * (filtered at delegation time), never a startup crash.
+   */
+  extraBusinessSkills: string[];
+  /**
    * Voice-delivery engine (spec 2.3, F19): which TTS backend synthesizes
    * digest audio. 'none' keeps text-only delivery and is the default for
    * existing files; choosing an engine makes its own fields required.
@@ -140,6 +147,7 @@ export const DEFAULT_CONFIG: PaConfig = {
   enabledWorkers: ['memo'],
   workerModels: {},
   extraLocalTools: [],
+  extraBusinessSkills: [],
   tts: { engine: 'none', voice: '', volcKeyEnv: '', meloDir: '' },
 };
 
@@ -248,6 +256,15 @@ export function validateConfig(raw: unknown): PaConfig {
     if ((route as any).simplePersona !== undefined && typeof (route as any).simplePersona !== 'boolean') throw new ConfigError('simplePersona 必须是布尔值。');
   }
   const extraLocalTools = input.extraLocalTools ?? [];
+  const extraBusinessSkills = input.extraBusinessSkills ?? [];
+  const SKILL_NAME_RE = /^[a-z][a-z0-9-]{1,63}$/;
+  if (
+    !Array.isArray(extraBusinessSkills) ||
+    extraBusinessSkills.some(x => typeof x !== 'string' || !SKILL_NAME_RE.test(x)) ||
+    new Set(extraBusinessSkills).size !== extraBusinessSkills.length
+  ) {
+    throw new ConfigError('extraBusinessSkills 只接受不重复的 kebab-case skill 名（如 standup-prep）。');
+  }
   if (
     !Array.isArray(extraLocalTools) ||
     extraLocalTools.some(x => typeof x !== 'string' || !isExtraLocalToolEntry(x)) ||
@@ -276,6 +293,7 @@ export function validateConfig(raw: unknown): PaConfig {
     enabledWorkers: enabledWorkers as string[],
     workerModels: workerModels as PaConfig['workerModels'],
     extraLocalTools: extraLocalTools as string[],
+    extraBusinessSkills: extraBusinessSkills as string[],
     tts,
   };
   if (config.mode === 'feishu') {

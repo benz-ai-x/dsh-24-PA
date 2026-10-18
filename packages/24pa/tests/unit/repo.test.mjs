@@ -158,7 +158,7 @@ describe('PostgreSQL 业务账本', () => {
     expect((await repos.inbox.get('f28-open')).status).toBe('delivered');
     // digests.activeMeetingPreps：按 eventId 找活跃会前准备（重复守卫/取消共用）
     expect(await repos.digests.activeMeetingPreps('evt-none')).toEqual([]);
-    await repos.digests.insertPlan({ id: 'prep-f28', kind: 'meeting_prep', status: 'active', title: '会前', schedule_spec: { eventId: 'evt-f28' }, session_id: 's-prep', schedule_id: null, last_window: null, voice: false });
+    await repos.digests.insertPlan({ id: 'prep-f28', kind: 'meeting_prep', status: 'active', title: '会前', schedule_spec: { eventId: 'evt-f28' }, session_id: 's-prep', schedule_id: null, last_window: null, voice: false, skill: 'digest-morning' });
     const preps = await repos.digests.activeMeetingPreps('evt-f28');
     expect(preps.map(p => p.id)).toEqual(['prep-f28']);
     // projects.listIdNames
@@ -191,5 +191,20 @@ describe('PostgreSQL 业务账本', () => {
     const byId = Object.fromEntries(all.rows.map(r => [r.id, r.status]));
     expect(byId['occ-elapsed']).toBe('pending');
     expect(byId['occ-later']).toBe('canceled');
+  });
+
+
+  it('v12 形态行（skill 空串）按 kind 映射内置名，其余字段不动', async () => {
+    // 直接以 v12 形态裸插三行，再执行 v13 的映射语句——验证回填 SQL 语义
+    await db.query(`insert into pa24.digest_plan (id, kind, title, session_id, schedule_spec, status, last_window, voice, skill)
+      values ('mig-a', 'morning', '旧晨报', 's', '{}', 'active', '2026-10-01', true, ''),
+             ('mig-b', 'meeting_prep', '旧会前', 's', '{}', 'active', null, false, ''),
+             ('mig-c', 'once', '一次性', 's', '{}', 'stopped', null, false, 'custom-x')`, []);
+    await db.query(`update pa24.digest_plan set skill = case when kind = 'meeting_prep' then 'meeting-prep' else 'digest-' || kind end where skill = '' and kind in ('morning', 'evening', 'weekly', 'meeting_prep')`, []);
+    const rows = await db.query('select id, skill, voice, status, last_window from pa24.digest_plan where id like \'mig-%\'');
+    const byId = Object.fromEntries(rows.rows.map(r => [r.id, r]));
+    expect(byId['mig-a']).toMatchObject({ skill: 'digest-morning', voice: true, status: 'active', last_window: '2026-10-01' });
+    expect(byId['mig-b'].skill).toBe('meeting-prep');
+    expect(byId['mig-c'].skill).toBe('custom-x'); // 已有绑定不动
   });
 });

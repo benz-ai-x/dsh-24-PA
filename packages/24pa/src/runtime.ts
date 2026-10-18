@@ -17,6 +17,7 @@ import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, typ
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
+import { SkillCatalog, assertToolDeclaration, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 import { text, nowIso, isoDate, parseDue, parseZonedRange, eventFingerprint, hash } from './util.js';
 
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
@@ -46,6 +47,15 @@ import {
 } from './handwriting.js';
 import type { NoteRow, NotePageRow, ReviewReminderRow } from './repo.js';
 
+/** dsh-skill 未挂载时 ctx.skills 是 cordis 惰性服务 getter（读即抛「without
+ * inject」），防御性探测必须 try/catch 而非可选链。 */
+function hostSkillRegistry(ctx: DshContext): ConstructorParameters<typeof SkillCatalog>[0] {
+  try {
+    return (ctx as unknown as { skills?: ConstructorParameters<typeof SkillCatalog>[0] }).skills ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
@@ -207,6 +217,7 @@ export class PaRuntime {
   /** Handwriting note pipeline (F29): submit→publish→review→verify→republish
    *  behind a deep module; the runtime keeps role bindings and tick loops. */
   private readonly handwriting: HandwritingPipeline = new HandwritingPipeline({
+      skillParams: name => this.skillCatalog.params(name),
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
     workspace: () => this.workspace,
@@ -235,6 +246,12 @@ export class PaRuntime {
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  supervise/overview behind one deep module; F19 voice delivery extends
    *  here. The runtime keeps role bindings and the follow-up tick. */
+  /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
+  private readonly skillCatalog: SkillCatalog;
+
+  /** Recurring-digest & daily-planning service (F32): plans/build/render/
+   *  delivery; F19 voice + F40/F41 skill tracks extend here. The runtime
+   *  keeps role bindings, the follow-up tick and channel selection. */
   private readonly digest = new DigestService({
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
@@ -247,6 +264,7 @@ export class PaRuntime {
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
     calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
     currentFingerprint: (noteId, docId, row) => this.handwriting.currentFingerprint(noteId, docId, row),
+    skillCatalog: () => this.skillCatalog,
   });
 
   /** Panel surface (digest.supervise action): stable runtime face (F32). */
@@ -255,8 +273,25 @@ export class PaRuntime {
   }
 
   async digestPlans(): Promise<unknown> {
-    if (!this.repos) return { plans: [] };
-    return this.digest.digestList();
+    if (!this.repos) return { plans: [], skills: await this.skillCatalog.list() };
+    return { ...((await this.digest.digestList()) as Record<string, unknown>), skills: await this.skillCatalog.list() };
+  }
+
+  /** F40（spec 2.11）：面板三动作——改时间/换 skill/立即运行一次。 */
+  async digestReschedule(args: Record<string, unknown>): Promise<unknown> {
+    return this.digest.digestControl({ ...args, op: 'adjust' });
+  }
+
+  async digestSetSkill(args: Record<string, unknown>): Promise<unknown> {
+    return this.digest.digestControl({ ...args, op: 'skill' });
+  }
+
+  async digestSetVoice(args: Record<string, unknown>): Promise<unknown> {
+    return this.digest.digestControl({ ...args, op: 'voice', voice: args.voice !== false });
+  }
+
+  async digestRunNow(planId: string): Promise<unknown> {
+    return this.digest.digestRunNow(planId);
   }
   private dispatching = false;
   private outboxSending = false;
@@ -271,6 +306,8 @@ export class PaRuntime {
   constructor(ctx: DshContext, options: RuntimeOptions) {
     this.ctx = ctx;
     this.options = options;
+    this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx), () => this.workspace?.statePath ?? null);
+    this.skillCatalog.registerBuiltins();
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
     BUILTIN_ROLE_IDS = this.roles.list().map(r => r.id);
@@ -372,6 +409,29 @@ export class PaRuntime {
       },
     });
     this.roles.register({
+      id: 'skill',
+      name: '任务 skill 执行',
+      persona: WORKER_PROMPTS.skill.persona,
+      brief: WORKER_PROMPTS.skill.brief,
+      available: true,
+      actions: {
+        // F44（spec 2.11）：载入放行面内的任务 skill 正文；越权名直接拒绝。
+        skill_run: async args => {
+          const name = String(args.skill ?? '');
+          if (!this.config?.extraBusinessSkills.includes(name)) {
+            throw new Error(`任务 skill ${name || '（未指定）'} 未在 extraBusinessSkills 放行面内；请在 AGENTS.md 配置后重试。`);
+          }
+          const bound = await this.skillCatalog.find(name);
+          if (!bound) throw new Error(`任务 skill ${name} 不在目录中（内置＋工作区 .dsh/skills）。`);
+          const content = await this.skillCatalog.content(name);
+          if (!content) throw new Error(`任务 skill ${name} 正文加载失败。`);
+          // spec 2.11 红线：工具声明只能收紧——越权声明在平台层拒绝执行。
+          assertToolDeclaration(await this.skillCatalog.meta(name), ['pa24_work', 'pa24_memory'], name);
+          return { skill: name, track: bound.track, content, message: '按上述任务指令执行，完成后汇报（含完成标准核对）；工具面以白名单为准，越权项如实报拒因。' };
+        },
+      },
+    });
+    this.roles.register({
       id: 'digest',
       name: '简报整理',
       persona: WORKER_PROMPTS.digest.persona,
@@ -379,6 +439,7 @@ export class PaRuntime {
       available: true,
       actions: {
         digest_build: async (args, item) => this.digest.digestBuild(item, args),
+        digest_deliver: async (args, item) => this.digest.digestDeliver(item, args),
       },
     });
     this.roles.register({
@@ -1504,6 +1565,15 @@ export class PaRuntime {
     }
     if (!roleDef.available) throw new Error(`「${roleDef.name}」已注册但业务能力尚未交付（${roleDef.brief}）`);
     if (!config.enabledWorkers.includes(String(args.worker))) throw new Error('此 Worker 未在配置中启用（enabledWorkers）。');
+    if (String(args.worker) === 'skill') {
+      // F44：通用 skill 执行 Worker 的双门——enabledWorkers 启用角色（上方既有
+      // 校验）＋ per-skill 放行面；未放行在建事项前拒绝，不留半途事项。
+      const skillName = String((args as { skill?: unknown }).skill ?? '');
+      if (!skillName) throw new Error('委派任务 skill 需要携带 skill 名（worker=skill, skill=<name>）。');
+      if (!config.extraBusinessSkills.includes(skillName)) throw new Error(`任务 skill ${skillName} 未在 extraBusinessSkills 放行面内；请先在工作区配置放行。`);
+      const bound = await this.skillCatalog.find(skillName);
+      if (!bound) throw new Error(`任务 skill ${skillName} 不在目录中（内置＋工作区 .dsh/skills）。`);
+    }
     const title = text(args.title, 200);
     const instruction = text(args.instruction);
     let note: NoteRow | null = null;
@@ -2907,6 +2977,7 @@ export class PaRuntime {
       status: 'active',
       last_window: null,
       voice: false,
+      skill: 'meeting-prep',
     });
     return {
       planId: id,
@@ -3721,9 +3792,18 @@ export class PaRuntime {
         await this.repos.reviewReminders.update(reminder.id, { remind_at: silentUntil });
         continue;
       }
+      // F44（spec 2.11）：待审提醒文案＝handwriting-review-flow 的 params
+      // （工作区同名 skill 覆盖可调口径；缺省与既有默认逐字一致）。
+      const flowParams = await this.skillCatalog.params('handwriting-review-flow');
+      const template = typeof flowParams.pendingRemindTemplate === 'string' && flowParams.pendingRemindTemplate.includes('{noteId}')
+        ? flowParams.pendingRemindTemplate
+        : DEFAULT_PENDING_REMIND_TEMPLATE.pendingRemindTemplate;
       await this.notifyOwner(
         `noteremind:${reminder.id}:${reminder.sent_count + 1}`,
-        `手写笔记待审核提醒：${reminder.note_id} v${version.version} 仍在等待你的审核${version.doc_url ? `（${version.doc_url}）` : ''}；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。`,
+        template
+          .replaceAll('{noteId}', reminder.note_id)
+          .replaceAll('{version}', String(version.version))
+          .replaceAll('{docPart}', version.doc_url ? `（${version.doc_url}）` : ''),
       );
       const sentCount = reminder.sent_count + 1;
       const next = advanceReminder(reminder.kind === 'daily' ? 'daily' : 'once', sentCount, Date.now());

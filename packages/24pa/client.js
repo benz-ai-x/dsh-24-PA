@@ -679,6 +679,7 @@ window.__ModuleLoader__.load({
 
         function DigestDetail({ extra, state, config, tz, button, openRobot, openCard, refresh }) {
           const plans = extra.digests?.plans ?? [];
+          const skills = extra.digests?.skills ?? [];
           const on = voiceOn(config);
           const tts = state.tts;
           const probe = tts?.probe?.result;
@@ -695,24 +696,66 @@ window.__ModuleLoader__.load({
           };
           const planStatus = status => status === 'active' ? badge(L('已启用', 'Active'), 'blue', 'check') : status === 'paused' ? badge(L('已暂停', 'Paused'), 'amber', 'clock') : badge(L('已停止', 'Stopped'), 'neutral', 'close');
           const planKind = kind => ({ morning: L('晨报', 'Morning digest'), evening: L('晚间回顾', 'Evening review'), weekly: L('每周回顾', 'Weekly review'), once: L('一次性简报', 'One-off digest') }[kind] || kind);
-          const planCard = plan => h('article', { key: plan.planId, className: 'pa24-job' },
-            h('div', { className: 'pa24-row pa24-between' }, h('h3', null, plan.title || planKind(plan.kind)), planStatus(plan.status)),
-            h('div', { className: 'pa24-row' }, badge(plan.voice ? L('语音＋文本', 'Voice + text') : L('纯文本', 'Text only'), 'neutral', plan.voice ? 'bot' : 'note')),
-            h('p', { className: 'pa24-meta' }, scheduleText(plan)),
-            plan.lastWindow && h('p', { className: 'pa24-meta' }, L('最近窗口 ', 'Last window ') + plan.lastWindow),
-            (plan.recent ?? []).length > 0 && h('details', null,
-              h('summary', null, L('最近执行记录', 'Recent runs')),
-              plan.recent.map((run, i) => h('p', { key: i, className: 'pa24-meta' }, run.window + ' · ' + (t(run.status) || run.status) + (run.completedAt ? ' · ' + date(run.completedAt, tz) : '')))),
-            h('details', null,
-              h('summary', null, L('技术标识', 'Technical IDs')),
-              h('p', { className: 'pa24-meta' }, plan.planId + (plan.scheduleId ? ' · ' + plan.scheduleId : ''))));
+          // F40（spec 2.11）：计划行配置面——时间内联编辑、语音开关、skill 选择、立即运行一次。
+          const PlanCard = ({ plan, skills, config, button, refresh }) => {
+            const [time, setTime] = React.useState((plan.schedule?.daily ?? plan.schedule?.weekly)?.time ?? '');
+            const [busy, setBusy] = React.useState(false);
+            const [note, setNote] = React.useState('');
+            const [error, setError] = React.useState('');
+            const editable = plan.status === 'active' && (plan.schedule?.daily || plan.schedule?.weekly);
+            const act = async (fn, okText) => {
+              setBusy(true); setError(''); setNote('');
+              try {
+                const r = await fn();
+                setNote(okText + (r?.message ? '：' + r.message : ''));
+                await refresh();
+              } catch (e) {
+                setError(e.message);
+              } finally { setBusy(false); }
+            };
+            const saveTime = () => act(
+              () => rpc('action', { type: 'digest.reschedule', planId: plan.planId, kind: plan.kind, time, weekdays: plan.schedule?.weekly?.weekdays }),
+              L('已改时间', 'Rescheduled'));
+            const toggleVoice = () => act(
+              () => rpc('action', { type: 'digest.set-voice', planId: plan.planId, voice: !plan.voice }),
+              plan.voice ? L('已切为纯文本', 'Switched to text') : L('已开启语音版', 'Voice enabled'));
+            const setSkill = skill => act(() => rpc('action', { type: 'digest.set-skill', planId: plan.planId, skill }), L('已换 skill', 'Skill updated'));
+            const runNow = () => act(() => rpc('action', { type: 'digest.run-now', planId: plan.planId }), L('已生成', 'Generated'));
+            return h('article', { key: plan.planId, className: 'pa24-job' },
+              h('div', { className: 'pa24-row pa24-between' }, h('h3', null, plan.title || planKind(plan.kind)), planStatus(plan.status)),
+              h('div', { className: 'pa24-row', style: { flexWrap: 'wrap' } },
+                badge(plan.voice ? L('语音＋文本', 'Voice + text') : L('纯文本', 'Text only'), 'neutral', plan.voice ? 'bot' : 'note'),
+                badge(L('skill ', 'Skill ') + (plan.skill || '—'), 'neutral', 'code')),
+              h('p', { className: 'pa24-meta' }, scheduleText(plan)),
+              plan.lastWindow && h('p', { className: 'pa24-meta' }, L('最近窗口 ', 'Last window ') + plan.lastWindow),
+              editable && h('div', { className: 'pa24-row', style: { flexWrap: 'wrap', alignItems: 'center', gap: 8 } },
+                h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--pa-muted)' } },
+                  L('时间 ', 'Time '),
+                  h('input', { type: 'time', step: 1, value: time, onChange: e => setTime(e.target.value), disabled: busy, style: { width: 110, minHeight: 34 } }),
+                  button('check', L('保存', 'Save'), saveTime, { disabled: busy || !time, className: 'pa24-quiet' })),
+                button(plan.voice ? 'note' : 'bot', plan.voice ? L('关语音', 'Voice off') : L('开语音', 'Voice on'), toggleVoice, { disabled: busy, className: 'pa24-quiet' }),
+                h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--pa-muted)' } },
+                  L('skill ', 'Skill '),
+                  h('select', { value: plan.skill || '', onChange: e => e.target.value !== plan.skill && setSkill(e.target.value), disabled: busy, style: { width: 190, minHeight: 34 } },
+                    skills.map(s => h('option', { key: s.name, value: s.name },
+                      s.name + (s.track === 'template' ? '' : L('（agent 轨·模型执行）', ' (agent track·model-run)')))))),
+                button('play', L('立即运行一次', 'Run now'), runNow, { disabled: busy, className: 'pa24-quiet' })),
+              error && h('p', { role: 'alert', style: { color: 'var(--pa-danger, #b42318)', fontSize: 12, margin: '4px 0' } }, error),
+              note && h('p', { style: { color: 'var(--pa-green, #1f7a4d)', fontSize: 12, margin: '4px 0' } }, note),
+              (plan.recent ?? []).length > 0 && h('details', null,
+                h('summary', null, L('最近执行记录', 'Recent runs')),
+                plan.recent.map((run, i) => h('p', { key: i, className: 'pa24-meta' }, run.window + ' · ' + (t(run.status) || run.status) + (run.completedAt ? ' · ' + date(run.completedAt, tz) : '')))),
+              h('details', null,
+                h('summary', null, L('技术标识', 'Technical IDs')),
+                h('p', { className: 'pa24-meta' }, plan.planId + (plan.scheduleId ? ' · ' + plan.scheduleId : ''))));
+          };
           return h('section', null,
-            sectionHead('pulse', L('周期服务计划', 'Scheduled service plans'), L('核对晨报、晚间与每周回顾的实际计划；调整仍通过24私助会话。', 'Inspect actual morning, evening, and weekly plans; adjust them in chat.'),
+            sectionHead('pulse', L('周期服务计划', 'Scheduled service plans'), L('按计划直接改时间、语音与任务 skill，并可立即运行一次；复杂变更仍通过24私助会话。', 'Edit time, voice, and task skill per plan and run once on demand; complex changes stay in chat.'),
               h('div', { className: 'pa24-row' }, button('refresh', L('刷新', 'Refresh'), refresh, { className: 'pa24-quiet' }), button('chat', L('通过对话调整', 'Adjust in chat'), openRobot)), 'green'),
             extra._errors?.digests && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, L('计划读取失败', 'Failed to read plans')), h('p', null, extra._errors.digests)),
             !extra.digests && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取周期计划…', 'Reading digest plans…')),
             extra.digests && plans.length === 0 && h('div', { className: 'pa24-card' }, empty('pulse', 'green', L('还没有周期服务计划', 'No digest plans yet'), L('对24私助说「开启晨报」或「开启每周回顾」即可建立计划。', 'Ask 24PA to enable the morning digest or weekly retrospective.'), button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { className: 'pa24-primary' }))),
-            plans.length > 0 && h('section', { className: 'pa24-card' }, plans.map(planCard)),
+            plans.length > 0 && h('section', { className: 'pa24-card' }, plans.map(p => h(PlanCard, { key: p.planId, plan: p, skills, tz, config, button, refresh }))),
             h('section', { className: 'pa24-card' },
               sectionHead('bot', L('语音 TTS', 'Voice TTS'), L('语音版到点先送达语音，随后紧跟全文文本。', 'Voice plans deliver audio first, then the full text.'),
                 button('code', L('打开语音配置', 'Open voice config'), () => openCard('config', 'pa24-tts-config'), { className: 'pa24-quiet' }), 'green'),

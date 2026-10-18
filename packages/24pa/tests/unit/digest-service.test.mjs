@@ -3,6 +3,7 @@
 // Schedule wake); these pin the pure-assembly edges cheapest to assert here.
 import { describe, expect, it, vi } from 'vitest';
 import { DigestService, buildSpokenVariant, DIGEST_SPOKEN_MAX_CHARS } from '../../lib/digest-service.js';
+import { SkillCatalog } from '../../lib/skills.js';
 import { makeBaseDeps } from '../helpers/channel-deps.mjs';
 
 const makeDeps = (over = {}) => ({
@@ -162,5 +163,160 @@ describe('F19：口播变体与语音入队', () => {
     const result = await service.digestControl({ planId: plan.id, op: 'voice', voice: true });
     expect(updated[0][1]).toEqual({ voice: true });
     expect(result.voice).toBe(true);
+  });
+});
+
+describe('F40：计划绑定任务 skill', () => {
+  const fallback = new SkillCatalog(null); // 宿主未挂载：内置三件回落目录
+  // 挂载态目录：含一个 agent 轨自定义与一个模板轨自定义
+  const mounted = new SkillCatalog({
+    register: () => () => {},
+    list: async () => [
+      { name: 'standup-prep', description: '站会准备', provider: 'filesystem', source: 'project-dsh', metadata: {} },
+      { name: 'quiet-report', description: '静默汇报', provider: 'filesystem', source: 'project-dsh', metadata: { track: 'template', kind: 'morning' } },
+    ],
+    get: async () => undefined,
+  });
+
+  const planRow = (skill = 'digest-morning') => ({ id: 'dig-morning-x', kind: 'morning', title: '晨报', schedule_id: 's', session_id: 'sess', schedule_spec: {}, status: 'active', last_window: null, voice: false, skill, created_at: new Date(), updated_at: new Date() });
+  const enableDeps = catalog => makeDeps({
+    skillCatalog: () => catalog,
+    workspace: () => ({ statePath: '/tmp/ws' }),
+    accessSessionId: () => 'sess',
+    nativeSchedule: () => ({ create: async () => ({ id: 'sch-1' }) }),
+    repos: () => ({ digests: { getPlan: async () => null, insertPlan: async row => ({ ...row }) } }),
+  });
+
+  it('digest_enable：默认映射内置 skill；点名不存在拒绝；agent 轨拒绝（挂载目录）', async () => {
+    const service = new DigestService(enableDeps(fallback));
+    const ok = await service.digestEnable({ kind: 'morning', time: '08:00:00' });
+    expect(ok.skill).toBe('digest-morning');
+    await expect(service.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'ghost' })).rejects.toThrow(/不存在/);
+    const mountedService = new DigestService(enableDeps(mounted));
+    const custom = await mountedService.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'standup-prep' });
+    expect(custom.skill).toBe('standup-prep'); // F41：agent 轨可绑定
+    const quiet = await mountedService.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'quiet-report' });
+    expect(quiet.skill).toBe('quiet-report');
+  });
+
+  it('digest_control op=skill：合法名落行，非法名拒绝', async () => {
+    const updated = [];
+    const deps = makeDeps({
+      skillCatalog: () => fallback,
+      repos: () => ({ digests: {
+        getPlan: async () => planRow('digest-evening'),
+        updatePlan: async (id, patch) => { updated.push([id, patch]); return { id, ...patch }; },
+      } }),
+    });
+    const service = new DigestService(deps);
+    const r = await service.digestControl({ planId: 'dig-morning-x', op: 'skill', skill: 'digest-weekly' });
+    expect(updated[0][1]).toEqual({ skill: 'digest-weekly' });
+    expect(r.skill).toBe('digest-weekly');
+    await expect(service.digestControl({ planId: 'dig-morning-x', op: 'skill', skill: 'ghost' })).rejects.toThrow(/不存在/);
+  });
+
+  it('digestRunNow：manual- 窗口不占计划窗口；绑定 skill 失联/agent 轨 fail-loud', async () => {
+    const makeRunDeps = skill => {
+      const occurrences = [];
+      return {
+        deps: makeDeps({
+          skillCatalog: () => fallback,
+          config: () => ({ timeZone: 'Asia/Shanghai', notifyChannel: 'feishu', ownerOpenId: '', tts: { engine: 'none' } }),
+          notifyOwner: async () => {},
+          reviewQueueCount: async () => 0,
+          repos: () => ({
+            digests: {
+              getPlan: async () => planRow(skill),
+              claimOccurrence: async ({ windowKey }) => { occurrences.push(windowKey); return { created: true, row: { id: `occ-${occurrences.length}`, status: 'delivering' } }; },
+              updateOccurrence: async () => {},
+              updatePlan: async () => {},
+              occurrencesOf: async () => [],
+            },
+            outbox: { enqueue: async () => {} },
+            calendar: { eventsIn: async () => [], getSync: async () => null },
+            tasks: { list: async () => [] },
+            waiting: { list: async () => [] },
+            projects: { listIdNames: async () => [], tasksOf: async () => [] },
+            notes: { recentApproved: async () => [] },
+          }),
+        }),
+        occurrences,
+      };
+    };
+    const run = makeRunDeps('digest-morning');
+    const r = await new DigestService(run.deps).digestRunNow('dig-morning-x');
+    expect(r.windowKey).toMatch(/^manual-\d+$/);
+    expect(r.outboxKey).toBe('digest:occ-1');
+    await expect(new DigestService(makeRunDeps('deleted-skill').deps).digestRunNow('dig-morning-x')).rejects.toThrow(/已不在目录中/);
+  });
+});
+
+
+describe('F41：agent 轨交接与交付', () => {
+  const mounted = new SkillCatalog({
+    register: () => () => {},
+    list: async () => [{ name: 'custom-brief', description: '自定义简报', provider: 'filesystem', source: 'project-dsh', metadata: {} }],
+    get: async name => (name === 'custom-brief' ? { name, content: '按完成标准 X 生成简报。', description: '' } : undefined),
+  });
+  const agentPlan = { id: 'dig-morning-a', kind: 'morning', title: '晨报', schedule_id: 's', session_id: 'sess', schedule_spec: {}, status: 'active', last_window: null, voice: false, skill: 'custom-brief', created_at: new Date(), updated_at: new Date() };
+
+  it('digest_build（agent 轨）：返回任务指令交接，不直接投递', async () => {
+    let delivered = 0;
+    const deps = makeDeps({
+      skillCatalog: () => mounted,
+      notifyOwner: async () => { delivered++; },
+      reviewQueueCount: async () => 0,
+      repos: () => ({
+        digests: {
+          getPlan: async () => agentPlan,
+          claimOccurrence: async () => ({ created: true, row: { id: 'occ-9', status: 'delivering' } }),
+          updateOccurrence: async () => {},
+          updatePlan: async () => {},
+          occurrencesOf: async () => [],
+        },
+        workItems: { update: async () => {} },
+        outbox: { enqueue: async () => {} },
+        calendar: { eventsIn: async () => [], getSync: async () => null },
+        tasks: { list: async () => [] },
+        waiting: { list: async () => [] },
+        projects: { listIdNames: async () => [], tasksOf: async () => [] },
+        notes: { recentApproved: async () => [] },
+      }),
+    });
+    const r = await new DigestService(deps).digestBuild({ id: 'w' }, { planId: 'dig-morning-a' });
+    expect(r.agentTrack).toBe(true);
+    expect(r.skill.name).toBe('custom-brief');
+    expect(r.skill.content).toContain('完成标准');
+    expect(delivered).toBe(0);
+  });
+
+  it('digest_deliver：交付 Worker 生成的全文；非 agent 轨/空 report 拒绝；幂等复用', async () => {
+    const enqueued = [];
+    let occStatus = 'delivering';
+    const deps = makeDeps({
+      skillCatalog: () => mounted,
+      notifyOwner: async () => {},
+      reviewQueueCount: async () => 0,
+      repos: () => ({
+        digests: {
+          getPlan: async () => agentPlan,
+          occurrencesOf: async () => [{ id: 'occ-9', window_key: '2026-10-18', status: occStatus }],
+          updateOccurrence: async () => {},
+          updatePlan: async () => {},
+        },
+        workItems: { update: async () => {} },
+        outbox: { enqueue: async row => { enqueued.push(row); } },
+      }),
+    });
+    const service = new DigestService(deps);
+    const r = await service.digestDeliver({ id: 'w' }, { planId: 'dig-morning-a', report: '自定义简报正文（未完全达到完成标准 X：数据缺两项）' });
+    expect(r.outboxKey).toBe('digest:occ-9');
+    occStatus = 'model_done';
+    const again = await service.digestDeliver({ id: 'w' }, { planId: 'dig-morning-a', report: '再次交付' });
+    expect(again.reused).toBe(true);
+    await expect(service.digestDeliver({ id: 'w' }, { planId: 'dig-morning-a' })).rejects.toThrow(/report/);
+    const templatePlan = { ...agentPlan, skill: 'digest-morning' };
+    const tdeps = makeDeps({ skillCatalog: () => mounted, repos: () => ({ digests: { getPlan: async () => templatePlan } }) });
+    await expect(new DigestService(tdeps).digestDeliver({ id: 'w' }, { planId: 'dig-morning-a', report: 'x' })).rejects.toThrow(/agent 轨/);
   });
 });

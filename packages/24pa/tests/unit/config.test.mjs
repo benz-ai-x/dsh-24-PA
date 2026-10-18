@@ -140,4 +140,13 @@ describe('参数配置表单写回（F33/P60）', () => {
       expect(CONFIG_UPDATE_ALLOWED.has(allowed)).toBe(true);
     }
   });
+
+  it('extraBusinessSkills：kebab-case 校验＋去重＋缺省空（F44）', () => {
+    expect(validateConfig(DEFAULT_CONFIG).extraBusinessSkills).toEqual([]);
+    const ok = validateConfig({ ...DEFAULT_CONFIG, extraBusinessSkills: ['standup-prep', 'weekly-rollup'] });
+    expect(ok.extraBusinessSkills).toEqual(['standup-prep', 'weekly-rollup']);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraBusinessSkills: 'standup-prep' })).toThrow(/extraBusinessSkills/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraBusinessSkills: ['Bad_Name'] })).toThrow(/extraBusinessSkills/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraBusinessSkills: ['a', 'a'] })).toThrow(/extraBusinessSkills/);
+  });
 });
