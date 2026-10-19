@@ -94,7 +94,7 @@ beforeAll(async () => {
       calendarChannel: 'wecom', todoChannel: 'wecom', notifyChannel: 'wecom',
       timeZone: 'Asia/Shanghai',
       appIdEnv: 'PA24_FEISHU_APP_ID', appSecretEnv: 'PA24_FEISHU_APP_SECRET', pgDsnEnv: 'PA24_PG_DSN',
-      maxWorkers: 3, enabledWorkers: ['memo', 'tasks', 'calendar', 'reminders'], workerModels: {},
+      maxWorkers: 3, enabledWorkers: ['memo', 'tasks', 'calendar', 'reminders', 'digest'], workerModels: {},
     }, null, 2)}\n\`\`\`\n`,
   );
   host = await bootHost({
@@ -235,27 +235,32 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     await writeStubState({ ownerUserid: 'wou_test_owner' });
   });
 
-  it('提醒经企微出口送达（无飞书传输也可投递）；授权过期给出续期 nextSteps', async () => {
+  it('时钟提醒归企微日历；智能简报独立经企微投递；授权过期给出续期指引', async () => {
     await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '设置企微提醒', instruction: '设置测试提醒' },
-      leadReply: '已安排。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 3, text: '企微渠道推送验收', __forceLedger: true }, // 账本保留面：本用例测 wecom OUTBOX 投递
-      workerReply: '提醒已创建。',
+      mode: 'dispatch', delegate: { worker: 'reminders', title: '设置企微提醒', instruction: '设置测试提醒' }, leadReply: '已安排。',
+      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 3, text: '企微日历提醒验收' }, workerReply: '提醒已创建。',
     });
-    await prompt('三秒后用企微提醒我：企微渠道推送验收');
-    await waitWork(items => items.some(w => w.role === 'reminders' && w.status === 'completed'), '提醒事项完成');
-    // host.waitUntil 不同步等待异步谓词，这里显式轮询 PG 投递状态。
+    await prompt('三秒后用企微日历提醒我：企微日历提醒验收');
+    await waitToolResult('由对应 App 原生日程提醒', '原生日历回执');
+    expect((await readJournal('schedules', 'schedule_id')).some(row => row.subject.includes('提醒：企微日历提醒验收'))).toBe(true);
+    expect((await cluster.query("select count(*) from pa24.reminder_occurrence")).trim()).toBe('0');
+
+    // 独立验证无飞书传输时的智能内容 Outbox；时钟规则不借此启动旧引擎。
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '建立简报计划', instruction: '创建一次简报计划' }, leadReply: '已安排。', workerAction: { action: 'digest_enable', kind: 'once', afterSeconds: 3600 }, workerReply: '已创建。' });
+    await prompt('一小时后给我简报，并允许现在手动查看');
+    await waitToolResult('计划已开启', '简报计划');
+    const planId = (await cluster.query("select id from pa24.digest_plan where kind='once'")).trim();
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '立即生成简报', instruction: '本人要求现在手动生成', planId }, leadReply: '已安排。', workerAction: { action: 'digest_build', planId }, workerReply: '已生成。' });
+    await prompt('现在生成这份简报');
     for (let i = 0; i < 90; i++) {
-      const status = (await cluster.query(`select status from pa24.outbox where channel='wecom' and dedup_key like 'reminder:%'`)).trim();
+      const status = (await cluster.query("select status from pa24.outbox where channel='wecom' and dedup_key like 'digest:%'")).trim();
       if (status === 'sent') break;
-      if (i === 89) throw new Error(`企微提醒送达超时；最后状态：${status || '无行'}`);
+      if (i === 89) throw new Error(`企微简报送达超时；最后状态：${status || '无行'}`);
       await new Promise(r => setTimeout(r, 1000));
     }
     const sends = await readJournal('wsends', 'messageId');
-    expect(sends).toHaveLength(1);
-    expect(sends[0].chatId).toBe('wou_test_owner');
-    expect(sends[0].markdown).toContain('企微渠道推送验收');
+    expect(sends).toHaveLength(1); expect(sends[0].chatId).toBe('wou_test_owner');
+    expect(sends[0].markdown).toContain('晨报');
 
     // 服务级授权过期（850003）：nextSteps 透传平台的续期指引原文。
     await writeStubState({ ownerUserid: 'wou_test_owner', failNext: { command: 'todo.list', error: 'injected' } });

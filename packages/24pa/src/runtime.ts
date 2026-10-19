@@ -300,12 +300,7 @@ export class PaRuntime {
     config: () => this.config!,
     repos: () => this.repos!,
     calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
-    channelsLive: () => {
-      if (this.config?.calendarChannel === 'wecom') return true;
-      return this.config?.mode === 'feishu' && !!this.transport;
-    },
     ledger: () => this.reminders!,
-    resolveTask: args => this.resolveTask(args),
   });
 
   /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
@@ -836,6 +831,8 @@ export class PaRuntime {
     let active: WorkItemRow[];
     let connection: Awaited<ReturnType<PaRuntime['prepareTransport']>> | undefined;
     try {
+      await repos.reminders.retireLegacy();
+      await repos.waiting.retireLegacyNotifications();
       const saved = await repos.workspaceState.get(real);
       next = {
         workspace: { ...await this.ctx.workspaceRegistry.create(real, '24私助'), statePath: real },
@@ -916,7 +913,6 @@ export class PaRuntime {
     await previousTransport?.close().catch(() => { });
     await previousDb?.close().catch(() => { });
     this.reminders.stop(); // F45: keep history/control only, never start the retired engine.
-    await this.repos.reminders.retireLegacy();
     // Resolve owner/channel only after activation, so a rebound notice cannot
     // enter the previous workspace's ledger or use its notification identity.
     for (const notice of next.sessionNotices) {

@@ -6,7 +6,7 @@ describe('F40：任务 skill 目录', () => {
     expect(BUILTIN_TASK_SKILLS.map(s => s.name)).toEqual(['waiting-followup', 'digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
     for (const s of BUILTIN_TASK_SKILLS) {
       expect(s.metadata.track).toBe(s.name === 'waiting-followup' ? 'agent' : 'template');
-      expect(['morning', 'evening', 'weekly', 'meeting_prep', 'review']).toContain(s.metadata.kind);
+      expect(['morning', 'evening', 'weekly', 'meeting_prep', 'review', 'waiting_followup']).toContain(s.metadata.kind);
     }
   });
 

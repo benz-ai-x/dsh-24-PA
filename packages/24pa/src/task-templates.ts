@@ -23,7 +23,7 @@ export class TaskTemplates {
     createRemote(title: string, tasklist: string, operationId: string): Promise<{ data: any }>;
   }) {}
   create(args: Record<string, unknown>) { return this.deps.gate(() => this.createInside(args)); }
-  private async createInside(args: Record<string, unknown>, replaceId?: string): Promise<unknown> {
+  private async createInside(args: Record<string, unknown>, replaceId?: string) {
     const title = text(args.title, 500), zone = String(args.timeZone ?? this.deps.zone()), tasklist = this.deps.tasklist();
     if (!title) throw new Error('周期任务需要标题。');
     const now = Date.now(), kind = String(args.kind), id = ScheduleId('template-validation');
@@ -81,7 +81,7 @@ export class TaskTemplates {
     if (!hasTiming && !args.title) throw new Error('需要新的标题或周期规则。');
     if (!hasTiming) { await this.deps.repos().taskTemplates.update(template.id, { title: text(args.title, 500) }); return { templateId: template.id, message: '以后任务标题已修改，已生成任务不变。' }; }
     const result = await this.createInside({ title: args.title ?? template.title, kind: args.kind ?? template.schedule.kind, time: args.time ?? template.schedule.time, everySeconds: args.everySeconds ?? template.schedule.everySeconds, weekdays: args.weekdays ?? template.schedule.weekdays, timeZone: args.timeZone ?? template.time_zone }, template.id);
-    return { ...result as object, oldTemplateStopped: template.id };
+    return { ...result, ...(result.templateId !== template.id ? { oldTemplateStopped: template.id } : {}) };
   }); }
   private finish(template: TaskTemplateRow, instance: TaskTemplateInstanceRow, patch: { status: string; taskId?: string; error?: string }) {
     return this.deps.repos().taskTemplates.finishAndAdvance(template, instance, patch, next(template.schedule, Math.max(Date.now(), new Date(instance.due_at).getTime())));

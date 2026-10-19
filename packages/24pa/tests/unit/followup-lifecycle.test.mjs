@@ -50,6 +50,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     const created = await Promise.all(Array.from({ length: 5 }, () => f.rt.work(args, child)));
     expect(new Set(created.map(row => row.templateId)).size).toBe(1);
     const first = created[0].templateId;
+    const unchanged = await f.rt.work({ action: 'task_repeat_update', templateId: first, weekdays: [1] }, child);
+    expect(unchanged).toMatchObject({ templateId: first, reused: true }); expect(unchanged.oldTemplateStopped).toBeUndefined();
     const changed = await f.rt.work({ action: 'task_repeat_update', templateId: first, weekdays: [2] }, child);
     expect(changed.templateId).not.toBe(first); expect((await f.rt.repos.taskTemplates.get(first)).status).toBe('stopped');
     const zoned = await f.rt.work({ action: 'task_repeat_update', templateId: changed.templateId, timeZone: 'UTC' }, child);
@@ -157,12 +159,14 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
   it.each(['feishu', 'wecom'])('%s 三类日历提醒按原归属取消，周期明确 all', async channel => {
     f.rt.config.calendarChannel = channel; const child = await worker('reminders');
     for (const kind of ['once', 'daily', 'weekly']) {
-      const created = await f.rt.work({ action: 'reminder_create', kind, text: `测试 ${kind}`, ...(kind === 'once' ? { afterSeconds: 300 } : { time: '09:00:00', ...(kind === 'weekly' ? { weekdays: [1, 3] } : {}) }) }, child);
+      const request = { action: 'reminder_create', kind, text: `测试 ${kind}`, ...(kind === 'once' ? { afterSeconds: 300 } : { time: '09:00:00', ...(kind === 'weekly' ? { weekdays: [1, 3] } : {}) }) };
+      const created = await f.rt.work(request, child);
       const listed = await f.rt.work({ action: 'reminder_list' }, child), row = listed.rules.find(row => row.ruleId === created.ruleId);
       expect(row).toMatchObject({ calendarChannel: channel, eventId: created.eventId, status: 'delegated', nextDueAt: null }); expect(row.firstStart).toBeTruthy();
       f.rt.config.calendarChannel = channel === 'feishu' ? 'wecom' : 'feishu';
       await f.rt.work({ action: 'reminder_cancel', ruleId: created.ruleId, reason: '本人取消整条规则' }, child);
       expect((await f.rt.repos.reminders.getRule(created.ruleId)).status).toBe('stopped');
+      expect(await f.rt.work(request, child)).toMatchObject({ ruleId: created.ruleId, status: 'stopped', reused: true });
       f.rt.config.calendarChannel = channel;
     }
     if (channel === 'wecom') {
@@ -197,6 +201,20 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     expect(f.rt.reminders.timer).toBeNull(); expect(f.rt.reminders.closed).toBe(true);
     expect((await f.rt.repos.reminders.getRule(old.ruleId))).toMatchObject({ status: 'stopped', record: { stopReason: expect.stringContaining('F45') } });
     expect((await f.rt.repos.outbox.recent()).find(row => row.dedup_key === `reminder:${occurrence}`).status).toBe('expired');
+  });
+
+  it('升级过期旧等待询问；控制取消新旧待投递意图而保留已发生历史', async () => {
+    const child = await worker('tasks'), waiting = await newWaiting(child);
+    for (const suffix of ['pending', 'sent', 'unknown']) {
+      await f.rt.repos.outbox.enqueue({ dedupKey: `waiting:${waiting.waitingId}:${suffix}`, channel: 'feishu', target: 'owner', kind: 'text', content: { text: '旧询问' } });
+      await f.rt.db.query('update pa24.outbox set status = $2 where dedup_key = $1', [`waiting:${waiting.waitingId}:${suffix}`, suffix]);
+    }
+    await f.rt.stop(); f.rt = f.make(); await f.rt.bind(workspacePath); local = f.agents.get(await f.rt.openLocalSession());
+    const states = Object.fromEntries((await f.rt.repos.outbox.recent()).filter(row => row.dedup_key.startsWith('waiting:')).map(row => [row.dedup_key.split(':').at(-1), row.status]));
+    expect(states).toEqual({ pending: 'expired', sent: 'sent', unknown: 'unknown' });
+    await f.rt.repos.outbox.enqueue({ dedupKey: `waiting:${waiting.waitingId}:late`, channel: 'feishu', target: 'owner', kind: 'text', content: { text: '旧询问残留' } });
+    await f.rt.work({ action: 'waiting_control', waitingId: waiting.waitingId, op: 'cancel' }, await worker('tasks'));
+    expect((await f.rt.repos.outbox.recent()).find(row => row.dedup_key.endsWith(':late')).status).toBe('expired');
   });
 
   it.each(['silence', 'source'])('历史在途 %s 查询晚返回时，公开取消后不产生通知', async phase => {

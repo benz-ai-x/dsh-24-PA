@@ -258,9 +258,9 @@ export class WaitingRepo {
       await client.query('select id from pa24.waiting_item where id = $1 for update', [id]);
       const row = (await client.query<WaitingItemRow>('update pa24.waiting_item set status = $2, checkpoint_at = $3, result = $4, updated_at = now() where id = $1 returning *', [id, patch.status, patch.checkpoint_at, patch.result])).rows[0];
       await client.query(`update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = '等待事项已由本人修改，旧询问取消'
-        where status in ('pending', 'failed') and dedup_key in (
+        where status in ('pending', 'failed') and (dedup_key like 'waiting:' || $1 || ':%' or dedup_key in (
           select 'digest:' || o.id from pa24.digest_occurrence o join pa24.digest_plan p on p.id = o.plan_id where p.kind = 'waiting_followup' and p.schedule_spec->>'waitingId' = $1
-        )`, [id]);
+        ))`, [id]);
       return row ?? null;
     });
   }
@@ -268,6 +268,12 @@ export class WaitingRepo {
   async defer(id: string, checkpoint: string, next: Date): Promise<WaitingItemRow | null> {
     return (await this.db.query<WaitingItemRow>("update pa24.waiting_item set checkpoint_at = $3, updated_at = now() where id = $1 and status = 'waiting' and checkpoint_at = $2 returning *", [id, new Date(checkpoint), next])).rows[0] ?? null;
   }
+
+  async retireLegacyNotifications(): Promise<void> {
+    await this.db.query("update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = '旧定时等待询问已退役；后续检查点由智能 skill 核对' where dedup_key like 'waiting:%' and status in ('pending', 'failed')");
+  }
+
+  async all(): Promise<WaitingItemRow[]> { return (await this.db.query<WaitingItemRow>('select * from pa24.waiting_item order by created_at')).rows; }
 
   async list(status?: string, limit = 30): Promise<WaitingItemRow[]> {
     const result = status

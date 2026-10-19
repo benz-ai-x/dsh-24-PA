@@ -7,7 +7,7 @@ import {
 } from '@deepseek-ai/dsh-schedule';
 import { text, hash } from './util.js';
 import type { PaConfig } from './config.js';
-import type { Repos, TaskRow, WorkItemRow } from './repo.js';
+import type { Repos, WorkItemRow } from './repo.js';
 import type { ReminderEngine } from './reminders.js';
 
 export interface ReminderRouterDeps {
@@ -15,11 +15,8 @@ export interface ReminderRouterDeps {
   repos(): Repos;
   /** Channel-dispatching calendar write (routes wecom/feishu in the runtime). */
   calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationId?: string): Promise<unknown>;
-  /** Whether a calendar channel is live (wecom always; feishu needs mode+transport). */
-  channelsLive(): boolean;
   /** Lazy: repos/engine bind at workspace load, after the router is built. */
   ledger(): ReminderEngine;
-  resolveTask(args: Record<string, unknown>): Promise<TaskRow>;
 }
 
 export class ReminderRouter {
@@ -94,6 +91,8 @@ export class ReminderRouter {
 
   private async completeCalendarIntent(item: WorkItemRow, intentId: string, intent: any): Promise<unknown> {
     const { ruleId, kind, summary, timeZone, originExpression, source, calendar } = intent;
+    const prior = await this.deps.repos().reminders.getRule(ruleId);
+    if (prior?.status === 'stopped') return { ruleId, status: 'stopped', reused: true, eventId: prior.record.event_id, calendarChannel: prior.record.channel, message: '原提醒已取消；重复创建请求保留停止状态，需要再次提醒时请明确建立新的事项。' };
     const created = await this.deps.calendarWrite(item, 'create', calendar, `${intentId}:write`) as { eventId?: string; event_id?: string; operationId?: string };
     const eventId = created.eventId ?? created.event_id;
     if (!eventId) throw new ReminderError('日程回执缺少事件标识；备份尚未完成，请先核对原操作。');

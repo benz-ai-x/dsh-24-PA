@@ -492,7 +492,15 @@ export class DigestService {
     if (this.wasDelivered(pending)) {
       return { planId, windowKey: pending.window_key, reused: true, message: '本窗口已交付，不重复发布。' };
     }
-    const outboxKey = await this.deliverReport(plan, pending.window_key, pending.id, this.savedReport(pending) ?? report);
+    let outboxKey: string;
+    try { outboxKey = await this.deliverReport(plan, pending.window_key, pending.id, this.savedReport(pending) ?? report); }
+    catch (error) {
+      // A concurrent successful delivery may have consumed a one-shot waiting
+      // checkpoint while this call awaited preferences or recipient identity.
+      const settled = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
+      if (settled && this.wasDelivered(settled)) return { planId, windowKey: settled.window_key, reused: true, message: '本窗口已交付，不重复发布。' };
+      throw error;
+    }
     await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey: pending.window_key, outboxKey } });
     return { planId, windowKey: pending.window_key, outboxKey, message: '简报已交付并入发送队列。' };
   }

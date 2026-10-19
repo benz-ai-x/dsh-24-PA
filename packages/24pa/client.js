@@ -826,12 +826,12 @@ window.__ModuleLoader__.load({
             detail: helpers => h(ActivityDetail, helpers),
           },
           {
-            id: 'reminders', cat: 'work', tone: 'amber', icon: 'clock', title: ['提醒', 'Reminders'], sub: ['账本触发 · 模型离线仍送达', 'Ledger-fired · delivered even with the model offline'], action: ['管理提醒', 'Manage reminders'],
+            id: 'reminders', cat: 'work', tone: 'amber', icon: 'clock', title: ['提醒', 'Reminders'], sub: ['日历 App 提醒 · 智能条件跟进', 'Calendar reminders · agent follow-ups'], action: ['管理提醒', 'Manage reminders'],
             tier: ({ state }) => ((state.outbox || []).some(o => o.status === 'unknown') ? 'warn' : 'ok'),
             body: ({ state, config, extra }) => {
-              const pending = (state.outbox || []).filter(o => ['pending', 'sending'].includes(o.status)).length;
+              const delegated = extra.reminders?.rules?.filter(row => row.status === 'delegated').length;
               const rules = extra.reminders?.rules?.length;
-              return h('div', null, capLine(L('提醒规则', 'Reminder rules'), rules == null ? L('读取中…', 'Loading…') : rules + L(' 条', '')), capLine(L('待发 / 出口', 'Pending / outlet'), pending + L(' 条 / ', ' / ') + (config && config.notifyChannel === 'wecom' ? L('企微', 'WeCom') : L('飞书', 'Feishu'))));
+              return h('div', null, capLine(L('提醒规则', 'Reminder rules'), rules == null ? L('读取中…', 'Loading…') : rules + L(' 条', '')), capLine(L('日历 App 委托', 'Delegated to calendar apps'), delegated == null ? L('读取中…', 'Loading…') : delegated + L(' 条', '')));
             },
             detail: helpers => h(ReminderDetail, helpers),
           },
@@ -1208,7 +1208,7 @@ window.__ModuleLoader__.load({
               h('h2', null, L('渠道选择', 'Channels')),
               row(L('日程渠道（calendarChannel）', 'Calendar channel (calendarChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.calendarChannel, v => set('calendarChannel', v)), L('日程事件的写入渠道。', 'Where calendar events are written.')),
               row(L('待办渠道（todoChannel）', 'Todo channel (todoChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.todoChannel, v => set('todoChannel', v)), L('待办的写入渠道。', 'Where todos are written.')),
-              row(L('推送渠道（notifyChannel）', 'Push channel (notifyChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.notifyChannel, v => set('notifyChannel', v)), L('提醒与汇报的推送出口；企微为单向推送，收信仍在飞书。', 'Reminder & digest push outlet; WeCom is one-way, inbound stays on Feishu.'))),
+              row(L('推送渠道（notifyChannel）', 'Push channel (notifyChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.notifyChannel, v => set('notifyChannel', v)), L('智能跟进与汇报的推送出口；时钟提醒使用日历渠道。企微为单向推送，收信仍在飞书。', 'Agent follow-up and digest outlet; clock reminders use the calendar channel. WeCom is outbound only.'))),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('飞书资源', 'Feishu resources')),
               row(L('飞书文件夹（folderToken）', 'Feishu folder (folderToken)'), txt(form.folderToken, v => set('folderToken', v), { onBlur: e => set('folderToken', extractToken(e.target.value)), placeholder: L('粘贴文件夹链接或 token', 'Paste folder link or token') })),

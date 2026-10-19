@@ -81,9 +81,11 @@ export class WaitingFollowups {
   }
   repair(): Promise<number> { return this.deps.gate(async () => {
     let repaired = 0;
-    for (const item of await this.deps.repos().waiting.list(undefined, 1000000)) {
-      await this.stopOtherPlans(item);
-      if (item.status === 'waiting' && item.checkpoint_at) { await this.ensure(item); repaired++; }
+    for (const item of await this.deps.repos().waiting.all()) {
+      try {
+        await this.stopOtherPlans(item);
+        if (item.status === 'waiting' && item.checkpoint_at) { await this.ensure(item); repaired++; }
+      } catch (error) { console.warn(`[pa24] 等待 ${item.id} 恢复待核对：${(error as Error).message}`); }
     }
     return repaired;
   }); }

@@ -110,7 +110,7 @@ export class ReminderRepo {
     return this.db.withTransaction(async client => {
       const row = (await client.query<ReminderRuleRow>('select * from pa24.reminder_rule where id = $1 for update', [id])).rows[0];
       if (!row) throw new Error('提醒不存在。');
-      await client.query("update pa24.reminder_rule set status = 'stopped', next_due_at = null, record = $2, updated_at = now() where id = $1", [id, JSON.stringify({ ...row.record, stopReason: reason })]);
+      await client.query("update pa24.reminder_rule set status = 'stopped', next_due_at = null, record = $2, updated_at = now() where id = $1", [id, JSON.stringify({ ...row.record, previousStatus: row.record.previousStatus ?? row.status, stopReason: reason })]);
       await client.query("update pa24.reminder_occurrence set status = 'canceled', last_error = $2, updated_at = now() where rule_id = $1 and status = 'pending'", [id, reason]);
       const keys = "select 'reminder:' || id from pa24.reminder_occurrence where rule_id = $1";
       const canceled = await client.query(`update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = $2 where dedup_key in (${keys}) and status in ('pending', 'failed')`, [id, reason]);
