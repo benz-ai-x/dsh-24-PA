@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { hash } from '../../lib/util.js';
 import { chmod } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fixture, join, readFile, writeFile, deferred } from '../helpers/runtime.mjs';
@@ -116,7 +117,9 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     expect((await f.rt.repos.outbox.recent()).filter(row => row.dedup_key.startsWith('digest:'))).toHaveLength(1);
     await f.rt.work({ action: 'waiting_control', waitingId: waiting.id, op: 'received' }, child);
     expect((await f.rt.repos.outbox.recent()).find(row => row.dedup_key.startsWith('digest:')).status).toBe('expired');
-    expect((await newWaiting(child)).waitingId).not.toBe(waiting.id);
+    const replacement = await newWaiting(child); expect(replacement.waitingId).not.toBe(waiting.id);
+    for (const op of ['keep', 'reschedule']) await expect(f.rt.work({ action: 'waiting_control', waitingId: waiting.id, op, inSeconds: 300 }, child)).rejects.toThrow('当前为');
+    expect((await newWaiting(child)).waitingId).toBe(replacement.waitingId);
   });
 
   it.each(['received', 'cancel'])('%s 与慢免打扰读取交叠时不新增过期询问', async op => {
@@ -176,6 +179,18 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     }
   });
 
+  it('升级保留企微创建旧操作身份，同一事项重试不新增日程', async () => {
+    f.rt.config.calendarChannel = 'wecom'; const child = await worker('calendar');
+    const args = { summary: '旧版已建立', start: '2026-10-20T01:00:00.000Z', end: '2026-10-20T02:00:00.000Z' };
+    // fafc67c 的 paramsKey 契约；先按旧 ID 留下一次真实 CLI 桩创建回执。
+    const oldKey = `wecom\ncreate\n\n${args.summary}\n${args.start}\n${args.end}\nAsia/Shanghai\nnull`;
+    const oldId = `wecom_calendar.create:${child.id}:${hash(oldKey)}`;
+    const original = await f.rt.wecomChannels.wecomCalendarWrite(await f.rt.repos.workItems.get(child.id), 'create', args, oldId);
+    const repeated = await f.rt.work({ action: 'calendar_create', ...args }, child);
+    expect(repeated).toMatchObject({ operationId: oldId, eventId: original.eventId, reused: true });
+    expect(await journal('wecom.json.schedules.jsonl')).toHaveLength(1);
+  });
+
   it('归档默认保留原生提醒；显式停止报告部分失败与剩余规则', async () => {
     const child = await worker('reminders');
     const one = await f.rt.work({ action: 'reminder_create', text: '一', afterSeconds: 300 }, child);
@@ -188,13 +203,14 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     expect((await f.rt.repos.reminders.getRule(two.ruleId)).status).toBe('delegated');
   });
 
-  it('旧计时入口和并发稍后明确拒绝，恢复停止历史规则与未发送意图', async () => {
+  it.each(['active', 'stopped'])('旧计时入口和并发稍后明确拒绝，升级清偿历史 %s 规则未发送意图', async priorStatus => {
     const child = await worker('reminders');
     for (const args of [{ kind: 'every', everySeconds: 60 }, { kind: 'once', afterSeconds: 1, linkTaskGuid: 't' }, { kind: 'once', afterSeconds: 1, linkEventId: 'e' }]) await expect(f.rt.work({ action: 'reminder_create', text: '旧规则', ...args }, child)).rejects.toThrow('已退役');
     const old = await f.rt.reminders.create({ kind: 'once', text: '历史', afterSeconds: 1, timeZone: 'UTC' });
     const occurrence = `${old.ruleId}:legacy`;
     await f.rt.repos.reminders.insertOccurrence({ id: occurrence, ruleId: old.ruleId, dueAt: new Date() });
     await f.rt.repos.outbox.enqueue({ dedupKey: `reminder:${occurrence}`, channel: 'feishu', target: 'owner', kind: 'text', content: { text: '旧提醒' } });
+    await f.rt.repos.reminders.updateRule(old.ruleId, { status: priorStatus });
     const attempts = await Promise.allSettled(Array.from({ length: 2 }, () => f.rt.work({ action: 'reminder_snooze', ruleId: old.ruleId, seconds: 5, reason: '稍后' }, child)));
     expect(attempts.every(row => row.status === 'rejected')).toBe(true);
     await f.rt.stop(); f.rt = f.make(); await f.rt.bind(workspacePath);
@@ -215,6 +231,60 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     await f.rt.repos.outbox.enqueue({ dedupKey: `waiting:${waiting.waitingId}:late`, channel: 'feishu', target: 'owner', kind: 'text', content: { text: '旧询问残留' } });
     await f.rt.work({ action: 'waiting_control', waitingId: waiting.waitingId, op: 'cancel' }, await worker('tasks'));
     expect((await f.rt.repos.outbox.recent()).find(row => row.dedup_key.endsWith(':late')).status).toBe('expired');
+  });
+
+  it('后继仅失败一次也保留成功任务，重复 tick 修复实例而不重复创建', async () => {
+    const child = await worker('tasks'), { templateId } = await f.rt.work({ action: 'task_repeat_create', title: '一次事务故障', kind: 'every', everySeconds: 60 }, child);
+    const id = await dueTemplate(templateId), repo = f.rt.repos.taskTemplates, insert = repo.insertInstance.bind(repo); let failed = false;
+    repo.insertInstance = (...args) => { if (!failed) { failed = true; throw new Error('one successor failure'); } return insert(...args); };
+    await f.rt.materializeTemplateInstances(); await f.rt.materializeTemplateInstances();
+    expect(await repo.instance(id)).toMatchObject({ status: 'generated', task_id: `ttask:${id}` });
+    expect(await journal('lark.json.tasks.jsonl')).toHaveLength(1);
+    expect((await repo.instancesOf(templateId)).filter(row => row.status === 'pending')).toHaveLength(1);
+  });
+
+  it('停止后重启仍修复已确认远端任务的投影，不产生未来实例', async () => {
+    const child = await worker('tasks'), { templateId } = await f.rt.work({ action: 'task_repeat_create', title: '停止仍需回执', kind: 'every', everySeconds: 60 }, child);
+    const id = await dueTemplate(templateId); f.rt.repos.tasks.save = async () => { throw new Error('projection unavailable'); };
+    await f.rt.materializeTemplateInstances(); await f.rt.work({ action: 'task_repeat_stop', templateId }, child);
+    await f.rt.stop(); f.rt = f.make(); await f.rt.bind(workspacePath);
+    await f.rt.materializeTemplateInstances();
+    expect(await f.rt.repos.taskTemplates.instance(id)).toMatchObject({ status: 'generated', task_id: `ttask:${id}` });
+    expect((await f.rt.db.query('select * from pa24.task where id = $1', [`ttask:${id}`])).rowCount).toBe(1);
+    expect((await f.rt.repos.taskTemplates.instancesOf(templateId)).some(row => row.status === 'pending')).toBe(false);
+    expect(await journal('lark.json.tasks.jsonl')).toHaveLength(1);
+  });
+
+  it('未来检查点不能由跳过 facts 的直接交付提前消费', async () => {
+    const child = await worker('tasks'), waiting = await f.rt.work({ action: 'waiting_create', title: '等明天', checkpointInSeconds: 86400 }, child), digest = await worker('digest');
+    await expect(f.rt.work({ action: 'digest_build', planId: waiting.planId }, digest)).rejects.toThrow('尚未到达');
+    await expect(f.rt.work({ action: 'digest_deliver', planId: waiting.planId, report: '提前询问' }, digest)).rejects.toThrow('尚未到达');
+    expect((await f.rt.repos.waiting.get(waiting.waitingId)).ask_count).toBe(0); expect(await f.rt.repos.outbox.recent()).toHaveLength(0);
+  });
+
+  it('询问已入队但事项回执保存失败，自动停止后重试补齐实际结果', async () => {
+    const waiting = await newWaiting(await worker('tasks')), digest = await worker('digest');
+    await f.rt.work({ action: 'digest_build', planId: waiting.planId }, digest);
+    const update = f.rt.repos.workItems.update.bind(f.rt.repos.workItems); let failed = false;
+    f.rt.repos.workItems.update = (id, patch) => { if (patch.result_ref && !failed) { failed = true; throw new Error('result ref unavailable'); } return update(id, patch); };
+    await expect(f.rt.work({ action: 'digest_deliver', planId: waiting.planId, report: '收到了吗？' }, digest)).rejects.toThrow('result ref unavailable');
+    await f.rt.dispatchWaitingCheckpoints(); expect((await f.rt.repos.digests.getPlan(waiting.planId)).status).toBe('stopped');
+    expect(await f.rt.work({ action: 'digest_deliver', planId: waiting.planId, report: '重试' }, digest)).toMatchObject({ reused: true });
+    expect(await f.rt.work({ action: 'digest_build', planId: waiting.planId }, digest)).toMatchObject({ reused: true });
+    expect((await f.rt.repos.workItems.get(digest.id)).result_ref.planId).toBe(waiting.planId);
+    expect((await f.rt.repos.waiting.get(waiting.waitingId)).ask_count).toBe(1); expect(await f.rt.repos.outbox.recent()).toHaveLength(1);
+  });
+
+  it('最终目标身份查询晚返回，取消与通知事务互斥且不复活实例', async () => {
+    const child = await worker('reminders'), entered = deferred(), release = deferred(); f.rt.config.notifyChannel = 'wecom';
+    f.rt.wecomChannels.wecomOwnerUserid = async () => { entered.resolve(); await release.promise; return { userid: 'owner' }; };
+    const engine = new ReminderEngine(f.rt.db, { notify: (key, text) => f.rt.notifyOwner(key, text), outboxState: async () => null }, { silentUntil: async () => null });
+    const old = await engine.create({ kind: 'once', text: '最后入队竞态', afterSeconds: 1, timeZone: 'UTC' });
+    await f.rt.repos.reminders.updateRule(old.ruleId, { next_due_at: new Date(Date.now() - 1000) });
+    const tick = engine.tick(); await entered.promise;
+    await f.rt.work({ action: 'reminder_cancel', ruleId: old.ruleId }, child); release.resolve(); await tick; engine.stop();
+    expect(await f.rt.repos.outbox.recent()).toHaveLength(0);
+    expect((await f.rt.repos.reminders.recentOccurrences()).filter(row => row.rule_id === old.ruleId).every(row => row.status === 'canceled')).toBe(true);
   });
 
   it.each(['silence', 'source'])('历史在途 %s 查询晚返回时，公开取消后不产生通知', async phase => {

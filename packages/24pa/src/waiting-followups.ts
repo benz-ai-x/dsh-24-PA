@@ -54,7 +54,7 @@ export class WaitingFollowups {
     if (!item) throw new Error('等待事项不存在。');
     const op = String(args.op ?? '');
     if (!['received', 'cancel', 'reschedule', 'keep'].includes(op)) throw new Error('未知等待操作（received/cancel/reschedule/keep）。');
-    if (op === 'received' && item.status !== 'waiting') throw new Error(`等待事项当前为 ${item.status}。`);
+    if (['received', 'keep', 'reschedule'].includes(op) && item.status !== 'waiting') throw new Error(`等待事项当前为 ${item.status}。`);
     let checkpoint: Date | null = null;
     if (op === 'reschedule') {
       const seconds = Number(args.inSeconds);
@@ -101,7 +101,8 @@ export class WaitingFollowups {
   }
   async beforeDelivery(plan: DigestPlanRow): Promise<void> {
     const quiet = await this.deps.silentUntil();
-    await this.current(plan);
+    const current = await this.current(plan);
+    if (new Date(current.checkpoint_at!).getTime() > Date.now()) throw new Error('等待检查点尚未到达，暂不询问。');
     if (!quiet || quiet.getTime() <= Date.now()) return;
     await this.deps.gate(async () => {
       const item = await this.current(plan);

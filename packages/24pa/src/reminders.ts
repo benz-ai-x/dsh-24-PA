@@ -380,7 +380,7 @@ export class ReminderEngine {
           status: 'pending',
           deferred_until: new Date(now.getTime() + backoffSeconds * 1000),
           last_error: (error as Error).message,
-        });
+        }, 'pending');
         continue;
       }
       await this.repo.updateOccurrence(occurrence.id, { status: 'sent', outbox_dedup_key: dedupKey, deferred_until: null }, 'pending');

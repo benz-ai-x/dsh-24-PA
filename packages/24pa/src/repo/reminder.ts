@@ -1,6 +1,7 @@
 // Split from repo.ts (round-3 review): one aggregate per file; the
 // Repos facade in index.ts is the unchanged seam every caller already uses.
 import type { PaDb } from '../db.js';
+import { enqueueOutbox, type NewOutbox } from './outbox.js';
 
 export interface ReminderRuleRow {
   id: string;
@@ -119,11 +120,24 @@ export class ReminderRepo {
     });
   }
 
+  async enqueueLegacyNotification(notification: NewOutbox): Promise<void> {
+    const sourceNotice = notification.dedupKey.startsWith('remindsrc:');
+    const id = notification.dedupKey.slice(sourceNotice ? 10 : 9);
+    await this.db.withTransaction(async client => {
+      const initial = (await client.query<ReminderOccurrenceRow>('select * from pa24.reminder_occurrence where id = $1', [id])).rows[0];
+      if (!initial) throw new Error('历史提醒实例已不存在，未新增通知。');
+      const rule = (await client.query<ReminderRuleRow>('select * from pa24.reminder_rule where id = $1 for update', [initial.rule_id])).rows[0];
+      const occurrence = (await client.query<ReminderOccurrenceRow>('select * from pa24.reminder_occurrence where id = $1 for update', [id])).rows[0];
+      if (!rule || !['active', 'completed'].includes(rule.status) || occurrence?.status !== (sourceNotice ? 'canceled' : 'pending')) throw new Error('提醒已停止或实例已改变，未新增通知。');
+      await enqueueOutbox(client, notification);
+    });
+  }
+
   async retireLegacy(): Promise<number> {
     let retired = 0;
     for (const rule of await this.listRules()) {
       if (rule.record?.type === 'calendar') continue;
-      if (!['active', 'paused', 'completed'].includes(rule.status)) continue;
+      if (!['active', 'paused', 'completed', 'stopped'].includes(rule.status)) continue;
       await this.stopRule(rule.id, 'F45 旧提醒引擎已退役；历史保留，需本人明确安排原生日历或智能跟进。');
       retired += 1;
     }

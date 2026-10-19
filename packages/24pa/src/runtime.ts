@@ -1338,15 +1338,16 @@ export class PaRuntime {
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
     const notification = await this.ownerNotification(dedupKey, text);
-    if (notification) await this.repos!.outbox.enqueue(notification);
+    if (!notification) return;
+    if (dedupKey.startsWith('reminder:') || dedupKey.startsWith('remindsrc:')) await this.repos!.reminders.enqueueLegacyNotification(notification);
+    else await this.repos!.outbox.enqueue(notification);
   }
 
   /** Resolve the target before a caller commits its business change + outbox. */
   private async ownerNotification(dedupKey: string, text: string): Promise<NewOutbox | null> {
     if (!this.config) return null;
     if (this.config.notifyChannel === 'wecom') {
-      // Single-direction wecom push; the reminder ledger stays the single
-      // schedule track, only the delivery exit changes (ADR-0001).
+      // Single-direction owner push; clock timing remains in the calendar app.
       const owner = await this.wecomChannels.wecomOwnerUserid();
       return {
         dedupKey,

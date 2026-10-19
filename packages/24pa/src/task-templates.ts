@@ -93,36 +93,47 @@ export class TaskTemplates {
     if (!instance) await this.deps.repos().taskTemplates.insertInstance({ id, templateId: template.id, dueAt: due });
     else if (['generated', 'skipped', 'failed'].includes(instance.status)) await this.finish(template, instance, { status: instance.status, ...(instance.task_id ? { taskId: instance.task_id } : {}), ...(instance.error ? { error: instance.error } : {}) });
   }
+  private async materialize(template: TaskTemplateRow, instance: TaskTemplateInstanceRow): Promise<number> {
+    const repos = this.deps.repos(), operationId = `ttask:${instance.id}`;
+    try {
+      const staged = await this.deps.operations.stageWithId(operationId, { id: 'pa24-system-templates' }, 'task.repeat_generate', { instanceId: instance.id, title: template.title, tasklist: template.tasklist_id });
+      if (!staged.created) { await this.finish(template, instance, { status: 'generated', taskId: operationId }); return 0; }
+      const title = String(staged.row.params.title), tasklist = String(staged.row.params.tasklist ?? template.tasklist_id);
+      const { data } = await this.deps.operations.perform(operationId, () => this.deps.createRemote(title, tasklist, operationId));
+      const external = taskExternal(data);
+      await repos.tasks.save({ id: operationId, work_item_id: null, task_guid: external.guid, url: external.url, summary: title, due_at: instance.due_at, due_has_time: true, planned_at: null, estimate_minutes: null, status: 'open', external_updated_at: new Date(), last_synced_at: new Date() });
+      await repos.operations.update(operationId, { status: 'succeeded', receipt: { guid: external.guid, url: external.url } });
+      await this.finish(template, instance, { status: 'generated', taskId: operationId }); return 1;
+    } catch (error) {
+      const op = await repos.operations.get(operationId);
+      if (op?.status === 'succeeded') {
+        // A successor failure cannot revoke the committed task. Retry only the
+        // local terminal/successor transaction; restart can repair it again.
+        await this.finish(template, instance, { status: 'generated', taskId: operationId }); return 0;
+      }
+      await this.deps.operations.fail(operationId, error);
+      await this.finish(template, instance, { status: 'failed', error: (error as Error).message }); return 0;
+    }
+  }
   tick(): Promise<number> { return this.deps.gate(async () => {
-    if (!this.deps.available()) return 0;
-    const repos = this.deps.repos();
+    const repos = this.deps.repos(); let generated = 0;
     for (const instance of await repos.taskTemplates.recoverableInstances()) {
       const op = await repos.operations.get(`ttask:${instance.id}`);
-      // A prior durable result permits projection repair; an unacknowledged
-      // running operation is handled below as unknown, never sent a second time.
-      if (instance.status === 'generating' || op?.receipt?._externalResult !== undefined) {
-        const template = await repos.taskTemplates.get(instance.template_id);
-        if (template?.status === 'active') await repos.taskTemplates.updateInstance(instance.id, { status: 'pending' });
+      const template = await repos.taskTemplates.get(instance.template_id);
+      if (!template) continue;
+      const confirmed = op?.status === 'succeeded' || op?.receipt?._externalResult !== undefined;
+      if (confirmed) {
+        // Stop prevents future writes, not repair of an already created task.
+        generated += await this.materialize(template, instance);
+      } else if (instance.status === 'generating' && template.status === 'active') {
+        await repos.taskTemplates.updateInstance(instance.id, { status: 'pending' });
       }
     }
+    if (!this.deps.available()) return generated;
     for (const template of await repos.taskTemplates.list('active')) await this.repairChain(template);
-    let generated = 0;
     for (const instance of await repos.taskTemplates.claimDueInstances(new Date(), 20)) {
       const template = (await repos.taskTemplates.get(instance.template_id))!;
-      const operationId = `ttask:${instance.id}`;
-      try {
-        const staged = await this.deps.operations.stageWithId(operationId, { id: 'pa24-system-templates' }, 'task.repeat_generate', { instanceId: instance.id, title: template.title, tasklist: template.tasklist_id });
-        if (!staged.created) { await this.finish(template, instance, { status: 'generated', taskId: operationId }); continue; }
-        const title = String(staged.row.params.title), tasklist = String(staged.row.params.tasklist ?? template.tasklist_id);
-        const { data } = await this.deps.operations.perform(operationId, () => this.deps.createRemote(title, tasklist, operationId));
-        const external = taskExternal(data);
-        await repos.tasks.save({ id: operationId, work_item_id: null, task_guid: external.guid, url: external.url, summary: title, due_at: instance.due_at, due_has_time: true, planned_at: null, estimate_minutes: null, status: 'open', external_updated_at: new Date(), last_synced_at: new Date() });
-        await repos.operations.update(operationId, { status: 'succeeded', receipt: { guid: external.guid, url: external.url } });
-        await this.finish(template, instance, { status: 'generated', taskId: operationId }); generated++;
-      } catch (error) {
-        await this.deps.operations.fail(operationId, error);
-        await this.finish(template, instance, { status: 'failed', error: (error as Error).message });
-      }
+      generated += await this.materialize(template, instance);
     }
     return generated;
   }); }

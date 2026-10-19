@@ -260,7 +260,7 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     }
     const sends = await readJournal('wsends', 'messageId');
     expect(sends).toHaveLength(1); expect(sends[0].chatId).toBe('wou_test_owner');
-    expect(sends[0].markdown).toContain('晨报');
+    expect(sends[0].markdown).toContain('【一次性简报】');
 
     // 服务级授权过期（850003）：nextSteps 透传平台的续期指引原文。
     await writeStubState({ ownerUserid: 'wou_test_owner', failNext: { command: 'todo.list', error: 'injected' } });

@@ -336,9 +336,10 @@ export class DigestService {
     const planId = String(args.planId ?? '');
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    const boundRun = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
+    if (boundRun && this.wasDelivered(boundRun)) return this.completedDelivery(item, plan, boundRun);
     if (plan.kind === 'meeting_prep') throw new Error('会前准备计划请用 meeting_prep_build 生成准备包。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
-    const boundRun = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
     let requestedWindow = boundRun?.window_key;
     if (!requestedWindow) {
       const admitted = await this.deps.repos().workItems.get(item.id);
@@ -476,29 +477,32 @@ export class DigestService {
    * F41（spec 2.11）：agent 轨交付——Worker 按任务指令生成简报全文后经此入队。
    * 幂等：窗口已 model_done 则如实返回不重复发布；report 为空拒绝。
    */
+  private async completedDelivery(item: WorkItemRow, plan: DigestPlanRow, row: DigestOccurrenceRow): Promise<unknown> {
+    await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey: row.window_key, outboxKey: row.outbox_key } });
+    return { planId: plan.id, windowKey: row.window_key, outboxKey: row.outbox_key, reused: true, message: '本窗口已交付，不重复发布。' };
+  }
+
   async digestDeliver(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const planId = String(args.planId ?? '');
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
-    if (plan.status !== 'active') throw new Error(`计划 ${planId} 已暂停或停止，本次结果未发布。`);
     const report = String(args.report ?? '').trim();
     if (!report) throw new Error('digest_deliver 需要携带 report（简报全文）。');
+    const pending = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
+    if (pending && this.wasDelivered(pending)) return this.completedDelivery(item, plan, pending);
+    if (plan.status !== 'active') throw new Error(`计划 ${planId} 已暂停或停止，本次结果未发布。`);
     const bound = await this.boundSkillOrThrow(plan);
     if (bound?.track !== 'agent') {
       throw new Error(`计划 ${planId} 未绑定 agent 轨任务 skill（当前 ${plan.skill || '未绑定'}）；digest_deliver 仅用于 agent 轨交付。`);
     }
-    const pending = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
     if (!pending) throw new Error(`本事项没有可确认归属的运行窗口；请在本事项调用 digest_build 后再交付，不能使用其他事项的最新窗口。`);
-    if (this.wasDelivered(pending)) {
-      return { planId, windowKey: pending.window_key, reused: true, message: '本窗口已交付，不重复发布。' };
-    }
     let outboxKey: string;
     try { outboxKey = await this.deliverReport(plan, pending.window_key, pending.id, this.savedReport(pending) ?? report); }
     catch (error) {
       // A concurrent successful delivery may have consumed a one-shot waiting
       // checkpoint while this call awaited preferences or recipient identity.
       const settled = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
-      if (settled && this.wasDelivered(settled)) return { planId, windowKey: settled.window_key, reused: true, message: '本窗口已交付，不重复发布。' };
+      if (settled && this.wasDelivered(settled)) return this.completedDelivery(item, plan, settled);
       throw error;
     }
     await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey: pending.window_key, outboxKey } });
