@@ -1,20 +1,54 @@
 import { runLarkCli } from './lark.js';
 import { fingerprintOf, normalizeDocument } from './handwriting.js';
 import type { NoteRepo, NoteVersionRow } from './repo.js';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { canonicalDocument, parseNoteDocument, type DocumentNode } from './note-document.js';
+import { sha256Hex, detectImageMediaType, MAX_PAGE_BYTES } from './handwriting.js';
+
+export interface NoteDocumentSnapshot {
+  content: string;
+  revision: string | null;
+  normalized?: string;
+  mediaHashes?: string[];
+  referenceMap?: Record<string, any>;
+}
 
 /** Internal document seam: production CLI and deterministic test adapter. */
 export interface NoteDocumentReader {
-  read(docId: string): Promise<{ content: string; revision: string | null }>;
+  read(docId: string): Promise<NoteDocumentSnapshot>;
 }
 
 export class LarkNoteDocumentReader implements NoteDocumentReader {
   constructor(private readonly options: () => Parameters<typeof runLarkCli>[0]) {}
 
-  async read(docId: string): Promise<{ content: string; revision: string | null }> {
+  async read(docId: string): Promise<NoteDocumentSnapshot> {
     const result = await runLarkCli(this.options(), ['docs', '+fetch', '--as', 'user', '--doc', docId, '--doc-format', 'xml', '--detail', 'full']);
     const document = result.data?.document;
     if (typeof document?.content !== 'string' || !document.content.trim()) throw new Error('文档回读不完整，不能作为待审内容。');
-    return { content: document.content, revision: document.revision_id != null ? String(document.revision_id) : null };
+    if (document.revision_id == null) throw new Error('文档缺少版本号，不能核验整稿。');
+    const tree = parseNoteDocument(document.content), images: DocumentNode[] = [];
+    const walk = (node: DocumentNode) => { if (node.name === 'img') images.push(node); for (const child of node.children) if (typeof child !== 'string') walk(child); };
+    walk(tree);
+    const referenceMap = document.reference_map ?? {}, mediaHashes: string[] = [];
+    const dir = await mkdtemp(join(tmpdir(), 'pa24-doc-media-'));
+    try {
+      for (const [index, image] of images.entries()) {
+        const attributes = { ...image.attributes, ...(image.attributes.ref ? referenceMap.img?.[image.attributes.ref] : {}) };
+        const token = attributes.token;
+        if (typeof token !== 'string' || !token || attributes.url || attributes.src) throw new Error('图片没有可核验的飞书资源 token；外部图片当前无法形成完整快照。');
+        const path = join(dir, `image-${index}.bin`);
+        await runLarkCli(this.options(), ['docs', '+media-download', '--as', 'user', '--token', token, '--type', 'media', '--output', path]);
+        if ((await stat(path)).size > MAX_PAGE_BYTES) throw new Error('图片资源超过单页核验上限。');
+        const bytes = await readFile(path);
+        if (!detectImageMediaType(bytes)) throw new Error('下载的图片资源格式无法核验。');
+        mediaHashes.push(sha256Hex(bytes));
+      }
+      const confirmed = await runLarkCli(this.options(), ['docs', '+fetch', '--as', 'user', '--doc', docId, '--doc-format', 'xml', '--detail', 'full']);
+      if (String(confirmed.data?.document?.revision_id) !== String(document.revision_id)) throw new Error('资源读取期间文档版本变化，本次整稿核验未完成。');
+      return { content: document.content, revision: String(document.revision_id), referenceMap, mediaHashes, normalized: canonicalDocument(document.content, mediaHashes) };
+    } finally { await rm(dir, { recursive: true, force: true }); }
   }
 }
 
@@ -48,7 +82,7 @@ export class TrustedNotes {
       const crops = Array.isArray(version.content?.crops) ? version.content.crops : [];
       const readback = await this.reader.read(version.doc_id);
       if (!readback.content.trim()) throw new Error('文档回读为空，不能核验完整版本。');
-      fingerprint = fingerprintOf(normalizeDocument(readback.content), pages.map(page => page.sha256), crops.map((crop: { sha256: string }) => crop.sha256));
+      fingerprint = fingerprintOf(readback.normalized ?? normalizeDocument(readback.content), pages.map(page => page.sha256), crops.map((crop: { sha256: string }) => crop.sha256));
       // A new candidate or changed decision may arrive while remote I/O runs.
       latest = await notes.latestVersion(noteId);
       version = await notes.getVersion(version.id);

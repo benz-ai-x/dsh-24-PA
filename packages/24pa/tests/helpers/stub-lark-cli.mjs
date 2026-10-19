@@ -6,6 +6,7 @@
 // The plugin still spawns a real process and parses real stdout, so only the
 // Feishu network side is replaced.
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 
 const statePath = process.env.PA24_LARK_STUB_STATE;
 const docsPath = `${statePath}.docs.jsonl`;
@@ -116,6 +117,7 @@ if (plain[0] === 'docs' && plain[1] === '+create') {
 if (plain[0] === 'docs' && plain[1] === '+fetch') {
   const docArg = args[args.indexOf('--doc') + 1];
   const doc = [...docs].reverse().find(d => d.id === docArg);
+  if (state.documentOverride) ok({ document: state.documentOverride });
   if (!doc) fail(`文档不存在：${docArg}`);
   // Simulates owner-side edits configured by tests (P32 changed-detection).
   const edit = state.docEdits?.[docArg];
@@ -156,8 +158,19 @@ if (plain[0] === 'docs' && plain[1] === '+media-insert') {
   const doc = [...docs].reverse().find(d => d.id === docArg);
   if (!doc) fail(`文档不存在：${docArg}`);
   if (!file) fail('缺少 --file');
-  await appendFile(docsPath, JSON.stringify({ ...doc, content: `${doc.content}\n<img src="${file}"/>`, revision: doc.revision + 1 }) + '\n');
+  const bytes = await readFile(file), token = 'media-' + createHash('sha256').update(bytes).digest('hex').slice(0, 32);
+  await appendFile(`${statePath}.media.jsonl`, JSON.stringify({ token, bytes: bytes.toString('base64') }) + '\n');
+  await appendFile(docsPath, JSON.stringify({ ...doc, content: `${doc.content}\n<img token="${token}"/>`, revision: doc.revision + 1 }) + '\n');
   ok({ block: { block_id: `imgstub-${doc.revision + 1}` } });
+}
+if (plain[0] === 'docs' && plain[1] === '+media-download') {
+  if (state.failNext?.command === 'docs.media-download') { await writeState({ ...state, failNext: null }); fail('resource download failed'); }
+  const media = (await readFile(`${statePath}.media.jsonl`, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(JSON.parse);
+  const token = argOf('--token');
+  const bytes = state.mediaOverrides?.[token] ?? media.findLast(row => row.token === token)?.bytes;
+  if (!bytes) fail('resource token missing');
+  await writeFile(argOf('--output'), Buffer.from(bytes, 'base64'));
+  ok({ path: argOf('--output') });
 }
 if (plain[0] === 'task' && plain[1] === '+create') {
   if (state.failNext?.command === 'task.create') {

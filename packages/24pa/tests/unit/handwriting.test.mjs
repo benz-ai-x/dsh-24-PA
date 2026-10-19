@@ -111,9 +111,9 @@ describe('handwriting 纯函数（F06）', () => {
     const base = normalizeDocument(xml);
     const edited = normalizeDocument(`${xml}<p>新增的一段主人修改</p>`);
     expect(edited).not.toBe(base);
-    expect(diffNormalized(base, edited).added).toEqual(['新增的一段主人修改']);
+    expect(diffNormalized(base, edited).added).toEqual([expect.stringContaining('新增的一段主人修改')]);
     const withImage = normalizeDocument(`${xml}<img src="x"/><img src="y"/>`);
-    expect(withImage.endsWith('[图片 x2]')).toBe(true);
+    expect(withImage.split('unverified-image')).toHaveLength(3);
     expect(withImage).not.toBe(base);
   });
 

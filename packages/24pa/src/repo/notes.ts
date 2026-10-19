@@ -255,6 +255,10 @@ export class NoteRepo {
     return result.rows[0]!;
   }
 
+  async tokensOf(versionId: string): Promise<ReviewTokenRow[]> {
+    return (await this.db.query<ReviewTokenRow>('select * from pa24.review_token where version_id = $1 order by expires_at desc', [versionId])).rows;
+  }
+
   async getToken(token: string): Promise<ReviewTokenRow | null> {
     const result = await this.db.query<ReviewTokenRow>('select * from pa24.review_token where token = $1', [token]);
     return result.rows[0] ?? null;
@@ -269,7 +273,7 @@ export class NoteRepo {
     return result.rows;
   }
 
-  async updateDecisionSync(id: string, patch: { docSyncStatus: 'synced' | 'failed'; error?: string }): Promise<void> {
+  async updateDecisionSync(id: string, patch: { docSyncStatus: 'synced' | 'failed' | 'superseded'; error?: string }): Promise<void> {
     await this.db.query(
       `update pa24.review_decision set doc_sync_status = $2, doc_sync_error = $3 where id = $1`,
       [id, patch.docSyncStatus, patch.error ?? null],
@@ -278,7 +282,7 @@ export class NoteRepo {
 
   async failedSyncDecisions(noteId: string): Promise<ReviewDecisionRow[]> {
     const result = await this.db.query<ReviewDecisionRow>(
-      `select * from pa24.review_decision where note_id = $1 and doc_sync_status = 'failed' order by decided_at`,
+      `select * from pa24.review_decision where note_id = $1 and doc_sync_status in ('pending', 'failed') order by decided_at`,
       [noteId],
     );
     return result.rows;

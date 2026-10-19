@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { canonicalDocument } from './note-document.js';
 
 // F06/F07 handwriting pure helpers: note document templates, review
 // fingerprints, crop geometry, line diffs and the review card payload. The
@@ -74,6 +75,8 @@ export function advanceReminder(kind: 'once' | 'daily', sentCount: number, now: 
 
 export interface NoteCandidate {
   summary: string;
+  /** Only doubts attributable to this candidate block its execution. */
+  unknowns?: string[];
   /** Verbatim quote from the original note proving the action (P34 出处). */
   sourceQuote?: string;
   /** Raw date phrase as written; parsing happens at adoption time. */
@@ -194,7 +197,7 @@ export function noteDocumentXml(
   const status = pendingReviewLine(noteId, version);
   const lines = (items: string[], tag = 'p') => items.map(item => `<${tag}>${xml(item)}</${tag}>`).join('\n');
   const candidateText = (candidate: NoteCandidate) =>
-    `${candidate.summary}${candidate.sourceQuote ? `（原文：${candidate.sourceQuote}）` : ''}${candidate.due ? `（日期原话：${candidate.due}）` : ''}${candidate.start && candidate.end ? `（时间块 ${candidate.start} → ${candidate.end}）` : ''}`;
+    `${candidate.summary}${candidate.sourceQuote ? `（原文：${candidate.sourceQuote}）` : ''}${candidate.due ? `（日期原话：${candidate.due}）` : ''}${candidate.start && candidate.end ? `（时间块 ${candidate.start} → ${candidate.end}）` : ''}${candidate.unknowns?.length ? `（本候选疑点：${candidate.unknowns.join('；')}）` : ''}`;
   const pages = recognized.pages?.length
     ? recognized.pages
         .map(p => `<h2>第 ${p.pageNo} 页 转写</h2>\n<p>${xml(p.transcript)}</p>`)
@@ -255,22 +258,7 @@ export function noteDocumentXml(
  * equivalent content yields the same fingerprint across fetches (P31).
  */
 export function normalizeDocument(docXml: string): string {
-  const withoutTitle = docXml.replace(/<title>[\s\S]*?<\/title>/g, '');
-  const segments = withoutTitle.split(/<\/?(?:p|h1|h2|li|img|table|tr|td|th|ul|ol)\b[^>]*>/);
-  const lines: string[] = [];
-  for (const segment of segments) {
-    const text = segment
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (!text) continue;
-    if (text.startsWith(SYSTEM_BLOCK_PREFIX)) continue;
-    lines.push(text);
-  }
-  const imageCount = (withoutTitle.match(/<img\b/g) ?? []).length;
-  lines.push(`[图片 x${imageCount}]`);
-  return lines.join('\n');
+  return canonicalDocument(docXml);
 }
 
 /** Fingerprint covers normalized body text plus original and crop resource hashes (P31/P30). */
