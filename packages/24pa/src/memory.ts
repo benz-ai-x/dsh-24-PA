@@ -25,6 +25,7 @@ export interface MemoryRecord {
 export interface MemoryFile {
   schemaVersion: 1;
   revision: number;
+  lastMutationId?: string;
   records: MemoryRecord[];
 }
 
@@ -37,6 +38,7 @@ export interface MemoryChange {
 
 export interface AppliedChangeset {
   formatVersion?: 2;
+  mutationId?: string;
   resultingHash?: string;
   id: string;
   reason: string;
@@ -214,18 +216,24 @@ export class MemoryStore {
     });
   }
 
-  private async applyChanges(changes: MemoryChange[], actor: string, expectedRevision: number, changesetReason?: string, guard?: (file: MemoryFile) => void): Promise<MemoryCommit & { changeset?: AppliedChangeset }> {
+  private async applyChanges(changes: MemoryChange[], actor: string, expectedRevision: number, changesetReason?: string, guard?: (file: MemoryFile) => void | Promise<void>): Promise<MemoryCommit & { changeset?: AppliedChangeset }> {
     return this.enqueue(async () => {
       const { file, version, existed } = await this.read();
       if (file.revision !== expectedRevision) {
         throw new MemoryError(`记忆已变化（当前 revision ${file.revision}，提交 ${expectedRevision}）；请重新查询后提交。`);
       }
       await this.recoverAudit(file);
-      guard?.(file);
-      const normalized = changes.map(change => change?.op === 'put' && change.record ? { ...change, record: { ...change.record, id: change.record.id ?? randomUUID() } } : change);
+      await guard?.(file);
+      const normalized = changes.map(change => {
+        if (change?.op === 'delete' && (typeof change.id !== 'string' || !change.id.trim())) throw new MemoryError('delete 的 id 必须是非空字符串。');
+        if (change?.op !== 'put' || !change.record) return change;
+        if (change.id && change.record.id && change.id !== change.record.id) throw new MemoryError('put 的 id 与 record.id 不一致，请明确唯一目标。');
+        const { id, ...put } = change;
+        return { ...put, record: { ...change.record, id: change.record.id ?? id ?? randomUUID() } };
+      });
       const before: Record<string, MemoryRecord | null> = Object.create(null);
       const after: Record<string, MemoryRecord | null> = Object.create(null);
-      const next: MemoryFile = { ...file, records: [...file.records], revision: file.revision + 1 };
+      const next: MemoryFile = { ...file, records: [...file.records], revision: file.revision + 1, lastMutationId: randomUUID() };
       // Rebuilt after every mutation: a splice invalidates earlier indexes.
       let indexById = new Map(next.records.map((r, i) => [r.id, i]));
       for (const change of normalized) {
@@ -270,6 +278,7 @@ export class MemoryStore {
       if (changesetReason) {
         changeset = {
           formatVersion: 2,
+          mutationId: next.lastMutationId,
           resultingHash: memoryHash(next),
           id: `CS-${next.revision}`,
           reason: changesetReason,
@@ -289,7 +298,7 @@ export class MemoryStore {
         const targets = await this.ensureTargets();
         await writeFile(join(targets.changesets, `${changeset.id}.json`), JSON.stringify(changeset, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
       }
-      const audit = { mutationId: randomUUID(), revision: next.revision, actor, changesetId: changeset?.id ?? null, changes: normalized.map(c => ({ op: c.op, id: c.id ?? c.record?.id, reason: c.reason })) };
+      const audit = { mutationId: next.lastMutationId, revision: next.revision, actor, changesetId: changeset?.id ?? null, changes: normalized.map(c => ({ op: c.op, id: c.id ?? c.record?.id, reason: c.reason })) };
       await this.prepareAudit({ beforeHash: memoryHash(file), afterHash: memoryHash(next), audit });
       try { await this.write(next, version, existed); }
       catch (error) {
@@ -365,8 +374,21 @@ export class MemoryStore {
   }
 
   async applyChangeset(changes: MemoryChange[], options: { expectedRevision: number; actor: string; reason: string }): Promise<MemoryCommit & { changesetId: string }> {
+    if (!options.reason?.trim()) throw new MemoryError('变更集需说明本人整理指令依据。');
     const { changeset, ...commit } = await this.applyChanges(changes, options.actor, options.expectedRevision, options.reason);
     return { ...commit, changesetId: changeset!.id };
+  }
+
+  private async hasCommitProof(cs: AppliedChangeset, file: MemoryFile): Promise<boolean> {
+    if (cs.mutationId && file.lastMutationId === cs.mutationId) return true;
+    const { log } = await this.ensureTargets();
+    const raw = await readFile(log, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+    return raw.split('\n').some(line => {
+      try {
+        const event = JSON.parse(line);
+        return event.changesetId === cs.id && (cs.mutationId ? event.mutationId === cs.mutationId : event.revision === cs.resultingRevision);
+      } catch { return false; }
+    });
   }
 
   async listChangesets(): Promise<{ id: string; reason: string; appliedAt: string; appliedBy: string; changes: number; state: 'applied' | 'not_applied' | 'uncertain' }[]> {
@@ -374,17 +396,12 @@ export class MemoryStore {
       const targets = await this.ensureTargets();
       const { file } = await this.read();
       await this.recoverAudit(file).catch(() => {});
-      const audited = new Set<string>();
-      const log = await readFile(targets.log, 'utf8').catch(() => '');
-      for (const line of log.split('\n')) {
-        try { const event = JSON.parse(line); if (event.changesetId) audited.add(event.changesetId); } catch { /* Preserve malformed evidence, do not infer success. */ }
-      }
       const names = await readdir(targets.changesets);
       const result = [];
       for (const name of names.filter(n => n.endsWith('.json')).sort()) {
         try {
           const cs = JSON.parse(await readFile(join(targets.changesets, name), 'utf8')) as AppliedChangeset;
-          const state = audited.has(cs.id) || cs.resultingHash === memoryHash(file) ? 'applied' : file.revision < cs.resultingRevision ? 'not_applied' : 'uncertain';
+          const state = await this.hasCommitProof(cs, file).catch(() => false) ? 'applied' : file.revision <= cs.resultingRevision ? 'not_applied' : 'uncertain';
           result.push({ id: cs.id, reason: cs.reason, appliedAt: cs.appliedAt, appliedBy: cs.appliedBy, changes: cs.changes.length, state } as const);
         } catch { /* A malformed changeset must not hide the remaining files. */ }
       }
@@ -413,8 +430,8 @@ export class MemoryStore {
       if (before) inverse.push({ op: 'put', record: before, reason: `撤销 ${changesetId}：${options.reason}` });
       else if (changeset.after[id] !== null) inverse.push({ op: 'delete', id, reason: `撤销 ${changesetId}：${options.reason}` });
     }
-    const { changeset: _, ...commit } = await this.applyChanges(inverse, options.actor, options.expectedRevision, `撤销 ${changesetId}`, file => {
-      if (file.revision < changeset.resultingRevision) throw new MemoryError('该变更集尚未提交到记忆，不能撤销。');
+    const { changeset: _, ...commit } = await this.applyChanges(inverse, options.actor, options.expectedRevision, `撤销 ${changesetId}`, async file => {
+      if (file.revision < changeset.resultingRevision || !await this.hasCommitProof(changeset, file)) throw new MemoryError('该变更集尚未提交或缺少确切提交证明，不能撤销。');
       for (const id of ids) {
         const current = file.records.find(r => r.id === id) ?? null;
         const expected = changeset.after[id];

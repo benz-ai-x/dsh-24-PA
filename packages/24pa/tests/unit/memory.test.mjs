@@ -178,6 +178,15 @@ describe('R3-04 记忆批次边界与故障恢复', () => {
     await store.undo(batch.changesetId, options(2));
     expect((await store.search({})).records.map(r => [r.id, r.content])).toEqual([['same', 'A']]);
   }));
+  it('put 的顶层 ID 统一到 record.id；两处 ID 冲突在提交前拒绝', () => fixture(async ({ store }) => {
+    const batch = await store.applyChangeset([{ op: 'put', id: 'caller-id', record: record(undefined), reason: 'new' }], options(0));
+    expect((await store.search({})).records[0].id).toBe('caller-id');
+    await store.undo(batch.changesetId, options(1)); expect((await store.search({})).records).toEqual([]);
+    await expect(store.applyChangeset([{ op: 'put', id: 'a', record: record('b'), reason: 'bad' }], options(2))).rejects.toThrow(/不一致/);
+    await expect(store.applyChangeset([{ op: 'delete', id: 123, reason: 'bad' }], options(2))).rejects.toThrow(/字符串/);
+    await expect(store.applyChangeset([{ op: 'put', record: record('c'), reason: 'ok' }], { ...options(2), reason: '' })).rejects.toThrow(/指令依据/);
+    expect((await store.search({})).revision).toBe(2);
+  }));
   it.each(['source', 'status', 'topic', 'category', 'validUntil', 'sourceVersion', 'reason', 'updatedBy'])('手改 %s 不变 revision/正文也拒绝过时撤销', field => fixture(async ({ dir, store }) => {
     const batch = await store.applyChangeset([{ op: 'put', record: record('r'), reason: 'new' }], options(0));
     const path = join(dir, '.24pa/memory.json'), current = JSON.parse(await readFile(path, 'utf8'));
@@ -209,6 +218,15 @@ describe('R3-04 记忆批次边界与故障恢复', () => {
     expect((await store.search({})).records).toHaveLength(1);
     await expect(store.undo('CS-2', options(1))).rejects.toThrow(/尚未提交/);
     expect((await store.listChangesets()).find(cs => cs.id === 'CS-2').state).toBe('not_applied');
+  }));
+  it('失败的 delete 变更集不能认领另一次相同普通删除，也不能撤销它', () => fixture(async ({ fs, store }) => {
+    await store.put(record('r'), options(0));
+    vi.spyOn(fs, 'writeText').mockRejectedValueOnce(new Error('write denied'));
+    await expect(store.applyChangeset([{ op: 'delete', id: 'r', reason: 'batch' }], options(1))).rejects.toThrow();
+    await store.remove('r', options(1));
+    expect((await store.listChangesets()).find(cs => cs.id === 'CS-2').state).toBe('not_applied');
+    await expect(store.undo('CS-2', options(2))).rejects.toThrow(/提交证明/);
+    expect((await store.search({})).records).toEqual([]);
   }));
   it('Host 已写入却抛错时读回确认提交，不误报失败重试', () => fixture(async ({ fs, store }) => {
     const write = fs.writeText.bind(fs); vi.spyOn(fs, 'writeText').mockImplementationOnce(async (...args) => { await write(...args); throw new Error('reply lost'); });
