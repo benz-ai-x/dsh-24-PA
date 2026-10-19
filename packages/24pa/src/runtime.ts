@@ -750,8 +750,8 @@ export class PaRuntime {
 
   /** Release every acquired resource; safe to call again after a late start(). */
   private async cleanup(): Promise<void> {
-    await this.digest.pause();
     await this.workLifecycle.idle();
+    await this.digest.pause();
     if (this.noteVerifyTimer) clearInterval(this.noteVerifyTimer);
     this.noteVerifyTimer = null;
     if (this.reviewReminderTimer) clearInterval(this.reviewReminderTimer);
@@ -806,13 +806,19 @@ export class PaRuntime {
   async bind(path: string, initialize = false): Promise<void> {
     return this.enqueue(async () => {
       this.workspaceChanging = true;
-      try { await this.digest.pause(); await this.bindWorkspace(path, initialize); }
-      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); this.digest.resume(); }
+      try { await this.bindWorkspace(path, initialize); }
+      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); }
       if (!this.closed) await this.digest.recoverPlans();
     });
   }
 
   private async bindWorkspace(path: string, initialize: boolean): Promise<void> {
+    await this.digest.pause();
+    try { await this.activateWorkspace(path, initialize); }
+    finally { this.digest.resume(); }
+  }
+
+  private async activateWorkspace(path: string, initialize: boolean): Promise<void> {
     if (!isAbsolute(path)) throw new Error('工作区必须是服务器上的绝对目录。');
     const real = await realpath(await (initialize ? mkdir(path, { recursive: true }).then(() => path) : path));
     if (!(await stat(real)).isDirectory()) throw new Error('请选择目录。');
