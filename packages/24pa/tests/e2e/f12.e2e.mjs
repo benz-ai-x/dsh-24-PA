@@ -141,6 +141,17 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
   });
 
   it('P38：联合备份创建→校验→恢复到全新 cluster→迁移→代表性数据可读、旧 Outbox 不重放', async () => {
+    const recoveryAssets = {
+      '.24pa/originals/backup-probe/page.png': 'original-bytes',
+      '.24pa/revisions/backup-probe/v1.json': '{"version":1}',
+      '.24pa/memory/backup-probe.json': '{"revision":1}',
+      '.dsh/skills/backup-probe/SKILL.md': '# Custom skill',
+    };
+    for (const [path, content] of Object.entries(recoveryAssets)) {
+      await mkdir(dirname(join(workspace, path)), { recursive: true });
+      await writeFile(join(workspace, path), content);
+    }
+    await writeFile(join(workspace, '.24pa/secrets.json'), '{"volcTtsKey":"backup-exclusion-probe"}');
     const backupRoot = join(root, 'backups');
     await localMaint('f12-bk-1', 'backup_create', { targetDir: backupRoot });
     let before = llm.log.length;
@@ -163,10 +174,19 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     // 工作区内容确实被复制（不只是清单）：AGENTS.md 与记忆目录存在于备份
     const backedAgents = await readFile(join(backupDir, 'workspace', 'AGENTS.md'), 'utf8');
     expect(backedAgents).toContain('24私助工作区');
+    for (const [path, content] of Object.entries(recoveryAssets)) expect(await readFile(join(backupDir, 'workspace', path), 'utf8')).toBe(content);
+    await expect(readFile(join(backupDir, 'workspace/.24pa/secrets.json'))).rejects.toThrow();
+    expect(manifest.coverage.find(c => c.id === 'sessions')).toMatchObject({ state: 'copied' });
+    expect(manifest.coverage.find(c => c.id === 'storages')).toMatchObject({ state: 'copied' });
+    const { WorkspaceBackup } = await import('../../lib/backup.js');
+    await writeFile(join(backupDir, 'workspace/.24pa/originals/backup-probe/page.png'), 'tampered');
+    expect((await WorkspaceBackup.verify(backupDir)).complete).toBe(false);
+    await writeFile(join(backupDir, 'workspace/.24pa/originals/backup-probe/page.png'), 'original-bytes');
 
     // 恢复演练：全新 cluster ← pa24.sql；代表性数据（digest_plan/work_item）可读。
     // SQLite 模式等价路径：把备份里的 pa24.db 拷回临时工作区直接重开校验。
     const planCountBefore = Number((await cluster.query('select count(*) from pa24.digest_plan')).trim());
+    const pendingBefore = Number((await cluster.query("select count(*) from pa24.outbox where status in ('pending','sending')")).trim());
     if (process.env.PA24_E2E_STORAGE === 'sqlite') {
       const { copyFile, mkdir: mkBackupDir } = await import('node:fs/promises');
       const restoreDir = join(root, 'restored-workspace');
@@ -177,7 +197,7 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
       const plans = await restoredDb.query('select id, kind, status from pa24.digest_plan');
       expect(plans.rows.length).toBe(planCountBefore);
       const pending = await restoredDb.query("select count(*) as c from pa24.outbox where status in ('pending','sending')");
-      expect(Number(pending.rows[0].c)).toBeGreaterThanOrEqual(0);
+      expect(Number(pending.rows[0].c)).toBe(pendingBefore);
       await restoredDb.close();
     } else {
     const restored = await startPgCluster();
@@ -195,8 +215,9 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
       });
       const plans = JSON.parse(await restored.query(`select coalesce(json_agg(t),'[]'::json) as v from (select id, kind, status from pa24.digest_plan) t`));
       expect(Array.isArray(plans)).toBe(true);
+      expect(plans.length).toBe(planCountBefore);
       const outboxUnknown = await restored.query(`select count(*) from pa24.outbox where status in ('pending','sending')`);
-      expect(Number(outboxUnknown.trim())).toBeGreaterThanOrEqual(0);
+      expect(Number(outboxUnknown.trim())).toBe(pendingBefore);
     } finally {
       await restored.stop();
     }

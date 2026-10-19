@@ -162,6 +162,9 @@
       name: '@benz-ai-x/dsh-24pa'
       config:
         stateDirectory: !!js dshHomePath('24pa')
+        backupSessionsRoot: !!js dshHomePath('sessions')
+        backupStoragesRoot: !!js dshHomePath('storages')
+        backupAttachmentsRoot: !!js dshHomePath('attachments', 'v1')
         workspacePath: !!js process.env.PA24_WORKSPACE || ''
         larkCliBin: lark-cli
         wecomCliBin: wecom-cli

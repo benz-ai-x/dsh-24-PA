@@ -105,6 +105,37 @@ This section explains how the assistant organizes work and where the observable 
 - **Calendars own clock-type reminders.** `tool-schedule` is excluded on purpose: clock-type reminders are written as calendar events with native alerts (per `calendarChannel`), firing even with 24私助 offline; the ledger keeps delegated backup rows for history and dedup (ADR-0001, revised 2026-10-18).
 - **Material never becomes authorization.** Notes, documents, subagent replies, and fetched web content are inputs; only the owner's explicit instruction authorizes an external write, and secrets are referenced by environment variable name only.
 
+### Backup and recovery
+
+`pa24_maintenance backup_create` copies the selected ledger and the workspace
+`AGENTS.md`, `.24pa/` (excluding `secrets.json` and its atomic-write temporary
+file `secrets.json.pa24-tmp`), and `.dsh/skills/`. It also
+collects the plugin state and the host's sessions, storages, and attachments.
+The bundle supplies `backupSessionsRoot`, `backupStoragesRoot`, and
+`backupAttachmentsRoot` from `dshHomePath`; installations that override the
+host's persistence paths must override these three roots to match. Choose a
+backup destination outside every source directory. Symbolic links fail the
+backup instead of following them into unrelated files.
+
+`backup_verify` checks the ledger, collection coverage, each listing's own
+hash, and every listed file. Missing required collections, modified listings,
+missing content, and old manifests without coverage evidence cannot pass as a
+complete joint backup. An absent, configured attachment directory is recorded
+explicitly when the host has not stored attachments yet.
+
+To restore, stop the host and verify the backup. First restore the ledger and
+collections into isolated staging directories: load `pa24.sql` into a separate
+database with psql, or copy `pa24.db` (and `pa24.db-wal`, if included) into a
+separate `data/` directory. Check the schema and each memory record's revision,
+source and expiry against the existing destination before replacing any files.
+Keep newer destination memory; resolve conflicts with the owner explicitly.
+Only then install the verified ledger and collections at their configured roots,
+retaining the previous directories for rollback, and re-enter credentials
+separately. Do not copy a live `host.lock`. Before resuming writes or sending old
+notifications, reconcile external objects and unknown Outbox rows. These are
+online file snapshots, not a cross-system transaction; check the restored
+ledger, sessions and attachments together before restarting.
+
 ### Source map
 
 | File | Role |
