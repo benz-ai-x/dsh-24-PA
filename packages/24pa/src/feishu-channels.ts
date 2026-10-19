@@ -199,7 +199,7 @@ export class FeishuChannels {
           await this.deps.repos().calendar.upsertEvent({
             event_id: newEventId,
             calendar_id: calendarId,
-            summary: summary ?? String(event?.summary ?? prior?.summary ?? ''),
+            summary: String(event?.summary ?? (summary ? `[24PA] ${summary}` : prior?.summary ?? '')),
             start_time: startTime,
             end_time: endTime,
             is_all_day: prior?.is_all_day ?? false,

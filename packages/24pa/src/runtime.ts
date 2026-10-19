@@ -1902,8 +1902,8 @@ export class PaRuntime {
     return this.feishu.meetingSchedule(item, args);
   }
 
-  private async syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }> {
-    if (calendarId === 'wecom' && this.config!.calendarChannel === 'wecom') return this.wecomChannels.syncWecomCalendarWindow(from, to);
+  private async syncCalendarWindow(calendarId: string, from: Date, to: Date, channel?: 'feishu' | 'wecom'): Promise<{ ok: boolean; error?: string }> {
+    if ((channel ?? (calendarId === 'wecom' ? this.config!.calendarChannel : 'feishu')) === 'wecom') return this.wecomChannels.syncWecomCalendarWindow(from, to);
     return this.feishu.syncCalendarWindow(calendarId, from, to);
   }
 
@@ -2540,7 +2540,14 @@ export class PaRuntime {
     if (!plan || plan.kind !== 'meeting_prep') throw new Error('会前准备计划不存在。');
     if (plan.status !== 'active') return { planId: plan.id, skipped: 'plan_stopped', message: `该准备计划已${plan.status === 'stopped' ? '停止' : '暂停'}（会议可能已变化）；如需准备请按最新安排重设。` };
     const eventId = String(plan.schedule_spec?.eventId ?? '');
-    const event = await this.repos!.calendar.findEvent(eventId);
+    let event = await this.repos!.calendar.findEvent(eventId);
+    // A just-created meeting may have no prior list observation. Re-read the
+    // owning calendar before building, without depending on today's preference.
+    if (event && event.status !== 'canceled') {
+      const observed = await this.syncCalendarWindow(event.calendar_id, event.start_time, event.end_time, event.channel);
+      if (!observed.ok) return { planId: plan.id, skipped: 'source_unknown', message: `暂不发送准备包：日历复查失败（${observed.error ?? '未知原因'}）；请稍后重试。` };
+      event = await this.repos!.calendar.findEvent(eventId);
+    }
     const expected = plan.schedule_spec?.eventFingerprint ?? (event ? eventFingerprint(event) : null);
     const checkSource = async () => {
       const verdict = await this.sourceVerdict('calendar', eventId, expected);

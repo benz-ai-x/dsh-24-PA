@@ -17,6 +17,11 @@ beforeEach(async () => {
     sessionController: { create: async () => {}, rename: async () => {}, resolveAgent: async () => null } };
   rt = new PaRuntime(ctx, { stateDirectory: root, workspacePath: '', reminderTickMs: 60000, larkCliBin: 'missing', wecomCliBin: 'missing', cliTimeoutMs: 1000, env: {} });
   await rt.bind(path);
+  rt.syncCalendarWindow = async (calendarId, from, to, channel) => {
+    expect(calendarId).toBe('original-cal'); expect(channel).toBe('feishu');
+    const state = await rt.repos.calendar.getSync(calendarId);
+    return { ok: state?.complete === true, error: state?.last_error };
+  };
   event = { event_id: 'meeting', calendar_id: 'original-cal', channel: 'feishu', summary: '会', start_time: new Date('2026-10-20T01:00:00Z'), end_time: new Date('2026-10-20T02:00:00Z'), is_all_day: false, timezone: 'Asia/Shanghai', status: 'active', recurring: false, attendees: null, url: null, raw: {} };
   await rt.repos.calendar.upsertEvent(event);
   await rt.repos.calendar.saveSync({ calendar_id: 'original-cal', channel: 'feishu', window_start: event.start_time, window_end: event.end_time, complete: true });
@@ -44,4 +49,16 @@ it('跨日事件由今日完整观察确认后可生成准备包', async () => {
   await observeCalendar(rt.repos.calendar, async () => {}, { calendarId: 'original-cal', channel: 'feishu', from: new Date('2026-10-20T00:00:00Z'), to: new Date('2026-10-21T00:00:00Z') }, async () => [event]);
   expect(await rt.sourceVerdict('calendar', 'meeting', eventFingerprint(event))).toEqual({ valid: true });
   expect(await build()).toMatchObject({ eventId: 'meeting' }); expect(await rt.repos.outbox.recent()).toHaveLength(1);
+});
+
+it('新建会议无同步记录时主动复查原渠道；当前偏好变更不改来源归属', async () => {
+  await rt.db.query('delete from pa24.calendar_sync_state'); rt.config.calendarChannel = 'wecom';
+  const calls = [];
+  rt.syncCalendarWindow = async (calendarId, from, to, channel) => {
+    calls.push({ calendarId, from, to, channel });
+    return observeCalendar(rt.repos.calendar, async () => {}, { calendarId, channel, from, to }, async () => [event]);
+  };
+  expect(await build()).toMatchObject({ eventId: 'meeting' });
+  expect(calls).toEqual([{ calendarId: 'original-cal', channel: 'feishu', from: event.start_time, to: event.end_time }]);
+  expect(await rt.repos.outbox.recent()).toHaveLength(1);
 });

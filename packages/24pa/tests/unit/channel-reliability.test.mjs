@@ -124,6 +124,15 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     expect(await journal('lark-cli.json.events.jsonl')).toHaveLength(1);
   });
 
+  it('飞书创建回执与后续观察使用同一真实标题，不把自身前缀误判为来源变更', async () => {
+    const args = { summary: '会议', start: '2026-10-21T01:00:00Z', end: '2026-10-21T02:00:00Z' };
+    const created = await lark.calendarWrite(item, 'create', args);
+    const before = await repos.calendar.findEvent(created.eventId); expect(before.summary).toBe('[24PA] 会议');
+    const changes = []; const channel = new FeishuChannels({ ...deps(larkBin), notifySourceChanged: async (...args) => { changes.push(args); } });
+    expect((await channel.syncCalendarWindow('cal-1', new Date(args.start), new Date(args.end))).ok).toBe(true);
+    expect(changes).toHaveLength(0); expect((await repos.calendar.findEvent(created.eventId)).summary).toBe(before.summary);
+  });
+
   it('计划投入与估时修改有独立操作身份，并且不调用空的远端 update', async () => {
     const created = await lark.taskCreate(item, { summary: '写报告' });
     await lark.taskUpdate(item, { guid: created.guid, estimateMinutes: 20 });
