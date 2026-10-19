@@ -1,4 +1,5 @@
 import { randomUUID, createHash } from 'node:crypto';
+import { WorkspaceBackup } from './backup.js';
 import { readFileSync } from 'node:fs';
 
 /** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
@@ -104,6 +105,9 @@ interface PendingDelivery {
 
 export interface RuntimeOptions {
   stateDirectory: string;
+  backupSessionsRoot?: string;
+  backupStoragesRoot?: string;
+  backupAttachmentsRoot?: string;
   workspacePath: string;
   larkCliBin: string;
   wecomCliBin: string;
@@ -3058,120 +3062,18 @@ export class PaRuntime {
     };
   }
 
-  /**
-   * Joint backup (P38): pg_dump of the pa24 schema plus a tar of workspace and
-   * dsh-domain directories, with a verifiable manifest. Credentials are never
-   * included — only their environment variable names.
-   */
   async maintenanceBackupCreate(args: Record<string, unknown>): Promise<unknown> {
-    if (!this.repos || !this.workspace) throw new Error('尚未绑定工作区。');
-    const targetDir = String(args.targetDir ?? '');
-    if (!targetDir || !isAbsolute(targetDir)) throw new Error('需要绝对目标目录 targetDir。');
-    const { mkdir, writeFile: wf, readdir, readFile: rf } = await import('node:fs/promises');
-    const { dirname } = await import('node:path');
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dir = join(targetDir, `pa24-backup-${stamp}`);
-    await mkdir(dir, { recursive: true });
-    const parts: { id: string; path: string; bytes: number; sha256: string }[] = [];
-    const addPart = async (id: string, name: string, bytes: Buffer) => {
-      await wf(join(dir, name), bytes);
-      parts.push({ id, path: name, bytes: bytes.length, sha256: sha256Hex(bytes) });
-    };
-    // 1. Ledger backup: PG dump or checkpointed SQLite copy, dialect-owned (F28).
-    for (const part of await this.dbRef.backup()) {
-      // Optional parts (e.g. a vanished -wal) degrade the backup, not fail it.
-      const write = addPart(part.id, part.name, part.bytes);
-      if (part.optional) await write.catch(() => {});
-      else await write;
-    }
-    // 2. Workspace (AGENTS.md + .24pa memory/revisions/originals/crops) and
-    // dsh state: real file CONTENTS are copied into the backup, not just
-    // listings — restore copies them back verbatim (P38).
-    const packDir = async (root: string, id: string, filter: (path: string) => boolean) => {
-      const files: { path: string; bytes: number; sha256: string }[] = [];
-      const walk = async (rel: string) => {
-        for (const entry of await readdir(join(root, rel), { withFileTypes: true }).catch(() => [])) {
-          const relPath = join(rel, entry.name);
-          if (!filter(relPath)) continue;
-          if (entry.isDirectory()) await walk(relPath);
-          else {
-            const bytes = await rf(join(root, relPath));
-            await mkdir(dirname(join(dir, id, relPath)), { recursive: true });
-            await wf(join(dir, id, relPath), bytes);
-            files.push({ path: relPath, bytes: bytes.length, sha256: sha256Hex(bytes) });
-          }
-        }
-      };
-      await walk('.');
-      await wf(join(dir, `${id}-manifest.json`), JSON.stringify({ root, files }, null, 2));
-      parts.push({ id: `${id}-manifest`, path: `${id}-manifest.json`, bytes: Buffer.byteLength(JSON.stringify({ root, files })), sha256: sha256Hex(JSON.stringify({ root, files })) });
-      return files.length;
-    };
-    // F36: 密钥库（.24pa/secrets.json）不入备份——沿用「凭据值不进备份」属性；
-    // 恢复后在面板「密钥」组重填即可。roles.json 等其余 .24pa 状态照旧进备份。
-    const workspaceFiles = await packDir(this.workspace.statePath, 'workspace', p => p === 'AGENTS.md' || (p.startsWith('.24pa/') && p !== join('.24pa', 'secrets.json')));
-    const sessionsFiles = await packDir(this.options.stateDirectory, 'dsh-state', () => true);
-    // 3. Watermarks + credential references (names only).
-    const schemaVersion = await this.dbRef.schemaVersion();
-    const watermarks = await this.repos!.maintenance.watermarks().catch(() => [] as Array<{ table: string; rows: number }>);
-    const manifest = {
-      createdAt: new Date().toISOString(),
-      plugin: { name: '@benz-ai-x/dsh-24pa', dsh: '0.2.1-alpha.1' },
-      schemaVersion,
-      watermarks,
-      parts,
-      credentialReferences: [this.config!.pgDsnEnv, this.config!.appIdEnv, this.config!.appSecretEnv],
-      note: '凭据不包含在备份中，仅记录环境变量名；恢复顺序与对账规则见 packages/24pa/README.md「数据与备份/恢复」。',
-    };
-    await wf(join(dir, 'backup-manifest.json'), JSON.stringify(manifest, null, 2));
-    return {
-      backupDir: dir,
-      parts: parts.map(p => ({ id: p.id, bytes: p.bytes })),
-      workspaceFiles,
-      sessionsFiles,
-      schemaVersion,
-      message: `联合备份已生成于 ${dir}（PG schema＋工作区＋dsh 状态，清单带摘要与水位；凭据仅存引用名）。恢复前先用 backup_verify 校验。`,
-    };
+    if (!this.repos || !this.workspace || !this.config) throw new Error('尚未绑定工作区。');
+    return new WorkspaceBackup({ workspace: this.workspace.statePath, stateDirectory: this.options.stateDirectory,
+      sessions: this.options.backupSessionsRoot, storages: this.options.backupStoragesRoot,
+      attachments: this.options.backupAttachmentsRoot }, this.dbRef).create(String(args.targetDir ?? ''), {
+      credentialReferences: [this.config.pgDsnEnv, this.config.appIdEnv, this.config.appSecretEnv, this.config.tts.volcKeyEnv],
+      watermarks: await this.repos.maintenance.watermarks(),
+    });
   }
 
-  /** Verify a backup directory (P38): every copied file is re-hashed against its manifest. */
   async maintenanceBackupVerify(args: Record<string, unknown>): Promise<unknown> {
-    const dir = String(args.backupDir ?? '');
-    if (!dir) throw new Error('需要 backupDir。');
-    const { readFile: rf } = await import('node:fs/promises');
-    const manifest = JSON.parse(await rf(join(dir, 'backup-manifest.json'), 'utf8'));
-    const results = [];
-    const failures: string[] = [];
-    for (const part of manifest.parts ?? []) {
-      if (String(part.id).endsWith('-manifest')) {
-        const id = String(part.id).replace(/-manifest$/, '');
-        const listing = JSON.parse(await rf(join(dir, part.path), 'utf8'));
-        let mismatches = 0;
-        for (const file of listing.files ?? []) {
-          const bytes = await rf(join(dir, id, file.path)).catch(() => null);
-          if (!bytes || sha256Hex(bytes) !== file.sha256) mismatches += 1;
-        }
-        const ok = mismatches === 0;
-        if (!ok) failures.push(`${id}: ${mismatches} 个文件缺失或摘要不符`);
-        results.push({ id, ok, files: (listing.files ?? []).length, mismatched: mismatches });
-        continue;
-      }
-      const bytes = await rf(join(dir, part.path)).catch(() => null);
-      const ok = !!bytes && sha256Hex(bytes) === part.sha256;
-      if (!ok) failures.push(`${part.id} 摘要不符`);
-      results.push({ id: part.id, ok, bytes: bytes?.length ?? 0 });
-    }
-    return {
-      backupDir: dir,
-      createdAt: manifest.createdAt,
-      schemaVersion: manifest.schemaVersion,
-      parts: results,
-      complete: failures.length === 0,
-      failures,
-      message: failures.length === 0
-        ? `备份完整（账本${this.db?.kind === 'sqlite' ? ' SQLite 文件' : ' PG 转储'}与全部文件内容逐个摘要匹配）。恢复顺序：先把账本恢复到数据目录（SQLite＝复制 pa24.db 到工作区 data/，备份若含 pa24.db-wal 一并放回；PG＝psql < pa24.sql），再按 workspace/dsh-state 清单把文件内容复制回原路径，重启 Host 后按启动对账处理；旧 Outbox 与飞书实际对象先对账再发送。`
-        : `备份不完整（${failures.join('；')}）；对应部分恢复后不可视为就绪。`,
-    };
+    return WorkspaceBackup.verify(String(args.backupDir ?? ''));
   }
 
   /**

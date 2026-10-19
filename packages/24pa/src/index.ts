@@ -8,6 +8,9 @@ export const inject = ['sessionController', 'sessions', 'connection', 'agentPres
 
 export const Config = z.object({
   stateDirectory: z.string().required(),
+  backupSessionsRoot: z.string(),
+  backupStoragesRoot: z.string(),
+  backupAttachmentsRoot: z.string(),
   workspacePath: z.string().default(''),
   larkCliBin: z.string().default('lark-cli'),
   wecomCliBin: z.string().default('wecom-cli'),
@@ -22,6 +25,9 @@ export const Config = z.object({
 export function apply(ctx: DshContext, config: any) {
   const runtime = new PaRuntime(ctx, {
     stateDirectory: config.stateDirectory,
+    backupSessionsRoot: config.backupSessionsRoot,
+    backupStoragesRoot: config.backupStoragesRoot,
+    backupAttachmentsRoot: config.backupAttachmentsRoot,
     workspacePath: config.workspacePath,
     larkCliBin: config.larkCliBin,
     wecomCliBin: config.wecomCliBin,

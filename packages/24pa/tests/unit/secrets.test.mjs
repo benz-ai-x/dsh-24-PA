@@ -54,15 +54,5 @@ describe('工作区密钥库（F36）', () => {
   });
 });
 
-describe('密钥库红线锚点（F36）', () => {
-  it('备份 filter 显式排除 secrets.json（凭据值不进备份）', async () => {
-    const { readFile } = await import('node:fs/promises');
-    const { fileURLToPath } = await import('node:url');
-    const runtime = await readFile(new URL('../../src/runtime.ts', import.meta.url), 'utf8');
-    // copy-guard：packDir 的 workspace 包含谓词必须排除密钥库文件（源码锚点，
-    // 备份 e2e 太重；改动此处请同步 f12 联合备份用例）。
-    const line = runtime.split('\n').find(l => l.includes("p === 'AGENTS.md' || (p.startsWith('.24pa/')"));
-    expect(line).toBeTruthy();
-    expect(line).toContain("p !== join('.24pa', 'secrets.json')");
-  });
-});
+// Backup credential exclusion is exercised by backup.test.mjs through actual
+// collection and restore; source-string assertions cannot catch traversal bugs.

@@ -213,6 +213,9 @@ function applyPa24Delta(doc) {
   // override with no matching row in the base composition and get skipped.
   const hostConfig = new YAMLMap();
   hostConfig.add({ key: 'stateDirectory', value: jsExpr("dshHomePath('24pa')") });
+  hostConfig.add({ key: 'backupSessionsRoot', value: jsExpr("dshHomePath('sessions')") });
+  hostConfig.add({ key: 'backupStoragesRoot', value: jsExpr("dshHomePath('storages')") });
+  hostConfig.add({ key: 'backupAttachmentsRoot', value: jsExpr("dshHomePath('attachments', 'v1')") });
   hostConfig.add({ key: 'workspacePath', value: jsExpr("process.env.PA24_WORKSPACE || ''") });
   hostConfig.add({ key: 'larkCliBin', value: 'lark-cli' });
   hostConfig.add({ key: 'wecomCliBin', value: 'wecom-cli' });
