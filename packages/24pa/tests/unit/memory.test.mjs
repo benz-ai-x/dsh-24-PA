@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile, readdir } from 'node:fs/promises';
+import { describe, expect, it, beforeAll, afterAll, vi } from 'vitest';
+import { mkdtemp, rm, readFile, writeFile, readdir, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryStore, parseMemoryFile, MemoryError } from '../../lib/memory.js';
@@ -158,4 +158,111 @@ describe('RoleRegistry（专业角色注册）', () => {
     expect(registry.available().map(r => r.id)).toEqual(['digest']);
     expect(registry.get('recording')?.available).toBe(false);
   });
+});
+
+describe('R3-04 记忆批次边界与故障恢复', () => {
+  async function fixture(run) {
+    const dir = await mkdtemp(join(tmpdir(), 'pa24-mem-r3-')); const fs = fakeFs(); const store = new MemoryStore(dir, { fs });
+    try { await run({ dir, fs, store }); } finally { await rm(dir, { recursive: true, force: true }); }
+  }
+  const options = revision => ({ expectedRevision: revision, actor: 'owner', reason: '本人整理' });
+  it('自动 ID 写入变更集，重复 put/delete 同 ID 只恢复一次批前状态', () => fixture(async ({ store }) => {
+    await store.put(record('same', { content: 'A' }), options(0));
+    const batch = await store.applyChangeset([
+      { op: 'put', record: record(undefined, { content: '自动' }), reason: 'new' },
+      { op: 'put', record: record('same', { content: 'B' }), reason: 'edit' },
+      { op: 'delete', id: 'same', reason: 'delete' },
+      { op: 'put', record: record('same', { content: 'C' }), reason: 'recreate' },
+    ], options(1));
+    expect((await store.search({})).records).toHaveLength(2);
+    await store.undo(batch.changesetId, options(2));
+    expect((await store.search({})).records.map(r => [r.id, r.content])).toEqual([['same', 'A']]);
+  }));
+  it('put 的顶层 ID 统一到 record.id；两处 ID 冲突在提交前拒绝', () => fixture(async ({ store }) => {
+    const batch = await store.applyChangeset([{ op: 'put', id: 'caller-id', record: record(undefined), reason: 'new' }], options(0));
+    expect((await store.search({})).records[0].id).toBe('caller-id');
+    await store.undo(batch.changesetId, options(1)); expect((await store.search({})).records).toEqual([]);
+    await expect(store.applyChangeset([{ op: 'put', id: 'a', record: record('b'), reason: 'bad' }], options(2))).rejects.toThrow(/不一致/);
+    await expect(store.applyChangeset([{ op: 'delete', id: 123, reason: 'bad' }], options(2))).rejects.toThrow(/字符串/);
+    await expect(store.applyChangeset([{ op: 'put', record: record('c'), reason: 'ok' }], { ...options(2), reason: '' })).rejects.toThrow(/指令依据/);
+    expect((await store.search({})).revision).toBe(2);
+  }));
+  it.each([' ', '\t', '__proto__'])('字符串 ID 按字面保持，%j 新增和撤销一致', id => fixture(async ({ store }) => {
+    const batch = await store.applyChangeset([{ op: 'put', record: record(id), reason: 'new' }], options(0));
+    await store.undo(batch.changesetId, options(1)); expect((await store.search({})).records).toEqual([]);
+  }));
+  it.each(['source', 'status', 'topic', 'category', 'validUntil', 'sourceVersion', 'reason', 'updatedBy'])('手改 %s 不变 revision/正文也拒绝过时撤销', field => fixture(async ({ dir, store }) => {
+    const batch = await store.applyChangeset([{ op: 'put', record: record('r'), reason: 'new' }], options(0));
+    const path = join(dir, '.24pa/memory.json'), current = JSON.parse(await readFile(path, 'utf8'));
+    current.records[0][field] = ({ status: 'unverified', category: 'fact', validUntil: '2099-01-01' })[field] ?? 'manual change';
+    await writeFile(path, JSON.stringify(current));
+    await expect(store.undo(batch.changesetId, options(1))).rejects.toThrow(/又被修改/);
+    expect(JSON.parse(await readFile(path, 'utf8')).records[0][field]).toBe(current.records[0][field]);
+  }));
+  it('审计失败报告已提交，重启只补审计且去重，不再次修改记忆', () => fixture(async ({ dir, fs, store }) => {
+    await store.search({}); const log = join(dir, '.24pa/memory-log.jsonl'); await mkdir(log);
+    const result = await store.applyChangeset([{ op: 'put', record: record('r'), reason: 'new' }], options(0));
+    expect(result).toMatchObject({ revision: 1, audit: 'pending' }); expect(result.warning).toContain('已提交');
+    const before = await readFile(join(dir, '.24pa/memory.json'), 'utf8');
+    expect((await store.search({})).auditWarning).toContain('审计待核对');
+    await rm(log, { recursive: true }); const restarted = new MemoryStore(dir, { fs });
+    expect((await restarted.search({})).auditWarning).toBeUndefined(); await restarted.search({});
+    expect(await readFile(join(dir, '.24pa/memory.json'), 'utf8')).toBe(before);
+    expect((await readFile(log, 'utf8')).trim().split('\n')).toHaveLength(1);
+    await restarted.undo(result.changesetId, options(1)); expect((await restarted.search({})).records).toEqual([]);
+  }));
+  it('变更集保存失败不改变记忆；主文件写失败保留旧 revision', () => fixture(async ({ dir, fs, store }) => {
+    await store.put(record('r'), options(0));
+    await mkdir(join(dir, '.24pa/changesets/CS-2.json'));
+    await expect(store.applyChangeset([{ op: 'delete', id: 'r', reason: 'delete' }], options(1))).rejects.toThrow();
+    expect((await store.search({})).revision).toBe(1);
+    await rm(join(dir, '.24pa/changesets/CS-2.json'), { recursive: true });
+    vi.spyOn(fs, 'writeText').mockRejectedValueOnce(new Error('write denied'));
+    await expect(store.applyChangeset([{ op: 'delete', id: 'r', reason: 'delete' }], options(1))).rejects.toThrow('write denied');
+    expect((await store.search({})).records).toHaveLength(1);
+    await expect(store.undo('CS-2', options(1))).rejects.toThrow(/尚未提交/);
+    expect((await store.listChangesets()).find(cs => cs.id === 'CS-2').state).toBe('not_applied');
+  }));
+  it('失败的 delete 变更集不能认领另一次相同普通删除，也不能撤销它', () => fixture(async ({ fs, store }) => {
+    await store.put(record('r'), options(0));
+    vi.spyOn(fs, 'writeText').mockRejectedValueOnce(new Error('write denied'));
+    await expect(store.applyChangeset([{ op: 'delete', id: 'r', reason: 'batch' }], options(1))).rejects.toThrow();
+    await store.remove('r', options(1));
+    expect((await store.listChangesets()).find(cs => cs.id === 'CS-2').state).toBe('not_applied');
+    await expect(store.undo('CS-2', options(2))).rejects.toThrow(/提交证明/);
+    expect((await store.search({})).records).toEqual([]);
+  }));
+  it('Host 已写入却抛错时读回确认提交，不误报失败重试', () => fixture(async ({ fs, store }) => {
+    const write = fs.writeText.bind(fs); vi.spyOn(fs, 'writeText').mockImplementationOnce(async (...args) => { await write(...args); throw new Error('reply lost'); });
+    const result = await store.put(record('r'), options(0)); expect(result).toMatchObject({ revision: 1, audit: 'recorded' });
+    expect((await store.search({})).records).toHaveLength(1);
+  }));
+  it('审计中断后遇到手工修改保留权威原件与待核对记录，不自动覆盖', () => fixture(async ({ dir, fs, store }) => {
+    await store.search({}); const log = join(dir, '.24pa/memory-log.jsonl'); await mkdir(log);
+    await store.put(record('r'), options(0)); await rm(log, { recursive: true });
+    const path = join(dir, '.24pa/memory.json'), current = JSON.parse(await readFile(path, 'utf8'));
+    current.records[0].source = 'manual'; await writeFile(path, JSON.stringify(current));
+    const fresh = new MemoryStore(dir, { fs }); const read = await fresh.search({});
+    expect(read.records[0].source).toBe('manual'); expect(read.auditWarning).toContain('未确认');
+    await expect(fresh.put(record('other'), options(1))).rejects.toThrow(/未确认/);
+    expect(JSON.parse(await readFile(path, 'utf8')).records).toHaveLength(1);
+  }));
+  it('旧版已写记忆但审计缺失，升级后显示待核对而不是未提交', () => fixture(async ({ dir, store }) => {
+    const batch = await store.applyChangeset([{ op: 'put', record: record('r'), reason: 'new' }], options(0));
+    const path = join(dir, '.24pa/memory.json'), current = JSON.parse(await readFile(path, 'utf8')); delete current.lastMutationId;
+    await writeFile(path, JSON.stringify(current)); await rm(join(dir, '.24pa/memory-log.jsonl'));
+    const csPath = join(dir, '.24pa/changesets', batch.changesetId + '.json'), cs = JSON.parse(await readFile(csPath, 'utf8'));
+    delete cs.formatVersion; delete cs.mutationId; delete cs.resultingHash; await writeFile(csPath, JSON.stringify(cs));
+    expect((await store.listChangesets())[0].state).toBe('uncertain');
+    await expect(store.undo(batch.changesetId, options(1))).rejects.toThrow(/提交证明/);
+    expect((await store.search({})).records).toHaveLength(1);
+  }));
+  it('历史变更集缺实际 ID 或重复 ID 时拒绝猜测恢复', () => fixture(async ({ dir, store }) => {
+    const batch = await store.applyChangeset([{ op: 'put', record: record('r'), reason: 'new' }], options(0));
+    const path = join(dir, '.24pa/changesets', batch.changesetId + '.json'); const cs = JSON.parse(await readFile(path, 'utf8'));
+    delete cs.formatVersion; delete cs.changes[0].record.id; await writeFile(path, JSON.stringify(cs));
+    await expect(store.undo(batch.changesetId, options(1))).rejects.toThrow(/不能安全/);
+    cs.changes[0].record.id = 'r'; cs.changes.push(cs.changes[0]); await writeFile(path, JSON.stringify(cs));
+    await expect(store.undo(batch.changesetId, options(1))).rejects.toThrow(/不能安全/);
+  }));
 });
