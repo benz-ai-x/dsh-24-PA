@@ -187,6 +187,10 @@ export class ActionOperationRepo {
     return result.rows[0] ?? null;
   }
 
+  async calendarCreatesForWork(workItemId: string): Promise<ActionOperationRow[]> {
+    return (await this.db.query<ActionOperationRow>("select * from pa24.action_operation where work_item_id = $1 and action in ('calendar.create', 'wecom_calendar.create')", [workItemId])).rows;
+  }
+
   async unresolvedCalendarCreates(): Promise<ActionOperationRow[]> {
     return (await this.db.query<ActionOperationRow>(`select * from pa24.action_operation
       where action in ('calendar.create', 'wecom_calendar.create') and (status in ('running', 'unknown') or (status = 'failed' and receipt->>'_externalResult' is not null))`)).rows;

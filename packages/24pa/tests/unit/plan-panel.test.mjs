@@ -40,7 +40,7 @@ it('计划待核对原因在真实 DOM 中可读，暂停状态不显示可执�
   expect([...container.querySelectorAll('button')].some(node => node.textContent === '立即运行一次')).toBe(true);
 });
 
-for (const theme of ['light', 'dark']) it.each(['digest.run-now', 'digest.reschedule', 'digest.set-voice', 'digest.set-skill'])(`${theme} 窄屏计划草稿经两次轮询保留，%s 不重入且错误/确认可见`, async action => {
+for (const theme of ['light', 'dark']) it.each(['digest.run-now', 'digest.reschedule', 'digest.set-voice', 'digest.set-skill'])(`${theme} 窄屏计划草稿跨轮询和离页保留，%s 不重入且错误/确认可见`, async action => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
   win.document.documentElement.dataset.theme = theme; win.happyDOM.setWindowSize({ width: 390, height: 844 });
   const plans = ['first', 'second'].map(planId => ({ planId, kind: 'morning', title: planId, status: 'active', skill: 'digest-morning', voice: false, schedule: { daily: { time: '08:00:00', time_zone: 'America/New_York' } } }));
@@ -72,7 +72,7 @@ for (const theme of ['light', 'dark']) it.each(['digest.run-now', 'digest.resche
   await act(async () => root.render(React.createElement(Panel)));
   await act(async () => [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：晨报与复盘')).click());
   const row = () => [...container.querySelectorAll('article')].find(node => node.querySelector('h3')?.textContent === 'first');
-  const field = row().querySelector('input'); field.focus(); expect(win.document.activeElement).toBe(field);
+  let field = row().querySelector('input'); field.focus(); expect(win.document.activeElement).toBe(field);
   await act(async () => { Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value').set.call(field, '09:30:00'); field.dispatchEvent(new win.Event('input', { bubbles: true })); });
   await act(async () => vi.advanceTimersByTimeAsync(5000));
   expect(row().querySelector('input')).toBe(field); expect(field.value).toBe('09:30');
@@ -80,13 +80,21 @@ for (const theme of ['light', 'dark']) it.each(['digest.run-now', 'digest.resche
     if (action === 'digest.set-skill') { const select = row().querySelector('select'); select.value = 'digest-weekly'; select.dispatchEvent(new win.Event('change', { bubbles: true })); }
     else [...row().querySelectorAll('button')].find(node => node.textContent === ({ 'digest.run-now': '立即运行一次', 'digest.reschedule': '保存', 'digest.set-voice': '开语音' }[action])).click();
   });
-  await fire(); await act(async () => vi.advanceTimersByTimeAsync(5000)); await fire();
+  await fire(); await act(async () => vi.advanceTimersByTimeAsync(5000));
+  const leave = () => act(async () => [...container.querySelectorAll('button')].find(node => node.textContent === '返回卡片').click());
+  const reopen = () => act(async () => [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：晨报与复盘')).click());
+  await leave(); await reopen();
+  field = row().querySelector('input');
+  expect(field.value).toBe('09:30'); expect(field.disabled).toBe(true);
+  await fire();
   expect(requests.filter(req => req.planId === 'first')).toHaveLength(1);
   expect(field.disabled).toBe(true);
   const second = [...container.querySelectorAll('article')].find(node => node.querySelector('h3')?.textContent === 'second');
   await act(async () => [...second.querySelectorAll('button')].find(node => node.textContent === '立即运行一次').click());
   expect(requests.filter(req => req.planId === 'second')).toHaveLength(1);
+  if (theme === 'dark') await leave();
   await act(async () => release({ ok: true, json: async () => ({ ok: false, error: { message: '操作失败，请重试' } }) }));
+  if (theme === 'dark') { await reopen(); field = row().querySelector('input'); }
   expect(row().querySelector('[role=alert]').textContent).toContain('操作失败'); expect(field.value).toBe('09:30');
   await fire(); await act(async () => vi.advanceTimersByTimeAsync(5000));
   expect(row().textContent).toContain('服务端确认'); expect(row().querySelector('[role=alert]')).toBeNull();

@@ -183,7 +183,7 @@ export class PlanLifecycle {
         plan = await ctx.repo.comparePlan(plan, { schedule_id: String(record.id), lifecycle: { ...intent, operation: 'delete', phase: 'pending' } });
         return await this.settle(ctx, plan);
       }
-      return await ctx.repo.comparePlan(plan, { schedule_id: String(record.id), status: 'active', kind: intent.kind, schedule_spec: intent.spec, lifecycle: null });
+      return await ctx.repo.comparePlan(plan, { schedule_id: String(record.id), status: 'active', kind: intent.kind, schedule_spec: intent.spec, schedule_generation: intent.id, lifecycle: null });
     } catch (error) {
       const intent = plan.lifecycle;
       if (intent) await ctx.repo.comparePlan(plan, { lifecycle: { ...intent, phase: intent.phase === 'conflict' ? 'conflict' : intent.phase === 'pending' ? 'pending' : 'unknown', error: (error as Error).message } }).catch(() => {});

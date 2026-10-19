@@ -1,6 +1,6 @@
 import type { NativeScheduleService } from './host.js';
 import type { DigestPlanRow } from './repo.js';
-import type { DigestTriggerSource } from './digest-trigger.js';
+import { scheduleGeneration, type DigestTriggerSource } from './digest-trigger.js';
 
 /** Native history proves enqueue only. Compare the full delivery identity with
  * completed business sources, retaining the host's explicit coverage limits. */
@@ -8,6 +8,7 @@ export async function inspectDigestDeliveries(schedule: NativeScheduleService, p
   const key = (session: string, id: string, at: string, message: string) => JSON.stringify([session, id, at, message]);
   const done = new Set(completed.flatMap(source => source.kind === 'schedule' ? source.deliveries.map(d => key(source.sessionId, d.scheduleId, d.occurrenceAt, d.messageId)) : []));
   const seen = new Set<string>(), cursors = new Set<string>(), overdue: { scheduledAt: string; deliveredAt: string; messageId: string }[] = [];
+  const previousUnconfirmed: { scheduledAt: string; deliveredAt: string; messageId: string; prompt: string }[] = [];
   let before: string | undefined, observed = 0;
   const warnings: string[] = [];
   do {
@@ -24,11 +25,20 @@ export async function inspectDigestDeliveries(schedule: NativeScheduleService, p
       const identity = key(plan.session_id, plan.schedule_id!, scheduledAt, row.messageId);
       if (seen.has(identity)) continue;
       seen.add(identity); observed += 1;
+      if (plan.schedule_generation) {
+        const generation = scheduleGeneration(row.prompt);
+        if (!generation) { warnings.push('原生投递缺少可核验的安排代次，保留待核对，不据此暂停新安排。'); continue; }
+        if (generation !== plan.schedule_generation) {
+          if (!done.has(identity)) previousUnconfirmed.push({ scheduledAt, deliveredAt, messageId: row.messageId, prompt: row.prompt });
+          continue;
+        }
+      }
       if (!done.has(identity) && now - Date.parse(deliveredAt) > graceMs) overdue.push({ scheduledAt, deliveredAt, messageId: row.messageId });
     }
     before = typeof page.nextBefore === 'string' && page.nextBefore ? page.nextBefore : undefined;
     if (before && cursors.has(before)) { warnings.push('原生历史分页游标重复，未宣称覆盖全部记录。'); break; }
     if (before) cursors.add(before);
   } while (before);
-  return { observed, overdue, warnings: [...new Set(warnings)] };
+  if (previousUnconfirmed.length) warnings.push(`${previousUnconfirmed.length} 条旧安排的投递仍无完成回执，保留待核对，不用于暂停新安排。`);
+  return { observed, overdue, previousUnconfirmed, warnings: [...new Set(warnings)] };
 }

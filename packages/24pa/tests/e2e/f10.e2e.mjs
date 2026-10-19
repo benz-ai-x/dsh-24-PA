@@ -133,6 +133,11 @@ describe('F10 会议资料与纪要行动（真实 Loader + 隔离 PG）', () =>
     expect(text).toContain('已查询授权来源，未找到相关材料'); // 资料缺失如实
     expect(text).toContain('不编造议程');
     expect(text).toContain('WorkItem');
+    const [bound] = await rows(`select b.source from pa24.digest_work_binding b join pa24.digest_occurrence o on o.id = b.occurrence_id where o.plan_id = '${planId}'`);
+    expect(bound.source).toMatchObject({ kind: 'schedule', deliveries: [{ scheduleId: expect.any(String), messageId: expect.any(String), generation: expect.any(String) }] });
+    const supervised = await host.api('action', { type: 'digest.supervise', graceMs: 0 });
+    expect(supervised.results.find(row => row.planId === planId)).toMatchObject({ action: 'checked', overdue: [] });
+    expect((await rows(`select status from pa24.digest_plan where id='${planId}'`))[0].status).toBe('active');
 
     // 重复触发同窗 → 不重复发送
     await writeScript(calScript('重复会前准备', { action: 'meeting_prep_build', planId }));

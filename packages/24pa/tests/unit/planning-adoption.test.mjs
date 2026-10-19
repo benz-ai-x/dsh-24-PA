@@ -65,4 +65,16 @@ for (const backend of ['sqlite', 'postgres']) for (const channel of ['feishu', '
     const first = await adopt(child); expect(first.unknown).toBe(1); expect(first.results[1].skipped).toBe('unknown_conflict');
     const retry = await adopt(child, [blocks[0]]); expect(retry.adopted).toBe(1); expect(retry.results[0].operationId).toBe(first.results[0].operationId); expect(await remote()).toHaveLength(1);
   });
+
+  it('升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复', async () => {
+    const child = await worker(), item = await f.rt.repos.workItems.get(child.id), save = f.rt.repos.calendar.upsertEvent.bind(f.rt.repos.calendar);
+    f.rt.repos.calendar.upsertEvent = async () => { throw new Error('old projection failure'); };
+    await expect(f.rt.calendarWrite(item, 'create', { ...blocks[0], calendarId: channel === 'wecom' ? 'wecom' : 'cal' })).rejects.toThrow('old projection failure');
+    const [original] = await f.rt.repos.operations.calendarCreatesForWork(child.id); expect(original.receipt._externalResult).toBeTruthy();
+    f.rt.repos.calendar.upsertEvent = save;
+    const repaired = await adopt(child, [blocks[0]]); expect(repaired).toMatchObject({ adopted: 1, unknown: 0 });
+    expect(repaired.results[0].operationId).toBe(original.id); expect(await remote()).toHaveLength(1);
+    expect((await f.rt.repos.operations.calendarCreatesForWork(child.id))).toHaveLength(1);
+  });
+
 });

@@ -1717,6 +1717,7 @@ export class PaRuntime {
         });
         try {
           if (String(args.worker) === 'digest') await this.digest.admit(item, agent.session);
+          if (String(args.worker) === 'calendar') await this.digest.admit(item, agent.session, true);
           if (note) await this.repos!.notes.updateNote(note.id, { work_item_id: id });
           return (await this.repos!.workItems.update(id, { status: 'queued', progress: '排队等待 Worker' }))!;
         } catch (error) {

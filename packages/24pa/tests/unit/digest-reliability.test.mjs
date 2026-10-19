@@ -8,7 +8,7 @@ import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { startPgCluster } from '../helpers/pg.mjs';
-import { renderReminderFraming, renderRecurringReminderBatchFraming } from '@deepseek-ai/dsh-schedule';
+import { ScheduleService, renderReminderFraming, renderRecurringReminderBatchFraming } from '@deepseek-ai/dsh-schedule';
 
 const catalog = new SkillCatalog({
   register: () => () => {},
@@ -320,6 +320,62 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     deps.nativeSchedule = () => ({ delete: async () => { deletes += 1; return { deleted: true }; }, history: async () => { entered(); await barrier; return { records: [{ scheduledAt: '2020-01-01T00:00:00Z', deliveredAt: '2020-01-01T00:00:00Z', messageId: 'old' }] }; } });
     const checking = digest.superviseDigests(1); await ready; await digest.digestControl({ planId: 'plan', op: 'voice', voice: true }); release();
     expect((await checking).results[0].action).toBe('changed_during_check'); expect((await repos.digests.getPlan('plan')).status).toBe('active'); expect(deletes).toBe(0); expect(notices).toHaveLength(0);
+  });
+
+
+  it('旧未完成窗口缺事实区间时不随当前时区重建，旧报告仍按原文恢复', async () => {
+    await plan(); const work = await admittedItem('legacy', new Date('2026-11-01T23:00:00Z'));
+    await repos.digests.claimRun({ planId: 'plan', windowKey: '2026-11-01', workItemId: work.id });
+    await expect(digest.digestBuild(work, { planId: 'plan' })).rejects.toThrow('缺少已固定的事实区间');
+    expect((await repos.digests.runForWorkItem('plan', work.id)).time_context).toBeNull(); expect(await outbox()).toHaveLength(0);
+    await repos.digests.completeRun({ planId: 'plan', occurrenceId: 'plan:2026-11-01', report: '旧版实际报告与原说明', notifications: [] });
+    await repos.digests.updatePlan('plan', { skill: 'deleted-skill' });
+    await digest.digestBuild(work, { planId: 'plan' }); expect((await outbox())[0].content.text).toBe('旧版实际报告与原说明');
+  });
+
+  it('旧正文没有发送意图仍待核对，恢复原文入队后才满足监督完成', async () => {
+    await plan(); const at = new Date(Date.now() - 120000).toISOString();
+    const work = await admittedItem('legacy-unsent', new Date(), scheduledSession(at));
+    const { row } = await repos.digests.claimRun({ planId: 'plan', windowKey: 'legacy', workItemId: work.id });
+    await repos.digests.updateOccurrence(row.id, { status: 'model_done', report: '已保存未发送' });
+    const records = [{ scheduledAt: at, deliveredAt: at, messageId: 'schedule-message' }];
+    deps.notifyOwner = async () => {};
+    deps.nativeSchedule = () => ({ history: async () => ({ records }), delete: async () => ({ deleted: true }) });
+    expect((await digest.superviseDigests(1)).results[0].action).toBe('paused_unconfirmed');
+    expect(await outbox()).toHaveLength(0);
+    await repos.digests.updatePlan('plan', { status: 'active', schedule_id: 'schedule-1' });
+    await digest.digestBuild(work, { planId: 'plan' });
+    expect((await outbox())[0].content.text).toBe('已保存未发送');
+    expect((await digest.superviseDigests(1)).results[0].overdue).toEqual([]);
+  });
+
+  it('真实原生同 ID 调整保留历史，旧代只待核对，新代漏办仍监督且重启不丢代次', async () => {
+    const table = new Map(); table.put = async (key, value) => table.set(key, value);
+    // Exercise installed create/update/catalog/history/delete; replace storage
+    // and Session ownership only, preserving the host history semantics.
+    const native = Object.create(ScheduleService.prototype);
+    Object.assign(native, { getDomain: async () => ({ table: () => table }), serialize: async fn => fn(), reminderTargetRefusal: () => undefined, emitChanged: () => {}, retention: { days: 90, records: 1000 } });
+    deps.nativeSchedule = () => native; deps.notifyOwner = async () => {};
+    const enabled = await digest.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'custom-brief' });
+    const before = await repos.digests.getPlan(enabled.planId);
+    const at = new Date(Date.now() - 120000).toISOString(), oldPrompt = table.get(before.schedule_id).record.prompt;
+    const oldRecord = { scheduledAt: at, deliveredAt: at, messageId: 'old-native', prompt: oldPrompt };
+    table.get(before.schedule_id).deliveryHistory.records.push(oldRecord);
+    const stale = await admittedItem('old-before-build', new Date(), session([
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { id: 'old-native', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming({ id: before.schedule_id, prompt: oldPrompt, scheduledAt: at }) }] } },
+    ]));
+    await digest.digestControl({ planId: before.id, op: 'adjust', time: '09:30:00', timeZone: 'UTC' });
+    const adjusted = await repos.digests.getPlan(before.id);
+    expect(adjusted.schedule_id).toBe(before.schedule_id); expect(adjusted.schedule_generation).not.toBe(before.schedule_generation);
+    await expect(digest.digestBuild(stale, { planId: before.id })).rejects.toThrow('安排代次');
+    digest = new DigestService(deps);
+    const observed = (await digest.superviseDigests(1)).results[0];
+    expect(observed).toMatchObject({ action: 'checked', overdue: [], previousUnconfirmed: [oldRecord] });
+    expect(observed.warnings.join('')).toContain('旧安排'); expect((await repos.digests.getPlan(before.id)).status).toBe('active');
+    table.get(before.schedule_id).deliveryHistory.records.push({ ...oldRecord, messageId: 'new-native', prompt: table.get(before.schedule_id).record.prompt });
+    const missed = (await digest.superviseDigests(1)).results[0];
+    expect(missed.action).toBe('paused_unconfirmed'); expect(missed.overdue.map(row => row.messageId)).toEqual(['new-native']);
   });
 
 });

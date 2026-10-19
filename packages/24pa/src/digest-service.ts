@@ -107,9 +107,10 @@ export class DigestService {
   recoverPlans() { return this.plans.recover(); }
 
   /** Called by delegation before a Worker can start; never accepts model args. */
-  async admit(item: WorkItemRow, session: DshSession): Promise<void> {
+  async admit(item: WorkItemRow, session: DshSession, scheduleOnly = false): Promise<void> {
     if (item.parent_session_id !== session.id) throw new Error('事项与触发会话不一致，不能保存计划来源。');
-    await this.deps.repos().digests.recordWorkSource(item.id, captureDigestTrigger(session));
+    const source = captureDigestTrigger(session, scheduleOnly);
+    if (source) await this.deps.repos().digests.recordWorkSource(item.id, source);
   }
 
   /** Local-date window key for a plan kind (morning/evening share the date, weekly uses ISO week). */
@@ -348,7 +349,10 @@ export class DigestService {
     if (boundRun && this.wasDelivered(boundRun)) return this.completedDelivery(item, plan, boundRun);
     if (plan.kind === 'meeting_prep') throw new Error('会前准备计划请用 meeting_prep_build 生成准备包。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
+    const originalReport = boundRun && this.savedReport(boundRun);
+    if (originalReport) return this.restoreSavedReport(item, plan, boundRun!, originalReport);
     const boundSkill = await this.boundSkillOrThrow(plan);
+    if (boundRun && !boundRun.time_context && !this.savedReport(boundRun)) throw new Error('历史运行缺少已固定的事实区间，原记录保留待核对；请明确重新运行，不能按当前计划猜测。');
     let timeContext = boundRun?.time_context ?? undefined;
     let requestedWindow = boundRun?.window_key;
     if (!requestedWindow || !timeContext) {
@@ -366,6 +370,7 @@ export class DigestService {
         if (source.sessionId !== plan.session_id || !delivery || !Number.isFinite(Date.parse(delivery.occurrenceAt))) {
           throw new Error('本事项的宿主触发无法匹配当前计划（计划可能已调整），请按当前计划重新委派，不能猜测窗口。');
         }
+        if (plan.schedule_generation && delivery.generation !== plan.schedule_generation) throw new Error('本事项来自旧安排或无法核验安排代次；原记录保留待核对，不能套用新计划区间。');
         occurrenceAt = new Date(delivery.occurrenceAt);
       } else if (source.kind === 'admission') {
         // A current, explicitly captured non-Schedule turn is manual work.
@@ -383,11 +388,7 @@ export class DigestService {
       return { planId, windowKey, reused: true, status: row.status, message: `本窗口（${windowKey}）简报已生成，不重复发布。` };
     }
     const savedReport = this.savedReport(row);
-    if (savedReport) {
-      const outboxKey = await this.deliverReport(plan, windowKey, row.id, savedReport);
-      await this.deps.repos().workItems.update(item.id, { result_ref: { planId, windowKey, outboxKey } });
-      return { planId, windowKey, outboxKey, message: '已恢复保存的简报并入发送队列，未重新生成内容。' };
-    }
+    if (savedReport) return this.restoreSavedReport(item, plan, row, savedReport);
     // F41（spec 2.11）：agent 轨＝任务指令交接——Worker（模型）亲自按 skill 正文
     // 与事实生成简报，再经 digest_deliver 交付；模板轨才走确定性组装。
     if (boundSkill?.track === 'agent') {
@@ -404,6 +405,12 @@ export class DigestService {
     const { facts, report, outboxKey } = await this.buildAndDeliver(plan, windowKey, row.id, boundSkill);
     await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey, outboxKey } });
     return { planId, windowKey, outboxKey, message: '简报已生成并入发送队列（Outbox 持久，平台接受状态以发送记录为准）。' };
+  }
+
+  private async restoreSavedReport(item: WorkItemRow, plan: DigestPlanRow, row: DigestOccurrenceRow, report: string) {
+    const outboxKey = await this.deliverReport(plan, row.window_key, row.id, report);
+    await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey: row.window_key, outboxKey } });
+    return { planId: plan.id, windowKey: row.window_key, outboxKey, message: '已恢复保存的简报并入发送队列，未重新生成内容。' };
   }
 
   /** F40：点名 skill 必须在目录中；报错携带可用清单（spec AC）。 */

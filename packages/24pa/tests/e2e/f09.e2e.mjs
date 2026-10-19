@@ -170,7 +170,7 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-p5', { text: '就采纳下午两点到四点写方案这一块' }));
     await waitWorkItem('采纳时间块', '采纳完成');
-    const adopt = await waitToolResult('pa24_work', '已按你的选择写入', '采纳回执', 60_000, before);
+    const adopt = await waitToolResult('pa24_work', '已确认写入', '采纳回执', 60_000, before);
     expect(adopt).toContain('eventId');
     const created = (await rows(`select summary from pa24.calendar_event where summary like '%专注时间%'`));
     expect(created).toHaveLength(1);
@@ -223,7 +223,9 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     const out = await waitOutbox(`digest:${planId}:`, '晚间回顾发送', 60_000);
     const text = out.content?.text ?? '';
     expect(text).toContain('一、事实');
-    expect(text).toContain('今日同步到完成状态');
+    expect(text).toContain('本期同步到完成状态');
+    expect(text).toContain('事实区间：');
+    expect(text).toContain('非精确完成时刻');
     expect(text).toContain('二、建议');
     expect(text).toContain('逾期');
     expect(text).toContain('未自动修改任何任务、日程或记忆');
@@ -260,7 +262,12 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     expect(JSON.stringify((await host.api('digests')).plans.find(p => p.planId === planId).schedule)).toContain('21:30:00');
     const runNow = await host.api('action', { type: 'digest.run-now', planId });
     expect(runNow.windowKey).toMatch(/^manual-\d+$/);
-    await waitOutbox(`${runNow.outboxKey}`, '手动运行投递', 90_000);
+    const manualOutbox = await waitOutbox(`${runNow.outboxKey}`, '手动运行投递', 90_000);
+    const [manualRun] = await rows(`select time_context from pa24.digest_occurrence where plan_id='${planId}' and window_key='${runNow.windowKey}'`);
+    expect(manualRun.time_context).toMatchObject({ kind: 'weekly', source: 'manual', timeZone: 'Asia/Shanghai' });
+    expect(new Date(manualRun.time_context.from).getUTCDay()).toBe(0); // 上海周一00点＝UTC周日16点
+    expect((Date.parse(manualRun.time_context.nextTo) - Date.parse(manualRun.time_context.to)) / 86400000).toBe(7);
+    expect(manualOutbox.content.text).toContain('下周日历');
     // 手动窗口不占用计划窗口：当日窗口键仍为本地日期
     expect(runNow.windowKey).not.toBe(current.recent?.[0]?.window ?? '');
   });

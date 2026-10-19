@@ -15,6 +15,7 @@ export interface DigestPlanRow {
   schedule_spec: any;
   lifecycle?: PlanIntent | null;
   revision?: number;
+  schedule_generation?: string | null;
   status: 'active' | 'paused' | 'stopped' | string;
   last_window: string | null;
   /** F19（spec 2.3）：本计划是否投递语音版（引擎取工作区 tts 配置）。 */
@@ -72,7 +73,7 @@ export class DigestRepo {
     return result.rows[0] ?? null;
   }
 
-  async comparePlan(plan: DigestPlanRow, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'kind' | 'lifecycle'>>): Promise<DigestPlanRow> {
+  async comparePlan(plan: DigestPlanRow, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'kind' | 'lifecycle' | 'schedule_generation'>>): Promise<DigestPlanRow> {
     const sets = ['updated_at = now()', 'revision = revision + 1'];
     const values: unknown[] = [plan.id, plan.revision ?? 0];
     digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle']);
@@ -121,7 +122,7 @@ export class DigestRepo {
         if (binding?.occurrence_id) {
           const row = (await client.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where id = $1', [binding.occurrence_id])).rows[0];
           if (!row || row.plan_id !== input.planId) throw new Error('该事项已绑定其他计划或运行记录缺失；不能重新猜测窗口。');
-          return { created: false, row: await this.bindTimeContext(client, row, input.timeContext) };
+          return { created: false, row: this.requireTimeContext(row, input.timeContext) };
         }
       }
       const claimed = await this.claimOn(client, input);
@@ -131,14 +132,14 @@ export class DigestRepo {
           where binding.occurrence_id is null returning occurrence_id`, [input.workItemId, claimed.row.id]);
         if (!binding.rowCount) throw new Error('该事项已绑定其他运行，不能覆盖原窗口。');
       }
-      claimed.row = await this.bindTimeContext(client, claimed.row, input.timeContext);
+      claimed.row = this.requireTimeContext(claimed.row, input.timeContext);
       return claimed;
     });
   }
 
-  private async bindTimeContext(client: PaQueryer, row: DigestOccurrenceRow, context?: DigestPeriod): Promise<DigestOccurrenceRow> {
+  private requireTimeContext(row: DigestOccurrenceRow, context?: DigestPeriod): DigestOccurrenceRow {
     if (row.time_context || !context || ['model_done', 'sent'].includes(row.status)) return row;
-    return (await client.query<DigestOccurrenceRow>('update pa24.digest_occurrence set time_context = $2 where id = $1 and time_context is null returning *', [row.id, JSON.stringify(context)])).rows[0] ?? row;
+    throw new Error('历史运行缺少已固定的事实区间，原记录保留待核对；不能用当前计划时区重建旧窗口。');
   }
 
   async occurrence(id: string): Promise<DigestOccurrenceRow | null> {
@@ -147,7 +148,7 @@ export class DigestRepo {
 
   async completedSources(planId: string): Promise<DigestTriggerSource[]> {
     const rows = (await this.db.query<{ source: DigestTriggerSource | null }>(`select b.source from pa24.digest_work_binding b join pa24.digest_occurrence o on o.id = b.occurrence_id
-      where o.plan_id = $1 and o.status in ('model_done', 'sent')`, [planId])).rows;
+      where o.plan_id = $1 and o.status in ('model_done', 'sent') and o.outbox_key is not null`, [planId])).rows;
     return rows.flatMap(row => row.source ? [row.source] : []);
   }
 

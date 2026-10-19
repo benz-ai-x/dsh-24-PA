@@ -707,9 +707,24 @@ window.__ModuleLoader__.load({
             h('p', { className: 'pa24-meta' }, L('提醒归属以每条记录的日历渠道为准；这里保留备份和历史，平台接受不代表本人已读。', 'Each record keeps its calendar channel; this view preserves backups and history. Platform acceptance does not mean read.')));
         }
 
-        function PlanCard({ plan: incomingPlan, skills, config, tz, refresh }) {
-          const [plan, setPlan] = React.useState(incomingPlan);
-          const pending = React.useRef(false), dirty = React.useRef(false);
+        // Owned by Panel, keyed by workspace and plan; leaving the detail must
+        // not discard an in-flight action, its result, or an unsaved draft.
+        function planRowState(states, key, plan) {
+          if (!states.has(key)) {
+            let value = { plan, time: (plan.schedule?.daily ?? plan.schedule?.weekly)?.time ?? '', dirty: false, busy: false, note: '', error: '' };
+            const listeners = new Set();
+            states.set(key, {
+              getSnapshot: () => value,
+              subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); },
+              update: patch => { value = { ...value, ...patch }; listeners.forEach(listener => listener()); },
+            });
+          }
+          return states.get(key);
+        }
+
+        function PlanCard({ plan: incomingPlan, skills, config, tz, refresh, planStates, workspaceKey }) {
+          const row = planRowState(planStates, JSON.stringify([workspaceKey, incomingPlan.planId]), incomingPlan);
+          const { plan, time, busy, note, error } = React.useSyncExternalStore(row.subscribe, row.getSnapshot);
           const scheduleText = plan => {
             const schedule = plan.schedule || {};
             if (schedule.daily) return L('每日 ', 'Daily ') + schedule.daily.time + ' · ' + (schedule.daily.time_zone || config?.timeZone);
@@ -722,31 +737,25 @@ window.__ModuleLoader__.load({
           const planKind = kind => ({ morning: L('晨报', 'Morning digest'), evening: L('晚间回顾', 'Evening review'), weekly: L('每周回顾', 'Weekly review'), once: L('一次性简报', 'One-off digest') }[kind] || kind);
           // F40（spec 2.11）：计划行配置面——时间内联编辑、语音开关、skill 选择、立即运行一次。
 
-            const [time, setTime] = React.useState((plan.schedule?.daily ?? plan.schedule?.weekly)?.time ?? '');
-            const [busy, setBusy] = React.useState(false);
-            const [note, setNote] = React.useState('');
-            const [error, setError] = React.useState('');
             React.useEffect(() => {
-              if (pending.current) return;
-              setPlan(incomingPlan);
-              if (!dirty.current) setTime((incomingPlan.schedule?.daily ?? incomingPlan.schedule?.weekly)?.time ?? '');
-            }, [incomingPlan]);
+              if (row.getSnapshot().busy) return;
+              row.update({ plan: incomingPlan, ...(!row.getSnapshot().dirty ? { time: (incomingPlan.schedule?.daily ?? incomingPlan.schedule?.weekly)?.time ?? '' } : {}) });
+            }, [incomingPlan, row]);
             const button = (name, label, fn, props = {}) => h('button', { type: 'button', onClick: () => void fn(), ...props }, name && icon(name), label);
             const editable = plan.status === 'active' && (plan.schedule?.daily || plan.schedule?.weekly);
             const act = async (fn, okText, confirmTime = false) => {
-              if (pending.current) return;
-              pending.current = true; setBusy(true); setError(''); setNote('');
+              if (row.getSnapshot().busy) return;
+              row.update({ busy: true, error: '', note: '' });
               try {
                 const r = await fn();
                 const confirmed = (await rpc('digests')).plans?.find(row => row.planId === plan.planId);
                 if (!confirmed) throw new Error(L('操作返回后未读到该计划，请刷新核对。', 'The updated plan could not be read; refresh to check.'));
-                setPlan(confirmed);
-                if (confirmTime || !dirty.current) { dirty.current = false; setTime((confirmed.schedule?.daily ?? confirmed.schedule?.weekly)?.time ?? ''); }
-                setNote(okText + (r?.message ? '：' + r.message : ''));
+                row.update({ plan: confirmed, note: okText + (r?.message ? '：' + r.message : ''),
+                  ...(confirmTime || !row.getSnapshot().dirty ? { dirty: false, time: (confirmed.schedule?.daily ?? confirmed.schedule?.weekly)?.time ?? '' } : {}) });
                 await refresh();
               } catch (e) {
-                setError(e.message);
-              } finally { pending.current = false; setBusy(false); }
+                row.update({ error: e.message });
+              } finally { row.update({ busy: false }); }
             };
             const saveTime = () => act(
               () => rpc('action', { type: 'digest.reschedule', planId: plan.planId, kind: plan.kind, time: time.length === 5 ? time + ':00' : time, timeZone: (plan.schedule?.daily ?? plan.schedule?.weekly)?.time_zone, weekdays: plan.schedule?.weekly?.weekdays }),
@@ -768,7 +777,7 @@ window.__ModuleLoader__.load({
               editable && h('div', { className: 'pa24-row', style: { flexWrap: 'wrap', alignItems: 'center', gap: 8 } },
                 h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--pa-muted)' } },
                   L('时间 ', 'Time '),
-                  h('input', { type: 'time', step: 1, value: time, onChange: e => { dirty.current = true; setTime(e.target.value); }, disabled: busy, style: { width: 110, minHeight: 34 } }),
+                  h('input', { type: 'time', step: 1, value: time, onChange: e => row.update({ dirty: true, time: e.target.value }), disabled: busy, style: { width: 110, minHeight: 34 } }),
                   button('check', L('保存', 'Save'), saveTime, { disabled: busy || !time, className: 'pa24-quiet' })),
                 button(plan.voice ? 'note' : 'bot', plan.voice ? L('关语音', 'Voice off') : L('开语音', 'Voice on'), toggleVoice, { disabled: busy, className: 'pa24-quiet' }),
                 h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--pa-muted)' } },
@@ -787,7 +796,7 @@ window.__ModuleLoader__.load({
                 h('p', { className: 'pa24-meta' }, plan.planId + (plan.scheduleId ? ' · ' + plan.scheduleId : ''))));
         }
 
-        function DigestDetail({ extra, state, config, tz, button, openRobot, openCard, refresh }) {
+        function DigestDetail({ extra, state, config, tz, button, openRobot, openCard, refresh, planStates }) {
           const plans = extra.digests?.plans ?? [];
           const skills = extra.digests?.skills ?? [];
           const on = voiceOn(config);
@@ -802,7 +811,7 @@ window.__ModuleLoader__.load({
             extra._errors?.digests && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, L('计划读取失败', 'Failed to read plans')), h('p', null, extra._errors.digests)),
             !extra.digests && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取周期计划…', 'Reading digest plans…')),
             extra.digests && plans.length === 0 && h('div', { className: 'pa24-card' }, empty('pulse', 'green', L('还没有周期服务计划', 'No digest plans yet'), L('对24私助说「开启晨报」或「开启每周回顾」即可建立计划。', 'Ask 24PA to enable the morning digest or weekly retrospective.'), button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { className: 'pa24-primary' }))),
-            plans.length > 0 && h('section', { className: 'pa24-card' }, plans.map(p => h(PlanCard, { key: p.planId, plan: p, skills, tz, config, button, refresh }))),
+            plans.length > 0 && h('section', { className: 'pa24-card' }, plans.map(p => h(PlanCard, { key: p.planId, plan: p, skills, tz, config, refresh, planStates, workspaceKey: state.workspace?.path ?? '' }))),
             h('section', { className: 'pa24-card' },
               sectionHead('bot', L('语音 TTS', 'Voice TTS'), L('语音版到点先送达语音，随后紧跟全文文本。', 'Voice plans deliver audio first, then the full text.'),
                 button('code', L('打开语音配置', 'Open voice config'), () => openCard('config', 'pa24-tts-config'), { className: 'pa24-quiet' }), 'green'),
@@ -1337,6 +1346,7 @@ window.__ModuleLoader__.load({
           const [hideNote, setHideNote] = React.useState('');
           const hideNoteTimer = React.useRef(null);
           const formDirty = React.useRef(false);
+          const planStates = React.useRef(new Map());
           React.useEffect(() => () => clearTimeout(hideNoteTimer.current), []);
           React.useEffect(() => {
             if (!manage) return undefined;
@@ -1422,7 +1432,7 @@ window.__ModuleLoader__.load({
             if (wecomChannelsOn(config)) await rpc('action', { type: 'connection.wecom-check' }).catch(() => {});
             await refresh();
           };
-          const helpers = { state, extra, workspace, config, tz, busy, button, run, runFullCheck, refresh, openCard, setFormDirty: value => { formDirty.current = value; }, openRobot: chatWithRobot };
+          const helpers = { state, extra, workspace, config, tz, planStates: planStates.current, busy, button, run, runFullCheck, refresh, openCard, setFormDirty: value => { formDirty.current = value; }, openRobot: chatWithRobot };
           // F26: tab 角标＝分类内「需注意/需处理」卡片数；出现 error 时角标转红，
           // 仅 warn 时保持琥珀（口径为实施默认，后续可裁决调整）。
           const chipOf = cat => {

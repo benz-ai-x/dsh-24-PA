@@ -4,7 +4,7 @@ const fixture = (zone = 'Asia/Shanghai') => {
   const windows = [], writes = [], events = [], tasks = [{ summary: '任务', status: 'open' }];
   let failFirst = false, fresh = true;
   const service = new DigestService({ config: () => ({ timeZone: zone, calendarId: 'cal' }), memory: () => null,
-    repos: () => ({ operations: { unresolvedCalendarCreates: async () => [], get: async () => null }, calendar: { eventsIn: async () => events }, tasks: { list: async () => tasks } }),
+    repos: () => ({ operations: { calendarCreatesForWork: async () => [], unresolvedCalendarCreates: async () => [], get: async () => null }, calendar: { eventsIn: async () => events }, tasks: { list: async () => tasks } }),
     syncCalendarWindow: async (_, from, to) => { windows.push([from.toISOString(), to.toISOString()]); return { ok: fresh }; },
     calendarWrite: async (_, __, data) => { writes.push(data); if (failFirst && writes.length === 1) throw new Error('rejected'); return { eventId: `e${writes.length}` }; },
   });
