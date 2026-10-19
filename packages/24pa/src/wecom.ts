@@ -1,4 +1,5 @@
 import { runCliProcess } from './cli-gateway.js';
+import { Temporal } from '@js-temporal/polyfill';
 
 // Controlled wecom-cli gateway (F16): fixed argv arrays (never a shell
 // string), the CLI's JSON output decides success, and the three observed
@@ -160,12 +161,10 @@ export function wecomParseWallTime(value: string, timeZone: string): Date | null
 export function wecomObservedWallTime(value: string, timeZone: string, known: Date | null): Date | null {
   if (known && Number.isFinite(known.getTime()) && wecomWallTime(known, timeZone) === value) return known;
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return null;
-  const utc = Date.parse(value.replace(' ', 'T') + 'Z');
-  if (!Number.isFinite(utc)) return null;
-  // Sample both sides of nearby offset transitions, including half-hour DST.
-  const offsets = new Set([-48, -24, 0, 24, 48].map(hours => tzOffsetMillis(new Date(utc + hours * 3600000), timeZone)));
-  const candidates = [...offsets].map(offset => new Date(utc - offset)).filter(date => wecomWallTime(date, timeZone) === value);
-  return candidates.length === 1 ? candidates[0]! : null;
+  try {
+    const local = Temporal.PlainDateTime.from(value.replace(' ', 'T'), { overflow: 'reject' });
+    return new Date(local.toZonedDateTime(timeZone, { disambiguation: 'reject' }).epochMilliseconds);
+  } catch { return null; }
 }
 
 function tzOffsetMillis(date: Date, timeZone: string): number {
