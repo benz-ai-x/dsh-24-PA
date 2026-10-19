@@ -290,6 +290,9 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     const report = (await rows(`select status, (report is not null) as has_report from pa24.digest_occurrence where id='${planId}:${windowKey}'`))[0];
     expect(report.status).toBe('model_done');
     expect(report.has_report).toBe(true);
+    const binding = (await rows(`select b.source, p.schedule_id from pa24.digest_work_binding b join pa24.digest_occurrence o on o.id=b.occurrence_id join pa24.digest_plan p on p.id=o.plan_id where o.id='${planId}:${windowKey}'`))[0];
+    expect(binding.source.kind).toBe('schedule');
+    expect(binding.source.deliveries.some(row => row.scheduleId === binding.schedule_id && row.messageId && row.occurrenceAt)).toBe(true);
     const out = await waitOutbox(`digest:${planId}:${windowKey}`, '晨报发送');
     const text = out.content?.text ?? '';
     expect(text).toContain('一、事实');

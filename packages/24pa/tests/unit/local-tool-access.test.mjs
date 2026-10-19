@@ -3,10 +3,10 @@ import { apply } from '../../lib/tools.js';
 
 afterEach(() => vi.useRealTimers());
 
-function plugin({ role = 'local-robot', extras = ['mcp__qwennote__*'] } = {}) {
+function plugin({ role = 'local-robot', businessRole = role, extras = ['mcp__qwennote__*'] } = {}) {
   let mounted = [], created;
   const disposals = [], allowed = [], records = [];
-  const runtime = { roleFor: () => role, configFor: () => ({ extraLocalTools: extras }), providerAvailable: () => false, noteExtraToolResolution: r => records.push(r), workspaceRulesSection: () => '' };
+  const runtime = { roleFor: () => businessRole, roleForToolMount: () => role, configFor: () => ({ extraLocalTools: extras }), providerAvailable: () => false, noteExtraToolResolution: r => records.push(r), workspaceRulesSection: () => '' };
   const ctx = {
     get: () => runtime,
     effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') disposals.push(cleanup); },
@@ -23,6 +23,12 @@ function plugin({ role = 'local-robot', extras = ['mcp__qwennote__*'] } = {}) {
 }
 
 describe('本地工具扩展：真实插件 agent/created 生命周期', () => {
+  it('候选会话只使用工具构建角色，业务角色未激活时仍可完成挂载', async () => {
+    const host = plugin({ businessRole: null });
+    host.mount(['mcp__qwennote__list_minutes']); await host.create();
+    expect(host.allowed[0]).toContain('pa24_memory'); expect(host.allowed[0]).toContain('mcp__qwennote__list_minutes');
+    host.dispose();
+  });
   it('挂载迟到时等待，再把工具和本地基本工具一起应用一次', async () => {
     vi.useFakeTimers();
     const host = plugin();

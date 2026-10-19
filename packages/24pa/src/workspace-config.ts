@@ -23,6 +23,21 @@ export async function writeWorkspaceConfiguration(path: string, patch: Record<st
   const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
   // TTS fields are individually editable; retain concurrently changed siblings.
   if (record(patch.tts)) merged.tts = { ...(record(current.tts) ? current.tts : {}), ...patch.tts };
+  if (record(patch.workerModels)) {
+    const routes: Record<string, unknown> = { ...(record(current.workerModels) ? current.workerModels : {}) };
+    for (const [role, routePatch] of Object.entries(patch.workerModels)) {
+      // Omitted roles/fields are unchanged. null explicitly removes a role;
+      // empty strings clear one field and false disables its simple persona.
+      if (routePatch === null) { delete routes[role]; continue; }
+      if (!record(routePatch)) { routes[role] = routePatch; continue; }
+      const route: Record<string, unknown> = { provider: '', model: '', ...(record(routes[role]) ? routes[role] : {}), ...routePatch };
+      const empty = route.provider === '' && route.model === '' && (route.simplePersona === undefined || route.simplePersona === false)
+        && Object.keys(route).every(key => ['provider', 'model', 'simplePersona'].includes(key));
+      if (empty) delete routes[role];
+      else routes[role] = route;
+    }
+    merged.workerModels = routes;
+  }
   await check(validateConfig(merged), await readSecretStore(path));
   const tmp = `${target}.pa24-tmp`;
   try {

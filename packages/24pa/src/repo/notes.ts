@@ -175,7 +175,7 @@ export class NoteRepo {
 
   /** Reserve the candidate number once, before any document write. The input
    * identity survives version insertion and a restarted publication attempt. */
-  async beginPublication(input: { noteId: string; workItemId: string; contentKey: string; legacyParamsKey: string; republish: boolean; existingOnly?: boolean }): Promise<ActionOperationRow | null> {
+  async beginPublication(input: { noteId: string; workItemId: string; contentKey: string; legacyParamsKey: string; republish: boolean }): Promise<ActionOperationRow> {
     return this.db.withTransaction(async client => {
       await client.query('select id from pa24.note where id = $1 for update', [input.noteId]);
       const attempts = (await client.query<ActionOperationRow>(
@@ -187,7 +187,6 @@ export class NoteRepo {
         row.id === `note.publish:${input.workItemId}:${hash(`${input.noteId}:v${row.params.version}\n${input.legacyParamsKey}`)}`,
       );
       if (existing) return existing;
-      if (input.existingOnly) return null;
       const latest = (await client.query<{ version: number }>('select version from pa24.note_version where note_id = $1 order by version desc limit 1', [input.noteId])).rows[0];
       const version = Math.max(latest?.version ?? 0, ...attempts.map(row => Number(row.params?.version) || 0)) + 1;
       const params = { noteId: input.noteId, version, republish: input.republish, contentKey: input.contentKey };
@@ -197,6 +196,15 @@ export class NoteRepo {
         [id, input.workItemId, JSON.stringify(params)],
       )).rows[0]!;
     });
+  }
+
+  /** A saved candidate owns its unfinished publication, including when a new
+   * tool invocation has a different WorkItem or the operation uses a legacy key. */
+  async unfinishedPublicationForVersion(noteId: string, version: number): Promise<ActionOperationRow | null> {
+    const result = await this.db.query<ActionOperationRow>(
+      "select * from pa24.action_operation where action = 'note.publish' and params->>'noteId' = $1 and status <> 'succeeded'", [noteId],
+    );
+    return result.rows.find(row => row.params?.republish === true && row.params?.version === version) ?? null;
   }
 
   async insertVersion(row: Omit<NoteVersionRow, 'created_at' | 'decided_at' | 'verified_at' | 'verify_result' | 'verify_fingerprint'>): Promise<NoteVersionRow> {

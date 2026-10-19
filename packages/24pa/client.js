@@ -1084,7 +1084,7 @@ window.__ModuleLoader__.load({
               const models = {};
               for (const [role, route] of Object.entries(form.workerModels)) {
                 const provider = String(route.provider || '').trim(), model = String(route.model || '').trim();
-                if (provider || model) models[role] = { ...(provider ? { provider } : {}), ...(model ? { model } : {}), ...(route.simplePersona ? { simplePersona: true } : {}) };
+                models[role] = { provider, model, simplePersona: !!route.simplePersona };
               }
               const extra = [...new Set([...form.extraKnown, ...(sourceConfig.current?.extraLocalTools ?? []).filter(v => !KNOWN_EXTRA.includes(v))])];
               const skills = (form.extraSkills || '').split(/[,，\n]/).map(x => x.trim()).filter(Boolean);
@@ -1108,6 +1108,21 @@ window.__ModuleLoader__.load({
               const normalized = normalize(form), original = normalize(baseline);
               const patch = Object.fromEntries(Object.entries(normalized).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(original[key])));
               if (patch.tts) patch.tts = Object.fromEntries(Object.entries(normalized.tts).filter(([key, value]) => value !== original.tts[key]));
+              if (patch.workerModels) {
+                const routes = {};
+                for (const role of new Set([...Object.keys(normalized.workerModels), ...Object.keys(original.workerModels)])) {
+                  const current = normalized.workerModels[role] || {}, previous = original.workerModels[role] || {};
+                  const changed = {};
+                  for (const [key, fallback] of Object.entries({ provider: '', model: '', simplePersona: false })) {
+                    if ((current[key] ?? fallback) !== (previous[key] ?? fallback)) changed[key] = current[key] ?? fallback;
+                  }
+                  // Empty strings clear only edited fields; do not remove a
+                  // whole route that may have concurrent changes elsewhere.
+                  if (Object.keys(changed).length) routes[role] = changed;
+                }
+                if (Object.keys(routes).length) patch.workerModels = routes;
+                else delete patch.workerModels;
+              }
               const saved = Object.keys(patch).length ? await rpc('action', { type: 'workspace.config-update', config: patch }) : state;
               adoptSaved(saved.workspace.config);
               await helpers.refresh().catch(() => {});

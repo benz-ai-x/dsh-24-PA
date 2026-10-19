@@ -1,5 +1,4 @@
 import { randomUUID, createHash } from 'node:crypto';
-import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { readFileSync } from 'node:fs';
 
 /** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
@@ -11,6 +10,7 @@ import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, Con
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
+import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
@@ -849,7 +849,7 @@ export class PaRuntime {
       if (this.workspace && (await this.hasActiveWork())) throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
       if (this.closed) throw new Error('24私助已停止。');
     } catch (error) {
-      connection?.activate();
+      connection?.cancel();
       await connection?.transport?.close().catch(() => {});
       await db.close().catch(() => {});
       throw error;
@@ -1074,8 +1074,8 @@ export class PaRuntime {
     await previous?.close().catch(() => {});
   }
 
-  private async prepareTransport(config: PaConfig, store: SecretStore): Promise<{ transport: FeishuTransport | null; error: string | null; activate(): void }> {
-    const inactive = (error: string) => ({ transport: null, error, activate() {} });
+  private async prepareTransport(config: PaConfig, store: SecretStore): Promise<{ transport: FeishuTransport | null; error: string | null; activate(): void; cancel(): void }> {
+    const inactive = (error: string) => ({ transport: null, error, activate() {}, cancel() {} });
     if (config.mode !== 'feishu') return inactive('demo：未连接飞书；业务账本按工作区配置运行。');
     const env = secretEnvironment(config, this.env, store);
     const appId = env[config.appIdEnv];
@@ -1084,18 +1084,21 @@ export class PaRuntime {
       return inactive(`feishu 模式缺少凭据（${config.appIdEnv}/${config.appSecretEnv}）：在面板「工作区与配置 → 密钥」填写，或设置同名环境变量；机器人未启动。`);
     }
     const transport = (this.env.PA24_TRANSPORT || '').trim() === 'fake' ? new FakeFeishuTransport(appId) : new SdkFeishuTransport(appId, appSecret);
-    let activate!: () => void;
-    const activated = new Promise<void>(resolve => { activate = resolve; });
+    let settle!: (active: boolean) => void;
+    const activated = new Promise<boolean>(resolve => { settle = resolve; });
     try {
       await transport.start(async event => {
-        await activated;
-        // A prepared transport can receive before activation. Never route its
-        // events through the previous workspace, or a retired transport later.
-        if (this.transport === transport) await this.handleInbound(event);
+        if (!await activated) throw new Error('接入准备已取消，事件尚未持久接收，请重试。');
+        // Keep the ownership check and durable receive in the workspace gate.
+        // Cancellation/retirement must reject so the platform can redeliver.
+        await this.enqueue(async () => {
+          if (this.closed || this.transport !== transport) throw new Error('接入已停止或切换，事件尚未持久接收，请重试。');
+          await this.handleInbound(event);
+        });
       });
-      return { transport, error: null, activate };
+      return { transport, error: null, activate: () => settle(true), cancel: () => settle(false) };
     } catch (error) {
-      activate();
+      settle(false);
       await transport.close().catch(() => {});
       throw new Error(`飞书长连接未启动（保留当前生效工作区）：${(error as Error).message}`);
     }
@@ -1157,12 +1160,18 @@ export class PaRuntime {
     return this.localSessionId!;
   }
 
-  roleFor(agent: DshAgent | undefined): RuntimeRole {
+  /** Tool construction may precede activation; this never authorizes business calls. */
+  roleForToolMount(agent: DshAgent | undefined): RuntimeRole {
     const pending = this.preparingWorkspace;
     if (agent && pending && agent.session.header.cwd === pending.workspace.statePath) {
       if (agent.id === pending.accessSessionId) return 'feishu-access';
       if (agent.id === pending.localSessionId && !agent.parentAgent && !agent.session.header.parentSession && agent.session.header.origin !== 'subagent') return 'local-robot';
     }
+    return this.roleFor(agent);
+  }
+
+  /** Business access belongs exclusively to the currently activated workspace. */
+  roleFor(agent: DshAgent | undefined): RuntimeRole {
     if (!agent || !this.workspace || agent.session.header.cwd !== this.workspace.statePath) return null;
     if (agent.id === this.accessSessionId) return 'feishu-access';
     if (this.workItemByChild.has(agent.id)) return 'worker';
@@ -1646,6 +1655,7 @@ export class PaRuntime {
         status: 'accepted',
       });
       try {
+        if (String(args.worker) === 'digest') await this.digest.admit(item, agent.session);
         if (note) await this.repos!.notes.updateNote(note.id, { work_item_id: id });
         return (await this.repos!.workItems.update(id, { status: 'queued', progress: '排队等待 Worker' }))!;
       } catch (error) {
@@ -2982,6 +2992,11 @@ export class PaRuntime {
     };
   }
 
+  /**
+   * Joint backup (P38): pg_dump of the pa24 schema plus a tar of workspace and
+   * dsh-domain directories, with a verifiable manifest. Credentials are never
+   * included — only their environment variable names.
+   */
   async maintenanceBackupCreate(args: Record<string, unknown>): Promise<unknown> {
     if (!this.repos || !this.workspace) throw new Error('尚未绑定工作区。');
     const targetDir = String(args.targetDir ?? '');
@@ -3053,6 +3068,7 @@ export class PaRuntime {
     };
   }
 
+  /** Verify a backup directory (P38): every copied file is re-hashed against its manifest. */
   async maintenanceBackupVerify(args: Record<string, unknown>): Promise<unknown> {
     const dir = String(args.backupDir ?? '');
     if (!dir) throw new Error('需要 backupDir。');
@@ -3154,11 +3170,6 @@ export class PaRuntime {
           ? `最近检查：${this.wecomChannels.diagnostics.cli.state === 'ok' ? 'CLI 可用' : this.wecomChannels.diagnostics.cli.message}；${this.wecomChannels.diagnostics.identity.message}`
           : '企微渠道已启用但尚未执行接入检查（用 pa24_connection action=wecom_check 发起只读检查）',
       });
-  /**
-   * Joint backup (P38): pg_dump of the pa24 schema plus a tar of workspace and
-   * dsh-domain directories, with a verifiable manifest. Credentials are never
-   * included — only their environment variable names.
-   */
     }
     // F19: voice engine readiness mirrors the lark-cli pattern — verdict from
     // the last on-demand tts.probe; no subprocess spawns during health.
@@ -3169,7 +3180,6 @@ export class PaRuntime {
         message: this.ttsProbeCache
           ? `语音引擎 ${config.tts.engine}${this.ttsProbeCache.result.ready ? ' 就绪' : `：${this.ttsProbeCache.result.problems.join('；')}`}`
           : `语音引擎 ${config.tts.engine} 已配置（面板「晨报与复盘」里发起只读预检）`,
-  /** Verify a backup directory (P38): every copied file is re-hashed against its manifest. */
       });
     }
     // F18: extraLocalTools resolution — configured names that never mounted

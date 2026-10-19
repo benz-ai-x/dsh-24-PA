@@ -23,12 +23,12 @@ export function apply(ctx: DshContext) {
   });
   ctx.effect(() => () => access.dispose());
   ctx.on('agent/created', async ({ agent }) => {
-    const role = runtime.roleFor(agent);
+    const role = runtime.roleForToolMount(agent);
     await access.attach(role, runtime.configFor(agent)?.extraLocalTools ?? [], async (allow, signal) => {
       await agent.ctx!.plugin({
         name: 'pa24-role-tools', inject: ['tools'],
         apply(child: DshContext) {
-          if (!signal.aborted) child.tools.restrict({ allow: runtime.roleFor(agent) === role ? allow : [] });
+          if (!signal.aborted) child.tools.restrict({ allow: runtime.roleForToolMount(agent) === role ? allow : [] });
         },
       } as any).await();
     });

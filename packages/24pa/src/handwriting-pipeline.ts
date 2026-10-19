@@ -351,7 +351,6 @@ export class HandwritingPipeline {
       legacyParamsKey: paramsKey,
       republish: !!republishFromDoc,
     });
-    if (!operation) throw new Error('未能登记待审版本发布。');
     const version = Number(operation.params.version);
     const versionId = `${note.id}:v${version}`;
     const existing = await notes.getVersion(versionId);
@@ -736,16 +735,8 @@ export class HandwritingPipeline {
     const normalized = normalizeDocument(readback.content);
     const carriedCrops = (Array.isArray(latest.content?.crops) ? latest.content.crops : []) as CropSpec[];
     if (normalized === latest.normalized_text) {
-      const pages = (await notes.pagesOf(noteId)).filter(p => p.status === 'saved');
-      const paramsKey = `republish:${latest.doc_id}:${sha256Hex(normalized)}`;
-      const operation = await notes.beginPublication({
-        noteId, workItemId: item.id,
-        contentKey: hash(JSON.stringify([noteId, paramsKey, pages.map(p => [p.page_no, p.sha256]), carriedCrops.map(c => c.sha256)])),
-        legacyParamsKey: paramsKey, republish: true, existingOnly: true,
-      });
-      if (operation && operation.status !== 'succeeded' && operation.params.version === latest.version) {
-        return this.finishPublication(item, operation, latest);
-      }
+      const operation = await notes.unfinishedPublicationForVersion(noteId, latest.version);
+      if (operation) return this.finishPublication(item, operation, latest);
       return { noteId, result: 'unchanged', message: `当前文档与 v${latest.version} 一致，无需重发候选。` };
     }
     const diff = diffNormalized(latest.normalized_text, normalized);
@@ -898,7 +889,8 @@ export class HandwritingPipeline {
     }
     if (action === 'republish') {
       if (!noteId) throw new Error('需要 noteId。');
-      // A durable work item owns the republish so retries stay idempotent.
+      // Each invocation has its own work item; the saved candidate owns any
+      // unfinished publication that a later invocation needs to complete.
       const id = `pa24-work-notes-${randomUUID()}`;
       const republishItem = await this.deps.repos().workItems.insert({
         id,

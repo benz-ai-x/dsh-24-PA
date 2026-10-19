@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, readFile, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, realpath, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PaRuntime } from '../../lib/runtime.js';
@@ -78,6 +78,48 @@ describe('工作区激活：公开 bind/update/reload，真实文件与账本', 
     expect((await old.repos.workspaceState.get(a)).path).toBe(a);
     await rt.updateWorkspaceConfig({ maxWorkers: 3 }); expect(rt.config.maxWorkers).toBe(3);
   });
+  it.each(['activate', 'rollback'])('候选工作区准备中不能读取或修改旧记忆（%s）', async outcome => {
+    const a = await workspace(`memory-a-${outcome}`), b = await workspace(`memory-b-${outcome}`, { extraLocalTools: ['subagent_codex'] });
+    const memoryFile = join(a, '.24pa', 'memory.json');
+    await mkdir(join(a, '.24pa'), { recursive: true });
+    const original = JSON.stringify({ schemaVersion: 1, revision: 1, records: [{ id: 'a-private', category: 'fact', topic: 'A', content: 'A private memory', source: 'owner', status: 'confirmed', updatedAt: new Date().toISOString(), updatedBy: 'owner', reason: 'owner instruction' }] });
+    await writeFile(memoryFile, original);
+    const { rt, ctx } = runtime();
+    ctx.fs = { resolve: async path => path, stat: async path => stat(path).catch(() => null), readText: path => readFile(path, 'utf8'), writeText: vi.fn() };
+    await rt.bind(a);
+    const oldMemory = rt.memory, oldRepos = rt.repos;
+    const activeAgent = { id: await rt.openLocalSession(), session: { header: { cwd: a, agentPreset: 'pa24' } }, ctx: {} };
+    let candidate, release, ready;
+    const entered = new Promise(resolve => { ready = resolve; });
+    const held = new Promise(resolve => { release = resolve; });
+    ctx.sessionController.create.mockImplementation(async request => {
+      if (request.workspaceId !== b || !request.sessionId.endsWith('-local')) return;
+      candidate = { id: request.sessionId, session: { header: { cwd: b, agentPreset: 'pa24' } }, ctx: {} };
+      ready(); await held;
+      if (outcome === 'rollback') throw new Error('candidate session failed');
+    });
+    const binding = rt.bind(b).then(() => null, error => error);
+    await entered;
+    try {
+      expect(rt.configFor(candidate).extraLocalTools).toEqual(['subagent_codex']);
+      expect(rt.roleForToolMount(candidate)).toBe('local-robot'); expect(rt.roleFor(candidate)).toBeNull();
+      await expect(rt.memoryTool({ action: 'search' }, candidate)).rejects.toThrow(/绑定的/);
+      await expect(rt.memoryTool({ action: 'put', content: 'cross-workspace write', expectedRevision: 1, reason: 'test' }, candidate)).rejects.toThrow(/绑定的/);
+      expect(rt.memory).toBe(oldMemory); expect(rt.repos).toBe(oldRepos);
+      expect((await rt.memoryTool({ action: 'search' }, activeAgent)).records[0].content).toBe('A private memory');
+      expect(await readFile(memoryFile, 'utf8')).toBe(original); expect(ctx.fs.writeText).not.toHaveBeenCalled();
+    } finally { release(); }
+    const error = await binding;
+    if (outcome === 'rollback') {
+      expect(error?.message).toBe('candidate session failed'); expect(rt.memory).toBe(oldMemory); expect(rt.repos).toBe(oldRepos);
+      expect(rt.roleFor(candidate)).toBeNull(); expect(rt.roleForToolMount(candidate)).toBeNull();
+      expect((await rt.memoryTool({ action: 'search' }, activeAgent)).records[0].content).toBe('A private memory');
+    } else {
+      expect(error).toBeNull(); expect(rt.roleFor(candidate)).toBe('local-robot');
+      expect((await rt.memoryTool({ action: 'search' }, candidate)).records).toEqual([]);
+      await expect(rt.memoryTool({ action: 'search' }, activeAgent)).rejects.toThrow(/绑定的/);
+    }
+  });
   it('预设冲突保留历史并建立新会话，通知只进入新工作区的账本', async () => {
     const path = await workspace('session-rebound', { ownerOpenId: 'ou_new_owner' }); const { rt, ctx } = runtime();
     ctx.sessionController.create.mockRejectedValueOnce(Object.assign(new Error('preset conflict'), { code: 'agent-preset/conflict' }));
@@ -114,6 +156,29 @@ describe('工作区激活：公开 bind/update/reload，真实文件与账本', 
     await writeFile(file, source.replace('"volcKeyEnv": ""', '"volcKeyEnv": "EXTERNAL_TTS_KEY"'));
     await rt.updateWorkspaceConfig({ tts: { engine: 'melo', meloDir: '/opt/melo' } });
     expect(rt.config.tts).toEqual({ engine: 'melo', meloDir: '/opt/melo', volcKeyEnv: 'EXTERNAL_TTS_KEY', voice: '' });
+  });
+  it('Worker 路由子字段补丁合并磁盘最新角色与同角色其他字段', async () => {
+    const path = await workspace('worker-route-patch', { workerModels: { tasks: { provider: 'old-provider', model: 'old-model', simplePersona: true }, handwriting: { provider: 'vision', model: 'old-vision' } } });
+    const { rt } = runtime(); await rt.bind(path);
+    const file = join(path, 'AGENTS.md'), source = await readFile(file, 'utf8');
+    await writeFile(file, source.replace('old-provider', 'chat-provider').replace('old-vision', 'chat-vision'));
+    await rt.updateWorkspaceConfig({ workerModels: { tasks: { model: 'ui-model' } } });
+    expect(rt.config.workerModels).toEqual({ tasks: { provider: 'chat-provider', model: 'ui-model', simplePersona: true }, handwriting: { provider: 'vision', model: 'chat-vision' } });
+    await rt.updateWorkspaceConfig({ workerModels: { tasks: { model: '', simplePersona: false }, memo: { model: 'memo-model' } } });
+    expect(rt.config.workerModels.tasks).toEqual({ provider: 'chat-provider', model: '', simplePersona: false });
+    expect(rt.config.workerModels.memo).toEqual({ provider: '', model: 'memo-model' });
+    await rt.updateWorkspaceConfig({ workerModels: { tasks: { provider: '' }, memo: null } });
+    expect(rt.config.workerModels).toEqual({ handwriting: { provider: 'vision', model: 'chat-vision' } });
+    await rt.reloadWorkspace(); expect(rt.config.workerModels).toEqual({ handwriting: { provider: 'vision', model: 'chat-vision' } });
+    expect((await readFile(file, 'utf8')).startsWith('# 主人的稳定规则\n\n')).toBe(true);
+  });
+  it('路由补丁保留校验：非法 provider/model 类型失败且文件不变', async () => {
+    const path = await workspace('worker-route-invalid'); const { rt } = runtime(); await rt.bind(path);
+    const file = join(path, 'AGENTS.md'), before = await readFile(file, 'utf8');
+    for (const patch of [{ model: 42 }, { provider: null }, { simplePersona: 'false' }, { extra: '' }]) {
+      await expect(rt.updateWorkspaceConfig({ workerModels: { tasks: patch } })).rejects.toThrow(/Worker 模型配置|simplePersona/);
+      expect(await readFile(file, 'utf8')).toBe(before);
+    }
   });
   it('飞书连接准备失败不关闭当前连接或应用新的配置', async () => {
     const path = await workspace('connection-rollback', { mode: 'feishu', ownerOpenId: 'ou_owner', folderToken: 'folder', tasklistId: 'list' });

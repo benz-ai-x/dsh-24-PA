@@ -2,6 +2,7 @@
 // Repos facade in index.ts is the unchanged seam every caller already uses.
 import type { PaDb, PaQueryer } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
+import type { DigestTriggerSource } from '../digest-trigger.js';
 
 export interface DigestPlanRow {
   id: string;
@@ -102,8 +103,8 @@ export class DigestRepo {
       const plan = (await client.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1 for update', [input.planId])).rows[0];
       if (!plan || plan.status !== 'active') throw new Error(`计划 ${input.planId} 当前未开启，不能开始运行。`);
       if (input.workItemId) {
-        const binding = (await client.query<{ occurrence_id: string }>('select occurrence_id from pa24.digest_work_binding where work_item_id = $1', [input.workItemId])).rows[0];
-        if (binding) {
+        const binding = (await client.query<{ occurrence_id: string | null }>('select occurrence_id from pa24.digest_work_binding where work_item_id = $1 for update', [input.workItemId])).rows[0];
+        if (binding?.occurrence_id) {
           const row = (await client.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where id = $1', [binding.occurrence_id])).rows[0];
           if (!row || row.plan_id !== input.planId) throw new Error('该事项已绑定其他计划或运行记录缺失；不能重新猜测窗口。');
           return { created: false, row };
@@ -111,15 +112,28 @@ export class DigestRepo {
       }
       const claimed = await this.claimOn(client, input);
       if (input.workItemId) {
-        await client.query('insert into pa24.digest_work_binding (work_item_id, occurrence_id) values ($1, $2)', [input.workItemId, claimed.row.id]);
+        const binding = await client.query(`insert into pa24.digest_work_binding as binding (work_item_id, occurrence_id) values ($1, $2)
+          on conflict (work_item_id) do update set occurrence_id = excluded.occurrence_id
+          where binding.occurrence_id is null returning occurrence_id`, [input.workItemId, claimed.row.id]);
+        if (!binding.rowCount) throw new Error('该事项已绑定其他运行，不能覆盖原窗口。');
       }
       return claimed;
     });
   }
 
+  async recordWorkSource(workItemId: string, source: DigestTriggerSource): Promise<void> {
+    await this.db.query(`insert into pa24.digest_work_binding (work_item_id, source) values ($1, $2)
+      on conflict (work_item_id) do nothing`, [workItemId, JSON.stringify(source)]);
+  }
+
+  async workSource(workItemId: string): Promise<DigestTriggerSource | null> {
+    const result = await this.db.query<{ source: DigestTriggerSource | null }>('select source from pa24.digest_work_binding where work_item_id = $1', [workItemId]);
+    return result.rows[0]?.source ?? null;
+  }
+
   async runForWorkItem(planId: string, workItemId: string): Promise<DigestOccurrenceRow | null> {
-    const binding = (await this.db.query<{ occurrence_id: string }>('select occurrence_id from pa24.digest_work_binding where work_item_id = $1', [workItemId])).rows[0];
-    if (!binding) return null;
+    const binding = (await this.db.query<{ occurrence_id: string | null }>('select occurrence_id from pa24.digest_work_binding where work_item_id = $1', [workItemId])).rows[0];
+    if (!binding?.occurrence_id) return null;
     const row = (await this.db.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where id = $1', [binding.occurrence_id])).rows[0];
     return row?.plan_id === planId ? row : null;
   }

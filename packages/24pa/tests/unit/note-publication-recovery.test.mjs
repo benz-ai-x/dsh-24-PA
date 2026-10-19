@@ -24,6 +24,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`手写发布恢复 (${ba
       config: () => ({ mode: 'feishu', larkProfile: 'default', folderToken: 'folder', ownerOpenId: 'owner', workerModels: {} }),
       cli: () => ({ bin, timeoutMs: 5_000 }),
       assertLive: () => {}, skillParams: async () => ({}),
+      roleFor: () => 'local-robot', accessSessionId: () => 'access', trackWorkItem: () => {},
       stagedOperationWithId: (...input) => operations.stageWithId(...input),
       performExternal: (...input) => operations.perform(...input), failStaged: (...input) => operations.fail(...input),
       notifyOwner: (dedupKey, text) => repos.outbox.enqueue({ dedupKey, channel: 'feishu', target: 'owner', kind: 'text', content: { text } }),
@@ -100,6 +101,35 @@ for (const backend of ['sqlite', 'postgres']) describe(`手写发布恢复 (${ba
     expect(await createCount()).toBe(1); expect(await repos.notes.versionsOf('N-1')).toHaveLength(2);
     expect((await attempts()).map(row => row.status)).toEqual(['succeeded', 'succeeded']);
     expect((await repos.outbox.recent(10)).filter(row => row.dedup_key === 'notereview:N-1:v2')).toHaveLength(1);
+  });
+
+  it.each([false, true])('真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=%s）', async legacy => {
+    const first = await pipeline.noteSubmit(item, args);
+    const v1 = await repos.notes.getVersion(first.versionId);
+    await writeFile(statePath, JSON.stringify({ docEdits: { [v1.doc_id]: '<p>主人补充内容</p>' } }));
+    failProjection = true;
+    await expect(pipeline.notesTool({ action: 'republish', noteId: 'N-1' }, { id: 'local' })).rejects.toThrow('post-version');
+    const published = await repos.notes.getVersion('N-1:v2');
+    const failed = (await attempts()).find(row => row.params.version === 2);
+    let operationId = failed.id;
+    if (legacy) {
+      const paramsKey = `republish:${published.doc_id}:${sha256Hex(published.normalized_text)}`;
+      operationId = `note.publish:${failed.work_item_id}:${hash(`N-1:v2\n${paramsKey}`)}`;
+      await db.query('update pa24.action_operation set id = $2, params = $3 where id = $1', [failed.id, operationId, JSON.stringify({ noteId: 'N-1', version: 2, republish: true })]);
+    }
+    expect((await repos.outbox.recent(10)).some(row => row.dedup_key === 'notereview:N-1:v2')).toBe(false);
+    failProjection = false; pipeline = makePipeline();
+    expect(await pipeline.notesTool({ action: 'republish', noteId: 'N-1' }, { id: 'local' })).toMatchObject({ version: 2, versionId: 'N-1:v2' });
+    const republishItems = (await repos.workItems.list()).filter(row => row.title === '刷新笔记候选 N-1');
+    expect(republishItems).toHaveLength(2);
+    expect(new Set(republishItems.map(row => row.id)).size).toBe(2);
+    const recoveredItem = republishItems.find(row => row.id !== failed.work_item_id);
+    expect(recoveredItem.result_ref).toMatchObject({ operationId, versionId: 'N-1:v2' });
+    expect((await repos.operations.get(operationId)).status).toBe('succeeded');
+    expect(await repos.notes.versionsOf('N-1')).toHaveLength(2); expect(await createCount()).toBe(1);
+    expect((await repos.outbox.recent(10)).filter(row => row.dedup_key === 'notereview:N-1:v2')).toHaveLength(1);
+    expect(await pipeline.notesTool({ action: 'republish', noteId: 'N-1' }, { id: 'local' })).toMatchObject({ result: 'unchanged' });
+    expect(await attempts()).toHaveLength(2);
   });
 
   it('旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档', async () => {

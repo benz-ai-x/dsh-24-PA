@@ -3,7 +3,7 @@
 // planning behind one deep module. F19 voice delivery extends here. The
 // runtime keeps role bindings, the follow-up tick and channel selection.
 
-import type { NativeScheduleService } from './host.js';
+import type { DshSession, NativeScheduleService } from './host.js';
 import type { MemoryStore } from './memory.js';
 import type { ChannelContextDeps } from './channel-deps.js';
 import type { WorkItemRow, NewOutbox, DigestPlanRow, DigestOccurrenceRow } from './repo.js';
@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { assertToolDeclaration } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { digestWakePrompt } from './prompts.js';
+import { captureDigestTrigger } from './digest-trigger.js';
 
 export interface DigestDeps extends ChannelContextDeps {
   startedAt(): string | null;
@@ -73,6 +74,12 @@ export type DigestFacts = {
 
 export class DigestService {
   constructor(private readonly deps: DigestDeps) {}
+
+  /** Called by delegation before a Worker can start; never accepts model args. */
+  async admit(item: WorkItemRow, session: DshSession): Promise<void> {
+    if (item.parent_session_id !== session.id) throw new Error('事项与触发会话不一致，不能保存计划来源。');
+    await this.deps.repos().digests.recordWorkSource(item.id, captureDigestTrigger(session));
+  }
 
   /** Local-date window key for a plan kind (morning/evening share the date, weekly uses ISO week). */
   digestWindowKey(kind: string, timeZone: string, now = new Date()): string {
@@ -324,7 +331,7 @@ export class DigestService {
   }
 
   /**
-   * Worker-side digest build (P24/P25): claims the current window idempotently,
+   * Worker-side digest build (P24/P25): claims its admission window idempotently,
    * assembles a sourced facts-vs-suggestions report, and ships it through the
    * outbox. Never writes tasks, calendar, or memory; nothing auto-postpones.
    */
@@ -334,7 +341,33 @@ export class DigestService {
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
     if (plan.kind === 'meeting_prep') throw new Error('会前准备计划请用 meeting_prep_build 生成准备包。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
-    const requestedWindow = this.digestWindowKey(plan.kind === 'evening' ? 'evening' : plan.kind, this.deps.config().timeZone);
+    const boundRun = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
+    let requestedWindow = boundRun?.window_key;
+    if (!requestedWindow) {
+      const admitted = await this.deps.repos().workItems.get(item.id);
+      if (!admitted?.created_at || !Number.isFinite(new Date(admitted.created_at).getTime())) {
+        throw new Error('本事项缺少可确认的准入时间，不能猜测运行窗口。');
+      }
+      const source = await this.deps.repos().digests.workSource(item.id);
+      if (!source || source.sessionId !== admitted.parent_session_id) {
+        throw new Error('历史事项缺少可核验的触发来源，不能按执行日期猜测窗口；原记录保留，请重新委派计划任务。');
+      }
+      let occurrenceAt: Date;
+      if (source.kind === 'schedule') {
+        const delivery = source.deliveries.find(row => row.scheduleId === plan.schedule_id);
+        if (source.sessionId !== plan.session_id || !delivery || !Number.isFinite(Date.parse(delivery.occurrenceAt))) {
+          throw new Error('本事项的宿主触发无法匹配当前计划（计划可能已调整），请按当前计划重新委派，不能猜测窗口。');
+        }
+        occurrenceAt = new Date(delivery.occurrenceAt);
+      } else if (source.kind === 'admission') {
+        // A current, explicitly captured non-Schedule turn is manual work.
+        occurrenceAt = new Date(admitted.created_at);
+      } else {
+        throw new Error('事项触发来源无法核验，请重新委派计划任务。');
+      }
+      const timeZone = plan.schedule_spec?.daily?.time_zone ?? plan.schedule_spec?.weekly?.time_zone ?? this.deps.config().timeZone;
+      requestedWindow = this.digestWindowKey(plan.kind, timeZone, occurrenceAt);
+    }
     const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey: requestedWindow, workItemId: item.id });
     const windowKey = row.window_key;
     if (!created && this.wasDelivered(row)) {
