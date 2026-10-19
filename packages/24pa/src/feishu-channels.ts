@@ -371,7 +371,7 @@ export class FeishuChannels {
     if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
     const batchSuffix = (args.opSuffix ? `\n${String(args.opSuffix)}` : '') + taskPlanKey(args);
     const overrideId = args._operationId ? String(args._operationId) : null;
-    const authorization = args._instruction ? { instruction: text(args._instruction, 500) } : {};
+    const authorization = { ...(args._authorization as Record<string, unknown> ?? {}), ...(args._instruction ? { instruction: text(args._instruction, 500) } : {}) };
     const staged = overrideId
       ? await this.deps.stagedOperationWithId(overrideId, item, 'task.create', { tasklistId: this.deps.config().tasklistId, summary, due: dueArg, ...authorization })
       : await this.deps.stagedOperation(item, 'task.create', `${this.deps.config().tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {

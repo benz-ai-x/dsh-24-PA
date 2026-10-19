@@ -21,7 +21,7 @@ let cluster, llm, host, root, workspace, stubStatePath, scriptPath, bootEnv, hos
 
 const writeScript = async script => writeFile(scriptPath, JSON.stringify(script, null, 2));
 const inject = (event) => host.api('action', { type: 'test.inject', event });
-const ownerEvent = (eventId, extra = {}) => ({ eventId, senderOpenId: 'ou_test_owner', appId: 'cli_test_app', chatType: 'p2p', ...extra });
+const ownerEvent = (eventId, extra = {}) => ({ eventId, messageId: eventId, senderOpenId: 'ou_test_owner', appId: 'cli_test_app', chatType: 'p2p', ...extra });
 const waitWorkItem = async (title, label, timeoutMs = 180_000) =>
   host.waitUntil(s => (s.work ?? []).some(w => w.title === title && w.status === 'completed'), { timeoutMs, label });
 const waitToolResult = async (toolName, substr, label, timeoutMs = 60_000) => {
@@ -248,7 +248,7 @@ describe('F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG）',
     // 文档已回读并插入原稿图片（stub 记录了 media-insert 与回读内容）
     const stubDocs = (await readFile(`${stubStatePath}.docs.jsonl`, 'utf8')).split('\n').filter(Boolean).map(l => JSON.parse(l));
     const doc = [...stubDocs].reverse().find(d => d.id === versions[0].doc_id);
-    expect(doc.content).toContain('<img src=');
+    expect(doc.content).toContain('<img token=');
     expect(doc.content).toContain('待本人审核 N-2 v1');
     // 视觉模型版本随版本存档（P29 AC4）
     const model = (await rows(`select content->'model' as model from pa24.note_version where id='N-2:v1'`))[0].model;

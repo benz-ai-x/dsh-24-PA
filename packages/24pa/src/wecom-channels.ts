@@ -211,7 +211,7 @@ export class WecomChannels {
     const paramsKey = `wecom\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${tz}\n${JSON.stringify(repeatRule)}`;
     return this.deps.gate(`calendar-event:${eventId || 'wecom-new'}`, async () => {
       const staged = operationIdOverride
-        ? await this.deps.stagedOperationWithId(operationIdOverride, item, `wecom_calendar.${kind}`, { channel: 'wecom', kind, eventId, summary, start, end, timeZone: tz, repeatRule })
+        ? await this.deps.stagedOperationWithId(operationIdOverride, item, `wecom_calendar.${kind}`, { channel: 'wecom', kind, eventId, summary, start, end, timeZone: tz, repeatRule, ...(args._authorization as Record<string, unknown> ?? {}) })
         : await this.deps.stagedOperation(
         item,
         `wecom_calendar.${kind}`,
@@ -279,7 +279,7 @@ export class WecomChannels {
     if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
     const batchSuffix = (args.opSuffix ? `\n${String(args.opSuffix)}` : '') + taskPlanKey(args);
     const overrideId = args._operationId ? String(args._operationId) : null;
-    const authorization = args._instruction ? { instruction: text(args._instruction, 500) } : {};
+    const authorization = { ...(args._authorization as Record<string, unknown> ?? {}), ...(args._instruction ? { instruction: text(args._instruction, 500) } : {}) };
     const staged = overrideId
       ? await this.deps.stagedOperationWithId(overrideId, item, 'wecom_todo.create', { channel: 'wecom', summary, due: args.due ? String(args.due) : null, ...authorization })
       : await this.deps.stagedOperation(item, 'wecom_todo.create', `wecom\n${summary}\n${args.due ?? ''}${batchSuffix}`, {

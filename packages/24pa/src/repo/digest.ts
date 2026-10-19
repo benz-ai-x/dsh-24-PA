@@ -212,6 +212,13 @@ export class MinutesRepo {
     return result.rows[0]!;
   }
 
+  async findGeneration(input: { workItemId: string; memoId: string; eventId: string | null; topic: string; candidates: unknown[] }): Promise<MinutesRow | null> {
+    return (await this.db.query<MinutesRow>(
+      `select * from pa24.minutes where work_item_id = $1 and memo_id = $2 and event_id is not distinct from $3 and topic = $4 and candidates = $5::jsonb order by created_at limit 1`,
+      [input.workItemId, input.memoId, input.eventId, input.topic, JSON.stringify(input.candidates)],
+    )).rows[0] ?? null;
+  }
+
   async get(id: string): Promise<MinutesRow | null> {
     const result = await this.db.query<MinutesRow>('select * from pa24.minutes where id = $1', [id]);
     return result.rows[0] ?? null;
@@ -225,9 +232,9 @@ export class MinutesRepo {
   }
 
   /** Latest minutes for meeting-prep scoping (F28). */
-  async recent(limit: number): Promise<Array<Pick<MinutesRow, 'id' | 'topic' | 'doc_url' | 'candidates'>>> {
-    const result = await this.db.query<Pick<MinutesRow, 'id' | 'topic' | 'doc_url' | 'candidates'>>(
-      `select id, topic, doc_url, candidates from pa24.minutes order by created_at desc limit $1`,
+  async recent(limit: number): Promise<Array<Pick<MinutesRow, 'id' | 'topic' | 'doc_url' | 'candidates' | 'event_id'>>> {
+    const result = await this.db.query<Pick<MinutesRow, 'id' | 'topic' | 'doc_url' | 'candidates' | 'event_id'>>(
+      `select id, topic, doc_url, candidates, event_id from pa24.minutes order by created_at desc limit $1`,
       [limit],
     );
     return result.rows;

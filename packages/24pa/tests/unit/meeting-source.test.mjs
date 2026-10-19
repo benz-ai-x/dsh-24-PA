@@ -77,3 +77,28 @@ it('旧版标题投影有创建回执佐证时保持原计划与指纹，真实�
   expect((await rt.repos.digests.getPlan('prep')).status).toBe('stopped'); expect(deletes).toEqual(['native-prep']);
   expect(await rt.repos.outbox.recent()).toHaveLength(1);
 });
+
+
+it('资料读取失败、成功空结果与未授权独立呈现，失败不冒充无资料', async () => {
+  const plan = await rt.repos.digests.getPlan('prep');
+  await rt.repos.digests.updatePlan('prep', { schedule_spec: { ...plan.schedule_spec, scope: { memo: true, minutes: true, tasks: true, memory: false } } });
+  rt.repos.memos.search = async () => { throw new Error('memo offline'); };
+  rt.repos.minutes.recent = async () => { throw new Error('minutes offline'); };
+  const result = await build();
+  expect(result.sources).toEqual({ 备忘: { status: 'failed', error: 'memo offline' }, 纪要: { status: 'failed', error: 'minutes offline' }, 记忆: { status: 'disabled' }, 任务: { status: 'ok' } });
+  const report = (await rt.repos.outbox.recent())[0].content.text;
+  expect(report).toContain('不能据此认定没有相关资料'); expect(report).toContain('未授权查询'); expect(report).not.toContain('未找到相关材料');
+});
+
+it.each([false, true])('只有关联纪要进入准备包，不兜底最近无关会议（有相关=%s）', async related => {
+  event.summary = '季度评审会第二轮'; await rt.repos.calendar.upsertEvent(event);
+  const plan = await rt.repos.digests.getPlan('prep');
+  await rt.repos.digests.updatePlan('prep', { schedule_spec: { ...plan.schedule_spec, eventFingerprint: eventFingerprint(event), scope: { memo: false, minutes: true, tasks: false, memory: false } } });
+  await rt.repos.minutes.insert({ id: 'unrelated', work_item_id: 'work', event_id: null, topic: '客户交接', memo_id: null, doc_url: null, candidates: [{ summary: '无关行动' }], status: 'draft' });
+  if (related) await rt.repos.minutes.insert({ id: 'related', work_item_id: 'work', event_id: null, topic: '季度评审', memo_id: null, doc_url: 'https://example.test/minutes', candidates: [{ summary: '评审预算' }], status: 'draft' });
+  expect(await build()).toMatchObject({ eventId: 'meeting', sources: { 纪要: { status: 'ok' } } });
+  const report = (await rt.repos.outbox.recent())[0].content.text;
+  expect(report).not.toContain('客户交接'); expect(report).not.toContain('无关行动');
+  if (related) { expect(report).toContain('上次纪要「季度评审」'); expect(report).toContain('评审预算'); }
+  else expect(report).toContain('未找到相关材料');
+});

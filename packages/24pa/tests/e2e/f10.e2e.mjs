@@ -130,7 +130,7 @@ describe('F10 会议资料与纪要行动（真实 Loader + 隔离 PG）', () =>
     const text = out.content?.text ?? '';
     expect(text).toContain('会前准备');
     expect(text).toContain('发送前已复查会议状态');
-    expect(text).toContain('没有找到与该会议相关的备忘'); // 资料缺失如实
+    expect(text).toContain('已查询授权来源，未找到相关材料'); // 资料缺失如实
     expect(text).toContain('不编造议程');
     expect(text).toContain('WorkItem');
 
