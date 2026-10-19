@@ -3,6 +3,7 @@
 import type { PaDb, PaQueryer } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
 import type { PlanIntent } from '../plan-lifecycle.js';
+import type { DigestPeriod } from '../digest-period.js';
 import type { DigestTriggerSource } from '../digest-trigger.js';
 
 export interface DigestPlanRow {
@@ -28,6 +29,7 @@ export interface DigestOccurrenceRow {
   id: string;
   plan_id: string;
   window_key: string;
+  time_context?: DigestPeriod | null;
   status: 'delivering' | 'model_done' | 'sent' | 'unconfirmed' | string;
   report: any;
   outbox_key: string | null;
@@ -97,12 +99,12 @@ export class DigestRepo {
   }
 
   /** One unique window; only claimRun may attach it to an active plan. */
-  private async claimOn(client: PaQueryer, row: { planId: string; windowKey: string }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
+  private async claimOn(client: PaQueryer, row: { planId: string; windowKey: string; timeContext?: DigestPeriod }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
     const id = `${row.planId}:${row.windowKey}`;
     const result = await client.query<DigestOccurrenceRow>(
-      `insert into pa24.digest_occurrence (id, plan_id, window_key, status, delivered_at)
-       values ($1,$2,$3,'delivering', now()) on conflict (plan_id, window_key) do nothing returning *`,
-      [id, row.planId, row.windowKey],
+      `insert into pa24.digest_occurrence (id, plan_id, window_key, status, delivered_at, time_context)
+       values ($1,$2,$3,'delivering', now(),$4) on conflict (plan_id, window_key) do nothing returning *`,
+      [id, row.planId, row.windowKey, row.timeContext ? JSON.stringify(row.timeContext) : null],
     );
     if ((result.rowCount ?? 0) > 0) return { created: true, row: result.rows[0]! };
     const existing = await client.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where plan_id = $1 and window_key = $2', [row.planId, row.windowKey]);
@@ -110,7 +112,7 @@ export class DigestRepo {
   }
 
   /** The durable identity of one WorkItem's run survives midnight and retries. */
-  async claimRun(input: { planId: string; windowKey: string; workItemId?: string }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
+  async claimRun(input: { planId: string; windowKey: string; workItemId?: string; timeContext?: DigestPeriod }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
     return this.db.withTransaction(async client => {
       const plan = (await client.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1 for update', [input.planId])).rows[0];
       if (!plan || plan.status !== 'active') throw new Error(`计划 ${input.planId} 当前未开启，不能开始运行。`);
@@ -119,7 +121,7 @@ export class DigestRepo {
         if (binding?.occurrence_id) {
           const row = (await client.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where id = $1', [binding.occurrence_id])).rows[0];
           if (!row || row.plan_id !== input.planId) throw new Error('该事项已绑定其他计划或运行记录缺失；不能重新猜测窗口。');
-          return { created: false, row };
+          return { created: false, row: await this.bindTimeContext(client, row, input.timeContext) };
         }
       }
       const claimed = await this.claimOn(client, input);
@@ -129,8 +131,24 @@ export class DigestRepo {
           where binding.occurrence_id is null returning occurrence_id`, [input.workItemId, claimed.row.id]);
         if (!binding.rowCount) throw new Error('该事项已绑定其他运行，不能覆盖原窗口。');
       }
+      claimed.row = await this.bindTimeContext(client, claimed.row, input.timeContext);
       return claimed;
     });
+  }
+
+  private async bindTimeContext(client: PaQueryer, row: DigestOccurrenceRow, context?: DigestPeriod): Promise<DigestOccurrenceRow> {
+    if (row.time_context || !context || ['model_done', 'sent'].includes(row.status)) return row;
+    return (await client.query<DigestOccurrenceRow>('update pa24.digest_occurrence set time_context = $2 where id = $1 and time_context is null returning *', [row.id, JSON.stringify(context)])).rows[0] ?? row;
+  }
+
+  async occurrence(id: string): Promise<DigestOccurrenceRow | null> {
+    return (await this.db.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where id = $1', [id])).rows[0] ?? null;
+  }
+
+  async completedSources(planId: string): Promise<DigestTriggerSource[]> {
+    const rows = (await this.db.query<{ source: DigestTriggerSource | null }>(`select b.source from pa24.digest_work_binding b join pa24.digest_occurrence o on o.id = b.occurrence_id
+      where o.plan_id = $1 and o.status in ('model_done', 'sent')`, [planId])).rows;
+    return rows.flatMap(row => row.source ? [row.source] : []);
   }
 
   async recordWorkSource(workItemId: string, source: DigestTriggerSource): Promise<void> {
@@ -172,7 +190,7 @@ export class DigestRepo {
         `update pa24.digest_occurrence set status = 'model_done', report = $2, outbox_key = $3, completed_at = now(), updated_at = now(), error = null where id = $1`,
         [row.id, JSON.stringify(input.report), input.notifications.length ? outboxKey : null],
       );
-      await client.query('update pa24.digest_plan set last_window = $2, updated_at = now() where id = $1', [input.planId, row.window_key]);
+      await client.query('update pa24.digest_plan set last_window = $2, updated_at = now(), revision = revision + 1 where id = $1', [input.planId, row.window_key]);
       return { reused: false, row: { ...row, status: 'model_done', report: input.report, outbox_key: input.notifications.length ? outboxKey : null } };
     });
   }

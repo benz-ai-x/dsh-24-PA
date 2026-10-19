@@ -320,7 +320,7 @@ export class PaRuntime {
     nativeSchedule: () => this.nativeSchedule(),
     planChangesAvailable: () => !this.closed && !this.workspaceChanging,
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
-    calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
+    calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
     inspectNoteTrust: (noteId, versionId) => this.handwriting.inspectTrust(noteId, versionId),
     ownerNotification: (key, report) => this.ownerNotification(key, report),
     waitingFollowups: () => this.waitingFollowups,

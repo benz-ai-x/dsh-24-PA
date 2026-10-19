@@ -57,6 +57,8 @@ export class TaskRepo {
     return result.rows[0] ?? null;
   }
 
+  async all(): Promise<TaskRow[]> { return (await this.db.query<TaskRow>('select * from pa24.task order by created_at')).rows; }
+
   async list(status?: string, limit = 50): Promise<TaskRow[]> {
     const result = status
       ? await this.db.query<TaskRow>('select * from pa24.task where status = $1 order by created_at desc limit $2', [status, limit])

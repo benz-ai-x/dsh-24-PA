@@ -59,9 +59,10 @@ export class PlanLifecycle {
     });
   }
 
-  async stop(id: string, targetStatus: 'paused' | 'stopped'): Promise<{ plan: DigestPlanRow; warning: string | null }> {
+  async stop(id: string, targetStatus: 'paused' | 'stopped', expectedRevision?: number): Promise<{ plan: DigestPlanRow; warning: string | null; changedDuringCheck?: boolean }> {
     return this.run(id, async ctx => {
       let plan = await this.required(ctx, id);
+      if (expectedRevision !== undefined && plan.revision !== expectedRevision) return { plan, warning: '计划已在监督期间改变，未停止新的计划状态。', changedDuringCheck: true };
       // A pending create has never called the host and can be canceled locally.
       if (plan.lifecycle?.operation === 'create' && plan.lifecycle.phase === 'pending') {
         plan = await ctx.repo.comparePlan(plan, { status: targetStatus, lifecycle: null });

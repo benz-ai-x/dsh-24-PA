@@ -707,15 +707,9 @@ window.__ModuleLoader__.load({
             h('p', { className: 'pa24-meta' }, L('提醒归属以每条记录的日历渠道为准；这里保留备份和历史，平台接受不代表本人已读。', 'Each record keeps its calendar channel; this view preserves backups and history. Platform acceptance does not mean read.')));
         }
 
-        function DigestDetail({ extra, state, config, tz, button, openRobot, openCard, refresh }) {
-          const plans = extra.digests?.plans ?? [];
-          const skills = extra.digests?.skills ?? [];
-          const on = voiceOn(config);
-          const tts = state.tts;
-          const probe = tts?.probe?.result;
-          const engineLine = !on
-            ? L('语音版未启用：可在参数表单的「语音 TTS」分组选择引擎。', 'Voice is off: choose an engine in the Voice TTS section of the config form.')
-            : L(`语音引擎：${config.tts.engine}${tts?.voice ? ' · ' + tts.voice : ''}`, `Voice engine: ${config.tts.engine}${tts?.voice ? ' · ' + tts.voice : ''}`);
+        function PlanCard({ plan: incomingPlan, skills, config, tz, refresh }) {
+          const [plan, setPlan] = React.useState(incomingPlan);
+          const pending = React.useRef(false), dirty = React.useRef(false);
           const scheduleText = plan => {
             const schedule = plan.schedule || {};
             if (schedule.daily) return L('每日 ', 'Daily ') + schedule.daily.time + ' · ' + (schedule.daily.time_zone || config?.timeZone);
@@ -727,25 +721,36 @@ window.__ModuleLoader__.load({
           const planStatus = status => status === 'active' ? badge(L('已启用', 'Active'), 'blue', 'check') : status === 'paused' ? badge(L('已暂停', 'Paused'), 'amber', 'clock') : badge(L('已停止', 'Stopped'), 'neutral', 'close');
           const planKind = kind => ({ morning: L('晨报', 'Morning digest'), evening: L('晚间回顾', 'Evening review'), weekly: L('每周回顾', 'Weekly review'), once: L('一次性简报', 'One-off digest') }[kind] || kind);
           // F40（spec 2.11）：计划行配置面——时间内联编辑、语音开关、skill 选择、立即运行一次。
-          const PlanCard = ({ plan, skills, config, button, refresh }) => {
+
             const [time, setTime] = React.useState((plan.schedule?.daily ?? plan.schedule?.weekly)?.time ?? '');
             const [busy, setBusy] = React.useState(false);
             const [note, setNote] = React.useState('');
             const [error, setError] = React.useState('');
+            React.useEffect(() => {
+              if (pending.current) return;
+              setPlan(incomingPlan);
+              if (!dirty.current) setTime((incomingPlan.schedule?.daily ?? incomingPlan.schedule?.weekly)?.time ?? '');
+            }, [incomingPlan]);
+            const button = (name, label, fn, props = {}) => h('button', { type: 'button', onClick: () => void fn(), ...props }, name && icon(name), label);
             const editable = plan.status === 'active' && (plan.schedule?.daily || plan.schedule?.weekly);
-            const act = async (fn, okText) => {
-              setBusy(true); setError(''); setNote('');
+            const act = async (fn, okText, confirmTime = false) => {
+              if (pending.current) return;
+              pending.current = true; setBusy(true); setError(''); setNote('');
               try {
                 const r = await fn();
+                const confirmed = (await rpc('digests')).plans?.find(row => row.planId === plan.planId);
+                if (!confirmed) throw new Error(L('操作返回后未读到该计划，请刷新核对。', 'The updated plan could not be read; refresh to check.'));
+                setPlan(confirmed);
+                if (confirmTime || !dirty.current) { dirty.current = false; setTime((confirmed.schedule?.daily ?? confirmed.schedule?.weekly)?.time ?? ''); }
                 setNote(okText + (r?.message ? '：' + r.message : ''));
                 await refresh();
               } catch (e) {
                 setError(e.message);
-              } finally { setBusy(false); }
+              } finally { pending.current = false; setBusy(false); }
             };
             const saveTime = () => act(
-              () => rpc('action', { type: 'digest.reschedule', planId: plan.planId, kind: plan.kind, time, weekdays: plan.schedule?.weekly?.weekdays }),
-              L('已改时间', 'Rescheduled'));
+              () => rpc('action', { type: 'digest.reschedule', planId: plan.planId, kind: plan.kind, time: time.length === 5 ? time + ':00' : time, timeZone: (plan.schedule?.daily ?? plan.schedule?.weekly)?.time_zone, weekdays: plan.schedule?.weekly?.weekdays }),
+              L('已改时间', 'Rescheduled'), true);
             const toggleVoice = () => act(
               () => rpc('action', { type: 'digest.set-voice', planId: plan.planId, voice: !plan.voice }),
               plan.voice ? L('已切为纯文本', 'Switched to text') : L('已开启语音版', 'Voice enabled'));
@@ -763,7 +768,7 @@ window.__ModuleLoader__.load({
               editable && h('div', { className: 'pa24-row', style: { flexWrap: 'wrap', alignItems: 'center', gap: 8 } },
                 h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--pa-muted)' } },
                   L('时间 ', 'Time '),
-                  h('input', { type: 'time', step: 1, value: time, onChange: e => setTime(e.target.value), disabled: busy, style: { width: 110, minHeight: 34 } }),
+                  h('input', { type: 'time', step: 1, value: time, onChange: e => { dirty.current = true; setTime(e.target.value); }, disabled: busy, style: { width: 110, minHeight: 34 } }),
                   button('check', L('保存', 'Save'), saveTime, { disabled: busy || !time, className: 'pa24-quiet' })),
                 button(plan.voice ? 'note' : 'bot', plan.voice ? L('关语音', 'Voice off') : L('开语音', 'Voice on'), toggleVoice, { disabled: busy, className: 'pa24-quiet' }),
                 h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--pa-muted)' } },
@@ -780,7 +785,17 @@ window.__ModuleLoader__.load({
               h('details', null,
                 h('summary', null, L('技术标识', 'Technical IDs')),
                 h('p', { className: 'pa24-meta' }, plan.planId + (plan.scheduleId ? ' · ' + plan.scheduleId : ''))));
-          };
+        }
+
+        function DigestDetail({ extra, state, config, tz, button, openRobot, openCard, refresh }) {
+          const plans = extra.digests?.plans ?? [];
+          const skills = extra.digests?.skills ?? [];
+          const on = voiceOn(config);
+          const tts = state.tts;
+          const probe = tts?.probe?.result;
+          const engineLine = !on
+            ? L('语音版未启用：可在参数表单的「语音 TTS」分组选择引擎。', 'Voice is off: choose an engine in the Voice TTS section of the config form.')
+            : L(`语音引擎：${config.tts.engine}${tts?.voice ? ' · ' + tts.voice : ''}`, `Voice engine: ${config.tts.engine}${tts?.voice ? ' · ' + tts.voice : ''}`);
           return h('section', null,
             sectionHead('pulse', L('周期服务计划', 'Scheduled service plans'), L('按计划直接改时间、语音与任务 skill，并可立即运行一次；复杂变更仍通过24私助会话。', 'Edit time, voice, and task skill per plan and run once on demand; complex changes stay in chat.'),
               h('div', { className: 'pa24-row' }, button('refresh', L('刷新', 'Refresh'), refresh, { className: 'pa24-quiet' }), button('chat', L('通过对话调整', 'Adjust in chat'), openRobot)), 'green'),
