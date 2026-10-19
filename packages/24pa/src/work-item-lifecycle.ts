@@ -1,3 +1,4 @@
+import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import type { WorkItemRepo, WorkItemRow } from './repo/work.js';
 import type { NewOutbox } from './repo/outbox.js';
 
@@ -55,6 +56,7 @@ export class WorkItemLifecycle {
       const repo = this.deps.repo();
       const item = await repo.get(id);
       if (!item?.child_session_id) throw new Error('此事项尚无原生 Worker 会话，请核对后重新委派。');
+      if (item.status === 'needs_reconciliation') throw new Error('上次输入接纳结果待核对，请先核对外部结果并明确停止本事项，再决定是否继续。');
       if (supplement && item.status === 'stopped') throw new Error('事项已停止，不因引用复活。');
       if (['accepted', 'queued'].includes(item.status)) throw new Error('事项尚在排队，请启动后再补充。');
       if (!supplement && item.status === 'running') throw new Error('事项正在运行或排队中。');
@@ -92,10 +94,10 @@ export class WorkItemLifecycle {
     return this.gate(async () => {
       const repo = this.deps.repo();
       const item = await repo.get(id);
-      if (!item || !['running', 'queued', 'accepted', 'waiting_input'].includes(item.status)) throw new Error('此事项已结束。');
+      if (!item || !UNSETTLED_WORK_STATUSES.some(status => status === item.status)) throw new Error('此事项已结束。');
       const stopped = await repo.update(id, { status: 'stopped', progress: '本人要求停止；已完成的外部操作保留' });
       this.deps.track(stopped!);
-      try { if (item.status === 'running') this.deps.interrupt(item); }
+      try { if (item.status === 'running' || item.status === 'needs_reconciliation') this.deps.interrupt(item); }
       finally { await this.fillSlots(); }
     });
   }

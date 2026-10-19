@@ -115,6 +115,21 @@ describe('公开 runtime 执行归属与恢复', () => {
     await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('input')).status).toBe('rejected'));
     expect((await f.rt.repos.inbox.get('input')).error).toContain('并发已满'); expect(send).not.toHaveBeenCalled();
   });
+  it.each(['stop', 'archive'])('待核对输入可由本人明确 %s 结清并释放工作区', async action => {
+    const f = await setup({ mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }, { env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'secret' } });
+    const local = f.agents.get(await f.rt.openLocalSession()); const task = await f.rt.delegate({ worker: 'memo', title: '保存', instruction: '保存' }, local);
+    await f.rt.repos.messageRoutes.record('original', { kind: 'workitem', workItemId: task.workId });
+    vi.spyOn(f.ctx.subagents, 'sendMessage').mockRejectedValue(new Error('reply lost')); const interrupt = vi.spyOn(f.ctx.subagents, 'interrupt');
+    await f.rt.getTransport().inject({ eventId: 'input', kind: 'message', appId: 'app', senderOpenId: 'owner', chatType: 'p2p', text: '补充', parentMessageId: 'original' });
+    await vi.waitFor(async () => expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('needs_reconciliation'));
+    expect((await f.rt.maintenanceArchiveCheck()).runningWork.some(row => row.id === task.workId)).toBe(true);
+    await expect(f.rt.control({ action: 'continue', workId: task.workId }, local)).rejects.toThrow(/核对/);
+    if (action === 'stop') await f.rt.control({ action: 'stop', workId: task.workId }, local);
+    else await f.rt.maintenanceArchiveExecute({ confirmStop: true });
+    expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('stopped');
+    expect((await f.rt.repos.inbox.get('input')).status).toBe('rejected'); expect(interrupt).toHaveBeenCalled();
+    await f.rt.bind(await f.workspace('b'));
+  });
   it('宿主接纳未知且本地诊断写失败，仍保留 admitted 而不假装拒绝', async () => {
     const f = await setup({ mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }, { env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'secret' } });
     const local = f.agents.get(await f.rt.openLocalSession()); const task = await f.rt.delegate({ worker: 'memo', title: '保存', instruction: '保存' }, local);

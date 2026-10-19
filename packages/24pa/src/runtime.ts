@@ -1,3 +1,4 @@
+import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
 import { randomUUID, createHash } from 'node:crypto';
@@ -805,7 +806,7 @@ export class PaRuntime {
   /** After a restart, re-attach the in-memory role map from the durable ledger. */
   private async restoreActiveWork(): Promise<void> {
     if (!this.repos) return;
-    const active = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 100);
+    const active = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 100);
     for (const item of active) this.trackWorkItem(item);
   }
 
@@ -865,7 +866,7 @@ export class PaRuntime {
       next.accessSessionId = await this.prepareOwnedSession('feishu', next);
       next.localSessionId = await this.prepareOwnedSession('local', next);
       await repos.workspaceState.save(real, { feishuSessionId: next.accessSessionId, localSessionId: next.localSessionId });
-      active = await repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 100);
+      active = await repos.workItems.list(UNSETTLED_WORK_STATUSES, 100);
       await InboxLifecycle.recover(repos.inbox, async row => {
         await repos.outbox.enqueue({
           dedupKey: `reconcile:${row.event_id}`, channel: 'feishu',
@@ -1108,7 +1109,7 @@ export class PaRuntime {
   private async hasActiveWork(): Promise<boolean> {
     if (!this.repos) return false;
     let count = 0;
-    for (const status of ['accepted', 'queued', 'running', 'waiting_input'] as const) {
+    for (const status of UNSETTLED_WORK_STATUSES) {
       count += await this.repos.workItems.countByStatus(status);
     }
     return count > 0;
@@ -1696,7 +1697,7 @@ export class PaRuntime {
         if (!note) throw new Error(`笔记 ${args.noteId} 不存在；请先用飞书拍照发送手写页。`);
         if (note.work_item_id) {
           const existing = await this.repos!.workItems.get(note.work_item_id);
-          if (existing && ['accepted', 'queued', 'running', 'waiting_input'].includes(existing.status)) {
+          if (existing && UNSETTLED_WORK_STATUSES.some(status => status === existing.status)) {
             throw new Error(`这页笔记已有进行中的事项（${note.work_item_id}）；请查看或继续原事项，不要重复委派。`);
           }
         }
@@ -3003,7 +3004,7 @@ export class PaRuntime {
   async maintenanceArchiveCheck(): Promise<unknown> {
     return this.executions.run(async () => {
       if (!this.repos) throw new Error('业务账本未就绪。');
-      const running = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 50);
+      const running = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 50);
       // Native schedules are inventoried from our durable plan rows (every
       // schedule the plugin creates is mirrored there with its schedule_id);
       // dsh's own archive gate remains the authoritative blocker.
@@ -3042,7 +3043,7 @@ export class PaRuntime {
       const stopRules = args.stopRules === true;
       const failures: string[] = [];
       // 1. Stop running work (user-stopped items never resurrect).
-      const running = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 50);
+      const running = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 50);
       for (const item of running) {
         await this.workLifecycle.stop(item.id);
         await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '归档前按本人指令停止，补充输入不再续办。');

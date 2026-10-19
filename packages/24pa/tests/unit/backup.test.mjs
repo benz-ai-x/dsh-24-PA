@@ -28,6 +28,8 @@ async function fixture() {
   await writeFile(join(sources.attachments, 'image.bin'), 'image');
   await writeFile(join(sources.storages, 'schedule.json'), '[]');
   await writeFile(join(sources.stateDirectory, 'host.lock'), 'stale pid');
+  await mkdir(join(sources.stateDirectory, 'host.lock.d'));
+  await writeFile(join(sources.stateDirectory, 'host.lock.d/owner-test.json'), 'live owner');
   const db = new SqliteDb(join(root, 'ledger.db'));
   await db.migrate();
   cleanup.push(() => db.close());
@@ -46,6 +48,7 @@ describe('workspace backup recovery coverage', () => {
     await expect(readFile(join(restore, '.24pa/secrets.json'))).rejects.toThrow();
     await expect(readFile(join(restore, '.24pa/secrets.json.pa24-tmp'))).rejects.toThrow();
     await expect(readFile(join(result.backupDir, 'dsh-state/host.lock'))).rejects.toThrow();
+    await expect(readFile(join(result.backupDir, 'dsh-state/host.lock.d/owner-test.json'))).rejects.toThrow();
     expect(await readFile(join(result.backupDir, 'sessions/session.jsonl'), 'utf8')).toContain('turn');
     const restored = new SqliteDb(join(result.backupDir, 'pa24.db'));
     try { expect(await restored.schemaVersion()).toBe(await f.db.schemaVersion()); } finally { await restored.close(); }
