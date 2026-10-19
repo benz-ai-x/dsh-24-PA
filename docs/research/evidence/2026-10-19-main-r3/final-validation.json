@@ -1,0 +1,146 @@
+{
+  "implementationCommit": "603e06471cc2846409a68e35128bc9a627e150ef",
+  "date": "2026-10-19",
+  "hostSourceCommit": "1600d8a1e140dcde43a1a0941940a0480712c011",
+  "review": {
+    "Standards": 0,
+    "Spec": 0
+  },
+  "logs": [
+    {
+      "log": "/tmp/pa24-r3-implementation/final-build-603e.log",
+      "sha256": "ab55ded88595b9fb146dcfeb707919c13b52019e91ef4fecd624dbdc7ec87dce",
+      "exitCode": 0,
+      "summary": [],
+      "testFiles": []
+    },
+    {
+      "log": "/tmp/pa24-r3-implementation/final-preset-603e.log",
+      "sha256": "c8c9436ceb89cc124757b6efcd55366f034783cd03d1ab893f5e60027cdf7e2f",
+      "exitCode": 0,
+      "summary": [],
+      "testFiles": []
+    },
+    {
+      "log": "/tmp/pa24-r3-implementation/final-unit-603e.log",
+      "sha256": "947097d926a45c4ca4a0854ae6e9b42d6b44e6e8d92f49e578c2bfc0ea35a8ea",
+      "exitCode": 0,
+      "summary": [
+        "Test Files  48 passed (48)",
+        "Tests  648 passed (648)",
+        "Start at  17:15:20",
+        "Duration  183.52s (transform 288ms, setup 0ms, collect 2.33s, tests 176.98s, environment 3ms, prepare 892ms)"
+      ],
+      "testFiles": [
+        "✓ tests/unit/channel-reliability.test.mjs (41 tests) 18038ms",
+        "✓ tests/unit/followup-lifecycle.test.mjs (64 tests) 49527ms",
+        "✓ tests/unit/digest-reliability.test.mjs (50 tests) 1163ms",
+        "✓ tests/unit/client.test.mjs (14 tests) 12ms",
+        "✓ tests/unit/runtime-ownership.test.mjs (16 tests) 1037ms",
+        "✓ tests/unit/knowledge-actions.test.mjs (26 tests) 46058ms",
+        "✓ tests/unit/memory.test.mjs (26 tests) 59ms",
+        "✓ tests/unit/workspace-activation.test.mjs (14 tests) 929ms",
+        "✓ tests/unit/note-publication-recovery.test.mjs (20 tests) 19688ms",
+        "✓ tests/unit/transport-activation.test.mjs (11 tests) 643ms",
+        "✓ tests/unit/plan-lifecycle.test.mjs (30 tests) 919ms",
+        "✓ tests/unit/config-editor.test.mjs (11 tests) 403ms",
+        "✓ tests/unit/config.test.mjs (19 tests) 13ms",
+        "✓ tests/unit/handwriting.test.mjs (12 tests) 5ms",
+        "✓ tests/unit/skills.test.mjs (12 tests) 4ms",
+        "✓ tests/unit/prompts.test.mjs (18 tests) 10ms",
+        "✓ tests/unit/meeting-source.test.mjs (9 tests) 99ms",
+        "✓ tests/unit/plan-panel.test.mjs (9 tests) 286ms",
+        "✓ tests/unit/sqlite.test.mjs (25 tests) 27ms",
+        "✓ tests/unit/runtime-channels.test.mjs (5 tests) 2302ms",
+        "✓ tests/unit/digest-service.test.mjs (8 tests) 11ms",
+        "✓ tests/unit/planning-adoption.test.mjs (20 tests) 21580ms",
+        "✓ tests/unit/note-trust.test.mjs (12 tests) 26ms",
+        "✓ tests/unit/work-tool-schema.test.mjs (23 tests) 9ms",
+        "✓ tests/unit/feishu-setup.test.mjs (11 tests) 2ms",
+        "✓ tests/unit/backup.test.mjs (5 tests) 109ms",
+        "✓ tests/unit/wecom.test.mjs (9 tests) 2397ms",
+        "✓ tests/unit/work-item-lifecycle.test.mjs (12 tests) 791ms",
+        "✓ tests/unit/lock.test.mjs (9 tests) 116ms",
+        "✓ tests/unit/daily-planning.test.mjs (7 tests) 9ms",
+        "✓ tests/unit/repo.test.mjs (15 tests) 1510ms",
+        "✓ tests/unit/extra-tools.test.mjs (11 tests) 2ms",
+        "✓ tests/unit/cli-gateway.test.mjs (8 tests) 2411ms",
+        "✓ tests/unit/skill-delegation.test.mjs (3 tests) 38ms",
+        "✓ tests/unit/tts.test.mjs (7 tests) 5ms",
+        "✓ tests/unit/preset-sync.test.mjs (5 tests) 5ms",
+        "✓ tests/unit/note-document.test.mjs (8 tests) 3807ms",
+        "✓ tests/unit/reminder-panel.test.mjs (2 tests) 68ms",
+        "✓ tests/unit/local-tool-access.test.mjs (7 tests) 4ms",
+        "✓ tests/unit/lark.test.mjs (6 tests) 1936ms",
+        "✓ tests/unit/secrets.test.mjs (4 tests) 4ms",
+        "✓ tests/unit/digest-trigger.test.mjs (5 tests) 2ms",
+        "✓ tests/unit/note-collection.test.mjs (7 tests) 62ms",
+        "✓ tests/unit/panel-rpc.test.mjs (4 tests) 2ms",
+        "✓ tests/unit/wecom-channels.test.mjs (3 tests) 4ms",
+        "✓ tests/unit/handwriting-pipeline.test.mjs (3 tests) 2ms",
+        "✓ tests/unit/pg-backup.test.mjs (1 test) 849ms",
+        "✓ tests/unit/wecom-setup.test.mjs (1 test) 1ms"
+      ]
+    },
+    {
+      "log": "/tmp/pa24-r3-implementation/final-sqlite-603e.log",
+      "sha256": "842b8d4dde39921157be336c155321fbd4ebd8ee70b81f869abdde02a93f1181",
+      "exitCode": 0,
+      "summary": [
+        "Test Files  17 passed (17)",
+        "Tests  83 passed (83)",
+        "Start at  17:15:21",
+        "Duration  376.65s (transform 91ms, setup 0ms, collect 282ms, tests 374.83s, environment 1ms, prepare 337ms)"
+      ],
+      "testFiles": [
+        "✓ tests/e2e/f09.e2e.mjs (8 tests) 49603ms",
+        "✓ tests/e2e/f06.e2e.mjs (8 tests) 28877ms",
+        "✓ tests/e2e/f07.e2e.mjs (6 tests) 46036ms",
+        "✓ tests/e2e/f08.e2e.mjs (6 tests) 86299ms",
+        "✓ tests/e2e/f10.e2e.mjs (3 tests) 79275ms",
+        "✓ tests/e2e/f02.e2e.mjs (5 tests) 10736ms",
+        "✓ tests/e2e/f16.e2e.mjs (4 tests) 9822ms",
+        "✓ tests/e2e/f12.e2e.mjs (3 tests) 6796ms",
+        "✓ tests/e2e/f11.e2e.mjs (3 tests) 11749ms",
+        "✓ tests/e2e/f04.e2e.mjs (4 tests) 7755ms",
+        "✓ tests/e2e/f05.e2e.mjs (7 tests) 9377ms",
+        "✓ tests/e2e/f01.e2e.mjs (7 tests) 11164ms",
+        "✓ tests/e2e/f03.e2e.mjs (3 tests) 6183ms",
+        "✓ tests/e2e/f13.e2e.mjs (5 tests) 3718ms",
+        "✓ tests/e2e/f33.e2e.mjs (5 tests) 1377ms",
+        "✓ tests/e2e/f22.e2e.mjs (4 tests) 3382ms",
+        "✓ tests/e2e/f15.e2e.mjs (2 tests) 2684ms"
+      ]
+    },
+    {
+      "log": "/tmp/pa24-r3-implementation/final-postgres-603e.log",
+      "sha256": "989a1e61e4751d1661bca70abed65e73c64dbd21b02d59b0a3645faa5fec7137",
+      "exitCode": 0,
+      "summary": [
+        "Test Files  17 passed (17)",
+        "Tests  83 passed (83)",
+        "Start at  17:15:21",
+        "Duration  378.03s (transform 89ms, setup 0ms, collect 257ms, tests 376.24s, environment 1ms, prepare 337ms)"
+      ],
+      "testFiles": [
+        "✓ tests/e2e/f09.e2e.mjs (8 tests) 48948ms",
+        "✓ tests/e2e/f06.e2e.mjs (8 tests) 28948ms",
+        "✓ tests/e2e/f07.e2e.mjs (6 tests) 45588ms",
+        "✓ tests/e2e/f08.e2e.mjs (6 tests) 86519ms",
+        "✓ tests/e2e/f10.e2e.mjs (3 tests) 79727ms",
+        "✓ tests/e2e/f02.e2e.mjs (5 tests) 10952ms",
+        "✓ tests/e2e/f16.e2e.mjs (4 tests) 10077ms",
+        "✓ tests/e2e/f12.e2e.mjs (3 tests) 7760ms",
+        "✓ tests/e2e/f11.e2e.mjs (3 tests) 11965ms",
+        "✓ tests/e2e/f04.e2e.mjs (4 tests) 8516ms",
+        "✓ tests/e2e/f05.e2e.mjs (7 tests) 9208ms",
+        "✓ tests/e2e/f01.e2e.mjs (7 tests) 10550ms",
+        "✓ tests/e2e/f03.e2e.mjs (3 tests) 6336ms",
+        "✓ tests/e2e/f13.e2e.mjs (5 tests) 3737ms",
+        "✓ tests/e2e/f33.e2e.mjs (5 tests) 1378ms",
+        "✓ tests/e2e/f22.e2e.mjs (4 tests) 3381ms",
+        "✓ tests/e2e/f15.e2e.mjs (2 tests) 2650ms"
+      ]
+    }
+  ]
+}
