@@ -156,10 +156,11 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     const changed = { ...clarification, resolved: { ...resolved, summary: '联系李工', ...(kind === 'task' ? { due: '2026-11-02' } : { start: '2026-11-02T02:00:00Z', end: '2026-11-02T03:00:00Z' }) } };
     const competing = await Promise.all([
       f.rt.work({ ...action, clarifications: [clarification] }, child),
-      f.rt.work({ ...action, clarifications: [changed] }, child),
+      f.rt.work({ ...action, versionId: undefined, clarifications: [changed] }, child),
+      f.rt.work({ ...action, versionId: '', clarifications: [changed] }, child),
     ]);
     expect(competing[0]).toMatchObject({ executed: 0, failed: 1 }); expect(competing[0].results[0].error).toContain('local projection failed');
-    expect(competing[1]).toMatchObject({ executed: 0, failed: 1 }); expect(competing[1].results[0].error).toContain('不能在重试中改写');
+    for (const attempt of competing.slice(1)) { expect(attempt).toMatchObject({ executed: 0, failed: 1 }); expect(attempt.results[0].error).toContain('不能在重试中改写'); }
     const channelKey = kind === 'task' ? 'todoChannel' : 'calendarChannel'; f.rt.config[channelKey] = channel === 'feishu' ? 'wecom' : 'feishu';
     expect((await f.rt.work(action, child)).results[0].error).toContain('当前配置已改变'); f.rt.config[channelKey] = channel;
     expect(await f.rt.work({ ...action, instruction: '按原授权恢复' }, child)).toMatchObject({ executed: 1, failed: 0 });

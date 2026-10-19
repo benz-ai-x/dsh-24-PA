@@ -2897,16 +2897,16 @@ export class PaRuntime {
    * version must be approved AND still match the live document.
    */
   private noteAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    return this.gate(`note-actions:${args.noteId}:${args.versionId}`, () => this.adoptNoteActions(item, args));
+    return this.gate(`note-actions:${String(args.noteId ?? '')}`, () => this.adoptNoteActions(item, args));
   }
 
   private async adoptNoteActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const noteId = String(args.noteId ?? '');
     const note = await this.repos!.notes.getNote(noteId);
     if (!note) throw new Error('笔记不存在。');
-    const versionId = String(args.versionId ?? '');
-    const trust = await this.handwriting.inspectTrust(noteId, versionId);
+    const trust = await this.handwriting.inspectTrust(noteId, String(args.versionId ?? ''));
     const version = trust.version;
+    const versionId = version.id;
     const instruction = String(args.instruction ?? '').trim();
     if (!instruction) throw new Error('执行笔记行动需要本人明确的指令依据（instruction）；审核通过不等于行动授权。');
     if (version.status !== 'approved') {
