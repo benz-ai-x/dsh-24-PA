@@ -133,6 +133,13 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     expect(changes).toHaveLength(0); expect((await repos.calendar.findEvent(created.eventId)).summary).toBe(before.summary);
   });
 
+  it('原生日历结构化回执时间优先于请求精度，后续同步不误判改期', async () => {
+    const args = { summary: '会议', start: '2026-10-21T01:00:00.987Z', end: '2026-10-21T02:00:00.987Z', timeZone: 'Asia/Shanghai' };
+    const channel = new FeishuChannels({ ...deps(larkBin), performExternal: async () => ({ data: { event: { event_id: 'native-time', summary: '[24PA] 会议', start_time: { timestamp: String(Math.floor(Date.parse(args.start) / 1000)), timezone: 'Asia/Shanghai' }, end_time: { timestamp: String(Math.floor(Date.parse(args.end) / 1000)), timezone: 'Asia/Shanghai' } } } }) });
+    await channel.calendarWrite(item, 'create', args);
+    expect((await repos.calendar.findEvent('native-time')).start_time.toISOString()).toBe('2026-10-21T01:00:00.000Z');
+  });
+
   it('计划投入与估时修改有独立操作身份，并且不调用空的远端 update', async () => {
     const created = await lark.taskCreate(item, { summary: '写报告' });
     await lark.taskUpdate(item, { guid: created.guid, estimateMinutes: 20 });
