@@ -148,6 +148,10 @@ export class NoteRepo {
     return { inserted: true, row: result.rows[0]! };
   }
 
+  async savedPageForMessage(messageId: string): Promise<NotePageRow | null> {
+    return (await this.db.query<NotePageRow>("select * from pa24.note_page where message_id = $1 and status = 'saved' order by created_at limit 1", [messageId])).rows[0] ?? null;
+  }
+
   async getPage(noteId: string, pageNo: number): Promise<NotePageRow | null> {
     const result = await this.db.query<NotePageRow>('select * from pa24.note_page where note_id = $1 and page_no = $2', [noteId, pageNo]);
     return result.rows[0] ?? null;

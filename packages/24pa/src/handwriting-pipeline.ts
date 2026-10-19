@@ -44,6 +44,14 @@ export class HandwritingPipeline {
     this.trust = new TrustedNotes(() => this.deps.repos().notes, this.reader);
   }
 
+  private readonly pending = new Map<string, Promise<unknown>>();
+  private serial<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const next = (this.pending.get(key) ?? Promise.resolve()).catch(() => {}).then(work);
+    this.pending.set(key, next);
+    void next.finally(() => { if (this.pending.get(key) === next) this.pending.delete(key); }).catch(() => {});
+    return next;
+  }
+
   inspectTrust(noteId: string, versionId?: string): Promise<NoteTrustResult> {
     return this.trust.inspect(noteId, versionId);
   }
@@ -78,7 +86,18 @@ export class HandwritingPipeline {
    * bytes + hash under the workspace, page order tracked in PG, owner ack
    * message routed back to the note so replies append pages to it.
    */
-  async collectNotePage(inboxEventId: string, event: InboundEvent, noteId: string | null): Promise<void> {
+  collectNotePage(inboxEventId: string, event: InboundEvent, noteId: string | null): Promise<void> {
+    return this.serial(`message:${event.messageId ?? event.eventId}`, () =>
+      noteId ? this.serial(`note:${noteId}`, () => this.collectPage(inboxEventId, event, noteId)) : this.collectPage(inboxEventId, event, noteId));
+  }
+
+  private async acknowledgePage(inboxEventId: string, page: NotePageRow): Promise<void> {
+    await this.deps.notifyOwner(`noteack:${page.note_id}:p${page.page_no}:${page.message_id}`,
+      `已收到笔记 ${page.note_id} 第 ${page.page_no} 页原稿（${page.media_type}，${page.byte_size} 字节，sha256 ${page.sha256.slice(0, 16)}…，${page.source_type === 'file' ? '文件原图' : '平台图片，可能已压缩'}）。收集中可回复本条消息追加图片；整理识别请回复“整理这份笔记”，或说“结束这批笔记”。`);
+    await this.deps.repos().inbox.mark(inboxEventId, { status: 'delivered', requestId: `note:${page.note_id}:p${page.page_no}` });
+  }
+
+  private async collectPage(inboxEventId: string, event: InboundEvent, noteId: string | null): Promise<void> {
     const config = this.deps.config();
     if (config.mode !== 'feishu' || !this.deps.transport()) {
       await this.deps.notifyOwner(`noteinfo:${event.eventId}`, '手写笔记收集需要 feishu 模式与已启动的飞书连接。');
@@ -110,10 +129,13 @@ export class HandwritingPipeline {
       await this.deps.notifyOwner(`noteinfo:${event.eventId}`, notifyText);
       await this.deps.repos().inbox.mark(inboxEventId, { status: 'rejected', error: reason });
     };
+    let savedPage: NotePageRow | null = null;
     try {
+      savedPage = await this.deps.repos().notes.savedPageForMessage(event.messageId);
+      if (savedPage) { await this.acknowledgePage(inboxEventId, savedPage); return; }
       if (noteId) {
         const current = await this.deps.repos().notes.getNote(noteId);
-        if (current?.status === 'collected') {
+        if (current && current.status !== 'collecting') {
           await this.deps.notifyOwner(`noteinfo:${event.eventId}`, `笔记 ${noteId} 的批次已结束，不再追加页；如需补充请发新笔记。`);
           await this.deps.repos().inbox.mark(inboxEventId, { status: 'rejected', error: '批次已结束' });
           return;
@@ -164,7 +186,7 @@ export class HandwritingPipeline {
       const storagePath = join(dir, `p${nextNo}-${sha.slice(0, 12)}.${extensionOf(mediaType)}`);
       await (await import('node:fs/promises')).writeFile(storagePath, bytes, { mode: 0o600 });
       this.deps.usage.notePagesInput += 1;
-      await this.deps.repos().notes.insertPage({
+      savedPage = (await this.deps.repos().notes.insertPage({
         note_id: note.id,
         page_no: nextNo,
         message_id: String(event.messageId),
@@ -176,19 +198,16 @@ export class HandwritingPipeline {
         source_type: resourceType,
         quality: null,
         status: 'saved',
-      });
-      // The ack message carries the route back to this note: replying with
-      // another photo appends the next page; replying with text reaches Lead.
-      await this.deps.notifyOwner(
-        `noteack:${note.id}:p${nextNo}:${event.eventId}`,
-        `已收到笔记 ${note.id} 第 ${nextNo} 页原稿（${mediaType}，${bytes.length} 字节，sha256 ${sha.slice(0, 16)}…，${resourceType === 'file' ? '文件原图' : '平台图片，可能已压缩'}）。继续拍下一页请直接回复本条消息再发图；整理识别请回复“整理这份笔记”，或说“结束这批笔记”。`,
-      );
-      await this.deps.repos().inbox.mark(inboxEventId, { status: 'delivered', requestId: `note:${note.id}:p${nextNo}` });
+      })).row;
+      await this.acknowledgePage(inboxEventId, savedPage);
     } catch (error) {
-      // Download interrupted: nothing durable was written; a re-send retries.
+      if (savedPage) {
+        throw new Error(`原稿已保存为 ${savedPage.note_id} 第 ${savedPage.page_no} 页，但回执登记未完成：${(error as Error).message}；重试只补回执，不会重复保存。`);
+      }
+      // No page was committed; report the actual collection failure.
       await this.deps.notifyOwner(
         `noteinfo:${event.eventId}`,
-        `原稿下载未完成（${(error as Error).message}）；笔记记录未保存该页，请重新发送这张图片。`,
+        `原稿收集未完成（${(error as Error).message}）；笔记记录未保存该页，请重新发送这张图片。`,
       );
       await this.deps.repos().inbox.mark(inboxEventId, { status: 'rejected', error: `原稿下载失败：${(error as Error).message}` });
     }
@@ -817,7 +836,7 @@ export class HandwritingPipeline {
       if (!noteId) throw new Error('需要 noteId。');
       return this.verifyNote(noteId);
     }
-    if (action === 'finish') {
+    if (action === 'finish') return this.serial(`note:${noteId}`, async () => {
       if (!noteId) throw new Error('需要 noteId。');
       const note = await notes.getNote(noteId);
       if (!note) throw new Error('笔记不存在。');
@@ -826,7 +845,7 @@ export class HandwritingPipeline {
       if (pages.length === 0) throw new Error('该笔记还没有已保存原稿，不能结束为可整理批次。');
       await notes.updateNote(noteId, { status: 'collected' });
       return { noteId, status: 'collected', pages: pages.length, message: `批次已结束（共 ${pages.length} 页）；现在可以委派 handwriting 整理，之后不再追加页。` };
-    }
+    });
     if (action === 'remind') {
       if (!noteId) throw new Error('需要 noteId。');
       const latest = await notes.latestVersion(noteId);
