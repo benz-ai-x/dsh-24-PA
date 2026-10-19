@@ -26,7 +26,7 @@ export interface FeishuDeps extends SharedChannelDeps {
 
 // ---- remote-shape mappers (moved from runtime.ts; pure, Feishu-CLI shaped) ----
 
-export function mapRemoteEvent(raw: any, defaultTimezone = 'Asia/Shanghai'): { eventId: string; summary: string; start: Date; end: Date; isAllDay: boolean; timezone: string | null; canceled: boolean; recurring: boolean; attendees: unknown; url: string | null } | null {
+export function mapRemoteEvent(raw: any, defaultTimezone = 'Asia/Shanghai', endDateMode: 'inclusive' | 'exclusive' = 'inclusive'): { eventId: string; summary: string; start: Date; end: Date; isAllDay: boolean; timezone: string | null; canceled: boolean; recurring: boolean; attendees: unknown; url: string | null } | null {
   const eventId = String(raw?.event_id ?? raw?.eventId ?? raw?.id ?? '');
   const summary = String(raw?.summary ?? raw?.title ?? '');
   const rawStart = raw?.start_time ?? raw?.start ?? raw?.startTime;
@@ -39,7 +39,7 @@ export function mapRemoteEvent(raw: any, defaultTimezone = 'Asia/Shanghai'): { e
     return new Date(String(value?.datetime ?? value ?? ''));
   };
   let start: Date, end: Date;
-  try { start = parse(rawStart); end = parse(rawEnd, dateOnly); } catch { return null; }
+  try { start = parse(rawStart); end = parse(rawEnd, dateOnly && endDateMode === 'inclusive'); } catch { return null; }
   if (!eventId || !(start < end)) return null;
   return {
     eventId,
@@ -188,7 +188,7 @@ export class FeishuChannels {
         // Merge with the prior projection and the platform receipt; never
         // fabricate times that neither the request nor the receipt provided.
         const prior = await this.deps.repos().calendar.findEvent(newEventId);
-        const receiptEvent = mapRemoteEvent({ ...event, event_id: newEventId }, String(args.timeZone ?? this.deps.config().timeZone));
+        const receiptEvent = mapRemoteEvent({ ...event, event_id: newEventId }, String(args.timeZone ?? prior?.timezone ?? this.deps.config().timeZone), 'exclusive');
         const startTime = receiptEvent?.start ?? start ?? prior?.start_time;
         const endTime = receiptEvent?.end ?? end ?? prior?.end_time;
         if (!startTime || !endTime) {
