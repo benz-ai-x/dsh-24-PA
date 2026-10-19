@@ -27,6 +27,11 @@ export interface NewInbox {
 export class InboxRepo {
   constructor(private readonly db: PaDb) {}
 
+  async hasUnsettled(): Promise<boolean> {
+    const result = await this.db.query(`select event_id from pa24.inbox where status in ('received', 'processing', 'admitted') limit 1`);
+    return result.rows.length > 0;
+  }
+
   /** Insert once; platform redelivery returns the original row untouched. */
   async insert(row: NewInbox): Promise<{ inserted: boolean; row: InboxRow }> {
     const result = await this.db.query<InboxRow>(

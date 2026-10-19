@@ -8,7 +8,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootHost } from '../helpers/host.mjs';
 
-let host, root, workspace, agentsMd;
+let host, root, workspace, agentsMd, workspaceBinding;
 
 const readAgents = () => readFile(join(workspace, 'AGENTS.md'), 'utf8');
 const proseOf = source => source.replace(/^```json\s*\n[\s\S]*?^```\s*$/gm, '<CFG>');
@@ -37,6 +37,7 @@ beforeAll(async () => {
     },
   });
   await host.waitUntil(s => s.workspace?.config, { label: '配置加载' });
+  workspaceBinding = (await host.api('snapshot', {})).workspaceBinding;
 }, 180_000);
 
 afterAll(async () => {
@@ -47,7 +48,7 @@ afterAll(async () => {
 describe('F33 参数配置表单（真实 Loader + 面板 API）', () => {
   it('合法补丁：落盘、规则区逐字节不变、重载生效', async () => {
     const before = await readAgents();
-    const snap = await host.api('action', { type: 'workspace.config-update', config: { todoChannel: 'wecom', maxWorkers: 4 } });
+    const snap = await host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { todoChannel: 'wecom', maxWorkers: 4 } });
     expect(snap.workspace.config.todoChannel).toBe('wecom');
     expect(snap.workspace.config.maxWorkers).toBe(4);
     const after = await readAgents();
@@ -58,20 +59,20 @@ describe('F33 参数配置表单（真实 Loader + 面板 API）', () => {
 
   it('非法值：字段级拒绝且 AGENTS.md 未被修改', async () => {
     const before = await readAgents();
-    await expect(host.api('action', { type: 'workspace.config-update', config: { maxWorkers: 9 } })).rejects.toThrow(/maxWorkers/);
-    await expect(host.api('action', { type: 'workspace.config-update', config: { timeZone: 'Not/AZone' } })).rejects.toThrow(/timeZone/);
-    await expect(host.api('action', { type: 'workspace.config-update', config: { tts: { engine: 'volcengine', voice: '', volcKeyEnv: '', meloDir: '' } } })).rejects.toThrow(/volcKeyEnv|voice/);
-    await expect(host.api('action', { type: 'workspace.config-update', config: { todoChannel: 'dingtalk' } })).rejects.toThrow(/todoChannel/);
+    await expect(host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { maxWorkers: 9 } })).rejects.toThrow(/maxWorkers/);
+    await expect(host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { timeZone: 'Not/AZone' } })).rejects.toThrow(/timeZone/);
+    await expect(host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { tts: { engine: 'volcengine', voice: '', volcKeyEnv: '', meloDir: '' } } })).rejects.toThrow(/volcKeyEnv|voice/);
+    await expect(host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { todoChannel: 'dingtalk' } })).rejects.toThrow(/todoChannel/);
     expect(await readAgents()).toBe(before);
   });
 
   it('白名单：storage/version 拒绝走表单；F36 起密钥引用名开放编辑', async () => {
     const before = await readAgents();
-    await expect(host.api('action', { type: 'workspace.config-update', config: { storage: 'postgres' } })).rejects.toThrow(/不接受从表单更新/);
-    await expect(host.api('action', { type: 'workspace.config-update', config: { version: 2 } })).rejects.toThrow(/不接受从表单更新/);
+    await expect(host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { storage: 'postgres' } })).rejects.toThrow(/不接受从表单更新/);
+    await expect(host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { version: 2 } })).rejects.toThrow(/不接受从表单更新/);
     expect(await readAgents()).toBe(before);
     // 引用名现在可经表单改（env 为可选覆盖）；改回原值保持后续用例稳定。
-    const snap = await host.api('action', { type: 'workspace.config-update', config: { appIdEnv: 'PA24_FEISHU_APP_ID', pgDsnEnv: 'PA24_PG_DSN' } });
+    const snap = await host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { appIdEnv: 'PA24_FEISHU_APP_ID', pgDsnEnv: 'PA24_PG_DSN' } });
     expect(snap.workspace.config.appIdEnv).toBe('PA24_FEISHU_APP_ID');
     expect(proseOf(await readAgents())).toBe(proseOf(before));
     // 快照仍反映上一用例保存的合法值。
@@ -82,7 +83,7 @@ describe('F33 参数配置表单（真实 Loader + 面板 API）', () => {
   it('F36 密钥库：secret-update 只写密钥库、AGENTS.md 逐字节不变、快照状态无值、env 优先', async () => {
     const before = await readAgents();
     // 四位全设（feishuAppId 的 env 值在 bootHost 注入——验证同名 env 优先于库）。
-    const snap = await host.api('action', { type: 'workspace.secret-update', values: {
+    const snap = await host.api('action', { type: 'workspace.secret-update', workspaceBinding, values: {
       volcTtsKey: 'k-e2e-secret', feishuAppId: 'store-app-id-should-lose', feishuAppSecret: 's-e2e', pgDsn: 'dsn-e2e',
     } });
     expect(snap.secrets.feishuAppId).toEqual({ set: true, source: 'env' });
@@ -100,7 +101,7 @@ describe('F33 参数配置表单（真实 Loader + 面板 API）', () => {
     const stored = JSON.parse(await rf(storeFile, 'utf8'));
     expect(stored.volcTtsKey).toBe('k-e2e-secret');
     // 逐位清除：空串＝清该位（feishuAppId 清库后 env 仍在→仍 set:env；pgDsn→未设置）。
-    const cleared = await host.api('action', { type: 'workspace.secret-update', values: { feishuAppId: '', pgDsn: '' } });
+    const cleared = await host.api('action', { type: 'workspace.secret-update', workspaceBinding, values: { feishuAppId: '', pgDsn: '' } });
     expect(cleared.secrets.feishuAppId).toEqual({ set: true, source: 'env' });
     expect(cleared.secrets.pgDsn).toEqual({ set: false, source: null });
     const after = JSON.parse(await rf(storeFile, 'utf8'));
@@ -108,6 +109,17 @@ describe('F33 参数配置表单（真实 Loader + 面板 API）', () => {
     expect(after.pgDsn).toBeUndefined();
     expect(after.feishuAppSecret).toBe('s-e2e');
     // 未知密钥位拒绝。
-    await expect(host.api('action', { type: 'workspace.secret-update', values: { nope: 'x' } })).rejects.toThrow(/未知密钥字段/);
+    await expect(host.api('action', { type: 'workspace.secret-update', workspaceBinding, values: { nope: 'x' } })).rejects.toThrow(/未知密钥字段/);
   });
+});
+
+
+it('缺失或失效绑定身份不能写入；同路径重新绑定也使旧草稿失效', async () => {
+  const before = await readAgents();
+  await expect(host.api('action', { type: 'workspace.config-update', config: { maxWorkers: 2 } })).rejects.toThrow(/绑定标识/);
+  const rebound = await host.api('action', { type: 'workspace.bind', path: workspace });
+  expect(rebound.workspaceBinding).not.toBe(workspaceBinding);
+  await expect(host.api('action', { type: 'workspace.config-update', workspaceBinding, config: { maxWorkers: 2 } })).rejects.toThrow(/工作区已切换/);
+  await expect(host.api('action', { type: 'workspace.secret-update', workspaceBinding, values: { feishuAppSecret: 'stale' } })).rejects.toThrow(/工作区已切换/);
+  expect(await readAgents()).toBe(before);
 });
