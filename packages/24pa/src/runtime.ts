@@ -138,6 +138,7 @@ export class PaRuntime {
   private serial: Promise<unknown> = Promise.resolve();
   private readonly executions = new WorkspaceExecution();
   private builtInRoles: WorkerRoleDefinition[] = [];
+  private readonly workerParents = new Set<string>();
   private readonly executionMessages = new Map<string, { generation: number; messageId: string }>();
   private readonly sessionGates = new Map<string, Promise<unknown>>();
   private readonly inboxLifecycle = new InboxLifecycle({
@@ -683,11 +684,18 @@ export class PaRuntime {
       await this.cleanup();
       return;
     }
-    const requested = this.options.workspacePath || (await this.readSavedWorkspacePath());
-    if (requested) {
-      await this.bind(requested, true);
+    if (this.options.workspacePath) {
+      await this.bind(this.options.workspacePath, true);
     } else {
-      this.configError = '尚未选择24私助工作区目录；请在「24私助工作区」面板绑定。';
+      try {
+        const saved = await this.readSavedWorkspacePath();
+        if (saved) await this.bind(saved);
+        else this.configError = '尚未选择24私助工作区目录；请在「24私助工作区」面板绑定。';
+      } catch (error) {
+        // Recovery never creates a replacement for missing owner data. Keep the
+        // panel available so the owner can locate/rebind the original directory.
+        this.configError = `上次绑定的工作区无法恢复，请重新选择目录：${(error as Error).message}`;
+      }
     }
     if (this.closed) {
       await this.cleanup();
@@ -737,23 +745,26 @@ export class PaRuntime {
     if (this.outboxTimer) clearInterval(this.outboxTimer);
     if (this.wecomAuthTimer) clearInterval(this.wecomAuthTimer);
     try {
-      if (this.repos) {
-        const active = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 10000);
-        const parents = new Set(active.map(item => item.parent_session_id));
-        const agents: DshAgent[] = [];
-        for (const id of parents) {
-          const resolved = await this.ctx.sessionController.resolveAgent(id).catch(() => null);
-          if (resolved && !('error' in resolved)) agents.push(resolved.agent);
-        }
-        // 0.2.1-alpha.2 renames drainContinuableDescendants to drainDescendants.
-        if (agents.length > 0) {
-          const drain = this.ctx.subagents.drainDescendants ?? this.ctx.subagents.drainContinuableDescendants;
-          if (drain) await drain.call(this.ctx.subagents, agents);
-        }
-      }
+      await this.workLifecycle.idle();
+      await this.retireWorkers();
     } finally {
       await this.cleanup();
     }
+  }
+
+  /** Native execution can outlive a stopped business row. Keep its parent
+   * until the host confirms retirement, including uncertain start outcomes. */
+  private async retireWorkers(): Promise<void> {
+    const parents = new Set(this.workerParents);
+    for (const item of this.workItemByChild.values()) parents.add(item.parent_session_id);
+    const agents: DshAgent[] = [];
+    for (const id of parents) {
+      const resolved = await this.ctx.sessionController.resolveAgent(id).catch(() => null);
+      if (resolved && !('error' in resolved)) agents.push(resolved.agent);
+    }
+    const drain = this.ctx.subagents?.drainDescendants ?? this.ctx.subagents?.drainContinuableDescendants;
+    if (agents.length && drain) await this.executions.detached(() => drain.call(this.ctx.subagents, agents));
+    this.workerParents.clear();
   }
 
   /** Release every acquired resource; safe to call again after a late start(). */
@@ -867,6 +878,7 @@ export class PaRuntime {
       await this.workLifecycle.idle();
       if (this.workspace && (await this.hasActiveWork())) throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
       if (this.closed) throw new Error('24私助已停止。');
+      await this.retireWorkers();
       await this.writeRuntimeJson(join(this.options.stateDirectory, 'workspace.json'), { path: real });
     } catch (error) {
       connection?.cancel();
@@ -1271,8 +1283,10 @@ export class PaRuntime {
       if (selected) input += `\n\n任务 skill ${selected.name}：\n${selected.content}`;
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
       if ('error' in parent) throw parent.error;
+      this.workerParents.add(item.parent_session_id);
       const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }], { signal: this.lifetime.signal }));
       if (typeof messageId === 'string') this.executionMessages.set(item.id, { generation: item.recovery_gen ?? 0, messageId });
+      return typeof messageId === 'string' ? messageId : undefined;
     },
     quiesce: async item => {
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
@@ -1564,10 +1578,10 @@ export class PaRuntime {
       await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
       return;
     }
-    await this.repos!.inbox.mark(inboxEventId, { status: 'admitted', targetSession: item.child_session_id, requestId: `followup:${inboxEventId}` });
-    await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
-    const accepted = this.executionMessages.get(item.id);
-    if (accepted) await this.repos!.inbox.mark(inboxEventId, { status: 'admitted', requestId: accepted.messageId });
+    await this.inboxLifecycle.admit(item.child_session_id, inboxEventId, `followup:${inboxEventId}`, async () => {
+      const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
+      return resumed.acceptedMessageId;
+    });
   }
 
   private async submitToSession(sessionId: string, requestId: string, content: ContentBlock[], timeZone: string, inboxId: string): Promise<void> {
@@ -1628,6 +1642,9 @@ export class PaRuntime {
     const item = this.workItemByChild.get(session.id);
     if (!item) return;
     await this.workLifecycle.idle();
+    // Settle each consumed follow-up independently. A newer input can already
+    // be queued while this turn flushes, but cannot steal the earlier receipt.
+    await this.inboxLifecycle.complete(session.id, consumed.messageIds, async () => {});
     const fresh = await this.repos.workItems.get(item.id);
     if (!fresh || fresh.status !== 'running') return;
     const execution = this.executionMessages.get(fresh.id);
@@ -1644,9 +1661,6 @@ export class PaRuntime {
           : { dedupKey, channel: 'feishu', target: row.delivery.replace(/^feishu:/, ''), kind: 'text', content: { text: `「${row.title}」${failed ? '未完成' : '已完成'}：\n${result}${source}` } };
       }
     });
-    for (const row of await this.repos.inbox.listAdmitted()) {
-      if (row.target_session === session.id && row.request_id && consumed.messageIds.has(row.request_id)) await this.repos.inbox.mark(row.event_id, { status: 'delivered' });
-    }
     void this.kickOutbox();
   }
 
@@ -1826,6 +1840,7 @@ export class PaRuntime {
       },
     };
     const subagents = this.ctx.subagents;
+    this.workerParents.add(item.parent_session_id);
     let activation: any;
     if (typeof subagents.startActivation === 'function') activation = await this.executions.detached(() => subagents.startActivation!({ ...startSpec, delivery: 'parent' }));
     else if (typeof subagents.startContinuable === 'function') activation = await this.executions.detached(() => subagents.startContinuable!(startSpec));
@@ -1852,7 +1867,7 @@ export class PaRuntime {
       }
       if (args.action === 'stop') {
         if (item.status !== 'stopped') await this.workLifecycle.stop(id);
-        await repos.inbox.rejectForTarget(item.child_session_id ?? item.id, '本人要求停止事项，补充输入不再续办。');
+        await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '本人要求停止事项，补充输入不再续办。');
         return { workId: id, status: 'stopped' };
       }
       if (args.action === 'continue') {
@@ -2583,8 +2598,17 @@ export class PaRuntime {
   // ---- daily planning & recurring digests (F09) -------------------------------
 
   private nativeSchedule(): NativeScheduleService | null {
-    const service = this.ctx.get('schedule');
-    return service && typeof service.create === 'function' ? (service as NativeScheduleService) : null;
+    const service = this.ctx.get('schedule') as NativeScheduleService | null;
+    if (!service || typeof service.create !== 'function') return null;
+    // Native schedule mutations start future host timers. They must not carry
+    // the creating tool's lease into a later Lead/Worker turn.
+    return {
+      create: (...args) => this.executions.detached(() => service.create(...args)),
+      delete: request => this.executions.detached(() => service.delete(request)),
+      history: request => this.executions.detached(() => service.history(request)),
+      ...(service.update ? { update: (request: Parameters<NonNullable<NativeScheduleService['update']>>[0]) => this.executions.detached(() => service.update!(request)) } : {}),
+      ...(service.catalog ? { catalog: () => this.executions.detached(() => service.catalog!()) } : {}),
+    };
   }
 
   // ---- meeting prep & minutes (F10) -------------------------------------------
@@ -3021,7 +3045,7 @@ export class PaRuntime {
       const running = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 50);
       for (const item of running) {
         await this.workLifecycle.stop(item.id);
-        await this.repos.inbox.rejectForTarget(item.child_session_id ?? item.id, '归档前按本人指令停止，补充输入不再续办。');
+        await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '归档前按本人指令停止，补充输入不再续办。');
       }
       // 2. Dispose native schedules with readback. Without the schedule service
       // the mirror must NOT claim disposal — that would be a silent divergence.

@@ -9,7 +9,7 @@ export class WorkItemLifecycle {
   constructor(private readonly deps: {
     repo: () => WorkItemRepo; maxWorkers: () => number; available: () => boolean;
     start: (item: WorkItemRow) => Promise<void>;
-    resume: (item: WorkItemRow, input: string) => Promise<void>;
+    resume: (item: WorkItemRow, input: string) => Promise<string | void>;
     interrupt: (item: WorkItemRow) => void;
     quiesce?: (item: WorkItemRow) => Promise<void>;
     track: (item: WorkItemRow) => void;
@@ -49,7 +49,7 @@ export class WorkItemLifecycle {
     }
   }
 
-  resume(id: string, input: string, supplement = false): Promise<WorkItemRow> {
+  resume(id: string, input: string, supplement = false): Promise<WorkItemRow & { acceptedMessageId?: string }> {
     return this.gate(async () => {
       if (!this.deps.available()) throw new Error('事项调度尚未就绪。');
       const repo = this.deps.repo();
@@ -65,13 +65,14 @@ export class WorkItemLifecycle {
       }
       const running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待 Worker 处理' : '继续处理' });
       this.deps.track(running!);
-      try { await this.deps.resume(running!, input); }
+      let acceptedMessageId: string | void;
+      try { acceptedMessageId = await this.deps.resume(running!, input); }
       catch (error) {
         const restored = await repo.update(id, { status: item.status, progress: `继续输入未送达：${(error as Error).message}` });
         this.deps.track(restored!);
         throw error;
       }
-      return running!;
+      return { ...running!, ...(typeof acceptedMessageId === 'string' ? { acceptedMessageId } : {}) };
     });
   }
 

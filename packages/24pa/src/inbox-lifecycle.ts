@@ -42,12 +42,18 @@ export class InboxLifecycle {
       if (!rows.length) return;
       for (const row of rows) {
         try { await this.deps.process(row); }
-        catch (error) { await repo.mark(row.event_id, { status: 'rejected', error: (error as Error).message }); }
+        catch (error) {
+          const admitted = (await repo.get(row.event_id))?.status === 'admitted';
+          const status = admitted && (error as { outcome?: string }).outcome !== 'rejected' ? 'admitted' : 'rejected';
+          // Local bookkeeping failure after acceptance never makes an input
+          // retryable. The persisted intent and in-memory identity survive.
+          await repo.mark(row.event_id, { status, error: (error as Error).message }).catch(() => {});
+        }
       }
     }
   }
 
-  async admit(sessionId: string, inboxId: string, requestId: string, submit: () => Promise<void>): Promise<void> {
+  async admit(sessionId: string, inboxId: string, requestId: string, submit: () => Promise<string | void>): Promise<void> {
     const repo = this.deps.repo()!;
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
@@ -60,13 +66,21 @@ export class InboxLifecycle {
       const reply = { inboxId, requestId };
       queue.push(reply);
       this.replies.set(sessionId, queue);
-      try { await submit(); }
+      try {
+        const acceptedMessageId = await submit();
+        if (typeof acceptedMessageId === 'string') {
+          // Keep the host identity before any fallible local write. A later
+          // consumed-turn receipt can repair this write without resending.
+          reply.requestId = acceptedMessageId;
+          await repo.mark(inboxId, { status: 'admitted', requestId: acceptedMessageId });
+        }
+      }
       catch (error) {
         if ((error as { outcome?: string }).outcome === 'rejected') {
           queue.splice(queue.indexOf(reply), 1);
           throw error;
         }
-        await repo.mark(inboxId, { status: 'admitted', error: `宿主接纳待核对，不能自动重发：${(error as Error).message}` });
+        await repo.mark(inboxId, { status: 'admitted', requestId: reply.requestId, error: `宿主接纳待核对，不能自动重发：${(error as Error).message}` }).catch(() => {});
       }
     } finally {
       this.admissions.delete(sessionId);
@@ -81,10 +95,16 @@ export class InboxLifecycle {
       if (pending.finish || !requestIds.has(pending.requestId)) continue;
       pending.finish = async () => {
         await deliver(pending.inboxId);
-        await repo.mark(pending.inboxId, { status: error ? 'rejected' : 'delivered', error });
+        await repo.mark(pending.inboxId, { status: error ? 'rejected' : 'delivered', requestId: pending.requestId, error });
       };
     }
     await this.flushReplies();
+  }
+
+  async cancelTarget(sessionId: string, error: string): Promise<void> {
+    await this.admissions.get(sessionId);
+    await this.deps.repo()!.rejectForTarget(sessionId, error);
+    this.replies.delete(sessionId);
   }
 
   private flushReplies(): Promise<void> {
