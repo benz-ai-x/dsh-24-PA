@@ -6,7 +6,8 @@ export class InboxLifecycle {
   private paused = false;
   private draining: Promise<void> | null = null;
   private readonly admissions = new Map<string, Promise<void>>();
-  private readonly replies = new Map<string, string[]>();
+  private readonly replies = new Map<string, { inboxId: string; finish?: () => Promise<void> }[]>();
+  private finishing: Promise<void> | null = null;
 
   constructor(private readonly deps: {
     repo(): InboxRepo | null;
@@ -15,6 +16,7 @@ export class InboxLifecycle {
   }) {}
 
   async assertIdle(): Promise<void> {
+    await this.flushReplies();
     if (this.admissions.size || [...this.replies.values()].some(q => q.length) || await this.deps.repo()?.hasUnsettled()) {
       throw new Error('有已接收消息正在处理或等待回传；请完成后再切换工作区或接入身份。');
     }
@@ -23,7 +25,7 @@ export class InboxLifecycle {
 
   async pauseForSwitch(): Promise<void> { this.paused = true; await this.assertIdle(); }
   resume(): void { this.paused = false; this.dispatch(); }
-  async stop(): Promise<void> { this.paused = true; await this.draining; }
+  async stop(): Promise<void> { this.paused = true; await this.draining; await this.flushReplies().catch(() => {}); }
 
   dispatch(): void {
     if (this.paused || this.draining || !this.deps.available()) return;
@@ -33,6 +35,7 @@ export class InboxLifecycle {
   }
 
   private async drain(repo: InboxRepo): Promise<void> {
+    await this.flushReplies();
     while (!this.paused && this.deps.available()) {
       const rows = await repo.claim(5);
       if (!rows.length) return;
@@ -52,7 +55,7 @@ export class InboxLifecycle {
       await submit();
       await repo.mark(inboxId, { status: 'admitted', requestId, targetSession: sessionId });
       const queue = this.replies.get(sessionId) ?? [];
-      queue.push(inboxId);
+      queue.push({ inboxId });
       this.replies.set(sessionId, queue);
     } finally {
       this.admissions.delete(sessionId);
@@ -63,20 +66,32 @@ export class InboxLifecycle {
   async complete(sessionId: string, deliver: (inboxId: string) => Promise<void>, error?: string): Promise<void> {
     // A fast host may finish a turn while prompt admission is still flushing.
     await this.admissions.get(sessionId);
-    const queue = this.replies.get(sessionId);
-    const inboxId = queue?.[0];
-    if (!inboxId) return;
-    await deliver(inboxId);
-    await this.deps.repo()!.mark(inboxId, { status: error ? 'rejected' : 'delivered', error });
-    queue!.shift();
+    const pending = this.replies.get(sessionId)?.find(row => !row.finish);
+    if (!pending) return;
+    const repo = this.deps.repo()!;
+    // Assign the result once. A later turn can never consume this input even
+    // when its local commit fails and is retried by the dispatcher.
+    pending.finish = async () => {
+      await deliver(pending.inboxId);
+      await repo.mark(pending.inboxId, { status: error ? 'rejected' : 'delivered', error });
+    };
+    await this.flushReplies();
   }
 
-  async recover(interrupted: (inboxId: string) => Promise<void>): Promise<void> {
-    const repo = this.deps.repo();
-    if (!repo) return;
+  private flushReplies(): Promise<void> {
+    if (this.finishing) return this.finishing;
+    this.finishing = (async () => {
+      for (const queue of this.replies.values()) {
+        while (queue[0]?.finish) { await queue[0].finish(); queue.shift(); }
+      }
+    })().finally(() => { this.finishing = null; });
+    return this.finishing;
+  }
+
+  static async recover(repo: InboxRepo, interrupted: (row: InboxRow) => Promise<void>): Promise<void> {
     await repo.resetProcessing();
     for (const row of await repo.listAdmitted()) {
-      await interrupted(row.event_id);
+      await interrupted(row);
       await repo.mark(row.event_id, { status: 'rejected', error: '重启中断；请重新发送该消息' });
     }
   }

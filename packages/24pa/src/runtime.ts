@@ -833,6 +833,11 @@ export class PaRuntime {
       next.localSessionId = await this.prepareOwnedSession('local', next);
       await repos.workspaceState.save(real, { feishuSessionId: next.accessSessionId, localSessionId: next.localSessionId });
       active = await repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 100);
+      await InboxLifecycle.recover(repos.inbox, async row => {
+        await repos.outbox.enqueue({ dedupKey: `reconcile:${row.event_id}`, channel: 'feishu',
+          target: row.payload?.senderOpenId || candidate.config.ownerOpenId, kind: 'text',
+          content: { text: '服务重启前有一条消息正在处理但未完成；如仍需要请重新发送。' } });
+      });
       connection = await this.prepareTransport(candidate.config, candidate.secrets);
       await this.outboxDelivery.pause();
       await this.workLifecycle.idle();
@@ -888,9 +893,6 @@ export class PaRuntime {
     await previousTransport?.close().catch(() => {});
     await previousDb?.close().catch(() => {});
     await this.restoreRegisteredRoles();
-    await this.inboxLifecycle.recover(inboxId => this.notifyOwner(
-      `reconcile:${inboxId}`, '服务重启前有一条消息正在处理但未完成；如仍需要请重新发送。',
-    ));
     this.reminders.start(this.options.reminderTickMs);
     // Resolve owner/channel only after activation, so a rebound notice cannot
     // enter the previous workspace's ledger or use its notification identity.
@@ -940,7 +942,7 @@ export class PaRuntime {
     if (this.config?.storage === 'postgres' && this.activePostgresDsn !== resolveSecret(secretRefs(config).pgDsn, this.env, secrets, 'pgDsn')) {
       throw new ConfigError('PostgreSQL 连接变化不能热重载；请按初始化指南更新连接配置后重新绑定工作区，当前账本连接保持不变。');
     }
-    if (this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile)) await this.inboxLifecycle.assertIdle();
+    if (this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile || this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(config, secrets))) await this.inboxLifecycle.assertIdle();
     if (this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile) && (await this.hasActiveWork())) {
       throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
     }
@@ -1048,7 +1050,6 @@ export class PaRuntime {
         if (trimmed) next[key] = trimmed;
         else delete next[key];
       }
-      if (this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next)) await this.inboxLifecycle.assertIdle();
       await this.checkWorkspaceConfiguration(this.config!, next);
       await writeSecretStore(this.workspace!.statePath, next);
       const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next);
@@ -1500,8 +1501,8 @@ export class PaRuntime {
       await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
       return;
     }
-    await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
     await this.repos!.inbox.mark(inboxEventId, { status: 'admitted', targetSession: item.child_session_id, requestId: `followup:${inboxEventId}` });
+    await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
   }
 
   private async submitToSession(sessionId: string, requestId: string, content: ContentBlock[], timeZone: string, inboxId: string): Promise<void> {
@@ -1743,7 +1744,8 @@ export class PaRuntime {
       return view;
     }
     if (args.action === 'stop') {
-      await this.workLifecycle.stop(id);
+      if (item.status !== 'stopped') await this.workLifecycle.stop(id);
+      await repos.inbox.rejectForTarget(item.child_session_id ?? item.id, '本人要求停止事项，补充输入不再续办。');
       return { workId: id, status: 'stopped' };
     }
     if (args.action === 'continue') {

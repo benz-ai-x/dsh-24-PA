@@ -88,6 +88,11 @@ export class InboxRepo {
     );
   }
 
+  async rejectForTarget(targetSession: string, error: string): Promise<void> {
+    await this.db.query(`update pa24.inbox set status = 'rejected', error = $2, processed_at = now()
+      where target_session = $1 and status = 'admitted'`, [targetSession, error]);
+  }
+
   async mark(eventId: string, patch: { status: InboxStatus; requestId?: string; targetSession?: string; error?: string }): Promise<void> {
     await this.db.query(
       `update pa24.inbox set status = $2,
