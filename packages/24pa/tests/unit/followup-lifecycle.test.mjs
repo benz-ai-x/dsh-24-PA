@@ -337,4 +337,55 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     expect((await f.rt.maintenanceArchiveCheck()).externalPgReminders.reminderRules).toHaveLength(status === 'unknown' ? 1 : 0);
   });
 
+
+  it.each(['paused', 'quiet'])('历史 %s 已决定延迟但 DB 晚写，公开取消保持实例终态', async phase => {
+    const child = await worker('reminders'), entered = deferred(), release = deferred();
+    const engine = new ReminderEngine(f.rt.db, { notify: (key, text) => f.rt.notifyOwner(key, text), outboxState: async () => null }, { silentUntil: async () => new Date(Date.now() + 60000) });
+    const old = await engine.create({ kind: 'once', text: '延迟写回', afterSeconds: 1, timeZone: 'UTC' });
+    await f.rt.repos.reminders.insertOccurrence({ id: 'delayed', ruleId: old.ruleId, dueAt: new Date(Date.now() - 1000) });
+    await f.rt.repos.reminders.updateRule(old.ruleId, { status: phase === 'paused' ? 'paused' : 'completed', next_due_at: null });
+    const update = engine.repo.updateOccurrence.bind(engine.repo);
+    engine.repo.updateOccurrence = async (...args) => { if (args[1].status === 'pending') { entered.resolve(); await release.promise; } return update(...args); };
+    const tick = engine.tick(); await entered.promise; await f.rt.work({ action: 'reminder_cancel', ruleId: old.ruleId }, child); release.resolve(); await tick; engine.stop();
+    expect((await f.rt.repos.reminders.occurrence('delayed')).status).toBe('canceled');
+    expect((await f.rt.maintenanceArchiveCheck()).externalPgReminders.reminderRules).toHaveLength(0);
+  });
+
+  it('升级清理规则级旧通知，退役来源不阻断公开任务更新', async () => {
+    const child = await worker('tasks'); const task = await f.rt.work({ action: 'task_create', summary: '旧来源' }, child);
+    const old = await f.rt.reminders.create({ kind: 'once', text: '旧规则身份', afterSeconds: 300, timeZone: 'UTC', link: { sourceType: 'task', sourceId: task.guid, fingerprint: 'old' } });
+    await f.rt.repos.reminders.insertOccurrence({ id: 'old-instance', ruleId: old.ruleId, dueAt: new Date() });
+    for (const prefix of ['remindsrc', 'srccorr']) await f.rt.repos.outbox.enqueue({ dedupKey: `${prefix}:${old.ruleId}:fingerprint`, channel: 'feishu', target: 'owner', kind: 'text', content: { text: '旧来源通知' } });
+    await f.rt.repos.reminders.updateRule(old.ruleId, { status: 'stopped' });
+    expect((await f.rt.maintenanceArchiveCheck()).externalPgReminders.reminderRules).toHaveLength(1);
+    await f.rt.stop(); f.rt = f.make(); await f.rt.bind(workspacePath); f.rt.transport = new FakeFeishuTransport('test'); local = f.agents.get(await f.rt.openLocalSession());
+    expect((await f.rt.repos.outbox.recent()).every(row => row.status === 'expired')).toBe(true);
+    const updated = await f.rt.work({ action: 'task_update', guid: task.guid, summary: '最新来源' }, await worker('tasks'));
+    expect(updated.guid).toBe(task.guid); expect((await f.rt.repos.tasks.byGuid(task.guid)).summary).toBe('最新来源');
+    expect((await f.rt.repos.outbox.recent()).every(row => row.status === 'expired')).toBe(true);
+  });
+
+  it('历史活动来源更正原子停止并入队，随后公开取消一并清理', async () => {
+    const child = await worker('tasks'), task = await f.rt.work({ action: 'task_create', summary: '原来源' }, child);
+    const old = await f.rt.reminders.create({ kind: 'once', text: '活动来源', afterSeconds: 300, timeZone: 'UTC', link: { sourceType: 'task', sourceId: task.guid, fingerprint: 'old' } });
+    await f.rt.work({ action: 'task_update', guid: task.guid, summary: '新来源' }, child);
+    expect((await f.rt.repos.reminders.getRule(old.ruleId)).status).toBe('stopped');
+    expect((await f.rt.repos.outbox.recent())[0]).toMatchObject({ status: 'pending', dedup_key: expect.stringContaining(`remindsrc:${old.ruleId}:`) });
+    const result = await f.rt.work({ action: 'reminder_cancel', ruleId: old.ruleId }, await worker('reminders'));
+    expect(result.pendingCanceled).toBe(1); expect((await f.rt.repos.outbox.recent())[0].status).toBe('expired');
+  });
+
+
+  it('来源更正目标解析晚于公开取消，业务更新收口但不新增通知', async () => {
+    const child = await worker('tasks'), cancelChild = await worker('reminders');
+    const task = await f.rt.work({ action: 'task_create', summary: '来源竞态' }, child);
+    const old = await f.rt.reminders.create({ kind: 'once', text: '来源竞态提醒', afterSeconds: 300, timeZone: 'UTC', link: { sourceType: 'task', sourceId: task.guid, fingerprint: 'old' } });
+    const entered = deferred(), release = deferred(); f.rt.config.notifyChannel = 'wecom';
+    f.rt.wecomChannels.wecomOwnerUserid = async () => { entered.resolve(); await release.promise; return { userid: 'owner' }; };
+    const updating = f.rt.work({ action: 'task_update', guid: task.guid, summary: '新标题' }, child); await entered.promise;
+    await f.rt.work({ action: 'reminder_cancel', ruleId: old.ruleId }, cancelChild); release.resolve(); await updating;
+    expect((await f.rt.repos.tasks.byGuid(task.guid)).summary).toBe('新标题'); expect(await f.rt.repos.outbox.recent()).toHaveLength(0);
+    expect((await f.rt.repos.reminders.getRule(old.ruleId)).status).toBe('stopped');
+  });
+
 });

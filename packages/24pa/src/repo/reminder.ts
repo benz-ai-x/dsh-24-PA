@@ -1,6 +1,6 @@
 // Split from repo.ts (round-3 review): one aggregate per file; the
 // Repos facade in index.ts is the unchanged seam every caller already uses.
-import type { PaDb } from '../db.js';
+import type { PaDb, PaQueryer } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
 
 export interface ReminderRuleRow {
@@ -110,10 +110,12 @@ export class ReminderRepo {
   async rulesForArchive(): Promise<ReminderRuleRow[]> {
     return (await this.db.query<ReminderRuleRow>(`select r.* from pa24.reminder_rule r
       where r.status in ('active', 'paused', 'delegated', 'completed') or exists (
-        select 1 from pa24.reminder_occurrence o left join pa24.outbox b
-          on b.dedup_key = 'reminder:' || o.id or b.dedup_key = 'remindsrc:' || o.id
-        where o.rule_id = r.id and (o.status = 'pending' or b.status in ('pending', 'failed', 'sending', 'unknown'))
-      ) order by r.created_at`)).rows;
+        select 1 from pa24.reminder_occurrence o where o.rule_id = r.id and o.status = 'pending'
+      ) or exists (select 1 from pa24.outbox b where b.status in ('pending', 'failed', 'sending', 'unknown') and (
+        b.dedup_key in (select 'reminder:' || o.id from pa24.reminder_occurrence o where o.rule_id = r.id union all select 'remindsrc:' || o.id from pa24.reminder_occurrence o where o.rule_id = r.id)
+        or substr(b.dedup_key, 1, length(r.id) + 11) = 'remindsrc:' || r.id || ':'
+        or substr(b.dedup_key, 1, length(r.id) + 9) = 'srccorr:' || r.id || ':'
+      )) order by r.created_at`)).rows;
   }
 
   /** A due-rule snapshot is only a hint. Lock the current rule with the same
@@ -134,13 +136,33 @@ export class ReminderRepo {
     return this.db.withTransaction(async client => {
       const row = (await client.query<ReminderRuleRow>('select * from pa24.reminder_rule where id = $1 for update', [id])).rows[0];
       if (!row) throw new Error('提醒不存在。');
-      await client.query("update pa24.reminder_rule set status = 'stopped', next_due_at = null, record = $2, updated_at = now() where id = $1", [id, JSON.stringify({ ...row.record, previousStatus: row.record.previousStatus ?? row.status, stopReason: reason })]);
-      await client.query("update pa24.reminder_occurrence set status = 'canceled', last_error = $2, updated_at = now() where rule_id = $1 and status = 'pending'", [id, reason]);
-      const keys = "select 'reminder:' || id from pa24.reminder_occurrence where rule_id = $1 union all select 'remindsrc:' || id from pa24.reminder_occurrence where rule_id = $1";
-      const canceled = await client.query(`update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = $2 where dedup_key in (${keys}) and status in ('pending', 'failed')`, [id, reason]);
-      const unresolved = await client.query<{ n: number }>(`select count(*) as n from pa24.outbox where dedup_key in (${keys}) and status in ('sending', 'unknown')`, [id]);
-      return { pendingCanceled: canceled.rowCount, unresolvedSends: Number(unresolved.rows[0]?.n ?? 0) };
+      return this.stopOn(client, row, reason);
     });
+  }
+
+  /** Source callbacks may finish after an explicit cancellation. Retiring the
+   * old rule and publishing its correction share that rule's terminal gate. */
+  async stopForSourceChange(id: string, notifications: NewOutbox[]): Promise<void> {
+    await this.db.withTransaction(async client => {
+      const row = (await client.query<ReminderRuleRow>('select * from pa24.reminder_rule where id = $1 for update', [id])).rows[0];
+      if (!row || row.status === 'stopped') return;
+      await this.stopOn(client, row, '关联来源已变更，旧提醒停止。');
+      for (const notification of notifications) await enqueueOutbox(client, notification);
+    });
+  }
+
+  private async stopOn(client: PaQueryer, row: ReminderRuleRow, reason: string): Promise<{ pendingCanceled: number; unresolvedSends: number }> {
+    const id = row.id;
+    await client.query("update pa24.reminder_rule set status = 'stopped', next_due_at = null, record = $2, updated_at = now() where id = $1", [id, JSON.stringify({ ...row.record, previousStatus: row.record.previousStatus ?? row.status, stopReason: reason })]);
+    await client.query("update pa24.reminder_occurrence set status = 'canceled', last_error = $2, updated_at = now() where rule_id = $1 and status = 'pending'", [id, reason]);
+    // Both historical identities existed: per occurrence and per rule/source
+    // fingerprint. Include correction notices as well as the original sends.
+    const related = `(dedup_key in (select 'reminder:' || id from pa24.reminder_occurrence where rule_id = $1 union all select 'remindsrc:' || id from pa24.reminder_occurrence where rule_id = $1)
+      or substr(dedup_key, 1, length($1) + 11) = 'remindsrc:' || $1 || ':'
+      or substr(dedup_key, 1, length($1) + 9) = 'srccorr:' || $1 || ':')`;
+    const canceled = await client.query(`update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = $2 where ${related} and status in ('pending', 'failed')`, [id, reason]);
+    const unresolved = await client.query<{ n: number }>(`select count(*) as n from pa24.outbox where ${related} and status in ('sending', 'unknown')`, [id]);
+    return { pendingCanceled: canceled.rowCount, unresolvedSends: Number(unresolved.rows[0]?.n ?? 0) };
   }
 
   async enqueueLegacyNotification(notification: NewOutbox): Promise<void> {

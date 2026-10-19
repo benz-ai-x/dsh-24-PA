@@ -2311,28 +2311,28 @@ export class PaRuntime {
     if (!this.repos) return;
     const rules = await this.repos.reminders.rulesLinkedTo(sourceType, sourceId);
     for (const rule of rules) {
-      if (rule.link_fingerprint === currentFingerprint) continue;
+      if (rule.status === 'stopped' || rule.link_fingerprint === currentFingerprint) continue;
       const counts = await this.repos.reminders.occurrenceCounts(rule.id);
       // A rule with anything still ahead (materialized occurrence or an
       // upcoming next_due_at) owes the owner a drop notice; timing between
       // materialization and this check must not decide visibility.
       const upcoming = rule.next_due_at != null;
-      await this.repos.reminders.updateRule(rule.id, { status: 'stopped' });
-      await this.repos.reminders.cancelPendingOccurrences(rule.id);
+      const notifications: Array<NewOutbox | null> = [];
       if ((counts && (counts.pending > 0 || counts.canceled > 0)) || upcoming) {
         // Unsent occurrences die with their source; the owner is told the
         // reminder was dropped, not left wondering (P19).
-        await this.notifyOwner(
+        notifications.push(await this.ownerNotification(
           `remindsrc:${rule.id}:${hash(currentFingerprint ?? 'gone')}`,
           `提醒「${rule.text}」已取消：关联的${SOURCE_LABELS[sourceType]}已变更。如仍需要，请按最新安排重新设置。`,
-        );
+        ));
       }
       if (counts && counts.sent > 0) {
-        await this.notifyOwner(
+        notifications.push(await this.ownerNotification(
           `srccorr:${rule.id}:${hash(currentFingerprint ?? 'gone')}`,
           `更正：此前按旧安排发给你的提醒「${rule.text}」对应的${SOURCE_LABELS[sourceType]}已经变化；请以最新安排为准，旧提醒不再有效。`,
-        );
+        ));
       }
+      await this.repos.reminders.stopForSourceChange(rule.id, notifications.filter((row): row is NewOutbox => row !== null));
     }
     if (sourceType === 'calendar') {
       // Prep packages bound to this meeting stop too (P26): no stale packages.

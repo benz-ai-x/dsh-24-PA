@@ -334,12 +334,12 @@ export class ReminderEngine {
     for (const occurrence of due) {
       const rule = await this.repo.getRule(occurrence.rule_id);
       if (!rule || rule.status === 'stopped') {
-        await this.repo.updateOccurrence(occurrence.id, { status: 'canceled' });
+        await this.repo.updateOccurrence(occurrence.id, { status: 'canceled' }, 'pending');
         continue;
       }
       if (rule.status === 'paused') {
         // Paused rules hold their due occurrences, they do not cancel them.
-        await this.repo.updateOccurrence(occurrence.id, { status: 'pending', deferred_until: null });
+        await this.repo.updateOccurrence(occurrence.id, { status: 'pending', deferred_until: null }, 'pending');
         continue;
       }
       // 'completed' one-shot rules still deliver their materialized occurrence.
@@ -347,7 +347,7 @@ export class ReminderEngine {
       if (!await this.dispatchStillAllowed(rule.id, occurrence.id)) continue;
       if (silentUntil && silentUntil.getTime() > now.getTime()) {
         // Quiet hours / vacation: hold the occurrence, do not drop it (P21).
-        await this.repo.updateOccurrence(occurrence.id, { status: 'pending', deferred_until: silentUntil, last_error: null });
+        await this.repo.updateOccurrence(occurrence.id, { status: 'pending', deferred_until: silentUntil, last_error: null }, 'pending');
         continue;
       }
       if (rule.link_source_id && this.hooks.sourceValid) {
@@ -359,7 +359,7 @@ export class ReminderEngine {
         }
         if (!verdict.valid) {
           // The followed task/meeting changed or vanished: withhold and say so (P19).
-          await this.repo.updateOccurrence(occurrence.id, { status: 'canceled' });
+          await this.repo.updateOccurrence(occurrence.id, { status: 'canceled' }, 'pending');
           await this.hooks.notify(`remindsrc:${occurrence.id}`, `提醒未发送：关联的${rule.link_source_type === 'task' ? '任务' : '日程'}已变更（${verdict.reason ?? '来源不再匹配'}）。如仍需要请按最新安排重新设置。`);
           continue;
         }
