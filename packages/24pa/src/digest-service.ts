@@ -27,6 +27,7 @@ export interface DigestDeps extends ChannelContextDeps {
   ownerNotification(dedupKey: string, report: string): Promise<NewOutbox | null>;
   /** F40（spec 2.11）：任务 skill 目录（宿主挂载时含工作区自定义）。 */
   skillCatalog(): import('./skills.js').SkillCatalog;
+  waitingFollowups?(): import('./waiting-followups.js').WaitingFollowups;
 }
 
 export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
@@ -182,6 +183,7 @@ export class DigestService {
     const plan = await this.deps.repos().digests.getPlan(String(args.planId ?? ''));
     if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
     const op = String(args.op ?? '');
+    if (plan.kind === 'waiting_followup' && !['pause', 'stop'].includes(op)) throw new Error('等待检查点请用 waiting_control 管理，不能更换任务 skill 或执行规则。');
     const schedule = this.deps.nativeSchedule();
     if (op === 'pause' || op === 'stop') {
       const { plan: stopped, warning: nativeWarning } = await this.plans.stop(plan.id, op === 'pause' ? 'paused' : 'stopped');
@@ -208,6 +210,7 @@ export class DigestService {
     if (op === 'adjust') {
       // Compare-and-update the same native task; retain business history.
       if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务。');
+      if (plan.kind === 'waiting_followup') throw new Error('等待检查点请用 waiting_control 调整，不能换成简报计划。');
       const kind = String(args.kind ?? plan.kind);
       if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('调整后的计划类型无效。');
       const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
@@ -333,9 +336,10 @@ export class DigestService {
     const planId = String(args.planId ?? '');
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    const boundRun = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
+    if (boundRun && this.wasDelivered(boundRun)) return this.completedDelivery(item, plan, boundRun);
     if (plan.kind === 'meeting_prep') throw new Error('会前准备计划请用 meeting_prep_build 生成准备包。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
-    const boundRun = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
     let requestedWindow = boundRun?.window_key;
     if (!requestedWindow) {
       const admitted = await this.deps.repos().workItems.get(item.id);
@@ -377,7 +381,7 @@ export class DigestService {
     // 与事实生成简报，再经 digest_deliver 交付；模板轨才走确定性组装。
     const boundSkill = await this.boundSkillOrThrow(plan);
     if (boundSkill?.track === 'agent') {
-      const facts = await this.planningFacts(new Date());
+      const facts = plan.kind === 'waiting_followup' ? await this.deps.waitingFollowups!().facts(plan) : await this.planningFacts(new Date());
       return {
         planId,
         windowKey,
@@ -433,6 +437,7 @@ export class DigestService {
 
   /** Template/agent/meeting preparation share one atomic completion protocol. */
   private async deliverReport(plan: DigestPlanRow, windowKey: string, occurrenceId: string, report: string): Promise<string> {
+    if (plan.kind === 'waiting_followup') await this.deps.waitingFollowups!().beforeDelivery(plan);
     const config = this.deps.config();
     const outboxKey = `digest:${occurrenceId}`;
     const notifications: NewOutbox[] = [];
@@ -472,23 +477,34 @@ export class DigestService {
    * F41（spec 2.11）：agent 轨交付——Worker 按任务指令生成简报全文后经此入队。
    * 幂等：窗口已 model_done 则如实返回不重复发布；report 为空拒绝。
    */
+  private async completedDelivery(item: WorkItemRow, plan: DigestPlanRow, row: DigestOccurrenceRow): Promise<unknown> {
+    await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey: row.window_key, outboxKey: row.outbox_key } });
+    return { planId: plan.id, windowKey: row.window_key, outboxKey: row.outbox_key, reused: true, message: '本窗口已交付，不重复发布。' };
+  }
+
   async digestDeliver(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const planId = String(args.planId ?? '');
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
-    if (plan.status !== 'active') throw new Error(`计划 ${planId} 已暂停或停止，本次结果未发布。`);
     const report = String(args.report ?? '').trim();
     if (!report) throw new Error('digest_deliver 需要携带 report（简报全文）。');
+    const pending = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
+    if (pending && this.wasDelivered(pending)) return this.completedDelivery(item, plan, pending);
+    if (plan.status !== 'active') throw new Error(`计划 ${planId} 已暂停或停止，本次结果未发布。`);
     const bound = await this.boundSkillOrThrow(plan);
     if (bound?.track !== 'agent') {
       throw new Error(`计划 ${planId} 未绑定 agent 轨任务 skill（当前 ${plan.skill || '未绑定'}）；digest_deliver 仅用于 agent 轨交付。`);
     }
-    const pending = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
     if (!pending) throw new Error(`本事项没有可确认归属的运行窗口；请在本事项调用 digest_build 后再交付，不能使用其他事项的最新窗口。`);
-    if (this.wasDelivered(pending)) {
-      return { planId, windowKey: pending.window_key, reused: true, message: '本窗口已交付，不重复发布。' };
+    let outboxKey: string;
+    try { outboxKey = await this.deliverReport(plan, pending.window_key, pending.id, this.savedReport(pending) ?? report); }
+    catch (error) {
+      // A concurrent successful delivery may have consumed a one-shot waiting
+      // checkpoint while this call awaited preferences or recipient identity.
+      const settled = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
+      if (settled && this.wasDelivered(settled)) return this.completedDelivery(item, plan, settled);
+      throw error;
     }
-    const outboxKey = await this.deliverReport(plan, pending.window_key, pending.id, this.savedReport(pending) ?? report);
     await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey: pending.window_key, outboxKey } });
     return { planId, windowKey: pending.window_key, outboxKey, message: '简报已交付并入发送队列。' };
   }
@@ -503,6 +519,7 @@ export class DigestService {
   private async runPlanNow(planId: string): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    if (plan.kind === 'waiting_followup') throw new Error('等待跟进请经原检查点的 digest Worker 办理；调整时间用 waiting_control。');
     if (plan.kind === 'meeting_prep') throw new Error('会前准备请经对话委派 calendar Worker，先复查会议来源。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
     const windowKey = `manual-${Date.now()}`;

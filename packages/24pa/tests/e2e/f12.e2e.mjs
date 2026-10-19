@@ -107,7 +107,9 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     const externalRule = panelReminders.rules.find(rule => rule.text === '晨间例行');
     expect(externalRule.kind).toBe('daily');
     expect(externalRule.status).toBe('delegated'); // F45：时钟型＝日历备份行
-    expect(panelReminders.rules[0].nextDueAt).toBeTruthy();
+    expect(externalRule.nextDueAt).toBeNull();
+    expect(externalRule.firstStart).toBeTruthy();
+    expect(externalRule.calendarChannel).toBe('feishu');
 
     // 检查：原生计划与外部提醒分开列出
     await localMaint('f12-chk-1', 'archive_check');

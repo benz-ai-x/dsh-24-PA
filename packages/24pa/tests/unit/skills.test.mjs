@@ -3,10 +3,10 @@ import { SkillCatalog, BUILTIN_TASK_SKILLS } from '../../lib/skills.js';
 
 describe('F40：任务 skill 目录', () => {
   it('内置三件：digest-* 前缀、模板轨、kind 映射齐全', () => {
-    expect(BUILTIN_TASK_SKILLS.map(s => s.name)).toEqual(['digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
+    expect(BUILTIN_TASK_SKILLS.map(s => s.name)).toEqual(['waiting-followup', 'digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
     for (const s of BUILTIN_TASK_SKILLS) {
-      expect(s.metadata.track).toBe('template');
-      expect(['morning', 'evening', 'weekly', 'meeting_prep', 'review']).toContain(s.metadata.kind);
+      expect(s.metadata.track).toBe(s.name === 'waiting-followup' ? 'agent' : 'template');
+      expect(['morning', 'evening', 'weekly', 'meeting_prep', 'review', 'waiting_followup']).toContain(s.metadata.kind);
     }
   });
 
@@ -14,8 +14,8 @@ describe('F40：任务 skill 目录', () => {
     const catalog = new SkillCatalog(null);
     const list = await catalog.list();
     const taskSkills = list.filter(s => !s.name.startsWith('worker-persona'));
-    expect(taskSkills.map(s => s.name)).toEqual(['digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
-    expect(taskSkills.every(s => s.source === 'builtin' && s.track === 'template')).toBe(true);
+    expect(taskSkills.map(s => s.name)).toEqual(['waiting-followup', 'digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
+    expect(taskSkills.every(s => s.source === 'builtin' && s.track === (s.name === 'waiting-followup' ? 'agent' : 'template'))).toBe(true);
     expect(list.every(s => !s.name.startsWith('worker-persona') && !s.name.endsWith('-setup-flow'))).toBe(true); // F42/F43：persona/向导件不进计划绑定面
     expect(await catalog.content('worker-persona-memo')).toContain('备忘整理'); // persona 件经 content() 仍可载
     expect((await catalog.find('digest-morning'))?.kind).toBe('morning');

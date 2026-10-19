@@ -31,6 +31,8 @@ import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom
 import { DigestService } from './digest-service.js';
 import { ExternalOperations } from './external-operations.js';
 import { OutboxDelivery } from './outbox-delivery.js';
+import { WaitingFollowups } from './waiting-followups.js';
+import { TaskTemplates } from './task-templates.js';
 import { TaskLifecycle } from './task-lifecycle.js';
 import { assertToolDeclaration, type ResolvedTaskSkill, SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
@@ -47,14 +49,6 @@ import {
 import { MemoryStore, type MemoryChange } from './memory.js';
 import { ReminderEngine, type SilencePolicy } from './reminders.js';
 import { ReminderRouter } from './reminder-router.js';
-import {
-  createEveryScheduleRecord,
-  createDailyScheduleRecord,
-  createWeeklyScheduleRecord,
-  resolveRecurringOccurrence,
-  ScheduleId,
-  type RecurringScheduleRecord,
-} from '@deepseek-ai/dsh-schedule';
 import {
   candidateUnknowns, RECOGNITION_PAGE_LIMIT,
   advanceReminder,
@@ -83,20 +77,6 @@ const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', cal
 
 /** Bounded grace before an unattributable delivery pauses its digest plan (P24). */
 export { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
-
-/**
- * Next occurrence for a template schedule. resolveRecurringOccurrence refuses
- * dispatches before the record's scheduledAt (the first fire); in that window
- * the next occurrence IS scheduledAt.
- */
-function nextTemplateOccurrence(record: RecurringScheduleRecord, now: number): Date {
-  try {
-    const resolved = resolveRecurringOccurrence(record, now);
-    return new Date(resolved.nextScheduledAt ?? resolved.occurrenceAt);
-  } catch {
-    return new Date((record as { scheduledAt?: string }).scheduledAt ?? Date.now() + 60_000);
-  }
-}
 
 export type RuntimeRole = 'feishu-access' | 'local-robot' | 'worker' | null;
 export type ReadinessItem = { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string; detail?: unknown };
@@ -320,12 +300,7 @@ export class PaRuntime {
     config: () => this.config!,
     repos: () => this.repos!,
     calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
-    channelsLive: () => {
-      if (this.config?.calendarChannel === 'wecom') return true;
-      return this.config?.mode === 'feishu' && !!this.transport;
-    },
     ledger: () => this.reminders!,
-    resolveTask: args => this.resolveTask(args),
   });
 
   /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
@@ -334,7 +309,7 @@ export class PaRuntime {
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  delivery; F19 voice + F40/F41 skill tracks extend here. The runtime
    *  keeps role bindings, the follow-up tick and channel selection. */
-  private readonly digest = new DigestService({
+  private readonly digest: DigestService = new DigestService({
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
     accessSessionId: () => this.accessSessionId,
@@ -348,6 +323,7 @@ export class PaRuntime {
     calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
     inspectNoteTrust: (noteId, versionId) => this.handwriting.inspectTrust(noteId, versionId),
     ownerNotification: (key, report) => this.ownerNotification(key, report),
+    waitingFollowups: () => this.waitingFollowups,
     skillCatalog: () => this.skillCatalog,
   });
 
@@ -855,6 +831,8 @@ export class PaRuntime {
     let active: WorkItemRow[];
     let connection: Awaited<ReturnType<PaRuntime['prepareTransport']>> | undefined;
     try {
+      await repos.reminders.retireLegacy();
+      await repos.waiting.retireLegacyNotifications();
       const saved = await repos.workspaceState.get(real);
       next = {
         workspace: { ...await this.ctx.workspaceRegistry.create(real, '24私助'), statePath: real },
@@ -934,7 +912,7 @@ export class PaRuntime {
     previousReminders?.stop();
     await previousTransport?.close().catch(() => { });
     await previousDb?.close().catch(() => { });
-    this.reminders.start(this.options.reminderTickMs);
+    this.reminders.stop(); // F45: keep history/control only, never start the retired engine.
     // Resolve owner/channel only after activation, so a rebound notice cannot
     // enter the previous workspace's ledger or use its notification identity.
     for (const notice of next.sessionNotices) {
@@ -1360,15 +1338,16 @@ export class PaRuntime {
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
     const notification = await this.ownerNotification(dedupKey, text);
-    if (notification) await this.repos!.outbox.enqueue(notification);
+    if (!notification) return;
+    if (dedupKey.startsWith('reminder:') || dedupKey.startsWith('remindsrc:')) await this.repos!.reminders.enqueueLegacyNotification(notification);
+    else await this.repos!.outbox.enqueue(notification);
   }
 
   /** Resolve the target before a caller commits its business change + outbox. */
   private async ownerNotification(dedupKey: string, text: string): Promise<NewOutbox | null> {
     if (!this.config) return null;
     if (this.config.notifyChannel === 'wecom') {
-      // Single-direction wecom push; the reminder ledger stays the single
-      // schedule track, only the delivery exit changes (ADR-0001).
+      // Single-direction owner push; clock timing remains in the calendar app.
       const owner = await this.wecomChannels.wecomOwnerUserid();
       return {
         dedupKey,
@@ -2332,28 +2311,28 @@ export class PaRuntime {
     if (!this.repos) return;
     const rules = await this.repos.reminders.rulesLinkedTo(sourceType, sourceId);
     for (const rule of rules) {
-      if (rule.link_fingerprint === currentFingerprint) continue;
+      if (rule.status === 'stopped' || rule.link_fingerprint === currentFingerprint) continue;
       const counts = await this.repos.reminders.occurrenceCounts(rule.id);
       // A rule with anything still ahead (materialized occurrence or an
       // upcoming next_due_at) owes the owner a drop notice; timing between
       // materialization and this check must not decide visibility.
       const upcoming = rule.next_due_at != null;
-      await this.repos.reminders.updateRule(rule.id, { status: 'stopped' });
-      await this.repos.reminders.cancelPendingOccurrences(rule.id);
+      const notifications: Array<NewOutbox | null> = [];
       if ((counts && (counts.pending > 0 || counts.canceled > 0)) || upcoming) {
         // Unsent occurrences die with their source; the owner is told the
         // reminder was dropped, not left wondering (P19).
-        await this.notifyOwner(
+        notifications.push(await this.ownerNotification(
           `remindsrc:${rule.id}:${hash(currentFingerprint ?? 'gone')}`,
           `提醒「${rule.text}」已取消：关联的${SOURCE_LABELS[sourceType]}已变更。如仍需要，请按最新安排重新设置。`,
-        );
+        ));
       }
       if (counts && counts.sent > 0) {
-        await this.notifyOwner(
+        notifications.push(await this.ownerNotification(
           `srccorr:${rule.id}:${hash(currentFingerprint ?? 'gone')}`,
           `更正：此前按旧安排发给你的提醒「${rule.text}」对应的${SOURCE_LABELS[sourceType]}已经变化；请以最新安排为准，旧提醒不再有效。`,
-        );
+        ));
       }
+      await this.repos.reminders.stopForSourceChange(rule.id, notifications.filter((row): row is NewOutbox => row !== null));
     }
     if (sourceType === 'calendar') {
       // Prep packages bound to this meeting stop too (P26): no stale packages.
@@ -2365,252 +2344,35 @@ export class PaRuntime {
     }
   }
 
-  /** Recurring task templates (P22): dsh-schedule records + PG-unique instances. */
-  private async taskRepeatCreate(args: Record<string, unknown>): Promise<unknown> {
-    const title = text(args.title, 500);
-    const timeZone = String(args.timeZone ?? this.config!.timeZone);
-    const now = Date.now();
-    const id = `ttpl-${hash(`${this.workspace!.statePath}\n${title}\n${String(args.kind ?? '')}\n${String(args.time ?? '')}${String(args.everySeconds ?? '')}`).slice(0, 16)}`;
-    let schedule: unknown;
-    let nextDueAt: Date;
-    let origin: string;
-    if (args.kind === 'every') {
-      const seconds = Number(args.everySeconds);
-      if (!Number.isInteger(seconds) || seconds < 60) throw new Error('周期任务模板 every 需要 ≥60 秒的整数间隔（dsh-schedule 下限）。');
-      schedule = createEveryScheduleRecord(ScheduleId(id), title, seconds, now, title.slice(0, 100));
-      origin = `every ${seconds}s`;
-    } else if (args.kind === 'daily' || args.kind === 'weekly') {
-      if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new Error('周期任务模板需要本地时间 HH:mm:ss。');
-      const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined;
-      if (args.kind === 'weekly' && (!weekdays?.length || weekdays.some(d => !Number.isInteger(d) || d < 1 || d > 7))) {
-        throw new Error('weekly 模板需要 weekdays（ISO 1–7）。');
-      }
-      schedule = args.kind === 'daily'
-        ? createDailyScheduleRecord(ScheduleId(id), title, { time: String(args.time), time_zone: timeZone }, now, title.slice(0, 100))
-        : createWeeklyScheduleRecord(ScheduleId(id), title, { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays!)].sort() }, now, title.slice(0, 100));
-      origin = `${args.kind} ${args.time} ${timeZone}${weekdays ? ` ${weekdays.join(',')}` : ''}`;
-    } else {
-      throw new Error('模板类型：every（≥60s）或 daily/weekly（本地时间）。飞书任务 CLI 未暴露原生重复规则，按模板＋唯一实例实现（如实说明）。');
-    }
-    nextDueAt = nextTemplateOccurrence(schedule as RecurringScheduleRecord, now);
-    const template = await this.repos!.taskTemplates.insert({
-      id,
-      title,
-      tasklist_id: this.config!.tasklistId,
-      schedule,
-      origin_expression: origin,
-      status: 'active',
-      next_due_at: nextDueAt,
-      time_zone: timeZone,
-    });
-    // The first occurrence must exist as a row before any tick can claim it.
-    await this.repos!.taskTemplates.insertInstance({ id: `${template.id}:${nextDueAt.toISOString()}`, templateId: template.id, dueAt: nextDueAt });
-    return { templateId: template.id, nextDueAt: template.next_due_at?.toISOString() ?? null, message: `周期任务模板已建立（${origin}）；每次发生生成一个真实飞书任务，支持跳过本次/停止以后。` };
-  }
+  private readonly taskTemplates = new TaskTemplates({
+    repos: () => this.repos!, zone: () => this.config!.timeZone, tasklist: () => this.config!.tasklistId,
+    available: () => !!this.repos && this.config?.mode === 'feishu',
+    gate: work => this.gate('task-templates', work), operations: this.externalOperations,
+    createRemote: (title, tasklist, id) => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), ['task', '+create', '--as', 'user', '--summary', `[24PA] ${title}`, '--tasklist-id', tasklist, '--idempotency-key', id]),
+  });
+  private taskRepeatCreate(args: Record<string, unknown>) { return this.taskTemplates.create(args); }
+  private taskRepeatList() { return this.taskTemplates.list(); }
+  private taskRepeatSkip(args: Record<string, unknown>) { return this.taskTemplates.skip(args); }
+  private taskRepeatStop(args: Record<string, unknown>) { return this.taskTemplates.stop(args); }
+  private taskRepeatUpdate(args: Record<string, unknown>) { return this.taskTemplates.update(args); }
+  private materializeTemplateInstances() { return this.executions.run(() => this.taskTemplates.tick()); }
 
-  private async taskRepeatList(): Promise<unknown> {
-    const templates = await this.repos!.taskTemplates.list();
-    const view = [];
-    for (const template of templates) {
-      const instances = await this.repos!.taskTemplates.instancesOf(template.id, 8);
-      view.push({
-        templateId: template.id,
-        title: template.title,
-        status: template.status,
-        expression: template.origin_expression,
-        nextDueAt: template.next_due_at?.toISOString() ?? null,
-        recentInstances: instances.map(i => ({ dueAt: new Date(i.due_at).toISOString(), status: i.status, taskId: i.task_id })),
-      });
-    }
-    return { templates: view };
-  }
-
-  private async taskRepeatSkip(args: Record<string, unknown>): Promise<unknown> {
-    const template = await this.requireTemplate(args);
-    const instances = (await this.repos!.taskTemplates.instancesOf(template.id, 50)).filter(i => ['pending', 'failed'].includes(i.status)).sort((a, b) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime());
-    const target = instances[0];
-    if (!target) throw new Error('没有可跳过的未生成实例；下一次发生后才会出现。');
-    await this.repos!.taskTemplates.updateInstance(target.id, { status: 'skipped' });
-    return { templateId: template.id, skippedDueAt: new Date(target.due_at).toISOString(), message: '已跳过本次（不生成任务）；模板按计划继续。' };
-  }
-
-  private async taskRepeatStop(args: Record<string, unknown>): Promise<unknown> {
-    const template = await this.requireTemplate(args);
-    await this.repos!.taskTemplates.update(template.id, { status: 'stopped' });
-    await this.repos!.taskTemplates.skipPendingInstances(template.id);
-    return { templateId: template.id, status: 'stopped', message: '已停止以后的生成；已生成的任务与历史保留。' };
-  }
-
-  private async taskRepeatUpdate(args: Record<string, unknown>): Promise<unknown> {
-    const template = await this.requireTemplate(args);
-    const title = args.title ? text(args.title, 500) : null;
-    if (!title && args.kind === undefined) throw new Error('需要新的标题或新的周期（kind/time/everySeconds/weekdays）。');
-    if (args.kind !== undefined) {
-      const recreated = await this.taskRepeatCreate({ title: title ?? template.title, kind: args.kind, time: args.time, everySeconds: args.everySeconds, weekdays: args.weekdays, timeZone: args.timeZone ?? template.time_zone });
-      await this.repos!.taskTemplates.update(template.id, { status: 'stopped' });
-      await this.repos!.taskTemplates.skipPendingInstances(template.id);
-      return { ...recreated as object, oldTemplateStopped: template.id, message: `已按新周期重建模板（旧模板 ${template.id} 停止，只影响以后）。` };
-    }
-    const updated = await this.repos!.taskTemplates.update(template.id, { ...(title ? { title } : {}) });
-    return { templateId: template.id, title: updated?.title, message: '已修改以后生成的任务标题；已生成任务不受影响。' };
-  }
-
-  private async requireTemplate(args: Record<string, unknown>) {
-    const template = await this.repos!.taskTemplates.get(String(args.templateId ?? ''));
-    if (!template) throw new Error('模板不存在；请先用 task_repeat_create 建立。');
-    return template;
-  }
-
-  /** Bounded materialization of due template instances into real tasks (P22). */
-  private async materializeTemplateInstances(): Promise<number> {
-    return this.executions.run(async () => {
-      if (!this.repos || this.config?.mode !== 'feishu') return 0;
-      let generated = 0;
-      for (; ;) {
-        const due = await this.repos.taskTemplates.claimDueInstances(new Date(), 5);
-        if (due.length === 0) break;
-        for (const instance of due) {
-          const template = await this.repos.taskTemplates.get(instance.template_id);
-          if (!template || template.status !== 'active') {
-            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'skipped' });
-            continue;
-          }
-          const operationId = `ttask:${instance.id}`;
-          const { created, row } = await this.repos.operations.begin({ id: operationId, workItemId: 'pa24-system-templates', action: 'task.repeat_generate', params: { instanceId: instance.id, title: template.title } });
-          if (!created && row.status === 'succeeded') {
-            // Reconcile keeps the same stable link: the task row id (operationId).
-            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: operationId });
-            continue;
-          }
-          if (!created && row.status === 'unknown') {
-            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'failed', error: '生成结果未知；请先核对飞书任务清单是否已生成，确认后再继续。' });
-            continue;
-          }
-          try {
-            await this.externalOperations.stageWithId(operationId, { id: 'pa24-system-templates' }, 'task.repeat_generate', { instanceId: instance.id, title: template.title });
-            const { data } = await this.externalOperations.perform(operationId, () => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-              'task', '+create', '--as', 'user', '--summary', `[24PA] ${template.title}`, '--tasklist-id', template.tasklist_id, '--idempotency-key', operationId,
-            ]));
-            const external = taskExternal(data);
-            await this.repos.tasks.save({
-              id: operationId,
-              work_item_id: null,
-              task_guid: external.guid,
-              url: external.url,
-              summary: template.title,
-              due_at: instance.due_at,
-              due_has_time: true,
-              planned_at: null,
-              estimate_minutes: null,
-              status: 'open',
-              external_updated_at: new Date(),
-              last_synced_at: new Date(),
-            });
-            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: operationId });
-            await this.repos.operations.update(operationId, { status: 'succeeded', receipt: { guid: external.guid, url: external.url } });
-            generated += 1;
-          } catch (error) {
-            await this.failStaged(operationId, error);
-            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'failed', error: (error as Error).message });
-          }
-          // Advance the template's schedule exactly like the reminder engine:
-          // only the latest missed occurrence is materialized (no backlog flood).
-          const nextAt = nextTemplateOccurrence(template.schedule as RecurringScheduleRecord, Date.now());
-          await this.repos.taskTemplates.update(template.id, { next_due_at: nextAt });
-          await this.repos.taskTemplates.insertInstance({ id: `${template.id}:${nextAt.toISOString()}`, templateId: template.id, dueAt: nextAt });
-        }
-      }
-      return generated;
-    });
-  }
-
-  /** Waiting items (P23): the checkpoint asks the OWNER, never nudges others. */
-  private async waitingCreate(args: Record<string, unknown>): Promise<unknown> {
-    const title = text(args.title, 200);
-    const detail = args.detail ? text(args.detail, 2000) : '';
-    const sourceDesc = args.sourceDesc ? text(args.sourceDesc, 500) : '';
-    const dedupKey = args.dedupKey ? String(args.dedupKey) : null;
-    if (dedupKey) {
-      const existing = await this.repos!.waiting.byDedupKey(dedupKey);
-      if (existing) return { waitingId: existing.id, reused: true, status: existing.status, message: `已有同源等待事项（${existing.id}），不重复建立。` };
-    }
-    let checkpointAt: Date | null = null;
-    if (args.checkpointInSeconds) {
-      const seconds = Number(args.checkpointInSeconds);
-      if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new Error('检查点需为 1 秒–365 天。');
-      checkpointAt = new Date(Date.now() + seconds * 1000);
-    } else if (args.checkpointAt) {
-      checkpointAt = new Date(String(args.checkpointAt));
-      if (Number.isNaN(checkpointAt.getTime())) throw new Error('checkpointAt 需为可解析的 ISO 时间。');
-    }
-    const id = `wt-${randomUUID().slice(0, 12)}`;
-    const row = await this.repos!.waiting.insert({ id, title, detail, sourceDesc, ...(dedupKey ? { dedupKey } : {}), ...(checkpointAt ? { checkpointAt } : {}) });
-    const notice = checkpointAt
-      ? `已建立等待事项「${title}」；到点只会来问你是否收到，不会自动向对方催办。没有可自动读取的回复来源时，以你的答复为准。`
-      : `已建立等待事项「${title}」（未设检查点）；需要跟进时再设时间。`;
-    return { waitingId: row.id, checkpointAt: row.checkpoint_at?.toISOString() ?? null, message: notice };
-  }
-
-  private async waitingList(args: Record<string, unknown>): Promise<unknown> {
-    const items = await this.repos!.waiting.list(args.status ? String(args.status) : undefined);
-    return { items: items.map(w => ({ id: w.id, title: w.title, status: w.status, checkpointAt: w.checkpoint_at?.toISOString() ?? null, asked: w.ask_count, source: w.source_desc })) };
-  }
-
-  private async waitingControl(args: Record<string, unknown>): Promise<unknown> {
-    const op = String(args.op ?? '');
-    const item = await this.repos!.waiting.get(String(args.waitingId ?? ''));
-    if (!item) throw new Error('等待事项不存在。');
-    if (op === 'received') {
-      if (item.status !== 'waiting') throw new Error(`该等待事项当前状态为 ${item.status}。`);
-      await this.repos!.waiting.update(item.id, { status: 'received', result: args.note ? text(args.note, 500) : '本人确认已收到', checkpoint_at: null });
-      return { waitingId: item.id, status: 'received', message: '已标记收到，后续检查点停止询问。' };
-    }
-    if (op === 'cancel') {
-      await this.repos!.waiting.update(item.id, { status: 'canceled', result: args.note ? text(args.note, 500) : '本人取消' });
-      return { waitingId: item.id, status: 'canceled', message: '等待事项已取消。' };
-    }
-    if (op === 'reschedule') {
-      const seconds = Number(args.inSeconds ?? 0);
-      if (!Number.isInteger(seconds) || seconds < 1 || seconds > 365 * 24 * 3600) throw new Error('改期需要 inSeconds（1 秒–365 天）。');
-      const next = new Date(Date.now() + seconds * 1000);
-      await this.repos!.waiting.update(item.id, { status: 'waiting', checkpoint_at: next });
-      return { waitingId: item.id, checkpointAt: next.toISOString(), message: '检查点已调整，到点再来问你。' };
-    }
-    if (op === 'keep') {
-      await this.repos!.waiting.update(item.id, { status: 'waiting' });
-      return { waitingId: item.id, status: 'waiting', message: '继续等待；需要时再设检查点。' };
-    }
-    throw new Error('未知等待操作（received/cancel/reschedule/keep）。');
-  }
-
-  /** One bounded follow-up tick: template instances + waiting checkpoints. */
+  private readonly waitingFollowups: WaitingFollowups = new WaitingFollowups({
+    repos: () => this.repos!, plans: () => this.digest.plans, sessionId: () => this.accessSessionId,
+    gate: work => this.gate('waiting-items', work), silentUntil: () => this.silencePolicy.silentUntil(),
+  });
+  private waitingCreate(args: Record<string, unknown>) { return this.waitingFollowups.create(args); }
+  private waitingList(args: Record<string, unknown>) { return this.waitingFollowups.list(args.status ? String(args.status) : undefined); }
+  private waitingControl(args: Record<string, unknown>) { return this.waitingFollowups.control(args); }
+  /** Timers only repair durable plans; the native wake runs the agent skill. */
   private followupTick(): void {
     if (this.closed || !this.repos || !this.config) return;
-    void this.materializeTemplateInstances().catch(() => { });
-    void this.dispatchWaitingCheckpoints().catch(() => { });
+    void this.materializeTemplateInstances().catch(error => console.warn(`[pa24] 周期任务恢复失败：${error.message}`));
+    void this.dispatchWaitingCheckpoints().catch(error => console.warn(`[pa24] 等待计划恢复失败：${error.message}`));
     void this.superviseDigests().catch(() => { });
   }
-
-  private async dispatchWaitingCheckpoints(): Promise<number> {
-    return this.executions.run(async () => {
-      if (!this.config?.ownerOpenId || this.config.mode !== 'feishu') return 0;
-      const due = await this.repos!.waiting.claimDue(new Date(), 5);
-      for (const item of due) {
-        const silentUntil = await this.silencePolicy.silentUntil();
-        if (silentUntil && silentUntil.getTime() > Date.now()) {
-          await this.repos!.waiting.update(item.id, { checkpoint_at: silentUntil, ask_count: item.ask_count - 1 });
-          continue;
-        }
-        await this.notifyOwner(
-          `waiting:${item.id}:${item.ask_count}`,
-          `等待跟进：「${item.title}」到检查点了${item.source_desc ? `（来源：${item.source_desc}）` : ''}——收到了吗？回复让助理记录（收到 / 继续等 / 改时间 / 取消）；不会自动向对方催办。`,
-        );
-        // One ask per checkpoint: without an answer the next ask backs off an
-        // hour instead of nagging every tick (P23 到点询问).
-        await this.repos!.waiting.update(item.id, { checkpoint_at: new Date(Date.now() + 3600 * 1000) });
-      }
-      return due.length;
-    });
+  private dispatchWaitingCheckpoints(): Promise<number> {
+    return this.executions.run(() => this.waitingFollowups.repair());
   }
 
   // ---- daily planning & recurring digests (F09) -------------------------------
@@ -3072,9 +2834,8 @@ export class PaRuntime {
       // dsh's own archive gate remains the authoritative blocker.
       const digestPlans = (await this.repos.digests.listPlans()).filter(plan => plan.status === 'active' || plan.schedule_id || plan.lifecycle).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null || plan.lifecycle != null }));
       // F45：delegated 行（日程化备份）也列出——归档处置需要看到它们，带渠道标记。
-      const reminderRules = (await this.repos.reminders.listRules())
-        .filter(rule => rule.status === 'active' || rule.status === 'delegated')
-        .map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, status: rule.status, nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null }));
+      const reminderRules = (await this.repos.reminders.rulesForArchive())
+        .map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, status: rule.status, calendarChannel: rule.record?.channel ?? null, eventId: rule.record?.event_id ?? null, nextDueAt: rule.record?.type === 'calendar' ? null : isoDate(rule.next_due_at) }));
       const reviewReminders = (await this.repos.reviewReminders.activeAll(50)).map(r => ({ id: r.id, noteId: r.note_id, kind: r.kind, remindAt: new Date(r.remind_at).toISOString() }));
       const outboxPending = (await this.repos.outbox.recent(200)).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length;
       const blocking = running.length > 0 || digestPlans.some(p => p.native) || outboxPending > 0;
@@ -3124,9 +2885,9 @@ export class PaRuntime {
       // only successful stops are counted.
       let rulesStopped = 0;
       if (stopRules) {
-        for (const rule of await this.repos.reminders.listRules('active')) {
+        for (const rule of await this.repos.reminders.rulesForArchive()) {
           try {
-            await this.repos.reminders.updateRule(rule.id, { status: 'stopped' });
+            await this.reminderRouter.cancel({ id: rule.work_item_id ?? 'pa24-system-archive' } as WorkItemRow, rule.id, '本人选择归档时停止整条提醒规则');
             rulesStopped += 1;
           } catch (error) {
             failures.push(`提醒 ${rule.id} 停止失败：${(error as Error).message}`);
@@ -3142,13 +2903,13 @@ export class PaRuntime {
         }
       }
       // Readback.
-      const after = await this.maintenanceArchiveCheck() as { runningWork: unknown[]; nativeSchedules: unknown[]; outboxPending: number };
+      const after = await this.maintenanceArchiveCheck() as { runningWork: unknown[]; nativeSchedules: unknown[]; outboxPending: number; externalPgReminders: { reminderRules: unknown[]; reviewReminders: unknown[] } };
       return {
         stoppedWork: running.length,
         nativeDisposed,
         rulesStopped,
         failures,
-        remaining: { running: after.runningWork.length, native: after.nativeSchedules.length, outboxPending: after.outboxPending },
+        remaining: { running: after.runningWork.length, native: after.nativeSchedules.length, outboxPending: after.outboxPending, reminderRules: after.externalPgReminders.reminderRules, reviewReminders: after.externalPgReminders.reviewReminders },
         message: failures.length
           ? `已执行停止，但 ${failures.length} 项失败（见明细）；未完全清理前不建议归档。`
           : `已停止 ${running.length} 个运行中事项、处置 ${nativeDisposed} 个原生计划${stopRules ? `、停止 ${rulesStopped} 条外部提醒` : '（外部提醒按你的选择保留）'}；恢复后不会自动重建已删计划。`,

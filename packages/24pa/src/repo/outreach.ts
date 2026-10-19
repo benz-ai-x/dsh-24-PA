@@ -1,6 +1,6 @@
 // Split from repo.ts (round-3 review): one aggregate per file; the
 // Repos facade in index.ts is the unchanged seam every caller already uses.
-import type { PaDb } from '../db.js';
+import type { PaDb, PaQueryer } from '../db.js';
 
 export interface OutreachRow {
   id: string;
@@ -75,13 +75,50 @@ export interface TaskTemplateInstanceRow {
 export class TaskTemplateRepo {
   constructor(private readonly db: PaDb) {}
 
-  async insert(row: Omit<TaskTemplateRow, 'created_at' | 'updated_at'>): Promise<TaskTemplateRow> {
-    const result = await this.db.query<TaskTemplateRow>(
+  async insert(row: Omit<TaskTemplateRow, 'created_at' | 'updated_at'>, client: PaQueryer = this.db): Promise<TaskTemplateRow> {
+    const result = await client.query<TaskTemplateRow>(
       `insert into pa24.task_template (id, title, tasklist_id, schedule, origin_expression, status, next_due_at, time_zone)
        values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
       [row.id, row.title, row.tasklist_id, JSON.stringify(row.schedule), row.origin_expression, row.status, row.next_due_at, row.time_zone],
     );
     return result.rows[0]!;
+  }
+
+  async createWithFirst(row: Omit<TaskTemplateRow, 'created_at' | 'updated_at'>, replaceId?: string): Promise<TaskTemplateRow> {
+    return this.db.withTransaction(async client => {
+      const created = await this.insert(row, client);
+      await this.insertInstance({ id: `${row.id}:${row.next_due_at!.toISOString()}`, templateId: row.id, dueAt: row.next_due_at! }, client);
+      if (replaceId && replaceId !== row.id) await this.stop(replaceId, client);
+      return created;
+    });
+  }
+
+  async stop(id: string, client: PaQueryer = this.db): Promise<void> {
+    const apply = async (tx: PaQueryer) => {
+      await tx.query("update pa24.task_template set status = 'stopped', next_due_at = null, updated_at = now() where id = $1", [id]);
+      await tx.query("update pa24.task_template_instance set status = 'skipped', updated_at = now() where template_id = $1 and status = 'pending'", [id]);
+    };
+    if (client === this.db) return this.db.withTransaction(apply);
+    return apply(client);
+  }
+
+  /** Current terminal state and successor become visible together. */
+  async finishAndAdvance(template: TaskTemplateRow, instance: TaskTemplateInstanceRow, patch: { status: string; taskId?: string | null; error?: string | null }, nextAt: Date): Promise<void> {
+    await this.db.withTransaction(async client => {
+      const current = (await client.query<TaskTemplateRow>('select * from pa24.task_template where id = $1 for update', [template.id])).rows[0];
+      await client.query('update pa24.task_template_instance set status = $2, task_id = coalesce($3, task_id), error = $4, updated_at = now() where id = $1', [instance.id, patch.status, patch.taskId ?? null, patch.error ?? null]);
+      if (current?.status !== 'active' || !current.next_due_at || new Date(current.next_due_at).getTime() > new Date(instance.due_at).getTime()) return;
+      await this.insertInstance({ id: `${template.id}:${nextAt.toISOString()}`, templateId: template.id, dueAt: nextAt }, client);
+      await client.query('update pa24.task_template set next_due_at = $2, updated_at = now() where id = $1', [template.id, nextAt]);
+    });
+  }
+
+  async recoverableInstances(): Promise<TaskTemplateInstanceRow[]> {
+    return (await this.db.query<TaskTemplateInstanceRow>("select * from pa24.task_template_instance where status in ('generating', 'failed') order by due_at")).rows;
+  }
+
+  async instance(id: string): Promise<TaskTemplateInstanceRow | null> {
+    return (await this.db.query<TaskTemplateInstanceRow>('select * from pa24.task_template_instance where id = $1', [id])).rows[0] ?? null;
   }
 
   async get(id: string): Promise<TaskTemplateRow | null> {
@@ -109,8 +146,8 @@ export class TaskTemplateRepo {
     return result.rows;
   }
 
-  async insertInstance(row: { id: string; templateId: string; dueAt: Date }): Promise<boolean> {
-    const result = await this.db.query(
+  async insertInstance(row: { id: string; templateId: string; dueAt: Date }, client: PaQueryer = this.db): Promise<boolean> {
+    const result = await client.query(
       `insert into pa24.task_template_instance (id, template_id, due_at) values ($1,$2,$3) on conflict (id) do nothing`,
       [row.id, row.templateId, row.dueAt],
     );
@@ -196,9 +233,10 @@ export class WaitingRepo {
 
   async byDedupKey(dedupKey: string): Promise<WaitingItemRow | null> {
     const result = await this.db.query<WaitingItemRow>(
-      `select * from pa24.waiting_item where dedup_key = $1 and status = 'waiting' limit 1`,
+      `select * from pa24.waiting_item where dedup_key = $1 and status = 'waiting' order by created_at limit 2`,
       [dedupKey],
     );
+    if (result.rows.length > 1) throw new Error(`同源等待存在多个历史活动项：${result.rows.map(row => row.id).join('、')}；请明确保留哪个并结束其余项。`);
     return result.rows[0] ?? null;
   }
 
@@ -215,18 +253,27 @@ export class WaitingRepo {
     return result.rows[0] ?? null;
   }
 
-  async claimDue(now: Date, limit: number): Promise<WaitingItemRow[]> {
-    const result = await this.db.query<WaitingItemRow>(
-      `update pa24.waiting_item set ask_count = ask_count + 1, last_asked_at = now(), updated_at = now()
-       where id in (
-         select id from pa24.waiting_item
-         where status = 'waiting' and checkpoint_at is not null and checkpoint_at <= $1
-         order by checkpoint_at limit $2 for update skip locked
-       ) returning *`,
-      [now, limit],
-    );
-    return result.rows;
+  async control(id: string, patch: Pick<WaitingItemRow, 'status' | 'checkpoint_at' | 'result'>): Promise<WaitingItemRow | null> {
+    return this.db.withTransaction(async client => {
+      await client.query('select id from pa24.waiting_item where id = $1 for update', [id]);
+      const row = (await client.query<WaitingItemRow>('update pa24.waiting_item set status = $2, checkpoint_at = $3, result = $4, updated_at = now() where id = $1 returning *', [id, patch.status, patch.checkpoint_at, patch.result])).rows[0];
+      await client.query(`update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = '等待事项已由本人修改，旧询问取消'
+        where status in ('pending', 'failed') and (dedup_key like 'waiting:' || $1 || ':%' or dedup_key in (
+          select 'digest:' || o.id from pa24.digest_occurrence o join pa24.digest_plan p on p.id = o.plan_id where p.kind = 'waiting_followup' and p.schedule_spec->>'waitingId' = $1
+        ))`, [id]);
+      return row ?? null;
+    });
   }
+
+  async defer(id: string, checkpoint: string, next: Date): Promise<WaitingItemRow | null> {
+    return (await this.db.query<WaitingItemRow>("update pa24.waiting_item set checkpoint_at = $3, updated_at = now() where id = $1 and status = 'waiting' and checkpoint_at = $2 returning *", [id, new Date(checkpoint), next])).rows[0] ?? null;
+  }
+
+  async retireLegacyNotifications(): Promise<void> {
+    await this.db.query("update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = '旧定时等待询问已退役；后续检查点由智能 skill 核对' where dedup_key like 'waiting:%' and status in ('pending', 'failed')");
+  }
+
+  async all(): Promise<WaitingItemRow[]> { return (await this.db.query<WaitingItemRow>('select * from pa24.waiting_item order by created_at')).rows; }
 
   async list(status?: string, limit = 30): Promise<WaitingItemRow[]> {
     const result = status

@@ -1,7 +1,5 @@
-// F05 end-to-end: deterministic reminders. One-shot delivery via the durable
-// outbox, cancel stops pending occurrences, snooze links a single follow-up,
-// restart picks up pending rules, and quiet-hours/vacation preferences hold
-// (not drop) due occurrences until the window ends.
+// F05/F45: native calendar ownership, cancellation, restart and explicit
+// retirement of legacy timing. Intelligent quiet-hours coverage is in F08.
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile, readFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -135,153 +133,49 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
     expect(event?.rrule ?? null).toBeNull();
   });
 
-  it('P18：取消停止后续实例；稍后只产生一份关联实例', async () => {
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '设长提醒', instruction: '每 60 秒提醒复盘（账本保留面）' },
-      leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: '复盘', __forceLedger: true },
-      workerReply: '已设置。',
-    });
-    await inject(ownerEvent('evt-rmd-2', '一分钟后提醒我做晚间复盘'));
-    await waitWorkItem('设长提醒', '长提醒创建');
-    const created = await waitToolResult('ruleId', '创建回执2');
-    const ruleId = (created.match(/(rmd-[a-z0-9-]+)/) || [])[1];
-
-    // 稍后：原实例 snoozed，仅一份关联实例
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '稍后提醒', instruction: '把复盘提醒延后 2 秒' },
-      leadReply: '已安排稍后。',
-      workerAction: { action: 'reminder_snooze', ruleId, seconds: 2, reason: '本人要求稍后' },
-      workerReply: '已稍后。',
-    });
-    await inject(ownerEvent('evt-rmd-3', '复盘那个提醒稍后两秒再响'));
-    await waitWorkItem('稍后提醒', '稍后完成');
-    await waitToolResult('已稍后 2 秒提醒', '稍后回执');
-    await waitOutbox(`reminder:${ruleId}:`, '稍后实例发出', 30_000);
-
-    // 取消：pending 实例一并取消
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '设再一个提醒', instruction: '90 秒后提醒采购' },
-      leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 90, text: '采购', __forceLedger: true },
-      workerReply: '已设置。',
-    });
-    await inject(ownerEvent('evt-rmd-4', '再设一个九十秒后提醒采购的'));
-    await waitWorkItem('设再一个提醒', '第二个提醒创建');
-    const created2 = await waitToolResult('ruleId', '创建回执3');
-    const ruleId2 = (created2.match(/(rmd-[a-z0-9-]+)/) || [])[1];
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '取消采购提醒', instruction: '取消采购提醒' },
-      leadReply: '已取消。',
-      workerAction: { action: 'reminder_cancel', ruleId: ruleId2, reason: '本人取消' },
-      workerReply: '已取消。',
-    });
-    await inject(ownerEvent('evt-rmd-5', '采购那个提醒不要了'));
-    await waitWorkItem('取消采购提醒', '取消完成');
-    await waitToolResult('已停止', '取消回执');
-    expect((await cluster.query(`select status from pa24.reminder_rule where id='${ruleId2}'`)).trim()).toBe('stopped');
-    // 未到物化窗口的一次性规则：停止后不再产生任何实例或发送
-    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId2}'`)).trim()).toBe('0');
+  it('P18/F45：稍后交给 App，取消整条日历规则且不生成 ledger 实例', async () => {
+    const run = async (title, action) => {
+      await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title, instruction: title }, workerAction: action, workerReply: '按工具实际结果汇报。' });
+      await inject(ownerEvent(title, title)); await waitWorkItem(title, title);
+    };
+    await run('创建待改期提醒', { action: 'reminder_create', kind: 'once', afterSeconds: 600, text: '复盘' });
+    const created = unescapeJsonish(await waitToolResult('ruleId', '创建'));
+    const ruleId = created.match(/"ruleId":"([^"]+)"/)[1];
+    await run('要求稍后提醒', { action: 'reminder_snooze', ruleId, seconds: 60, reason: '本人要求稍后' });
+    await waitToolResult('App 原生提醒', '原生稍后说明');
+    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}'`)).trim()).toBe('0');
+    await run('取消待改期提醒', { action: 'reminder_cancel', ruleId, reason: '本人取消整条规则' });
+    await waitToolResult('已停止', '取消');
+    expect((await cluster.query(`select status from pa24.reminder_rule where id='${ruleId}'`)).trim()).toBe('stopped');
   });
 
-  it('P20/P18：重启后未到期规则继续触发（账本为准）', async () => {
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '重启前设提醒', instruction: '8 秒后提醒续保' },
-      leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 8, text: '续保', __forceLedger: true },
-      workerReply: '已设置。',
-    });
-    await inject(ownerEvent('evt-rmd-6', '八秒后提醒我续保'));
-    await waitWorkItem('重启前设提醒', '重启前提醒创建');
-    const created = await waitToolResult('ruleId', '创建回执4');
-    const ruleId = (created.match(/(rmd-[a-z0-9-]+)/) || [])[1];
-
-    await host.stop({ keepRoot: true });
-    host = await bootHost({ root: hostRoot, env: bootEnv });
-    await host.waitUntil(
-      s => (s.readiness?.items ?? []).find(i => i.id === 'postgres')?.state === 'ok' && !!s.workspace && s.transport?.connected === true,
-      { label: '重启就绪' },
-    );
-    const row = await waitOutbox(`reminder:${ruleId}:`, '重启后触发', 40_000);
-    expect(row.message_id).toMatch(/^fake-/);
+  it('P20/F45：重启保留原生事件和备份，不重建日历或启动 ledger 发送', async () => {
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '重启前设提醒', instruction: '一分钟后提醒续保' }, workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: '续保' }, workerReply: '已记录。' });
+    await inject(ownerEvent('restart-reminder', '一分钟后提醒续保')); await waitWorkItem('重启前设提醒', '创建');
+    const created = unescapeJsonish(await waitToolResult('ruleId', '创建')), ruleId = created.match(/"ruleId":"([^"]+)"/)[1];
+    const before = (await readEvents()).length;
+    await host.stop({ keepRoot: true }); host = await bootHost({ root: hostRoot, env: bootEnv });
+    await host.waitUntil(s => !!s.workspace && s.transport?.connected === true, { label: '重启就绪' });
+    expect((await readEvents()).length).toBe(before);
+    expect((await cluster.query(`select status from pa24.reminder_rule where id='${ruleId}'`)).trim()).toBe('delegated');
+    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}'`)).trim()).toBe('0');
   });
 
-  it('P20：暂停扣住不取消，恢复后照常发出', async () => {
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '设暂停用提醒', instruction: '4 秒后提醒缴费' },
-      leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 8, text: '缴费', __forceLedger: true },
-      workerReply: '已设置。',
-    });
-    await inject(ownerEvent('evt-rmd-8', '四秒后提醒我缴费'));
-    await waitWorkItem('设暂停用提醒', '暂停用提醒创建');
-    const created = await waitToolResult('ruleId', '创建回执6');
-    const ruleId = (created.match(/(rmd-[a-z0-9-]+)/) || [])[1];
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '暂停缴费提醒', instruction: '暂停缴费提醒' },
-      leadReply: '已暂停。',
-      workerAction: { action: 'reminder_pause', ruleId, reason: '本人暂停' },
-      workerReply: '已暂停。',
-    });
-    await inject(ownerEvent('evt-rmd-9', '缴费提醒先暂停一下'));
-    await waitWorkItem('暂停缴费提醒', '暂停完成');
-    await waitToolResult('已暂停', '暂停回执');
-    await new Promise(r => setTimeout(r, 6000));
-    // 暂停期间不发也不取消
-    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}' and status='sent'`)).trim()).toBe('0');
-    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}' and status='canceled'`)).trim()).toBe('0');
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '恢复缴费提醒', instruction: '恢复缴费提醒' },
-      leadReply: '已恢复。',
-      workerAction: { action: 'reminder_resume', ruleId, reason: '本人恢复' },
-      workerReply: '已恢复。',
-    });
-    await inject(ownerEvent('evt-rmd-10', '恢复缴费提醒'));
-    await waitWorkItem('恢复缴费提醒', '恢复完成');
-    const row = await waitOutbox(`reminder:${ruleId}:`, '恢复后发出', 30_000);
-    expect(row.message_id).toMatch(/^fake-/);
+  it('P20/F45：旧 every 新入口明确拒绝，不能静默回退计时', async () => {
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '要求旧间隔规则', instruction: '每分钟提醒缴费' }, workerAction: { action: 'reminder_create', kind: 'every', everySeconds: 60, text: '缴费' }, workerReply: '按实际拒因汇报。' });
+    await inject(ownerEvent('legacy-every', '每分钟提醒缴费')); await waitWorkItem('要求旧间隔规则', '完成拒绝');
+    await waitToolResult('已退役', '不启用旧引擎');
+    expect((await cluster.query("select count(*) from pa24.reminder_rule where text='缴费'")).trim()).toBe('0');
   });
 
-  it('P15/P21：临时休假把到期提醒扣住不放，到期后补发', async () => {
-    const nowIso = new Date().toISOString();
-    const vacationEnd = new Date(Date.now() + 12000).toISOString(); // 覆盖 6s 到期＋派发链路耗时
-    await writeScript({
-      mode: 'dispatch',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-1', category: 'preference', topic: '休假', content: '本人休假中，暂停提醒推送', source: '本人指示', status: 'confirmed', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } },
-      leadReply: '已记录休假。',
-    });
-    await promptLocal('f05-vacation-1', '我要休假几秒钟：现在开始四秒内不要提醒我');
-    await waitMemoryRevision(1, '休假写入');
-
-    await writeScript({
-      mode: 'dispatch',
-      delegate: { worker: 'reminders', title: '休假中设提醒', instruction: '2 秒后提醒签收' },
-      leadReply: '已设置。',
-      workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 6, text: '签收快递', __forceLedger: true },
-      workerReply: '已设置。',
-    });
-    await inject(ownerEvent('evt-rmd-7', '两秒后提醒我签收快递'));
-    await waitWorkItem('休假中设提醒', '休假期提醒创建');
-    const created = await waitToolResult('ruleId', '创建回执5');
-    const ruleId = (created.match(/(rmd-[a-z0-9-]+)/) || [])[1];
-
-    // 休假窗口内被扣住（pending+deferred），不发（等待到期 6s＋派发 tick）
-    await new Promise(r => setTimeout(r, 8000));
-    const held = await cluster.query(`select status, (deferred_until is not null) as deferred from pa24.reminder_occurrence where rule_id='${ruleId}'`);
-    expect(held).toContain('pending');
-    expect(held).toContain('t'); // deferred_until set
-    // 休假结束后补发
-    const row = await waitOutbox(`reminder:${ruleId}:`, '休假后补发', 30_000);
-    expect(row.message_id).toMatch(/^fake-/);
-    expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}' and status='sent'`)).trim()).toBe('1');
+  it('P15/P21/F45：本人休假偏好可记录；时钟免打扰归 App，不重新启动旧发送器', async () => {
+    const vacationEnd = new Date(Date.now() + 3600000).toISOString();
+    await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-1', category: 'preference', topic: '休假', content: '本人休假中，暂停智能跟进', source: '本人指示', status: 'confirmed', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } }, leadReply: '已记录休假。' });
+    await promptLocal('f05-vacation-1', '休假一小时，暂停智能跟进'); await waitMemoryRevision(1, '休假写入');
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '休假中的日历安排', instruction: '一分钟后提醒签收' }, workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: '签收快递' }, workerReply: '由日历 App 提醒。' });
+    await inject(ownerEvent('vacation-calendar', '一分钟后提醒签收')); await waitWorkItem('休假中的日历安排', '安排');
+    await waitToolResult('App 原生', '归属');
+    expect((await cluster.query('select count(*) from pa24.reminder_occurrence')).trim()).toBe('0');
   });
 });
 
