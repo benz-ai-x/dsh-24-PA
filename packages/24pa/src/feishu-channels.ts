@@ -188,10 +188,9 @@ export class FeishuChannels {
         // Merge with the prior projection and the platform receipt; never
         // fabricate times that neither the request nor the receipt provided.
         const prior = await this.deps.repos().calendar.findEvent(newEventId);
-        const receiptStart = Date.parse(String(event?.start_time ?? event?.start ?? '')) ? new Date(String(event.start_time ?? event.start)) : null;
-        const receiptEnd = Date.parse(String(event?.end_time ?? event?.end ?? '')) ? new Date(String(event.end_time ?? event.end)) : null;
-        const startTime = start ?? receiptStart ?? prior?.start_time;
-        const endTime = end ?? receiptEnd ?? prior?.end_time;
+        const receiptEvent = mapRemoteEvent({ ...event, event_id: newEventId }, String(args.timeZone ?? this.deps.config().timeZone));
+        const startTime = receiptEvent?.start ?? start ?? prior?.start_time;
+        const endTime = receiptEvent?.end ?? end ?? prior?.end_time;
         if (!startTime || !endTime) {
           // No trustworthy time source: refresh the window instead of guessing.
           await this.syncCalendarWindow(calendarId, new Date(Date.now() - 24 * 3600 * 1000), new Date(Date.now() + 7 * 24 * 3600 * 1000)).catch(() => {});
