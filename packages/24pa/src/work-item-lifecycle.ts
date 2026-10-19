@@ -68,9 +68,17 @@ export class WorkItemLifecycle {
       let acceptedMessageId: string | void;
       try { acceptedMessageId = await this.deps.resume(running!, input); }
       catch (error) {
-        const restored = await repo.update(id, { status: item.status, progress: `继续输入未送达：${(error as Error).message}` });
-        this.deps.track(restored!);
-        throw error;
+        const outcome = (error as { outcome?: string }).outcome ?? 'rejected';
+        try {
+          const restored = await repo.update(id, {
+            status: outcome === 'unknown' ? 'needs_reconciliation' : item.status,
+            progress: `${outcome === 'unknown' ? '继续输入接纳待核对，勿自动重发' : '继续输入未送达'}：${(error as Error).message}`,
+          });
+          if (restored) this.deps.track(restored);
+        } catch (localError) {
+          throw Object.assign(new Error(`${(error as Error).message}；本地状态待核对：${(localError as Error).message}`), { outcome });
+        }
+        throw Object.assign(error as Error, { outcome });
       }
       return { ...running!, ...(typeof acceptedMessageId === 'string' ? { acceptedMessageId } : {}) };
     }).catch(error => {
