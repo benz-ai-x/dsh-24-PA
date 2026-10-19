@@ -1,3 +1,4 @@
+import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import type { WorkItemRepo, WorkItemRow } from './repo/work.js';
 import type { NewOutbox } from './repo/outbox.js';
 
@@ -9,8 +10,9 @@ export class WorkItemLifecycle {
   constructor(private readonly deps: {
     repo: () => WorkItemRepo; maxWorkers: () => number; available: () => boolean;
     start: (item: WorkItemRow) => Promise<void>;
-    resume: (item: WorkItemRow, input: string) => Promise<void>;
+    resume: (item: WorkItemRow, input: string) => Promise<string | void>;
     interrupt: (item: WorkItemRow) => void;
+    quiesce?: (item: WorkItemRow) => Promise<void>;
     track: (item: WorkItemRow) => void;
   }) {}
 
@@ -48,45 +50,73 @@ export class WorkItemLifecycle {
     }
   }
 
-  resume(id: string, input: string, supplement = false): Promise<WorkItemRow> {
+  resume(id: string, input: string, supplement = false): Promise<WorkItemRow & { acceptedMessageId?: string }> {
     return this.gate(async () => {
       if (!this.deps.available()) throw new Error('事项调度尚未就绪。');
       const repo = this.deps.repo();
       const item = await repo.get(id);
       if (!item?.child_session_id) throw new Error('此事项尚无原生 Worker 会话，请核对后重新委派。');
+      if (item.status === 'needs_reconciliation') throw new Error('上次输入接纳结果待核对，请先核对外部结果并明确停止本事项，再决定是否继续。');
       if (supplement && item.status === 'stopped') throw new Error('事项已停止，不因引用复活。');
       if (['accepted', 'queued'].includes(item.status)) throw new Error('事项尚在排队，请启动后再补充。');
       if (!supplement && item.status === 'running') throw new Error('事项正在运行或排队中。');
       if (item.status !== 'running' && await repo.countByStatus('running') >= this.deps.maxWorkers()) throw new Error('Worker 并发已满，请稍后继续。');
+      if (item.status !== 'running') {
+        await this.deps.quiesce?.(item);
+        await repo.setRecoveryGen(id, (item.recovery_gen ?? 0) + 1);
+      }
       const running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待 Worker 处理' : '继续处理' });
       this.deps.track(running!);
-      try { await this.deps.resume(running!, input); }
+      let acceptedMessageId: string | void;
+      try { acceptedMessageId = await this.deps.resume(running!, input); }
       catch (error) {
-        const restored = await repo.update(id, { status: item.status, progress: `继续输入未送达：${(error as Error).message}` });
-        this.deps.track(restored!);
-        throw error;
+        const outcome = (error as { outcome?: string }).outcome ?? 'rejected';
+        try {
+          const restored = await repo.update(id, {
+            status: outcome === 'unknown' ? 'needs_reconciliation' : item.status,
+            progress: `${outcome === 'unknown' ? '继续输入接纳待核对，勿自动重发' : '继续输入未送达'}：${(error as Error).message}`,
+          });
+          if (restored) this.deps.track(restored);
+        } catch (localError) {
+          throw Object.assign(new Error(`${(error as Error).message}；本地状态待核对：${(localError as Error).message}`), { outcome });
+        }
+        throw Object.assign(error as Error, { outcome });
       }
-      return running!;
+      return { ...running!, ...(typeof acceptedMessageId === 'string' ? { acceptedMessageId } : {}) };
+    }).catch(error => {
+      // The host adapter explicitly tags uncertain send outcomes. Validation,
+      // capacity, parent/skill resolution and local intent failures precede it.
+      throw Object.assign(error, { outcome: error.outcome ?? 'rejected' });
     });
+  }
+
+  private async stopItem(id: string): Promise<void> {
+    const repo = this.deps.repo();
+    const item = await repo.get(id);
+    if (!item || !UNSETTLED_WORK_STATUSES.some(status => status === item.status)) throw new Error('此事项已结束。');
+    const stopped = await repo.update(id, { status: 'stopped', progress: '本人要求停止；已完成及待核对的外部效果保留' });
+    this.deps.track(stopped!);
+    if (item.status === 'running' || item.status === 'needs_reconciliation') this.deps.interrupt(item);
   }
 
   stop(id: string): Promise<void> {
     return this.gate(async () => {
-      const repo = this.deps.repo();
-      const item = await repo.get(id);
-      if (!item || !['running', 'queued', 'accepted', 'waiting_input'].includes(item.status)) throw new Error('此事项已结束。');
-      const stopped = await repo.update(id, { status: 'stopped', progress: '本人要求停止；已完成的外部操作保留' });
-      this.deps.track(stopped!);
-      try { if (item.status === 'running') this.deps.interrupt(item); }
+      try { await this.stopItem(id); }
       finally { await this.fillSlots(); }
     });
   }
 
-  finish(id: string, result: { output: string; failed?: boolean; delivery: (item: WorkItemRow) => NewOutbox }): Promise<void> {
+  /** Archive stops the selected queue as one admission decision. Never start a
+   * queued worker between two stops, even when an uncertain item freed a slot. */
+  stopMany(ids: readonly string[]): Promise<void> {
+    return this.gate(async () => { for (const id of ids) await this.stopItem(id); });
+  }
+
+  finish(id: string, result: { output: string; failed?: boolean; generation?: number; delivery: (item: WorkItemRow) => NewOutbox }): Promise<void> {
     return this.gate(async () => {
       const repo = this.deps.repo();
       const item = await repo.get(id);
-      if (!item || item.status !== 'running') return;
+      if (!item || item.status !== 'running' || (result.generation !== undefined && result.generation !== (item.recovery_gen ?? 0))) return;
       const finished = await repo.finishWithDelivery(id, result.output, result.failed === true, result.delivery(item));
       if (finished) this.deps.track(finished);
       await this.fillSlots();
@@ -108,7 +138,8 @@ export class WorkItemLifecycle {
         await repo.setRecoveryGen(item.id, gen);
         try {
           if (!item.child_session_id) throw new Error('缺少原生 Worker 会话映射');
-          await this.deps.resume(item, `[恢复 第${gen}代] 服务重启。请先核对已完成步骤与外部结果，再继续未完成部分；已成功的操作不要重复执行。`);
+          await this.deps.quiesce?.(item);
+          await this.deps.resume({ ...item, recovery_gen: gen }, `[恢复 第${gen}代] 服务重启。请先核对已完成步骤与外部结果，再继续未完成部分；已成功的操作不要重复执行。`);
           await repo.update(item.id, { progress: `重启恢复（第 ${gen} 代）；等待 Worker 核对后续办` });
         } catch (error) {
           await repo.update(item.id, { status: 'needs_reconciliation', progress: `恢复输入未确认：${(error as Error).message}` });

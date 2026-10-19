@@ -1,0 +1,26 @@
+{
+  "before": {
+    "id": "r",
+    "category": "fact",
+    "topic": "项目",
+    "content": "B",
+    "source": "本人手工撤销来源",
+    "status": "unverified",
+    "reason": "B",
+    "validUntil": null,
+    "updatedAt": "2026-10-19T04:39:39.696Z",
+    "updatedBy": "owner"
+  },
+  "after": {
+    "id": "r",
+    "category": "fact",
+    "topic": "项目",
+    "content": "A",
+    "source": "本人确认",
+    "status": "confirmed",
+    "reason": "撤销 CS-2：本人修订",
+    "validUntil": null,
+    "updatedAt": "2026-10-19T04:39:39.697Z",
+    "updatedBy": "owner"
+  }
+}

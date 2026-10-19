@@ -1,3 +1,6 @@
+import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
+import { WorkspaceExecution } from './workspace-execution.js';
+import { consumedTurn } from './host-turn.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { WorkspaceBackup } from './backup.js';
 import { readFileSync } from 'node:fs';
@@ -5,7 +8,7 @@ import { readFileSync } from 'node:fs';
 /** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
 const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任务 skill（worker-persona-*）在会话启动时装载；此处仅注册占位。';
 import { createRequire } from 'node:module';
-import { mkdir, realpath, stat, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
@@ -73,7 +76,7 @@ function hostSkillRegistry(ctx: DshContext): ConstructorParameters<typeof SkillC
 const textOf = (content: readonly ContentBlock[] | undefined): string =>
   (content || []).filter(b => b.type === 'text').map(b => String(b.text ?? '')).join('\n').trim();
 
-let BUILTIN_ROLE_IDS: string[] = [];
+
 
 const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', calendar: '日程' };
 
@@ -134,11 +137,16 @@ export class PaRuntime {
   readonly options: RuntimeOptions;
   private readonly env: Record<string, string | undefined>;
   private serial: Promise<unknown> = Promise.resolve();
+  private readonly executions = new WorkspaceExecution();
+  private builtInRoles: WorkerRoleDefinition[] = [];
+  private readonly workerParents = new Set<string>();
+  private readonly executionMessages = new Map<string, { generation: number; messageId: string }>();
   private readonly sessionGates = new Map<string, Promise<unknown>>();
   private readonly inboxLifecycle = new InboxLifecycle({
     repo: () => this.repos?.inbox ?? null,
     available: () => !this.closed && !this.workspaceChanging,
     process: row => this.processInbox(row),
+    execute: work => this.executions.detached(() => this.executions.run(work)),
   });
   private workspaceBinding: string | null = null;
 
@@ -198,7 +206,7 @@ export class PaRuntime {
           if ('error' in resolved) throw Object.assign(new Error('原发起会话暂不可用，稍后补交事项结果。'), { outcome: 'failed' });
           let result;
           try {
-            result = await this.ctx.sessionController.prompt({ requestId: row.dedup_key, sessionId: row.target, mode: 'queue', content: [{ type: 'text', text: String(row.content?.text ?? '') }], clientTimeZone: this.config!.timeZone }, this.lifetime.signal);
+            result = await this.executions.detached(() => this.ctx.sessionController.prompt({ requestId: row.dedup_key, sessionId: row.target, mode: 'queue', content: [{ type: 'text', text: String(row.content?.text ?? '') }], clientTimeZone: this.config!.timeZone }, this.lifetime.signal));
           } catch (error) {
             throw Object.assign(new Error(`会话接纳结果未知：${(error as Error).message}`), { outcome: 'unknown' });
           }
@@ -268,7 +276,7 @@ export class PaRuntime {
   /** Handwriting note pipeline (F29): submit→publish→review→verify→republish
    *  behind a deep module; the runtime keeps role bindings and tick loops. */
   private readonly handwriting: HandwritingPipeline = new HandwritingPipeline({
-      skillParams: name => this.skillCatalog.params(name),
+    skillParams: name => this.skillCatalog.params(name),
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
     workspace: () => this.workspace,
@@ -344,29 +352,41 @@ export class PaRuntime {
 
   /** Panel surface (digest.supervise action): stable runtime face (F32). */
   async superviseDigests(graceMs?: number): Promise<unknown> {
-    return this.digest.superviseDigests(graceMs);
+    return this.executions.run(async () => {
+      return this.digest.superviseDigests(graceMs);
+    });
   }
 
   async digestPlans(): Promise<unknown> {
-    if (!this.repos) return { plans: [], skills: await this.skillCatalog.list() };
-    return { ...((await this.digest.digestList()) as Record<string, unknown>), skills: await this.skillCatalog.list() };
+    return this.executions.run(async () => {
+      if (!this.repos) return { plans: [], skills: await this.skillCatalog.list() };
+      return { ...((await this.digest.digestList()) as Record<string, unknown>), skills: await this.skillCatalog.list() };
+    });
   }
 
   /** F40（spec 2.11）：面板三动作——改时间/换 skill/立即运行一次。 */
   async digestReschedule(args: Record<string, unknown>): Promise<unknown> {
-    return this.digest.digestControl({ ...args, op: 'adjust' });
+    return this.executions.run(async () => {
+      return this.digest.digestControl({ ...args, op: 'adjust' });
+    });
   }
 
   async digestSetSkill(args: Record<string, unknown>): Promise<unknown> {
-    return this.digest.digestControl({ ...args, op: 'skill' });
+    return this.executions.run(async () => {
+      return this.digest.digestControl({ ...args, op: 'skill' });
+    });
   }
 
   async digestSetVoice(args: Record<string, unknown>): Promise<unknown> {
-    return this.digest.digestControl({ ...args, op: 'voice', voice: args.voice !== false });
+    return this.executions.run(async () => {
+      return this.digest.digestControl({ ...args, op: 'voice', voice: args.voice !== false });
+    });
   }
 
   async digestRunNow(planId: string): Promise<unknown> {
-    return this.digest.digestRunNow(planId);
+    return this.executions.run(async () => {
+      return this.digest.digestRunNow(planId);
+    });
   }
   private outboxSending = false;
   /** 最近一次 tts.probe 结果（健康面只读缓存，不做子进程探测）。 */
@@ -391,7 +411,7 @@ export class PaRuntime {
     this.skillCatalog.registerBuiltins();
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
-    BUILTIN_ROLE_IDS = this.roles.list().map(r => r.id);
+    this.builtInRoles = this.roles.list();
   }
 
   /** Built-in, auditable action implementations a registered role may bind (P44). */
@@ -570,86 +590,63 @@ export class PaRuntime {
     });
   }
 
-  /** Maintainer-facing role registration (P44); duplicates and invalid definitions are refused, keeping the old set. */
+  /** Validate and persist the complete catalogue before making it effective. */
   async registerRole(definition: WorkerRoleDefinition, actionNames: readonly string[] = []): Promise<void> {
-    if (this.roles.hasRegistered(definition.id)) {
-      throw new Error(`角色已注册：${definition.id}；如需更新请先移除并处理在途事项。`);
-    }
-    // Validate every action binding before touching the registry so a bad
-    // name cannot leave a half-registered, unpersisted role behind.
-    const bindings: [string, WorkerActionHandler][] = actionNames.map(name => {
+    return this.executions.run(async () => {
+      return this.gate('roles', async () => {
+        if (!this.workspace) throw new Error('请先绑定工作区，再注册角色。');
+        if (this.roles.hasRegistered(definition.id)) throw new Error(`角色已注册：${definition.id}。`);
+        const candidate = new RoleRegistry();
+        for (const role of this.roles.list()) candidate.register(role);
+        candidate.register({ ...definition, actions: { ...definition.actions, ...this.roleActions(actionNames) } });
+        const declared = candidate.list().filter(role => !this.builtInRoles.some(builtin => builtin.id === role.id));
+        for (const role of declared) this.roleActions(Object.keys(role.actions));
+        await this.writeRuntimeJson(join(this.workspace.statePath, '.24pa', 'roles.json'), declared.map(role => ({
+          id: role.id, name: role.name, persona: role.persona, brief: role.brief, available: role.available, actionNames: Object.keys(role.actions),
+        })));
+        this.roles.replace(candidate.list());
+      });
+    });
+  }
+
+  private roleActions(names: readonly string[]): Record<string, WorkerActionHandler> {
+    return Object.fromEntries(names.map(name => {
       const handler = this.builtInActions[name];
       if (!handler) throw new Error(`未提供该动作实现：${name}。`);
       return [name, handler];
-    });
-    this.roles.register(definition);
-    for (const [name, handler] of bindings) this.bindRoleAction(definition.id, name, handler);
-    await this.persistRegisteredRoles();
+    }));
   }
 
-  /** Registered dynamic roles survive restarts (P44 重启可续办). */
-  private async persistRegisteredRoles(): Promise<void> {
-    if (!this.workspace) return;
-    const { writeFile } = await import('node:fs/promises');
-    const declared = this.roles
-      .list()
-      .filter(r => !BUILTIN_ROLE_IDS.includes(r.id))
-      .map(r => ({
-        id: r.id,
-        name: r.name,
-        persona: r.persona,
-        brief: r.brief,
-        available: r.available,
-        actionNames: Object.keys(r.actions),
-      }));
-    await writeFile(join(this.workspace.statePath, '.24pa', 'roles.json'), JSON.stringify(declared, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
-  }
-
-  private async restoreRegisteredRoles(): Promise<void> {
-    if (!this.workspace) return;
-    try {
-      const raw = JSON.parse(await readFile(join(this.workspace.statePath, '.24pa', 'roles.json'), 'utf8'));
-      for (const def of Array.isArray(raw) ? raw : []) {
-        this.roles.register({
-          id: String(def.id),
-          name: String(def.name),
-          persona: String(def.persona),
-          brief: String(def.brief),
-          available: def.available === true,
-          actions: {},
-        });
-        const actionNames = Array.isArray(def.actionNames) ? def.actionNames.map(String) : [];
-        for (const name of actionNames) {
-          const handler = this.builtInActions[name];
-          if (handler) this.bindRoleAction(String(def.id), name, handler);
-        }
-      }
-    } catch {
-      // No persisted roles yet, or an unreadable file is ignored; built-ins
-      // are always present.
+  private async prepareRoles(path: string): Promise<WorkerRoleDefinition[]> {
+    const candidate = new RoleRegistry();
+    for (const role of this.builtInRoles) candidate.register(role);
+    let source: string;
+    try { source = await readFile(join(path, '.24pa', 'roles.json'), 'utf8'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return candidate.list(); throw error; }
+    const declared = JSON.parse(source);
+    if (!Array.isArray(declared)) throw new Error('工作区角色目录必须为数组。');
+    for (const role of declared) {
+      if (candidate.hasRegistered(role.id)) throw new Error(`工作区角色重复或覆盖内置角色：${role.id}。`);
+      candidate.register({ ...role, actions: this.roleActions(Array.isArray(role.actionNames) ? role.actionNames : []) });
     }
+    return candidate.list();
   }
 
-  private bindRoleAction(roleId: string, action: string, handler: WorkerActionHandler): void {
-    const role = this.roles.get(roleId);
-    if (!role) return;
-    this.roles.register({ ...role, actions: { ...role.actions, [action]: handler } });
+  private async writeRuntimeJson(path: string, value: unknown): Promise<void> {
+    const tmp = `${path}.${randomUUID()}.tmp`;
+    await mkdir(join(path, '..'), { recursive: true });
+    try { await writeFile(tmp, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 }); await rename(tmp, path); }
+    finally { await rm(tmp, { force: true }); }
   }
 
-  /**
-   * Declarative registration surface: bind built-in action implementations by
-   * name (the P44 digest demonstration) without shipping executable code over
-   * the panel.
-   */
   registerRoleActions(roleId: string, actionNames: readonly string[]): void {
     const role = this.roles.get(roleId);
     if (!role) throw new Error(`角色未注册：${roleId}。`);
-    for (const name of actionNames) {
-      const handler = this.builtInActions[name];
-      if (!handler) throw new Error(`未提供该动作实现：${name}。`);
-      this.bindRoleAction(roleId, name, handler);
-    }
+    this.roles.register({ ...role, actions: { ...role.actions, ...this.roleActions(actionNames) } });
   }
+
+  /** Panel queries hold the same workspace as asynchronous business entries. */
+  inspectWorkspace<T>(read: () => Promise<T>): Promise<T> { return this.executions.read(read); }
 
   listRoles(): { id: string; name: string; available: boolean }[] {
     return this.roles.list().map(r => ({ id: r.id, name: r.name, available: r.available }));
@@ -660,14 +657,22 @@ export class PaRuntime {
       if (this.closed) throw new Error('24私助已停止。');
       return work();
     });
-    this.serial = result.catch(() => {});
+    this.serial = result.catch(() => { });
     return result;
+  }
+
+  private transition<T>(change: () => Promise<T>): Promise<T> {
+    return this.enqueue(() => this.executions.transition(async () => {
+      this.workspaceChanging = true;
+      try { return await change(); }
+      finally { this.workspaceChanging = false; }
+    }));
   }
 
   private gate<T>(key: string, work: () => Promise<T>): Promise<T> {
     const previous = this.sessionGates.get(key) ?? Promise.resolve();
     const result = previous.then(work, work);
-    this.sessionGates.set(key, result.catch(() => {}));
+    this.sessionGates.set(key, result.catch(() => { }));
     return result;
   }
 
@@ -680,18 +685,23 @@ export class PaRuntime {
       await this.cleanup();
       return;
     }
-    const requested = this.options.workspacePath || (await this.readSavedWorkspacePath());
-    if (requested) {
-      await this.bind(requested, true);
+    if (this.options.workspacePath) {
+      await this.bind(this.options.workspacePath, true);
     } else {
-      this.configError = '尚未选择24私助工作区目录；请在「24私助工作区」面板绑定。';
+      try {
+        const saved = await this.readSavedWorkspacePath();
+        if (saved) await this.bind(saved);
+        else this.configError = '尚未选择24私助工作区目录；请在「24私助工作区」面板绑定。';
+      } catch (error) {
+        // Recovery never creates a replacement for missing owner data. Keep the
+        // panel available so the owner can locate/rebind the original directory.
+        this.configError = `上次绑定的工作区无法恢复，请重新选择目录：${(error as Error).message}`;
+      }
     }
     if (this.closed) {
       await this.cleanup();
       return;
     }
-    await this.restoreActiveWork();
-    await this.reconcileAfterRestart();
     this.dispatchTimer = setInterval(() => void this.kickDispatcher(), this.options.dispatchTickMs);
     this.outboxTimer = setInterval(() => void this.kickOutbox(), this.options.outboxTickMs);
     // Bounded polling for pending-review versions (P32): no Feishu file events
@@ -709,47 +719,58 @@ export class PaRuntime {
     // F23: proactive wecom service-auth monitoring — a silent expiry must not
     // wait for the owner to hit a business error. Read-only probes only; the
     // first check runs shortly after start, then at a slow cadence.
-    this.wecomAuthTimer = setInterval(() => void this.wecomChannels.authTick(), WECOM_AUTH_CHECK_INTERVAL_MS);
+    this.wecomAuthTimer = setInterval(() => void this.authTick().catch(() => { }), WECOM_AUTH_CHECK_INTERVAL_MS);
     this.wecomAuthTimer.unref?.();
-    const firstCheck = setTimeout(() => void this.wecomChannels.authTick(), WECOM_AUTH_FIRST_CHECK_DELAY_MS);
+    const firstCheck = setTimeout(() => void this.authTick().catch(() => { }), WECOM_AUTH_FIRST_CHECK_DELAY_MS);
     firstCheck.unref?.();
     this.startedAt = nowIso();
   }
 
   private async readSavedWorkspacePath(): Promise<string | null> {
-    if (!this.repos) return null;
-    return this.repos.workspaceState.latestPath();
+    try {
+      const saved = JSON.parse(await readFile(join(this.options.stateDirectory, 'workspace.json'), 'utf8'));
+      if (typeof saved.path !== 'string' || !isAbsolute(saved.path)) throw new Error('工作区发现记录无效。');
+      return saved.path;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.executions.stopAccepting();
     this.lifetime.abort();
     if (this.dispatchTimer) clearInterval(this.dispatchTimer);
     if (this.outboxTimer) clearInterval(this.outboxTimer);
     if (this.wecomAuthTimer) clearInterval(this.wecomAuthTimer);
     try {
-      if (this.repos) {
-        const active = await this.repos.workItems.list(['accepted', 'queued', 'running'], 50);
-        const parents = new Set(active.map(item => item.parent_session_id));
-        const agents: DshAgent[] = [];
-        for (const id of parents) {
-          const resolved = await this.ctx.sessionController.resolveAgent(id).catch(() => null);
-          if (resolved && !('error' in resolved)) agents.push(resolved.agent);
-        }
-        // 0.2.1-alpha.2 renames drainContinuableDescendants to drainDescendants.
-        if (agents.length > 0) {
-          const drain = this.ctx.subagents.drainDescendants ?? this.ctx.subagents.drainContinuableDescendants;
-          if (drain) await drain(agents).catch(() => {});
-        }
-      }
+      await this.workLifecycle.idle();
+      await this.retireWorkers();
     } finally {
       await this.cleanup();
     }
   }
 
+  /** Native execution can outlive a stopped business row. Keep its parent
+   * until the host confirms retirement, including uncertain start outcomes. */
+  private async retireWorkers(): Promise<void> {
+    const parents = new Set(this.workerParents);
+    for (const item of this.workItemByChild.values()) parents.add(item.parent_session_id);
+    const agents: DshAgent[] = [];
+    for (const id of parents) {
+      const resolved = await this.ctx.sessionController.resolveAgent(id).catch(() => null);
+      if (resolved && !('error' in resolved)) agents.push(resolved.agent);
+    }
+    const drain = this.ctx.subagents?.drainDescendants ?? this.ctx.subagents?.drainContinuableDescendants;
+    if (agents.length && drain) await this.executions.detached(() => drain.call(this.ctx.subagents, agents));
+    this.workerParents.clear();
+  }
+
   /** Release every acquired resource; safe to call again after a late start(). */
   private async cleanup(): Promise<void> {
+    await this.executions.close();
     await this.inboxLifecycle.stop();
     await this.workLifecycle.idle();
     await this.digest.pause();
@@ -760,12 +781,12 @@ export class PaRuntime {
     this.reminders?.stop();
     this.reminders = null;
     await this.outboxDelivery.pause();
-    await this.transport?.close().catch(() => {});
+    await this.transport?.close().catch(() => { });
     this.transport = null;
-    await this.db?.close().catch(() => {});
+    await this.db?.close().catch(() => { });
     this.db = null;
     this.repos = null;
-    await this.lock?.release().catch(() => {});
+    await this.lock?.release().catch(() => { });
     this.lock = null;
   }
 
@@ -785,16 +806,20 @@ export class PaRuntime {
   /** After a restart, re-attach the in-memory role map from the durable ledger. */
   private async restoreActiveWork(): Promise<void> {
     if (!this.repos) return;
-    const active = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 100);
+    const active = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 100);
     for (const item of active) this.trackWorkItem(item);
   }
 
   async bind(path: string, initialize = false): Promise<void> {
-    return this.enqueue(async () => {
+    return this.transition(async () => {
       this.workspaceChanging = true;
       try { await this.inboxLifecycle.pauseForSwitch(); await this.bindWorkspace(path, initialize); }
-      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); this.inboxLifecycle.resume(); }
-      if (!this.closed) await this.digest.recoverPlans();
+      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); this.executions.detached(() => this.inboxLifecycle.resume()); }
+      if (!this.closed) {
+        await this.restoreActiveWork();
+        await this.reconcileAfterRestart();
+        await this.digest.recoverPlans();
+      }
     });
   }
 
@@ -822,6 +847,7 @@ export class PaRuntime {
     // Prepare with target-owned configuration and credentials. Nothing active
     // is stopped or replaced until all fallible preparation has succeeded.
     const candidate = await readWorkspaceConfiguration(real);
+    const candidateRoles = await this.prepareRoles(real);
     const { db, postgresDsn } = await this.openDatabaseFor(real, candidate);
     const repos = createRepos(db);
     let next: NonNullable<PaRuntime['preparingWorkspace']>;
@@ -840,21 +866,25 @@ export class PaRuntime {
       next.accessSessionId = await this.prepareOwnedSession('feishu', next);
       next.localSessionId = await this.prepareOwnedSession('local', next);
       await repos.workspaceState.save(real, { feishuSessionId: next.accessSessionId, localSessionId: next.localSessionId });
-      active = await repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 100);
+      active = await repos.workItems.list(UNSETTLED_WORK_STATUSES, 100);
       await InboxLifecycle.recover(repos.inbox, async row => {
-        await repos.outbox.enqueue({ dedupKey: `reconcile:${row.event_id}`, channel: 'feishu',
+        await repos.outbox.enqueue({
+          dedupKey: `reconcile:${row.event_id}`, channel: 'feishu',
           target: row.payload?.senderOpenId || candidate.config.ownerOpenId, kind: 'text',
-          content: { text: '服务重启前有一条消息正在处理但未完成；如仍需要请重新发送。' } });
+          content: { text: '服务重启前有一条消息正在处理但未完成；如仍需要请重新发送。' }
+        });
       });
       connection = await this.prepareTransport(candidate.config, candidate.secrets);
       await this.outboxDelivery.pause();
       await this.workLifecycle.idle();
       if (this.workspace && (await this.hasActiveWork())) throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
       if (this.closed) throw new Error('24私助已停止。');
+      await this.retireWorkers();
+      await this.writeRuntimeJson(join(this.options.stateDirectory, 'workspace.json'), { path: real });
     } catch (error) {
       connection?.cancel();
-      await connection?.transport?.close().catch(() => {});
-      await db.close().catch(() => {});
+      await connection?.transport?.close().catch(() => { });
+      await db.close().catch(() => { });
       throw error;
     } finally {
       this.preparingWorkspace = null;
@@ -877,11 +907,14 @@ export class PaRuntime {
     this.memory = new MemoryStore(real, this.ctx);
     this.diagnostics = null;
     this.extraToolResolution = next.extraToolResolution ?? null;
+    this.roles.replace(candidateRoles);
+    this.executionMessages.clear();
     this.workItemByChild.clear();
     for (const item of active) this.trackWorkItem(item);
     this.reminders = new ReminderEngine(
       db,
       {
+        execute: work => this.executions.detached(() => this.executions.run(work)),
         notify: async (dedupKey, text) => {
           await this.notifyOwner(dedupKey, text);
         },
@@ -898,9 +931,8 @@ export class PaRuntime {
       this.silencePolicy,
     );
     previousReminders?.stop();
-    await previousTransport?.close().catch(() => {});
-    await previousDb?.close().catch(() => {});
-    await this.restoreRegisteredRoles();
+    await previousTransport?.close().catch(() => { });
+    await previousDb?.close().catch(() => { });
     this.reminders.start(this.options.reminderTickMs);
     // Resolve owner/channel only after activation, so a rebound notice cannot
     // enter the previous workspace's ledger or use its notification identity.
@@ -927,13 +959,17 @@ export class PaRuntime {
       await db.check();
       await db.migrate();
     } catch (error) {
-      await db.close().catch(() => {});
+      await db.close().catch(() => { });
       throw error;
     }
     return { db, postgresDsn };
   }
 
   async loadConfig(): Promise<PaConfig> {
+    return this.transition(() => this.loadWorkspaceConfig());
+  }
+
+  private async loadWorkspaceConfig(): Promise<PaConfig> {
     const parsed = await readWorkspaceConfiguration(this.workspace!.statePath);
     await this.checkWorkspaceConfiguration(parsed.config, parsed.secrets);
     const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(parsed.config, parsed.secrets);
@@ -983,10 +1019,10 @@ export class PaRuntime {
   }
 
   async reloadWorkspace(): Promise<void> {
-    return this.enqueue(async () => {
+    return this.transition(async () => {
       const previousHash = this.sourceHash;
       try {
-        await this.loadConfig();
+        await this.loadWorkspaceConfig();
       } catch (error) {
         this.configError = `重载失败（保留当前生效配置）：${(error as Error).message}`;
         this.sourceHash = previousHash;
@@ -1002,11 +1038,11 @@ export class PaRuntime {
    */
   async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
-    return this.enqueue(async () => {
+    return this.transition(async () => {
       this.assertWorkspaceBinding(expectedBinding);
       await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets));
       try {
-        await this.loadConfig();
+        await this.loadWorkspaceConfig();
       } catch (error) {
         this.configError = `表单保存后重载失败（文件已写入，保留旧生效配置）：${(error as Error).message}`;
         throw error;
@@ -1049,7 +1085,7 @@ export class PaRuntime {
     if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ConfigError('密钥补丁必须是对象。');
     const unknown = Object.keys(values).filter(k => !(SECRET_KEYS as readonly string[]).includes(k));
     if (unknown.length) throw new ConfigError(`未知密钥字段：${unknown.join('、')}。`);
-    return this.enqueue(async () => {
+    return this.transition(async () => {
       this.assertWorkspaceBinding(expectedBinding);
       const next: SecretStore = { ...(await readWorkspaceConfiguration(this.workspace!.statePath)).secrets };
       for (const key of SECRET_KEYS) {
@@ -1073,7 +1109,7 @@ export class PaRuntime {
   private async hasActiveWork(): Promise<boolean> {
     if (!this.repos) return false;
     let count = 0;
-    for (const status of ['accepted', 'queued', 'running', 'waiting_input'] as const) {
+    for (const status of UNSETTLED_WORK_STATUSES) {
       count += await this.repos.workItems.countByStatus(status);
     }
     return count > 0;
@@ -1084,11 +1120,11 @@ export class PaRuntime {
     this.transport = connection.transport;
     this.transportError = connection.error;
     connection.activate();
-    await previous?.close().catch(() => {});
+    await previous?.close().catch(() => { });
   }
 
   private async prepareTransport(config: PaConfig, store: SecretStore): Promise<{ transport: FeishuTransport | null; error: string | null; activate(): void; cancel(): void }> {
-    const inactive = (error: string) => ({ transport: null, error, activate() {}, cancel() {} });
+    const inactive = (error: string) => ({ transport: null, error, activate() { }, cancel() { } });
     if (config.mode !== 'feishu') return inactive('demo：未连接飞书；业务账本按工作区配置运行。');
     const env = secretEnvironment(config, this.env, store);
     const appId = env[config.appIdEnv];
@@ -1100,7 +1136,7 @@ export class PaRuntime {
     let settle!: (active: boolean) => void;
     const activated = new Promise<boolean>(resolve => { settle = resolve; });
     try {
-      await transport.start(async event => {
+      await this.executions.detached(() => transport.start(async event => {
         if (!await activated) throw new Error('接入准备已取消，事件尚未持久接收，请重试。');
         // Keep the ownership check and durable receive in the workspace gate.
         // Cancellation/retirement must reject so the platform can redeliver.
@@ -1108,11 +1144,11 @@ export class PaRuntime {
           if (this.closed || this.transport !== transport) throw new Error('接入已停止或切换，事件尚未持久接收，请重试。');
           await this.handleInbound(event);
         });
-      });
+      }));
       return { transport, error: null, activate: () => settle(true), cancel: () => settle(false) };
     } catch (error) {
       settle(false);
-      await transport.close().catch(() => {});
+      await transport.close().catch(() => { });
       throw new Error(`飞书长连接未启动（保留当前生效工作区）：${(error as Error).message}`);
     }
   }
@@ -1130,7 +1166,7 @@ export class PaRuntime {
       await create();
       target.sessionNotices.push({ dedupKey: `notice:session-rebound:${target[key]}`, text: `旧会话 ${previous} 已选择其他预设，历史保留；24私助已建立新的${kind === 'feishu' ? '飞书接入' : '本地助理'}会话。` });
     }
-    await this.ctx.sessionController.rename({ sessionId: target[key], title: kind === 'feishu' ? '24私助 · 飞书接入会话' : '24私助' }).catch(() => {});
+    await this.ctx.sessionController.rename({ sessionId: target[key], title: kind === 'feishu' ? '24私助 · 飞书接入会话' : '24私助' }).catch(() => { });
     return target[key];
   }
 
@@ -1163,14 +1199,16 @@ export class PaRuntime {
 
   private async establishSessions(): Promise<void> {
     await this.createOwnedSession('feishu');
-    await this.ctx.sessionController.rename({ sessionId: this.accessSessionId!, title: '24私助 · 飞书接入会话' }).catch(() => {});
+    await this.ctx.sessionController.rename({ sessionId: this.accessSessionId!, title: '24私助 · 飞书接入会话' }).catch(() => { });
     await this.createOwnedSession('local');
-    await this.ctx.sessionController.rename({ sessionId: this.localSessionId!, title: '24私助' }).catch(() => {});
+    await this.ctx.sessionController.rename({ sessionId: this.localSessionId!, title: '24私助' }).catch(() => { });
   }
 
   async openLocalSession(): Promise<string> {
-    if (!this.localSessionId) await this.establishSessions();
-    return this.localSessionId!;
+    return this.executions.run(async () => {
+      if (!this.localSessionId) await this.establishSessions();
+      return this.localSessionId!;
+    });
   }
 
   /** Tool construction may precede activation; this never authorizes business calls. */
@@ -1246,7 +1284,23 @@ export class PaRuntime {
       if (selected) input += `\n\n任务 skill ${selected.name}：\n${selected.content}`;
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
       if ('error' in parent) throw parent.error;
-      await this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }], { signal: this.lifetime.signal });
+      this.workerParents.add(item.parent_session_id);
+      const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }], { signal: this.lifetime.signal })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
+      if (typeof messageId === 'string') this.executionMessages.set(item.id, { generation: item.recovery_gen ?? 0, messageId });
+      return typeof messageId === 'string' ? messageId : undefined;
+    },
+    quiesce: async item => {
+      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
+      if ('error' in parent) throw parent.error;
+      if (this.ctx.subagents.drainChildren) {
+        await this.executions.detached(() => this.ctx.subagents.drainChildren!(parent.agent, [item.child_session_id ?? item.id]));
+      } else {
+        // Older hosts expose live agents but prohibit resolving a managed child
+        // through the top-level SessionController. An absent child cold-resumes.
+        const child = (this.ctx.get('agents') as { get?(id: string): DshAgent | undefined } | null)?.get?.(item.child_session_id ?? item.id);
+        if (child?.whenIdle) await child.whenIdle();
+        else if (child) throw new Error('宿主无法确认旧 Worker 已停止，请等待其结束后继续。');
+      }
     },
     interrupt: item => this.ctx.subagents.interrupt(item.child_session_id ?? item.id, { kind: 'user', parentSessionId: item.parent_session_id }),
     track: item => this.trackWorkItem(item),
@@ -1335,8 +1389,16 @@ export class PaRuntime {
 
   /** Public channel surfaces (F30): panel RPC and the connection tool keep a
    *  stable runtime face; implementations live in WecomChannels. */
+  private async authTick(): Promise<void> {
+    return this.executions.run(async () => {
+      await this.wecomChannels.authTick();
+    });
+  }
+
   wecomCheck(): Promise<WecomDiagnostics> {
-    return this.wecomChannels.wecomCheck();
+    return this.executions.run(async () => {
+      return this.wecomChannels.wecomCheck();
+    });
   }
 
   wecomDiagnosticsSnapshot(): WecomDiagnostics | null {
@@ -1346,152 +1408,156 @@ export class PaRuntime {
   // ---- inbound: durable inbox before ACK -----------------------------------
 
   async handleInbound(event: InboundEvent): Promise<void> {
-    const config = this.config;
-    if (!config || !this.repos) throw new Error('24私助尚未就绪。');
-    this.lastReceivedAt = nowIso();
-    const expectedApp = this.secretEnv()[config.appIdEnv] ?? '';
-    const appId = event.appId || expectedApp;
-    // Rejections are written atomically: a 'received' row could otherwise be
-    // claimed by the dispatcher between insert and mark.
-    const reject = async (reason: string): Promise<void> => {
-      await this.repos!.inbox.insertRejected(
-        { eventId: event.eventId, source: 'feishu', kind: event.kind === 'card' ? 'card' : 'message', payload: event },
-        reason,
-      );
-    };
+    return this.executions.run(async () => {
+      const config = this.config;
+      if (!config || !this.repos) throw new Error('24私助尚未就绪。');
+      this.lastReceivedAt = nowIso();
+      const expectedApp = this.secretEnv()[config.appIdEnv] ?? '';
+      const appId = event.appId || expectedApp;
+      // Rejections are written atomically: a 'received' row could otherwise be
+      // claimed by the dispatcher between insert and mark.
+      const reject = async (reason: string): Promise<void> => {
+        await this.repos!.inbox.insertRejected(
+          { eventId: event.eventId, source: 'feishu', kind: event.kind === 'card' ? 'card' : 'message', payload: event },
+          reason,
+        );
+      };
 
-    if (event.kind === 'message' && event.chatType !== 'p2p') {
-      await reject('仅处理主人私聊消息。');
-      return;
-    }
-    if (config.ownerOpenId && event.senderOpenId !== config.ownerOpenId) {
-      await reject('发送者不是已绑定的主人。');
-      return;
-    }
-    if (expectedApp && event.appId && event.appId !== expectedApp) {
-      await reject('事件来自另一个应用，不属于本24私助。');
-      return;
-    }
-    if (appId && event.tenantKey) {
-      const tenants = await this.repos.bindings.tenantsFor(appId, config.ownerOpenId);
-      if (tenants.length > 0 && !tenants.includes(event.tenantKey)) {
-        await reject('事件来自另一个租户，与已绑定的主人身份不一致。');
+      if (event.kind === 'message' && event.chatType !== 'p2p') {
+        await reject('仅处理主人私聊消息。');
         return;
       }
-    }
-    const { inserted } = await this.repos.inbox.insert({
-      eventId: event.eventId,
-      source: 'feishu',
-      kind: event.kind === 'card' ? 'card' : 'message',
-      payload: event,
-    });
-    if (!inserted) {
-      // Platform redelivery of an event we already own; never process twice.
-      return;
-    }
-    if (config.mode === 'feishu') {
-      await this.repos.bindings.upsert({
-        appId,
-        tenantKey: event.tenantKey || 'unknown',
-        ownerOpenId: config.ownerOpenId,
-        larkProfile: config.larkProfile,
-        chatId: event.chatId,
+      if (config.ownerOpenId && event.senderOpenId !== config.ownerOpenId) {
+        await reject('发送者不是已绑定的主人。');
+        return;
+      }
+      if (expectedApp && event.appId && event.appId !== expectedApp) {
+        await reject('事件来自另一个应用，不属于本24私助。');
+        return;
+      }
+      if (appId && event.tenantKey) {
+        const tenants = await this.repos.bindings.tenantsFor(appId, config.ownerOpenId);
+        if (tenants.length > 0 && !tenants.includes(event.tenantKey)) {
+          await reject('事件来自另一个租户，与已绑定的主人身份不一致。');
+          return;
+        }
+      }
+      const { inserted } = await this.repos.inbox.insert({
+        eventId: event.eventId,
+        source: 'feishu',
+        kind: event.kind === 'card' ? 'card' : 'message',
+        payload: event,
       });
-    }
-    void this.kickDispatcher();
+      if (!inserted) {
+        // Platform redelivery of an event we already own; never process twice.
+        return;
+      }
+      if (config.mode === 'feishu') {
+        await this.repos.bindings.upsert({
+          appId,
+          tenantKey: event.tenantKey || 'unknown',
+          ownerOpenId: config.ownerOpenId,
+          larkProfile: config.larkProfile,
+          chatId: event.chatId,
+        });
+      }
+      void this.kickDispatcher();
+    });
   }
 
-  private kickDispatcher(): void { this.inboxLifecycle.dispatch(); }
+  private kickDispatcher(): void { this.executions.detached(() => this.inboxLifecycle.dispatch()); }
 
   private async processInbox(row: { event_id: string; kind: string; payload: any }): Promise<void> {
-    if (!this.config || !this.repos) return;
-    const event = row.payload as InboundEvent;
-    if (row.kind === 'card') {
-      await this.handwriting.processReviewCard(row.event_id, event);
-      return;
-    }
-    const isInboundImage = event.messageType === 'image' || this.handwriting.isImageFileMessage(event);
-    // Replies pin to their original target before any fresh handling: a photo
-    // answering a note ack appends a page to that note instead of opening a
-    // new one (P28: never auto-merge different discussions).
-    if (event.parentMessageId && isInboundImage) {
-      const route = await this.repos.messageRoutes.lookup(event.parentMessageId);
-      if (route?.note_id) {
-        await this.handwriting.collectNotePage(row.event_id, event, route.note_id);
+    return this.executions.run(async () => {
+      if (!this.config || !this.repos) return;
+      const event = row.payload as InboundEvent;
+      if (row.kind === 'card') {
+        await this.handwriting.processReviewCard(row.event_id, event);
         return;
       }
-    }
-    if (isInboundImage) {
-      await this.handwriting.collectNotePage(row.event_id, event, null);
-      return;
-    }
-    const input = String(event.text ?? '').trim();
-    if (!input) {
-      await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '空消息' });
-      return;
-    }
-    if (input === '/24pa' || input === '/帮助') {
-      const ready = this.readiness();
-      const pg = ready.items.find(i => i.id === 'postgres');
-      await this.notifyOwner(
-        `status:${event.eventId}`,
-        [
-          '24私助已收到你的消息。',
-          `绑定：${this.config.ownerOpenId ? '已按配置绑定主人' : '尚未在配置中绑定主人'}`,
-          `业务账本（${this.db?.kind === 'sqlite' ? 'SQLite' : 'PostgreSQL'}）：${pg?.state === 'ok' ? '正常' : pg?.message ?? '未知'}`,
-          '直接告诉我需要办理什么；也可以说“查看正在处理的事”。配置与记忆维护请到 dsh 的24私助会话。',
-        ].join('\n'),
-      );
-      await this.repos.inbox.mark(row.event_id, { status: 'delivered', requestId: `status:${event.eventId}` });
-      return;
-    }
-    // A reply to one of our messages is pinned to its original target
-    // (work item / note / object); it never falls back to a fresh delegation.
-    if (event.parentMessageId) {
-      const route = await this.repos.messageRoutes.lookup(event.parentMessageId);
-      if (!route) {
+      const isInboundImage = event.messageType === 'image' || this.handwriting.isImageFileMessage(event);
+      // Replies pin to their original target before any fresh handling: a photo
+      // answering a note ack appends a page to that note instead of opening a
+      // new one (P28: never auto-merge different discussions).
+      if (event.parentMessageId && isInboundImage) {
+        const route = await this.repos.messageRoutes.lookup(event.parentMessageId);
+        if (route?.note_id) {
+          await this.handwriting.collectNotePage(row.event_id, event, route.note_id);
+          return;
+        }
+      }
+      if (isInboundImage) {
+        await this.handwriting.collectNotePage(row.event_id, event, null);
+        return;
+      }
+      const input = String(event.text ?? '').trim();
+      if (!input) {
+        await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '空消息' });
+        return;
+      }
+      if (input === '/24pa' || input === '/帮助') {
+        const ready = this.readiness();
+        const pg = ready.items.find(i => i.id === 'postgres');
         await this.notifyOwner(
-          `route-unknown:${event.eventId}`,
-          '这条引用没有可恢复的事项记录；请直接说明需要办理什么，或告诉我事项名称。',
+          `status:${event.eventId}`,
+          [
+            '24私助已收到你的消息。',
+            `绑定：${this.config.ownerOpenId ? '已按配置绑定主人' : '尚未在配置中绑定主人'}`,
+            `业务账本（${this.db?.kind === 'sqlite' ? 'SQLite' : 'PostgreSQL'}）：${pg?.state === 'ok' ? '正常' : pg?.message ?? '未知'}`,
+            '直接告诉我需要办理什么；也可以说“查看正在处理的事”。配置与记忆维护请到 dsh 的24私助会话。',
+          ].join('\n'),
         );
-        await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '引用目标未知' });
+        await this.repos.inbox.mark(row.event_id, { status: 'delivered', requestId: `status:${event.eventId}` });
         return;
       }
-      if (route.work_item_id) {
-        await this.followUpWorkItem(route.work_item_id, input, row.event_id);
-        return;
+      // A reply to one of our messages is pinned to its original target
+      // (work item / note / object); it never falls back to a fresh delegation.
+      if (event.parentMessageId) {
+        const route = await this.repos.messageRoutes.lookup(event.parentMessageId);
+        if (!route) {
+          await this.notifyOwner(
+            `route-unknown:${event.eventId}`,
+            '这条引用没有可恢复的事项记录；请直接说明需要办理什么，或告诉我事项名称。',
+          );
+          await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '引用目标未知' });
+          return;
+        }
+        if (route.work_item_id) {
+          await this.followUpWorkItem(route.work_item_id, input, row.event_id);
+          return;
+        }
+        if (route.note_id) {
+          const note = await this.repos.notes.getNote(route.note_id);
+          const pages = note ? await this.repos.notes.pagesOf(note.id) : [];
+          const saved = pages.filter(p => p.status === 'saved').length;
+          await this.establishSessions();
+          const requestId = `feishu:${event.eventId}`;
+          const content: ContentBlock[] = [
+            {
+              type: 'text',
+              text: `${input}\n\n[关联手写笔记：${note?.id ?? route.note_id}（已收 ${saved} 页原稿）。需要识别整理时用 pa24_delegate 委派 handwriting 并传 noteId=${note?.id ?? route.note_id}；当前时间 ${nowIso()}，用户时区 ${this.config.timeZone}。]`,
+            },
+          ];
+          await this.gate(this.accessSessionId!, () =>
+            this.submitToSession(this.accessSessionId!, requestId, content, this.config!.timeZone, row.event_id),
+          );
+          return;
+        }
+        // reply/status routes point at the access session conversation itself
       }
-      if (route.note_id) {
-        const note = await this.repos.notes.getNote(route.note_id);
-        const pages = note ? await this.repos.notes.pagesOf(note.id) : [];
-        const saved = pages.filter(p => p.status === 'saved').length;
-        await this.establishSessions();
-        const requestId = `feishu:${event.eventId}`;
-        const content: ContentBlock[] = [
-          {
-            type: 'text',
-            text: `${input}\n\n[关联手写笔记：${note?.id ?? route.note_id}（已收 ${saved} 页原稿）。需要识别整理时用 pa24_delegate 委派 handwriting 并传 noteId=${note?.id ?? route.note_id}；当前时间 ${nowIso()}，用户时区 ${this.config.timeZone}。]`,
-          },
-        ];
-        await this.gate(this.accessSessionId!, () =>
-          this.submitToSession(this.accessSessionId!, requestId, content, this.config!.timeZone, row.event_id),
-        );
-        return;
-      }
-      // reply/status routes point at the access session conversation itself
-    }
-    // Regular delegation: durable admission into the fixed access session.
-    await this.establishSessions();
-    const requestId = `feishu:${event.eventId}`;
-    const content: ContentBlock[] = [
-      {
-        type: 'text',
-        text: `${input}\n\n[接入信息：当前时间 ${nowIso()}，用户时区 ${this.config.timeZone}。]`,
-      },
-    ];
-    await this.gate(this.accessSessionId!, () =>
-      this.submitToSession(this.accessSessionId!, requestId, content, this.config!.timeZone, row.event_id),
-    );
+      // Regular delegation: durable admission into the fixed access session.
+      await this.establishSessions();
+      const requestId = `feishu:${event.eventId}`;
+      const content: ContentBlock[] = [
+        {
+          type: 'text',
+          text: `${input}\n\n[接入信息：当前时间 ${nowIso()}，用户时区 ${this.config.timeZone}。]`,
+        },
+      ];
+      await this.gate(this.accessSessionId!, () =>
+        this.submitToSession(this.accessSessionId!, requestId, content, this.config!.timeZone, row.event_id),
+      );
+    });
   }
 
   /** Pin a follow-up to its original work item: resume the same native child. */
@@ -1513,35 +1579,47 @@ export class PaRuntime {
       await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
       return;
     }
-    await this.repos!.inbox.mark(inboxEventId, { status: 'admitted', targetSession: item.child_session_id, requestId: `followup:${inboxEventId}` });
-    await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
+    await this.inboxLifecycle.admit(item.child_session_id, inboxEventId, `followup:${inboxEventId}`, async () => {
+      const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
+      return resumed.acceptedMessageId;
+    });
   }
 
   private async submitToSession(sessionId: string, requestId: string, content: ContentBlock[], timeZone: string, inboxId: string): Promise<void> {
+    const resolved = await this.ctx.sessionController.resolveAgent(sessionId);
+    if ('error' in resolved) throw resolved.error;
+    this.lifetime.signal.throwIfAborted();
     await this.inboxLifecycle.admit(sessionId, inboxId, requestId, async () => {
-      const resolved = await this.ctx.sessionController.resolveAgent(sessionId);
-      if ('error' in resolved) throw resolved.error;
-      this.lifetime.signal.throwIfAborted();
-      const result = await this.ctx.sessionController.prompt(
+      const result = await this.executions.detached(() => this.ctx.sessionController.prompt(
         { requestId, sessionId, mode: 'queue', content, clientTimeZone: timeZone }, this.lifetime.signal,
-      );
-      if ('error' in result) throw result.error;
-      await this.ctx.sessions.flush(resolved.agent.session);
+      ));
+      if ('error' in result || !result.accepted) throw Object.assign('error' in result ? result.error : new Error('宿主未接纳输入。'), { outcome: 'rejected' });
     });
+    try { await this.ctx.sessions.flush(resolved.agent.session); }
+    catch (error) {
+      if ((await this.repos!.inbox.get(inboxId))?.status === 'admitted') {
+        await this.repos!.inbox.mark(inboxId, { status: 'admitted', error: `宿主已接纳，持久化待核对：${(error as Error).message}` });
+      }
+    }
   }
 
   // ---- session events: committed results become deliveries -----------------
 
   onSessionEvent(session: DshSession, event: { type: string; data: Record<string, any> }): void {
     if (this.closed || event.type !== 'turn/end') return;
-    void this.enqueue(() => this.onTurnEnd(session, event)).catch(() => {});
+    const binding = this.workspaceBinding;
+    void this.executions.afterTransition(async () => {
+      if (binding !== this.workspaceBinding) return;
+      await this.gate(`turn:${session.id}`, () => this.onTurnEnd(session, event));
+    }).catch(error => { if (!this.closed) console.warn(`[pa24] 回合结算待核对：${(error as Error).message}`); });
   }
 
   private async onTurnEnd(session: DshSession, event: { data: Record<string, any> }): Promise<void> {
     if (!this.repos || !this.config) return;
     this.usage.modelRequests += 1;
-    await this.ctx.sessions.flush(session).catch(() => {});
+    await this.ctx.sessions.flush(session).catch(() => { });
     const turn = event.data.turn;
+    const consumed = consumedTurn(session, turn);
     const failure = event.data.reason?.error;
     const messages = session
       .ownEvents()
@@ -1552,108 +1630,123 @@ export class PaRuntime {
       const reply = failure
         ? `本轮未完成：${failure.code === 'MISSING_CREDENTIAL' ? 'dsh 尚未配置模型，请先在模型设置中配置。' : failure.message ?? '模型执行失败'}`
         : output || '（本轮没有产生回复）';
-      await this.inboxLifecycle.complete(session.id, async inboxId => {
+      await this.inboxLifecycle.complete(session.id, consumed.requestIds, async inboxId => {
         const row = await this.repos!.inbox.get(inboxId);
-        await this.repos!.outbox.enqueue({ dedupKey: `reply:${inboxId}:${turn}`, channel: 'feishu',
-          target: row!.payload.senderOpenId, kind: 'text', content: { text: reply } });
+        await this.repos!.outbox.enqueue({
+          dedupKey: `reply:${inboxId}:${turn}`, channel: 'feishu',
+          target: row!.payload.senderOpenId, kind: 'text', content: { text: reply }
+        });
       }, failure ? String(failure.message ?? '模型执行失败') : undefined);
       return;
     }
 
     const item = this.workItemByChild.get(session.id);
     if (!item) return;
+    await this.workLifecycle.idle();
+    // Settle each consumed follow-up independently. A newer input can already
+    // be queued while this turn flushes, but cannot steal the earlier receipt.
+    await this.inboxLifecycle.complete(session.id, consumed.messageIds, async () => {});
     const fresh = await this.repos.workItems.get(item.id);
-    if (!fresh || !['running', 'queued'].includes(fresh.status)) return;
+    if (!fresh || fresh.status !== 'running') return;
+    const execution = this.executionMessages.get(fresh.id);
+    if (!execution || execution.generation !== (fresh.recovery_gen ?? 0) || !consumed.messageIds.has(execution.messageId)) return;
     const failed = !!failure || !output;
     const result = failed ? `「${fresh.title}」未完成：${failure?.message ?? 'Worker 未产生结果'}` : output;
-    await this.workLifecycle.finish(item.id, { output: result, failed, delivery: row => {
-      const dedupKey = `workitem:${row.id}:result:t${turn ?? 'n'}${row.recovery_gen ? `:g${row.recovery_gen}` : ''}`;
-      const ref = row.result_ref as { docUrl?: string; operationId?: string } | null;
-      const source = ref?.docUrl ? `\n出处：${ref.docUrl}\n操作编号：${ref.operationId}` : '';
-      return row.origin === 'local'
-        ? { dedupKey, channel: 'local', target: row.parent_session_id, kind: 'text', content: { text: `[事项回传]「${row.title}」${failed ? '未完成' : '已完成'}；请向本人汇报要点与出处。\n\n${result}${source}` } }
-        : { dedupKey, channel: 'feishu', target: row.delivery.replace(/^feishu:/, ''), kind: 'text', content: { text: `「${row.title}」${failed ? '未完成' : '已完成'}：\n${result}${source}` } };
-    } });
-    await this.repos.inbox.settleDelivered(item.child_session_id ?? item.id);
+    await this.workLifecycle.finish(item.id, {
+      output: result, failed, generation: execution.generation, delivery: row => {
+        const dedupKey = `workitem:${row.id}:result:t${turn ?? 'n'}${row.recovery_gen ? `:g${row.recovery_gen}` : ''}`;
+        const ref = row.result_ref as { docUrl?: string; operationId?: string } | null;
+        const source = ref?.docUrl ? `\n出处：${ref.docUrl}\n操作编号：${ref.operationId}` : '';
+        return row.origin === 'local'
+          ? { dedupKey, channel: 'local', target: row.parent_session_id, kind: 'text', content: { text: `[事项回传]「${row.title}」${failed ? '未完成' : '已完成'}；请向本人汇报要点与出处。\n\n${result}${source}` } }
+          : { dedupKey, channel: 'feishu', target: row.delivery.replace(/^feishu:/, ''), kind: 'text', content: { text: `「${row.title}」${failed ? '未完成' : '已完成'}：\n${result}${source}` } };
+      }
+    });
     void this.kickOutbox();
   }
 
   // ---- delegation & worker control -----------------------------------------
 
   async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string }, agent: DshAgent): Promise<unknown> {
-    const role = this.roleFor(agent);
-    if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
-    const config = this.config!;
-    const workspace = this.workspace;
-    const roleDef = this.roles.get(String(args.worker));
-    if (!roleDef) {
-      throw new Error(`未注册的 Worker 类型：${args.worker}。已注册：${this.roles.list().map(r => r.id).join(', ')}。`);
-    }
-    if (!roleDef.available) throw new Error(`「${roleDef.name}」已注册但业务能力尚未交付（${roleDef.brief}）`);
-    if (!config.enabledWorkers.includes(String(args.worker))) throw new Error('此 Worker 未在配置中启用（enabledWorkers）。');
-    let skillDefinition: ResolvedTaskSkill | null = null;
-    if (String(args.worker) === 'skill') {
-      // F44：通用 skill 执行 Worker 的双门——enabledWorkers 启用角色（上方既有
-      // 校验）＋ per-skill 放行面；未放行在建事项前拒绝，不留半途事项。
-      const skillName = String((args as { skill?: unknown }).skill ?? '');
-      if (!skillName) throw new Error('委派任务 skill 需要携带 skill 名（worker=skill, skill=<name>）。');
-      if (!config.extraBusinessSkills.includes(skillName)) throw new Error(`任务 skill ${skillName} 未在 extraBusinessSkills 放行面内；请先在工作区配置放行。`);
-      skillDefinition = await this.skillCatalog.resolveForAgentRun(skillName, ['pa24_work', 'pa24_memory']);
-    }
-    const title = text(args.title, 200);
-    const instruction = text(args.instruction);
-    let note: NoteRow | null = null;
-    if (String(args.worker) === 'handwriting') {
-      if (!args.noteId || !String(args.noteId).trim()) throw new Error('手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。');
-      note = await this.repos!.notes.getNote(String(args.noteId).trim());
-      if (!note) throw new Error(`笔记 ${args.noteId} 不存在；请先用飞书拍照发送手写页。`);
-      if (note.work_item_id) {
-        const existing = await this.repos!.workItems.get(note.work_item_id);
-        if (existing && ['accepted', 'queued', 'running', 'waiting_input'].includes(existing.status)) {
-          throw new Error(`这页笔记已有进行中的事项（${note.work_item_id}）；请查看或继续原事项，不要重复委派。`);
+    return this.executions.run(async () => {
+      const role = this.roleFor(agent);
+      if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
+      const config = this.config!;
+      const workspace = this.workspace;
+      const roleDef = this.roles.get(String(args.worker));
+      if (!roleDef) {
+        throw new Error(`未注册的 Worker 类型：${args.worker}。已注册：${this.roles.list().map(r => r.id).join(', ')}。`);
+      }
+      if (!roleDef.available) throw new Error(`「${roleDef.name}」已注册但业务能力尚未交付（${roleDef.brief}）`);
+      if (!config.enabledWorkers.includes(String(args.worker))) throw new Error('此 Worker 未在配置中启用（enabledWorkers）。');
+      let skillDefinition: ResolvedTaskSkill | null = null;
+      if (String(args.worker) === 'skill') {
+        // F44：通用 skill 执行 Worker 的双门——enabledWorkers 启用角色（上方既有
+        // 校验）＋ per-skill 放行面；未放行在建事项前拒绝，不留半途事项。
+        const skillName = String((args as { skill?: unknown }).skill ?? '');
+        if (!skillName) throw new Error('委派任务 skill 需要携带 skill 名（worker=skill, skill=<name>）。');
+        if (!config.extraBusinessSkills.includes(skillName)) throw new Error(`任务 skill ${skillName} 未在 extraBusinessSkills 放行面内；请先在工作区配置放行。`);
+        skillDefinition = await this.skillCatalog.resolveForAgentRun(skillName, ['pa24_work', 'pa24_memory']);
+      }
+      const title = text(args.title, 200);
+      const instruction = text(args.instruction);
+      let note: NoteRow | null = null;
+      if (String(args.worker) === 'handwriting') {
+        if (!args.noteId || !String(args.noteId).trim()) throw new Error('手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。');
+        note = await this.repos!.notes.getNote(String(args.noteId).trim());
+        if (!note) throw new Error(`笔记 ${args.noteId} 不存在；请先用飞书拍照发送手写页。`);
+        if (note.work_item_id) {
+          const existing = await this.repos!.workItems.get(note.work_item_id);
+          if (existing && UNSETTLED_WORK_STATUSES.some(status => status === existing.status)) {
+            throw new Error(`这页笔记已有进行中的事项（${note.work_item_id}）；请查看或继续原事项，不要重复委派。`);
+          }
         }
+        const saved = (await this.repos!.notes.pagesOf(note.id)).filter(p => p.status === 'saved');
+        if (saved.length === 0) throw new Error(`笔记 ${note.id} 没有已保存的原稿页；请重新拍照收集。`);
+        if (saved.length > RECOGNITION_PAGE_LIMIT) {
+          throw new Error(`笔记 ${note.id} 有 ${saved.length} 页，超过单次识别预算（${RECOGNITION_PAGE_LIMIT} 页）；请把批次拆成多份笔记分别整理（已完成页与原稿都会保留）。`);
+        }
+        // Recognition needs a real vision route; the host default model cannot be
+        // assumed to accept images (capability gap must fail loudly, P29).
+        if (!config.workerModels.handwriting) throw new Error('手写识别需要单独配置视觉模型路由（AGENTS.md workerModels.handwriting：provider/model）；主助理模型与识别模型分开配置。');
+        this.assertFeishuLive('手写整理');
       }
-      const saved = (await this.repos!.notes.pagesOf(note.id)).filter(p => p.status === 'saved');
-      if (saved.length === 0) throw new Error(`笔记 ${note.id} 没有已保存的原稿页；请重新拍照收集。`);
-      if (saved.length > RECOGNITION_PAGE_LIMIT) {
-        throw new Error(`笔记 ${note.id} 有 ${saved.length} 页，超过单次识别预算（${RECOGNITION_PAGE_LIMIT} 页）；请把批次拆成多份笔记分别整理（已完成页与原稿都会保留）。`);
-      }
-      // Recognition needs a real vision route; the host default model cannot be
-      // assumed to accept images (capability gap must fail loudly, P29).
-      if (!config.workerModels.handwriting) throw new Error('手写识别需要单独配置视觉模型路由（AGENTS.md workerModels.handwriting：provider/model）；主助理模型与识别模型分开配置。');
-      this.assertFeishuLive('手写整理');
-    }
-    const origin: 'feishu' | 'local' = agent.id === this.accessSessionId ? 'feishu' : 'local';
-    const id = `pa24-work-${args.worker}-${randomUUID()}`;
-    const fresh = await this.workLifecycle.admit(async () => {
-      if (this.workspace !== workspace) throw new Error('工作区已切换，请在当前工作区重新交办。');
-      const item = await this.repos!.workItems.insert({
-        id,
-        title,
-        role: args.worker,
-        // Raw delegation text only; context is composed when the child starts.
-        instruction,
-        skill: args.worker === 'skill' ? args.skill! : null,
-        skill_definition: skillDefinition,
-        origin,
-        parent_session_id: agent.id,
-        child_session_id: id,
-        delivery: origin === 'feishu' ? `feishu:${config.ownerOpenId}` : `local:${agent.id}`,
-        status: 'accepted',
+      const origin: 'feishu' | 'local' = agent.id === this.accessSessionId ? 'feishu' : 'local';
+      const id = `pa24-work-${args.worker}-${randomUUID()}`;
+      const fresh = await this.workLifecycle.admit(async () => {
+        if (this.workspace !== workspace) throw new Error('工作区已切换，请在当前工作区重新交办。');
+        const item = await this.repos!.workItems.insert({
+          id,
+          title,
+          role: args.worker,
+          // Raw delegation text only; context is composed when the child starts.
+          instruction,
+          skill: args.worker === 'skill' ? args.skill! : null,
+          skill_definition: skillDefinition,
+          origin,
+          parent_session_id: agent.id,
+          child_session_id: id,
+          delivery: origin === 'feishu' ? `feishu:${config.ownerOpenId}` : `local:${agent.id}`,
+          status: 'accepted',
+        });
+        try {
+          if (String(args.worker) === 'digest') await this.digest.admit(item, agent.session);
+          if (note) await this.repos!.notes.updateNote(note.id, { work_item_id: id });
+          return (await this.repos!.workItems.update(id, { status: 'queued', progress: '排队等待 Worker' }))!;
+        } catch (error) {
+          await this.repos!.workItems.update(item.id, { status: 'failed', progress: `事项准入未完成：${(error as Error).message}` });
+          throw error;
+        }
       });
-      try {
-        if (String(args.worker) === 'digest') await this.digest.admit(item, agent.session);
-        if (note) await this.repos!.notes.updateNote(note.id, { work_item_id: id });
-        return (await this.repos!.workItems.update(id, { status: 'queued', progress: '排队等待 Worker' }))!;
-      } catch (error) {
-        await this.repos!.workItems.update(item.id, { status: 'failed', progress: `事项准入未完成：${(error as Error).message}` });
-        throw error;
-      }
+      return { workId: id, worker: args.worker, status: fresh?.status, message: '事项已接纳；接纳不代表完成。' };
     });
-    return { workId: id, worker: args.worker, status: fresh?.status, message: '事项已接纳；接纳不代表完成。' };
   }
 
-  async pump(): Promise<void> { return this.workLifecycle.pump(); }
+  async pump(): Promise<void> {
+    return this.executions.run(async () => {
+      return this.workLifecycle.pump();
+    });
+  }
 
   private async selectedWorkSkill(item: WorkItemRow): Promise<{ name: string; content: string } | null> {
     if (item.role !== 'skill') return null;
@@ -1748,50 +1841,58 @@ export class PaRuntime {
       },
     };
     const subagents = this.ctx.subagents;
-    if (typeof subagents.startActivation === 'function') await subagents.startActivation({ ...startSpec, delivery: 'parent' });
-    else if (typeof subagents.startContinuable === 'function') await subagents.startContinuable(startSpec);
+    this.workerParents.add(item.parent_session_id);
+    let activation: any;
+    if (typeof subagents.startActivation === 'function') activation = await this.executions.detached(() => subagents.startActivation!({ ...startSpec, delivery: 'parent' }));
+    else if (typeof subagents.startContinuable === 'function') activation = await this.executions.detached(() => subagents.startContinuable!(startSpec));
     else throw new Error('宿主未提供 subagents 启动接口（startActivation/startContinuable 均缺失），请核对 dsh 版本兼容声明。');
+    if (typeof activation?.messageId === 'string') this.executionMessages.set(item.id, { generation: item.recovery_gen ?? 0, messageId: activation.messageId });
+    void activation?.result?.catch(() => { });
   }
 
   async control(args: { action: string; workId?: string; instruction?: string }, agent: DshAgent): Promise<unknown> {
-    const role = this.roleFor(agent);
-    if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('事项调度由24私助会话负责。');
-    const repos = this.repos!;
-    if (args.action === 'list') {
-      const items = await repos.workItems.list(undefined, 50);
-      return { items: items.map(({ instruction, result_ref, ...view }) => view) };
-    }
-    const id = String(args.workId ?? '');
-    const item = await repos.workItems.get(id);
-    if (!item) throw new Error('事项不存在。');
-    if (args.action === 'inspect') {
-      const { instruction, result_ref, ...view } = item;
-      return view;
-    }
-    if (args.action === 'stop') {
-      if (item.status !== 'stopped') await this.workLifecycle.stop(id);
-      await repos.inbox.rejectForTarget(item.child_session_id ?? item.id, '本人要求停止事项，补充输入不再续办。');
-      return { workId: id, status: 'stopped' };
-    }
-    if (args.action === 'continue') {
-      await this.workLifecycle.resume(id, text(args.instruction ?? '请继续处理本事项。', 2000));
-      return { workId: id, status: 'running' };
-    }
-    throw new Error('未知事项操作。');
+    return this.executions.run(async () => {
+      const role = this.roleFor(agent);
+      if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('事项调度由24私助会话负责。');
+      const repos = this.repos!;
+      if (args.action === 'list') {
+        const items = await repos.workItems.list(undefined, 50);
+        return { items: items.map(({ instruction, result_ref, ...view }) => view) };
+      }
+      const id = String(args.workId ?? '');
+      const item = await repos.workItems.get(id);
+      if (!item) throw new Error('事项不存在。');
+      if (args.action === 'inspect') {
+        const { instruction, result_ref, ...view } = item;
+        return view;
+      }
+      if (args.action === 'stop') {
+        if (item.status !== 'stopped') await this.workLifecycle.stop(id);
+        await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '本人要求停止事项，补充输入不再续办。');
+        return { workId: id, status: 'stopped' };
+      }
+      if (args.action === 'continue') {
+        await this.workLifecycle.resume(id, text(args.instruction ?? '请继续处理本事项。', 2000));
+        return { workId: id, status: 'running' };
+      }
+      throw new Error('未知事项操作。');
+    });
   }
 
   async work(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
-    // The child session id is the work item id; consult the durable ledger
-    // for the live status instead of a cached snapshot.
-    if (!this.repos) throw new Error('业务账本未就绪。');
-    const item = await this.repos.workItems.get(agent.id);
-    if (!item || item.status !== 'running') {
-      throw new Error('此会话不是运行中的 Worker，或事项已停止。');
-    }
-    const role = this.roles.get(item.role);
-    const handler = role?.actions[String(args.action ?? '')];
-    if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
-    return handler(args, item, this);
+    return this.executions.run(async () => {
+      // The child session id is the work item id; consult the durable ledger
+      // for the live status instead of a cached snapshot.
+      if (!this.repos) throw new Error('业务账本未就绪。');
+      const item = await this.repos.workItems.get(agent.id);
+      if (!item || item.status !== 'running') {
+        throw new Error('此会话不是运行中的 Worker，或事项已停止。');
+      }
+      const role = this.roles.get(item.role);
+      const handler = role?.actions[String(args.action ?? '')];
+      if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
+      return handler(args, item, this);
+    });
   }
 
   /**
@@ -1799,75 +1900,77 @@ export class PaRuntime {
    * and undo require the local top-level 24私助 session (P42/P43).
    */
   async memoryTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
-    const role = this.roleFor(agent);
-    if (!role || !this.memory || !this.workspace) throw new Error('记忆仅对绑定的 24私助 工作区会话开放。');
-    const action = String(args.action ?? 'search');
-    const readOnly: Record<string, boolean> = {
-      search: true,
-      put: false,
-      delete: false,
-      inspect: true,
-      apply: false,
-      undo: false,
-      changesets: true,
-    };
-    if (!(action in readOnly)) throw new Error('未知记忆操作。');
-    if (!readOnly[action] && role !== 'local-robot') {
-      throw new Error('记忆写入与整理仅限 dsh 的24私助本地会话；飞书接入与 Worker 只能检索。');
-    }
-    const actor = agent.id;
-    if (action === 'search') {
-      return this.memory.search({
-        query: args.query ? String(args.query) : undefined,
-        category: args.category ? String(args.category) : undefined,
-        topic: args.topic ? String(args.topic) : undefined,
-        status: args.status ? String(args.status) : undefined,
-        limit: Number(args.limit ?? 20),
-        offset: Number(args.offset ?? 0),
-      });
-    }
-    if (action === 'inspect') {
-      return this.memory.inspect(args.topic ? { topic: String(args.topic) } : undefined);
-    }
-    if (action === 'changesets') {
-      return { changesets: await this.memory.listChangesets() };
-    }
-    if (action === 'put') {
-      const expectedRevision = requireRevision(args.expectedRevision);
-      if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
-      return this.memory.put(
-        {
-          id: args.id ? String(args.id) : undefined,
-          category: requireCategory(args.category),
-          topic: String(args.topic ?? ''),
-          content: text(args.content),
-          source: text(args.source, 500),
-          sourceVersion: args.sourceVersion ? String(args.sourceVersion) : undefined,
-          status: requireStatus(args.status),
-          validUntil: args.validUntil ? String(args.validUntil) : null,
-          reason: String(args.reason),
-        },
-        { expectedRevision, actor, reason: String(args.reason) },
-      );
-    }
-    if (action === 'delete') {
-      const expectedRevision = requireRevision(args.expectedRevision);
-      if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
-      return this.memory.remove(String(args.id ?? ''), { expectedRevision, actor, reason: String(args.reason) });
-    }
-    if (action === 'apply') {
-      const expectedRevision = requireRevision(args.expectedRevision);
-      if (!String(args.reason ?? '').trim()) throw new Error('记忆整理需说明本人的指令依据。');
-      const changes = Array.isArray(args.changes) ? (args.changes as MemoryChange[]) : [];
-      if (changes.length === 0) throw new Error('变更集为空；请先通过 inspect 查看候选并让本人确认。');
-      return this.memory.applyChangeset(changes, { expectedRevision, actor, reason: String(args.reason) });
-    }
-    if (action === 'undo') {
-      const expectedRevision = requireRevision(args.expectedRevision);
-      if (!String(args.reason ?? '').trim()) throw new Error('撤销需说明本人的指令依据。');
-      return this.memory.undo(String(args.changesetId ?? ''), { expectedRevision, actor, reason: String(args.reason) });
-    }
-    throw new Error('未知记忆操作。');
+    return this.executions.run(async () => {
+      const role = this.roleFor(agent);
+      if (!role || !this.memory || !this.workspace) throw new Error('记忆仅对绑定的 24私助 工作区会话开放。');
+      const action = String(args.action ?? 'search');
+      const readOnly: Record<string, boolean> = {
+        search: true,
+        put: false,
+        delete: false,
+        inspect: true,
+        apply: false,
+        undo: false,
+        changesets: true,
+      };
+      if (!(action in readOnly)) throw new Error('未知记忆操作。');
+      if (!readOnly[action] && role !== 'local-robot') {
+        throw new Error('记忆写入与整理仅限 dsh 的24私助本地会话；飞书接入与 Worker 只能检索。');
+      }
+      const actor = agent.id;
+      if (action === 'search') {
+        return this.memory.search({
+          query: args.query ? String(args.query) : undefined,
+          category: args.category ? String(args.category) : undefined,
+          topic: args.topic ? String(args.topic) : undefined,
+          status: args.status ? String(args.status) : undefined,
+          limit: Number(args.limit ?? 20),
+          offset: Number(args.offset ?? 0),
+        });
+      }
+      if (action === 'inspect') {
+        return this.memory.inspect(args.topic ? { topic: String(args.topic) } : undefined);
+      }
+      if (action === 'changesets') {
+        return { changesets: await this.memory.listChangesets() };
+      }
+      if (action === 'put') {
+        const expectedRevision = requireRevision(args.expectedRevision);
+        if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
+        return this.memory.put(
+          {
+            id: args.id ? String(args.id) : undefined,
+            category: requireCategory(args.category),
+            topic: String(args.topic ?? ''),
+            content: text(args.content),
+            source: text(args.source, 500),
+            sourceVersion: args.sourceVersion ? String(args.sourceVersion) : undefined,
+            status: requireStatus(args.status),
+            validUntil: args.validUntil ? String(args.validUntil) : null,
+            reason: String(args.reason),
+          },
+          { expectedRevision, actor, reason: String(args.reason) },
+        );
+      }
+      if (action === 'delete') {
+        const expectedRevision = requireRevision(args.expectedRevision);
+        if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
+        return this.memory.remove(String(args.id ?? ''), { expectedRevision, actor, reason: String(args.reason) });
+      }
+      if (action === 'apply') {
+        const expectedRevision = requireRevision(args.expectedRevision);
+        if (!String(args.reason ?? '').trim()) throw new Error('记忆整理需说明本人的指令依据。');
+        const changes = Array.isArray(args.changes) ? (args.changes as MemoryChange[]) : [];
+        if (changes.length === 0) throw new Error('变更集为空；请先通过 inspect 查看候选并让本人确认。');
+        return this.memory.applyChangeset(changes, { expectedRevision, actor, reason: String(args.reason) });
+      }
+      if (action === 'undo') {
+        const expectedRevision = requireRevision(args.expectedRevision);
+        if (!String(args.reason ?? '').trim()) throw new Error('撤销需说明本人的指令依据。');
+        return this.memory.undo(String(args.changesetId ?? ''), { expectedRevision, actor, reason: String(args.reason) });
+      }
+      throw new Error('未知记忆操作。');
+    });
   }
 
   // ---- calendar (F04) -------------------------------------------------------
@@ -2343,63 +2446,65 @@ export class PaRuntime {
 
   /** Bounded materialization of due template instances into real tasks (P22). */
   private async materializeTemplateInstances(): Promise<number> {
-    if (!this.repos || this.config?.mode !== 'feishu') return 0;
-    let generated = 0;
-    for (;;) {
-      const due = await this.repos.taskTemplates.claimDueInstances(new Date(), 5);
-      if (due.length === 0) break;
-      for (const instance of due) {
-        const template = await this.repos.taskTemplates.get(instance.template_id);
-        if (!template || template.status !== 'active') {
-          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'skipped' });
-          continue;
+    return this.executions.run(async () => {
+      if (!this.repos || this.config?.mode !== 'feishu') return 0;
+      let generated = 0;
+      for (; ;) {
+        const due = await this.repos.taskTemplates.claimDueInstances(new Date(), 5);
+        if (due.length === 0) break;
+        for (const instance of due) {
+          const template = await this.repos.taskTemplates.get(instance.template_id);
+          if (!template || template.status !== 'active') {
+            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'skipped' });
+            continue;
+          }
+          const operationId = `ttask:${instance.id}`;
+          const { created, row } = await this.repos.operations.begin({ id: operationId, workItemId: 'pa24-system-templates', action: 'task.repeat_generate', params: { instanceId: instance.id, title: template.title } });
+          if (!created && row.status === 'succeeded') {
+            // Reconcile keeps the same stable link: the task row id (operationId).
+            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: operationId });
+            continue;
+          }
+          if (!created && row.status === 'unknown') {
+            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'failed', error: '生成结果未知；请先核对飞书任务清单是否已生成，确认后再继续。' });
+            continue;
+          }
+          try {
+            await this.externalOperations.stageWithId(operationId, { id: 'pa24-system-templates' }, 'task.repeat_generate', { instanceId: instance.id, title: template.title });
+            const { data } = await this.externalOperations.perform(operationId, () => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+              'task', '+create', '--as', 'user', '--summary', `[24PA] ${template.title}`, '--tasklist-id', template.tasklist_id, '--idempotency-key', operationId,
+            ]));
+            const external = taskExternal(data);
+            await this.repos.tasks.save({
+              id: operationId,
+              work_item_id: null,
+              task_guid: external.guid,
+              url: external.url,
+              summary: template.title,
+              due_at: instance.due_at,
+              due_has_time: true,
+              planned_at: null,
+              estimate_minutes: null,
+              status: 'open',
+              external_updated_at: new Date(),
+              last_synced_at: new Date(),
+            });
+            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: operationId });
+            await this.repos.operations.update(operationId, { status: 'succeeded', receipt: { guid: external.guid, url: external.url } });
+            generated += 1;
+          } catch (error) {
+            await this.failStaged(operationId, error);
+            await this.repos.taskTemplates.updateInstance(instance.id, { status: 'failed', error: (error as Error).message });
+          }
+          // Advance the template's schedule exactly like the reminder engine:
+          // only the latest missed occurrence is materialized (no backlog flood).
+          const nextAt = nextTemplateOccurrence(template.schedule as RecurringScheduleRecord, Date.now());
+          await this.repos.taskTemplates.update(template.id, { next_due_at: nextAt });
+          await this.repos.taskTemplates.insertInstance({ id: `${template.id}:${nextAt.toISOString()}`, templateId: template.id, dueAt: nextAt });
         }
-        const operationId = `ttask:${instance.id}`;
-        const { created, row } = await this.repos.operations.begin({ id: operationId, workItemId: 'pa24-system-templates', action: 'task.repeat_generate', params: { instanceId: instance.id, title: template.title } });
-        if (!created && row.status === 'succeeded') {
-          // Reconcile keeps the same stable link: the task row id (operationId).
-          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: operationId });
-          continue;
-        }
-        if (!created && row.status === 'unknown') {
-          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'failed', error: '生成结果未知；请先核对飞书任务清单是否已生成，确认后再继续。' });
-          continue;
-        }
-        try {
-          await this.externalOperations.stageWithId(operationId, { id: 'pa24-system-templates' }, 'task.repeat_generate', { instanceId: instance.id, title: template.title });
-          const { data } = await this.externalOperations.perform(operationId, () => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-            'task', '+create', '--as', 'user', '--summary', `[24PA] ${template.title}`, '--tasklist-id', template.tasklist_id, '--idempotency-key', operationId,
-          ]));
-          const external = taskExternal(data);
-          await this.repos.tasks.save({
-            id: operationId,
-            work_item_id: null,
-            task_guid: external.guid,
-            url: external.url,
-            summary: template.title,
-            due_at: instance.due_at,
-            due_has_time: true,
-            planned_at: null,
-            estimate_minutes: null,
-            status: 'open',
-            external_updated_at: new Date(),
-            last_synced_at: new Date(),
-          });
-          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'generated', task_id: operationId });
-          await this.repos.operations.update(operationId, { status: 'succeeded', receipt: { guid: external.guid, url: external.url } });
-          generated += 1;
-        } catch (error) {
-          await this.failStaged(operationId, error);
-          await this.repos.taskTemplates.updateInstance(instance.id, { status: 'failed', error: (error as Error).message });
-        }
-        // Advance the template's schedule exactly like the reminder engine:
-        // only the latest missed occurrence is materialized (no backlog flood).
-        const nextAt = nextTemplateOccurrence(template.schedule as RecurringScheduleRecord, Date.now());
-        await this.repos.taskTemplates.update(template.id, { next_due_at: nextAt });
-        await this.repos.taskTemplates.insertInstance({ id: `${template.id}:${nextAt.toISOString()}`, templateId: template.id, dueAt: nextAt });
       }
-    }
-    return generated;
+      return generated;
+    });
   }
 
   /** Waiting items (P23): the checkpoint asks the OWNER, never nudges others. */
@@ -2464,36 +2569,47 @@ export class PaRuntime {
   /** One bounded follow-up tick: template instances + waiting checkpoints. */
   private followupTick(): void {
     if (this.closed || !this.repos || !this.config) return;
-    void this.materializeTemplateInstances().catch(() => {});
-    void this.dispatchWaitingCheckpoints().catch(() => {});
-    void this.digest.superviseDigests().catch(() => {});
+    void this.materializeTemplateInstances().catch(() => { });
+    void this.dispatchWaitingCheckpoints().catch(() => { });
+    void this.superviseDigests().catch(() => { });
   }
 
   private async dispatchWaitingCheckpoints(): Promise<number> {
-    if (!this.config?.ownerOpenId || this.config.mode !== 'feishu') return 0;
-    const due = await this.repos!.waiting.claimDue(new Date(), 5);
-    for (const item of due) {
-      const silentUntil = await this.silencePolicy.silentUntil();
-      if (silentUntil && silentUntil.getTime() > Date.now()) {
-        await this.repos!.waiting.update(item.id, { checkpoint_at: silentUntil, ask_count: item.ask_count - 1 });
-        continue;
+    return this.executions.run(async () => {
+      if (!this.config?.ownerOpenId || this.config.mode !== 'feishu') return 0;
+      const due = await this.repos!.waiting.claimDue(new Date(), 5);
+      for (const item of due) {
+        const silentUntil = await this.silencePolicy.silentUntil();
+        if (silentUntil && silentUntil.getTime() > Date.now()) {
+          await this.repos!.waiting.update(item.id, { checkpoint_at: silentUntil, ask_count: item.ask_count - 1 });
+          continue;
+        }
+        await this.notifyOwner(
+          `waiting:${item.id}:${item.ask_count}`,
+          `等待跟进：「${item.title}」到检查点了${item.source_desc ? `（来源：${item.source_desc}）` : ''}——收到了吗？回复让助理记录（收到 / 继续等 / 改时间 / 取消）；不会自动向对方催办。`,
+        );
+        // One ask per checkpoint: without an answer the next ask backs off an
+        // hour instead of nagging every tick (P23 到点询问).
+        await this.repos!.waiting.update(item.id, { checkpoint_at: new Date(Date.now() + 3600 * 1000) });
       }
-      await this.notifyOwner(
-        `waiting:${item.id}:${item.ask_count}`,
-        `等待跟进：「${item.title}」到检查点了${item.source_desc ? `（来源：${item.source_desc}）` : ''}——收到了吗？回复让助理记录（收到 / 继续等 / 改时间 / 取消）；不会自动向对方催办。`,
-      );
-      // One ask per checkpoint: without an answer the next ask backs off an
-      // hour instead of nagging every tick (P23 到点询问).
-      await this.repos!.waiting.update(item.id, { checkpoint_at: new Date(Date.now() + 3600 * 1000) });
-    }
-    return due.length;
+      return due.length;
+    });
   }
 
   // ---- daily planning & recurring digests (F09) -------------------------------
 
   private nativeSchedule(): NativeScheduleService | null {
-    const service = this.ctx.get('schedule');
-    return service && typeof service.create === 'function' ? (service as NativeScheduleService) : null;
+    const service = this.ctx.get('schedule') as NativeScheduleService | null;
+    if (!service || typeof service.create !== 'function') return null;
+    // Native schedule mutations start future host timers. They must not carry
+    // the creating tool's lease into a later Lead/Worker turn.
+    return {
+      create: (...args) => this.executions.detached(() => service.create(...args)),
+      delete: request => this.executions.detached(() => service.delete(request)),
+      history: request => this.executions.detached(() => service.history(request)),
+      ...(service.update ? { update: (request: Parameters<NonNullable<NativeScheduleService['update']>>[0]) => this.executions.detached(() => service.update!(request)) } : {}),
+      ...(service.catalog ? { catalog: () => this.executions.detached(() => service.catalog!()) } : {}),
+    };
   }
 
   // ---- meeting prep & minutes (F10) -------------------------------------------
@@ -2559,8 +2675,10 @@ export class PaRuntime {
       const moved = current && plan.schedule_spec?.eventStart && current.start_time.toISOString() !== plan.schedule_spec.eventStart;
       if (!verdict.valid || gone || moved) {
         const { warning: nativeWarning } = await this.digest.plans.stop(plan.id, 'stopped');
-        return { planId: plan.id, skipped: gone ? 'meeting_gone' : 'meeting_moved', nativeWarning,
-          message: `会议已取消或内容/时间已变化，旧准备包不发送；请按最新安排重设。${nativeWarning ? `原生任务待清理：${nativeWarning}` : ''}` };
+        return {
+          planId: plan.id, skipped: gone ? 'meeting_gone' : 'meeting_moved', nativeWarning,
+          message: `会议已取消或内容/时间已变化，旧准备包不发送；请按最新安排重设。${nativeWarning ? `原生任务待清理：${nativeWarning}` : ''}`
+        };
       }
       return null;
     };
@@ -2884,29 +3002,31 @@ export class PaRuntime {
    * separately — native plans and external reminders never mix.
    */
   async maintenanceArchiveCheck(): Promise<unknown> {
-    if (!this.repos) throw new Error('业务账本未就绪。');
-    const running = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 50);
-    // Native schedules are inventoried from our durable plan rows (every
-    // schedule the plugin creates is mirrored there with its schedule_id);
-    // dsh's own archive gate remains the authoritative blocker.
-    const digestPlans = (await this.repos.digests.listPlans()).filter(plan => plan.status === 'active' || plan.schedule_id || plan.lifecycle).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null || plan.lifecycle != null }));
-    // F45：delegated 行（日程化备份）也列出——归档处置需要看到它们，带渠道标记。
-    const reminderRules = (await this.repos.reminders.listRules())
-      .filter(rule => rule.status === 'active' || rule.status === 'delegated')
-      .map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, status: rule.status, nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null }));
-    const reviewReminders = (await this.repos.reviewReminders.activeAll(50)).map(r => ({ id: r.id, noteId: r.note_id, kind: r.kind, remindAt: new Date(r.remind_at).toISOString() }));
-    const outboxPending = (await this.repos.outbox.recent(200)).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length;
-    const blocking = running.length > 0 || digestPlans.some(p => p.native) || outboxPending > 0;
-    return {
-      runningWork: running.map(w => ({ id: w.id, title: w.title, role: w.role, status: w.status })),
-      nativeSchedules: digestPlans.filter(p => p.native),
-      externalPgReminders: { reminderRules, reviewReminders },
-      outboxPending,
-      blocking,
-      message: blocking
-        ? '存在运行中事项/原生计划/未确认发送：归档会被原生闸阻止。明确停止请用 archive_execute {confirmStop:true, stopRules:...}；PG 提醒规则默认保留，需明确选择才停止。'
-        : '没有运行中事项或未确认发送；原生计划与外部提醒清单如下（空闲但有计划也需明确处置后再归档）。',
-    };
+    return this.executions.run(async () => {
+      if (!this.repos) throw new Error('业务账本未就绪。');
+      const running = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 10000);
+      // Native schedules are inventoried from our durable plan rows (every
+      // schedule the plugin creates is mirrored there with its schedule_id);
+      // dsh's own archive gate remains the authoritative blocker.
+      const digestPlans = (await this.repos.digests.listPlans()).filter(plan => plan.status === 'active' || plan.schedule_id || plan.lifecycle).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null || plan.lifecycle != null }));
+      // F45：delegated 行（日程化备份）也列出——归档处置需要看到它们，带渠道标记。
+      const reminderRules = (await this.repos.reminders.listRules())
+        .filter(rule => rule.status === 'active' || rule.status === 'delegated')
+        .map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, status: rule.status, nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null }));
+      const reviewReminders = (await this.repos.reviewReminders.activeAll(50)).map(r => ({ id: r.id, noteId: r.note_id, kind: r.kind, remindAt: new Date(r.remind_at).toISOString() }));
+      const outboxPending = (await this.repos.outbox.recent(200)).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length;
+      const blocking = running.length > 0 || digestPlans.some(p => p.native) || outboxPending > 0;
+      return {
+        runningWork: running.map(w => ({ id: w.id, title: w.title, role: w.role, status: w.status })),
+        nativeSchedules: digestPlans.filter(p => p.native),
+        externalPgReminders: { reminderRules, reviewReminders },
+        outboxPending,
+        blocking,
+        message: blocking
+          ? '存在运行中事项/原生计划/未确认发送：归档会被原生闸阻止。明确停止请用 archive_execute {confirmStop:true, stopRules:...}；PG 提醒规则默认保留，需明确选择才停止。'
+          : '没有运行中事项或未确认发送；原生计划与外部提醒清单如下（空闲但有计划也需明确处置后再归档）。',
+      };
+    });
   }
 
   /**
@@ -2915,75 +3035,83 @@ export class PaRuntime {
    * reports partial failures honestly. Without confirmStop nothing happens.
    */
   async maintenanceArchiveExecute(args: Record<string, unknown>): Promise<unknown> {
-    if (!this.repos) throw new Error('业务账本未就绪。');
-    if (args.confirmStop !== true) {
-      return { changed: false, message: '未执行任何变更：归档前的停止需要明确确认（confirmStop:true）。用户取消不产生副作用。' };
-    }
-    const stopRules = args.stopRules === true;
-    const failures: string[] = [];
-    // 1. Stop running work (user-stopped items never resurrect).
-    const running = await this.repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 50);
-    for (const item of running) {
-      await this.repos.workItems.update(item.id, { status: 'stopped', progress: '归档前按本人指令停止；已完成的外部操作保留' });
-      if (item.child_session_id) this.ctx.subagents.interrupt(item.child_session_id, { kind: 'user', parentSessionId: item.parent_session_id });
-    }
-    // 2. Dispose native schedules with readback. Without the schedule service
-    // the mirror must NOT claim disposal — that would be a silent divergence.
-    const plans = await this.repos.digests.listPlans();
-    let nativeDisposed = 0;
-    for (const plan of plans) {
-      if (!plan.schedule_id && !plan.lifecycle && plan.status !== 'active') continue;
-      const result = await this.digest.plans.stop(plan.id, 'paused');
-      if (result.warning) failures.push(`原生计划 ${plan.id} 清理未完成：${result.warning}`);
-      else if (plan.schedule_id) nativeDisposed += 1;
-    }
-    // 3. External PG reminders (both kinds) only when explicitly chosen;
-    // only successful stops are counted.
-    let rulesStopped = 0;
-    if (stopRules) {
-      for (const rule of await this.repos.reminders.listRules('active')) {
-        try {
-          await this.repos.reminders.updateRule(rule.id, { status: 'stopped' });
-          rulesStopped += 1;
-        } catch (error) {
-          failures.push(`提醒 ${rule.id} 停止失败：${(error as Error).message}`);
+    return this.executions.run(async () => {
+      if (!this.repos) throw new Error('业务账本未就绪。');
+      if (args.confirmStop !== true) {
+        return { changed: false, message: '未执行任何变更：归档前的停止需要明确确认（confirmStop:true）。用户取消不产生副作用。' };
+      }
+      const stopRules = args.stopRules === true;
+      const failures: string[] = [];
+      // 1. Stop running work (user-stopped items never resurrect).
+      const running = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 10000);
+      await this.workLifecycle.stopMany(running.map(item => item.id));
+      for (const item of running) {
+        await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '归档前按本人指令停止，补充输入不再续办。');
+      }
+      // 2. Dispose native schedules with readback. Without the schedule service
+      // the mirror must NOT claim disposal — that would be a silent divergence.
+      const plans = await this.repos.digests.listPlans();
+      let nativeDisposed = 0;
+      for (const plan of plans) {
+        if (!plan.schedule_id && !plan.lifecycle && plan.status !== 'active') continue;
+        const result = await this.digest.plans.stop(plan.id, 'paused');
+        if (result.warning) failures.push(`原生计划 ${plan.id} 清理未完成：${result.warning}`);
+        else if (plan.schedule_id) nativeDisposed += 1;
+      }
+      // 3. External PG reminders (both kinds) only when explicitly chosen;
+      // only successful stops are counted.
+      let rulesStopped = 0;
+      if (stopRules) {
+        for (const rule of await this.repos.reminders.listRules('active')) {
+          try {
+            await this.repos.reminders.updateRule(rule.id, { status: 'stopped' });
+            rulesStopped += 1;
+          } catch (error) {
+            failures.push(`提醒 ${rule.id} 停止失败：${(error as Error).message}`);
+          }
+        }
+        for (const reminder of await this.repos.reviewReminders.activeAll(50)) {
+          try {
+            await this.repos.reviewReminders.update(reminder.id, { status: 'canceled' });
+            rulesStopped += 1;
+          } catch (error) {
+            failures.push(`审核催办 ${reminder.id} 停止失败：${(error as Error).message}`);
+          }
         }
       }
-      for (const reminder of await this.repos.reviewReminders.activeAll(50)) {
-        try {
-          await this.repos.reviewReminders.update(reminder.id, { status: 'canceled' });
-          rulesStopped += 1;
-        } catch (error) {
-          failures.push(`审核催办 ${reminder.id} 停止失败：${(error as Error).message}`);
-        }
-      }
-    }
-    // Readback.
-    const after = await this.maintenanceArchiveCheck() as { runningWork: unknown[]; nativeSchedules: unknown[]; outboxPending: number };
-    return {
-      stoppedWork: running.length,
-      nativeDisposed,
-      rulesStopped,
-      failures,
-      remaining: { running: after.runningWork.length, native: after.nativeSchedules.length, outboxPending: after.outboxPending },
-      message: failures.length
-        ? `已执行停止，但 ${failures.length} 项失败（见明细）；未完全清理前不建议归档。`
-        : `已停止 ${running.length} 个运行中事项、处置 ${nativeDisposed} 个原生计划${stopRules ? `、停止 ${rulesStopped} 条外部提醒` : '（外部提醒按你的选择保留）'}；恢复后不会自动重建已删计划。`,
-    };
+      // Readback.
+      const after = await this.maintenanceArchiveCheck() as { runningWork: unknown[]; nativeSchedules: unknown[]; outboxPending: number };
+      return {
+        stoppedWork: running.length,
+        nativeDisposed,
+        rulesStopped,
+        failures,
+        remaining: { running: after.runningWork.length, native: after.nativeSchedules.length, outboxPending: after.outboxPending },
+        message: failures.length
+          ? `已执行停止，但 ${failures.length} 项失败（见明细）；未完全清理前不建议归档。`
+          : `已停止 ${running.length} 个运行中事项、处置 ${nativeDisposed} 个原生计划${stopRules ? `、停止 ${rulesStopped} 条外部提醒` : '（外部提醒按你的选择保留）'}；恢复后不会自动重建已删计划。`,
+      };
+    });
   }
 
   async maintenanceBackupCreate(args: Record<string, unknown>): Promise<unknown> {
-    if (!this.repos || !this.workspace || !this.config) throw new Error('尚未绑定工作区。');
-    return new WorkspaceBackup({ workspace: this.workspace.statePath, stateDirectory: this.options.stateDirectory,
-      sessions: this.options.backupSessionsRoot, storages: this.options.backupStoragesRoot,
-      attachments: this.options.backupAttachmentsRoot }, this.dbRef).create(String(args.targetDir ?? ''), {
-      credentialReferences: [this.config.pgDsnEnv, this.config.appIdEnv, this.config.appSecretEnv, this.config.tts.volcKeyEnv],
-      watermarks: await this.repos.maintenance.watermarks(),
+    return this.executions.run(async () => {
+      if (!this.repos || !this.workspace || !this.config) throw new Error('尚未绑定工作区。');
+      return new WorkspaceBackup({
+        workspace: this.workspace.statePath, stateDirectory: this.options.stateDirectory,
+        sessions: this.options.backupSessionsRoot, storages: this.options.backupStoragesRoot,
+        attachments: this.options.backupAttachmentsRoot
+      }, this.dbRef).create(String(args.targetDir ?? ''), {
+        credentialReferences: [this.config.pgDsnEnv, this.config.appIdEnv, this.config.appSecretEnv, this.config.tts.volcKeyEnv],
+        watermarks: await this.repos.maintenance.watermarks(),
+      });
     });
   }
 
   async maintenanceBackupVerify(args: Record<string, unknown>): Promise<unknown> {
-    return WorkspaceBackup.verify(String(args.backupDir ?? ''));
+    return this.executions.run(async () => {
+      return WorkspaceBackup.verify(String(args.backupDir ?? ''));
+    });
   }
 
   /**
@@ -3009,155 +3137,163 @@ export class PaRuntime {
    * never appear; a down dependency is an error, never a silent zero.
    */
   async maintenanceHealth(): Promise<unknown> {
-    const ready = this.readiness();
-    const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string; detail?: unknown }[] = [];
-    const config = this.config;
-    capabilities.push(this.visionRouteStatus());
-    // CLI presence + authorization verdict from the last access inspection
-    // (on-demand only; no platform calls happen for this report).
-    capabilities.push({ id: 'lark-cli', state: this.diagnostics ? (this.diagnostics.auth?.state === 'ok' ? 'ok' : this.diagnostics.auth?.state === 'error' ? 'error' : 'warn') : 'info', message: this.diagnostics ? `最近检查：${this.diagnostics.auth?.message ?? '未见授权结论'}${this.diagnostics.auth?.state === 'unverified' || this.diagnostics.auth?.state === 'error' ? '；授权失效请在服务器重新执行 lark-cli 授权后再检查' : ''}` : '尚未执行接入检查（用 pa24_connection check 发起只读检查）' });
-    // F38: calendar-sync 三态——「从未同步」（无状态行，首运行前的正常状态）
-    // 是 info，「读取失败」（查询异常）才是 error；两者此前坍缩成同一句
-    // 假红「不可读取」（8010/3080 常年误报）。catch 记 message 不吞。
-    const calendarChannel = config?.calendarChannel ?? 'feishu';
-    let calendarState: CalendarSyncRow | null = null;
-    let calendarError = '';
-    if (this.repos) {
-      try {
-        calendarState = await this.repos.calendar.getSync(calendarChannel === 'wecom' ? WECOM_CALENDAR_ID : this.config!.calendarId);
-      } catch (error) {
-        calendarError = (error as Error).message;
+    return this.executions.run(async () => {
+      const ready = this.readiness();
+      const capabilities: { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string; detail?: unknown }[] = [];
+      const config = this.config;
+      capabilities.push(this.visionRouteStatus());
+      // CLI presence + authorization verdict from the last access inspection
+      // (on-demand only; no platform calls happen for this report).
+      capabilities.push({ id: 'lark-cli', state: this.diagnostics ? (this.diagnostics.auth?.state === 'ok' ? 'ok' : this.diagnostics.auth?.state === 'error' ? 'error' : 'warn') : 'info', message: this.diagnostics ? `最近检查：${this.diagnostics.auth?.message ?? '未见授权结论'}${this.diagnostics.auth?.state === 'unverified' || this.diagnostics.auth?.state === 'error' ? '；授权失效请在服务器重新执行 lark-cli 授权后再检查' : ''}` : '尚未执行接入检查（用 pa24_connection check 发起只读检查）' });
+      // F38: calendar-sync 三态——「从未同步」（无状态行，首运行前的正常状态）
+      // 是 info，「读取失败」（查询异常）才是 error；两者此前坍缩成同一句
+      // 假红「不可读取」（8010/3080 常年误报）。catch 记 message 不吞。
+      const calendarChannel = config?.calendarChannel ?? 'feishu';
+      let calendarState: CalendarSyncRow | null = null;
+      let calendarError = '';
+      if (this.repos) {
+        try {
+          calendarState = await this.repos.calendar.getSync(calendarChannel === 'wecom' ? WECOM_CALENDAR_ID : this.config!.calendarId);
+        } catch (error) {
+          calendarError = (error as Error).message;
+        }
       }
-    }
-    capabilities.push({
-      id: 'calendar-sync',
-      state: calendarError ? 'error' : calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'info',
-      message: calendarError
-        ? `日历同步状态读取失败：${calendarError}`
-        : calendarState
-          ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}（渠道 ${calendarChannel}）` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`)
-          : `尚未执行日历投影同步（渠道 ${calendarChannel}）——日程域首次运行后建立`,
-    });
-    // F16: wecom channel health mirrors the lark-cli pattern — verdict comes
-    // from the last on-demand wecom_check; no platform calls happen here.
-    if (config && (config.calendarChannel === 'wecom' || config.todoChannel === 'wecom' || config.notifyChannel === 'wecom')) {
       capabilities.push({
-        id: 'wecom-cli',
-        state: this.wecomChannels.diagnostics ? (this.wecomChannels.diagnostics.cli.state === 'ok' && this.wecomChannels.diagnostics.identity.state === 'ok' ? 'ok' : 'warn') : 'info',
-        message: this.wecomChannels.diagnostics
-          ? `最近检查：${this.wecomChannels.diagnostics.cli.state === 'ok' ? 'CLI 可用' : this.wecomChannels.diagnostics.cli.message}；${this.wecomChannels.diagnostics.identity.message}`
-          : '企微渠道已启用但尚未执行接入检查（用 pa24_connection action=wecom_check 发起只读检查）',
+        id: 'calendar-sync',
+        state: calendarError ? 'error' : calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'info',
+        message: calendarError
+          ? `日历同步状态读取失败：${calendarError}`
+          : calendarState
+            ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}（渠道 ${calendarChannel}）` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`)
+            : `尚未执行日历投影同步（渠道 ${calendarChannel}）——日程域首次运行后建立`,
       });
-    }
-    // F19: voice engine readiness mirrors the lark-cli pattern — verdict from
-    // the last on-demand tts.probe; no subprocess spawns during health.
-    if (config && config.tts.engine !== 'none') {
-      capabilities.push({
-        id: 'tts',
-        state: this.ttsProbeCache ? (this.ttsProbeCache.result.ready ? 'ok' : 'warn') : 'info',
-        message: this.ttsProbeCache
-          ? `语音引擎 ${config.tts.engine}${this.ttsProbeCache.result.ready ? ' 就绪' : `：${this.ttsProbeCache.result.problems.join('；')}`}`
-          : `语音引擎 ${config.tts.engine} 已配置（面板「晨报与复盘」里发起只读预检）`,
-      });
-    }
-    // F18: extraLocalTools resolution — configured names that never mounted
-    // (missing provider bundle or profile mcp-client entry) surface here
-    // instead of failing agent creation.
-    if (config && config.extraLocalTools.length > 0) {
-      capabilities.push({
-        id: 'extra-local-tools',
-        state: this.extraToolResolution ? (this.extraToolResolution.filtered.length ? 'warn' : 'ok') : 'info',
-        message: this.extraToolResolution
-          ? `最近本地会话解析：放行 ${this.extraToolResolution.active.length} 项${this.extraToolResolution.filtered.length ? `；未挂载被过滤：${this.extraToolResolution.filtered.join('、')}` : ''}`
-          : '已配置 extraLocalTools 但本地24私助会话尚未创建',
-      });
-    }
-    // F18 WP3: qwennote channel three-state diagnosis (presence inference —
-    // mcp-client exposes no status service; no tool is called to diagnose).
-    if (config && config.extraLocalTools.some(e => e === QWENNOTE_TOOL_WILDCARD || e.startsWith(QWENNOTE_TOOL_PREFIX))) {
-      // F18 fix: the mount signal must come from the agent-resolution snapshot
-      // (this.ctx's tool view cannot see the mcp-client layer — different
-      // scope; verified on a live reproduction). No snapshot yet = unverified.
-      const snapshot = this.extraToolResolution;
-      const mounted = (snapshot?.active ?? []).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX));
-      if (!snapshot) {
-        capabilities.push({ id: 'qwennote-channel', state: 'info', message: '听记通道未验证：本地24私助会话尚未创建（工具挂载以会话解析为准）。' });
-      } else {
-        const channel = qwennoteChannelState({
-          configured: true,
-          mounted,
-          tokenCache: await this.qwennoteTokenCache(),
+      // F16: wecom channel health mirrors the lark-cli pattern — verdict comes
+      // from the last on-demand wecom_check; no platform calls happen here.
+      if (config && (config.calendarChannel === 'wecom' || config.todoChannel === 'wecom' || config.notifyChannel === 'wecom')) {
+        capabilities.push({
+          id: 'wecom-cli',
+          state: this.wecomChannels.diagnostics ? (this.wecomChannels.diagnostics.cli.state === 'ok' && this.wecomChannels.diagnostics.identity.state === 'ok' ? 'ok' : 'warn') : 'info',
+          message: this.wecomChannels.diagnostics
+            ? `最近检查：${this.wecomChannels.diagnostics.cli.state === 'ok' ? 'CLI 可用' : this.wecomChannels.diagnostics.cli.message}；${this.wecomChannels.diagnostics.identity.message}`
+            : '企微渠道已启用但尚未执行接入检查（用 pa24_connection action=wecom_check 发起只读检查）',
         });
-        const nextSteps = mounted ? channel.nextSteps : [...channel.nextSteps, '宿主重启后 mcp 工具注册约需半分钟——听记通道显示正常后再打开本地会话，该会话才会带上听记工具。'];
-        capabilities.push({ id: 'qwennote-channel', state: channel.state, message: channel.message, detail: { nextSteps } });
       }
-    }
-    const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
-    const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));
-    const unknownOps = await this.repos!.maintenance.unknownOperationCount().catch(() => null);
-    const latencies = outboxRows.filter(o => o.status === 'sent' && o.sent_at).map(o => new Date(o.sent_at!).getTime() - new Date(o.created_at).getTime()).sort((a, b) => a - b);
-    const retryTotals = await this.repos!.maintenance.attemptTotals().catch(() => null);
-    const retries = retryTotals ? retryTotals.operations + retryTotals.outbox : null;
-    const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
-    return {
-      readiness: ready,
-      capabilities,
-      usage: {
-        since: this.startedAt,
-        modelTurns: this.usage.modelRequests,
-        notePagesInput: this.usage.notePagesInput,
-        noteCrops: this.usage.noteCrops,
-        outboxQueued: pending.length,
-        outboxUnknown: outboxRows.filter(o => o.status === 'unknown').length,
-        operationsUnknown: unknownOps,
-        outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
-        ledgerRetries: retries,
-        quota: '未配置模型限额（当前版本无 quota 配置项；如需硬限额请在模型路由侧设置）',
-        note: '计数自本 Host 启动累计（进程内观测，重启清零）；ledgerRetries 来自账本（外部操作重试＋Outbox 重发）；费用口径取决于模型计费，本页只提供可测投入量。',
-      },
-      dataFlow: {
-        modelInput: '笔记原稿图片与转写文本会作为模型输入发送到所配置的 dsh 模型路由；账本与面板不外发。',
-        extraLogs: 'dsh 原生会话日志保存于 $DSH_HOME/sessions；24PA 不额外上传。Host 级日志开关影响同 Host 全部会话。',
-        retention: 'PG 账本与工作区文件长期保留；备份按部署者执行的维护动作清理。',
-        secrets: '诊断与备份仅含凭据引用名（环境变量名），凭据值不进入任何输出。',
-      },
-      degraded: {
-        modelDown: '模型不可用只暂停需要模型的工作；固定提醒经 PG+Outbox 继续发送。',
-        pgDown: 'PG 不可用时停止接纳/写入相关业务并保留可恢复状态（启动与账本闸已实现）。',
-        offlineAlert: '完全离线告警依赖独立服务器监控（声明边界）。',
-      },
-    };
+      // F19: voice engine readiness mirrors the lark-cli pattern — verdict from
+      // the last on-demand tts.probe; no subprocess spawns during health.
+      if (config && config.tts.engine !== 'none') {
+        capabilities.push({
+          id: 'tts',
+          state: this.ttsProbeCache ? (this.ttsProbeCache.result.ready ? 'ok' : 'warn') : 'info',
+          message: this.ttsProbeCache
+            ? `语音引擎 ${config.tts.engine}${this.ttsProbeCache.result.ready ? ' 就绪' : `：${this.ttsProbeCache.result.problems.join('；')}`}`
+            : `语音引擎 ${config.tts.engine} 已配置（面板「晨报与复盘」里发起只读预检）`,
+        });
+      }
+      // F18: extraLocalTools resolution — configured names that never mounted
+      // (missing provider bundle or profile mcp-client entry) surface here
+      // instead of failing agent creation.
+      if (config && config.extraLocalTools.length > 0) {
+        capabilities.push({
+          id: 'extra-local-tools',
+          state: this.extraToolResolution ? (this.extraToolResolution.filtered.length ? 'warn' : 'ok') : 'info',
+          message: this.extraToolResolution
+            ? `最近本地会话解析：放行 ${this.extraToolResolution.active.length} 项${this.extraToolResolution.filtered.length ? `；未挂载被过滤：${this.extraToolResolution.filtered.join('、')}` : ''}`
+            : '已配置 extraLocalTools 但本地24私助会话尚未创建',
+        });
+      }
+      // F18 WP3: qwennote channel three-state diagnosis (presence inference —
+      // mcp-client exposes no status service; no tool is called to diagnose).
+      if (config && config.extraLocalTools.some(e => e === QWENNOTE_TOOL_WILDCARD || e.startsWith(QWENNOTE_TOOL_PREFIX))) {
+        // F18 fix: the mount signal must come from the agent-resolution snapshot
+        // (this.ctx's tool view cannot see the mcp-client layer — different
+        // scope; verified on a live reproduction). No snapshot yet = unverified.
+        const snapshot = this.extraToolResolution;
+        const mounted = (snapshot?.active ?? []).some(n => n.startsWith(QWENNOTE_TOOL_PREFIX));
+        if (!snapshot) {
+          capabilities.push({ id: 'qwennote-channel', state: 'info', message: '听记通道未验证：本地24私助会话尚未创建（工具挂载以会话解析为准）。' });
+        } else {
+          const channel = qwennoteChannelState({
+            configured: true,
+            mounted,
+            tokenCache: await this.qwennoteTokenCache(),
+          });
+          const nextSteps = mounted ? channel.nextSteps : [...channel.nextSteps, '宿主重启后 mcp 工具注册约需半分钟——听记通道显示正常后再打开本地会话，该会话才会带上听记工具。'];
+          capabilities.push({ id: 'qwennote-channel', state: channel.state, message: channel.message, detail: { nextSteps } });
+        }
+      }
+      const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
+      const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));
+      const unknownOps = await this.repos!.maintenance.unknownOperationCount().catch(() => null);
+      const latencies = outboxRows.filter(o => o.status === 'sent' && o.sent_at).map(o => new Date(o.sent_at!).getTime() - new Date(o.created_at).getTime()).sort((a, b) => a - b);
+      const retryTotals = await this.repos!.maintenance.attemptTotals().catch(() => null);
+      const retries = retryTotals ? retryTotals.operations + retryTotals.outbox : null;
+      const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
+      return {
+        readiness: ready,
+        capabilities,
+        usage: {
+          since: this.startedAt,
+          modelTurns: this.usage.modelRequests,
+          notePagesInput: this.usage.notePagesInput,
+          noteCrops: this.usage.noteCrops,
+          outboxQueued: pending.length,
+          outboxUnknown: outboxRows.filter(o => o.status === 'unknown').length,
+          operationsUnknown: unknownOps,
+          outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
+          ledgerRetries: retries,
+          quota: '未配置模型限额（当前版本无 quota 配置项；如需硬限额请在模型路由侧设置）',
+          note: '计数自本 Host 启动累计（进程内观测，重启清零）；ledgerRetries 来自账本（外部操作重试＋Outbox 重发）；费用口径取决于模型计费，本页只提供可测投入量。',
+        },
+        dataFlow: {
+          modelInput: '笔记原稿图片与转写文本会作为模型输入发送到所配置的 dsh 模型路由；账本与面板不外发。',
+          extraLogs: 'dsh 原生会话日志保存于 $DSH_HOME/sessions；24PA 不额外上传。Host 级日志开关影响同 Host 全部会话。',
+          retention: 'PG 账本与工作区文件长期保留；备份按部署者执行的维护动作清理。',
+          secrets: '诊断与备份仅含凭据引用名（环境变量名），凭据值不进入任何输出。',
+        },
+        degraded: {
+          modelDown: '模型不可用只暂停需要模型的工作；固定提醒经 PG+Outbox 继续发送。',
+          pgDown: 'PG 不可用时停止接纳/写入相关业务并保留可恢复状态（启动与账本闸已实现）。',
+          offlineAlert: '完全离线告警依赖独立服务器监控（声明边界）。',
+        },
+      };
+    });
   }
 
   /** F19（spec 2.3）：语音引擎只读预检（面板按需触发；结果缓存供健康面与快照展示）。 */
   async ttsProbe(): Promise<unknown> {
-    if (!this.config) throw new Error('尚未绑定工作区。');
-    const result = await probeTts(this.config.tts, this.secretEnv());
-    this.ttsProbeCache = { at: nowIso(), result };
-    return { ...result, voice: this.config.tts.voice, voices: VOLC_TTS_VOICES };
+    return this.executions.run(async () => {
+      if (!this.config) throw new Error('尚未绑定工作区。');
+      const result = await probeTts(this.config.tts, this.secretEnv());
+      this.ttsProbeCache = { at: nowIso(), result };
+      return { ...result, voice: this.config.tts.voice, voices: VOLC_TTS_VOICES };
+    });
   }
 
   /** F19（spec 2.3）：入队一条测试语音，经真实引擎合成后送达主人飞书。 */
   async ttsTestSend(): Promise<unknown> {
-    if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
-    if (this.config.tts.engine === 'none') throw new Error('未配置 TTS 引擎：请先在「接入与设置 → 参数配置 → 语音 TTS」选择引擎。');
-    if (this.config.notifyChannel === 'wecom') throw new Error('通知通道为企微，暂不支持语音（wecom 语音 parity 后置）。');
-    if (!this.config.ownerOpenId) throw new Error('尚未绑定主人飞书身份（ownerOpenId）。');
-    // 「二十四私助」为口播形态：TTS 朗读数字串不如汉字自然（研究第六节实测口径）。
-    const text = '主人你好，这是二十四私助的语音测试。听到这条消息，说明语音投递链路已经打通。';
-    const dedupKey = `tts-test:${randomUUID().slice(0, 8)}`;
-    await this.repos.outbox.enqueue({
-      dedupKey,
-      channel: 'feishu',
-      target: this.config.ownerOpenId,
-      kind: 'audio',
-      content: { text },
+    return this.executions.run(async () => {
+      if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+      if (this.config.tts.engine === 'none') throw new Error('未配置 TTS 引擎：请先在「接入与设置 → 参数配置 → 语音 TTS」选择引擎。');
+      if (this.config.notifyChannel === 'wecom') throw new Error('通知通道为企微，暂不支持语音（wecom 语音 parity 后置）。');
+      if (!this.config.ownerOpenId) throw new Error('尚未绑定主人飞书身份（ownerOpenId）。');
+      // 「二十四私助」为口播形态：TTS 朗读数字串不如汉字自然（研究第六节实测口径）。
+      const text = '主人你好，这是二十四私助的语音测试。听到这条消息，说明语音投递链路已经打通。';
+      const dedupKey = `tts-test:${randomUUID().slice(0, 8)}`;
+      await this.repos.outbox.enqueue({
+        dedupKey,
+        channel: 'feishu',
+        target: this.config.ownerOpenId,
+        kind: 'audio',
+        content: { text },
+      });
+      return { queued: true, dedupKey, message: '测试语音已入发送队列，稍后送达主人飞书。' };
     });
-    return { queued: true, dedupKey, message: '测试语音已入发送队列，稍后送达主人飞书。' };
   }
 
-    async notesTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
-    return this.handwriting.notesTool(args, agent);
+  async notesTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
+    return this.executions.run(async () => {
+      return this.handwriting.notesTool(args, agent);
+    });
   }
 
   /** Assert the Feishu transport is live; every note write path needs it. */
@@ -3169,7 +3305,7 @@ export class PaRuntime {
     if (this.noteVerifying || this.closed) return;
     this.noteVerifying = true;
     void this.pollPendingNotes()
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => {
         this.noteVerifying = false;
       });
@@ -3177,17 +3313,19 @@ export class PaRuntime {
 
   /** Verify up to 5 pending-review versions now; returns how many were checked. */
   async pollPendingNotes(): Promise<number> {
-    if (!this.repos || !this.config || this.config.mode !== 'feishu' || !this.transport) return 0;
-    const versions = await this.repos.notes.pendingReviewVersions(5);
-    await Promise.all(versions.map(version => this.handwriting.verifyNote(version.note_id).catch(() => {})));
-    return versions.length;
+    return this.executions.run(async () => {
+      if (!this.repos || !this.config || this.config.mode !== 'feishu' || !this.transport) return 0;
+      const versions = await this.repos.notes.pendingReviewVersions(5);
+      await Promise.all(versions.map(version => this.handwriting.verifyNote(version.note_id).catch(() => { })));
+      return versions.length;
+    });
   }
 
   private reviewReminderTick(): void {
     if (this.reviewReminding || this.closed) return;
     this.reviewReminding = true;
     void this.dispatchReviewReminders()
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => {
         this.reviewReminding = false;
       });
@@ -3200,77 +3338,82 @@ export class PaRuntime {
    * with a 6h floor and a 3/day cap.
    */
   async dispatchReviewReminders(): Promise<number> {
-    if (!this.repos || !this.config || this.config.mode !== 'feishu' || !this.config.ownerOpenId) return 0;
-    const due = await this.repos.reviewReminders.claimDue(new Date(), 10);
-    let sent = 0;
-    for (const reminder of due) {
-      const version = await this.repos.notes.getVersion(reminder.version_id);
-      if (!version || version.status !== 'pending_review') {
-        await this.repos.reviewReminders.update(reminder.id, { status: 'canceled' });
-        continue;
+    return this.executions.run(async () => {
+      if (!this.repos || !this.config || this.config.mode !== 'feishu' || !this.config.ownerOpenId) return 0;
+      const due = await this.repos.reviewReminders.claimDue(new Date(), 10);
+      let sent = 0;
+      for (const reminder of due) {
+        const version = await this.repos.notes.getVersion(reminder.version_id);
+        if (!version || version.status !== 'pending_review') {
+          await this.repos.reviewReminders.update(reminder.id, { status: 'canceled' });
+          continue;
+        }
+        const silentUntil = await this.silencePolicy.silentUntil();
+        if (silentUntil && silentUntil.getTime() > Date.now()) {
+          await this.repos.reviewReminders.update(reminder.id, { remind_at: silentUntil });
+          continue;
+        }
+        // F44（spec 2.11）：待审提醒文案＝handwriting-review-flow 的 params
+        // （工作区同名 skill 覆盖可调口径；缺省与既有默认逐字一致）。
+        const flowParams = await this.skillCatalog.params('handwriting-review-flow');
+        const template = typeof flowParams.pendingRemindTemplate === 'string' && flowParams.pendingRemindTemplate.includes('{noteId}')
+          ? flowParams.pendingRemindTemplate
+          : DEFAULT_PENDING_REMIND_TEMPLATE.pendingRemindTemplate;
+        await this.notifyOwner(
+          `noteremind:${reminder.id}:${reminder.sent_count + 1}`,
+          template
+            .replaceAll('{noteId}', reminder.note_id)
+            .replaceAll('{version}', String(version.version))
+            .replaceAll('{docPart}', version.doc_url ? `（${version.doc_url}）` : ''),
+        );
+        const sentCount = reminder.sent_count + 1;
+        const next = advanceReminder(reminder.kind === 'daily' ? 'daily' : 'once', sentCount, Date.now());
+        await this.repos.reviewReminders.update(reminder.id, {
+          status: next.status,
+          // remind_at stays NOT NULL: completed reminders keep their last due time.
+          ...(next.remindAt ? { remind_at: next.remindAt } : {}),
+          sent_count: sentCount,
+          last_sent_at: new Date(),
+        });
+        sent += 1;
       }
-      const silentUntil = await this.silencePolicy.silentUntil();
-      if (silentUntil && silentUntil.getTime() > Date.now()) {
-        await this.repos.reviewReminders.update(reminder.id, { remind_at: silentUntil });
-        continue;
-      }
-      // F44（spec 2.11）：待审提醒文案＝handwriting-review-flow 的 params
-      // （工作区同名 skill 覆盖可调口径；缺省与既有默认逐字一致）。
-      const flowParams = await this.skillCatalog.params('handwriting-review-flow');
-      const template = typeof flowParams.pendingRemindTemplate === 'string' && flowParams.pendingRemindTemplate.includes('{noteId}')
-        ? flowParams.pendingRemindTemplate
-        : DEFAULT_PENDING_REMIND_TEMPLATE.pendingRemindTemplate;
-      await this.notifyOwner(
-        `noteremind:${reminder.id}:${reminder.sent_count + 1}`,
-        template
-          .replaceAll('{noteId}', reminder.note_id)
-          .replaceAll('{version}', String(version.version))
-          .replaceAll('{docPart}', version.doc_url ? `（${version.doc_url}）` : ''),
-      );
-      const sentCount = reminder.sent_count + 1;
-      const next = advanceReminder(reminder.kind === 'daily' ? 'daily' : 'once', sentCount, Date.now());
-      await this.repos.reviewReminders.update(reminder.id, {
-        status: next.status,
-        // remind_at stays NOT NULL: completed reminders keep their last due time.
-        ...(next.remindAt ? { remind_at: next.remindAt } : {}),
-        sent_count: sentCount,
-        last_sent_at: new Date(),
-      });
-      sent += 1;
-    }
-    return sent;
+      return sent;
+    });
   }
 
   /** Maintenance surface (P37/P38/P39) — local 24私助 session only for mutations. */
   async maintenanceTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
-    const role = this.roleFor(agent);
-    const action = String(args.action ?? '');
-    if (['archive_check', 'health'].includes(action)) {
-      if (action === 'archive_check') return this.maintenanceArchiveCheck();
-      return this.maintenanceHealth();
-    }
-    if (role !== 'local-robot') throw new Error('归档执行、备份与恢复操作只在 dsh 的24私助本地会话进行。');
-    if (action === 'archive_execute') return this.maintenanceArchiveExecute(args);
-    if (action === 'backup_create') return this.maintenanceBackupCreate(args);
-    if (action === 'backup_verify') return this.maintenanceBackupVerify(args);
-    throw new Error('未知维护操作。');
+    return this.executions.run(async () => {
+      const role = this.roleFor(agent);
+      const action = String(args.action ?? '');
+      if (['archive_check', 'health'].includes(action)) {
+        if (action === 'archive_check') return this.maintenanceArchiveCheck();
+        return this.maintenanceHealth();
+      }
+      if (role !== 'local-robot') throw new Error('归档执行、备份与恢复操作只在 dsh 的24私助本地会话进行。');
+      if (action === 'archive_execute') return this.maintenanceArchiveExecute(args);
+      if (action === 'backup_create') return this.maintenanceBackupCreate(args);
+      if (action === 'backup_verify') return this.maintenanceBackupVerify(args);
+      throw new Error('未知维护操作。');
+    });
   }
 
   /** Review queue and read-only decision history for the Lead tool and the panel (P33). */
   async reviewQueue(): Promise<unknown> {
-    if (!this.repos) throw new Error('业务账本未就绪。');
-    const queue = await this.repos.notes.reviewQueue();
-    const reminders = await this.repos.reviewReminders.activeAll();
-    const history = await this.repos.notes.versionsWithDecisions(30);
-    return {
-      count: queue.length,
-      items: queue.map(note => ({
-        noteId: note.id,
-        noteStatus: note.status,
-        title: note.title,
-        pages: note.pages,
-        latestVersion: note.latest
-          ? {
+    return this.executions.run(async () => {
+      if (!this.repos) throw new Error('业务账本未就绪。');
+      const queue = await this.repos.notes.reviewQueue();
+      const reminders = await this.repos.reviewReminders.activeAll();
+      const history = await this.repos.notes.versionsWithDecisions(30);
+      return {
+        count: queue.length,
+        items: queue.map(note => ({
+          noteId: note.id,
+          noteStatus: note.status,
+          title: note.title,
+          pages: note.pages,
+          latestVersion: note.latest
+            ? {
               version: note.latest.version,
               status: note.latest.status,
               docUrl: note.latest.doc_url,
@@ -3278,26 +3421,27 @@ export class PaRuntime {
               verifiedAt: isoDate(note.latest.verified_at),
               verifyResult: note.latest.verify_result,
             }
-          : null,
-        reminders: reminders
-          .filter(r => r.note_id === note.id)
-          .map(r => ({ id: r.id, kind: r.kind, status: r.status, remindAt: new Date(r.remind_at).toISOString(), sent: r.sent_count })),
-      })),
-      history: history.map(row => ({
-        noteId: row.note_id,
-        title: row.title ?? row.note_id,
-        version: row.version,
-        status: row.status,
-        decision: row.decision ?? null,
-        summary: String(row.content?.summary ?? ''),
-        docUrl: row.doc_url ?? null,
-        fingerprint: String(row.fingerprint ?? '').slice(0, 12) + '…',
-        decidedAt: isoDate(row.decision_at ?? row.decided_at),
-        verifiedAt: isoDate(row.verified_at),
-        verifyResult: row.verify_result ?? null,
-        createdAt: isoDate(row.created_at),
-      })),
-    };
+            : null,
+          reminders: reminders
+            .filter(r => r.note_id === note.id)
+            .map(r => ({ id: r.id, kind: r.kind, status: r.status, remindAt: new Date(r.remind_at).toISOString(), sent: r.sent_count })),
+        })),
+        history: history.map(row => ({
+          noteId: row.note_id,
+          title: row.title ?? row.note_id,
+          version: row.version,
+          status: row.status,
+          decision: row.decision ?? null,
+          summary: String(row.content?.summary ?? ''),
+          docUrl: row.doc_url ?? null,
+          fingerprint: String(row.fingerprint ?? '').slice(0, 12) + '…',
+          decidedAt: isoDate(row.decision_at ?? row.decided_at),
+          verifiedAt: isoDate(row.verified_at),
+          verifyResult: row.verify_result ?? null,
+          createdAt: isoDate(row.created_at),
+        })),
+      };
+    });
   }
 
   // ---- outbox worker --------------------------------------------------------
@@ -3305,33 +3449,39 @@ export class PaRuntime {
   private kickOutbox(): void {
     if (this.outboxSending || this.closed) return;
     this.outboxSending = true;
-    void this.sendOutbox().catch(() => {}).finally(() => {
+    void this.executions.detached(() => this.sendOutbox()).catch(() => { }).finally(() => {
       this.outboxSending = false;
     });
   }
 
   /** The delivery module owns durable receipts, retries and reply routing. */
-  async sendOutbox(): Promise<void> { if (this.repos) await this.outboxDelivery.drain(); }
+  async sendOutbox(): Promise<void> {
+    return this.executions.run(async () => {
+      if (this.repos) await this.outboxDelivery.drain();
+    });
+  }
 
   // ---- diagnostics & readiness ---------------------------------------------
 
   async checkAccess(): Promise<AccessDiagnostics> {
-    if (this.checking) return this.checking;
-    if (!this.workspace || !this.config) throw new Error('尚未绑定工作区。');
-    const workspace = this.workspace;
-    const config = this.config;
-    const bin = this.options.larkCliBin;
-    // F36: 报错脱敏覆盖密钥库来源的真实值（env 值 safeError 自行读）。
-    const extraSecrets = [this.secretValue('feishuAppId'), this.secretValue('feishuAppSecret')].filter(Boolean);
-    const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets)
-      .then(result => {
-        if (this.workspace === workspace) this.diagnostics = result;
-        return result;
-      })
-      .finally(() => {
-        this.checking = null;
-      }));
-    return run;
+    return this.executions.run(async () => {
+      if (this.checking) return this.checking;
+      if (!this.workspace || !this.config) throw new Error('尚未绑定工作区。');
+      const workspace = this.workspace;
+      const config = this.config;
+      const bin = this.options.larkCliBin;
+      // F36: 报错脱敏覆盖密钥库来源的真实值（env 值 safeError 自行读）。
+      const extraSecrets = [this.secretValue('feishuAppId'), this.secretValue('feishuAppSecret')].filter(Boolean);
+      const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets)
+        .then(result => {
+          if (this.workspace === workspace) this.diagnostics = result;
+          return result;
+        })
+        .finally(() => {
+          this.checking = null;
+        }));
+      return run;
+    });
   }
 
   readiness(): { startedAt: string | null; items: ReadinessItem[] } {
@@ -3392,13 +3542,13 @@ export class PaRuntime {
       readiness: this.readiness(),
       workspace: this.workspace
         ? {
-            path: this.workspace.statePath,
-            config: this.config,
-            loadedAt: this.loadedAt,
-            configError: this.configError,
-            accessSessionId: this.accessSessionId,
-            localSessionId: this.localSessionId,
-          }
+          path: this.workspace.statePath,
+          config: this.config,
+          loadedAt: this.loadedAt,
+          configError: this.configError,
+          accessSessionId: this.accessSessionId,
+          localSessionId: this.localSessionId,
+        }
         : null,
       availableWorkspaces: this.ctx.workspaceRegistry.list().map(w => ({ id: w.id, title: w.title, path: w.path })),
       transport: {

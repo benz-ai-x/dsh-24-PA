@@ -23,7 +23,7 @@ export class WorkspaceBackup {
     const collections: Collection[] = [
       { id: 'workspace', root: this.sources.workspace, required: true,
         includes: ['AGENTS.md', '.24pa', '.dsh/skills'], excludes: CREDENTIAL_PATHS },
-      { id: 'dsh-state', root: this.sources.stateDirectory, required: true, excludes: ['host.lock'] },
+      { id: 'dsh-state', root: this.sources.stateDirectory, required: true, excludes: ['host.lock', 'host.lock.d'] },
       { id: 'sessions', root: this.sources.sessions, required: true },
       { id: 'storages', root: this.sources.storages, required: true },
       { id: 'attachments', root: this.sources.attachments, required: false },

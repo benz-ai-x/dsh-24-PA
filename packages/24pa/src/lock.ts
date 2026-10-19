@@ -1,4 +1,5 @@
-import { open, readFile, rename, unlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 // The dsh web Host has no built-in second-instance guard, so the plugin
@@ -49,45 +50,65 @@ function isAlive(pid: number): boolean {
   }
 }
 
+type Owner = Omit<HostLockHolder, 'path'>;
+
+function code(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException).code;
+}
+
+async function readOwner(path: string): Promise<Owner | null> {
+  let raw: string;
+  try { raw = await readFile(path, 'utf8'); }
+  catch (error) { if (code(error) === 'ENOENT') return null; throw error; }
+  let value: Owner;
+  try { value = JSON.parse(raw); }
+  catch { throw new Error(`无法核实 Host 锁记录，请确认旧 Host 已退出后检查 ${path}。`); }
+  if (!value || !Number.isInteger(value.pid) || value.pid <= 0) throw new Error(`无法核实 Host 锁持有进程：${path}。`);
+  return value;
+}
+
+function rejectLive(owner: Owner, path: string): void {
+  if (isAlive(owner.pid)) throw new HostAlreadyActive({ ...owner, startedAt: String(owner.startedAt ?? '未知时间'), path });
+}
+
+// Exact, unrepeatable owner names prevent late reapers from deleting a new
+// owner. rmdir cannot remove the successor's nonempty directory.
+async function removeOwner(directory: string, name: string): Promise<void> {
+  await unlink(join(directory, name)).catch(error => { if (code(error) !== 'ENOENT') throw error; });
+  await rmdir(directory).catch(error => {
+    if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(code(error) ?? '')) throw error;
+  });
+}
+
 export async function acquireHostLock(stateDirectory: string): Promise<HostLock> {
-  const path = join(stateDirectory, 'host.lock');
-  const record = { pid: process.pid, startedAt: new Date().toISOString(), argv: process.argv, cwd: process.cwd() };
-  let handle;
+  await mkdir(stateDirectory, { recursive: true });
+  // Old files are read-only: supporting their format cannot make the old
+  // blind-rename writer safe when running concurrently with an upgrade.
+  const legacyPath = join(stateDirectory, 'host.lock');
+  const legacy = await readOwner(legacyPath);
+  if (legacy) rejectLive(legacy, legacyPath);
+  const directory = join(stateDirectory, 'host.lock.d');
+  const name = `owner-${randomUUID()}.json`;
+  const candidate = await mkdtemp(join(stateDirectory, '.host-lock-'));
+  const record: Owner = { pid: process.pid, startedAt: new Date().toISOString(), argv: process.argv, cwd: process.cwd() };
   try {
-    handle = await open(path, 'wx', 0o600);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-    let previous: { pid?: number; startedAt?: string; argv?: string[]; cwd?: string };
-    try {
-      previous = JSON.parse(await readFile(path, 'utf8'));
-    } catch {
-      previous = {};
+    await writeFile(join(candidate, name), JSON.stringify(record) + '\n', { mode: 0o600 });
+    for (;;) {
+      try { await rename(candidate, directory); break; }
+      catch (error) { if (!['ENOTEMPTY', 'EEXIST'].includes(code(error) ?? '')) throw error; }
+      const names = await readdir(directory).catch(error => { if (code(error) === 'ENOENT') return []; throw error; });
+      // Empty means release/reaping completed its unlink; the already complete
+      // candidate can atomically replace that empty directory on the next pass.
+      if (!names.length) continue;
+      if (names.length !== 1 || !/^owner-[0-9a-f-]+\.json$/.test(names[0]!)) throw new Error(`无法核实 Host 锁目录内容：${directory}。`);
+      const previous = await readOwner(join(directory, names[0]!));
+      if (!previous) continue;
+      rejectLive(previous, directory);
+      await removeOwner(directory, names[0]!);
     }
-    const pid = Number(previous.pid);
-    if (Number.isInteger(pid) && pid > 0 && isAlive(pid)) {
-      throw new HostAlreadyActive({
-        pid,
-        startedAt: String(previous.startedAt ?? '未知时间'),
-        path,
-        ...(Array.isArray(previous.argv) ? { argv: previous.argv } : {}),
-        ...(typeof previous.cwd === 'string' ? { cwd: previous.cwd } : {}),
-      });
-    }
-    // Stale holder (crashed or unreadable record): archive and take over.
-    await rename(path, `${path}.stale-${Date.now()}`).catch(() => {});
-    handle = await open(path, 'wx', 0o600);
-  }
-  try {
-    await handle.writeFile(JSON.stringify(record) + '\n');
   } finally {
-    await handle.close();
+    await removeOwner(candidate, name);
   }
-  let released = false;
-  return {
-    async release() {
-      if (released) return;
-      released = true;
-      await unlink(path).catch(() => {});
-    },
-  };
+  let releasing: Promise<void> | undefined;
+  return { release: () => releasing ??= removeOwner(directory, name) };
 }

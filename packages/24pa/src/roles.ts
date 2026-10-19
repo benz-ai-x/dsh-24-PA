@@ -39,6 +39,13 @@ export class RoleRegistry {
     this.roles.set(definition.id, definition);
   }
 
+  replace(definitions: readonly WorkerRoleDefinition[]): void {
+    const checked = new RoleRegistry();
+    for (const definition of definitions) checked.register(definition);
+    this.roles.clear();
+    for (const definition of checked.list()) this.roles.set(definition.id, definition);
+  }
+
   get(id: string): WorkerRoleDefinition | undefined {
     return this.roles.get(id);
   }

@@ -68,7 +68,7 @@ describe('prepared transport acknowledgements', () => {
       await new Promise(resolve => { release = resolve; });
     });
     const bound = settled(rt.bind(await workspace('stopped', 'feishu')));
-    await started; await rt.stop(); release();
+    await started; const stopping = rt.stop(); release(); await stopping;
     expect((await bound).ok).toBe(false);
     expect((await received).ok).toBe(false);
     expect(rt.repos).toBeNull();
@@ -88,18 +88,20 @@ describe('已持久接收的飞书委托归属', () => {
     ctx.sessions = { flush: async () => {} };
     ctx.sessionController.create = vi.fn(async () => {}).mockImplementationOnce(async () => { ready(); await proceed; });
     ctx.sessionController.resolveAgent = async id => ({ agent: { session: { id } } });
-    ctx.sessionController.prompt = vi.fn(async () => ({}));
+    ctx.sessionController.prompt = vi.fn(async () => ({accepted:true}));
     try {
       await rt.getTransport().inject({ ...event('owned-input'), senderOpenId: 'owner', text: 'A private input' });
       await entered;
-      await expect(rt.bind(b)).rejects.toThrow(/接收|消息|回传/);
+      const switching = rt.bind(b);
+      release();
+      await expect(switching).rejects.toThrow(/接收|消息|回传/);
       expect(rt.workspace.statePath).toBe(a);
     } finally { release(); }
     await vi.waitFor(async () => expect((await reposA.inbox.get('owned-input')).status).toBe('admitted'));
     expect(ctx.sessionController.prompt.mock.calls[0][0].sessionId).toBe(sessionA);
     await expect(rt.updateWorkspaceConfig({ appIdEnv: 'OTHER_APP_ID', appSecretEnv: 'OTHER_APP_SECRET' })).rejects.toThrow(/接收|回传/);
     await expect(rt.bind(b)).rejects.toThrow(/接收|消息|回传/);
-    rt.onSessionEvent({ id: sessionA, ownEvents: () => [{ type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: 'A result' }] } } }] }, { type: 'turn/end', data: { turn: 1 } });
+    rt.onSessionEvent({ id: sessionA, ownEvents: () => [{type:'turn/start', data:{turn:1}}, {type:'user/message',data:{id:'msg-owned',source:{rpcId:'feishu:owned-input'}}}, { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: 'A result' }] } } }] }, { type: 'turn/end', data: { turn: 1 } });
     await vi.waitFor(async () => expect((await reposA.inbox.get('owned-input')).status).toBe('delivered'));
     expect((await reposA.outbox.recent(10)).some(row => row.content.text === 'A result')).toBe(true);
     await rt.bind(b);
@@ -113,13 +115,13 @@ it('快速 turn/end 等待接纳落账，回传始终返回飞书发起入口', 
   await rt.bind(await workspace('fast-reply', 'feishu'));
   rt.config.notifyChannel = 'wecom';
   const id = (await rt.openLocalSession()).replace(/-local$/, '-feishu');
-  const session = { id, ownEvents: () => [{ type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: 'fast result' }] } } }] };
+  const session = { id, ownEvents: () => [{type:'turn/start',data:{turn:1}}, {type:'user/message',data:{id:'msg-fast',source:{rpcId:'feishu:fast'}}}, { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: 'fast result' }] } } }] };
   ctx.sessions = { flush: async () => {} };
   ctx.sessionController.resolveAgent = async () => ({ agent: { session } });
   ctx.sessionController.prompt = async () => {
     rt.onSessionEvent(session, { type: 'turn/end', data: { turn: 1 } });
     await new Promise(resolve => setImmediate(resolve));
-    return {};
+    return {accepted:true};
   };
   await rt.getTransport().inject({ ...event('fast'), senderOpenId: 'owner' });
   await vi.waitFor(async () => expect((await rt.repos.inbox.get('fast')).status).toBe('delivered'));
@@ -134,7 +136,7 @@ it('停止等待已认领消息退出，终止后不会再提交模型请求或�
   const held = new Promise(resolve => { release = resolve; });
   ctx.sessionController.create = async () => { enter(); await held; };
   ctx.sessionController.resolveAgent = async id => ({ agent: { session: { id } } });
-  ctx.sessionController.prompt = vi.fn(async () => ({}));
+  ctx.sessionController.prompt = vi.fn(async () => ({accepted:true}));
   ctx.sessions = { flush: async () => {} };
   await rt.getTransport().inject({ ...event('stop-claimed'), senderOpenId: 'owner' });
   await entered;
@@ -153,11 +155,11 @@ it('第一回合回传落账失败后，下一回合仍绑定自己的输入并�
   const id = (await rt.openLocalSession()).replace(/-local$/, '-feishu');
   ctx.sessions = { flush: async () => {} };
   ctx.sessionController.resolveAgent = async () => ({ agent: { session: { id } } });
-  ctx.sessionController.prompt = async () => ({});
+  ctx.sessionController.prompt = async () => ({accepted:true});
   for (const name of ['first', 'second']) await rt.getTransport().inject({ ...event(name), senderOpenId: 'owner' });
   await vi.waitFor(async () => expect((await rt.repos.inbox.get('second')).status).toBe('admitted'));
   const enqueue = vi.spyOn(rt.repos.outbox, 'enqueue').mockRejectedValueOnce(new Error('disk temporarily unavailable'));
-  const finish = (turn, reply) => rt.onSessionEvent({ id, ownEvents: () => [{ type: 'assistant/message', data: { turn, message: { content: [{ type: 'text', text: reply }] } } }] }, { type: 'turn/end', data: { turn } });
+  const finish = (turn, reply) => rt.onSessionEvent({ id, ownEvents: () => [{type:'turn/start',data:{turn}}, {type:'user/message',data:{id:'msg-'+turn,source:{rpcId:'feishu:'+(turn===1?'first':'second')}}}, { type: 'assistant/message', data: { turn, message: { content: [{ type: 'text', text: reply }] } } }] }, { type: 'turn/end', data: { turn } });
   finish(1, 'first reply');
   await vi.waitFor(() => expect(enqueue).toHaveBeenCalledOnce());
   finish(2, 'second reply');
@@ -196,7 +198,8 @@ it.each(['finish', 'stop'])('引用 Worker 的补充输入在 %s 后释放原工
   ctx.sessions = { flush: async () => {} };
   ctx.sessionController.resolveAgent = async id => ({ agent: { id, session: { id } } });
   ctx.subagents = { interrupt: () => {}, sendMessage: async () => {
-    if (outcome === 'finish') rt.onSessionEvent({ id: 'child', ownEvents: () => [{ type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: 'supplement result' }] } } }] }, { type: 'turn/end', data: { turn: 2 } });
+    if (outcome === 'finish') rt.onSessionEvent({ id: 'child', ownEvents: () => [{type:'turn/start',data:{turn:2}}, {type:'user/message',data:{id:'accepted-supplement',source:{}}}, { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: 'supplement result' }] } } }] }, { type: 'turn/end', data: { turn: 2 } });
+    return 'accepted-supplement';
   } };
   await rt.getTransport().inject({ ...event('supplement'), senderOpenId: 'owner', parentMessageId: 'original-message' });
   if (outcome === 'stop') {

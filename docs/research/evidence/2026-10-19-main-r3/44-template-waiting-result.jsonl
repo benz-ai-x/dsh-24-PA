@@ -1,0 +1,3 @@
+{"probe":"skip_then_tick","templateStatus":"active","instances":[{"status":"skipped"}],"pending":0}
+{"probe":"claim_then_restart","instances":[{"status":"generating"}],"operationCount":0}
+{"probe":"overlapping_waiting_ticks","askCount":2,"outbox":[{"dedup_key":"waiting:probe-waiting:1"},{"dedup_key":"waiting:probe-waiting:2"}]}

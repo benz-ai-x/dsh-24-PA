@@ -1,0 +1,26 @@
+{
+  "baseline": "8f70020a2f3808c3afb899e88092ee430d222efd",
+  "reviewedFindings": 28,
+  "confirmedWithoutScopeChange": 14,
+  "scopeOrWordingAdjusted": 14,
+  "plannedPrs": 6,
+  "priorities": {
+    "P1": 15,
+    "P2": 13
+  },
+  "githubParent": {
+    "number": 170,
+    "url": "https://github.com/benz-ai-x/dsh-24-PA/issues/170",
+    "databaseId": 5918202749
+  },
+  "implementationIssues": 28,
+  "nativeChildren": 28,
+  "nativeDependencyEdges": 41,
+  "unassignedOpen": 29,
+  "readyForAgent": 27,
+  "researchGateIssue": 195,
+  "sourceAndEvidenceLinksChecked": true,
+  "evidenceFilesHashed": 47,
+  "productCodeChanged": false,
+  "errors": []
+}

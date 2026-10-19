@@ -14,6 +14,8 @@ export type WorkItemStatus =
   | 'stopped'
   | 'needs_reconciliation';
 
+export const UNSETTLED_WORK_STATUSES = ['accepted', 'queued', 'running', 'waiting_input', 'needs_reconciliation'] as const;
+
 export interface WorkItemRow {
   id: string;
   title: string;
@@ -112,7 +114,7 @@ export class WorkItemRepo {
   async activeForParent(parentSessionId: string): Promise<WorkItemRow[]> {
     const result = await this.db.query<WorkItemRow>(
       `select * from pa24.work_item where parent_session_id = $1 and status = any($2)`,
-      [parentSessionId, ['accepted', 'queued', 'running']],
+      [parentSessionId, UNSETTLED_WORK_STATUSES],
     );
     return result.rows;
   }

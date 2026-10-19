@@ -103,10 +103,10 @@ describe('工作区激活：公开 bind/update/reload，真实文件与账本', 
     try {
       expect(rt.configFor(candidate).extraLocalTools).toEqual(['subagent_codex']);
       expect(rt.roleForToolMount(candidate)).toBe('local-robot'); expect(rt.roleFor(candidate)).toBeNull();
-      await expect(rt.memoryTool({ action: 'search' }, candidate)).rejects.toThrow(/绑定的/);
-      await expect(rt.memoryTool({ action: 'put', content: 'cross-workspace write', expectedRevision: 1, reason: 'test' }, candidate)).rejects.toThrow(/绑定的/);
+      await expect(rt.memoryTool({ action: 'search' }, candidate)).rejects.toThrow(/绑定的|切换/);
+      await expect(rt.memoryTool({ action: 'put', content: 'cross-workspace write', expectedRevision: 1, reason: 'test' }, candidate)).rejects.toThrow(/绑定的|切换/);
       expect(rt.memory).toBe(oldMemory); expect(rt.repos).toBe(oldRepos);
-      expect((await rt.memoryTool({ action: 'search' }, activeAgent)).records[0].content).toBe('A private memory');
+      await expect(rt.memoryTool({ action: 'search' }, activeAgent)).rejects.toThrow(/切换/);
       expect(await readFile(memoryFile, 'utf8')).toBe(original); expect(ctx.fs.writeText).not.toHaveBeenCalled();
     } finally { release(); }
     const error = await binding;

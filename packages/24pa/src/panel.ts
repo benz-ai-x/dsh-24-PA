@@ -70,45 +70,48 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           const endpoint = body.endpoint ?? '';
           const payload = body.payload ?? {};
           const E = PANEL_RPC.endpoints;
-          if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
           if (endpoint === E.action) return respond({ ok: true, value: await action(runtime, payload) });
-          if (endpoint === E.memory) {
-            if (!runtime.memory) throw new Error('尚未绑定工作区。');
-            return respond({
-              ok: true,
-              value: await runtime.memory.search({
-                query: str(payload.query),
-                category: str(payload.category),
-                topic: str(payload.topic),
-                status: str(payload.status),
-                limit: Number.isFinite(Number(payload.limit)) ? Number(payload.limit) : 20,
-                offset: Number.isFinite(Number(payload.offset)) ? Number(payload.offset) : 0,
-              }),
-            });
-          }
-          if (endpoint === E.health) {
-            return respond({ ok: true, value: await runtime.maintenanceHealth() });
-          }
-          if (endpoint === E.notesQueue) {
-            return respond({ ok: true, value: await runtime.reviewQueue() });
-          }
-          if (endpoint === E.roles) {
-            return respond({ ok: true, value: { roles: runtime.listRoles() } });
-          }
-          if (endpoint === E.reminders) {
-            return respond({ ok: true, value: runtime.reminders ? await runtime.reminders.list() : { rules: [], occurrences: [] } });
-          }
-          if (endpoint === E.digests) {
-            return respond({ ok: true, value: await runtime.digestPlans() });
-          }
-          throw new Error('未知管理接口。');
+          if (endpoint === E.snapshot && runtime.closed) return respond({ ok: true, value: { ...runtime.snapshot(), work: [], outbox: [], configMeta: { fields: CONFIG_FIELDS } } });
+          return await runtime.inspectWorkspace(async () => {
+            if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
+            if (endpoint === E.memory) {
+              if (!runtime.memory) throw new Error('尚未绑定工作区。');
+              return respond({
+                ok: true,
+                value: await runtime.memory.search({
+                  query: str(payload.query),
+                  category: str(payload.category),
+                  topic: str(payload.topic),
+                  status: str(payload.status),
+                  limit: Number.isFinite(Number(payload.limit)) ? Number(payload.limit) : 20,
+                  offset: Number.isFinite(Number(payload.offset)) ? Number(payload.offset) : 0,
+                }),
+              });
+            }
+            if (endpoint === E.health) {
+              return respond({ ok: true, value: await runtime.maintenanceHealth() });
+            }
+            if (endpoint === E.notesQueue) {
+              return respond({ ok: true, value: await runtime.reviewQueue() });
+            }
+            if (endpoint === E.roles) {
+              return respond({ ok: true, value: { roles: runtime.listRoles() } });
+            }
+            if (endpoint === E.reminders) {
+              return respond({ ok: true, value: runtime.reminders ? await runtime.reminders.list() : { rules: [], occurrences: [] } });
+            }
+            if (endpoint === E.digests) {
+              return respond({ ok: true, value: await runtime.digestPlans() });
+            }
+            throw new Error('未知管理接口。');
+          });
         } catch (error) {
           return respond({ ok: false, error: { message: (error as Error).message } });
         }
       },
     };
     void ctx.connection.fetch.register(route);
-    return () => {};
+    return () => { };
   });
 }
 
@@ -118,16 +121,18 @@ function str(value: unknown): string | undefined {
 }
 
 async function snapshot(runtime: PaRuntime): Promise<Record<string, unknown>> {
-  const base = runtime.snapshot();
-  const repos = runtime.repos;
-  return {
-    ...base,
-    work: repos ? await repos.workItems.list(undefined, 50) : [],
-    outbox: repos ? await repos.outbox.recent(20) : [],
-    // arch-4: the config field descriptors ride the snapshot so the form and
-    // the voice list have one source (config.ts) — client.js carries no copy.
-    configMeta: { fields: CONFIG_FIELDS },
-  };
+  return runtime.inspectWorkspace(async () => {
+    const base = runtime.snapshot();
+    const repos = runtime.repos;
+    return {
+      ...base,
+      work: repos ? await repos.workItems.list(undefined, 50) : [],
+      outbox: repos ? await repos.outbox.recent(20) : [],
+      // arch-4: the config field descriptors ride the snapshot so the form and
+      // the voice list have one source (config.ts) — client.js carries no copy.
+      configMeta: { fields: CONFIG_FIELDS },
+    };
+  });
 }
 
 
@@ -193,7 +198,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
     );
     return { roles: runtime.listRoles() };
   },
-  [PANEL_RPC.actions.workList]: async runtime => ({ items: runtime.repos ? await runtime.repos.workItems.list(undefined, 100) : [] }),
+  [PANEL_RPC.actions.workList]: runtime => runtime.inspectWorkspace(async () => ({ items: runtime.repos ? await runtime.repos.workItems.list(undefined, 100) : [] })),
   [PANEL_RPC.actions.testInject]: async (runtime, payload) => {
     const transport = runtime.getTransport();
     if (!transport || typeof (transport as FakeFeishuTransport).inject !== 'function') {
