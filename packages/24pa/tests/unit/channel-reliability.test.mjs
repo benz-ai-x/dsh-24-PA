@@ -140,6 +140,15 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     expect((await repos.calendar.findEvent('native-time')).start_time.toISOString()).toBe('2026-10-21T01:00:00.000Z');
   });
 
+  it('原生回执全天结束日保持半开边界，改标题不把一天扩大成两天', async () => {
+    await repos.calendar.upsertEvent({ event_id: 'native-all-day', calendar_id: 'cal-1', channel: 'feishu', summary: '全天会', start_time: new Date('2026-10-20T16:00:00Z'), end_time: new Date('2026-10-21T16:00:00Z'), is_all_day: true, timezone: 'Asia/Shanghai', status: 'active', recurring: false, attendees: null, url: null, raw: {} });
+    const channel = new FeishuChannels({ ...deps(larkBin), performExternal: async () => ({ data: { event: { event_id: 'native-all-day', summary: '[24PA] 新主题', start_time: { date: '2026-10-21' }, end_time: { date: '2026-10-22' } } } }) });
+    await channel.calendarWrite(item, 'update', { eventId: 'native-all-day', summary: '新主题' });
+    const event = await repos.calendar.findEvent('native-all-day');
+    expect(event.end_time - event.start_time).toBe(86400000); expect(event.is_all_day).toBe(true);
+    expect(event.end_time.toISOString()).toBe('2026-10-21T16:00:00.000Z');
+  });
+
   it('计划投入与估时修改有独立操作身份，并且不调用空的远端 update', async () => {
     const created = await lark.taskCreate(item, { summary: '写报告' });
     await lark.taskUpdate(item, { guid: created.guid, estimateMinutes: 20 });
