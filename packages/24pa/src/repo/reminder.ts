@@ -105,6 +105,29 @@ export class ReminderRepo {
     return result.rows;
   }
 
+  /** Completed one-shots can still have a dispatcher or queued send in flight.
+   * Stopped history stays visible while an unresolved send still needs attention. */
+  async rulesForArchive(): Promise<ReminderRuleRow[]> {
+    return (await this.db.query<ReminderRuleRow>(`select r.* from pa24.reminder_rule r
+      where r.status in ('active', 'paused', 'delegated', 'completed') or exists (
+        select 1 from pa24.reminder_occurrence o left join pa24.outbox b
+          on b.dedup_key = 'reminder:' || o.id or b.dedup_key = 'remindsrc:' || o.id
+        where o.rule_id = r.id and (o.status = 'pending' or b.status in ('pending', 'failed', 'sending', 'unknown'))
+      ) order by r.created_at`)).rows;
+  }
+
+  /** A due-rule snapshot is only a hint. Lock the current rule with the same
+   * order as stop/enqueue, and commit its occurrence and advancement together. */
+  async materializeOccurrence(ruleId: string, expectedDue: Date, dueAt: Date, nextDue: Date | null): Promise<void> {
+    await this.db.withTransaction(async client => {
+      const rule = (await client.query<ReminderRuleRow>('select * from pa24.reminder_rule where id = $1 for update', [ruleId])).rows[0];
+      if (!rule || rule.status !== 'active' || !rule.next_due_at || new Date(rule.next_due_at).getTime() !== expectedDue.getTime()) return;
+      await client.query(`insert into pa24.reminder_occurrence (id, rule_id, due_at)
+        values ($1,$2,$3) on conflict (id) do nothing`, [`${ruleId}:${dueAt.toISOString()}`, ruleId, dueAt]);
+      await client.query('update pa24.reminder_rule set status = $2, next_due_at = $3, updated_at = now() where id = $1', [ruleId, rule.kind === 'once' ? 'completed' : 'active', nextDue]);
+    });
+  }
+
   /** Retire local timing and unclaimed sends atomically; already dispatched
    * effects remain visible because neither a sent nor unknown message is undone. */
   async stopRule(id: string, reason: string): Promise<{ pendingCanceled: number; unresolvedSends: number }> {
@@ -113,7 +136,7 @@ export class ReminderRepo {
       if (!row) throw new Error('提醒不存在。');
       await client.query("update pa24.reminder_rule set status = 'stopped', next_due_at = null, record = $2, updated_at = now() where id = $1", [id, JSON.stringify({ ...row.record, previousStatus: row.record.previousStatus ?? row.status, stopReason: reason })]);
       await client.query("update pa24.reminder_occurrence set status = 'canceled', last_error = $2, updated_at = now() where rule_id = $1 and status = 'pending'", [id, reason]);
-      const keys = "select 'reminder:' || id from pa24.reminder_occurrence where rule_id = $1";
+      const keys = "select 'reminder:' || id from pa24.reminder_occurrence where rule_id = $1 union all select 'remindsrc:' || id from pa24.reminder_occurrence where rule_id = $1";
       const canceled = await client.query(`update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = $2 where dedup_key in (${keys}) and status in ('pending', 'failed')`, [id, reason]);
       const unresolved = await client.query<{ n: number }>(`select count(*) as n from pa24.outbox where dedup_key in (${keys}) and status in ('sending', 'unknown')`, [id]);
       return { pendingCanceled: canceled.rowCount, unresolvedSends: Number(unresolved.rows[0]?.n ?? 0) };

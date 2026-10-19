@@ -236,8 +236,7 @@ export class ReminderEngine {
   private async ensurePendingOccurrence(rule: ReminderRuleRow): Promise<void> {
     if (rule.kind !== 'once' || !rule.next_due_at || rule.status !== 'active') return;
     const due = new Date(rule.next_due_at);
-    await this.repo.insertOccurrence({ id: `${rule.id}:${due.toISOString()}`, ruleId: rule.id, dueAt: due });
-    await this.repo.updateRule(rule.id, { status: 'completed', next_due_at: null });
+    await this.repo.materializeOccurrence(rule.id, due, due, null);
   }
 
   async skipThis(ruleId: string, reason: string): Promise<unknown> {
@@ -314,16 +313,12 @@ export class ReminderEngine {
     for (const rule of rules) {
       if (rule.kind === 'once') {
         const due = rule.next_due_at!;
-        const occurrenceId = `${rule.id}:${new Date(due).toISOString()}`;
-        await this.repo.insertOccurrence({ id: occurrenceId, ruleId: rule.id, dueAt: new Date(due) });
-        await this.repo.updateRule(rule.id, { status: 'completed', next_due_at: null });
+        await this.repo.materializeOccurrence(rule.id, new Date(due), new Date(due), null);
         continue;
       }
       const resolved = resolveRecurringOccurrence(rule.record as RecurringScheduleRecord, now.getTime());
-      const occurrenceId = `${rule.id}:${new Date(resolved.occurrenceAt).toISOString()}`;
-      await this.repo.insertOccurrence({ id: occurrenceId, ruleId: rule.id, dueAt: new Date(resolved.occurrenceAt) });
       const nextTarget = resolved.nextScheduledAt ?? resolved.occurrenceAt;
-      await this.repo.updateRule(rule.id, { next_due_at: new Date(nextTarget) });
+      await this.repo.materializeOccurrence(rule.id, new Date(rule.next_due_at!), new Date(resolved.occurrenceAt), new Date(nextTarget));
     }
   }
 

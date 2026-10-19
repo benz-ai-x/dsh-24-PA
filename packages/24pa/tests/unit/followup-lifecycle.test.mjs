@@ -298,4 +298,43 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     await f.rt.work({ action: 'reminder_cancel', ruleId: old.ruleId, reason: '本人取消' }, child); release.resolve(); await tick; engine.stop();
     expect(notifications).toHaveLength(0); expect((await f.rt.repos.reminders.getRule(old.ruleId)).status).toBe('stopped');
   });
+
+  it('旧 active 快照晚返回，取消后物化不能复活规则或新增实例', async () => {
+    const child = await worker('reminders'), entered = deferred(), release = deferred();
+    const engine = new ReminderEngine(f.rt.db, { notify: (key, text) => f.rt.notifyOwner(key, text), outboxState: async () => null }, { silentUntil: async () => null });
+    const old = await engine.create({ kind: 'once', text: '旧快照', afterSeconds: 1, timeZone: 'UTC' });
+    await f.rt.repos.reminders.updateRule(old.ruleId, { next_due_at: new Date(Date.now() - 1000) });
+    const due = engine.repo.dueRuleIds.bind(engine.repo);
+    engine.repo.dueRuleIds = async (...args) => { const rows = await due(...args); entered.resolve(); await release.promise; return rows; };
+    const tick = engine.tick(); await entered.promise;
+    await f.rt.work({ action: 'reminder_cancel', ruleId: old.ruleId }, child); release.resolve(); await tick; engine.stop();
+    expect((await f.rt.repos.reminders.getRule(old.ruleId)).status).toBe('stopped');
+    expect(await f.rt.repos.reminders.recentOccurrences()).toHaveLength(0); expect(await f.rt.repos.outbox.recent()).toHaveLength(0);
+  });
+
+  it('归档盘点并停止已完成但仍在途的一次性提醒', async () => {
+    const entered = deferred(), release = deferred();
+    const engine = new ReminderEngine(f.rt.db, { notify: (key, text) => f.rt.notifyOwner(key, text), outboxState: async () => null }, { silentUntil: async () => { entered.resolve(); await release.promise; return null; } });
+    const old = await engine.create({ kind: 'once', text: '在途归档', afterSeconds: 1, timeZone: 'UTC' });
+    await f.rt.repos.reminders.updateRule(old.ruleId, { next_due_at: new Date(Date.now() - 1000) });
+    const tick = engine.tick(); await entered.promise;
+    expect((await f.rt.maintenanceArchiveCheck()).externalPgReminders.reminderRules).toEqual([expect.objectContaining({ id: old.ruleId, status: 'completed' })]);
+    const result = await f.rt.maintenanceArchiveExecute({ confirmStop: true, stopRules: true }); release.resolve(); await tick; engine.stop();
+    expect(result).toMatchObject({ rulesStopped: 1, failures: [], remaining: { reminderRules: [], outboxPending: 0 } });
+    expect((await f.rt.repos.reminders.getRule(old.ruleId)).status).toBe('stopped'); expect(await f.rt.repos.outbox.recent()).toHaveLength(0);
+  });
+
+  it.each(['pending', 'unknown'])('来源失效通知 %s 随公开取消清理或如实披露', async status => {
+    const child = await worker('reminders');
+    const engine = new ReminderEngine(f.rt.db, { notify: (key, text) => f.rt.notifyOwner(key, text), outboxState: async () => null, sourceValid: async () => ({ valid: false, reason: '来源已变更' }) }, { silentUntil: async () => null });
+    const old = await engine.create({ kind: 'once', text: '来源更正', afterSeconds: 1, timeZone: 'UTC', link: { sourceType: 'task', sourceId: 'legacy', fingerprint: 'old' } });
+    await f.rt.repos.reminders.updateRule(old.ruleId, { next_due_at: new Date(Date.now() - 1000) }); await engine.tick(); engine.stop();
+    const [notice] = await f.rt.repos.outbox.recent(); expect(notice.dedup_key).toMatch(/^remindsrc:/);
+    await f.rt.db.query('update pa24.outbox set status = $2 where id = $1', [notice.id, status]);
+    const result = await f.rt.work({ action: 'reminder_cancel', ruleId: old.ruleId }, child);
+    expect(result).toMatchObject({ pendingCanceled: status === 'pending' ? 1 : 0, unresolvedSends: status === 'unknown' ? 1 : 0 });
+    expect((await f.rt.repos.outbox.recent())[0].status).toBe(status === 'pending' ? 'expired' : 'unknown');
+    expect((await f.rt.maintenanceArchiveCheck()).externalPgReminders.reminderRules).toHaveLength(status === 'unknown' ? 1 : 0);
+  });
+
 });

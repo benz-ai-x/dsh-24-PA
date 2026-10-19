@@ -2834,8 +2834,7 @@ export class PaRuntime {
       // dsh's own archive gate remains the authoritative blocker.
       const digestPlans = (await this.repos.digests.listPlans()).filter(plan => plan.status === 'active' || plan.schedule_id || plan.lifecycle).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null || plan.lifecycle != null }));
       // F45：delegated 行（日程化备份）也列出——归档处置需要看到它们，带渠道标记。
-      const reminderRules = (await this.repos.reminders.listRules())
-        .filter(rule => ['active', 'paused', 'delegated'].includes(rule.status))
+      const reminderRules = (await this.repos.reminders.rulesForArchive())
         .map(rule => ({ id: rule.id, kind: rule.kind, text: rule.text, status: rule.status, calendarChannel: rule.record?.channel ?? null, eventId: rule.record?.event_id ?? null, nextDueAt: rule.record?.type === 'calendar' ? null : isoDate(rule.next_due_at) }));
       const reviewReminders = (await this.repos.reviewReminders.activeAll(50)).map(r => ({ id: r.id, noteId: r.note_id, kind: r.kind, remindAt: new Date(r.remind_at).toISOString() }));
       const outboxPending = (await this.repos.outbox.recent(200)).filter(o => ['pending', 'sending', 'unknown'].includes(o.status)).length;
@@ -2886,7 +2885,7 @@ export class PaRuntime {
       // only successful stops are counted.
       let rulesStopped = 0;
       if (stopRules) {
-        for (const rule of (await this.repos.reminders.listRules()).filter(row => ['active', 'paused', 'delegated'].includes(row.status))) {
+        for (const rule of await this.repos.reminders.rulesForArchive()) {
           try {
             await this.reminderRouter.cancel({ id: rule.work_item_id ?? 'pa24-system-archive' } as WorkItemRow, rule.id, '本人选择归档时停止整条提醒规则');
             rulesStopped += 1;
