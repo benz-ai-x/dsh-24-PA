@@ -94,7 +94,7 @@ export function candidateUnknowns(candidate: NoteCandidate, index: number, docum
     const numbers = [...unknown.matchAll(/候选(?:行动)?\s*#?(\d+)/g)].map(match => Number(match[1]));
     if (numbers.length) return numbers.includes(index);
     if ([candidate.summary, candidate.sourceQuote].some(value => value && value.length >= 4 && unknown.includes(value))) return true;
-    if (/人名|联系人|负责人|姓名/.test(unknown)) return /联系|通知|邀请|邀约|拜访|致电|询问|回复|发给|发送给|转交|交给|负责人|联系人|或|[/?？]/.test(content);
+    if (/人名|联系人|负责人|姓名/.test(unknown) && /联系|通知|邀请|邀约|拜访|致电|询问|回复|发给|发送给|转交|交给|负责人|联系人|或|[/?？]/.test(content)) return true;
     if (/日期|时间|截止|周几|哪天/.test(unknown)) return !!(candidate.due || candidate.start || candidate.end) || /排期|安排|开会|会议|预约|截止|提交|交付/.test(content);
     return false;
   });

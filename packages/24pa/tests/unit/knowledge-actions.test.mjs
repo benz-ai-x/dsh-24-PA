@@ -122,6 +122,56 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     expect((await f.rt.repos.notes.getVersion(published.versionId)).content.candidates[0].unknowns).toBeUndefined();
   });
 
+  it('混合联系人与日期疑点独立关联，新旧版本均阻止相关候选且允许无关候选', async () => {
+    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    const unknown = '联系人和日期原稿不清';
+    const published = await f.rt.work({ action: 'note_submit', transcript: '联系王或李，下周交预算', summary: '整理', unknowns: [unknown], candidates: [
+      { summary: '联系王工', sourceQuote: '联系王或李' }, { summary: '提交预算', due: '2026-11-02', sourceQuote: '下周交' }, { summary: '备份确认材料' },
+    ] }, child);
+    const version = await f.rt.repos.notes.getVersion(published.versionId);
+    expect(version.content.candidates.map(row => row.unknowns)).toEqual([[unknown], [unknown], undefined]);
+    const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
+    await f.rt.handwriting.processReviewCard('approve', { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });
+    const action = { action: 'note_adopt_actions', noteId: 'N-1', versionId: published.versionId, indexes: [0, 1, 2], instruction: '执行所选行动' };
+    expect(await f.rt.work(action, child)).toMatchObject({ executed: 1, failed: 2 });
+    for (const row of version.content.candidates) delete row.unknowns;
+    await f.rt.db.query('update pa24.note_version set content = $2 where id = $1', [published.versionId, JSON.stringify(version.content)]);
+    expect(await f.rt.work(action, child)).toMatchObject({ executed: 1, failed: 2 });
+    expect((await f.rt.repos.tasks.list()).map(row => row.summary)).toEqual(['备份确认材料']);
+  });
+
+  it.each(['feishu:task', 'wecom:task', 'feishu:calendar', 'wecom:calendar'])('%s 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象', async mode => {
+    const [channel, kind] = mode.split(':'); f.rt.config.todoChannel = channel; f.rt.config.calendarChannel = channel;
+    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    const published = await f.rt.work({ action: 'note_submit', transcript: '联系王或李，下周安排', summary: '整理', candidates: [{ summary: '联系某人', unknowns: ['人名和日期不清'] }] }, child);
+    const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
+    await f.rt.handwriting.processReviewCard('approve', { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });
+    const resolved = kind === 'task' ? { summary: '联系王工', due: '2026-11-01' } : { summary: '联系王工', start: '2026-11-01T02:00:00Z', end: '2026-11-01T03:00:00Z' };
+    const clarification = { index: 0, resolutions: [{ unknown: '人名和日期不清', answer: '王工，11月1日' }], resolved };
+    const action = { action: 'note_adopt_actions', noteId: 'N-1', versionId: published.versionId, indexes: [0], instruction: '本人确认王工11月1日' };
+    const repository = kind === 'task' ? f.rt.repos.tasks : f.rt.repos.calendar;
+    const method = kind === 'task' ? 'save' : 'upsertEvent', originalSave = repository[method].bind(repository);
+    let failOnce = true;
+    repository[method] = async (...args) => { if (failOnce) { failOnce = false; throw new Error('local projection failed'); } return originalSave(...args); };
+    const changed = { ...clarification, resolved: { ...resolved, summary: '联系李工', ...(kind === 'task' ? { due: '2026-11-02' } : { start: '2026-11-02T02:00:00Z', end: '2026-11-02T03:00:00Z' }) } };
+    const competing = await Promise.all([
+      f.rt.work({ ...action, clarifications: [clarification] }, child),
+      f.rt.work({ ...action, clarifications: [changed] }, child),
+    ]);
+    expect(competing[0]).toMatchObject({ executed: 0, failed: 1 }); expect(competing[0].results[0].error).toContain('local projection failed');
+    expect(competing[1]).toMatchObject({ executed: 0, failed: 1 }); expect(competing[1].results[0].error).toContain('不能在重试中改写');
+    const channelKey = kind === 'task' ? 'todoChannel' : 'calendarChannel'; f.rt.config[channelKey] = channel === 'feishu' ? 'wecom' : 'feishu';
+    expect((await f.rt.work(action, child)).results[0].error).toContain('当前配置已改变'); f.rt.config[channelKey] = channel;
+    expect(await f.rt.work({ ...action, instruction: '按原授权恢复' }, child)).toMatchObject({ executed: 1, failed: 0 });
+    const op = await f.rt.repos.operations.get('note.action:N-1:v1:0');
+    expect(op.params).toMatchObject({ summary: '联系王工', clarification, instruction: action.instruction }); expect(op.status).toBe('succeeded');
+    const projected = kind === 'task' ? (await f.rt.repos.tasks.list())[0] : await f.rt.repos.calendar.findEvent(op.receipt.eventId);
+    expect(projected.summary).toContain('联系王工');
+    const journal = channel === 'feishu' ? (kind === 'task' ? 'lark.json.tasks.jsonl' : 'lark.json.events.jsonl') : (kind === 'task' ? 'wecom.json.todos.jsonl' : 'wecom.json.schedules.jsonl');
+    const remote = (await readFile(join(f.root, journal), 'utf8')).trim().split('\n').map(JSON.parse);
+    expect(remote).toHaveLength(1); expect(JSON.stringify(remote[0])).toContain('联系王工'); expect(JSON.stringify(remote[0])).not.toContain('联系李工');
+  });
+
   it('候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果', async () => {
     await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
     const published = await f.rt.work({ action: 'note_submit', transcript: '有不清楚的人名和日期', summary: '整理', unknowns: ['会议备注不清'], candidates: [{ summary: '联系某人', unknowns: ['人名不清'] }, { summary: '备份确认材料' }] }, child);

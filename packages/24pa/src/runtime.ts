@@ -4,6 +4,7 @@ import { consumedTurn } from './host-turn.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { WorkspaceBackup } from './backup.js';
 import { readFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 
 /** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
 const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任务 skill（worker-persona-*）在会话启动时装载；此处仅注册占位。';
@@ -2895,7 +2896,11 @@ export class PaRuntime {
    * Content approval and action authorization stay separate records; the
    * version must be approved AND still match the live document.
    */
-  private async noteAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+  private noteAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    return this.gate(`note-actions:${args.noteId}:${args.versionId}`, () => this.adoptNoteActions(item, args));
+  }
+
+  private async adoptNoteActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const noteId = String(args.noteId ?? '');
     const note = await this.repos!.notes.getNote(noteId);
     if (!note) throw new Error('笔记不存在。');
@@ -2931,7 +2936,26 @@ export class PaRuntime {
         continue;
       }
       const unknowns = candidateUnknowns(candidate, index, Array.isArray(version.content?.unknowns) ? version.content.unknowns : []);
-      const clarification = Array.isArray(args.clarifications) ? args.clarifications.find((entry: any) => entry?.index === index) as Record<string, any> | undefined : undefined;
+      const requestedClarification = Array.isArray(args.clarifications) ? args.clarifications.find((entry: any) => entry?.index === index) as Record<string, any> | undefined : undefined;
+      // Once an operation is recorded, its intent is immutable even when the
+      // remote acknowledgement arrived before a local projection failed. The
+      // action gate also prevents two concurrent clarifications from racing.
+      if (previous && requestedClarification && !isDeepStrictEqual(requestedClarification, previous.params.clarification)) {
+        results.push({ index, ok: false, error: '该候选已按原澄清记录执行意图，不能在重试中改写；请先按原参数恢复并核对已有对象，再明确修改对象或整理新版本。' });
+        continue;
+      }
+      const clarification = previous ? previous.params.clarification as Record<string, any> | undefined : requestedClarification;
+      if (previous) {
+        const isCalendar = previous.action.includes('calendar');
+        const channel = previous.action.startsWith('wecom_') ? 'wecom' : 'feishu';
+        const currentChannel = isCalendar ? this.config!.calendarChannel : this.config!.todoChannel;
+        const changedTarget = channel !== currentChannel || (channel === 'feishu' && (isCalendar
+          ? previous.params.calendarId !== this.config!.calendarId : previous.params.tasklistId !== this.config!.tasklistId));
+        if (changedTarget) {
+          results.push({ index, ok: false, error: '该候选已有原渠道和目标记录；当前配置已改变，请恢复原目标后重试或先核对已有对象，不能换目标重复创建。' });
+          continue;
+        }
+      }
       if (unknowns.length) {
         const resolutions = Array.isArray(clarification?.resolutions) ? clarification.resolutions : [];
         if (!clarification?.resolved?.summary || unknowns.some(unknown => !resolutions.some((r: any) => r?.unknown === unknown && typeof r.answer === 'string' && r.answer.trim()))) {
@@ -2951,7 +2975,7 @@ export class PaRuntime {
       // and content approval stay separate records (P34).
       try {
         if (candidate.start && candidate.end) {
-          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, _authorization: { noteId, versionId, index, instruction, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) } }, operationId)) as { eventId?: string; url?: string | null };
+          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, timeZone: previous?.params.timeZone, _authorization: { noteId, versionId, index, instruction, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) } }, operationId)) as { eventId?: string; url?: string | null };
           await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, noteId, versionId, index, instruction } });
           results.push({ index, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
         } else {
