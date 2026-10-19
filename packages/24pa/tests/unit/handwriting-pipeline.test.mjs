@@ -27,11 +27,11 @@ describe('F29：HandwritingPipeline 接口直测', () => {
     expect(hw.isImageFileMessage({ messageType: 'image' })).toBe(false);
   });
 
-  it('publishNoteVersion：无已保存原稿页时拒绝发布（接口边界）', async () => {
+  it('noteSubmit：无已保存原稿页时拒绝发布', async () => {
     const hw = new HandwritingPipeline(makeDeps({
-      notes: { pagesOf: async () => [] },
+      notes: { noteByWorkItem: async () => ({ id: 'n1' }), pagesOf: async () => [] },
     }));
-    await expect(hw.publishNoteVersion({ id: 'wip-x' }, { id: 'n1' }, null, null))
+    await expect(hw.noteSubmit({ id: 'wip-x' }, { transcript: '识别内容' }))
       .rejects.toThrow('这份笔记还没有已保存的原稿页。');
   });
 

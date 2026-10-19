@@ -18,9 +18,10 @@ import {
   type CropSpec, type DoubtSpec, type DiagramSpec, type RecognizedNote, type Region,
 } from './handwriting.js';
 import type { PaDb } from './db.js';
-import type { Repos, NoteRow, NotePageRow, WorkItemRow, ActionOperationRow, ReviewReminderRow } from './repo.js';
-import { text, nowIso, isoDate } from './util.js';
+import type { Repos, NoteRow, NotePageRow, NoteVersionRow, WorkItemRow, ActionOperationRow, ReviewReminderRow } from './repo.js';
+import { text, nowIso, isoDate, hash } from './util.js';
 import type { RuntimeRole } from './runtime.js';
+import { LarkNoteDocumentReader, TrustedNotes, type NoteDocumentReader, type NoteTrustResult } from './note-trust.js';
 
 export interface HandwritingDeps extends ChannelContextDeps {
   /** F44：工作流口径参数（handwriting-review-flow 的 frontmatter params）。 */
@@ -35,11 +36,34 @@ export interface HandwritingDeps extends ChannelContextDeps {
 }
 
 export class HandwritingPipeline {
-  constructor(private readonly deps: HandwritingDeps) {}
+  private readonly reader: NoteDocumentReader;
+  private readonly trust: TrustedNotes;
+
+  constructor(private readonly deps: HandwritingDeps, reader?: NoteDocumentReader) {
+    this.reader = reader ?? new LarkNoteDocumentReader(() => this.cli());
+    this.trust = new TrustedNotes(() => this.deps.repos().notes, this.reader);
+  }
+
+  inspectTrust(noteId: string, versionId?: string): Promise<NoteTrustResult> {
+    return this.trust.inspect(noteId, versionId);
+  }
 
   /** CLI invocation options resolved once per call (config may reload). */
   private cli() {
     return cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs);
+  }
+
+  private async externalWrite<T>(item: WorkItemRow, id: string, kind: string, params: Record<string, unknown>, invoke: () => Promise<T>): Promise<T> {
+    const staged = await this.deps.stagedOperationWithId(id, item, kind, params);
+    if (!staged.created && staged.row.status === 'succeeded') return staged.row.receipt?.result as T;
+    try {
+      const result = await this.deps.performExternal(id, invoke);
+      await this.deps.repos().operations.update(id, { status: 'succeeded', receipt: { result } });
+      return result;
+    } catch (error) {
+      await this.deps.failStaged(id, error);
+      throw error;
+    }
   }
 
   // ---- handwriting notes (F06) ----------------------------------------------
@@ -315,51 +339,60 @@ export class HandwritingPipeline {
     const notes = this.deps.repos().notes;
     const pages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
     if (pages.length === 0) throw new Error('这份笔记还没有已保存的原稿页。');
-    const latest = await notes.latestVersion(note.id);
-    const version = (latest?.version ?? 0) + 1;
-    const versionId = `${note.id}:v${version}`;
     this.deps.assertLive('手写笔记发布需要 feishu 模式与飞书连接');
     const visionRoute = this.deps.config().workerModels.handwriting;
     const paramsKey = republishFromDoc ? `republish:${republishFromDoc.docId}:${sha256Hex(republishFromDoc.normalized)}` : sha256Hex(JSON.stringify(recognized));
-    const staged = await this.deps.stagedOperation(
-      item,
-      'note.publish',
-      `${versionId}\n${paramsKey}`,
-      { noteId: note.id, version, republish: !!republishFromDoc },
-      '请先到配置的目录或知识库核对是否已生成待审文档，确认后再继续，不会自动重试。',
-    );
-    if (!staged.created && staged.row.status === 'succeeded') {
-      const existing = await notes.getVersion(versionId);
-      return { noteId: note.id, version, versionId, reused: true, docUrl: existing?.doc_url ?? staged.row.receipt?.docUrl ?? null, message: '该版本此前已发布，未重复创建文档。' };
+    // The aggregate only coordinates local stages; each remote write owns a
+    // separate durable key and result, so partial media insertion is resumable.
+    const operation = await notes.beginPublication({
+      noteId: note.id,
+      workItemId: item.id,
+      contentKey: hash(JSON.stringify([note.id, paramsKey, pages.map(p => [p.page_no, p.sha256]), crops.map(c => c.sha256)])),
+      legacyParamsKey: paramsKey,
+      republish: !!republishFromDoc,
+    });
+    if (!operation) throw new Error('未能登记待审版本发布。');
+    const version = Number(operation.params.version);
+    const versionId = `${note.id}:v${version}`;
+    const existing = await notes.getVersion(versionId);
+    if (operation.status === 'succeeded') {
+      return { noteId: note.id, version, versionId, reused: true, docUrl: existing?.doc_url ?? operation.receipt?.docUrl ?? null, message: '该版本此前已发布，未重复创建文档。' };
     }
     try {
-      let docId = (staged.row.receipt?.docId as string | undefined) ?? republishFromDoc?.docId ?? null;
-      let docUrl = (staged.row.receipt?.docUrl as string | undefined) ?? republishFromDoc?.docUrl ?? null;
+      // A stored version is the read-back receipt. Finish only its local
+      // projections even if the aggregate completion failed after insertion.
+      if (existing) return await this.finishPublication(item, operation, existing);
+      if (operation.status === 'unknown' || (operation.status === 'running' && !operation.receipt?.docId)) {
+        throw Object.assign(new Error('先前发布结果未知；请先核对是否已生成待审文档，不会自动重试。'), { outcome: 'unknown' });
+      }
+      const latest = (await notes.versionsOf(note.id)).filter(row => row.version < version).at(-1) ?? null;
+      let docId = (operation.receipt?.docId as string | undefined) ?? republishFromDoc?.docId ?? null;
+      let docUrl = (operation.receipt?.docUrl as string | undefined) ?? republishFromDoc?.docUrl ?? null;
       if (!docId) {
         if (!recognized) throw new Error('发布新版本需要结构化识别结果。');
         const xmlBody = noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size, sourceType: p.source_type })));
         // F22：待审文档同样落在知识库节点（wiki 优先、folder 回退）。
         const parentToken = noteParentToken(this.deps.config());
-        const { data } = await runLarkCli(this.cli(), [
+        const { data } = await this.externalWrite(item, `${operation.id}:create`, 'note.document.create', { noteId: note.id, version }, () => runLarkCli(this.cli(), [
           'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', parentToken, '--content', '-',
-        ], xmlBody);
+        ], xmlBody));
         const doc = data?.document;
         if (!doc?.document_id || !doc?.url) throw new Error('文档创建未返回标识；请先核对配置的目录或知识库，不要盲目重试。');
         docId = String(doc.document_id);
         docUrl = String(doc.url);
-        await this.deps.repos().operations.update(staged.row.id, { status: 'running', receipt: { docId, docUrl, stage: 'created' } });
+        await this.deps.repos().operations.update(operation.id, { status: 'running', receipt: { docId, docUrl, stage: 'created' } });
       }
       // Original images ride into the doc from the saved originals; a failure
       // here leaves the operation resumable at the read-back stage.
-      const insertedMedia = staged.row.receipt?.mediaInserted === true;
+      const insertedMedia = operation.receipt?.mediaInserted === true;
       if (!republishFromDoc && !insertedMedia) {
         const mediaFiles = [...pages.map(p => p.storage_path), ...crops.map(c => c.path)];
-        for (const file of mediaFiles) {
-          await runLarkCli(this.cli(), [
+        for (const [index, file] of mediaFiles.entries()) {
+          await this.externalWrite(item, `${operation.id}:media:${index}`, 'note.document.media', { docId, index, file }, () => runLarkCli(this.cli(), [
             'docs', '+media-insert', '--as', 'user', '--doc', docId, '--type', 'image', '--file', file,
-          ]);
+          ]));
         }
-        await this.deps.repos().operations.update(staged.row.id, { status: 'running', receipt: { docId, docUrl, stage: 'media', mediaInserted: true } });
+        await this.deps.repos().operations.update(operation.id, { status: 'running', receipt: { docId, docUrl, stage: 'media', mediaInserted: true } });
       }
       const readback = await this.fetchNoteDocument(docId);
       // Resource completeness: every saved page's original and every crop must
@@ -374,7 +407,7 @@ export class HandwritingPipeline {
       const finalRecognized = republishFromDoc
         ? { ...(latest?.content ?? {}), republishedFromDoc: true, previousVersion: latest?.version ?? null }
         : { ...recognized, model: visionRoute ? { provider: visionRoute.provider, model: visionRoute.model } : null, crops };
-      await notes.insertVersion({
+      const published = await notes.insertVersion({
         id: versionId,
         note_id: note.id,
         version,
@@ -387,59 +420,61 @@ export class HandwritingPipeline {
         doc_snapshot: snapshot,
         status: 'pending_review',
       });
-      await notes.supersedeOlder(note.id, version);
-      // A new candidate supersedes the old version: its nags must stop (P33).
-      if (latest) {
-        await this.deps.repos().reviewReminders.cancelForVersion(latest.id).catch(error => {
-          console.warn(`[pa24] 取消旧版本催办失败（派发时会再核对版本状态）：${(error as Error).message}`);
-        });
-      }
-      await notes.updateNote(note.id, { status: 'awaiting_review' });
-      await this.deps.repos().operations.update(staged.row.id, {
-        status: 'succeeded',
-        receipt: { docId, docUrl, versionId, fingerprint, revision: readback.revision },
-      });
-      await this.deps.repos().workItems.update(item.id, {
-        result_ref: { operationId: staged.row.id, docId, docUrl, noteId: note.id, versionId },
-      });
-      await this.sendReviewCard(note.id, versionId);
-      // Revision impact (P34): objects created from older versions get a change
-      // suggestion — never silent deletion or overwrite; one notice per new version.
-      if (latest) {
-        const affected = (await this.deps.repos().operations.succeededWithIdPrefix(`note.action:${note.id}:v%`).catch(() => [] as Array<{ id: string; params: any; status: string }>))
-          .filter(op => !op.id.startsWith(`note.action:${note.id}:v${version}:`));
-        if (affected.length > 0 && this.deps.config()?.ownerOpenId) {
-          const diff = diffNormalized(String(latest.normalized_text ?? ''), normalized);
-          const diffNote = diff.added.length || diff.removed.length
-            ? `主要差异：新增 ${diff.added.length} 行${diff.added.length ? `（如「${diff.added[0]!.slice(0, 40)}」）` : ''}，删除 ${diff.removed.length} 行${diff.removed.length ? `（如「${diff.removed[0]!.slice(0, 40)}」）` : ''}。`
-            : '两版本正文无文本差异（可能仅原稿/结构变化）。';
-          await this.deps.notifyOwner(
-            `noteimpact:${note.id}:v${version}`,
-            `笔记 ${note.id} 已发布 v${version} 候选。${diffNote}此前按旧版本创建的 ${affected.length} 个行动对象可能需要调整：${affected.map(op => String(op.params?.summary ?? op.id)).join('、')}。是否修改由你决定，助理不会静默删除或覆盖。`,
-          );
-        }
-      }
-      return {
-        noteId: note.id,
-        version,
-        versionId,
-        docUrl,
-        fingerprint,
-        message: `已生成待审版本 v${version} 并回读确认；等待本人在飞书审核卡上批准或退回。`,
-      };
+      return await this.finishPublication(item, operation, published);
     } catch (error) {
-      await this.deps.failStaged(staged.row.id, error);
+      await this.deps.failStaged(operation.id, error);
       throw error;
     }
   }
 
+  private async finishPublication(item: WorkItemRow, operation: ActionOperationRow, published: NoteVersionRow): Promise<unknown> {
+    const notes = this.deps.repos().notes;
+    const { note_id: noteId, version, id: versionId, doc_id: docId, doc_url: docUrl, fingerprint, normalized_text: normalized } = published;
+    const latest = (await notes.versionsOf(noteId)).filter(row => row.version < version).at(-1) ?? null;
+    await notes.supersedeOlder(noteId, version);
+    // A new candidate supersedes the old version: its nags must stop (P33).
+    if (latest) {
+      await this.deps.repos().reviewReminders.cancelForVersion(latest.id).catch(error => {
+        console.warn(`[pa24] 取消旧版本催办失败（派发时会再核对版本状态）：${(error as Error).message}`);
+      });
+    }
+    const current = await notes.latestVersion(noteId);
+    if (current?.id === versionId && current.status === 'pending_review') await notes.updateNote(noteId, { status: 'awaiting_review' });
+    await this.deps.repos().workItems.update(item.id, {
+      result_ref: { operationId: operation.id, docId, docUrl, noteId, versionId },
+    });
+    if (current?.id === versionId && current.status === 'pending_review') await this.sendReviewCard(noteId, versionId);
+    // Revision impact (P34): objects created from older versions get a change
+    // suggestion — never silent deletion or overwrite; one notice per new version.
+    if (latest) {
+      const affected = (await this.deps.repos().operations.succeededWithIdPrefix(`note.action:${noteId}:v%`).catch(() => [] as Array<{ id: string; params: any; status: string }>))
+        .filter(op => !op.id.startsWith(`note.action:${noteId}:v${version}:`));
+      if (affected.length > 0 && this.deps.config()?.ownerOpenId) {
+        const diff = diffNormalized(String(latest.normalized_text ?? ''), normalized);
+        const diffNote = diff.added.length || diff.removed.length
+          ? `主要差异：新增 ${diff.added.length} 行${diff.added.length ? `（如「${diff.added[0]!.slice(0, 40)}」）` : ''}，删除 ${diff.removed.length} 行${diff.removed.length ? `（如「${diff.removed[0]!.slice(0, 40)}」）` : ''}。`
+          : '两版本正文无文本差异（可能仅原稿/结构变化）。';
+        await this.deps.notifyOwner(
+          `noteimpact:${noteId}:v${version}`,
+          `笔记 ${noteId} 已发布 v${version} 候选。${diffNote}此前按旧版本创建的 ${affected.length} 个行动对象可能需要调整：${affected.map(op => String(op.params?.summary ?? op.id)).join('、')}。是否修改由你决定，助理不会静默删除或覆盖。`,
+        );
+      }
+    }
+    await this.deps.repos().operations.update(operation.id, {
+      status: 'succeeded', receipt: { docId, docUrl, versionId, fingerprint, revision: published.doc_revision },
+    });
+    return {
+      noteId,
+      version,
+      versionId,
+      docUrl,
+      fingerprint,
+      message: `已生成待审版本 v${version} 并回读确认；等待本人在飞书审核卡上批准或退回。`,
+    };
+  }
+
   private async fetchNoteDocument(docId: string): Promise<{ content: string; revision: string | null }> {
-    const readback = await runLarkCli(this.cli(), [
-      'docs', '+fetch', '--as', 'user', '--doc', docId, '--doc-format', 'xml', '--detail', 'full',
-    ]);
-    const content = readback.data?.document?.content;
-    if (typeof content !== 'string' || !content.trim()) throw new Error('文档回读不完整，不能作为待审内容。');
-    return { content, revision: readback.data.document.revision_id != null ? String(readback.data.document.revision_id) : null };
+    return this.reader.read(docId);
   }
 
   /** Enqueue the durable review card with opaque, server-verified tokens (P31). */
@@ -509,48 +544,57 @@ export class HandwritingPipeline {
       return;
     }
     // Re-verify the document matches the fingerprint this button was bound to.
-    let liveFingerprint: string;
+    let trust: NoteTrustResult;
     try {
-      liveFingerprint = await this.currentFingerprint(row.note_id, version.doc_id!);
+      trust = await this.inspectTrust(row.note_id, version.id);
+      if (trust.contentValidity === 'unknown') throw new Error(trust.reason ?? '核验结果未知');
     } catch (error) {
       await notify(`暂时无法核验文档当前内容（${(error as Error).message}）；本次点击未产生裁决，请稍后再试。`);
       await finish('rejected', '文档核验失败（unknown）');
       return;
     }
-    if (liveFingerprint !== row.fingerprint) {
-      await notes.updateVersion(version.id, { status: 'stale' });
-      await notes.updateNote(row.note_id, { status: 'needs_rereview' });
+    if (!trust.current || trust.contentValidity !== 'matches' || trust.fingerprint !== row.fingerprint) {
+      if (trust.current) {
+        await notes.updateVersion(version.id, { status: 'stale' });
+        await notes.updateNote(row.note_id, { status: 'needs_rereview' });
+      }
       await notify('文档内容与待审版本不一致（已修改），本按钮不能批准当前内容；旧批准只覆盖旧快照。可要求重新发布候选版本。');
       await finish('rejected', '内容已变化');
-      return;
-    }
-    const { claimed } = await notes.useToken(token);
-    if (!claimed) {
-      await notify('该按钮刚刚已被处理，结果见稍前通知；不产生重复裁决。');
-      await finish('duplicate', '并发重复点击');
       return;
     }
     const decision = row.action === 'approve' ? 'approve' : 'return';
     const decisionId = `rvw-${randomUUID().slice(0, 16)}`;
     // Credential, statuses and the owner-notification intent commit together.
-    await this.deps.dbRef().withTransaction(client =>
-      this.deps.repos().notes.decideVersion(client, {
-        decisionId,
-        noteId: row.note_id,
-        versionId: row.version_id,
-        versionStatus: decision === 'approve' ? 'approved' : 'returned',
-        noteStatus: decision === 'approve' ? 'approved' : 'returned',
-        decision,
-        reviewerOpenId: event.senderOpenId,
-        token,
-        fingerprint: row.fingerprint,
-        notifyDedupKey: `review:${token.slice(0, 12)}:${inboxEventId}`,
-        notifyTarget: this.deps.config().ownerOpenId,
-        notifyText: decision === 'approve'
-          ? `已批准 ${row.note_id} v${version.version}（覆盖指纹 ${row.fingerprint.slice(0, 12)}…，审核人 ${event.senderOpenId}）。`
-          : `已退回 ${row.note_id} v${version.version}；修改草稿后可要求重新发布候选版本。`,
-      }),
-    );
+    let decided: boolean;
+    try {
+      decided = await this.deps.dbRef().withTransaction(client =>
+        this.deps.repos().notes.decideVersion(client, {
+          decisionId,
+          noteId: row.note_id,
+          versionId: row.version_id,
+          versionStatus: decision === 'approve' ? 'approved' : 'returned',
+          noteStatus: decision === 'approve' ? 'approved' : 'returned',
+          decision,
+          reviewerOpenId: event.senderOpenId,
+          token,
+          fingerprint: row.fingerprint,
+          notifyDedupKey: `review:${token.slice(0, 12)}:${inboxEventId}`,
+          notifyTarget: this.deps.config().ownerOpenId,
+          notifyText: decision === 'approve'
+            ? `已批准 ${row.note_id} v${version.version}（覆盖指纹 ${row.fingerprint.slice(0, 12)}…，审核人 ${event.senderOpenId}）。`
+            : `已退回 ${row.note_id} v${version.version}；修改草稿后可要求重新发布候选版本。`,
+        }),
+      );
+    } catch (error) {
+      await notify(`本次审核未保存（${(error as Error).message}）；请核对当前版本后重试。`);
+      await finish('rejected', '审核事务未完成');
+      return;
+    }
+    if (!decided) {
+      await notify('该按钮已被处理或失效，不产生重复裁决。');
+      await finish('duplicate', '审核令牌未认领');
+      return;
+    }
     // Document status refresh runs after the ledger commit; a failure here
     // keeps the credential and reports "saved / syncing" (P32).
     let syncMessage: string;
@@ -594,16 +638,6 @@ export class HandwritingPipeline {
     await finish('delivered', undefined, `review:${decisionId}`);
   }
 
-  /** Fingerprint of the live document for one note (shared verification path). */
-  async currentFingerprint(noteId: string, docId: string, versionRow?: { id: string; content: any } | null): Promise<string> {
-    const pages = (await this.deps.repos().notes.pagesOf(noteId)).filter(p => p.status === 'saved');
-    const version = versionRow ?? (await this.deps.repos().notes.latestVersion(noteId));
-    const cropShas = (Array.isArray(version?.content?.crops) ? version.content.crops : []).map((c: { sha256: string }) => c.sha256);
-    const readback = await this.fetchNoteDocument(docId);
-    return fingerprintOf(normalizeDocument(readback.content), pages.map(p => p.sha256), cropShas);
-  }
-
-
   /**
    * Retry document status-block sync for decisions whose refresh failed: the
    * credential is durable, only the projection lags (P32 恢复).
@@ -643,9 +677,13 @@ export class HandwritingPipeline {
     let outcome: 'matches' | 'changed' | 'unknown';
     let fingerprint: string | null = null;
     let reason: string | null = null;
+    let stillCurrent = true;
     try {
-      fingerprint = await this.currentFingerprint(noteId, latest.doc_id!);
-      outcome = fingerprint === latest.fingerprint ? 'matches' : 'changed';
+      const trust = await this.inspectTrust(noteId, latest.id);
+      fingerprint = trust.fingerprint;
+      outcome = trust.contentValidity;
+      reason = trust.reason;
+      stillCurrent = trust.current;
     } catch (error) {
       outcome = 'unknown';
       reason = (error as Error).message;
@@ -658,7 +696,7 @@ export class HandwritingPipeline {
       });
     }
     let repaired = 0;
-    if (outcome === 'changed') {
+    if (outcome === 'changed' && stillCurrent) {
       if (latest.status !== 'stale') {
         await notes.updateVersion(latest.id, { status: 'stale' });
         await notes.updateNote(noteId, { status: 'needs_rereview' });
@@ -696,11 +734,21 @@ export class HandwritingPipeline {
     if (!latest) throw new Error('这份笔记还没有已发布版本，无候选可刷新；请先识别整理。');
     const readback = await this.fetchNoteDocument(latest.doc_id!);
     const normalized = normalizeDocument(readback.content);
+    const carriedCrops = (Array.isArray(latest.content?.crops) ? latest.content.crops : []) as CropSpec[];
     if (normalized === latest.normalized_text) {
+      const pages = (await notes.pagesOf(noteId)).filter(p => p.status === 'saved');
+      const paramsKey = `republish:${latest.doc_id}:${sha256Hex(normalized)}`;
+      const operation = await notes.beginPublication({
+        noteId, workItemId: item.id,
+        contentKey: hash(JSON.stringify([noteId, paramsKey, pages.map(p => [p.page_no, p.sha256]), carriedCrops.map(c => c.sha256)])),
+        legacyParamsKey: paramsKey, republish: true, existingOnly: true,
+      });
+      if (operation && operation.status !== 'succeeded' && operation.params.version === latest.version) {
+        return this.finishPublication(item, operation, latest);
+      }
       return { noteId, result: 'unchanged', message: `当前文档与 v${latest.version} 一致，无需重发候选。` };
     }
     const diff = diffNormalized(latest.normalized_text, normalized);
-    const carriedCrops = (Array.isArray(latest.content?.crops) ? latest.content.crops : []) as CropSpec[];
     const result = (await this.publishNoteVersion(item, note, null, {
       docId: latest.doc_id!,
       docUrl: latest.doc_url,

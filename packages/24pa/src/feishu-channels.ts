@@ -9,6 +9,7 @@ import { runLarkCli } from './lark.js';
 import { cliOptions } from './feishu.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint, hash } from './util.js';
 import { noteParentToken } from './config.js';
+import { taskPlanKey } from './task-lifecycle.js';
 import type { PaConfig } from './config.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import type { TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
@@ -19,8 +20,6 @@ export interface FeishuDeps extends SharedChannelDeps {
   stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;
   notifySourceChanged(sourceType: 'task' | 'calendar', sourceId: string, currentFingerprint: string | null): Promise<void>;
   linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]>;
-  /** Task refresh is a cross-channel seam (wecom tasks route to wecom-channels); stays behind deps. */
-  refreshTaskFromRemote(task: TaskRow): Promise<TaskRow | null>;
   memory(): MemoryStore | null;
 }
 
@@ -49,7 +48,7 @@ export function mapRemoteEvent(raw: any): { eventId: string; summary: string; st
 export function taskExternal(data: any): { guid: string; url: string | null } {
   const task = data?.task ?? data;
   const guid = task?.guid ?? task?.task_guid ?? task?.taskId;
-  if (!guid) throw new Error('未取得真实任务 ID；请先核对飞书任务清单，不要盲目重试。');
+  if (!guid) throw Object.assign(new Error('未取得真实任务 ID；请先核对飞书任务清单，不要盲目重试。'), { outcome: 'unknown' });
   return { guid: String(guid), url: task?.url ? String(task.url) : null };
 }
 
@@ -130,7 +129,7 @@ export class FeishuChannels {
     const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}\n${typeof args.rrule === 'string' ? args.rrule : ''}`;
     return this.deps.gate(`calendar-event:${eventId || 'new'}`, async () => {
     const staged = operationIdOverride
-      ? await this.deps.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end })
+      ? await this.deps.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end, ...(args._authorization as Record<string, unknown> ?? {}) })
       : await this.deps.stagedOperation(
           item,
           `calendar.${kind}`,
@@ -156,9 +155,10 @@ export class FeishuChannels {
       } else {
         cliArgs.push('--event-id', eventId);
       }
-      const { data } = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs);
+      const { data } = await this.deps.performExternal(staged.row.id, () => runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs));
       const event = data?.event ?? data;
       const newEventId = String(event?.event_id ?? event?.eventId ?? eventId);
+      if (!newEventId) throw Object.assign(new Error('日程回执缺少真实 eventId；请先核对远端。'), { outcome: 'unknown' });
       const url = event?.url ? String(event.url) : null;
       if (newEventId && (kind === 'create' || kind === 'update')) {
         // Merge with the prior projection and the platform receipt; never
@@ -189,16 +189,16 @@ export class FeishuChannels {
         }
       }
       if (kind === 'cancel' && eventId) {
-        await this.deps.repos().calendar.markCanceled(eventId).catch(() => {});
+        await this.deps.repos().calendar.markCanceled(eventId);
         await this.deps.notifySourceChanged('calendar', eventId, null);
       }
-      await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
       if (kind === 'update') {
         // Any successful update may have moved the source: linked reminders
         // and prep plans re-derive their validity from the new fingerprint.
         const prior = await this.deps.repos().calendar.findEvent(newEventId);
         await this.deps.notifySourceChanged('calendar', newEventId, eventFingerprint({ event_id: newEventId, summary: prior?.summary ?? summary ?? '', start_time: prior?.start_time ?? start! }));
       }
+      await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
       return {
         operationId: staged.row.id,
         eventId: newEventId,
@@ -320,6 +320,46 @@ export class FeishuChannels {
 
   // ---- tasks ----------------------------------------------------------------
 
+  async refreshTask(task: TaskRow): Promise<TaskRow | null> {
+    try {
+      const { data } = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), [
+        'task', '+search', '--as', 'user', '--query', task.summary.replace(/^\[24PA\] /, '').slice(0, 20),
+      ]);
+      const remote = (data?.tasks ?? data?.items ?? []).find((t: any) => String(t.guid ?? t.task_guid) === task.task_guid);
+      if (!remote) return null;
+      return await this.deps.repos().tasks.save({
+        ...task,
+        summary: typeof remote.summary === 'string' && remote.summary ? remote.summary : task.summary,
+        status: remote.completed === true || remote.status === 'completed' ? 'completed' : 'open',
+        last_synced_at: new Date(), external_updated_at: new Date(),
+      });
+    } catch { return null; }
+  }
+
+  async taskComplete(item: WorkItemRow, taskRef: TaskRow): Promise<unknown> {
+    return this.deps.gate(`task:${taskRef.task_guid}`, async () => {
+      const local = await this.deps.repos().tasks.get(taskRef.id);
+      if (!local) throw new Error('任务不存在；请先用 task_list 查看。');
+      const refreshed = await this.refreshTask(local);
+      const task = refreshed ?? local;
+      if (task.status === 'completed') return { guid: task.task_guid, status: 'completed', reused: true, stale: !refreshed, message: refreshed ? '任务此前已是完成状态（含远端核对）。' : '任务此前已是完成状态（本地投影，本次远端核对未完成）。' };
+      const staged = await this.deps.stagedOperation(item, 'task.complete', task.task_guid, { guid: task.task_guid });
+      if (!staged.created && staged.row.status === 'succeeded') {
+        await this.deps.repos().tasks.save({ ...task, status: 'completed' });
+        return { operationId: staged.row.id, guid: task.task_guid, status: 'completed', reused: true, message: '此前已完成，未重复提交。' };
+      }
+      try {
+        await this.deps.performExternal(staged.row.id, () => runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), ['task', '+complete', '--as', 'user', '--task-id', task.task_guid]));
+        const updated = await this.deps.repos().tasks.save({ ...task, status: 'completed', last_synced_at: new Date(), external_updated_at: new Date() });
+        await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, status: 'completed' } });
+        return { operationId: staged.row.id, guid: updated.task_guid, url: updated.url, status: 'completed', message: '任务已完成（以飞书实际状态为准）。' };
+      } catch (error) {
+        await this.deps.failStaged(staged.row.id, error);
+        throw error;
+      }
+    });
+  }
+
   async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const summary = text(args.summary, 500);
     const { dueAt, dueHasTime, dueArg } = parseDue(args.due);
@@ -327,7 +367,7 @@ export class FeishuChannels {
     if (plannedAt && Number.isNaN(plannedAt.getTime())) throw new Error('计划投入时间无法解析。');
     const estimateMinutes = args.estimateMinutes == null ? null : Number(args.estimateMinutes);
     if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
-    const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : ''
+    const batchSuffix = (args.opSuffix ? `\n${String(args.opSuffix)}` : '') + taskPlanKey(args);
     const overrideId = args._operationId ? String(args._operationId) : null;
     const authorization = args._instruction ? { instruction: text(args._instruction, 500) } : {};
     const staged = overrideId
@@ -345,7 +385,7 @@ export class FeishuChannels {
     try {
       const cliArgs = ['task', '+create', '--as', 'user', '--summary', `[24PA] ${summary}`, '--tasklist-id', this.deps.config().tasklistId, '--idempotency-key', staged.row.id];
       if (dueArg) cliArgs.push('--due', dueArg);
-      const { data } = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs);
+      const { data } = await this.deps.performExternal(staged.row.id, () => runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs));
       const external = taskExternal(data);
       const task = await this.deps.repos().tasks.save({
         id: staged.row.id,
@@ -372,7 +412,7 @@ export class FeishuChannels {
 
   async resolveTask(args: Record<string, unknown>): Promise<TaskRow> {
     const key = String(args.taskId ?? args.guid ?? '');
-    const task = (await this.deps.repos().tasks.byGuid(key)) ?? (await this.deps.repos().tasks.get(key));
+    const task = (await this.deps.repos().tasks.get(key)) ?? (await this.deps.repos().tasks.byGuid(key));
     if (!task) throw new Error('任务不存在；请先用 task_list 查看当前任务。');
     return task;
   }
@@ -387,6 +427,7 @@ export class FeishuChannels {
     const plannedAt = args.plannedAt === undefined ? undefined : args.plannedAt === null ? null : new Date(String(args.plannedAt));
     if (plannedAt && Number.isNaN(plannedAt.getTime())) throw new Error('计划投入时间无法解析。');
     const estimateMinutes = args.estimateMinutes === undefined ? undefined : args.estimateMinutes === null ? null : Number(args.estimateMinutes);
+    if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
     if (!summary && args.due === undefined && plannedAt === undefined && estimateMinutes === undefined) {
       throw new Error('需要说明要修改的内容（summary、due、plannedAt 或 estimateMinutes）。');
     }
@@ -395,9 +436,9 @@ export class FeishuChannels {
       // projection never overwrites another worker's or the owner's changes.
       const stale = await this.deps.repos().tasks.get(taskRef.id);
       if (!stale) throw new Error('任务不存在；请先用 task_list 查看。');
-      await this.deps.refreshTaskFromRemote(stale);
+      await this.refreshTask(stale);
       const task = (await this.deps.repos().tasks.get(taskRef.id)) ?? stale;
-      const staged = await this.deps.stagedOperation(item, 'task.update', `${task.task_guid}\n${summary ?? ''}\n${dueArg ?? ''}`, { guid: task.task_guid, summary, due: dueArg });
+      const staged = await this.deps.stagedOperation(item, 'task.update', `${task.task_guid}\n${summary ?? ''}\n${dueArg ?? ''}${taskPlanKey(args)}`, { guid: task.task_guid, summary, due: dueArg, plannedAt, estimateMinutes });
       if (!staged.created && staged.row.status === 'succeeded') {
         return { operationId: staged.row.id, reused: true, guid: task.task_guid, url: task.url, message: '此修改此前已提交，未重复写入。' };
       }
@@ -405,7 +446,9 @@ export class FeishuChannels {
         const cliArgs = ['task', '+update', '--as', 'user', '--task-id', task.task_guid];
         if (summary) cliArgs.push('--summary', `[24PA] ${summary}`);
         if (dueArg) cliArgs.push('--due', dueArg);
-        const { data } = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs);
+        const { data } = summary || dueArg
+          ? await this.deps.performExternal(staged.row.id, () => runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs))
+          : { data: {} }; // Local planning fields do not issue an empty platform update.
         const external = taskExternal({ task: { guid: task.task_guid, url: task.url, ...(data?.task ?? {}) } });
         const updated = await this.deps.repos().tasks.save({
           ...task,
@@ -418,8 +461,8 @@ export class FeishuChannels {
           last_synced_at: new Date(),
           url: external.url ?? task.url,
         });
-        await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, summary: updated.summary } });
         await this.deps.notifySourceChanged('task', task.task_guid, taskFingerprint(updated));
+        await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, summary: updated.summary } });
         return { operationId: staged.row.id, guid: task.task_guid, url: updated.url, summary: updated.summary, dueAt: isoDate(updated.due_at), message: '任务已按本人指令修改；截止与计划/估时分别记录。' };
       } catch (error) {
         await this.deps.failStaged(staged.row.id, error);

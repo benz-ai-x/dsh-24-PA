@@ -79,7 +79,7 @@ export class SdkFeishuTransport implements FeishuTransport {
       params: { receive_id_type: 'open_id' },
       data: { receive_id: openId, msg_type: 'text', content: JSON.stringify({ text }), uuid },
     });
-    if (result.code !== 0 || !result.data?.message_id) throw new Error(`飞书未确认消息发送：${result.msg || result.code}`);
+    if (result.code !== 0 || !result.data?.message_id) throw Object.assign(new Error(`飞书未确认消息发送：${result.msg || result.code}`), { outcome: result.code !== 0 ? 'failed' : 'unknown' });
     return { messageId: result.data.message_id as string };
   }
 
@@ -88,7 +88,7 @@ export class SdkFeishuTransport implements FeishuTransport {
       params: { receive_id_type: 'open_id' },
       data: { receive_id: openId, msg_type: 'interactive', content: JSON.stringify(card), uuid },
     });
-    if (result.code !== 0 || !result.data?.message_id) throw new Error(`飞书未确认卡片发送：${result.msg || result.code}`);
+    if (result.code !== 0 || !result.data?.message_id) throw Object.assign(new Error(`飞书未确认卡片发送：${result.msg || result.code}`), { outcome: result.code !== 0 ? 'failed' : 'unknown' });
     return { messageId: result.data.message_id as string };
   }
 

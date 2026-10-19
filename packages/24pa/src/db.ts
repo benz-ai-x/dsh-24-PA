@@ -479,4 +479,17 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `update pa24.digest_plan set skill = case when kind = 'meeting_prep' then 'meeting-prep' else 'digest-' || kind end where skill = '' and kind in ('morning', 'evening', 'weekly', 'meeting_prep')`,
     ],
   },
+  {
+    // A resumed Worker keeps its original occurrence; delivery never guesses
+    // the newest window of a plan. Existing occurrences remain untouched.
+    version: 14,
+    statements: [
+      `create table if not exists pa24.digest_work_binding (
+        work_item_id text primary key,
+        occurrence_id text not null,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists digest_work_binding_occurrence_idx on pa24.digest_work_binding (occurrence_id)`,
+    ],
+  },
 ];

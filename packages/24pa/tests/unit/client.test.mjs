@@ -220,38 +220,7 @@ describe('client.js 挂载面', () => {
     expect(dictKeys('en')).toEqual(dictKeys('zh'));
   });
 
-  it('参数配置表单（F33/P60）：setup 分类卡＋七组表单＋config-update 动作', () => {
-    expect(client).toContain("id: 'config', cat: 'setup'");
-    expect(client).toContain('function ConfigFormDetail({ helpers })');
-    expect(client).toContain("type: 'workspace.config-update'");
-    // 只读红线与一键应用授权值
-    expect(client).toContain("readOnly: true, style: { flex: 1, minWidth: 0 }");
-    expect(client).toContain('应用授权值');
-    expect(client).toContain('切换存储后端涉及数据迁移');
-    // 链接提取、试听复用、保存反馈
-    expect(client).toContain('extractToken');
-    expect(client).toContain("type: 'tts.test'");
-    expect(client).toContain('已保存并重载生效');
-    // 页脚口径：参数可经表单或对话维护
-    expect(client).toContain('参数可经表单或对话维护');
-  });
-
-  it('F36 密钥组：只写不回显、独立 secret-update 动作、引用名可编辑', () => {
-    // 密钥组四个能力位＋密码框＋清除；快照状态只作 placeholder/helper 文案
-    expect(client).toContain("L('密钥（工作区密钥库）', 'Secrets (workspace store)')");
-    expect(client).toContain("type: 'password', autoComplete: 'new-password'");
-    expect(client).toContain("L('撤销清除', 'Undo clear')");
-    expect(client).toContain("['feishuAppId',");
-    expect(client).toContain("['volcTtsKey',");
-    // 独立动作（与 config-update 分离，密钥不触碰 AGENTS.md 写回路径）
-    expect(client).toContain("type: 'workspace.secret-update'");
-    // 引用名改为可编辑（env 为可选覆盖）
-    expect(client).toContain("L('App ID 引用（appIdEnv）', 'App ID ref (appIdEnv)')");
-    expect(client).toContain("L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')");
-    // 状态行不回显值：placeholder/helper 只消费 set/source，draft 只进密码框与提交值
-    expect(client).toContain('secretPlaceholder');
-    expect(client).not.toContain('title: secretDraft');
-  });
+  // Parameter/secret editing is exercised through the rendered panel in config-editor.test.mjs.
 
   it('UI/UX 全量走查修复：真实数据详情、状态诚实与可访问性', () => {
     // 运行记录、提醒、周期计划、审核历史、备份说明均接到实际只读数据面。

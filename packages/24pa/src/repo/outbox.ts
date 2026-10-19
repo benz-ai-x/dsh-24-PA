@@ -1,6 +1,6 @@
 // Split from repo.ts (round-3 review): one aggregate per file; the
 // Repos facade in index.ts is the unchanged seam every caller already uses.
-import type { PaDb } from '../db.js';
+import type { PaDb, PaQueryer } from '../db.js';
 
 export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'unknown' | 'failed' | 'expired';
 
@@ -28,21 +28,31 @@ export interface NewOutbox {
   content: unknown;
 }
 
+/** Shared insertion for business transactions that also enqueue a notification. */
+export async function enqueueOutbox(db: PaQueryer, row: NewOutbox): Promise<{ created: boolean; row: OutboxRow }> {
+  const result = await db.query<OutboxRow>(
+    `insert into pa24.outbox (dedup_key, channel, target, kind, content, status)
+     values ($1, $2, $3, $4, $5, 'pending') on conflict (dedup_key) do nothing returning *`,
+    [row.dedupKey, row.channel, row.target, row.kind, JSON.stringify(row.content)],
+  );
+  if (result.rowCount === 0) {
+    const existing = await db.query<OutboxRow>('select * from pa24.outbox where dedup_key = $1', [row.dedupKey]);
+    return { created: false, row: existing.rows[0]! };
+  }
+  return { created: true, row: result.rows[0]! };
+}
+
 export class OutboxRepo {
   constructor(private readonly db: PaDb) {}
 
   /** Idempotent enqueue: one business notification keeps one stable key. */
   async enqueue(row: NewOutbox): Promise<{ created: boolean; row: OutboxRow }> {
-    const result = await this.db.query<OutboxRow>(
-      `insert into pa24.outbox (dedup_key, channel, target, kind, content, status)
-       values ($1, $2, $3, $4, $5, 'pending') on conflict (dedup_key) do nothing returning *`,
-      [row.dedupKey, row.channel, row.target, row.kind, JSON.stringify(row.content)],
-    );
-    if (result.rowCount === 0) {
-      const existing = await this.db.query<OutboxRow>('select * from pa24.outbox where dedup_key = $1', [row.dedupKey]);
-      return { created: false, row: existing.rows[0]! };
-    }
-    return { created: true, row: result.rows[0]! };
+    return enqueueOutbox(this.db, row);
+  }
+
+  async recoverInterrupted(): Promise<void> {
+    await this.db.query(`update pa24.outbox set status = 'unknown', last_error = '投递中断且未保存平台回执；请先核对，不自动重发。' where status = 'sending' and message_id is null`);
+    await this.db.query(`update pa24.outbox set status = 'pending', next_attempt_at = null where status in ('sending', 'unknown') and message_id is not null`);
   }
 
   async claim(limit: number): Promise<OutboxRow[]> {

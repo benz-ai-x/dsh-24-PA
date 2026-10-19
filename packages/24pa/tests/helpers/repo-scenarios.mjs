@@ -163,6 +163,27 @@ export function defineRepoEquivalenceSuite({ describe, it, expect, beforeAll, af
       expect(Array.isArray(withDecisions)).toBe(true);
     });
 
+    it('外部操作认领只接受 pending/failed；running/unknown 不会再次认领', async () => {
+      await repos.operations.begin({ id: 'claim-once', workItemId: 'wip-1', action: 'test', params: {} });
+      const attempts = await Promise.all([repos.operations.claim('claim-once'), repos.operations.claim('claim-once')]);
+      expect(attempts.filter(Boolean)).toHaveLength(1);
+      await repos.operations.update('claim-once', { status: 'unknown' });
+      expect(await repos.operations.claim('claim-once')).toBeNull();
+      await repos.operations.update('claim-once', { status: 'failed' });
+      expect((await repos.operations.claim('claim-once')).status).toBe('running');
+    });
+
+    it('Outbox 中断恢复按平台回执决定补记或待核对，不盲重发', async () => {
+      const missing = await repos.outbox.enqueue({ dedupKey: 'recover-missing', channel: 'feishu', target: 'ou_owner', kind: 'text', content: {} });
+      const confirmed = await repos.outbox.enqueue({ dedupKey: 'recover-confirmed', channel: 'feishu', target: 'ou_owner', kind: 'text', content: {} });
+      await repos.outbox.mark(missing.row.id, { status: 'sending' });
+      await repos.outbox.mark(confirmed.row.id, { status: 'sending', messageId: 'om_recovered' });
+      await repos.outbox.recoverInterrupted();
+      const recent = await repos.outbox.recent(100);
+      expect(recent.find(r => r.id === missing.row.id).status).toBe('unknown');
+      expect(recent.find(r => r.id === confirmed.row.id)).toMatchObject({ status: 'pending', message_id: 'om_recovered' });
+    });
+
     afterAll(async () => {
       await db?.close();
       await cleanup?.();

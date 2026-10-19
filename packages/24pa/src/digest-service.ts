@@ -6,7 +6,8 @@
 import type { NativeScheduleService } from './host.js';
 import type { MemoryStore } from './memory.js';
 import type { ChannelContextDeps } from './channel-deps.js';
-import type { WorkItemRow } from './repo.js';
+import type { WorkItemRow, NewOutbox, DigestPlanRow, DigestOccurrenceRow } from './repo.js';
+import type { NoteTrustResult } from './note-trust.js';
 import { randomUUID } from 'node:crypto';
 import { assertToolDeclaration } from './skills.js';
 import { isoDate, hash } from './util.js';
@@ -19,7 +20,8 @@ export interface DigestDeps extends ChannelContextDeps {
   nativeSchedule(): NativeScheduleService | null;
   syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }>;
   calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown>;
-  currentFingerprint(noteId: string, docId: string, versionRow?: { id: string; content: any } | null): Promise<string>;
+  inspectNoteTrust(noteId: string, versionId: string): Promise<NoteTrustResult>;
+  ownerNotification(dedupKey: string, report: string): Promise<NewOutbox | null>;
   /** F40（spec 2.11）：任务 skill 目录（宿主挂载时含工作区自定义）。 */
   skillCatalog(): import('./skills.js').SkillCatalog;
 }
@@ -265,7 +267,7 @@ export class DigestService {
     });
     const completedToday = tasks.filter(t => t.status === 'completed' && t.last_synced_at && now.getTime() - t.last_synced_at.getTime() < 24 * 3600 * 1000);
     const waiting = await this.deps.repos().waiting.list('waiting');
-    const reviewQueueCount = await this.deps.reviewQueueCount().catch(() => 0);
+    const reviewQueueCount = await this.deps.reviewQueueCount().catch(() => -1);
     const reviewedNotes: { noteId: string; version: number; summary: string; docUrl: string | null; reviewedAt: string | null }[] = [];
     try {
       const recent = await this.deps.repos().notes.recentApproved(5);
@@ -274,8 +276,9 @@ export class DigestService {
         // Overview facts must be currently valid: re-verify the live document
         // so an externally edited note stops being presented as confirmed (P35).
         try {
-          const live = await this.deps.currentFingerprint(row.note_id, row.doc_id!, row);
-          if (live !== row.fingerprint) continue;
+          const trust = await this.deps.inspectNoteTrust(row.note_id, row.id);
+          if (trust.currentValidity === 'unknown') throw new Error(trust.reason ?? '核验结果未知');
+          if (trust.currentValidity !== 'matches') continue;
         } catch (error) {
           missing.push(`已审笔记 ${row.note_id} v${row.version} 暂无法核验（${(error as Error).message}），未列入概览`);
           continue;
@@ -331,10 +334,17 @@ export class DigestService {
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
     if (plan.kind === 'meeting_prep') throw new Error('会前准备计划请用 meeting_prep_build 生成准备包。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
-    const windowKey = this.digestWindowKey(plan.kind === 'evening' ? 'evening' : plan.kind, this.deps.config().timeZone);
-    const { created, row } = await this.deps.repos().digests.claimOccurrence({ planId: plan.id, windowKey });
-    if (!created && row.status === 'model_done') {
+    const requestedWindow = this.digestWindowKey(plan.kind === 'evening' ? 'evening' : plan.kind, this.deps.config().timeZone);
+    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey: requestedWindow, workItemId: item.id });
+    const windowKey = row.window_key;
+    if (!created && this.wasDelivered(row)) {
       return { planId, windowKey, reused: true, status: row.status, message: `本窗口（${windowKey}）简报已生成，不重复发布。` };
+    }
+    const savedReport = this.savedReport(row);
+    if (savedReport) {
+      const outboxKey = await this.deliverReport(plan, windowKey, row.id, savedReport);
+      await this.deps.repos().workItems.update(item.id, { result_ref: { planId, windowKey, outboxKey } });
+      return { planId, windowKey, outboxKey, message: '已恢复保存的简报并入发送队列，未重新生成内容。' };
     }
     // F41（spec 2.11）：agent 轨＝任务指令交接——Worker（模型）亲自按 skill 正文
     // 与事实生成简报，再经 digest_deliver 交付；模板轨才走确定性组装。
@@ -351,7 +361,7 @@ export class DigestService {
         agentTrack: true,
         skill: { name: boundSkill.name, content },
         facts,
-        message: 'agent 轨：请严格按上述任务指令与完成标准生成简报全文（纯文本），完成后调用 digest_deliver（planId、report）交付；未达完成标准时在 report 开头如实说明并交付。',
+        message: 'agent 轨：请严格按上述任务指令与完成标准生成简报全文（纯文本），在本事项内调用 digest_deliver（planId、report）交付当前窗口；未达完成标准时在 report 开头如实说明并交付。',
       };
     }
     const { facts, report, outboxKey } = await this.buildAndDeliver(plan, windowKey, row.id, boundSkill);
@@ -391,13 +401,24 @@ export class DigestService {
     return { facts, report, outboxKey };
   }
 
-  /** 模板轨/agent 轨共用的投递段：occurrence 收口＋语音行＋全文文本行。 */
-  private async deliverReport(plan: import('./repo.js').DigestPlanRow, windowKey: string, occurrenceId: string, report: string): Promise<string> {
+  private wasDelivered(row: DigestOccurrenceRow): boolean {
+    return (row.status === 'model_done' || row.status === 'sent') && !!row.outbox_key;
+  }
+
+  private savedReport(row: DigestOccurrenceRow): string | null {
+    if (row.status !== 'model_done' && row.status !== 'sent') return null;
+    const report = typeof row.report === 'string' ? row.report : row.report?.report;
+    return typeof report === 'string' && report.trim() ? report : null;
+  }
+
+  /** Template/agent/meeting preparation share one atomic completion protocol. */
+  private async deliverReport(plan: DigestPlanRow, windowKey: string, occurrenceId: string, report: string): Promise<string> {
     const config = this.deps.config();
     const outboxKey = `digest:${occurrenceId}`;
-    await this.deps.repos().digests.updateOccurrence(occurrenceId, { status: 'model_done', report, completed_at: new Date() });
-    await this.deps.repos().digests.updatePlan(plan.id, { last_window: windowKey });
-    if (config.notifyChannel === 'wecom' || config.ownerOpenId) {
+    const notifications: NewOutbox[] = [];
+    // Resolve remote owner identity before entering the short ledger transaction.
+    const textNotification = await this.deps.ownerNotification(outboxKey, report);
+    if (textNotification) {
       // F19（spec 2.3）：plan.voice 且引擎可用时，先入语音行（口播正文、投递时
       // 现场合成），全文文本行紧随其后兜底。wecom 通知通道与 tts.engine=none
       // 都按降级处理——只发文本，可观测告警，不中断。
@@ -407,7 +428,7 @@ export class DigestService {
         } else if (config.tts.engine === 'none') {
           console.warn('[pa24] 语音简报降级为文本：未配置 TTS 引擎（AGENTS.md tts.engine=none）。');
         } else {
-          await this.deps.repos().outbox.enqueue({
+          notifications.push({
             dedupKey: `${outboxKey}:voice`,
             channel: 'feishu',
             target: config.ownerOpenId,
@@ -416,12 +437,15 @@ export class DigestService {
           });
         }
       }
-      await this.deps.notifyOwner(outboxKey, report);
-      // model_done = model work finished and the send intent is durably
-      // queued; platform acceptance is the outbox row's own state (P24 区分).
-      await this.deps.repos().digests.updateOccurrence(occurrenceId, { status: 'model_done', outbox_key: outboxKey });
+      notifications.push(textNotification);
     }
+    await this.deps.repos().digests.completeRun({ planId: plan.id, occurrenceId, report, notifications });
     return outboxKey;
+  }
+
+  /** Used by the meeting preparation path after its source recheck. */
+  async deliverPrepared(plan: DigestPlanRow, occurrence: DigestOccurrenceRow, report: string): Promise<string> {
+    return this.deliverReport(plan, occurrence.window_key, occurrence.id, this.savedReport(occurrence) ?? report);
   }
 
   /**
@@ -432,19 +456,19 @@ export class DigestService {
     const planId = String(args.planId ?? '');
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    if (plan.status !== 'active') throw new Error(`计划 ${planId} 已暂停或停止，本次结果未发布。`);
     const report = String(args.report ?? '').trim();
     if (!report) throw new Error('digest_deliver 需要携带 report（简报全文）。');
     const bound = plan.skill ? await this.deps.skillCatalog().find(plan.skill) : null;
     if (bound?.track !== 'agent') {
       throw new Error(`计划 ${planId} 未绑定 agent 轨任务 skill（当前 ${plan.skill || '未绑定'}）；digest_deliver 仅用于 agent 轨交付。`);
     }
-    const occurrences = await this.deps.repos().digests.occurrencesOf(plan.id, 5);
-    const pending = occurrences[0];
-    if (!pending) throw new Error(`计划 ${planId} 没有可交付的窗口（未发起 digest_build）。`);
-    if (pending.status === 'model_done' || pending.status === 'sent') {
+    const pending = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
+    if (!pending) throw new Error(`本事项没有可确认归属的运行窗口；请在本事项调用 digest_build 后再交付，不能使用其他事项的最新窗口。`);
+    if (this.wasDelivered(pending)) {
       return { planId, windowKey: pending.window_key, reused: true, message: '本窗口已交付，不重复发布。' };
     }
-    const outboxKey = await this.deliverReport(plan, pending.window_key, pending.id, report);
+    const outboxKey = await this.deliverReport(plan, pending.window_key, pending.id, this.savedReport(pending) ?? report);
     await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey: pending.window_key, outboxKey } });
     return { planId, windowKey: pending.window_key, outboxKey, message: '简报已交付并入发送队列。' };
   }
@@ -458,13 +482,13 @@ export class DigestService {
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
     const windowKey = `manual-${Date.now()}`;
-    const { created, row } = await this.deps.repos().digests.claimOccurrence({ planId: plan.id, windowKey });
-    if (!created && row.status === 'model_done') {
-      return { planId, windowKey, reused: true, message: '本次手动运行已生成过，不重复发布。' };
-    }
     const bound = await this.boundSkillOrThrow(plan);
     if (bound?.track === 'agent') {
       throw new Error(`计划绑定 agent 轨 skill ${plan.skill}；「立即运行一次」经对话发起（委派 digest Worker），面板直跑仅支持模板轨。`);
+    }
+    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey });
+    if (!created && this.wasDelivered(row)) {
+      return { planId, windowKey, reused: true, message: '本次手动运行已生成过，不重复发布。' };
     }
     const { outboxKey } = await this.buildAndDeliver(plan, windowKey, row.id, bound);
     return { planId, windowKey, outboxKey, message: '已生成并入发送队列（手动运行不占用计划窗口）。' };

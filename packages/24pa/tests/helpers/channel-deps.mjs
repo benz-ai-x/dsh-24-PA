@@ -7,6 +7,8 @@ export const makeBaseDeps = (over = {}) => ({
   cli: () => ({ bin: 'missing-cli-bin', timeoutMs: 2000 }),
   notifyOwner: async () => {},
   stagedOperation: async () => { throw new Error('not needed'); },
+  stagedOperationWithId: async () => { throw new Error('not needed'); },
   failStaged: async () => {},
+  performExternal: (_id, invoke) => invoke(),
   ...over,
 });

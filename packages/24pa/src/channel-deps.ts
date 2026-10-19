@@ -14,7 +14,9 @@ export interface SharedChannelDeps {
   cli(): { bin: string; timeoutMs: number };
   notifyOwner(dedupKey: string, body: string): Promise<void>;
   stagedOperation(item: WorkItemRow, kind: string, paramsKey: string, params: Record<string, unknown>, reconcileHint?: string): Promise<{ created: boolean; row: ActionOperationRow }>;
+  stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;
   failStaged(operationId: string, error: unknown): Promise<void>;
+  performExternal<T>(operationId: string, invoke: () => Promise<T>): Promise<T>;
 }
 
 /**

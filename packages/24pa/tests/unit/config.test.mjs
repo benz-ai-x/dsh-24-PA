@@ -37,6 +37,13 @@ describe('AGENTS.md 配置校验', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, timeZone: 'Mars/Olympus' })).toThrow(/timeZone/);
   });
 
+  it('F36 空凭据引用名规范化为默认引用，保留密钥库兜底', () => {
+    const config = validateConfig({ ...DEFAULT_CONFIG, appIdEnv: '', appSecretEnv: '', pgDsnEnv: '' });
+    expect(config.appIdEnv).toBe(DEFAULT_CONFIG.appIdEnv);
+    expect(config.appSecretEnv).toBe(DEFAULT_CONFIG.appSecretEnv);
+    expect(config.pgDsnEnv).toBe(DEFAULT_CONFIG.pgDsnEnv);
+  });
+
   it('校验 maxWorkers 与 enabledWorkers', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, maxWorkers: 0 })).toThrow(/maxWorkers/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, maxWorkers: 9 })).toThrow(/maxWorkers/);

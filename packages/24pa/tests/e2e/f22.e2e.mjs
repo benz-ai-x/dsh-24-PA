@@ -21,6 +21,7 @@ let cluster, llm, host, root, workspace, stubStatePath, scriptPath, bootEnv;
 const writeConfig = async (patch = {}) => {
   const config = {
     version: 1,
+    storage: process.env.PA24_E2E_STORAGE === 'sqlite' ? 'sqlite' : 'postgres',
     mode: 'feishu',
     larkProfile: 'default',
     ownerOpenId: 'ou_test_owner',

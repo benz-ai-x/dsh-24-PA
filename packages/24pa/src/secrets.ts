@@ -3,10 +3,31 @@
 // 优先于密钥库（部署层 override），存量 env-only 部署零影响。
 import { readFile, writeFile, rm, chmod, mkdir, rename } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
+import type { PaConfig } from './config.js';
 
 export const SECRET_KEYS = ['feishuAppId', 'feishuAppSecret', 'pgDsn', 'volcTtsKey'] as const;
 export type SecretKey = (typeof SECRET_KEYS)[number];
 export type SecretStore = Partial<Record<SecretKey, string>>;
+
+/** Resolve against an explicit workspace snapshot, never ambient runtime state. */
+export function secretRefs(config: PaConfig | null): Record<SecretKey, string> {
+  return {
+    feishuAppId: config?.appIdEnv || 'PA24_FEISHU_APP_ID',
+    feishuAppSecret: config?.appSecretEnv || 'PA24_FEISHU_APP_SECRET',
+    pgDsn: config?.pgDsnEnv || 'PA24_PG_DSN',
+    volcTtsKey: config?.tts?.volcKeyEnv || 'PA24_VOLC_TTS_KEY',
+  };
+}
+
+export function secretEnvironment(config: PaConfig | null, env: Record<string, string | undefined>, store: SecretStore): Record<string, string | undefined> {
+  const resolved = { ...env };
+  const refs = secretRefs(config);
+  for (const key of SECRET_KEYS) {
+    const value = resolveSecret(refs[key], env, store, key);
+    if (value) resolved[refs[key]] = value;
+  }
+  return resolved;
+}
 /** 面板/快照可见的状态（永不包含值）。 */
 export type SecretStatus = Partial<Record<SecretKey, { set: true; source: 'env' | 'store' } | { set: false; source: null }>>;
 
