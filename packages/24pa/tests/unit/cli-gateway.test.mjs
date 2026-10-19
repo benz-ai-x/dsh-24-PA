@@ -44,6 +44,17 @@ describe('R3 CLI 有界终止', () => {
       const pid = Number(await readFile(pidPath, 'utf8')); expect(() => process.kill(pid, 0)).toThrow();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
+  it('主进程响应 TERM 先退出后，忽略 TERM 的独立 stdio 后代仍被 KILL 回收', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pa24-cli-tree-')), pidPath = join(dir, 'descendant-pid'); let pid;
+    try {
+      const descendant = `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => {}, 100);`;
+      const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}, process.argv[1]], { stdio: 'ignore' }); setInterval(() => {}, 100);`;
+      await expect(runCliProcess({ bin: process.execPath, argv: ['-e', parent, pidPath], timeoutMs: 400, fail })).rejects.toThrow('fail:timeout');
+      pid = Number(await readFile(pidPath, 'utf8'));
+      for (let n = 0; n < 20; n++) { try { process.kill(pid, 0); } catch { return; } await new Promise(r => setTimeout(r, 25)); }
+      throw new Error('CLI descendant survived the termination deadline');
+    } finally { if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} } await rm(dir, { recursive: true, force: true }); }
+  });
   it('无限 stdout 在上限终止，连续 stderr 只保留定额字节', async () => {
     const start = Date.now();
     await expect(runCliProcess({ bin: process.execPath, argv: ['-e', "process.on('SIGTERM', () => {}); setInterval(() => process.stdout.write('x'.repeat(65536)), 1);"], timeoutMs: 5000, stdoutLimitBytes: 1024, fail })).rejects.toThrow('fail:limit');

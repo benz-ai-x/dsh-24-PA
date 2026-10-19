@@ -40,7 +40,7 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
     const grouped = process.platform !== 'win32';
     const child = spawn(bin, argv, { cwd, shell: false, detached: grouped, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } });
     const stdout: Buffer[] = [], stderr: Buffer[] = [];
-    let bytes = 0, stderrBytes = 0, limitError: Error | null = null, settled = false;
+    let bytes = 0, stderrBytes = 0, limitError: Error | null = null, settled = false, childClosed = false;
     let killTimer: NodeJS.Timeout | undefined, settleTimer: NodeJS.Timeout | undefined;
     const finish = (error?: Error, code: number | null = null) => {
       if (settled) return;
@@ -54,7 +54,11 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
     const terminate = (error: Error) => {
       if (limitError || settled) return;
       limitError = error; signal('SIGTERM');
-      killTimer = setTimeout(() => signal('SIGKILL'), 500);
+      killTimer = setTimeout(() => {
+        killTimer = undefined;
+        signal('SIGKILL');
+        if (childClosed) finish(limitError!);
+      }, 500);
       settleTimer = setTimeout(() => { signal('SIGKILL'); child.unref(); finish(limitError!); }, 1000);
     };
     const timer = setTimeout(() => terminate(fail('timeout')), timeoutMs);
@@ -69,7 +73,13 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
       if (kept.length) { stderr.push(kept); stderrBytes += kept.length; }
     });
     child.on('error', error => finish(limitError ?? fail('spawn', error)));
-    child.on('close', code => finish(limitError ?? undefined, code));
+    child.on('close', code => {
+      childClosed = true;
+      // The group can outlive its leader (for example a detached-stdio child).
+      // Complete escalation even when the leader accepts TERM immediately.
+      if (limitError && grouped && killTimer) return;
+      finish(limitError ?? undefined, code);
+    });
     child.stdin.on('error', () => {});
     child.stdin.end(stdinContent);
   });
