@@ -243,6 +243,16 @@ describe('R3-04 记忆批次边界与故障恢复', () => {
     await expect(fresh.put(record('other'), options(1))).rejects.toThrow(/未确认/);
     expect(JSON.parse(await readFile(path, 'utf8')).records).toHaveLength(1);
   }));
+  it('旧版已写记忆但审计缺失，升级后显示待核对而不是未提交', () => fixture(async ({ dir, store }) => {
+    const batch = await store.applyChangeset([{ op: 'put', record: record('r'), reason: 'new' }], options(0));
+    const path = join(dir, '.24pa/memory.json'), current = JSON.parse(await readFile(path, 'utf8')); delete current.lastMutationId;
+    await writeFile(path, JSON.stringify(current)); await rm(join(dir, '.24pa/memory-log.jsonl'));
+    const csPath = join(dir, '.24pa/changesets', batch.changesetId + '.json'), cs = JSON.parse(await readFile(csPath, 'utf8'));
+    delete cs.formatVersion; delete cs.mutationId; delete cs.resultingHash; await writeFile(csPath, JSON.stringify(cs));
+    expect((await store.listChangesets())[0].state).toBe('uncertain');
+    await expect(store.undo(batch.changesetId, options(1))).rejects.toThrow(/提交证明/);
+    expect((await store.search({})).records).toHaveLength(1);
+  }));
   it('历史变更集缺实际 ID 或重复 ID 时拒绝猜测恢复', () => fixture(async ({ dir, store }) => {
     const batch = await store.applyChangeset([{ op: 'put', record: record('r'), reason: 'new' }], options(0));
     const path = join(dir, '.24pa/changesets', batch.changesetId + '.json'); const cs = JSON.parse(await readFile(path, 'utf8'));

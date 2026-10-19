@@ -401,7 +401,8 @@ export class MemoryStore {
       for (const name of names.filter(n => n.endsWith('.json')).sort()) {
         try {
           const cs = JSON.parse(await readFile(join(targets.changesets, name), 'utf8')) as AppliedChangeset;
-          const state = await this.hasCommitProof(cs, file).catch(() => false) ? 'applied' : file.revision <= cs.resultingRevision ? 'not_applied' : 'uncertain';
+          const anotherCommit = cs.mutationId && file.lastMutationId && cs.mutationId !== file.lastMutationId && file.revision === cs.resultingRevision;
+          const state = await this.hasCommitProof(cs, file).catch(() => false) ? 'applied' : file.revision < cs.resultingRevision || anotherCommit ? 'not_applied' : 'uncertain';
           result.push({ id: cs.id, reason: cs.reason, appliedAt: cs.appliedAt, appliedBy: cs.appliedBy, changes: cs.changes.length, state } as const);
         } catch { /* A malformed changeset must not hide the remaining files. */ }
       }
