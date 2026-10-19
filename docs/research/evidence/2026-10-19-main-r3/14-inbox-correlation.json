@@ -1,0 +1,17 @@
+{
+  "case": "unrelated-turn-consumes-inbox",
+  "beforeStatus": "admitted",
+  "admittedPrompt": [
+    {
+      "requestId": "feishu:new-inbox",
+      "mode": "queue"
+    }
+  ],
+  "afterStatus": "delivered",
+  "outbox": [
+    {
+      "key": "reply:new-inbox:7",
+      "text": "与该委托无关的既有周期回顾结果"
+    }
+  ]
+}

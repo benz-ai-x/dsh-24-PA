@@ -1,0 +1,69 @@
+
+> @benz-ai-x/dsh-24pa@0.2.1-rc.2.9 test:unit
+> vitest run tests/unit --reporter=dot
+
+
+ RUN  v2.1.9 /Users/pc2026/DSH-Space/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/channel-reliability.test.mjs (27 tests) 7470ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 企微无幂等键：创建成功后任务投影失败，重试仍只有一个远端对象 789ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书日程创建成功后投影失败，凭回执补账而不重复创建 507ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书创建回执与后续观察使用同一真实标题，不把自身前缀误判为来源变更 549ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 计划投入与估时修改有独立操作身份，并且不调用空的远端 update 650ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 任务远端修改成功后来源通知失败，只补本地通知、不重复远端修改 1100ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 当前渠道切换只改变新建，已有对象的查看/修改/完成/删除仍走自身 channel 512ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 相对提醒备份失败跨重启仍沿用原时间、渠道与操作身份 590ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书提醒原生创建携带 IANA 时区、重复规则、五分钟偏移与稳定幂等键 510ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同步只裁决原渠道与日历内的来源，空窗口也通知无提醒规则的会前计划来源 525ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书嵌套时间、全天包含式结束日与空标题保留；坏条目令整个观察不完整 521ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 来源通知失败可重试且未发布完整观察，跨归属同ID不能覆盖旧事件 558ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同步状态的日历ID跨渠道碰撞不能报告成功或覆盖原渠道新鲜度 515ms
+ ✓ tests/unit/client.test.mjs (14 tests) 11ms
+ ✓ tests/unit/digest-reliability.test.mjs (30 tests) 1153ms
+ ✓ tests/unit/workspace-activation.test.mjs (14 tests) 974ms
+ ✓ tests/unit/transport-activation.test.mjs (11 tests) 663ms
+ ✓ tests/unit/plan-lifecycle.test.mjs (30 tests) 907ms
+ ✓ tests/unit/config-editor.test.mjs (11 tests) 407ms
+ ✓ tests/unit/config.test.mjs (19 tests) 14ms
+ ✓ tests/unit/handwriting.test.mjs (12 tests) 5ms
+ ✓ tests/unit/note-publication-recovery.test.mjs (12 tests) 4245ms
+   ✓ 手写发布恢复 (sqlite) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 599ms
+   ✓ 手写发布恢复 (postgres) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 598ms
+ ✓ tests/unit/prompts.test.mjs (18 tests) 11ms
+ ✓ tests/unit/skills.test.mjs (12 tests) 5ms
+ ✓ tests/unit/sqlite.test.mjs (25 tests) 35ms
+ ✓ tests/unit/memory.test.mjs (6 tests) 14ms
+ ✓ tests/unit/digest-service.test.mjs (8 tests) 12ms
+ ✓ tests/unit/meeting-source.test.mjs (6 tests) 71ms
+ ✓ tests/unit/note-trust.test.mjs (12 tests) 28ms
+ ✓ tests/unit/feishu-setup.test.mjs (11 tests) 3ms
+ ✓ tests/unit/backup.test.mjs (5 tests) 109ms
+ ✓ tests/unit/wecom.test.mjs (9 tests) 1468ms
+   ✓ wecom-cli 受控执行 > 成功体剥离身份前缀字段，raw 保留原文 503ms
+   ✓ wecom-cli 受控执行 > 超时归类为结果未知，提示先核对再重试 802ms
+ ✓ tests/unit/work-item-lifecycle.test.mjs (12 tests) 829ms
+ ✓ tests/unit/repo.test.mjs (15 tests) 1659ms
+ ✓ tests/unit/extra-tools.test.mjs (11 tests) 2ms
+ ✓ tests/unit/daily-planning.test.mjs (6 tests) 10ms
+ ✓ tests/unit/skill-delegation.test.mjs (3 tests) 39ms
+ ✓ tests/unit/tts.test.mjs (7 tests) 6ms
+ ✓ tests/unit/preset-sync.test.mjs (5 tests) 6ms
+ ✓ tests/unit/local-tool-access.test.mjs (7 tests) 5ms
+ ✓ tests/unit/plan-panel.test.mjs (1 test) 60ms
+ ✓ tests/unit/lark.test.mjs (6 tests) 1465ms
+   ✓ lark-cli 受控执行 > 成功路径：固定 argv + stdin + ok 信封 507ms
+   ✓ lark-cli 受控执行 > 超时归类为结果未知，提示先核对再重试 805ms
+ ✓ tests/unit/secrets.test.mjs (4 tests) 4ms
+ ✓ tests/unit/digest-trigger.test.mjs (5 tests) 3ms
+ ✓ tests/unit/lock.test.mjs (5 tests) 11ms
+ ✓ tests/unit/panel-rpc.test.mjs (4 tests) 2ms
+ ✓ tests/unit/wecom-channels.test.mjs (3 tests) 5ms
+ ✓ tests/unit/handwriting-pipeline.test.mjs (3 tests) 2ms
+ ✓ tests/unit/cli-gateway.test.mjs (4 tests) 13ms
+ ✓ tests/unit/wecom-setup.test.mjs (1 test) 1ms
+
+ Test Files  38 passed (38)
+      Tests  394 passed (394)
+   Start at  12:15:38
+   Duration  27.05s (transform 195ms, setup 0ms, collect 1.61s, tests 21.73s, environment 3ms, prepare 815ms)
+

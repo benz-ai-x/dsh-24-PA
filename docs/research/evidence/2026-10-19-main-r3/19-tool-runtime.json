@@ -1,0 +1,25 @@
+{
+  "packageVersion": "0.2.1-alpha.2",
+  "schemaViolations": [
+    "\"value.taskId\" is not a declared property (additionalProperties: false)"
+  ],
+  "actualToolRuntimeReceived": {
+    "action": "task_get",
+    "taskId": "task-1"
+  },
+  "result": {
+    "isError": false,
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"accepted\":{\"action\":\"task_get\",\"taskId\":\"task-1\"}}"
+      }
+    ],
+    "value": {
+      "accepted": {
+        "action": "task_get",
+        "taskId": "task-1"
+      }
+    }
+  }
+}

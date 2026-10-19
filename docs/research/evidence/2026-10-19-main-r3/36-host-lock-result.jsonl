@@ -1,0 +1,2 @@
+{"probe":"concurrent_acquire_before_first_owner_written","holdersGranted":2,"files":["host.lock","host.lock.stale-1792384179738"]}
+{"probe":"first_holder_release","secondHolderStillActive":true,"lockFilePresent":false}

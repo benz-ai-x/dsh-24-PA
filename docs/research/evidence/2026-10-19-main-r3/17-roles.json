@@ -1,0 +1,22 @@
+{
+  "case": "role-save-failure",
+  "error": "ENOENT: no such file or directory, open '/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-round3-audit-R0avzx/cold/.24pa/roles.json'",
+  "roleStillPresent": true,
+  "retry": "角色已注册：customa；如需更新请先移除并处理在途事项。"
+}
+{
+  "case": "role-workspace-bleed",
+  "presentInB": true,
+  "delegatedInB": {
+    "workId": "pa24-work-customa-eaa2995f-b8fc-432e-8f88-5d4af5756c9a",
+    "worker": "customa",
+    "status": "running",
+    "message": "事项已接纳；接纳不代表完成。"
+  },
+  "starts": [
+    {
+      "persona": "仅处理本工作区主人的资料摘要并保存出处。",
+      "child": "pa24-work-customa-eaa2995f-b8fc-432e-8f88-5d4af5756c9a"
+    }
+  ]
+}

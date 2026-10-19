@@ -1,0 +1,13 @@
+{
+  "case": "review-reminder-switch",
+  "switchAccepted": true,
+  "sent": 1,
+  "outboxB": [
+    {
+      "key": "noteremind:review-A:1",
+      "target": "owner_B",
+      "text": "手写笔记待审核提醒：N-A v1 仍在等待你的审核（https://example.invalid/A-private-note）；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。"
+    }
+  ],
+  "sourceReminderPresentInB": null
+}

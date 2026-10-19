@@ -1,0 +1,29 @@
+{
+  "result": {
+    "checked": 1,
+    "results": [
+      {
+        "planId": "plan-no-manual",
+        "action": "paused_unconfirmed",
+        "unattributed": 1
+      }
+    ]
+  },
+  "plans": [
+    {
+      "planId": "plan-no-manual",
+      "status": "paused",
+      "occurrences": []
+    },
+    {
+      "planId": "plan-manual",
+      "status": "active",
+      "occurrences": [
+        {
+          "window": "manual-1234",
+          "status": "model_done"
+        }
+      ]
+    }
+  ]
+}

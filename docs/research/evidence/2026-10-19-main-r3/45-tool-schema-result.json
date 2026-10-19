@@ -1,0 +1,51 @@
+{
+  "source": "actual tools.apply registration",
+  "tool": "pa24_work",
+  "additionalProperties": false,
+  "required": [
+    "action"
+  ],
+  "declaredCount": 51,
+  "calls": [
+    {
+      "action": "task_get",
+      "undeclaredProperties": [
+        "taskId"
+      ]
+    },
+    {
+      "action": "task_update",
+      "undeclaredProperties": [
+        "taskId",
+        "plannedAt",
+        "estimateMinutes"
+      ]
+    },
+    {
+      "action": "task_create",
+      "undeclaredProperties": [
+        "due"
+      ]
+    },
+    {
+      "action": "meeting_schedule",
+      "undeclaredProperties": [
+        "title",
+        "attendees"
+      ]
+    },
+    {
+      "action": "reminder_pause",
+      "undeclaredProperties": [
+        "reason"
+      ]
+    },
+    {
+      "action": "reminder_snooze",
+      "undeclaredProperties": [
+        "seconds",
+        "reason"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "case": "identity-reload-admission-race",
+  "changedOwner": "owner-B",
+  "changedProfile": "profile-B",
+  "activeWorkStatus": "running",
+  "activeWorkDelivery": "local:pa24-2eec2681ba67-local",
+  "activeWorkParent": "pa24-2eec2681ba67-local"
+}

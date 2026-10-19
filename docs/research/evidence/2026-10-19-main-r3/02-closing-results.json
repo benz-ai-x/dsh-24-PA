@@ -1,0 +1,195 @@
+{
+  "missingPrep": {
+    "result": {
+      "planId": "missing",
+      "eventId": "meeting",
+      "message": "会前准备包已生成并入发送队列（发送前复查过会议状态）。"
+    },
+    "report": "【会前准备】季度评审会\n时间：2026-10-20T04:38:52.339Z → 2026-10-20T05:38:52.339Z（发送前已复查会议状态）\n\n一、资料：没有找到与该会议相关的备忘、记忆、纪要或任务——请直接补充材料，本包不编造议程。\n\n二、建议议程与问题清单（建议，供你确认）\n· 建议先确认上次行动项进展（如有）\n· 没有材料，建议先明确本次会议要决定的 1–3 件事\n\n来源：会议投影（meeting）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：calwork",
+    "occurrence": "model_done"
+  },
+  "unrelatedMinutesReport": "【会前准备】季度评审会\n时间：2026-10-20T04:38:52.339Z → 2026-10-20T05:38:52.339Z（发送前已复查会议状态）\n\n一、资料（授权范围内，带出处）\n· 上次纪要「家庭旅游机票预订」 https://example.invalid/travel；候选行动：订机票\n\n二、建议议程与问题清单（建议，供你确认）\n· 建议先确认上次行动项进展（如有）\n· 没有材料，建议先明确本次会议要决定的 1–3 件事\n\n来源：会议投影（meeting）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：calwork2",
+  "concurrentPrep": {
+    "results": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "planId": "prep-56403e6f0c63eaed95d90a08",
+          "eventId": "meeting",
+          "fireAt": "2026-10-20T04:23:52.339Z",
+          "message": "会前准备已安排：开始前 15 分钟生成资料包（绑定该日程；日程取消/改期会自动停止，不会发送过时准备包）。"
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "planId": "prep-ee4644aeea1278589a1f3fe1",
+          "eventId": "meeting",
+          "fireAt": "2026-10-20T04:08:52.339Z",
+          "message": "会前准备已安排：开始前 30 分钟生成资料包（绑定该日程；日程取消/改期会自动停止，不会发送过时准备包）。"
+        }
+      }
+    ],
+    "active": [
+      "prep-56403e6f0c63eaed95d90a08",
+      "prep-ee4644aeea1278589a1f3fe1"
+    ],
+    "nativeCalls": 2
+  },
+  "projectReadFailure": {
+    "projects": [],
+    "missing": []
+  },
+  "reviewStatusSync": {
+    "v1Sync": "synced",
+    "republishedVersion": 2,
+    "decisions": [
+      {
+        "version": "N-1:v1",
+        "status": "synced",
+        "error": null
+      },
+      {
+        "version": "N-1:v2",
+        "status": "failed",
+        "error": "str_replace 未找到匹配文本：【24PA·系统】审核状态：待本人审核 N-1 v2（尚未经人工审核）"
+      }
+    ],
+    "document": "<title>[24PA] 手写笔记 N-1 v1</title>\n<p>【24PA·系统】审核状态：本人已审核 N-1 v1（2026-10-19T04:38:52.968Z；覆盖指纹 9919df4e16e5…）</p>\n<h1>整理摘要</h1>\n<p>原摘要</p>\n<h1>整理正文</h1>\n<p>原会议正文</p>\n<h1>原稿索引</h1>\n<p>第 1 页：image/png，3 字节，sha256 original-sha…，平台图片（可能已压缩）（原件已保存，识别内容为派生副本）</p>\n<h1>发布说明</h1>\n<p>本候选版本尚未经人工审核；批准/退回请使用24私助发送的审核卡按钮，按钮仅对本版本内容指纹有效。模型自报的置信度不作为概率使用；无法辨认的内容保持未知。</p>\n<img src=\"/unused\"/>"
+  },
+  "partialMinutes": {
+    "partial": {
+      "minutesId": "min-0dfd6391-b1d",
+      "executed": 1,
+      "failed": 1,
+      "results": [
+        {
+          "index": 0,
+          "ok": false,
+          "error": "explicit rejection"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "kind": "task",
+          "operationId": "minutes.action:min-0dfd6391-b1d:1",
+          "guid": "tskstub-1",
+          "url": "https://example.feishu.cn/task/tskstub-1",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "message": "任务已创建（飞书为权威对象）。"
+        }
+      ],
+      "message": "执行 1 项，1 项未执行（见明细：信息不足/失败逐项列出）；纪要生成不等于行动已执行。"
+    },
+    "retried": {
+      "minutesId": "min-0dfd6391-b1d",
+      "executed": 2,
+      "failed": 0,
+      "results": [
+        {
+          "index": 0,
+          "ok": true,
+          "kind": "task",
+          "operationId": "minutes.action:min-0dfd6391-b1d:0",
+          "guid": "tskstub-2",
+          "url": "https://example.feishu.cn/task/tskstub-2",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "message": "任务已创建（飞书为权威对象）。"
+        },
+        {
+          "index": 1,
+          "ok": true,
+          "kind": "task",
+          "operationId": "minutes.action:min-0dfd6391-b1d:1",
+          "reused": true,
+          "guid": "tskstub-1",
+          "url": "https://example.feishu.cn/task/tskstub-1",
+          "message": "此任务此前已创建，未重复写入飞书。"
+        }
+      ],
+      "message": "已按你的选择执行 2 项（幂等：重复选择同一编号返回已有对象）。"
+    },
+    "tasks": [
+      "任务A",
+      "任务B"
+    ]
+  },
+  "unknownNoteCandidate": {
+    "content": {
+      "transcript": "联系王或李，原稿不清",
+      "summary": "联系负责人",
+      "suggestions": [],
+      "unknowns": [
+        "联系人原稿不清"
+      ],
+      "candidates": [
+        {
+          "summary": "联系王工",
+          "sourceQuote": "联系王或李"
+        }
+      ],
+      "relativeDates": [],
+      "model": null,
+      "crops": []
+    },
+    "adopted": {
+      "noteId": "N-2",
+      "versionId": "N-2:v1",
+      "executed": 1,
+      "failed": 0,
+      "results": [
+        {
+          "index": 0,
+          "ok": true,
+          "kind": "task",
+          "sourceQuote": "联系王或李",
+          "dueRaw": null,
+          "operationId": "note.action:N-2:v1:0",
+          "guid": "tskstub-3",
+          "url": "https://example.feishu.cn/task/tskstub-3",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "message": "任务已创建（飞书为权威对象）。"
+        }
+      ],
+      "message": "已按你的选择执行 1 项（依据已审核的 N-2 v1；重复选择返回已有对象）。"
+    }
+  },
+  "failedNoteSearch": {
+    "count": 0,
+    "items": [],
+    "message": "引用已按当前文档核验：仅 currentValidity=matches 的已审版本可作为已确认事实；已变更/无法核验/未审核一律明示，不因曾通过而继承。"
+  },
+  "concurrentNoteDelegation": {
+    "results": [
+      {
+        "status": "fulfilled",
+        "value": {
+          "workId": "pa24-work-handwriting-5cf494c5-a9c3-464b-9745-4b6231604a10",
+          "worker": "handwriting",
+          "status": "queued",
+          "message": "事项已接纳；接纳不代表完成。"
+        }
+      },
+      {
+        "status": "fulfilled",
+        "value": {
+          "workId": "pa24-work-handwriting-c9d65650-d556-4ebe-b04a-2a5736d40e42",
+          "worker": "handwriting",
+          "status": "queued",
+          "message": "事项已接纳；接纳不代表完成。"
+        }
+      }
+    ],
+    "bound": "pa24-work-handwriting-c9d65650-d556-4ebe-b04a-2a5736d40e42",
+    "active": [
+      "pa24-work-handwriting-c9d65650-d556-4ebe-b04a-2a5736d40e42",
+      "pa24-work-handwriting-5cf494c5-a9c3-464b-9745-4b6231604a10"
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "case": "stop-extracts-host-method",
+  "drainCallsAfterRuntimeStop": 0,
+  "drainCallsAfterCorrectMethodInvocation": 1,
+  "runtimeReposClosed": true
+}

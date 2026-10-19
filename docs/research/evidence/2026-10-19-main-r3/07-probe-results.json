@@ -1,0 +1,46 @@
+{
+  "generated-id": {
+    "apply": {
+      "revision": 1,
+      "changesetId": "CS-1"
+    },
+    "generatedId": "76c72ea7-5ee8-49b3-b4f9-e6d75bfc89a6",
+    "undoError": "要删除的记忆条目不存在：",
+    "remaining": 1
+  },
+  "repeated-id": {
+    "afterUndo": "中间 B",
+    "expected": "批前 A"
+  },
+  "audit-failure": {
+    "toolError": "EISDIR: illegal operation on a directory, open '/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-memory-probe-CVN6N3/.24pa/memory-log.jsonl'",
+    "storedRevision": 2,
+    "storedContent": "已改新值"
+  },
+  "republish": {
+    "document": "候选行动（未授权执行）\n联系李工\n[图片 x1]",
+    "candidates": [
+      {
+        "summary": "联系王工"
+      }
+    ],
+    "summary": "联系王工",
+    "trust": "matches"
+  },
+  "supervision-without-manual": {
+    "status": "paused",
+    "checked": 1,
+    "results": [
+      {
+        "planId": "plan-1",
+        "action": "paused_unconfirmed",
+        "unattributed": 1
+      }
+    ]
+  },
+  "supervision-with-manual": {
+    "status": "active",
+    "checked": 0,
+    "results": []
+  }
+}

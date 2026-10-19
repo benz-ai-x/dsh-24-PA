@@ -1,0 +1,17 @@
+{
+  "probe": "feishu_mode_transport_missing_then_restored",
+  "first": {
+    "operationId": "memo:memo-work:4b8dbeba3987828b255ee18c22aa5301fcff4f498ddba549c82cc45aa1083727",
+    "docUrl": null,
+    "demo": true,
+    "message": "演示模式：备忘已入业务账本，未创建飞书文档。"
+  },
+  "second": {
+    "operationId": "memo:memo-work:4b8dbeba3987828b255ee18c22aa5301fcff4f498ddba549c82cc45aa1083727",
+    "reused": true,
+    "message": "此备忘此前已保存，未重复创建文档。",
+    "docUrl": null
+  },
+  "remoteCreatesAfterRestoring": 0,
+  "operation": "succeeded"
+}
