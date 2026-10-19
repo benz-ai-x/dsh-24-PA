@@ -108,7 +108,8 @@ This section explains how the assistant organizes work and where the observable 
 ### Backup and recovery
 
 `pa24_maintenance backup_create` copies the selected ledger and the workspace
-`AGENTS.md`, `.24pa/` (excluding `secrets.json`), and `.dsh/skills/`. It also
+`AGENTS.md`, `.24pa/` (excluding `secrets.json` and its atomic-write temporary
+file `secrets.json.pa24-tmp`), and `.dsh/skills/`. It also
 collects the plugin state and the host's sessions, storages, and attachments.
 The bundle supplies `backupSessionsRoot`, `backupStoragesRoot`, and
 `backupAttachmentsRoot` from `dshHomePath`; installations that override the
@@ -122,14 +123,18 @@ missing content, and old manifests without coverage evidence cannot pass as a
 complete joint backup. An absent, configured attachment directory is recorded
 explicitly when the host has not stored attachments yet.
 
-To restore, stop the host, verify the backup, then restore `pa24.sql` with psql
-or copy `pa24.db` (and `pa24.db-wal`, if included) into the workspace's `data/`.
-Copy each collection back to the root recorded in its manifest, and re-enter
-credentials separately. Do not copy a live `host.lock`. Before resuming writes
-or sending old notifications, reconcile external objects and unknown Outbox
-rows. These are online file snapshots, not a cross-system transaction: retain
-the previous directories until the restored ledger, sessions, attachments and
-memory revisions have been checked.
+To restore, stop the host and verify the backup. First restore the ledger and
+collections into isolated staging directories: load `pa24.sql` into a separate
+database with psql, or copy `pa24.db` (and `pa24.db-wal`, if included) into a
+separate `data/` directory. Check the schema and each memory record's revision,
+source and expiry against the existing destination before replacing any files.
+Keep newer destination memory; resolve conflicts with the owner explicitly.
+Only then install the verified ledger and collections at their configured roots,
+retaining the previous directories for rollback, and re-enter credentials
+separately. Do not copy a live `host.lock`. Before resuming writes or sending old
+notifications, reconcile external objects and unknown Outbox rows. These are
+online file snapshots, not a cross-system transaction; check the restored
+ledger, sessions and attachments together before restarting.
 
 ### Source map
 

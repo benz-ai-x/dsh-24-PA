@@ -8,6 +8,7 @@ type FileEntry = { path: string; bytes: number; sha256: string };
 type Collection = { id: string; root?: string; required: boolean; includes?: string[]; excludes?: string[] };
 type Coverage = { id: string; required: boolean; state: 'copied' | 'absent' | 'unconfigured'; files: number };
 const COLLECTION_IDS = ['workspace', 'dsh-state', 'sessions', 'storages', 'attachments'];
+const CREDENTIAL_PATHS = ['.24pa/secrets.json', '.24pa/secrets.json.pa24-tmp'];
 
 /** Owns both the collection policy and its evidence. A digest of an incomplete
  * file list is not proof that the required recovery assets were collected. */
@@ -21,7 +22,7 @@ export class WorkspaceBackup {
     if (!isAbsolute(targetDir)) throw new Error('需要绝对目标目录 targetDir。');
     const collections: Collection[] = [
       { id: 'workspace', root: this.sources.workspace, required: true,
-        includes: ['AGENTS.md', '.24pa', '.dsh/skills'], excludes: ['.24pa/secrets.json'] },
+        includes: ['AGENTS.md', '.24pa', '.dsh/skills'], excludes: CREDENTIAL_PATHS },
       { id: 'dsh-state', root: this.sources.stateDirectory, required: true, excludes: ['host.lock'] },
       { id: 'sessions', root: this.sources.sessions, required: true },
       { id: 'storages', root: this.sources.storages, required: true },
@@ -124,7 +125,7 @@ export class WorkspaceBackup {
           }
           for (const path of listing.directories) await safePath(join(dir, id), path, true);
           if (id === 'workspace' && (!paths.has('AGENTS.md') || !listing.directories.includes('.24pa'))) throw new Error('缺少 AGENTS.md 或 .24pa 工作区集合');
-          if (id === 'workspace' && paths.has('.24pa/secrets.json')) throw new Error('工作区备份含凭据');
+          if (id === 'workspace' && CREDENTIAL_PATHS.some(path => paths.has(path))) throw new Error('工作区备份含凭据');
           if (coverage.find(c => c.id === id)?.files !== count) throw new Error('集合计数不符');
         }
       } catch (error) { ok = false; failures.push(`${part.id}: ${(error as Error).message}`); }
@@ -139,7 +140,7 @@ export class WorkspaceBackup {
     return { backupDir: dir, createdAt: manifest.createdAt, schemaVersion: manifest.schemaVersion,
       complete: failures.length === 0, failures, parts: results, coverage,
       message: failures.length ? `备份不完整（${failures.join('；')}）。`
-        : '备份完整：账本与全部清单/文件逐个摘要匹配。恢复顺序：停止 Host，恢复账本及各集合到清单原路径，补充凭据；核对外部对象和旧 Outbox 后再启动。在线快照不保证跨系统同一事务时点。' };
+        : '备份完整：账本与全部清单/文件逐个摘要匹配。恢复顺序：停止 Host，先恢复到账本与文件的隔离暂存区，检查 schema、记忆 revision、来源与过期状态，并与目标比较；保留较新记忆，冲突由主人明确选择后再替换原路径，保留旧目录并补充凭据。核对外部对象和旧 Outbox 后再启动。在线快照不保证跨系统同一事务时点。' };
   }
 }
 

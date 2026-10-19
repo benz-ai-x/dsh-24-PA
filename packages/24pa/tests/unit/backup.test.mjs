@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { WorkspaceBackup } from '../../lib/backup.js';
 import { SqliteDb } from '../../lib/sqlite.js';
 
@@ -22,6 +23,7 @@ async function fixture() {
     await writeFile(join(sources.workspace, path), content);
   }
   await writeFile(join(sources.workspace, '.24pa/secrets.json'), '{"appSecret":"never-backup"}');
+  await writeFile(join(sources.workspace, '.24pa/secrets.json.pa24-tmp'), '{"appSecret":"interrupted-write"}');
   await writeFile(join(sources.sessions, 'session.jsonl'), '{"turn":1}');
   await writeFile(join(sources.attachments, 'image.bin'), 'image');
   await writeFile(join(sources.storages, 'schedule.json'), '[]');
@@ -42,6 +44,7 @@ describe('workspace backup recovery coverage', () => {
     await cp(join(result.backupDir, 'workspace'), restore, { recursive: true });
     for (const [path, content] of Object.entries(f.assets)) expect(await readFile(join(restore, path), 'utf8')).toBe(content);
     await expect(readFile(join(restore, '.24pa/secrets.json'))).rejects.toThrow();
+    await expect(readFile(join(restore, '.24pa/secrets.json.pa24-tmp'))).rejects.toThrow();
     await expect(readFile(join(result.backupDir, 'dsh-state/host.lock'))).rejects.toThrow();
     expect(await readFile(join(result.backupDir, 'sessions/session.jsonl'), 'utf8')).toContain('turn');
     const restored = new SqliteDb(join(result.backupDir, 'pa24.db'));
@@ -66,6 +69,27 @@ describe('workspace backup recovery coverage', () => {
     expect(result.failures.join()).toContain('sessions');
     await writeFile(join(result.backupDir, 'backup-manifest.json'), JSON.stringify({ parts: [] }));
     expect((await WorkspaceBackup.verify(result.backupDir)).complete).toBe(false);
+  });
+  it('rejects credential temporary files even if their manifest hashes match', async () => {
+    const f = await fixture();
+    const result = await create(f);
+    const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+    const bytes = Buffer.from('{"appSecret":"must-not-restore"}');
+    const secretPath = '.24pa/secrets.json.pa24-tmp';
+    await writeFile(join(result.backupDir, 'workspace', secretPath), bytes);
+    const listingPath = join(result.backupDir, 'workspace-manifest.json');
+    const listing = JSON.parse(await readFile(listingPath, 'utf8'));
+    listing.files.push({ path: secretPath, bytes: bytes.length, sha256: digest(bytes) });
+    const listingBytes = Buffer.from(JSON.stringify(listing));
+    await writeFile(listingPath, listingBytes);
+    const manifestPath = join(result.backupDir, 'backup-manifest.json');
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    Object.assign(manifest.parts.find(p => p.id === 'workspace-manifest'), { bytes: listingBytes.length, sha256: digest(listingBytes) });
+    manifest.coverage.find(c => c.id === 'workspace').files++;
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    const checked = await WorkspaceBackup.verify(result.backupDir);
+    expect(checked.complete).toBe(false);
+    expect(checked.failures.join()).toContain('凭据');
   });
   it('rejects symlinks and recursive destinations instead of silently collecting unrelated content', async () => {
     const f = await fixture();
