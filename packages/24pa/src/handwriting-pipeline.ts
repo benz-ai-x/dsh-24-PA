@@ -13,7 +13,7 @@ import type { ChannelContextDeps } from './channel-deps.js';
 import { runLarkCli } from './lark.js';
 import { cliOptions, type FeishuTransport, type InboundEvent } from './feishu.js';
 import {
-  extensionOf, fingerprintOf, normalizeDocument, diffNormalized, sha256Hex,
+  candidateUnknowns, extensionOf, fingerprintOf, normalizeDocument, diffNormalized, sha256Hex,
   cropBox, noteDocumentXml, newReviewToken, reviewCard, systemLine, pendingReviewLine,
   detectImageMediaType, MAX_PAGE_BYTES, MAX_PAGES_PER_NOTE, REVIEW_TOKEN_TTL_MS,
   type CropSpec, type DoubtSpec, type DiagramSpec, type RecognizedNote, type Region,
@@ -287,12 +287,16 @@ export class HandwritingPipeline {
         ...((Array.isArray(record.unknowns) && record.unknowns.length) || record.unknown ? { unknowns: boundedStringList([...(Array.isArray(record.unknowns) ? record.unknowns : []), ...(record.unknown ? [record.unknown] : [])], 300, 20) } : {}),
       };
     }).filter(c => c.summary);
+    const unknowns = boundedStringList(args.unknowns, 500, 50);
     const recognized: RecognizedNote = {
       transcript: text(args.transcript, 20000),
       summary: text(args.summary ?? '（无摘要）', 2000),
       suggestions: boundedStringList(args.suggestions, 500, 50),
-      unknowns: boundedStringList(args.unknowns, 500, 50),
-      candidates: noteCandidates,
+      unknowns,
+      candidates: noteCandidates.map((candidate, index) => {
+        const linked = candidateUnknowns(candidate, index, unknowns);
+        return linked.length ? { ...candidate, unknowns: linked } : candidate;
+      }),
       relativeDates: (Array.isArray(args.relativeDates) ? args.relativeDates : []).slice(0, 20).map((entry: Record<string, unknown>) => ({
         original: text(entry.original, 200),
         interpretation: text(entry.interpretation, 500),

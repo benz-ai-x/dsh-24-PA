@@ -213,10 +213,12 @@ export class MinutesRepo {
   }
 
   async findGeneration(input: { workItemId: string; memoId: string; eventId: string | null; topic: string; candidates: unknown[] }): Promise<MinutesRow | null> {
-    return (await this.db.query<MinutesRow>(
-      `select * from pa24.minutes where work_item_id = $1 and memo_id = $2 and event_id is not distinct from $3 and topic = $4 and candidates = $5::jsonb order by created_at limit 1`,
+    const rows = (await this.db.query<MinutesRow>(
+      `select * from pa24.minutes where work_item_id = $1 and memo_id = $2 and event_id is not distinct from $3 and topic = $4 and candidates = $5::jsonb order by created_at limit 2`,
       [input.workItemId, input.memoId, input.eventId, input.topic, JSON.stringify(input.candidates)],
-    )).rows[0] ?? null;
+    )).rows;
+    if (rows.length > 1) throw new Error(`同次纪要生成存在多个历史身份（${rows.map(row => row.id).join('、')}），行动回执可能分散；请先核对已有纪要及其行动，不自动选择版本或新建。`);
+    return rows[0] ?? null;
   }
 
   async get(id: string): Promise<MinutesRow | null> {

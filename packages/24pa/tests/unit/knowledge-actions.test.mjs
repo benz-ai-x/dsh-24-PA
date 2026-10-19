@@ -91,6 +91,35 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     const legacy = await f.rt.work({ ...args, content: '旧随机身份的记录' }, child);
     await f.rt.db.query('update pa24.minutes set id = $2 where id = $1', [legacy.minutesId, 'min-legacy']);
     expect((await f.rt.work({ ...args, content: '旧随机身份的记录' }, child)).minutesId).toBe('min-legacy');
+    const old = await f.rt.repos.minutes.get('min-legacy'); await f.rt.repos.minutes.insert({ ...old, id: 'min-legacy-second' });
+    await f.rt.work({ action: 'minutes_adopt_actions', minutesId: 'min-legacy-second', indexes: [0], instruction: '本人此前只采纳第二份的第一项' }, child);
+    const tasksBefore = (await f.rt.repos.tasks.list()).length;
+    await expect(f.rt.work({ ...args, content: '旧随机身份的记录' }, child)).rejects.toThrow('多个历史身份');
+    expect((await f.rt.repos.tasks.list()).length).toBe(tasksBefore);
+    expect((await f.rt.repos.operations.get('minutes.action:min-legacy-second:0')).status).toBe('succeeded');
+  });
+
+  it.each([
+    { unknown: '候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认', summary: '联系李工', quote: '联系李/王工', resolved: { summary: '联系王工' } },
+    { unknown: '联系人原稿不清', summary: '联系王工', quote: '联系王或李', resolved: { summary: '联系李工' } },
+    { unknown: '日期原稿不清', summary: '提交预算', due: '2026-11-02', quote: '下周交', resolved: { summary: '提交预算', due: '2026-11-03' } },
+  ])('新旧顶层行动疑点兼容且无关候选不受阻：$unknown', async sample => {
+    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    const published = await f.rt.work({ action: 'note_submit', transcript: '联系王或李，原稿不清', summary: '联系负责人', unknowns: [sample.unknown, '会议背景备注不清'], candidates: [{ summary: sample.summary, sourceQuote: sample.quote, ...(sample.due ? { due: sample.due } : {}) }, { summary: '备份确认材料', sourceQuote: '备份材料' }] }, child);
+    const version = await f.rt.repos.notes.getVersion(published.versionId);
+    expect(version.content.candidates[0].unknowns).toEqual([sample.unknown]); expect(version.content.candidates[1].unknowns).toBeUndefined();
+    const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
+    await f.rt.handwriting.processReviewCard('approve', { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });
+    // Existing versions did not persist candidate-local associations. Keep the
+    // approved snapshot untouched and exercise read-time compatibility.
+    delete version.content.candidates[0].unknowns;
+    await f.rt.db.query('update pa24.note_version set content = $2 where id = $1', [published.versionId, JSON.stringify(version.content)]);
+    const action = { action: 'note_adopt_actions', noteId: 'N-1', versionId: published.versionId, indexes: [0, 1], instruction: '执行第0项和第1项' };
+    const first = await f.rt.work(action, child); expect(first).toMatchObject({ executed: 1, failed: 1 }); expect(first.results[0].error).toContain(sample.unknown);
+    const clarification = { index: 0, resolutions: [{ unknown: sample.unknown, answer: '本人明确确认最终行动字段' }], resolved: sample.resolved };
+    expect(await f.rt.work({ ...action, indexes: [0], clarifications: [clarification] }, child)).toMatchObject({ executed: 1, failed: 0 });
+    expect((await f.rt.repos.operations.get('note.action:N-1:v1:0')).params.clarification).toEqual(clarification);
+    expect((await f.rt.repos.notes.getVersion(published.versionId)).content.candidates[0].unknowns).toBeUndefined();
   });
 
   it('候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果', async () => {

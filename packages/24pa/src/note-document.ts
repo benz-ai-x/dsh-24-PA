@@ -30,7 +30,16 @@ export function documentText(node: DocumentNode): string {
  * system-owned. Arbitrary prefixed paragraphs and duplicates remain content. */
 export function registeredStatus(root: DocumentNode): DocumentNode | null {
   const first = root.children.find(child => typeof child !== 'string' && child.name !== 'title');
-  return typeof first !== 'string' && first?.name === 'p' && /^【24PA·系统】审核状态：(待本人审核|本人已审核|本人退回) N-\d+ v\d+(?:（.*）.*)?$/.test(documentText(first)) ? first : null;
+  if (typeof first === 'string' || first?.name !== 'p' || first.children.some(child => typeof child !== 'string')) return null;
+  const value = documentText(first);
+  const identity = 'N-\\d+ v\\d+';
+  const instant = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z';
+  const registered = [
+    `待本人审核 ${identity}（尚未经人工审核）`,
+    `本人已审核 ${identity}（${instant}；覆盖指纹 [a-f0-9]{12}…）`,
+    `本人退回 ${identity}（${instant}）；修改后可要求重新发布候选`,
+  ];
+  return registered.some(pattern => new RegExp(`^【24PA·系统】审核状态：${pattern}$`).test(value)) ? first : null;
 }
 
 /** Preserve structure and image positions; supplied hashes bind actual media

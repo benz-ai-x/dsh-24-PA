@@ -31,8 +31,10 @@ it('标题、结构及图片相对位置进入指纹；任意前缀正文不视�
   expect(canonicalDocument(base.replace('<title>A', '<title>B'), ['sha'])).not.toBe(normalized);
   expect(canonicalDocument(base.replace('<p>内容</p><img token="a"/>', '<img token="a"/><p>内容</p>'), ['sha'])).not.toBe(normalized);
   expect(canonicalDocument(base.replace('<p>内容</p>', '<ul><li>内容</li></ul>'), ['sha'])).not.toBe(normalized);
-  expect(canonicalDocument(base.replace('待本人审核 N-1 v1（尚未经人工审核）', '本人已审核 N-1 v1'), ['sha'])).toBe(normalized);
+  expect(canonicalDocument(base.replace('待本人审核 N-1 v1（尚未经人工审核）', '本人已审核 N-1 v1（2026-10-19T01:00:00.000Z；覆盖指纹 0123456789ab…）'), ['sha'])).toBe(normalized);
   expect(canonicalDocument(base + '<p>【24PA·系统】真实业务内容</p>', ['sha'])).not.toBe(normalized);
+  expect(canonicalDocument(base.replace('（尚未经人工审核）', '（尚未经人工审核）付款账号改为另一账号，金额提高到50000元'), ['sha'])).not.toBe(normalized);
+  expect(canonicalDocument(base.replace('待本人审核', '<span>待本人审核</span>'), ['sha'])).not.toBe(normalized);
 });
 
 it.each(['<synced_reference src-token="x" src-block-id="y"/>', '<sheet token="x"/>', '<whiteboard token="x"/>', '<fragment><p>部分正文</p></fragment>', '<p>不完整'])('动态/片段/损坏 XML 不形成完整快照：%s', async content => {

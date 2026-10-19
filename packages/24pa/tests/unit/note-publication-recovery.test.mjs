@@ -180,6 +180,22 @@ for (const backend of ['sqlite', 'postgres']) describe(`手写发布恢复 (${ba
     expect((await repos.notes.decisionsOf('N-1')).every(row => row.doc_sync_status === 'synced')).toBe(true);
   });
 
+  it('审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文', async () => {
+    await pipeline.noteSubmit(item, args);
+    const token = (await repos.notes.tokensOf('N-1:v1')).find(row => row.action === 'approve').token;
+    await writeFile(statePath, JSON.stringify({ failNext: { command: 'docs.update' } }));
+    await pipeline.processReviewCard('approve', { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });
+    const before = await pipeline.reader.read('docstub-1');
+    const business = '付款账号改为另一账号，金额提高到50000元';
+    await writeFile(statePath, JSON.stringify({ documentOverride: { content: before.content.replace('（尚未经人工审核）', '（尚未经人工审核）' + business), revision_id: 99 } }));
+    const writes = (await calls()).filter(row => row.args.includes('+update')).length;
+    expect((await pipeline.inspectTrust('N-1')).currentValidity).toBe('changed');
+    await pipeline.verifyNote('N-1');
+    expect((await pipeline.reader.read('docstub-1')).content).toContain(business);
+    expect((await calls()).filter(row => row.args.includes('+update'))).toHaveLength(writes);
+    expect((await repos.notes.decisionsOf('N-1'))[0].doc_sync_status).toBe('failed');
+  });
+
   it('pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2', async () => {
     await pipeline.noteSubmit(item, args);
     const token = (await repos.notes.tokensOf('N-1:v1')).find(row => row.action === 'return').token;

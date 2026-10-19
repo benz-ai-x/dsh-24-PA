@@ -55,7 +55,7 @@ import {
   type RecurringScheduleRecord,
 } from '@deepseek-ai/dsh-schedule';
 import {
-  RECOGNITION_PAGE_LIMIT,
+  candidateUnknowns, RECOGNITION_PAGE_LIMIT,
   advanceReminder,
   looksLikeVisionModel,
   sha256Hex,
@@ -2930,7 +2930,7 @@ export class PaRuntime {
         results.push({ index, ok: true, kind: previous.action.includes('calendar') ? 'calendar' : 'task', operationId, reused: true, ...previous.receipt });
         continue;
       }
-      const unknowns = candidate.unknowns ?? [];
+      const unknowns = candidateUnknowns(candidate, index, Array.isArray(version.content?.unknowns) ? version.content.unknowns : []);
       const clarification = Array.isArray(args.clarifications) ? args.clarifications.find((entry: any) => entry?.index === index) as Record<string, any> | undefined : undefined;
       if (unknowns.length) {
         const resolutions = Array.isArray(clarification?.resolutions) ? clarification.resolutions : [];
