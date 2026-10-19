@@ -28,7 +28,7 @@ export interface ReminderEngineHooks {
   /** Look up an outbox row's send state by dedup key (platform acceptance). */
   outboxState(dedupKey: string): Promise<{ status: string; messageId: string | null } | null>;
   /** P19 pre-send check: a linked source that vanished or changed withholds the send. */
-  sourceValid?(rule: ReminderRuleRow): Promise<{ valid: boolean; reason?: string }>;
+  sourceValid?(rule: ReminderRuleRow): Promise<{ valid: boolean; unknown?: boolean; reason?: string }>;
 }
 
 export interface CreateReminderInput {
@@ -340,7 +340,11 @@ export class ReminderEngine {
         continue;
       }
       if (rule.link_source_id && this.hooks.sourceValid) {
-        const verdict = await this.hooks.sourceValid(rule).catch(() => ({ valid: false, reason: '来源核对失败' }));
+        const verdict = await this.hooks.sourceValid(rule).catch(() => ({ valid: false, unknown: true, reason: '来源核对失败' }));
+        if (verdict.unknown) {
+          await this.repo.updateOccurrence(occurrence.id, { status: 'pending', deferred_until: new Date(now.getTime() + 60000), last_error: verdict.reason }, 'pending');
+          continue;
+        }
         if (!verdict.valid) {
           // The followed task/meeting changed or vanished: withhold and say so (P19).
           await this.repo.updateOccurrence(occurrence.id, { status: 'canceled' });

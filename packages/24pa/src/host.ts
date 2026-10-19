@@ -107,6 +107,8 @@ export interface WorkspaceInfo {
 export interface NativeScheduleService {
   create(sessionId: string, request: Record<string, unknown>, signal?: AbortSignal): Promise<{ id: string; scheduledAt?: string } & Record<string, unknown>>;
   delete(request: { sessionId: string; id: string }): Promise<unknown>;
+  catalog?(): Promise<Array<Record<string, unknown> & { id: string; sessionId: string; status: string; prompt: string }>>;
+  update?(request: { sessionId: string; id: string; expected: Record<string, unknown>; change: Record<string, unknown>; title: string; prompt: string }): Promise<{ id: string; updated: boolean; record?: Record<string, unknown>; code?: string }>;
   history(request: { sessionId: string; id: string; limit: number }): Promise<{ records?: unknown[] } & Record<string, unknown>>;
 }
 

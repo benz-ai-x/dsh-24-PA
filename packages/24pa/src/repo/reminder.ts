@@ -65,23 +65,10 @@ export class ReminderRepo {
    *  may still owe its owner a correction for what was already sent (P19). */
   async rulesLinkedTo(sourceType: string, sourceId: string): Promise<ReminderRuleRow[]> {
     const result = await this.db.query<ReminderRuleRow>(
-      `select * from pa24.reminder_rule where link_source_type = $1 and link_source_id = $2 and status in ('active', 'paused', 'completed')`,
+      `select * from pa24.reminder_rule where link_source_type = $1 and link_source_id = $2 and status in ('active', 'paused', 'completed', 'stopped')`,
       [sourceType, sourceId],
     );
     return result.rows;
-  }
-
-  /** Distinct calendar event ids linked to reminders overlapping [from, to)
-   *  (calendar sync cancel path, F28): events outside the window were never
-   *  observed and must not be falsely canceled. */
-  async linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]> {
-    const result = await this.db.query<{ link_source_id: string }>(
-      `select distinct r.link_source_id from pa24.reminder_rule r
-       join pa24.calendar_event e on e.event_id = r.link_source_id
-       where r.link_source_type = 'calendar' and not (e.end_time <= $1 or e.start_time >= $2)`,
-      [from, to],
-    );
-    return result.rows.map(r => r.link_source_id);
   }
 
   /** Cancel not-yet-sent occurrences of one rule (source-change path, P19).
@@ -97,12 +84,12 @@ export class ReminderRepo {
   }
 
   /** Sent/pending occurrence counts for one rule (correction decision, P19). */
-  async occurrenceCounts(ruleId: string): Promise<{ sent: number; pending: number } | null> {
-    const result = await this.db.query<{ sent: string; pending: string }>(
-      `select count(*) filter (where status = 'sent') as sent, count(*) filter (where status = 'pending') as pending from pa24.reminder_occurrence where rule_id = $1`,
+  async occurrenceCounts(ruleId: string): Promise<{ sent: number; pending: number; canceled: number } | null> {
+    const result = await this.db.query<{ sent: string; pending: string; canceled: string }>(
+      `select count(*) filter (where status = 'sent') as sent, count(*) filter (where status = 'pending') as pending, count(*) filter (where status = 'canceled') as canceled from pa24.reminder_occurrence where rule_id = $1`,
       [ruleId],
     ).catch(() => null);
-    return result ? { sent: Number(result.rows[0]!.sent), pending: Number(result.rows[0]!.pending) } : null;
+    return result ? { sent: Number(result.rows[0]!.sent), pending: Number(result.rows[0]!.pending), canceled: Number(result.rows[0]!.canceled) } : null;
   }
 
   async getRule(id: string): Promise<ReminderRuleRow | null> {

@@ -169,7 +169,7 @@ if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'list') 
       end_time: s.end_time,
       attendees: s.attendees ?? [],
     }));
-  ok({ schedule_list: list, has_more: false });
+  ok({ schedule_list: list, schedule_list_count: list.length });
 }
 
 if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'create') {

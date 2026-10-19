@@ -52,8 +52,6 @@ describe('F25：方言翻译（translateQuery）', () => {
     expect(t.sql).toContain('event_id not in (?, ?)');
     expect(t.sql).toContain("strftime('%Y-%m-%dT%H:%M:%fZ', ?, printf('+%.0f seconds', ?))");
     expect(t.values).toEqual(['a', 'b', new Date('2026-10-10T00:00:00Z'), 60]);
-    const emptyAll = translateQuery('select 1 as x where $1::int <> all($2::text[])', [5, []]);
-    expect(emptyAll.sql).toContain('1 = 1');
   });
 
   it('F25 补充：未覆盖的 any/all 形态（<> any、= all）按残留方言抛错', () => {
@@ -86,6 +84,13 @@ describe('F25：SQLite 账本（迁移＋业务往返）', () => {
     const tables = (await db.query(`select name from sqlite_master where type='table' and name like 'pa24_%' order by name`)).rows.map(r => r.name);
     for (const expected of ['pa24_inbox', 'pa24_work_item', 'pa24_outbox', 'pa24_task', 'pa24_calendar_event', 'pa24_reminder_rule', 'pa24_note', 'pa24_note_version', 'pa24_note_seq', 'pa24_digest_plan', 'pa24_minutes', 'pa24_schema_migrations']) {
       expect(tables).toContain(expected);
+    }
+  });
+
+  it('空集合的 ALL/ANY 可执行且保留 PostgreSQL 真值语义', async () => {
+    for (const value of [5, null]) {
+      expect((await db.query('select 1 as x where $1::int <> all($2::text[])', [value, []])).rows).toEqual([{ x: 1 }]);
+      expect((await db.query('select 1 as x where $1::int = any($2::text[])', [value, []])).rows).toEqual([]);
     }
   });
 

@@ -19,6 +19,11 @@ export interface TaskSkill {
   kind?: string;
 }
 
+export interface ResolvedTaskSkill extends TaskSkill {
+  content: string;
+  metadata: Record<string, unknown>;
+}
+
 /** 宿主 ctx.skills 的最小结构面（dsh-skill 的 SkillRegistry 子集）。 */
 export interface SkillRegistryLike {
   register(skill: {
@@ -30,7 +35,7 @@ export interface SkillRegistryLike {
     metadata?: Record<string, unknown>;
   }): () => void;
   list(options?: { cwd?: string }): Promise<readonly { name: string; description: string; metadata?: Record<string, unknown>; provider?: string; source?: string }[]>;
-  get(name: string, options?: { cwd?: string }): Promise<{ name: string; content: string; metadata?: Record<string, unknown>; provider?: string; source?: string } | undefined>;
+  get(name: string, options?: { cwd?: string }): Promise<{ name: string; description?: string; content: string; metadata?: Record<string, unknown>; provider?: string; source?: string } | undefined>;
 }
 
 /** Worker persona skill（F42）：正文＝职责/完成标准/边界/输出要求四节；simple 变体＝workerModels.simplePersona 路由。
@@ -322,12 +327,12 @@ export class SkillCatalog {
   }
 
   private toTaskSkill(entry: { name: string; description: string; metadata?: Record<string, unknown>; provider?: string; source?: string }): TaskSkill {
-    const builtin = entry.provider === 'runtime' || entry.name.startsWith('digest-');
+    const builtin = (entry.provider === 'runtime' || entry.source === 'runtime') && this.builtinAll().some(s => s.name === entry.name);
     return {
       name: entry.name,
       description: entry.description,
       track: entry.metadata?.track === 'template' ? 'template' : 'agent',
-      source: builtin ? 'builtin' : entry.source === 'runtime' ? 'builtin' : entry.source ?? 'workspace',
+      source: builtin ? 'builtin' : entry.source ?? 'unknown',
       kind: typeof entry.metadata?.kind === 'string' ? entry.metadata.kind : undefined,
     };
   }
@@ -340,27 +345,25 @@ export class SkillCatalog {
         .filter(s => !s.name.startsWith('worker-persona-') && !s.name.endsWith('-setup-flow'));
     }
     const raw = await this.registry.list({ cwd: this.cwd() ?? undefined });
-    // list() 的 SkillSummary 不带 metadata（track/kind 在 get() 的 Definition）——
-    // 逐名取一次补富；get 失败回退原条目（视为缺省 agent 轨）。
-    const entries = await Promise.all(raw.map(async e => {
-      try {
-        const def = await this.registry!.get(e.name, { cwd: this.cwd() ?? undefined });
-        return def ? { ...e, metadata: def.metadata ?? e.metadata } : e;
-      } catch {
-        return e;
-      }
-    }));
-    const seen = new Set(entries.map(e => e.name));
-    const builtins = this.builtinAll().filter(s => !seen.has(s.name)).map(s => ({ name: s.name, description: s.description, provider: 'runtime', metadata: s.metadata }));
-    // spec 2.11：计划绑定面＝内置＋工作区（project-dsh）；用户全局目录
-    // （user-dsh/user-agents）是主人自己的 agent 技能库，不进周期任务下拉。
-    const isBindable = (s: { name: string; source: string; track: SkillTrack }) =>
-      // spec 2.11 计划绑定面＝任务 skill：排除 persona 件（F42 内部指令）与
-      // 向导件（F43 接入流程）；工作区 project-dsh 同名仍可覆盖内置任务件。
-      !s.name.startsWith('worker-persona-') && !s.name.endsWith('-setup-flow') && (s.source === 'builtin' || s.source === 'project-dsh');
-    return [...entries, ...builtins]
-      .map(e => this.toTaskSkill(e))
-      .filter(isBindable);
+    const entries = await Promise.all(raw.map(e => this.resolve(e.name).catch(() => null)));
+    return entries.filter((entry): entry is ResolvedTaskSkill => entry !== null);
+  }
+
+  /** Execution observes one complete winning definition, never a directory summary. */
+  async resolve(name: string, allowedTools?: readonly string[]): Promise<ResolvedTaskSkill> {
+    const def = this.registry
+      ? await this.registry.get(name, { cwd: this.cwd() ?? undefined })
+      : this.builtinAll().find(s => s.name === name);
+    if (!def || def.name !== name) throw new Error(`任务 skill ${name} 不在目录中或正文加载失败。`);
+    const entry = this.toTaskSkill({ ...def, description: def.description ?? name });
+    if (name.startsWith('worker-persona-') || name.endsWith('-setup-flow') || !['builtin', 'project-dsh'].includes(entry.source)) {
+      throw new Error(`任务 skill ${name} 不在目录中（只允许内置＋工作区 .dsh/skills 来源）。`);
+    }
+    if (def.metadata?.track !== undefined && !['agent', 'template'].includes(String(def.metadata.track))) throw new Error(`任务 skill ${name} 执行轨无效。`);
+    if (!def.content?.trim()) throw new Error(`任务 skill ${name} 正文加载失败。`);
+    const metadata = structuredClone(def.metadata ?? {});
+    if (allowedTools) assertToolDeclaration(metadata, allowedTools, name);
+    return { ...entry, content: def.content, metadata };
   }
 
   /** 按 kebab-case 名校验存在性；返回 null＝目录中无此名。 */
@@ -406,16 +409,11 @@ export class SkillCatalog {
    * here — a template-track skill never reaches a model round through this
    * seam; callers cannot bypass the zero-model path by forgetting to branch.
    */
-  async resolveForAgentRun(name: string, allowedTools: readonly string[]): Promise<{ name: string; content: string }> {
-    const bound = await this.find(name);
-    if (!bound) throw new Error(`任务 skill ${name} 不在目录中（内置＋工作区 .dsh/skills）。`);
+  async resolveForAgentRun(name: string, allowedTools: readonly string[]): Promise<ResolvedTaskSkill> {
+    const bound = await this.resolve(name, allowedTools);
     if (bound.track === 'template') {
       throw new Error(`任务 skill ${name} 是模板轨（确定性组装，不过模型）；它由对应平台管线执行（如晨报/复盘经 digest 计划与「立即运行一次」，审核流经手写管线），不能经 skill_run 进入模型回合。`);
     }
-    const content = await this.content(name);
-    if (!content) throw new Error(`任务 skill ${name} 正文加载失败。`);
-    // spec 2.11 红线：工具声明只能收紧——越权声明在平台层拒绝执行。
-    assertToolDeclaration(await this.meta(name), allowedTools, name);
-    return { name, content };
+    return bound;
   }
 }
