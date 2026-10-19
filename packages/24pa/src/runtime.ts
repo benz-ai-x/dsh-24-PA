@@ -942,10 +942,12 @@ export class PaRuntime {
     if (this.config?.storage === 'postgres' && this.activePostgresDsn !== resolveSecret(secretRefs(config).pgDsn, this.env, secrets, 'pgDsn')) {
       throw new ConfigError('PostgreSQL 连接变化不能热重载；请按初始化指南更新连接配置后重新绑定工作区，当前账本连接保持不变。');
     }
-    if (this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile || this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(config, secrets))) await this.inboxLifecycle.assertIdle();
-    if (this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile) && (await this.hasActiveWork())) {
-      throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
+    const identityChanged = this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile || this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(config, secrets));
+    if (identityChanged) {
+      await this.inboxLifecycle.assertIdle();
+      if (await this.hasActiveWork()) throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
     }
+
   }
 
   private applyWorkspaceConfiguration(parsed: WorkspaceConfiguration): void {

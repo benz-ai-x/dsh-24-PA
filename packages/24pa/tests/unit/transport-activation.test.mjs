@@ -206,3 +206,16 @@ it.each(['finish', 'stop'])('引用 Worker 的补充输入在 %s 后释放原工
   await vi.waitFor(async () => expect((await rt.repos.inbox.get('supplement')).status).toBe(outcome === 'stop' ? 'rejected' : 'delivered'));
   await rt.bind(await workspace(`after-${outcome}`));
 });
+
+
+it('Lead 已回传而 Worker 仍在途时，参数与磁盘重载都不能换机器人身份', async () => {
+  const { rt, workspace } = await fixture(); const path = await workspace('worker-identity', 'feishu'); await rt.bind(path);
+  await rt.repos.workItems.insert({ id: 'running-work', title: '进行中', role: 'memo', instruction: 'work', origin: 'feishu', parent_session_id: 'parent', child_session_id: 'child', delivery: 'feishu:owner', status: 'running' });
+  const file = join(path, 'AGENTS.md'), before = await readFile(file, 'utf8');
+  await expect(rt.updateWorkspaceConfig({ appIdEnv: 'OTHER_APP_ID', appSecretEnv: 'OTHER_APP_SECRET' })).rejects.toThrow(/进行中的事项/);
+  expect(await readFile(file, 'utf8')).toBe(before);
+  await writeFile(file, before.replace('PA24_FEISHU_APP_ID', 'OTHER_APP_ID').replace('PA24_FEISHU_APP_SECRET', 'OTHER_APP_SECRET'));
+  await expect(rt.reloadWorkspace()).rejects.toThrow(/进行中的事项/);
+  expect(rt.secretValue('feishuAppId')).toBe('app');
+  await rt.repos.workItems.update('running-work', { status: 'stopped' });
+});
