@@ -101,6 +101,23 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     expect(deadlines.slice(0, 2)).toEqual([{ type: 'date', value: '2026-03-08' }, { type: 'date', value: '2026-11-01' }]); expect(deadlines[3]).toBeUndefined();
   });
 
+  it('DST 重复小时保留已知 instant；远端新歧义/不存在时刻保持 stale', async () => {
+    config.timeZone = 'America/Los_Angeles';
+    const created = await wecom.wecomTaskCreate(item, { summary: 'DST 截止', due: '2026-11-01T09:30:00Z' });
+    let task = await repos.tasks.byGuid(created.guid);
+    task = await wecom.refreshWecomTaskFromRemote(task);
+    expect(task.due_at.toISOString()).toBe('2026-11-01T09:30:00.000Z');
+    const remote = { todo_id: task.task_guid, title: task.summary, success: true, status: 'proceed', deadline: { type: 'datetime', value: '2026-11-01 01:45:00' } };
+    await setState('wecom-cli', { todoGetOverride: [remote] });
+    expect(await wecom.refreshWecomTaskFromRemote(task)).toBeNull();
+    await setState('wecom-cli', { todoGetOverride: [{ ...remote, deadline: { type: 'datetime', value: '2026-03-08 02:30:00' } }] });
+    expect(await wecom.refreshWecomTaskFromRemote(task)).toBeNull();
+    expect((await repos.tasks.get(task.id)).due_at).toEqual(task.due_at);
+    config.timeZone = 'Australia/Lord_Howe';
+    await setState('wecom-cli', { todoGetOverride: [{ ...remote, deadline: { type: 'datetime', value: '2026-04-05 01:45:00' } }] });
+    expect(await wecom.refreshWecomTaskFromRemote(task)).toBeNull();
+  });
+
   it('个人完成保持整项 open，重启重试不扩大授权；整项完成必须读回', async () => {
     const created = await wecom.wecomTaskCreate(item, { summary: '多人待办' }); const task = await repos.tasks.byGuid(created.guid);
     await setState('wecom-cli', { todoFinishPartial: true });
@@ -150,6 +167,26 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     await setState('wecom-cli', { failNext: { command: 'whoami' } });
     expect((await wecom.wecomCheck()).identity.state).toBe('error'); await expect(wecom.wecomOwnerUserid()).rejects.toThrow(/解析失败/);
     await setState('wecom-cli', { ownerUserid: 'owner_C' }); expect((await wecom.wecomCheck()).identity.userid).toBe('owner_C');
+  });
+
+  it('检查失败后旧在途 whoami 不能重新填充缓存，下一次成功检查可恢复', async () => {
+    const run = wecom.wecomRun.bind(wecom);
+    let release;
+    const blocked = new Promise(resolve => { release = resolve; });
+    wecom.wecomRun = async args => {
+      if (args[0] === 'identity') { await blocked; return { raw: { extra_identity_context: '授权真人用户身份：名字：旧主人 ID：owner_A' } }; }
+      return run(args);
+    };
+    const old = wecom.wecomOwnerUserid();
+    const oldFailure = expect(old).rejects.toThrow(/新的企微检查取代/);
+    const original = await readFile(wecomBin, 'utf8');
+    await writeFile(wecomBin, '#!/usr/bin/env node\nprocess.exit(1);\n');
+    expect((await wecom.wecomCheck()).identity.state).toBe('missing');
+    release(); await oldFailure;
+    await expect(wecom.wecomOwnerUserid()).rejects.toThrow(/解析失败/);
+    await writeFile(wecomBin, original); wecom.wecomRun = run;
+    await setState('wecom-cli', { ownerUserid: 'owner_B' });
+    expect((await wecom.wecomCheck()).identity.userid).toBe('owner_B');
   });
 
   it('远端回执跨重启保留：投影失败后只补本地，不再次执行', async () => {

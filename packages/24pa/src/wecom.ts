@@ -155,6 +155,19 @@ export function wecomParseWallTime(value: string, timeZone: string): Date | null
   return new Date(asUtc - offset2);
 }
 
+/** A remote wall time has no UTC offset. Preserve a matching known instant;
+ * otherwise accept only an unambiguous mapping (DST gaps/folds stay unknown). */
+export function wecomObservedWallTime(value: string, timeZone: string, known: Date | null): Date | null {
+  if (known && Number.isFinite(known.getTime()) && wecomWallTime(known, timeZone) === value) return known;
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return null;
+  const utc = Date.parse(value.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(utc)) return null;
+  // Sample both sides of nearby offset transitions, including half-hour DST.
+  const offsets = new Set([-48, -24, 0, 24, 48].map(hours => tzOffsetMillis(new Date(utc + hours * 3600000), timeZone)));
+  const candidates = [...offsets].map(offset => new Date(utc - offset)).filter(date => wecomWallTime(date, timeZone) === value);
+  return candidates.length === 1 ? candidates[0]! : null;
+}
+
 function tzOffsetMillis(date: Date, timeZone: string): number {
   const p = partsInZone(date, timeZone);
   const hour = p.hour === '24' ? '00' : p.hour;

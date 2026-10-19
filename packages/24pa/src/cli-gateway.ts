@@ -23,6 +23,8 @@ export interface CliProcessOptions {
 
 export interface CliProcessResult {
   stdout: string;
+  /** Lossless output for consumers such as pg_dump whose encoding may vary. */
+  stdoutBytes: Buffer;
   stderr: string;
   exitCode: number | null;
 }
@@ -46,7 +48,11 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(killTimer); clearTimeout(settleTimer);
       child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
-      if (error) reject(error); else resolve({ stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8'), exitCode: code });
+      if (error) reject(error);
+      else {
+        const stdoutBytes = Buffer.concat(stdout);
+        resolve({ stdout: stdoutBytes.toString('utf8'), stdoutBytes, stderr: Buffer.concat(stderr).toString('utf8'), exitCode: code });
+      }
     };
     const signal = (name: NodeJS.Signals) => {
       try { if (grouped && child.pid) process.kill(-child.pid, name); else child.kill(name); } catch { /* Already exited. */ }

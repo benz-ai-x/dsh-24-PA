@@ -109,7 +109,7 @@ export class PaDatabase implements PaDb {
       fail: kind => new Error(`pg_dump 未完成（${kind}）；备份期限 10 分钟、输出上限 256MiB，请核对后重试。`),
     });
     if (result.exitCode !== 0) throw new Error(`pg_dump 退出码 ${result.exitCode}：${result.stderr.split(this.dsn).join('[已隐藏]').slice(0, 300) || '无诊断输出'}`);
-    const bytes = Buffer.from(result.stdout, 'utf8');
+    const bytes = result.stdoutBytes;
     return [{ id: 'postgres', name: 'pa24.sql', bytes }];
   }
 

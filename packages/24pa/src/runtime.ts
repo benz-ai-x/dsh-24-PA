@@ -2113,68 +2113,70 @@ export class PaRuntime {
     const content = text(args.content);
     const source = text(args.source ?? `事项 ${item.id}`, 500);
     const operationId = `memo:${item.id}:${hash(`${topic}\n${content}`)}`;
-    let { created, row: operation } = await this.stagedOperationWithId(operationId, item, 'memo.save_doc', { topic, contentHash: hash(content) });
-    if (!created && this.config!.mode === 'feishu' && operation.receipt?.demo === true && !operation.receipt.docId) {
-      await this.repos!.operations.update(operationId, { status: 'failed', receipt: null });
-      ({ created, row: operation } = await this.stagedOperationWithId(operationId, item, 'memo.save_doc', { topic, contentHash: hash(content) }));
-    }
-    if (!created) {
-      if (operation.status === 'succeeded') {
-        const memo = await this.repos!.memos.get(operationId);
+    return this.gate(operationId, async () => {
+      let { created, row: operation } = await this.stagedOperationWithId(operationId, item, 'memo.save_doc', { topic, contentHash: hash(content) });
+      if (!created && this.config!.mode === 'feishu' && operation.receipt?.demo === true && !operation.receipt.docId) {
+        await this.repos!.operations.update(operationId, { status: 'failed', receipt: null });
+        ({ created, row: operation } = await this.stagedOperationWithId(operationId, item, 'memo.save_doc', { topic, contentHash: hash(content) }));
+      }
+      if (!created) {
+        if (operation.status === 'succeeded') {
+          const memo = await this.repos!.memos.get(operationId);
+          return {
+            operationId,
+            reused: true,
+            message: '此备忘此前已保存，未重复创建文档。',
+            docUrl: memo?.doc_url ?? operation.receipt?.docUrl ?? null,
+          };
+        }
+        if (operation.status === 'unknown') {
+          throw new Error('上次保存的结果未知（超时或响应丢失）；请先核对配置的目录或知识库是否已生成文档，确认后再继续，不会自动重试。');
+        }
+      }
+      const live = this.config!.mode === 'feishu';
+      try {
+        let external: { docId: string | null; url: string | null; revision: string | null; warnings: string[] } = {
+          docId: (operation.receipt?.docId as string | undefined) ?? null,
+          url: (operation.receipt?.docUrl as string | undefined) ?? null,
+          revision: null,
+          warnings: [],
+        };
+        if (live && !external.docId) {
+          external = await this.externalOperations.perform(operationId, () => this.feishu.createMemoDocument(item, topic, content));
+        }
+        if (external.docId && live) {
+          const readback = await this.feishu.readMemoDocument(external.docId);
+          external = { ...external, revision: readback.revision };
+        }
+        const memo = await this.repos!.memos.insert({
+          id: operationId,
+          work_item_id: item.id,
+          topic,
+          content,
+          doc_url: external.url,
+          doc_id: external.docId,
+          doc_revision: external.revision,
+          source,
+          occurred_on: new Date().toISOString().slice(0, 10),
+        });
+        await this.repos!.operations.update(operationId, {
+          status: 'succeeded',
+          receipt: { docId: external.docId, url: external.url, revision: external.revision, warnings: external.warnings, memoId: memo.id, demo: !live },
+        });
+        await this.repos!.workItems.update(item.id, {
+          result_ref: { operationId, docUrl: external.url, demo: !live },
+        });
         return {
           operationId,
-          reused: true,
-          message: '此备忘此前已保存，未重复创建文档。',
-          docUrl: memo?.doc_url ?? operation.receipt?.docUrl ?? null,
+          docUrl: external.url,
+          demo: !live,
+          message: live && external.docId ? '备忘已保存为飞书文档并回读确认。' : '演示模式：备忘已入业务账本，未创建飞书文档。',
         };
+      } catch (error) {
+        await this.failStaged(operationId, error);
+        throw error;
       }
-      if (operation.status === 'unknown') {
-        throw new Error('上次保存的结果未知（超时或响应丢失）；请先核对配置的目录或知识库是否已生成文档，确认后再继续，不会自动重试。');
-      }
-    }
-    const live = this.config!.mode === 'feishu';
-    try {
-      let external: { docId: string | null; url: string | null; revision: string | null; warnings: string[] } = {
-        docId: (operation.receipt?.docId as string | undefined) ?? null,
-        url: (operation.receipt?.docUrl as string | undefined) ?? null,
-        revision: null,
-        warnings: [],
-      };
-      if (live && !external.docId) {
-        external = await this.externalOperations.perform(operationId, () => this.feishu.createMemoDocument(item, topic, content));
-      }
-      if (external.docId && live) {
-        const readback = await this.feishu.readMemoDocument(external.docId);
-        external = { ...external, revision: readback.revision };
-      }
-      const memo = await this.repos!.memos.insert({
-        id: operationId,
-        work_item_id: item.id,
-        topic,
-        content,
-        doc_url: external.url,
-        doc_id: external.docId,
-        doc_revision: external.revision,
-        source,
-        occurred_on: new Date().toISOString().slice(0, 10),
-      });
-      await this.repos!.operations.update(operationId, {
-        status: 'succeeded',
-        receipt: { docId: external.docId, url: external.url, revision: external.revision, warnings: external.warnings, memoId: memo.id, demo: !live },
-      });
-      await this.repos!.workItems.update(item.id, {
-        result_ref: { operationId, docUrl: external.url, demo: !live },
-      });
-      return {
-        operationId,
-        docUrl: external.url,
-        demo: !live,
-        message: live && external.docId ? '备忘已保存为飞书文档并回读确认。' : '演示模式：备忘已入业务账本，未创建飞书文档。',
-      };
-    } catch (error) {
-      await this.failStaged(operationId, error);
-      throw error;
-    }
+    });
   }
 
   // ---- outreach, recurring tasks, waiting items (F08) ------------------------

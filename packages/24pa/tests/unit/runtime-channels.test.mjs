@@ -38,7 +38,10 @@ describe('R3 Runtime 渠道边界', () => {
     const task = await f.rt.delegate({ worker: 'memo', title: '保存备忘', instruction: '记下材料' }, f.local);
     const child = { id: task.workId }, args = { action: 'memo_save', topic: '材料', content: 'demo 遗留内容' };
     expect(await f.rt.work(args, child)).toMatchObject({ demo: true });
-    f.rt.config.mode = 'feishu'; expect(await f.rt.work(args, child)).toMatchObject({ demo: false, docUrl: expect.stringContaining('feishu') });
+    f.rt.config.mode = 'feishu';
+    const results = await Promise.all(Array.from({ length: 12 }, () => f.rt.work(args, child)));
+    expect(results.every(r => r.docUrl?.includes('feishu'))).toBe(true);
+    expect(results.filter(r => !r.reused)).toHaveLength(1);
     expect(await f.rt.work(args, child)).toMatchObject({ reused: true }); expect(createCount(await f.calls())).toBe(1);
   });
   it('长业务键穿过真实 SDK text/card 参数后仍区分回合、代次、类型及目标；重试稳定', async () => {

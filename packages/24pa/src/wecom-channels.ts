@@ -6,7 +6,7 @@ import { observeCalendar } from './calendar-observation.js';
 // runtime; wecom-cli is not idempotent so every write goes through staged
 // operations first (spec 1.6).
 
-import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
+import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime, wecomObservedWallTime } from './wecom.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint } from './util.js';
 import { taskPlanKey, saveTaskObservation } from './task-lifecycle.js';
 import type { PaConfig } from './config.js';
@@ -80,6 +80,7 @@ export class WecomChannels {
 
   /** Cache the authorized person; explicit inspection refreshes and coalesces. */
   private identityChecking: Promise<{ userid: string; name: string }> | null = null;
+  private identityEpoch = 0;
   async wecomOwnerUserid(refresh = false): Promise<{ userid: string; name: string }> {
     if (!refresh && this.checking) {
       await this.checking;
@@ -91,11 +92,11 @@ export class WecomChannels {
       await this.identityChecking.catch(() => {});
     }
     if (refresh) { this.wecomIdentityCache = null; this.wecomIdentityFailedAt = 0; }
-    this.identityChecking = this.readOwnerIdentity().finally(() => { this.identityChecking = null; });
+    this.identityChecking = this.readOwnerIdentity(this.identityEpoch).finally(() => { this.identityChecking = null; });
     return this.identityChecking;
   }
 
-  private async readOwnerIdentity(): Promise<{ userid: string; name: string }> {
+  private async readOwnerIdentity(epoch: number): Promise<{ userid: string; name: string }> {
     if (this.wecomIdentityCache) return this.wecomIdentityCache;
     if (Date.now() - this.wecomIdentityFailedAt < 60_000) {
       throw new Error('企微推送目标最近解析失败（60 秒内不重复解析）；用 pa24_connection action=wecom_check 诊断。');
@@ -105,11 +106,14 @@ export class WecomChannels {
       const context = String((raw as any)?.extra_identity_context ?? '');
       const match = /授权真人用户身份：\s*名字：(.+?)\s*ID：([A-Za-z0-9_\-]+)/.exec(context.replace(/\s+/g, ' '));
       if (!match) throw new Error('whoami 未包含授权真人身份；请先在服务器完成 wecom-cli auth init 并由本人扫码。');
+      if (epoch !== this.identityEpoch) throw new Error('该身份读取已被新的企微检查取代，请以新检查为准。');
       this.wecomIdentityCache = { name: match[1]!.trim(), userid: match[2]! };
       return this.wecomIdentityCache;
     } catch (error) {
-      this.wecomIdentityCache = null;
-      this.wecomIdentityFailedAt = Date.now();
+      if (epoch === this.identityEpoch) {
+        this.wecomIdentityCache = null;
+        this.wecomIdentityFailedAt = Date.now();
+      }
       throw error;
     }
   }
@@ -348,7 +352,7 @@ export class WecomChannels {
           dueAt = new Date(value);
           if (Number.isNaN(dueAt.getTime()) || dueAt.toISOString().slice(0, 10) !== value) return null;
         } else if (type === 'datetime' && typeof value === 'string') {
-          dueAt = wecomParseWallTime(value, this.deps.config().timeZone); dueHasTime = true;
+          dueAt = wecomObservedWallTime(value, this.deps.config().timeZone, task.due_has_time ? task.due_at : null); dueHasTime = true;
           if (!dueAt || Number.isNaN(dueAt.getTime()) || wecomWallTime(dueAt, this.deps.config().timeZone) !== value) return null;
         } else return null;
       }
@@ -447,6 +451,7 @@ export class WecomChannels {
 
   private async inspectWecom(): Promise<WecomDiagnostics> {
     if (!this.deps.config()) throw new Error('尚未绑定工作区。');
+    this.identityEpoch += 1;
     this.wecomIdentityCache = null;
     const nextSteps: string[] = [];
     const services: WecomServiceCheck[] = [];
