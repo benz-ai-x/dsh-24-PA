@@ -1284,7 +1284,7 @@ export class PaRuntime {
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
       if ('error' in parent) throw parent.error;
       this.workerParents.add(item.parent_session_id);
-      const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }], { signal: this.lifetime.signal }));
+      const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }], { signal: this.lifetime.signal })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
       if (typeof messageId === 'string') this.executionMessages.set(item.id, { generation: item.recovery_gen ?? 0, messageId });
       return typeof messageId === 'string' ? messageId : undefined;
     },

@@ -73,6 +73,10 @@ export class WorkItemLifecycle {
         throw error;
       }
       return { ...running!, ...(typeof acceptedMessageId === 'string' ? { acceptedMessageId } : {}) };
+    }).catch(error => {
+      // The host adapter explicitly tags uncertain send outcomes. Validation,
+      // capacity, parent/skill resolution and local intent failures precede it.
+      throw Object.assign(error, { outcome: error.outcome ?? 'rejected' });
     });
   }
 

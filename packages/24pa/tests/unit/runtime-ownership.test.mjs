@@ -104,6 +104,17 @@ describe('公开 runtime 执行归属与恢复', () => {
     await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('input')).status).toBe('delivered'));
     expect(f.prompts.filter(p => p.requestId === 'feishu:input')).toHaveLength(1); expect((await f.rt.repos.outbox.recent()).some(r => r.content.text === '本人结果')).toBe(true);
   });
+  it('容量满导致补充输入未送达宿主，明确拒绝而不留下 admitted', async () => {
+    const f = await setup({ maxWorkers: 1, mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }, { env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'secret' } });
+    const local = f.agents.get(await f.rt.openLocalSession());
+    await f.rt.repos.workItems.insert({ ...row('completed', 'completed'), parent_session_id: local.id });
+    await f.rt.delegate({ worker: 'memo', title: '占满', instruction: '保存' }, local);
+    await f.rt.repos.messageRoutes.record('original', { kind: 'workitem', workItemId: 'completed' });
+    const send = vi.spyOn(f.ctx.subagents, 'sendMessage');
+    await f.rt.getTransport().inject({ eventId: 'input', kind: 'message', appId: 'app', senderOpenId: 'owner', chatType: 'p2p', text: '补充', parentMessageId: 'original' });
+    await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('input')).status).toBe('rejected'));
+    expect((await f.rt.repos.inbox.get('input')).error).toContain('并发已满'); expect(send).not.toHaveBeenCalled();
+  });
   it('较早回合已消费的补充输入独立结算，较新输入仍由后续回合完成', async () => {
     const f = await setup({ mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }, { env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'secret' } });
     const local = f.agents.get(await f.rt.openLocalSession()); const task = await f.rt.delegate({ worker: 'memo', title: '保存', instruction: '保存' }, local);
