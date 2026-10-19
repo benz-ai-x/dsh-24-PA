@@ -74,6 +74,18 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
   };
   const outbox = () => repos.outbox.recent(50);
 
+  it('已完成/已取消任务不进入待办事实和负荷，待办仍保留', async () => {
+    await plan();
+    const save = repos.tasks.save.bind(repos.tasks);
+    try {
+      for (const status of ['open', 'completed', 'canceled']) await save({ id: 'load-' + status, task_guid: 'load-' + status,
+        work_item_id: null, url: null, summary: status, due_at: new Date('2020-01-01'), due_has_time: false,
+        planned_at: null, estimate_minutes: 30, status, external_updated_at: null, last_synced_at: null });
+      const built = await digest.digestBuild(await item('work'), { planId: 'plan' });
+      expect(built.facts.tasksDue.map(t => t.guid)).toEqual(['load-open']);
+    } finally { await db.query("delete from pa24.task where id like 'load-%'"); }
+  });
+
   it('agent 轨交接不发送；同事项交付和重复交付只生成一份全文', async () => {
     await plan();
     const built = await digest.digestBuild(await item('work'), { planId: 'plan' });

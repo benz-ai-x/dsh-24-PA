@@ -192,6 +192,14 @@ if (plain[0] === 'task' && plain[1] === '+complete') {
   await appendFile(tasksPath, JSON.stringify({ ...task, status: 'completed', revision: (task.revision ?? 0) + 1 }) + '\n');
   ok({ task: { guid, status: 'completed' } });
 }
+if (plain[0] === 'task' && plain[1] === 'tasks' && plain[2] === 'get') {
+  if (state.failNext?.command === 'task.get') fail('task get unavailable');
+  if (state.taskGetOverride) ok({ task: state.taskGetOverride });
+  const task = [...tasks].reverse().find(t => t.guid === argOf('--task-guid'));
+  if (!task) fail('task not found');
+  const due = task.due ? { timestamp: String(Date.parse(task.due)), is_all_day: !/[:T]/.test(task.due) } : null;
+  ok({ task: { ...task, due, completed_at: task.status === 'completed' ? '1790000000000' : '0' } });
+}
 if (plain[0] === 'task' && plain[1] === '+search') {
   const query = argOf('--query') ?? '';
   const matched = tasks.filter(t => !query || t.summary.includes(query.replace(/^\[24PA\] /, '').slice(0, 20)) || t.summary.includes(query));
@@ -254,11 +262,11 @@ if (plain[0] === 'im' && plain[1] === '+messages-send') {
     sends = (await readFile(sendsPath, 'utf8')).split('\n').filter(Boolean).map(l => JSON.parse(l));
   } catch {}
   const existing = key ? sends.find(s => s.key === key) : undefined;
-  if (existing) ok({ message: { message_id: existing.messageId }, idempotent: true });
-  if (!userId || body === undefined) fail('缺少 --user-id 或 --text');
+  if (existing) ok(argOf('--audio') ? { message_id: existing.messageId, idempotent: true } : { message: { message_id: existing.messageId }, idempotent: true });
+  if (!userId || (body === undefined && !argOf('--audio'))) fail('缺少 --user-id 或消息正文');
   const messageId = `omstub-${sends.length + 1}`;
   await appendFile(sendsPath, JSON.stringify({ key: key ?? null, userId, messageId }) + '\n');
-  ok({ message: { message_id: messageId } });
+  ok(argOf('--audio') ? { message_id: messageId } : { message: { message_id: messageId } });
 }
 if (plain[0] === 'task' && plain[1] === '+assign') {
   if (state.failNext?.command === 'task.assign') {

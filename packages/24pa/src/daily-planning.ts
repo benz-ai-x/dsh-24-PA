@@ -46,7 +46,7 @@ export class DailyPlanning {
         suggestions: displaced.map(d => `将「${d.summary}」改期到插单后，或压缩该时段`),
         message: displaced.length ? `插单与 ${displaced.length} 项现有安排重叠；未受影响安排不动；采纳仍需明确选定。` : '插单时段无已知冲突；采纳前会重新同步复核。' };
     }
-    const tasks = (await this.deps.repos().tasks.list()).filter(t => t.status !== 'completed').slice(0, 5);
+    const tasks = (await this.deps.repos().tasks.list()).filter(t => t.status === 'open').slice(0, 5);
     return { date: day.date, fresh: day.sync.ok, busy, bufferMinutesPerMeeting: await this.bufferMinutes(),
       candidateBlocks: tasks.map((task, index) => ({ task: task.summary, suggestedStart: localInstant(day.date, `${9 + index}:00:00`.padStart(8, '0'), this.deps.config().timeZone).toISOString(), minutes: task.estimate_minutes ?? 60 })),
       message: '候选时间块仅为建议；用 plan_adopt 采纳选定项（写入前会重新同步复核）。' };

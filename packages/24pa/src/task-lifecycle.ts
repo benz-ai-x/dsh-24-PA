@@ -1,5 +1,24 @@
 import type { DataChannel, TaskRepo, TaskRow, WorkItemRow } from './repo.js';
-import { isoDate } from './util.js';
+import { hash, isoDate } from './util.js';
+
+/** The creation marker is not an owner edit. Date-only legacy keys stay stable; time precision is part of the identity. */
+export function taskFingerprint(task: { task_guid: string; summary: string; due_at: Date | null; due_has_time?: boolean }): string {
+  return hash(`${task.task_guid}\n${task.summary.replace(/^\[24PA\] /, '')}\n${isoDate(task.due_at) ?? ''}${task.due_at && task.due_has_time ? '\ntime' : ''}`);
+}
+
+/** Publish a complete observation only after dependent sources are invalidated.
+ * Local planning fields and the original platform ownership are preserved. */
+export async function saveTaskObservation(task: TaskRow,
+  observed: Pick<TaskRow, 'summary' | 'status' | 'due_at' | 'due_has_time'>,
+  repo: TaskRepo,
+  notify: (sourceType: 'task', sourceId: string, fingerprint: string | null) => Promise<void>,
+): Promise<TaskRow> {
+  const next = { ...task, ...observed, summary: observed.summary.replace(/^\[24PA\] /, '') };
+  if (task.status !== next.status || taskFingerprint(task) !== taskFingerprint(next) || task.due_has_time !== next.due_has_time) {
+    await notify('task', task.task_guid, next.status === 'open' ? taskFingerprint(next) : null);
+  }
+  return repo.save({ ...next, last_synced_at: new Date(), external_updated_at: new Date() });
+}
 
 /** Preserve old keys for requests without local planning fields. Omitted,
  * explicit null and concrete values represent different owner instructions. */

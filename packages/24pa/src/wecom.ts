@@ -1,4 +1,5 @@
 import { runCliProcess } from './cli-gateway.js';
+import { Temporal } from '@js-temporal/polyfill';
 
 // Controlled wecom-cli gateway (F16): fixed argv arrays (never a shell
 // string), the CLI's JSON output decides success, and the three observed
@@ -153,6 +154,17 @@ export function wecomParseWallTime(value: string, timeZone: string): Date | null
   const offset1 = tzOffsetMillis(new Date(asUtc), timeZone);
   const offset2 = tzOffsetMillis(new Date(asUtc - offset1), timeZone);
   return new Date(asUtc - offset2);
+}
+
+/** A remote wall time has no UTC offset. Preserve a matching known instant;
+ * otherwise accept only an unambiguous mapping (DST gaps/folds stay unknown). */
+export function wecomObservedWallTime(value: string, timeZone: string, known: Date | null): Date | null {
+  if (known && Number.isFinite(known.getTime()) && wecomWallTime(known, timeZone) === value) return known;
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return null;
+  try {
+    const local = Temporal.PlainDateTime.from(value.replace(' ', 'T'), { overflow: 'reject' });
+    return new Date(local.toZonedDateTime(timeZone, { disambiguation: 'reject' }).epochMilliseconds);
+  } catch { return null; }
 }
 
 function tzOffsetMillis(date: Date, timeZone: string): number {

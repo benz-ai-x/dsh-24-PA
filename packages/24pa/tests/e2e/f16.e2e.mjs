@@ -215,8 +215,8 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     });
     await prompt('渠道验收记录写完了，完成这条待办');
     await waitWork(items => items.filter(w => w.role === 'tasks').length === 3 && items.every(w => w.status === 'completed'), '完成事项结束');
-    await waitToolResult('企微待办已完成', '完成回执');
-    expect((await readJournal('todos', 'todo_id'))[0].status).toBe('done');
+    await waitToolResult('企微待办整项已完成', '完成回执');
+    expect((await readJournal('todos', 'todo_id'))[0].status).toBe('finished');
     expect((await cluster.query(`select status from pa24.task where task_guid='${guid}'`))).toContain('completed');
 
     // 注入平台失败：staged 落 failed、不写远端，错误原文上报。

@@ -104,7 +104,7 @@ if (plain[0] === 'todo' && plain[1] === 'create') {
   const items = JSON.parse(argOf('--items') ?? '[]');
   const results = items.map((item, index) => {
     const todo_id = `tdstub-${todos.size + index + 1}`;
-    return { success: true, todo_id, title: item.title, followers: [{ userid: state.ownerUserid ?? 'wou_test_owner', user_name: '测试主人' }] };
+    return { success: true, todo_id, title: item.title, deadline: item.deadline ?? null, followers: [{ userid: state.ownerUserid ?? 'wou_test_owner', user_name: '测试主人' }] };
   });
   for (const r of results) {
     todos.set(r.todo_id, { ...r, status: 'proceed' });
@@ -113,6 +113,15 @@ if (plain[0] === 'todo' && plain[1] === 'create') {
   ok({ items: results, items_count: results.length });
 }
 
+if (plain[0] === 'todo' && plain[1] === 'get') {
+  if (state.failNext?.command === 'todo.get' || state.todoUnauthorized) failErrcode(850002, 'no authorization');
+  if (state.todoGetOverride) ok({ items: state.todoGetOverride });
+  const items = JSON.parse(argOf('--items') ?? '[]');
+  ok({ items: items.map(({ todo_id }) => {
+    const todo = todos.get(todo_id);
+    return todo ? { ...todo, success: true, status: todo.deleted ? 'deleted' : todo.status } : { todo_id, success: false };
+  }) });
+}
 if (plain[0] === 'todo' && plain[1] === 'list') {
   if (state.failNext?.command === 'todo.list') {
     await writeState({ ...state, failNext: null });
@@ -124,15 +133,16 @@ if (plain[0] === 'todo' && plain[1] === 'list') {
 }
 
 if (plain[0] === 'todo' && plain[1] === 'finish') {
+  if (state.todoFinishOverride) ok({ items: state.todoFinishOverride });
   const items = JSON.parse(argOf('--items') ?? '[]');
   const results = items.map(({ todo_id }) => {
     const todo = todos.get(todo_id);
     if (!todo) return { success: false, todo_id, errmsg: `非法的 'todo_id': ${todo_id}` };
-    return { success: true, todo_id };
+    return { success: true, todo_id, ask_finish_all: !!state.todoFinishPartial };
   });
   for (const { todo_id } of items) {
     const todo = todos.get(todo_id);
-    if (todo) await appendFile(todosPath, JSON.stringify({ ...todo, status: 'done' }) + '\n').catch(() => {});
+    if (todo) await appendFile(todosPath, JSON.stringify({ ...todo, status: state.todoFinishPartial ? 'proceed' : 'finished' }) + '\n').catch(() => {});
   }
   ok({ items: results, items_count: results.length });
 }
@@ -142,7 +152,7 @@ if (plain[0] === 'todo' && plain[1] === 'delete') {
   const results = items.map(({ todo_id }) => {
     const todo = todos.get(todo_id);
     if (!todo) return { success: false, todo_id, errmsg: `非法的 'todo_id': ${todo_id}` };
-    return { success: true, todo_id };
+    return { success: true, todo_id, ask_finish_all: !!state.todoFinishPartial };
   });
   for (const { todo_id } of items) {
     const todo = todos.get(todo_id);

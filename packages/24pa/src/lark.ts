@@ -1,3 +1,4 @@
+import { platformMessageKey } from './util.js';
 // Controlled lark-cli gateway: fixed argv arrays (never a shell string), the
 // official `--json` envelope decides success, and partial results are treated
 // as "verify first" instead of success. Process management lives in the
@@ -86,7 +87,7 @@ export async function sendLarkAudioMessage(
     await writeFile(join(dir, rel), ogg);
     const result = await runLarkCli(
       { ...options, cwd: dir },
-      ['im', '+messages-send', '--as', 'bot', '--user-id', userId, '--audio', `./${rel}`, '--idempotency-key', idempotencyKey.slice(0, 50)],
+      ['im', '+messages-send', '--as', 'bot', '--user-id', userId, '--audio', `./${rel}`, '--idempotency-key', platformMessageKey('feishu', 'audio', idempotencyKey, userId)],
     );
     const messageId = result.data?.message_id ?? result.data?.data?.message_id;
     if (typeof messageId !== 'string' || !messageId) {

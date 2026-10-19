@@ -11,7 +11,8 @@ import { runLarkCli } from './lark.js';
 import { cliOptions } from './feishu.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint, hash } from './util.js';
 import { noteParentToken } from './config.js';
-import { taskPlanKey } from './task-lifecycle.js';
+import { taskPlanKey, taskFingerprint, saveTaskObservation } from './task-lifecycle.js';
+export { taskFingerprint } from './task-lifecycle.js';
 import type { PaConfig } from './config.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import type { TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
@@ -62,10 +63,6 @@ export function taskExternal(data: any): { guid: string; url: string | null } {
   return { guid: String(guid), url: task?.url ? String(task.url) : null };
 }
 
-/** Stable fingerprint of a followed task: identity + content + due (P19). */
-export function taskFingerprint(task: { task_guid: string; summary: string; due_at: Date | null }): string {
-  return hash(`${task.task_guid}\n${task.summary}\n${isoDate(task.due_at) ?? ''}`);
-}
 export class FeishuChannels {
   constructor(private readonly deps: FeishuDeps) {}
 
@@ -311,19 +308,33 @@ export class FeishuChannels {
 
   // ---- tasks ----------------------------------------------------------------
 
-  async refreshTask(task: TaskRow): Promise<TaskRow | null> {
+  refreshTask(task: TaskRow): Promise<TaskRow | null> {
+    return this.deps.gate(`task:${task.task_guid}`, async () => {
+      const current = await this.deps.repos().tasks.get(task.id);
+      return current ? this.observeTask(current) : null;
+    });
+  }
+
+  private async observeTask(task: TaskRow): Promise<TaskRow | null> {
     try {
       const { data } = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), [
-        'task', '+search', '--as', 'user', '--query', task.summary.replace(/^\[24PA\] /, '').slice(0, 20),
+        'task', 'tasks', 'get', '--as', 'user', '--task-guid', task.task_guid,
       ]);
-      const remote = (data?.tasks ?? data?.items ?? []).find((t: any) => String(t.guid ?? t.task_guid) === task.task_guid);
-      if (!remote) return null;
-      return await this.deps.repos().tasks.save({
-        ...task,
-        summary: typeof remote.summary === 'string' && remote.summary ? remote.summary : task.summary,
-        status: remote.completed === true || remote.status === 'completed' ? 'completed' : 'open',
-        last_synced_at: new Date(), external_updated_at: new Date(),
-      });
+      const remote = data?.task;
+      if (String(remote?.guid ?? '') !== task.task_guid || typeof remote?.summary !== 'string') return null;
+      let dueAt: Date | null = null, dueHasTime = false;
+      if (remote.due != null) {
+        if (typeof remote.due.is_all_day !== 'boolean' || !/^\d+$/.test(String(remote.due.timestamp ?? ''))) return null;
+        const instant = new Date(Number(remote.due.timestamp));
+        if (Number.isNaN(instant.getTime())) return null;
+        dueHasTime = !remote.due.is_all_day;
+        dueAt = dueHasTime ? instant : new Date(instant.toISOString().slice(0, 10));
+      }
+      if (!/^\d+$/.test(String(remote.completed_at ?? ''))) return null;
+      return await saveTaskObservation(task, {
+        summary: remote.summary, due_at: dueAt, due_has_time: dueHasTime,
+        status: Number(remote.completed_at) > 0 ? 'completed' : 'open',
+      }, this.deps.repos().tasks, this.deps.notifySourceChanged);
     } catch { return null; }
   }
 
@@ -331,7 +342,7 @@ export class FeishuChannels {
     return this.deps.gate(`task:${taskRef.task_guid}`, async () => {
       const local = await this.deps.repos().tasks.get(taskRef.id);
       if (!local) throw new Error('任务不存在；请先用 task_list 查看。');
-      const refreshed = await this.refreshTask(local);
+      const refreshed = await this.observeTask(local);
       const task = refreshed ?? local;
       if (task.status === 'completed') return { guid: task.task_guid, status: 'completed', reused: true, stale: !refreshed, message: refreshed ? '任务此前已是完成状态（含远端核对）。' : '任务此前已是完成状态（本地投影，本次远端核对未完成）。' };
       const staged = await this.deps.stagedOperation(item, 'task.complete', task.task_guid, { guid: task.task_guid });
@@ -427,7 +438,7 @@ export class FeishuChannels {
       // projection never overwrites another worker's or the owner's changes.
       const stale = await this.deps.repos().tasks.get(taskRef.id);
       if (!stale) throw new Error('任务不存在；请先用 task_list 查看。');
-      await this.refreshTask(stale);
+      await this.observeTask(stale);
       const task = (await this.deps.repos().tasks.get(taskRef.id)) ?? stale;
       const staged = await this.deps.stagedOperation(item, 'task.update', `${task.task_guid}\n${summary ?? ''}\n${dueArg ?? ''}${taskPlanKey(args)}`, { guid: task.task_guid, summary, due: dueArg, plannedAt, estimateMinutes });
       if (!staged.created && staged.row.status === 'succeeded') {

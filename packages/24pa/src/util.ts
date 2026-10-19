@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
+export const platformMessageKey = (channel: string, kind: string, businessKey: string, target: string): string => '24pa-' + hash(JSON.stringify([channel, kind, businessKey, target])).slice(0, 40);
+
 export const nowIso = (): string => new Date().toISOString();
 
 export const text = (value: unknown, max = 12000): string => {

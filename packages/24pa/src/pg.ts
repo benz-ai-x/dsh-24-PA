@@ -1,3 +1,4 @@
+import { runCliProcess } from './cli-gateway.js';
 import pg from 'pg';
 import { MIGRATIONS } from './db.js';
 import type { BackupPart, PaDb } from './db.js';
@@ -102,22 +103,13 @@ export class PaDatabase implements PaDb {
   /** F28: pg_dump of the pa24 schema only; the DSN is redacted from any
    *  surfaced stderr so credentials stay out of diagnostics. */
   async backup(): Promise<BackupPart[]> {
-    const { spawn } = await import('node:child_process');
-    const bytes = await new Promise<Buffer>((resolve, reject) => {
-      const child = spawn('pg_dump', ['--schema=pa24', '--no-owner', '--no-privileges', '--dbname', this.dsn], { stdio: ['ignore', 'pipe', 'pipe'] });
-      const chunks: Buffer[] = [];
-      let stderr = '';
-      child.stdout.on('data', (c: Buffer) => chunks.push(c));
-      child.stderr.on('data', (c: Buffer) => { stderr += c; });
-      child.on('error', reject);
-      child.on('close', code => {
-        if (code === 0) resolve(Buffer.concat(chunks));
-        else {
-          const detail = stderr.split(this.dsn).join('[已隐藏]').slice(0, 300) || '无诊断输出';
-          reject(new Error(`pg_dump 退出码 ${code}：${detail}`));
-        }
-      });
+    const result = await runCliProcess({
+      bin: 'pg_dump', argv: ['--schema=pa24', '--no-owner', '--no-privileges', '--dbname', this.dsn],
+      timeoutMs: 10 * 60_000, stdoutLimitBytes: 256 * 1024 * 1024,
+      fail: kind => new Error(`pg_dump 未完成（${kind}）；备份期限 10 分钟、输出上限 256MiB，请核对后重试。`),
     });
+    if (result.exitCode !== 0) throw new Error(`pg_dump 退出码 ${result.exitCode}：${result.stderr.split(this.dsn).join('[已隐藏]').slice(0, 300) || '无诊断输出'}`);
+    const bytes = result.stdoutBytes;
     return [{ id: 'postgres', name: 'pa24.sql', bytes }];
   }
 

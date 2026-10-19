@@ -260,7 +260,7 @@ export class DigestService {
     if (!sync.ok) missing.push(`日历同步失败（${sync.error ?? '未知'}）：以下为投影，可能过期`);
     const state = await this.deps.repos().calendar.getSync(calendarId);
     const tasks = await this.deps.repos().tasks.list();
-    const todayTasks = tasks.filter(t => t.status !== 'completed' && (
+    const todayTasks = tasks.filter(t => t.status === 'open' && (
       (t.due_at && t.due_at < dayEnd) || (t.planned_at && t.planned_at >= dayStart && t.planned_at < dayEnd)));
     const completedToday = tasks.filter(t => t.status === 'completed' && t.last_synced_at && t.last_synced_at >= dayStart && t.last_synced_at < dayEnd);
     const waiting = await this.deps.repos().waiting.list('waiting');
