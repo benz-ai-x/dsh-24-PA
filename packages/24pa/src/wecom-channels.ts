@@ -1,3 +1,4 @@
+import { runCliProcess } from './cli-gateway.js';
 import { observeCalendar } from './calendar-observation.js';
 // WeCom channel module (F30): the calendar/todo/notify operations plus the
 // auth monitor behind one deep module. Channel selection (calendarChannel /
@@ -7,10 +8,21 @@ import { observeCalendar } from './calendar-observation.js';
 
 import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint } from './util.js';
-import { taskPlanKey } from './task-lifecycle.js';
+import { taskPlanKey, saveTaskObservation } from './task-lifecycle.js';
 import type { PaConfig } from './config.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import type { Repos, TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
+
+/** A process-level success cannot prove this target's individual mutation. */
+function todoMutationReceipt(data: any, guid: string, action: string): Record<string, unknown> {
+  const items = Array.isArray(data?.items) ? data.items.filter((row: any) => row?.todo_id === guid) : [];
+  const receipt = items[0];
+  if (items.length !== 1 || typeof receipt.success !== 'boolean') {
+    throw Object.assign(new Error(`企微待办${action}回执无法对应目标；结果待核对，不要盲目重试。`), { outcome: 'unknown' });
+  }
+  if (!receipt.success) throw Object.assign(new Error(`企微待办${action}被明确拒绝：${receipt.errmsg ?? '请核对待办状态'}`), { outcome: 'failed' });
+  return receipt;
+}
 
 export const WECOM_CALENDAR_ID = 'wecom';
 const WECOM_AUTH_ALERT_SUPPRESS_MS = 24 * 60 * 60 * 1000;
@@ -66,8 +78,24 @@ export class WecomChannels {
     return runWecomCli(this.deps.cli(), args);
   }
 
-  /** Resolve the push target via `identity whoami` once per workspace session. */
-  async wecomOwnerUserid(): Promise<{ userid: string; name: string }> {
+  /** Cache the authorized person; explicit inspection refreshes and coalesces. */
+  private identityChecking: Promise<{ userid: string; name: string }> | null = null;
+  async wecomOwnerUserid(refresh = false): Promise<{ userid: string; name: string }> {
+    if (!refresh && this.checking) {
+      await this.checking;
+      if (!this.wecomIdentityCache) throw new Error('本次企微身份检查未通过，未解析通知目标。');
+      return this.wecomIdentityCache;
+    }
+    if (this.identityChecking) {
+      if (!refresh) return this.identityChecking;
+      await this.identityChecking.catch(() => {});
+    }
+    if (refresh) { this.wecomIdentityCache = null; this.wecomIdentityFailedAt = 0; }
+    this.identityChecking = this.readOwnerIdentity().finally(() => { this.identityChecking = null; });
+    return this.identityChecking;
+  }
+
+  private async readOwnerIdentity(): Promise<{ userid: string; name: string }> {
     if (this.wecomIdentityCache) return this.wecomIdentityCache;
     if (Date.now() - this.wecomIdentityFailedAt < 60_000) {
       throw new Error('企微推送目标最近解析失败（60 秒内不重复解析）；用 pa24_connection action=wecom_check 诊断。');
@@ -80,6 +108,7 @@ export class WecomChannels {
       this.wecomIdentityCache = { name: match[1]!.trim(), userid: match[2]! };
       return this.wecomIdentityCache;
     } catch (error) {
+      this.wecomIdentityCache = null;
       this.wecomIdentityFailedAt = Date.now();
       throw error;
     }
@@ -263,7 +292,7 @@ export class WecomChannels {
       const tz = this.deps.config().timeZone;
       const todoItem: Record<string, unknown> = { title: `[24PA] ${summary}` };
       if (dueAt) {
-        todoItem.deadline = { type: dueHasTime ? 'datetime' : 'date', value: dueHasTime ? wecomWallTime(dueAt, tz) : wecomWallTime(dueAt, tz).slice(0, 10) };
+        todoItem.deadline = { type: dueHasTime ? 'datetime' : 'date', value: dueHasTime ? wecomWallTime(dueAt, tz) : dueAt.toISOString().slice(0, 10) };
         todoItem.remind_at_deadline = true;
       }
       const guid = await this.deps.performExternal(staged.row.id, async () => {
@@ -297,19 +326,36 @@ export class WecomChannels {
     }
   }
 
-  /** Best-effort refresh for wecom todo rows (todo list has no single-get filter). */
-  async refreshWecomTaskFromRemote(task: TaskRow): Promise<TaskRow | null> {
+  /** Observe this exact object; absent or malformed results leave it stale. */
+  refreshWecomTaskFromRemote(task: TaskRow): Promise<TaskRow | null> {
+    return this.deps.gate(`task:${task.task_guid}`, async () => {
+      const current = await this.deps.repos().tasks.get(task.id);
+      return current ? this.observeTask(current) : null;
+    });
+  }
+
+  private async observeTask(task: TaskRow): Promise<TaskRow | null> {
     try {
-      const { data } = await this.wecomRun(['todo', 'list']);
-      const remote = ((data?.items ?? data?.todos ?? []) as any[]).find(t => String(t?.todo_id) === task.task_guid);
-      if (!remote) return null;
-      const status = remote.status === 'proceed' ? 'open' : 'completed';
-      return await this.deps.repos().tasks.save({
-        ...task,
-        status,
-        last_synced_at: new Date(),
-        external_updated_at: new Date(),
-      });
+      const { data } = await this.wecomRun(['todo', 'get', '--items', JSON.stringify([{ todo_id: task.task_guid }])]);
+      const matches = (Array.isArray(data?.items) ? data.items : []).filter((t: any) => t?.todo_id === task.task_guid);
+      const remote = matches[0];
+      if (matches.length !== 1 || remote.success !== true || typeof remote.title !== 'string') return null;
+      if (!['proceed', 'finished', 'deleted'].includes(remote.status)) return null;
+      let dueAt: Date | null = null, dueHasTime = false;
+      if (remote.deadline != null) {
+        const { type, value } = remote.deadline;
+        if (type === 'date' && typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+          dueAt = new Date(value);
+          if (Number.isNaN(dueAt.getTime()) || dueAt.toISOString().slice(0, 10) !== value) return null;
+        } else if (type === 'datetime' && typeof value === 'string') {
+          dueAt = wecomParseWallTime(value, this.deps.config().timeZone); dueHasTime = true;
+          if (!dueAt || Number.isNaN(dueAt.getTime()) || wecomWallTime(dueAt, this.deps.config().timeZone) !== value) return null;
+        } else return null;
+      }
+      return await saveTaskObservation(task, {
+        summary: remote.title, due_at: dueAt, due_has_time: dueHasTime,
+        status: remote.status === 'proceed' ? 'open' : remote.status === 'finished' ? 'completed' : 'canceled',
+      }, this.deps.repos().tasks, this.deps.notifySourceChanged);
     } catch {
       return null;
     }
@@ -319,25 +365,30 @@ export class WecomChannels {
     return this.deps.gate(`task:${task.task_guid}`, async () => {
       const local = await this.deps.repos().tasks.get(task.id);
       if (!local) throw new Error('待办不存在；请先用 task_list 查看。');
-      const remote = await this.refreshWecomTaskFromRemote(local);
+      const remote = await this.observeTask(local);
       const refreshed = remote ?? local;
       if (refreshed.status === 'completed') {
         return { guid: refreshed.task_guid, status: 'completed', reused: true, stale: !remote, message: remote ? '企微待办此前已是完成状态（含远端核对）。' : '企微待办此前已是完成状态（本地投影，本次远端核对未完成）。' };
       }
+      if (refreshed.status === 'canceled') throw new Error('企微待办已删除，不能再完成。');
       const staged = await this.deps.stagedOperation(item, 'wecom_todo.finish', refreshed.task_guid, { channel: 'wecom', guid: refreshed.task_guid });
       if (!staged.created && staged.row.status === 'succeeded') {
-        await this.deps.repos().tasks.save({ ...refreshed, status: 'completed' });
-        return { operationId: staged.row.id, guid: refreshed.task_guid, status: 'completed', reused: true, message: '此前已完成，未重复提交。' };
+        return { operationId: staged.row.id, guid: refreshed.task_guid, status: refreshed.status,
+          partial: refreshed.status === 'open', reused: true, stale: !remote,
+          message: '此前已提交本人的完成操作，未重复提交；整项状态以本次远端核对为准。' };
       }
       try {
         await this.deps.performExternal(staged.row.id, async () => {
           const { data } = await this.wecomRun(['todo', 'finish', '--items', JSON.stringify([{ todo_id: refreshed.task_guid }])]);
-          if (((data?.items ?? []) as any[])[0]?.success === false) throw Object.assign(new Error('企微待办完成未成功；请核对企微待办列表后重试。'), { outcome: 'failed' });
-          return data;
+          return todoMutationReceipt(data, refreshed.task_guid, '完成');
         });
-        const updated = await this.deps.repos().tasks.save({ ...refreshed, status: 'completed', last_synced_at: new Date(), external_updated_at: new Date() });
-        await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: refreshed.task_guid, status: 'completed' } });
-        return { operationId: staged.row.id, guid: updated.task_guid, url: null, status: 'completed', channel: 'wecom', message: '企微待办已完成（以企微实际状态为准）。' };
+        const updated = await this.observeTask(refreshed);
+        if (!updated) throw Object.assign(new Error('本人的完成操作已返回成功，但整项状态核对未完成；不要重复提交，稍后可重新核对。'), { outcome: 'unknown' });
+        const partial = updated.status === 'open';
+        await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: refreshed.task_guid, status: updated.status, partial } });
+        return { operationId: staged.row.id, guid: updated.task_guid, url: null, status: updated.status, partial, channel: 'wecom',
+          message: partial ? '已完成本人份额，整项待办仍未完成；完成所有参与人的份额需要另行明确授权，本次未执行。'
+            : updated.status === 'completed' ? '企微待办整项已完成（已读回确认）。' : '本人的完成操作已提交，但远端待办已删除。' };
       } catch (error) {
         await this.deps.failStaged(staged.row.id, error);
         throw error;
@@ -355,8 +406,7 @@ export class WecomChannels {
       try {
         await this.deps.performExternal(staged.row.id, async () => {
           const { data } = await this.wecomRun(['todo', 'delete', '--items', JSON.stringify([{ todo_id: task.task_guid }])]);
-          if (((data?.items ?? []) as any[])[0]?.success === false) throw Object.assign(new Error('企微待办删除未成功；请核对企微待办列表后重试。'), { outcome: 'failed' });
-          return data;
+          return todoMutationReceipt(data, task.task_guid, '删除');
         });
         await this.deps.repos().tasks.save({ ...task, status: 'canceled', last_synced_at: new Date(), external_updated_at: new Date() });
         await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, status: 'canceled', reason } });
@@ -389,8 +439,15 @@ export class WecomChannels {
   }
 
   /** On-demand read-only wecom access inspection (CLI/identity/service probes). */
-  async wecomCheck(): Promise<WecomDiagnostics> {
+  private checking: Promise<WecomDiagnostics> | null = null;
+  wecomCheck(): Promise<WecomDiagnostics> {
+    if (!this.checking) this.checking = this.inspectWecom().finally(() => { this.checking = null; });
+    return this.checking;
+  }
+
+  private async inspectWecom(): Promise<WecomDiagnostics> {
     if (!this.deps.config()) throw new Error('尚未绑定工作区。');
+    this.wecomIdentityCache = null;
     const nextSteps: string[] = [];
     const services: WecomServiceCheck[] = [];
     const checkedAt = nowIso();
@@ -398,12 +455,12 @@ export class WecomChannels {
     // so it runs through a raw spawn rather than the business gateway.
     let cli: WecomDiagnostics['cli'];
     try {
-      const { execFile } = await import('node:child_process');
-      const { promisify } = await import('node:util');
-      const run = promisify(execFile);
-      const { stdout } = await run(this.deps.cli().bin, ['--version'], { timeout: Math.min(this.deps.cli().timeoutMs, 10_000) });
+      const { stdout, exitCode } = await runCliProcess({ bin: this.deps.cli().bin, argv: ['--version'],
+        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: kind => new Error(`版本检查未完成（${kind}）`) });
+      if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
       cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}` };
     } catch (error) {
+      this.wecomIdentityCache = null; this.wecomIdentityFailedAt = Date.now();
       cli = { state: 'error', message: `无法运行 ${this.deps.cli().bin}：${(error as Error).message}` };
       nextSteps.push('安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 准备节）。');
       const result: WecomDiagnostics = { checkedAt, cli, auth: { state: 'error', message: 'CLI 不可用，跳过。' }, identity: { state: 'missing', message: '未解析。' }, services, nextSteps };
@@ -414,7 +471,7 @@ export class WecomChannels {
     let identity: WecomDiagnostics['identity'];
     let userid: string | null = null;
     try {
-      const owner = await this.wecomOwnerUserid();
+      const owner = await this.wecomOwnerUserid(true);
       userid = owner.userid;
       identity = { state: 'ok', message: `机器人已绑定；授权真人 ${owner.name}（${owner.userid}）`, userid: owner.userid, userName: owner.name };
     } catch (error) {

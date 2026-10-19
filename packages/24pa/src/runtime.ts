@@ -33,7 +33,7 @@ import { OutboxDelivery } from './outbox-delivery.js';
 import { TaskLifecycle } from './task-lifecycle.js';
 import { assertToolDeclaration, type ResolvedTaskSkill, SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
-import { text, nowIso, isoDate, eventFingerprint, hash } from './util.js';
+import { text, nowIso, isoDate, eventFingerprint, hash, platformMessageKey } from './util.js';
 
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
@@ -219,7 +219,7 @@ export class PaRuntime {
       wecom: {
         available: () => !!this.config,
         supports: kind => kind === 'text',
-        send: row => this.wecomChannels.wecomSendText(row.target, String(row.content?.text ?? ''), row.dedup_key.slice(0, 50)),
+        send: row => this.wecomChannels.wecomSendText(row.target, String(row.content?.text ?? ''), platformMessageKey(row.channel, row.kind, row.dedup_key, row.target)),
       },
       feishu: {
         available: () => !!this.transport,
@@ -232,8 +232,8 @@ export class PaRuntime {
             return sendLarkAudioMessage(cliOptions(this.config!, this.options.larkCliBin, 120_000), row.target, ogg, row.dedup_key);
           }
           return row.kind === 'card'
-            ? this.transport!.sendCard(row.target, row.content, row.dedup_key.slice(0, 50))
-            : this.transport!.sendText(row.target, String(row.content?.text ?? ''), row.dedup_key.slice(0, 50));
+            ? this.transport!.sendCard(row.target, row.content, platformMessageKey(row.channel, row.kind, row.dedup_key, row.target))
+            : this.transport!.sendText(row.target, String(row.content?.text ?? ''), platformMessageKey(row.channel, row.kind, row.dedup_key, row.target));
         },
       },
     },
@@ -2087,7 +2087,7 @@ export class PaRuntime {
     const project = await this.repos!.projects.get(projectId);
     if (!project) throw new Error('项目不存在。');
     const tasks = await this.repos!.projects.tasksOf(projectId);
-    const open = tasks.filter(t => t.status !== 'completed');
+    const open = tasks.filter(t => t.status === 'open');
     const completed = tasks.filter(t => t.status === 'completed');
     return {
       projectId,
@@ -2095,9 +2095,10 @@ export class PaRuntime {
       goal: project.goal,
       total: tasks.length,
       completed: completed.length,
+      canceled: tasks.filter(t => t.status === 'canceled').length,
       remaining: open.map(t => ({ guid: t.task_guid, summary: t.summary, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
       next: open[0] ? { guid: open[0]!.task_guid, summary: open[0]!.summary, dueAt: isoDate(open[0]!.due_at) } : null,
-      message: open.length === 0 ? '项目全部任务已完成（以飞书任务状态为准）。' : `剩余 ${open.length} 项；下一步：${open[0]!.summary}`,
+      message: open.length === 0 ? `项目暂无待办：已完成 ${completed.length} 项，已取消 ${tasks.filter(t => t.status === 'canceled').length} 项。` : `剩余 ${open.length} 项；下一步：${open[0]!.summary}`,
     };
   }
 
@@ -2112,7 +2113,11 @@ export class PaRuntime {
     const content = text(args.content);
     const source = text(args.source ?? `事项 ${item.id}`, 500);
     const operationId = `memo:${item.id}:${hash(`${topic}\n${content}`)}`;
-    const { created, row: operation } = await this.stagedOperationWithId(operationId, item, 'memo.save_doc', { topic, contentHash: hash(content) });
+    let { created, row: operation } = await this.stagedOperationWithId(operationId, item, 'memo.save_doc', { topic, contentHash: hash(content) });
+    if (!created && this.config!.mode === 'feishu' && operation.receipt?.demo === true && !operation.receipt.docId) {
+      await this.repos!.operations.update(operationId, { status: 'failed', receipt: null });
+      ({ created, row: operation } = await this.stagedOperationWithId(operationId, item, 'memo.save_doc', { topic, contentHash: hash(content) }));
+    }
     if (!created) {
       if (operation.status === 'succeeded') {
         const memo = await this.repos!.memos.get(operationId);
@@ -2127,7 +2132,7 @@ export class PaRuntime {
         throw new Error('上次保存的结果未知（超时或响应丢失）；请先核对配置的目录或知识库是否已生成文档，确认后再继续，不会自动重试。');
       }
     }
-    const live = this.transport !== null;
+    const live = this.config!.mode === 'feishu';
     try {
       let external: { docId: string | null; url: string | null; revision: string | null; warnings: string[] } = {
         docId: (operation.receipt?.docId as string | undefined) ?? null,
@@ -2135,10 +2140,10 @@ export class PaRuntime {
         revision: null,
         warnings: [],
       };
-      if (live && this.config!.mode === 'feishu' && !external.docId) {
+      if (live && !external.docId) {
         external = await this.externalOperations.perform(operationId, () => this.feishu.createMemoDocument(item, topic, content));
       }
-      if (external.docId && live && this.config!.mode === 'feishu') {
+      if (external.docId && live) {
         const readback = await this.feishu.readMemoDocument(external.docId);
         external = { ...external, revision: readback.revision };
       }
@@ -2290,7 +2295,10 @@ export class PaRuntime {
       if (sourceType === 'task') {
         const task = (await this.repos!.tasks.byGuid(sourceId)) ?? (await this.repos!.tasks.get(sourceId));
         if (!task) return { valid: false, reason: '任务已不存在' };
-        const fingerprint = taskFingerprint(task);
+        const refreshed = await this.refreshTaskFromRemote(task);
+        if (!refreshed) return { valid: false, unknown: true, reason: '任务权威来源读取失败，请重新核对' };
+        if (refreshed.status !== 'open') return { valid: false, reason: '任务已完成或取消' };
+        const fingerprint = taskFingerprint(refreshed);
         return fingerprint === expected ? { valid: true } : { valid: false, reason: '任务内容或截止已变化' };
       }
       const event = await this.repos!.calendar.findEvent(sourceId);

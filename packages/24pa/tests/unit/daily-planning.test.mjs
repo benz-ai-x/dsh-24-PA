@@ -1,14 +1,14 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { DigestService } from '../../lib/digest-service.js';
 const fixture = (zone = 'Asia/Shanghai') => {
-  const windows = [], writes = [], events = [];
+  const windows = [], writes = [], events = [], tasks = [{ summary: '任务', status: 'open' }];
   let failFirst = false, fresh = true;
   const service = new DigestService({ config: () => ({ timeZone: zone, calendarId: 'cal' }), memory: () => null,
-    repos: () => ({ calendar: { eventsIn: async () => events }, tasks: { list: async () => [{ summary: '任务' }] } }),
+    repos: () => ({ calendar: { eventsIn: async () => events }, tasks: { list: async () => tasks } }),
     syncCalendarWindow: async (_, from, to) => { windows.push([from.toISOString(), to.toISOString()]); return { ok: fresh }; },
     calendarWrite: async (_, __, data) => { writes.push(data); if (failFirst && writes.length === 1) throw new Error('rejected'); return { eventId: `e${writes.length}` }; },
   });
-  return { service, windows, writes, events, fail: () => { failFirst = true; }, stale: () => { fresh = false; } };
+  return { service, windows, writes, events, tasks, fail: () => { failFirst = true; }, stale: () => { fresh = false; } };
 };
 afterEach(() => vi.useRealTimers());
 it('上海默认明日使用本地日界，候选09点使用主人时区', async () => {
@@ -52,4 +52,10 @@ it('夏令时缺失时刻拒绝，重复时刻取较早时间；全天与跨日�
   const adoption = await f.service.planAdopt({ id: 'work' }, { blocks: [{ summary: '冲突', start: '2026-10-20T01:00:00Z', end: '2026-10-20T02:00:00Z' }] });
   expect(adoption.adopted).toBe(0); expect(f.writes).toHaveLength(0);
   await expect(f.service.planAdopt({ id: 'work' }, { blocks: [{ summary: '无效日期', start: '2026-02-30T01:00:00Z', end: '2026-03-03T02:00:00Z' }] })).rejects.toThrow();
+});
+
+it('已取消和已完成任务不成为下一日时间块建议', async () => {
+  const f = fixture(); f.tasks.push({ summary: '取消', status: 'canceled' }, { summary: '完成', status: 'completed' });
+  const result = await f.service.planPreview({ date: '2026-10-20' });
+  expect(result.candidateBlocks.map(b => b.task)).toEqual(['任务']);
 });

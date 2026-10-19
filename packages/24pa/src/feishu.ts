@@ -1,5 +1,4 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { runCliProcess } from './cli-gateway.js';
 import { access, readFile, realpath } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
@@ -179,7 +178,6 @@ function mapCardEvent(data: any): InboundEvent | null {
 // ---- Read-only access diagnostics (P41) ----------------------------------
 // On-demand only; a page refresh shows stored results and never calls Feishu.
 
-const exec = promisify(execFile);
 type CheckState = 'ok' | 'unchecked' | 'missing' | 'unbound' | 'mismatch' | 'unverified' | 'error' | 'changed';
 const status = (state: CheckState, message: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ state, message, ...extra });
 
@@ -325,11 +323,12 @@ async function collectAccess(
   }
   try {
     const path = await resolveExecutable(bin);
-    const { stdout } = await exec(path, ['--version'], {
-      timeout: 5000,
-      maxBuffer: 16384,
+    const { stdout, exitCode } = await runCliProcess({ bin: path, argv: ['--version'],
+      timeoutMs: 5000, stdoutLimitBytes: 16384,
+      fail: kind => new Error(`版本检查未完成（${kind}）`),
       env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
     });
+    if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
     result.cli = status('ok', 'CLI 可执行', { path, version: stdout.trim().slice(0, 100) });
   } catch (error) {
     result.cli = status('error', safeError(error, config, extraSecrets));

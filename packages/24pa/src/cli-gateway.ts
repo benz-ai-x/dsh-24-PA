@@ -12,6 +12,7 @@ export interface CliProcessOptions {
   /** Fully assembled argv (flags included); every element must be a string. */
   argv: readonly string[];
   timeoutMs: number;
+  stdoutLimitBytes?: number;
   env?: Record<string, string | undefined>;
   cwd?: string;
   /** Optional stdin payload; omitted closes stdin immediately. */
@@ -35,53 +36,41 @@ const STDERR_KEEP_CHARS = 65536;
 export function runCliProcess(options: CliProcessOptions): Promise<CliProcessResult> {
   const { bin, argv, timeoutMs, env, cwd, stdinContent, fail } = options;
   return new Promise((resolve, reject) => {
-    if (argv.some(a => typeof a !== 'string')) {
-      reject(fail('argv'));
-      return;
-    }
-    const child = spawn(bin, argv, {
-      cwd,
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...env },
-    });
-    let stdout = '';
-    let stderr = '';
-    let limitError: Error | null = null;
-    let settled = false;
-    const timer = setTimeout(() => {
-      limitError = fail('timeout');
-      child.kill('SIGTERM');
-    }, timeoutMs);
+    if (argv.some(a => typeof a !== 'string')) { reject(fail('argv')); return; }
+    const grouped = process.platform !== 'win32';
+    const child = spawn(bin, argv, { cwd, shell: false, detached: grouped, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } });
+    const stdout: Buffer[] = [], stderr: Buffer[] = [];
+    let bytes = 0, stderrBytes = 0, limitError: Error | null = null, settled = false;
+    let killTimer: NodeJS.Timeout | undefined, settleTimer: NodeJS.Timeout | undefined;
+    const finish = (error?: Error, code: number | null = null) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); clearTimeout(killTimer); clearTimeout(settleTimer);
+      child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+      if (error) reject(error); else resolve({ stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8'), exitCode: code });
+    };
+    const signal = (name: NodeJS.Signals) => {
+      try { if (grouped && child.pid) process.kill(-child.pid, name); else child.kill(name); } catch { /* Already exited. */ }
+    };
+    const terminate = (error: Error) => {
+      if (limitError || settled) return;
+      limitError = error; signal('SIGTERM');
+      killTimer = setTimeout(() => signal('SIGKILL'), 500);
+      settleTimer = setTimeout(() => { signal('SIGKILL'); child.unref(); finish(limitError!); }, 1000);
+    };
+    const timer = setTimeout(() => terminate(fail('timeout')), timeoutMs);
     child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk;
-      if (stdout.length > STDOUT_LIMIT_BYTES) {
-        limitError = fail('limit');
-        child.kill('SIGTERM');
-      }
+      if (limitError) return;
+      bytes += chunk.length;
+      if (bytes > (options.stdoutLimitBytes ?? STDOUT_LIMIT_BYTES)) terminate(fail('limit'));
+      else stdout.push(chunk);
     });
     child.stderr.on('data', (chunk: Buffer) => {
-      if (stderr.length < STDERR_KEEP_CHARS) stderr += chunk;
+      const kept = chunk.subarray(0, Math.max(0, STDERR_KEEP_CHARS - stderrBytes));
+      if (kept.length) { stderr.push(kept); stderrBytes += kept.length; }
     });
-    child.on('error', error => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(fail('spawn', error));
-    });
-    child.on('close', code => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (limitError) {
-        reject(limitError);
-        return;
-      }
-      resolve({ stdout, stderr, exitCode: code });
-    });
-    child.stdin.on('error', () => {
-      // Early process exit surfaces through the close handler above.
-    });
+    child.on('error', error => finish(limitError ?? fail('spawn', error)));
+    child.on('close', code => finish(limitError ?? undefined, code));
+    child.stdin.on('error', () => {});
     child.stdin.end(stdinContent);
   });
 }
