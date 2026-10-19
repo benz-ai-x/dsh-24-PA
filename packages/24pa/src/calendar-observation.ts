@@ -23,6 +23,13 @@ export async function observeCalendar(
       ids.add(event.event_id);
       const existing = await repo.findEvent(event.event_id);
       if (existing && (existing.channel !== scope.channel || existing.calendar_id !== scope.calendarId)) throw new Error('日程标识与已有归属冲突');
+      // Older Feishu writes stored the owner's unprefixed title while the
+      // confirmed receipt already contained our [24PA] prefix. Preserve that
+      // existing fingerprint only when the stored receipt proves equivalence;
+      // any actual remote rename or time change still invalidates the source.
+      if (existing && scope.channel === 'feishu' && existing.raw?.summary === `[24PA] ${existing.summary}` && event.summary === existing.raw.summary) {
+        event.summary = existing.summary;
+      }
     }
     const prior = await repo.observedIn(scope.calendarId, scope.from, scope.to, scope.channel);
     for (const event of events) {
