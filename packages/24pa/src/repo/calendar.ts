@@ -103,7 +103,7 @@ export class CalendarRepo {
    */
   async saveSync(row: Omit<CalendarSyncRow, 'last_synced_at' | 'last_error' | 'channel'> & { lastError?: string; channel?: DataChannel }): Promise<void> {
     const ok = row.complete && !row.lastError;
-    await this.db.query(
+    const result = await this.db.query(
       `insert into pa24.calendar_sync_state (calendar_id, window_start, window_end, complete, last_synced_at, last_error, channel)
        values ($1,$2,$3,$4,${ok ? 'now()' : 'null'},$5,$6)
        on conflict (calendar_id) do update set
@@ -112,9 +112,11 @@ export class CalendarRepo {
          complete = excluded.complete,
          last_synced_at = coalesce(excluded.last_synced_at, pa24.calendar_sync_state.last_synced_at),
          last_error = excluded.last_error
-       where pa24.calendar_sync_state.channel = excluded.channel`,
+       where pa24.calendar_sync_state.channel = excluded.channel
+       returning calendar_id`,
       [row.calendar_id, row.window_start, row.window_end, row.complete, row.lastError ?? null, row.channel ?? 'feishu'],
     );
+    if (!result.rows[0]) throw new Error('日历同步状态与已有渠道归属冲突');
   }
 
   async getSync(calendarId: string): Promise<CalendarSyncRow | null> {

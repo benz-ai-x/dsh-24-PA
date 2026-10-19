@@ -551,7 +551,7 @@ export class PaRuntime {
         reminder_skip: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '跳过'); return this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')); },
         reminder_snooze: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '稍后'); return this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')); },
         reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
-        digest_enable: async args => this.digest.digestEnable(args),
+        digest_enable: async (args, item) => this.digest.digestEnable(args, item.id),
         digest_control: async args => this.digest.digestControl(args),
         digest_list: async () => this.digest.digestList(),
       },
@@ -2215,7 +2215,7 @@ export class PaRuntime {
       const event = await this.repos!.calendar.findEvent(sourceId);
       if (!event || event.status === 'canceled') return { valid: false, reason: event ? '日程已取消' : '日程已不存在' };
       const state = await this.repos!.calendar.getSync(event.calendar_id);
-      if (!state || state.channel !== event.channel || !state.complete || state.last_error || state.window_start > event.start_time || state.window_end < event.end_time) {
+      if (!state || state.channel !== event.channel || !state.complete || state.last_error || state.window_start >= event.end_time || state.window_end <= event.start_time) {
         return { valid: false, unknown: true, reason: `日历同步异常（${state?.last_error ?? '窗口未覆盖该日程'}），投影可能过期；请先重新查询日历` };
       }
       const fingerprint = eventFingerprint(event);
@@ -2540,7 +2540,7 @@ export class PaRuntime {
     const id = `prep-${hash(JSON.stringify({ eventId, start: event.start_time.toISOString(), leadMinutes, scope })).slice(0, 24)}`;
     const active = await this.repos!.digests.activeMeetingPreps(eventId);
     if (active.some(plan => plan.id !== id)) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；如需调整请先停止原计划。`);
-    const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: event.start_time.toISOString(), scope };
+    const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: event.start_time.toISOString(), eventFingerprint: eventFingerprint(event), scope };
     await this.digest.plans.enable({
       id, kind: 'meeting_prep', title: `会前准备：${event.summary}`, session_id: this.accessSessionId!,
       schedule_spec: spec, last_window: null, voice: false, skill: 'meeting-prep',
@@ -2562,17 +2562,26 @@ export class PaRuntime {
     if (!plan || plan.kind !== 'meeting_prep') throw new Error('会前准备计划不存在。');
     if (plan.status !== 'active') return { planId: plan.id, skipped: 'plan_stopped', message: `该准备计划已${plan.status === 'stopped' ? '停止' : '暂停'}（会议可能已变化）；如需准备请按最新安排重设。` };
     const eventId = String(plan.schedule_spec?.eventId ?? '');
-    // Pre-send meeting re-check: canceled/moved meetings never ship a stale package.
     const event = await this.repos!.calendar.findEvent(eventId);
-    if (!event || event.status === 'canceled') {
-      await this.repos!.digests.updatePlan(plan.id, { status: 'stopped', schedule_id: null });
-      return { planId: plan.id, skipped: 'meeting_gone', message: `会议已取消或不存在，准备包不发送；如需为新安排准备请重新设置。` };
-    }
-    const storedStart = plan.schedule_spec?.eventStart ?? null;
-    if (storedStart && new Date(event.start_time).toISOString() !== storedStart) {
-      await this.repos!.digests.updatePlan(plan.id, { status: 'stopped', schedule_id: null });
-      return { planId: plan.id, skipped: 'meeting_moved', message: `会议时间已变化（${isoDate(event.start_time)}），本准备包按旧时间不发送；请按新时间重设。` };
-    }
+    const expected = plan.schedule_spec?.eventFingerprint ?? (event ? eventFingerprint(event) : null);
+    const checkSource = async () => {
+      const verdict = await this.sourceVerdict('calendar', eventId, expected);
+      if (verdict.unknown) return { planId: plan.id, skipped: 'source_unknown', message: `暂不发送准备包：${verdict.reason}。` };
+      // Legacy plans stored only the original start. Keep that condition in
+      // addition to the shared freshness/fingerprint check.
+      const current = await this.repos!.calendar.findEvent(eventId);
+      const gone = !current || current.status === 'canceled';
+      const moved = current && plan.schedule_spec?.eventStart && current.start_time.toISOString() !== plan.schedule_spec.eventStart;
+      if (!verdict.valid || gone || moved) {
+        const { warning: nativeWarning } = await this.digest.plans.stop(plan.id, 'stopped');
+        return { planId: plan.id, skipped: gone ? 'meeting_gone' : 'meeting_moved', nativeWarning,
+          message: `会议已取消或内容/时间已变化，旧准备包不发送；请按最新安排重设。${nativeWarning ? `原生任务待清理：${nativeWarning}` : ''}` };
+      }
+      return null;
+    };
+    const sourceProblem = await checkSource();
+    if (sourceProblem) return sourceProblem;
+    if (!event) throw new Error('会议来源无法读取。');
     const { created, row } = await this.repos!.digests.claimRun({ planId: plan.id, windowKey: eventId, workItemId: item.id });
     if (!created && (row.status === 'model_done' || row.status === 'sent') && row.outbox_key) {
       return { planId: plan.id, reused: true, message: '本会议的准备包已生成，不重复发送。' };
@@ -2643,6 +2652,8 @@ export class PaRuntime {
     lines.push('');
     lines.push(`来源：会议投影（${event.event_id}）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：${item.id}`);
     const report = lines.join('\n');
+    const changedDuringBuild = await checkSource();
+    if (changedDuringBuild) return changedDuringBuild;
     const outboxKey = await this.digest.deliverPrepared(plan, row, report);
     await this.repos!.workItems.update(item.id, { result_ref: { planId: plan.id, eventId, outboxKey } });
     return { planId: plan.id, eventId, message: '会前准备包已生成并入发送队列（发送前复查过会议状态）。' };

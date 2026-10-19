@@ -46,6 +46,7 @@ export class PlanLifecycle {
         plan = await this.settle(ctx, plan);
         if (operation === 'create' && plan.status === 'active') return plan;
       }
+      if (plan?.status === 'active' && plan.kind === 'once') return plan;
       if (plan && plan.status !== 'stopped') throw new Error(`计划已存在（${plan.id}）；请使用计划控制。`);
       const spec = fixedSpec(input.schedule_spec);
       const intent = this.intent('create', input, spec);
@@ -104,6 +105,10 @@ export class PlanLifecycle {
     });
   }
 
+  async configure(id: string, patch: Pick<Partial<DigestPlanRow>, 'voice' | 'skill'>): Promise<void> {
+    await this.run(id, async ctx => { await this.required(ctx, id); await ctx.repo.updatePlan(id, patch); });
+  }
+
   async recover(): Promise<Array<{ planId: string; error?: string }>> {
     // Recovery is itself admitted work: pause waits for its inventory read and
     // all repairs, and a workspace switch cannot redirect its repository.
@@ -153,6 +158,10 @@ export class PlanLifecycle {
         const matches = (await native.catalog()).filter(entry => entry.sessionId === plan.session_id && entry.prompt === intent.request.prompt && (intent.operation !== 'update' || entry.id === plan.schedule_id));
         if (matches.length !== 1) throw new Error(matches.length > 1 ? '原生计划存在多个匹配，结果有歧义，请核对。' : '原生计划结果未知，尚未查到唯一回执；请核对，不自动重建。');
         record = matches[0];
+        if (intent.targetStatus === 'active' && !matchesTiming(record!, intent.spec)) {
+          plan = await ctx.repo.comparePlan(plan, { schedule_id: String(record!.id), lifecycle: { ...intent, phase: 'conflict', error: '原生计划规则已变化，与待恢复目标不一致；请核对后再次明确调整或停止。' } });
+          throw new Error(plan.lifecycle!.error);
+        }
       } else {
         plan = await ctx.repo.comparePlan(plan, { lifecycle: { ...intent, phase: 'calling' } });
         intent = plan.lifecycle!;
@@ -200,4 +209,16 @@ function fixedSpec(spec: Record<string, any>): Record<string, unknown> {
   else if (normalized.weekly) createWeeklyScheduleRecord(id, 'plan', normalized.weekly, now, 'plan');
   else throw new Error('计划缺少有效的时间规则。');
   return normalized;
+}
+
+/** Match the rule, not the next occurrence of a recurring task. The host may
+ * advance scheduledAt while a receipt is lost, or the owner may edit timing. */
+function matchesTiming(record: Record<string, any>, spec: Record<string, any>): boolean {
+  const zone = (value: string) => new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone;
+  if (spec.at) return record.kind === 'at' && Date.parse(record.scheduledAt) === Date.parse(spec.at);
+  const id = ScheduleId('recovery');
+  const target = spec.daily ? createDailyScheduleRecord(id, 'plan', spec.daily, Date.now(), 'plan')
+    : createWeeklyScheduleRecord(id, 'plan', spec.weekly, Date.now(), 'plan');
+  if (record.kind !== target.kind || record.time !== target.time || !record.timeZone || zone(record.timeZone) !== zone(target.timeZone)) return false;
+  return target.kind !== 'weekly' || JSON.stringify(record.weekdays) === JSON.stringify(target.weekdays);
 }

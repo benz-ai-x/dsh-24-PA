@@ -44,7 +44,7 @@ export class DailyPlanning {
       return { date: day.date, fresh: day.sync.ok, busy,
         insert: { start: block.start.toISOString(), end: block.end.toISOString() }, displacedByInsert: displaced,
         suggestions: displaced.map(d => `将「${d.summary}」改期到插单后，或压缩该时段`),
-        message: displaced.length ? `插单与 ${displaced.length} 项现有安排重叠；只调整受影响部分，采纳仍需明确选定。` : '插单时段无已知冲突；采纳前会重新同步复核。' };
+        message: displaced.length ? `插单与 ${displaced.length} 项现有安排重叠；未受影响安排不动；采纳仍需明确选定。` : '插单时段无已知冲突；采纳前会重新同步复核。' };
     }
     const tasks = (await this.deps.repos().tasks.list()).filter(t => t.status !== 'completed').slice(0, 5);
     return { date: day.date, fresh: day.sync.ok, busy, bufferMinutesPerMeeting: await this.bufferMinutes(),
@@ -83,7 +83,7 @@ export class DailyPlanning {
     for (const [index, block] of blocks.entries()) {
       if (!fresh) { results.push({ index, ok: false, error: '日历同步不完整，无法确认选定时间块的冲突；请重新同步后重试。' }); continue; }
       const clash = busy.find(e => e.start < block.end && block.start < e.end);
-      if (clash) { results.push({ index, ok: false, skipped: 'conflict', error: `与「${clash.summary}」重叠，未写入。` }); continue; }
+      if (clash) { results.push({ index, ok: false, skipped: 'conflict', error: `复核发现与现有安排「${clash.summary}」重叠，未写入。` }); continue; }
       try {
         const created = await this.deps.calendarWrite(item, 'create', { summary: block.summary, start: block.start.toISOString(), end: block.end.toISOString(), calendarId });
         busy.push(block);
@@ -92,6 +92,6 @@ export class DailyPlanning {
     }
     const adopted = results.filter(r => r.ok).length;
     return { fresh, adopted, failed: results.length - adopted, results,
-      message: `已采纳 ${adopted} 项，${results.length - adopted} 项未写入（明细含复核冲突与错误）；失败项核对后可重试。` };
+      message: `已按你的选择写入 ${adopted} 项，${results.length - adopted} 项未写入（明细含复核冲突与错误）；失败项核对后可重试。` };
   }
 }

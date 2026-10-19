@@ -143,7 +143,7 @@ export class ReminderRouter {
     const result = {
       ruleId, eventId, calendarChannel: calendar.channel, start: calendar.start,
       ...(calendar.rrule ? { rrule: calendar.rrule } : {}),
-      message: `提醒已写入${calendar.channel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；由对应 App 原生日程提前 5 分钟提醒，与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
+      message: `提醒已写入${calendar.channel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；由对应 App 原生日程提醒（提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
     };
     await this.deps.repos().operations.update(intentId, { status: 'succeeded', receipt: result });
     return result;

@@ -79,7 +79,21 @@ export class DigestService {
   readonly plans: PlanLifecycle;
   private paused = false;
   private supervising: Promise<unknown> | null = null;
-  async pause(): Promise<void> { this.paused = true; await this.supervising?.catch(() => {}); await this.plans.pause(); }
+  private readonly admitted = new Set<Promise<unknown>>();
+  async pause(): Promise<void> {
+    this.paused = true;
+    await Promise.allSettled([...this.admitted, ...(this.supervising ? [this.supervising] : [])]);
+    await this.plans.pause();
+  }
+  /** Register before the first read/skill load. Binding cannot replace any
+   * dependency until the whole admitted request has finished. */
+  private withPlanWork<T>(work: () => Promise<T>): Promise<T> {
+    if (this.paused || this.deps.planChangesAvailable?.() === false) return Promise.reject(new Error('工作区正在切换或停止，暂不接受计划变更。'));
+    const result = Promise.resolve().then(work);
+    this.admitted.add(result);
+    void result.finally(() => this.admitted.delete(result)).catch(() => {});
+    return result;
+  }
   resume(): void { this.paused = false; this.plans.resumeAdmission(); }
   constructor(private readonly deps: DigestDeps) {
     this.planning = new DailyPlanning(deps);
@@ -110,7 +124,10 @@ export class DigestService {
    * the enqueue; model work and platform acceptance are tracked separately on
    * the occurrence row.
    */
-  async digestEnable(args: Record<string, unknown>): Promise<unknown> {
+  digestEnable(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {
+    return this.withPlanWork(() => this.enablePlan(args, intentKey));
+  }
+  private async enablePlan(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {
     const kind = String(args.kind ?? '');
     if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('计划类型：morning/evening/weekly（daily/weekly 定时）或 once（一次性，演示与测试）。');
     const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
@@ -120,7 +137,9 @@ export class DigestService {
     const skill = args.skill ? String(args.skill) : kind === 'once' ? 'digest-morning' : `digest-${kind}`;
     await this.requireSkill(skill);
     const title = { morning: '晨报', evening: '晚间回顾', weekly: '每周回顾', once: '一次性简报' }[kind]!;
-    const id = `dig-${kind}-${hash(this.deps.workspace()!.statePath + (kind === 'once' ? JSON.stringify({ kind, at: args.at ?? null, afterSeconds: args.afterSeconds ?? null, skill, voice: args.voice === true }) : kind)).slice(0, 16)}`;
+    const id = kind === 'once'
+      ? `dig-once-${hash(this.deps.workspace()!.statePath + JSON.stringify({ intentKey: intentKey ?? null, kind, at: args.at ?? null, afterSeconds: args.afterSeconds ?? null, skill, voice: args.voice === true })).slice(0, 24)}`
+      : `dig-${kind}-${hash(this.deps.workspace()!.statePath + kind).slice(0, 8)}`;
     let request: Record<string, unknown>;
     if (kind === 'once') {
       const seconds = Number(args.afterSeconds ?? 0);
@@ -156,7 +175,10 @@ export class DigestService {
     };
   }
 
-  async digestControl(args: Record<string, unknown>): Promise<unknown> {
+  digestControl(args: Record<string, unknown>): Promise<unknown> {
+    return this.withPlanWork(() => this.controlPlan(args));
+  }
+  private async controlPlan(args: Record<string, unknown>): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(String(args.planId ?? ''));
     if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
     const op = String(args.op ?? '');
@@ -170,13 +192,13 @@ export class DigestService {
       // F40/F41（spec 2.11）：per-plan 任务 skill 切换（须在目录中，双轨可绑）。
       const skill = String(args.skill ?? '');
       await this.requireSkill(skill);
-      await this.deps.repos().digests.updatePlan(plan.id, { skill });
+      await this.plans.configure(plan.id, { skill });
       return { planId: plan.id, skill, message: `本计划任务 skill 已切换为 ${skill}。` };
     }
     if (op === 'voice') {
       // F19（spec 2.3）：per-plan 语音开关（引擎取工作区 tts 配置）。
       const voice = args.voice === true;
-      await this.deps.repos().digests.updatePlan(plan.id, { voice });
+      await this.plans.configure(plan.id, { voice });
       return { planId: plan.id, voice, message: voice ? '本计划改为语音版＋全文文本兜底。' : '本计划改为纯文本。' };
     }
     if (op === 'resume') {
@@ -184,8 +206,7 @@ export class DigestService {
       return { planId: plan.id, scheduleId: resumed.schedule_id, message: '计划已恢复（重新入队）。' };
     }
     if (op === 'adjust') {
-      // Adjust swaps the spec on the SAME plan row: remove the old native
-      // schedule, create the new one, keep id and history stable (P24 修改).
+      // Compare-and-update the same native task; retain business history.
       if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务。');
       const kind = String(args.kind ?? plan.kind);
       if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('调整后的计划类型无效。');
@@ -369,7 +390,13 @@ export class DigestService {
 
   /** F40：点名 skill 必须在目录中；报错携带可用清单（spec AC）。 */
   private async requireSkill(skill: string): Promise<ResolvedTaskSkill> {
-    try { return await this.deps.skillCatalog().resolve(skill, ['pa24_work', 'pa24_memory']); }
+    try {
+      const resolved = await this.deps.skillCatalog().resolve(skill, ['pa24_work', 'pa24_memory']);
+      if (resolved.track === 'template' && !['morning', 'evening', 'weekly'].includes(resolved.kind ?? '')) {
+        throw new Error(`简报不支持此模板种类：${resolved.kind ?? '未声明'}。`);
+      }
+      return resolved;
+    }
     catch (error) { throw new Error(`任务 skill 不存在或不可执行：${skill}；${(error as Error).message}`); }
   }
 
@@ -466,9 +493,13 @@ export class DigestService {
    * F40「立即运行一次」：以 manual-<ts> 窗口键执行当前 skill 口径，不占用当日
    * 计划窗口（08:00 照常触发），不落 WorkItem（面板发起，无事项上下文）。
    */
-  async digestRunNow(planId: string): Promise<unknown> {
+  digestRunNow(planId: string): Promise<unknown> {
+    return this.withPlanWork(() => this.runPlanNow(planId));
+  }
+  private async runPlanNow(planId: string): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    if (plan.kind === 'meeting_prep') throw new Error('会前准备请经对话委派 calendar Worker，先复查会议来源。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
     const windowKey = `manual-${Date.now()}`;
     const bound = await this.boundSkillOrThrow(plan);

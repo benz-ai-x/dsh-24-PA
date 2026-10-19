@@ -136,6 +136,7 @@ export class FeishuChannels {
     if (kind !== 'create' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询）。');
     if (kind === 'update' && !summary && !start && !end) throw new Error('需要至少一项修改（summary/start/end）。');
     const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
+    if (kind === 'create' && args.timeZone && attendees?.length) throw new Error('指定 IANA 时区的日程暂不支持同时邀请参会人；本次未创建或发送邀请。');
     const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}\n${typeof args.rrule === 'string' ? args.rrule : ''}\n${String(args.timeZone ?? '')}`;
     return this.deps.gate(`calendar-event:${eventId || 'new'}`, async () => {
     const staged = operationIdOverride

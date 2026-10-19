@@ -223,7 +223,7 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     const out = await waitOutbox(`digest:${planId}:`, '晚间回顾发送', 60_000);
     const text = out.content?.text ?? '';
     expect(text).toContain('一、事实');
-    expect(text).toContain('近 24 小时内同步到完成状态');
+    expect(text).toContain('今日同步到完成状态');
     expect(text).toContain('二、建议');
     expect(text).toContain('逾期');
     expect(text).toContain('未自动修改任何任务、日程或记忆');

@@ -193,6 +193,18 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     expect(await repos.reminders.listRules()).toHaveLength(1);
   });
 
+  it('飞书提醒原生创建携带 IANA 时区、重复规则、五分钟偏移与稳定幂等键', async () => {
+    const args = { summary: '喝水', start: '2026-10-21T13:00:00Z', end: '2026-10-21T13:15:00Z', timeZone: 'America/New_York', rrule: 'FREQ=DAILY' };
+    await lark.calendarWrite(item, 'create', args);
+    const calls = await journal('lark-cli.json.calls.jsonl');
+    const call = calls.find(call => call.args.includes('--data'))?.args; expect(call).toBeTruthy();
+    const data = JSON.parse(call[call.indexOf('--data') + 1]);
+    expect(data).toMatchObject({ start_time: { timezone: 'America/New_York', timestamp: String(Date.parse(args.start) / 1000) }, end_time: { timezone: 'America/New_York' }, recurrence: 'FREQ=DAILY', reminders: [{ minutes: 5 }] });
+    expect(call[call.indexOf('--idempotency-key') + 1]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    await expect(lark.calendarWrite(item, 'create', { ...args, attendees: ['ou_guest'] })).rejects.toThrow('本次未创建');
+    expect(await journal('lark-cli.json.events.jsonl')).toHaveLength(1);
+  });
+
   it('企微周期提醒明确传递重复规则、时区与五分钟提醒，未知规则先拒绝', async () => {
     const calls = []; wecom.wecomRun = async args => { calls.push(args); return { data: { schedule_id: 'weekly-event' } }; };
     const args = { summary: '喝水', start: '2026-10-21T01:00:00Z', end: '2026-10-21T01:15:00Z', timeZone: 'Asia/Tokyo', rrule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR' };
@@ -237,6 +249,11 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     expect((await channel.syncCalendarWindow('cal-1', ...window())).ok).toBe(true); expect(count).toBe(2);
     await expect(repos.calendar.upsertEvent(projected('preserved', 'wecom', 'wecom'))).rejects.toThrow(/归属/);
     expect((await repos.calendar.findEvent('preserved')).calendar_id).toBe('cal-1');
+  });
+  it('同步状态的日历ID跨渠道碰撞不能报告成功或覆盖原渠道新鲜度', async () => {
+    await repos.calendar.saveSync({ calendar_id: 'cal-1', channel: 'wecom', window_start: window()[0], window_end: window()[1], complete: true });
+    expect((await lark.syncCalendarWindow('cal-1', ...window())).ok).toBe(false);
+    expect((await repos.calendar.getSync('cal-1')).channel).toBe('wecom');
   });
   it('企微只接受覆盖窗口且数量完整的观察，越界和缺行不能宣告来源删除', async () => {
     const from = new Date(Date.now() - 3600000), to = new Date(Date.now() + 3600000);

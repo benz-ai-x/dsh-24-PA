@@ -7,6 +7,8 @@ import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { DigestService } from '../../lib/digest-service.js';
 import { SkillCatalog } from '../../lib/skills.js';
+import { createAtScheduleRecord, createDailyScheduleRecord, createWeeklyScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
+import { hash } from '../../lib/util.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 
 for (const backend of ['sqlite', 'postgres']) describe(`周期计划配置恢复 (${backend})`, () => {
@@ -22,7 +24,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期计划配置恢复
     await db.query('delete from pa24.digest_plan'); entries = []; creates = 0; deletes = [];
     native = {
       create: async (sessionId, request) => {
-        const record = { id: `schedule-${++creates}`, prompt: request.prompt, title: request.title, kind: request.daily ? 'daily' : 'at', createdAt: new Date().toISOString(), scheduledAt: request.at ?? new Date(Date.now() + 86400000).toISOString(), ...(request.daily ? { daily: request.daily } : {}) };
+        const id = ScheduleId(`schedule-${++creates}`);
+        const record = request.daily ? createDailyScheduleRecord(id, request.prompt, request.daily, Date.now(), request.title) : request.weekly ? createWeeklyScheduleRecord(id, request.prompt, request.weekly, Date.now(), request.title) : createAtScheduleRecord(id, request.prompt, request.at, Date.now(), request.title);
         entries.push({ ...record, sessionId, status: 'active' }); return record;
       },
       catalog: async () => structuredClone(entries),
@@ -30,7 +33,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期计划配置恢复
       update: async request => {
         expect(request.expected).not.toHaveProperty('sessionId'); expect(request.expected).not.toHaveProperty('status');
         const entry = entries.find(e => e.id === request.id);
-        Object.assign(entry, { prompt: request.prompt, title: request.title, daily: request.change.daily });
+        Object.assign(entry, createDailyScheduleRecord(entry.id, request.prompt, request.change.daily, Date.now(), request.title));
         const { sessionId, status, ...record } = entry;
         return { id: entry.id, updated: true, record };
       },
@@ -111,6 +114,54 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期计划配置恢复
     await new Promise(resolve => setTimeout(resolve, 10)); expect(paused).toBe(false);
     release(); await Promise.all([starting, recovery, pausing]); expect(creates).toBe(1);
     await expect(enable()).rejects.toThrow(/切换或停止/); service.resume();
+  });
+
+  it('恢复核对目标规则：marker 相同但宿主随后改时，保留冲突不提交旧目标', async () => {
+    const result = await enable(); const update = native.update;
+    native.update = async args => { await update(args); throw new Error('lost reply'); };
+    await expect(service.digestControl({ planId: result.planId, op: 'adjust', time: '09:00:00' })).rejects.toThrow('lost reply');
+    entries[0].time = '10:00:00.000';
+    rebuild(); await service.recoverPlans();
+    const plan = await repos.digests.getPlan(result.planId);
+    expect(plan.status).toBe('paused'); expect(plan.lifecycle.phase).toBe('conflict');
+    expect(plan.schedule_spec.daily.time).toBe('08:00:00'); expect(entries[0].time).toBe('10:00:00.000');
+    expect(creates).toBe(1); expect(deletes).toHaveLength(0);
+  });
+  it('周期任务自然推进 scheduledAt 后仍可按同一规则恢复', async () => {
+    const create = native.create;
+    native.create = async (...args) => { await create(...args); entries[0].scheduledAt = new Date(Date.now() + 7 * 86400000).toISOString(); throw new Error('lost reply'); };
+    await expect(enable()).rejects.toThrow('lost reply'); rebuild(); await service.recoverPlans();
+    expect((await repos.digests.listPlans())[0].lifecycle).toBeNull(); expect(creates).toBe(1);
+  });
+  it('一次性委托重放复用原计划，不同事项相同参数分别创建；周期ID兼容旧账本', async () => {
+    const args = { kind: 'once', afterSeconds: 300 };
+    const a = await service.digestEnable(args, 'work-a'), replay = await service.digestEnable(args, 'work-a'), b = await service.digestEnable(args, 'work-b');
+    expect(replay.planId).toBe(a.planId); expect(b.planId).not.toBe(a.planId); expect(creates).toBe(2);
+    const morning = await enable(); expect(morning.planId).toBe('dig-morning-' + hash('/test/workspacemorning').slice(0, 8));
+    await expect(enable()).rejects.toThrow('计划已存在'); expect(creates).toBe(3);
+  });
+  for (const op of ['stop', 'voice', 'skill']) it(`pause 等待整个 ${op} 请求（含首次账本读取）再允许切换`, async () => {
+    const result = await enable(), read = repos.digests.getPlan.bind(repos.digests);
+    let entered, release, first = true;
+    const ready = new Promise(resolve => { entered = resolve; }), held = new Promise(resolve => { release = resolve; });
+    repos.digests.getPlan = async id => { const row = await read(id); if (first) { first = false; entered(); await held; } return row; };
+    const work = service.digestControl({ planId: result.planId, op, voice: true, skill: 'digest-weekly' }); await ready;
+    let paused = false; const pausing = service.pause().then(() => { paused = true; });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    try { expect(paused).toBe(false); } finally { release(); await Promise.allSettled([work, pausing]); }
+    await expect(work).resolves.toMatchObject({ planId: result.planId });
+    const plan = await read(result.planId);
+    if (op === 'stop') { expect(plan.status).toBe('stopped'); expect(deletes).toEqual(['schedule-1']); }
+    if (op === 'voice') expect(plan.voice).toBe(true);
+    if (op === 'skill') expect(plan.skill).toBe('digest-weekly');
+    await expect(service.digestControl({ planId: result.planId, op: 'voice' })).rejects.toThrow(/切换或停止/);
+  });
+  it('未知模板种类在建原生计划前拒绝，存量计划立即运行也不发布', async () => {
+    deps.skillCatalog = () => new SkillCatalog({ get: async name => ({ name, source: 'project-dsh', content: 'CUSTOM', metadata: { track: 'template', kind: 'unknown-monthly' } }) });
+    await expect(service.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'custom' })).rejects.toThrow(/模板.*种类/);
+    expect(creates).toBe(0); expect(await repos.digests.listPlans()).toHaveLength(0);
+    await repos.digests.insertPlan({ id: 'legacy', kind: 'morning', title: '自定义', status: 'active', schedule_id: null, session_id: 'access', schedule_spec: {}, last_window: null, voice: false, skill: 'custom' });
+    await expect(service.digestRunNow('legacy')).rejects.toThrow(/模板.*种类/); expect(await repos.outbox.recent()).toHaveLength(0);
   });
 
 });
