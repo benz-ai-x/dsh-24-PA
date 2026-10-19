@@ -1930,8 +1930,8 @@ export class PaRuntime {
     return this.feishu.meetingSchedule(item, args);
   }
 
-  private async syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }> {
-    if (calendarId === 'wecom' && this.config!.calendarChannel === 'wecom') return this.wecomChannels.syncWecomCalendarWindow(from, to);
+  private async syncCalendarWindow(calendarId: string, from: Date, to: Date, channel?: 'feishu' | 'wecom'): Promise<{ ok: boolean; error?: string }> {
+    if ((channel ?? (calendarId === 'wecom' ? this.config!.calendarChannel : 'feishu')) === 'wecom') return this.wecomChannels.syncWecomCalendarWindow(from, to);
     return this.feishu.syncCalendarWindow(calendarId, from, to);
   }
 
@@ -2570,6 +2570,12 @@ export class PaRuntime {
     const eventId = String(plan.schedule_spec?.eventId ?? '');
     const event = await this.repos!.calendar.findEvent(eventId);
     const expected = plan.schedule_spec?.eventFingerprint ?? (event ? eventFingerprint(event) : null);
+    // A just-created meeting may have no prior list observation. Re-read the
+    // owning calendar before building, without depending on today's preference.
+    if (event && event.status !== 'canceled') {
+      const observed = await this.syncCalendarWindow(event.calendar_id, event.start_time, event.end_time, event.channel);
+      if (!observed.ok) return { planId: plan.id, skipped: 'source_unknown', message: `暂不发送准备包：日历复查失败（${observed.error ?? '未知原因'}）；请稍后重试。` };
+    }
     const checkSource = async () => {
       const verdict = await this.sourceVerdict('calendar', eventId, expected);
       if (verdict.unknown) return { planId: plan.id, skipped: 'source_unknown', message: `暂不发送准备包：${verdict.reason}。` };
