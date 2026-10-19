@@ -62,3 +62,18 @@ it('新建会议无同步记录时主动复查原渠道；当前偏好变更不�
   expect(calls).toEqual([{ calendarId: 'original-cal', channel: 'feishu', from: event.start_time, to: event.end_time }]);
   expect(await rt.repos.outbox.recent()).toHaveLength(1);
 });
+it('旧版标题投影有创建回执佐证时保持原计划与指纹，真实改名仍停止计划', async () => {
+  event.raw = { event_id: 'meeting', summary: '[24PA] 会' };
+  await rt.repos.calendar.upsertEvent(event);
+  await rt.repos.digests.updatePlan('prep', { schedule_spec: { eventId: 'meeting', eventStart: event.start_time.toISOString(), scope: { memo: false, memory: false, tasks: false, minutes: false } } });
+  let remoteTitle = '[24PA] 会';
+  rt.syncCalendarWindow = async (calendarId, from, to, channel) => observeCalendar(rt.repos.calendar,
+    (...args) => rt.notifySourceChanged(...args), { calendarId, channel, from, to },
+    async () => [{ ...event, summary: remoteTitle, raw: { event_id: 'meeting', summary: remoteTitle } }]);
+  expect(await build()).toMatchObject({ eventId: 'meeting' });
+  expect((await rt.repos.digests.getPlan('prep')).status).toBe('active'); expect(deletes).toHaveLength(0);
+  expect(await rt.sourceVerdict('calendar', 'meeting', eventFingerprint(event))).toEqual({ valid: true });
+  remoteTitle = '[24PA] 新会议主题'; await build();
+  expect((await rt.repos.digests.getPlan('prep')).status).toBe('stopped'); expect(deletes).toEqual(['native-prep']);
+  expect(await rt.repos.outbox.recent()).toHaveLength(1);
+});
