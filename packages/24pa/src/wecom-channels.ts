@@ -6,6 +6,7 @@
 
 import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime } from './wecom.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint } from './util.js';
+import { taskPlanKey } from './task-lifecycle.js';
 import type { PaConfig } from './config.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import type { Repos, TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
@@ -217,14 +218,14 @@ export class WecomChannels {
       try {
         let newEventId = eventId;
         if (kind === 'create') {
-          const { data } = await this.wecomRun([
+          const { data } = await this.deps.performExternal(staged.row.id, () => this.wecomRun([
             'calendar', 'schedules', 'create',
             '--subject', `[24PA] ${summary}`,
             '--begin-time', wecomWallTime(start!, tz),
             '--end-time', wecomWallTime(end!, tz),
-          ]);
+          ]));
           newEventId = String(data?.schedule_id ?? '');
-          if (!newEventId) throw new Error('企微创建成功但未返回 schedule_id；以 calendar_query 核对。');
+          if (!newEventId) throw Object.assign(new Error('企微创建成功但未返回 schedule_id；以 calendar_query 核对。'), { outcome: 'unknown' });
           await this.deps.repos().calendar.upsertEvent({
             event_id: newEventId,
             calendar_id: WECOM_CALENDAR_ID,
@@ -241,8 +242,8 @@ export class WecomChannels {
             channel: 'wecom',
           });
         } else {
-          await this.wecomRun(['calendar', 'schedules', 'cancel', '--schedule-id', eventId]);
-          await this.deps.repos().calendar.markCanceled(eventId).catch(() => {});
+          await this.deps.performExternal(staged.row.id, () => this.wecomRun(['calendar', 'schedules', 'cancel', '--schedule-id', eventId]));
+          await this.deps.repos().calendar.markCanceled(eventId);
           await this.deps.notifySourceChanged('calendar', eventId, null);
         }
         await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url: null, kind, channel: 'wecom' } });
@@ -266,7 +267,7 @@ export class WecomChannels {
     if (plannedAt && Number.isNaN(plannedAt.getTime())) throw new Error('计划投入时间无法解析。');
     const estimateMinutes = args.estimateMinutes == null ? null : Number(args.estimateMinutes);
     if (estimateMinutes != null && (!Number.isFinite(estimateMinutes) || estimateMinutes < 0)) throw new Error('估时需为非负分钟数。');
-    const batchSuffix = args.opSuffix ? `\n${String(args.opSuffix)}` : '';
+    const batchSuffix = (args.opSuffix ? `\n${String(args.opSuffix)}` : '') + taskPlanKey(args);
     const overrideId = args._operationId ? String(args._operationId) : null;
     const authorization = args._instruction ? { instruction: text(args._instruction, 500) } : {};
     const staged = overrideId
@@ -288,12 +289,13 @@ export class WecomChannels {
         todoItem.deadline = { type: dueHasTime ? 'datetime' : 'date', value: dueHasTime ? wecomWallTime(dueAt, tz) : wecomWallTime(dueAt, tz).slice(0, 10) };
         todoItem.remind_at_deadline = true;
       }
-      const { data } = await this.wecomRun(['todo', 'create', '--items', JSON.stringify([todoItem])]);
-      const created = (data?.items ?? [])[0] as any;
-      const guid = String(created?.todo_id ?? '');
-      if (created?.success === false || !guid) {
-        throw new Error(`企微待办创建未成功：${created?.title ?? '未返回 todo_id'}；请核对企微待办列表后重试。`);
-      }
+      const guid = await this.deps.performExternal(staged.row.id, async () => {
+        const { data } = await this.wecomRun(['todo', 'create', '--items', JSON.stringify([todoItem])]);
+        const created = (data?.items ?? [])[0] as any;
+        const id = String(created?.todo_id ?? '');
+        if (created?.success === false || !id) throw Object.assign(new Error(`企微待办创建未成功：${created?.title ?? '未返回 todo_id'}；请核对企微待办列表后重试。`), { outcome: created?.success === false ? 'failed' : 'unknown' });
+        return id;
+      });
       const task = await this.deps.repos().tasks.save({
         id: staged.row.id,
         work_item_id: item.id,
@@ -340,9 +342,10 @@ export class WecomChannels {
     return this.deps.gate(`task:${task.task_guid}`, async () => {
       const local = await this.deps.repos().tasks.get(task.id);
       if (!local) throw new Error('待办不存在；请先用 task_list 查看。');
-      const refreshed = (await this.refreshWecomTaskFromRemote(local)) ?? local;
+      const remote = await this.refreshWecomTaskFromRemote(local);
+      const refreshed = remote ?? local;
       if (refreshed.status === 'completed') {
-        return { guid: refreshed.task_guid, status: 'completed', reused: true, message: '企微待办此前已是完成状态（含远端核对）。' };
+        return { guid: refreshed.task_guid, status: 'completed', reused: true, stale: !remote, message: remote ? '企微待办此前已是完成状态（含远端核对）。' : '企微待办此前已是完成状态（本地投影，本次远端核对未完成）。' };
       }
       const staged = await this.deps.stagedOperation(item, 'wecom_todo.finish', refreshed.task_guid, { channel: 'wecom', guid: refreshed.task_guid });
       if (!staged.created && staged.row.status === 'succeeded') {
@@ -350,9 +353,11 @@ export class WecomChannels {
         return { operationId: staged.row.id, guid: refreshed.task_guid, status: 'completed', reused: true, message: '此前已完成，未重复提交。' };
       }
       try {
-        const { data } = await this.wecomRun(['todo', 'finish', '--items', JSON.stringify([{ todo_id: refreshed.task_guid }])]);
-        const finished = ((data?.items ?? []) as any[])[0];
-        if (finished?.success === false) throw new Error('企微待办完成未成功；请核对企微待办列表后重试。');
+        await this.deps.performExternal(staged.row.id, async () => {
+          const { data } = await this.wecomRun(['todo', 'finish', '--items', JSON.stringify([{ todo_id: refreshed.task_guid }])]);
+          if (((data?.items ?? []) as any[])[0]?.success === false) throw Object.assign(new Error('企微待办完成未成功；请核对企微待办列表后重试。'), { outcome: 'failed' });
+          return data;
+        });
         const updated = await this.deps.repos().tasks.save({ ...refreshed, status: 'completed', last_synced_at: new Date(), external_updated_at: new Date() });
         await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: refreshed.task_guid, status: 'completed' } });
         return { operationId: staged.row.id, guid: updated.task_guid, url: null, status: 'completed', channel: 'wecom', message: '企微待办已完成（以企微实际状态为准）。' };
@@ -371,9 +376,11 @@ export class WecomChannels {
         return { operationId: staged.row.id, guid: task.task_guid, status: 'canceled', reused: true, message: '此企微待办此前已删除。' };
       }
       try {
-        const { data } = await this.wecomRun(['todo', 'delete', '--items', JSON.stringify([{ todo_id: task.task_guid }])]);
-        const deleted = ((data?.items ?? []) as any[])[0];
-        if (deleted?.success === false) throw new Error('企微待办删除未成功；请核对企微待办列表后重试。');
+        await this.deps.performExternal(staged.row.id, async () => {
+          const { data } = await this.wecomRun(['todo', 'delete', '--items', JSON.stringify([{ todo_id: task.task_guid }])]);
+          if (((data?.items ?? []) as any[])[0]?.success === false) throw Object.assign(new Error('企微待办删除未成功；请核对企微待办列表后重试。'), { outcome: 'failed' });
+          return data;
+        });
         await this.deps.repos().tasks.save({ ...task, status: 'canceled', last_synced_at: new Date(), external_updated_at: new Date() });
         await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, status: 'canceled', reason } });
         return { operationId: staged.row.id, guid: task.task_guid, status: 'canceled', channel: 'wecom', message: `企微待办已删除（理由已记录：${reason}）。` };
@@ -395,7 +402,7 @@ export class WecomChannels {
       '--msg-type', 'markdown',
       '--markdown', JSON.stringify({ content: escaped }),
     ]);
-    if (data?.success !== true) throw new Error('企微推送未获平台确认（success!=true）。');
+    if (data?.success !== true) throw Object.assign(new Error('企微推送未获平台确认（success!=true）。'), { outcome: data?.success === false ? 'failed' : 'unknown' });
     return { messageId: `wecom:${uuid}` };
   }
 

@@ -18,6 +18,7 @@ let cluster, llm, host, root, workspace, stubStatePath, scriptPath, bootEnv;
 const writeConfig = async (patch = {}) => {
   const config = {
     version: 1,
+    storage: process.env.PA24_E2E_STORAGE === 'sqlite' ? 'sqlite' : 'postgres',
     mode: 'feishu',
     larkProfile: 'default',
     ownerOpenId: 'ou_test_owner',
@@ -166,7 +167,7 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
 
   it('P03：本地24私助会话发起同一备忘流程，结果回到本地会话且不进飞书', async () => {
     const snapBefore = await host.api('snapshot');
-    const feishuSentBefore = snapBefore.outbox.filter(o => o.status === 'sent').length;
+    const feishuSentBefore = snapBefore.outbox.filter(o => o.channel === 'feishu' && o.status === 'sent').length;
     await host.remote('session/prompt', {
       request: {
         requestId: 'local-test-memo-1',
@@ -180,15 +181,18 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
       s => {
         const items = (s.work ?? []).filter(w => w.role === 'memo' && w.origin === 'local');
         const latest = items[0];
-        return latest && latest.status === 'completed';
+        return latest && latest.status === 'completed'
+          && (s.outbox ?? []).some(o => o.channel === 'local' && o.dedup_key.startsWith(`workitem:${latest.id}:result`) && o.status === 'sent')
+          && llm.log.some(r => r.lastUserText.includes('[事项回传]'));
       },
       { timeoutMs: 180_000, label: '本地备忘事项完成' },
     );
     const localItem = snap.work.find(w => w.origin === 'local' && w.role === 'memo');
     expect(localItem.delivery).toBe(`local:${snap.workspace.localSessionId}`);
     // 本地结果不进飞书 Outbox
-    expect(snap.outbox.some(o => o.dedup_key === `workitem:${localItem.id}:result`)).toBe(false);
-    expect(snap.outbox.filter(o => o.status === 'sent').length).toBe(feishuSentBefore);
+    expect(snap.outbox.some(o => o.channel === 'feishu' && o.dedup_key.startsWith(`workitem:${localItem.id}:result`))).toBe(false);
+    expect(snap.outbox.filter(o => o.channel === 'feishu' && o.status === 'sent').length).toBe(feishuSentBefore);
+    expect(snap.outbox.find(o => o.channel === 'local' && o.dedup_key.startsWith(`workitem:${localItem.id}:result`))).toMatchObject({ target: snap.workspace.localSessionId, status: 'sent' });
     // 事项回传进入本地父会话（模型收到带 [事项回传] 的消息并答复）
     const delivered = llm.log.filter(r => r.lastUserText.includes('[事项回传]')).length;
     expect(delivered).toBeGreaterThan(0);

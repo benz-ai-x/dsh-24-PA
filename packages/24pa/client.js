@@ -1019,7 +1019,7 @@ window.__ModuleLoader__.load({
           const VOICES = (state.configMeta && state.configMeta.fields ? state.configMeta.fields : [])
             .find(f => f.name === 'tts.voice')?.options ?? [];
           const KNOWN_EXTRA = ['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*'];
-          const makeForm = () => ({
+          const makeForm = (config = helpers.config) => ({
             mode: config?.mode ?? 'demo',
             larkProfile: config?.larkProfile ?? '',
             ownerOpenId: config?.ownerOpenId ?? '',
@@ -1042,9 +1042,13 @@ window.__ModuleLoader__.load({
             pgDsnEnv: config?.pgDsnEnv ?? 'PA24_PG_DSN',
           });
           const [form, setForm] = React.useState(makeForm);
+          // Polling may change the effective config while this draft is open.
+          // Compare with its stable editing baseline, never a newer snapshot.
+          const [baseline, setBaseline] = React.useState(makeForm);
+          const sourceConfig = React.useRef(config);
           const [saveState, setSaveState] = React.useState(null);
           const [busy, setBusy] = React.useState(false);
-          const configDirty = JSON.stringify(form) !== JSON.stringify(makeForm());
+          const configDirty = JSON.stringify(form) !== JSON.stringify(baseline);
           const set = (key, value) => { setForm(f => ({ ...f, [key]: value })); setSaveState(null); };
           const setTts = (key, value) => { setForm(f => ({ ...f, tts: { ...f.tts, [key]: value } })); setSaveState(null); };
           const authOpenId = state.diagnostics?.auth?.openId;
@@ -1065,7 +1069,7 @@ window.__ModuleLoader__.load({
           };
           const row = (label, control, hint) => {
             const id = 'pa24-field-' + String(label).replace(/[^\p{L}\p{N}]+/gu, '-');
-            return h('div', { className: 'pa24-form-row' }, h('label', { htmlFor: id }, label), h('div', { style: { minWidth: 0 } }, withFieldId(control, id), hint && h('p', { className: 'pa24-meta', style: { marginTop: 2, marginBottom: 0 } }, hint)));
+            return h('div', { key: id, className: 'pa24-form-row' }, h('label', { htmlFor: id }, label), h('div', { style: { minWidth: 0 } }, withFieldId(control, id), hint && h('p', { className: 'pa24-meta', style: { marginTop: 2, marginBottom: 0 } }, hint)));
           };
           const txt = (value, onSet, extra = {}) => h('input', { type: 'text', value, onChange: e => onSet(e.target.value), ...extra });
           const sel = (options, value, onSet) => h('select', { value, onChange: e => onSet(e.target.value) }, options.map(([v, l]) => h('option', { key: v, value: v }, l)));
@@ -1075,25 +1079,53 @@ window.__ModuleLoader__.load({
           const wmGet = role => form.workerModels[role] || {};
           const wmSet = (role, patch) => { setForm(f => ({ ...f, workerModels: { ...f.workerModels, [role]: { ...(f.workerModels[role] || {}), ...patch } } })); setSaveState(null); };
           const roleRows = [...new Set([...(form.enabledWorkers || []), ...Object.keys(form.workerModels)])].filter(r => WORKER_IDS.includes(r) || form.workerModels[r]);
-          const save = async () => {
-            setBusy(true);
-            try {
+          const normalize = draft => {
+              const form = draft;
               const models = {};
               for (const [role, route] of Object.entries(form.workerModels)) {
                 const provider = String(route.provider || '').trim(), model = String(route.model || '').trim();
-                if (provider || model) models[role] = { ...(provider ? { provider } : {}), ...(model ? { model } : {}), ...(route.simplePersona ? { simplePersona: true } : {}) };
+                models[role] = { provider, model, simplePersona: !!route.simplePersona };
               }
-              const extra = [...new Set([...form.extraKnown, ...(config?.extraLocalTools ?? []).filter(v => !KNOWN_EXTRA.includes(v))])];
+              const extra = [...new Set([...form.extraKnown, ...(sourceConfig.current?.extraLocalTools ?? []).filter(v => !KNOWN_EXTRA.includes(v))])];
               const skills = (form.extraSkills || '').split(/[,，\n]/).map(x => x.trim()).filter(Boolean);
-              await rpc('action', { type: 'workspace.config-update', config: {
+              return {
                 mode: form.mode, larkProfile: form.larkProfile.trim(), ownerOpenId: form.ownerOpenId.trim(), timeZone: form.timeZone.trim(),
                 calendarChannel: form.calendarChannel, todoChannel: form.todoChannel, notifyChannel: form.notifyChannel,
                 folderToken: form.folderToken.trim(), wikiNodeToken: form.wikiNodeToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
                 maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra, extraBusinessSkills: skills,
                 appIdEnv: form.appIdEnv.trim(), appSecretEnv: form.appSecretEnv.trim(), pgDsnEnv: form.pgDsnEnv.trim(),
                 tts: form.tts,
-              } });
-              await helpers.refresh();
+              };
+          };
+          const adoptSaved = saved => {
+            sourceConfig.current = saved;
+            const canonical = makeForm(saved);
+            setForm(canonical); setBaseline(canonical);
+          };
+          const save = async () => {
+            setBusy(true);
+            try {
+              const normalized = normalize(form), original = normalize(baseline);
+              const patch = Object.fromEntries(Object.entries(normalized).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(original[key])));
+              if (patch.tts) patch.tts = Object.fromEntries(Object.entries(normalized.tts).filter(([key, value]) => value !== original.tts[key]));
+              if (patch.workerModels) {
+                const routes = {};
+                for (const role of new Set([...Object.keys(normalized.workerModels), ...Object.keys(original.workerModels)])) {
+                  const current = normalized.workerModels[role] || {}, previous = original.workerModels[role] || {};
+                  const changed = {};
+                  for (const [key, fallback] of Object.entries({ provider: '', model: '', simplePersona: false })) {
+                    if ((current[key] ?? fallback) !== (previous[key] ?? fallback)) changed[key] = current[key] ?? fallback;
+                  }
+                  // Empty strings clear only edited fields; do not remove a
+                  // whole route that may have concurrent changes elsewhere.
+                  if (Object.keys(changed).length) routes[role] = changed;
+                }
+                if (Object.keys(routes).length) patch.workerModels = routes;
+                else delete patch.workerModels;
+              }
+              const saved = Object.keys(patch).length ? await rpc('action', { type: 'workspace.config-update', config: patch }) : state;
+              adoptSaved(saved.workspace.config);
+              await helpers.refresh().catch(() => {});
               setSaveState({ ok: true, message: L('已保存并重载生效。', 'Saved and reloaded.') });
             } catch (e) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
             finally { setBusy(false); }
@@ -1122,7 +1154,7 @@ window.__ModuleLoader__.load({
             return () => helpers.setFormDirty(false);
           }, [dirty]);
           const reset = () => {
-            setForm(makeForm());
+            adoptSaved(config);
             setSecretDraft({});
             setSecretClears({});
             setSaveState(null);
@@ -1139,8 +1171,8 @@ window.__ModuleLoader__.load({
             setBusy(true);
             try {
               await rpc('action', { type: 'workspace.secret-update', values });
-              await helpers.refresh();
               setSecretDraft({}); setSecretClears({});
+              await helpers.refresh().catch(() => {});
               setSaveState({ ok: true, message: L('密钥已保存到工作区密钥库。', 'Secrets saved to the workspace store.') });
             } catch (e) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
             finally { setBusy(false); }
@@ -1154,7 +1186,7 @@ window.__ModuleLoader__.load({
           if (!config) return empty('code', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在接入与设置的「工作区与配置」绑定工作区后可编辑参数。', 'Bind a workspace via Workspace & config under Connections & setup to edit parameters.'));
           // F34: 保存/试听反馈随保存栏展示（sticky 常驻视口底）——原先渲染在
           // 表单顶部，用户在表单中下部点保存时错误在视口外不可见（走查 S6）。
-          return h('div', null,
+          return h('fieldset', { disabled: busy, style: { border: 0, padding: 0, margin: 0, minWidth: 0 } },
             sectionHead('code', null, L('保存＝校验→写回 AGENTS.md 配置块→重载生效；工作规则不受影响，校验失败保留原文。', 'Save = validate → rewrite the AGENTS.md config block → reload; prose rules untouched, file kept on validation failure.'), null, 'blue'),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('模式与身份', 'Mode & identity')),
@@ -1227,8 +1259,8 @@ window.__ModuleLoader__.load({
             h('div', { className: 'pa24-form-actions' },
               saveState && h('div', { role: saveState.ok ? 'status' : 'alert', className: saveState.ok ? 'pa24-example' : 'pa24-error', style: { flex: '1 1 100%', margin: 0 } }, icon(saveState.ok ? 'check' : 'alert', { width: 16, height: 16 }), h('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } }, saveState.message)),
               h('button', { type: 'button', className: 'pa24-quiet', disabled: busy || !dirty, onClick: reset }, icon('close', { width: 16, height: 16 }), L('重置修改', 'Reset changes')),
-              h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !dirty, onClick: () => void save() }, icon('check', { width: 16, height: 16 }), busy ? L('保存中…', 'Saving…') : L('保存并重载', 'Save & reload')),
-              h('span', { className: 'pa24-meta', role: 'status' }, dirty ? L('有未保存修改', 'Unsaved changes') : L('保存后立即重载生效；对话修改与表单等价（同一配置源）。', 'Reload applies immediately; chat edits and the form share the same config source.'))));
+              h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !configDirty, onClick: () => void save() }, icon('check', { width: 16, height: 16 }), busy ? L('保存中…', 'Saving…') : L('保存并重载', 'Save & reload')),
+              h('span', { className: 'pa24-meta', role: 'status' }, configDirty ? L('参数有未保存修改', 'Unsaved configuration changes') : secretDirty ? L('密钥有未保存修改，请点「保存密钥」', 'Unsaved secrets — use Save secrets') : L('保存后立即重载生效；对话修改与表单等价（同一配置源）。', 'Reload applies immediately; chat edits and the form share the same config source.'))));
         }
 
         function CardShell({ card, tier, label, manage, hidden, onToggleHidden, body, foot }) {

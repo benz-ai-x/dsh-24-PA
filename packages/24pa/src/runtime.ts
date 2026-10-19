@@ -5,23 +5,28 @@ import { readFileSync } from 'node:fs';
 /** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
 const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任务 skill（worker-persona-*）在会话启动时装载；此处仅注册占位。';
 import { createRequire } from 'node:module';
-import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
+import { mkdir, realpath, stat, readFile, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
-import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow } from './repo.js';
+import { WorkItemLifecycle } from './work-item-lifecycle.js';
+import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
-import { parseAgentsMd, template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, noteParentToken, rawAgentsMdConfig, replaceAgentsMdConfig, validateConfig, type PaConfig } from './config.js';
+import { template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
 import { runLarkCli, sendLarkAudioMessage } from './lark.js';
 import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
-import { readSecretStore, writeSecretStore, secretStatus, resolveSecret, SECRET_KEYS, type SecretKey, type SecretStore, type SecretStatus } from './secrets.js';
+import { writeSecretStore, secretStatus, resolveSecret, secretRefs, secretEnvironment, SECRET_KEYS, type SecretKey, type SecretStore, type SecretStatus } from './secrets.js';
+import { readWorkspaceConfiguration, writeWorkspaceConfiguration, type WorkspaceConfiguration } from './workspace-config.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
+import { ExternalOperations } from './external-operations.js';
+import { OutboxDelivery } from './outbox-delivery.js';
+import { TaskLifecycle } from './task-lifecycle.js';
 import { SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
 import { text, nowIso, isoDate, eventFingerprint, hash } from './util.js';
@@ -140,6 +145,8 @@ export class PaRuntime {
   /** Best-effort usage counters since host start (P39 预算观测). */
   readonly usage = { modelRequests: 0, notePagesInput: 0, noteCrops: 0 };
   private db: PaDb | null = null;
+  /** Resolved connection used by the active ledger, independent of later env/store edits. */
+  private activePostgresDsn: string | null = null;
   private get dbRef(): PaDb {
     if (!this.db) throw new Error('业务账本未连接。');
     return this.db;
@@ -159,6 +166,8 @@ export class PaRuntime {
   private secretStore: SecretStore = {};
   private accessSessionId: string | null = null;
   private localSessionId: string | null = null;
+  private preparingWorkspace: { workspace: WorkspaceInfo & { statePath: string }; config: PaConfig; accessSessionId: string; localSessionId: string; sessionNotices: { dedupKey: string; text: string }[]; extraToolResolution?: { requested: string[]; active: string[]; filtered: string[] } } | null = null;
+  workspaceChanging = false;
 
   private transport: FeishuTransport | null = null;
   private transportError: string | null = null;
@@ -174,6 +183,73 @@ export class PaRuntime {
   private reviewReminderTimer: NodeJS.Timeout | null = null;
   private reviewReminding = false;
 
+  private readonly externalOperations = new ExternalOperations(() => this.repos!.operations);
+  private readonly outboxDelivery = new OutboxDelivery({
+    repo: () => this.repos!.outbox,
+    routes: () => this.repos!.messageRoutes,
+    sent: () => { this.lastSentAt = nowIso(); },
+    adapters: {
+      local: {
+        available: () => !this.closed && !!this.config,
+        supports: kind => kind === 'text',
+        send: row => this.gate(row.target, async () => {
+          const resolved = await this.ctx.sessionController.resolveAgent(row.target).catch(error => { throw Object.assign(new Error(`原发起会话暂不可用：${(error as Error).message}`), { outcome: 'failed' }); });
+          if ('error' in resolved) throw Object.assign(new Error('原发起会话暂不可用，稍后补交事项结果。'), { outcome: 'failed' });
+          let result;
+          try {
+            result = await this.ctx.sessionController.prompt({ requestId: row.dedup_key, sessionId: row.target, mode: 'queue', content: [{ type: 'text', text: String(row.content?.text ?? '') }], clientTimeZone: this.config!.timeZone }, this.lifetime.signal);
+          } catch (error) {
+            throw Object.assign(new Error(`会话接纳结果未知：${(error as Error).message}`), { outcome: 'unknown' });
+          }
+          if ('error' in result) throw Object.assign(new Error('原发起会话未接纳事项结果。'), { outcome: 'failed' });
+          try { await this.ctx.sessions.flush(resolved.agent.session); }
+          catch (error) { throw Object.assign(new Error(`会话已接纳但持久化未确认：${(error as Error).message}`), { outcome: 'unknown' }); }
+          return { messageId: `local:${row.dedup_key}` };
+        }),
+      },
+      wecom: {
+        available: () => !!this.config,
+        supports: kind => kind === 'text',
+        send: row => this.wecomChannels.wecomSendText(row.target, String(row.content?.text ?? ''), row.dedup_key.slice(0, 50)),
+      },
+      feishu: {
+        available: () => !!this.transport,
+        supports: () => true,
+        send: async row => {
+          if (row.kind === 'audio') {
+            const synth = resolveTtsEngine(this.config!.tts, this.secretEnv());
+            if (!synth) throw Object.assign(new Error('TTS 引擎未配置（tts.engine=none），语音行无法投递。'), { outcome: 'failed' });
+            const ogg = await synth(String(row.content?.text ?? '')).catch(error => { throw Object.assign(new Error(`语音合成失败：${(error as Error).message}`), { outcome: 'failed' }); });
+            return sendLarkAudioMessage(cliOptions(this.config!, this.options.larkCliBin, 120_000), row.target, ogg, row.dedup_key);
+          }
+          return row.kind === 'card'
+            ? this.transport!.sendCard(row.target, row.content, row.dedup_key.slice(0, 50))
+            : this.transport!.sendText(row.target, String(row.content?.text ?? ''), row.dedup_key.slice(0, 50));
+        },
+      },
+    },
+  });
+
+  private readonly taskLifecycle = new TaskLifecycle({
+    repo: () => this.repos!.tasks,
+    createChannel: () => this.config!.todoChannel,
+    adapters: {
+      feishu: {
+        create: (item, args) => this.feishu.taskCreate(item, args),
+        update: (item, task, args) => this.feishu.taskUpdate(item, { ...args, taskId: task.id }),
+        complete: (item, task) => this.feishu.taskComplete(item, task),
+        refresh: task => this.feishu.refreshTask(task),
+      },
+      wecom: {
+        create: (item, args) => this.wecomChannels.wecomTaskCreate(item, args),
+        update: async () => { throw new Error('企微待办首版不支持修改（F16 范围：创建/完成/删除）；如需调整，可删除后重建。'); },
+        complete: (item, task) => this.wecomChannels.wecomTaskFinish(item, task),
+        refresh: task => this.wecomChannels.refreshWecomTaskFromRemote(task),
+        cancel: (item, task, reason) => this.wecomChannels.wecomTaskDelete(item, task, reason),
+      },
+    },
+  });
+
   /** Common deep-module dependency subset (F31): wired once, spread into
    *  each channel module's initializer. */
   private baseChannelDeps() {
@@ -182,7 +258,9 @@ export class PaRuntime {
       config: () => this.config!,
       notifyOwner: (dedupKey: string, body: string) => this.notifyOwner(dedupKey, body),
       stagedOperation: (item: WorkItemRow, kind: string, paramsKey: string, params: Record<string, unknown>, hint?: string) => this.stagedOperation(item, kind, paramsKey, params, hint),
+      stagedOperationWithId: (id: string, item: WorkItemRow, action: string, params: Record<string, unknown>) => this.stagedOperationWithId(id, item, action, params),
       failStaged: (operationId: string, error: unknown) => this.failStaged(operationId, error),
+      performExternal: <T>(operationId: string, invoke: () => Promise<T>) => this.externalOperations.perform(operationId, invoke),
     };
   }
 
@@ -224,7 +302,6 @@ export class PaRuntime {
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
     linkedEventIdsInWindow: (from, to) => this.linkedEventIdsInWindow(from, to),
-    refreshTaskFromRemote: task => this.refreshTaskFromRemote(task),
     memory: () => this.memory,
   });
 
@@ -260,7 +337,8 @@ export class PaRuntime {
     nativeSchedule: () => this.nativeSchedule(),
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
     calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
-    currentFingerprint: (noteId, docId, row) => this.handwriting.currentFingerprint(noteId, docId, row),
+    inspectNoteTrust: (noteId, versionId) => this.handwriting.inspectTrust(noteId, versionId),
+    ownerNotification: (key, report) => this.ownerNotification(key, report),
     skillCatalog: () => this.skillCatalog,
   });
 
@@ -352,16 +430,7 @@ export class PaRuntime {
         task_update: async (args, item) => this.taskUpdate(item, args),
         task_complete: async (args, item) => this.taskComplete(item, args),
         task_get: async args => this.taskGet(args),
-        task_cancel: async (args, item) => {
-          const task = await this.resolveTask(args);
-          if (!String(args.reason ?? '').trim()) throw new Error('取消需要说明本人的理由，用于记录与后续核对。');
-          if (task.channel === 'wecom') return this.wecomChannels.wecomTaskDelete(item, task, String(args.reason));
-          return {
-            guid: task.task_guid,
-            url: task.url,
-            message: '飞书任务平台不提供删除/取消接口。按平台真实能力：可用 task_update 在标题中标注取消原因，或 task_complete 归档；未执行任何写入。',
-          };
-        },
+        task_cancel: async (args, item) => this.taskLifecycle.cancel(item, args),
         task_list: async args => this.taskList(args),
         project_create: async args => this.projectCreate(args),
         project_adopt: async (args, item) => this.projectAdopt(item, args),
@@ -681,12 +750,14 @@ export class PaRuntime {
 
   /** Release every acquired resource; safe to call again after a late start(). */
   private async cleanup(): Promise<void> {
+    await this.workLifecycle.idle();
     if (this.noteVerifyTimer) clearInterval(this.noteVerifyTimer);
     this.noteVerifyTimer = null;
     if (this.reviewReminderTimer) clearInterval(this.reviewReminderTimer);
     this.reviewReminderTimer = null;
     this.reminders?.stop();
     this.reminders = null;
+    await this.outboxDelivery.pause();
     await this.transport?.close().catch(() => {});
     this.transport = null;
     await this.db?.close().catch(() => {});
@@ -720,38 +791,8 @@ export class PaRuntime {
         );
       }
     }
-    // Running children get an explicit recovery input; queued/accepted items
-    // start through the normal pump on the next delegation/event.
-    const interrupted = await this.repos.workItems.list(['running'], 50);
-    for (const item of interrupted) {
-      if (!item.child_session_id) continue;
-      // Synthetic note-republish items own no native child session; a crash
-      // mid-republish just needs a clean close (the staged operation keeps
-      // idempotency for the next attempt).
-      if (item.id.startsWith('pa24-work-notes-')) {
-        await this.repos.workItems.update(item.id, { status: 'failed', progress: '重启中断了候选刷新；请重新发起。' });
-        continue;
-      }
-      const gen = (item.recovery_gen ?? 0) + 1;
-      await this.repos.workItems.update(item.id, { progress: `重启恢复（第 ${gen} 代）；等待 Worker 核对后续办` } as any);
-      await this.repos.workItems.setRecoveryGen(item.id, gen).catch(() => {});
-      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id).catch(() => null);
-      if (!parent || 'error' in parent) continue;
-      await this.ctx.subagents
-        .sendMessage(
-          parent.agent,
-          item.child_session_id,
-          [
-            {
-              type: 'text',
-              text: `[恢复 第${gen}代] 服务重启。请先核对已完成步骤与外部结果（账本操作编号见工具回执），再继续未完成部分；已成功的操作不要重复执行。`,
-            },
-          ],
-          { signal: this.lifetime.signal },
-        )
-        .catch(() => {});
-    }
-    if (interrupted.length > 0 || orphaned.length > 0) void this.pump();
+    await this.outboxDelivery.recover();
+    await this.workLifecycle.recover();
   }
 
   /** After a restart, re-attach the in-memory role map from the durable ledger. */
@@ -762,34 +803,84 @@ export class PaRuntime {
   }
 
   async bind(path: string, initialize = false): Promise<void> {
+    return this.enqueue(async () => {
+      this.workspaceChanging = true;
+      try { await this.bindWorkspace(path, initialize); }
+      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); }
+    });
+  }
+
+  private async bindWorkspace(path: string, initialize: boolean): Promise<void> {
     if (!isAbsolute(path)) throw new Error('工作区必须是服务器上的绝对目录。');
     const real = await realpath(await (initialize ? mkdir(path, { recursive: true }).then(() => path) : path));
     if (!(await stat(real)).isDirectory()) throw new Error('请选择目录。');
     // Switching the bound workspace while work is in flight would orphan the
     // running ledger; require the operator to finish or stop first.
-    if (this.workspace && this.workspace.statePath !== real && (await this.hasActiveWork())) {
+    if (this.workspace && (await this.hasActiveWork())) {
       throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
     }
-
-    // 重绑会关闭旧库，而旧引擎持有旧库句柄；先停止，避免关闭窗口或失败路径里旧引擎每轮报「数据库连接池已关闭」。
-    this.reminders?.stop();
-    await this.openDatabaseFor(real);
-    const saved = await this.repos!.workspaceState.get(real);
-    this.accessSessionId = saved?.feishu_session_id ?? `pa24-${hash(real).slice(0, 12)}-feishu`;
-    this.localSessionId = saved?.local_session_id ?? `pa24-${hash(real).slice(0, 12)}-local`;
 
     const agentsMd = join(real, 'AGENTS.md');
     if (initialize && !(await stat(agentsMd).catch(() => null))) {
       const target = await this.ctx.fs.resolve(agentsMd);
       await this.ctx.fs.writeText(target, template(), { kind: 'createIfAbsent' }, undefined, { mode: 'workspace-write', workspaceRoot: real });
     }
-    const workspace = await this.ctx.workspaceRegistry.create(real, '24私助');
-    this.workspace = { ...workspace, statePath: real };
-    this.secretStore = await readSecretStore(real);
+    // Prepare with target-owned configuration and credentials. Nothing active
+    // is stopped or replaced until all fallible preparation has succeeded.
+    const candidate = await readWorkspaceConfiguration(real);
+    const { db, postgresDsn } = await this.openDatabaseFor(real, candidate);
+    const repos = createRepos(db);
+    let next: NonNullable<PaRuntime['preparingWorkspace']>;
+    let active: WorkItemRow[];
+    let connection: Awaited<ReturnType<PaRuntime['prepareTransport']>> | undefined;
+    try {
+      const saved = await repos.workspaceState.get(real);
+      next = {
+        workspace: { ...await this.ctx.workspaceRegistry.create(real, '24私助'), statePath: real },
+        config: candidate.config,
+        accessSessionId: saved?.feishu_session_id ?? `pa24-${hash(real).slice(0, 12)}-feishu`,
+        localSessionId: saved?.local_session_id ?? `pa24-${hash(real).slice(0, 12)}-local`,
+        sessionNotices: [],
+      };
+      this.preparingWorkspace = next;
+      next.accessSessionId = await this.prepareOwnedSession('feishu', next);
+      next.localSessionId = await this.prepareOwnedSession('local', next);
+      await repos.workspaceState.save(real, { feishuSessionId: next.accessSessionId, localSessionId: next.localSessionId });
+      active = await repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 100);
+      connection = await this.prepareTransport(candidate.config, candidate.secrets);
+      await this.outboxDelivery.pause();
+      await this.workLifecycle.idle();
+      if (this.workspace && (await this.hasActiveWork())) throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
+      if (this.closed) throw new Error('24私助已停止。');
+    } catch (error) {
+      connection?.cancel();
+      await connection?.transport?.close().catch(() => {});
+      await db.close().catch(() => {});
+      throw error;
+    } finally {
+      this.preparingWorkspace = null;
+    }
+    const previousDb = this.db;
+    const previousReminders = this.reminders;
+    const previousTransport = this.transport;
+    // Activate synchronously, so callbacks cannot observe half a workspace.
+    this.db = db;
+    this.activePostgresDsn = postgresDsn;
+    this.repos = repos;
+    this.workspace = next.workspace;
+    this.accessSessionId = next.accessSessionId;
+    this.localSessionId = next.localSessionId;
+    this.applyWorkspaceConfiguration(candidate);
+    this.transport = connection.transport;
+    this.transportError = connection.error;
+    connection.activate();
     this.memory = new MemoryStore(real, this.ctx);
-    await this.restoreRegisteredRoles();
+    this.diagnostics = null;
+    this.extraToolResolution = next.extraToolResolution ?? null;
+    this.workItemByChild.clear();
+    for (const item of active) this.trackWorkItem(item);
     this.reminders = new ReminderEngine(
-      this.dbRef,
+      db,
       {
         notify: async (dedupKey, text) => {
           await this.notifyOwner(dedupKey, text);
@@ -806,21 +897,27 @@ export class PaRuntime {
       },
       this.silencePolicy,
     );
+    previousReminders?.stop();
+    await previousTransport?.close().catch(() => {});
+    await previousDb?.close().catch(() => {});
+    await this.restoreRegisteredRoles();
     this.reminders.start(this.options.reminderTickMs);
-    await this.loadConfig();
-    await this.repos!.workspaceState.save(real, { feishuSessionId: this.accessSessionId, localSessionId: this.localSessionId });
-    await this.establishSessions();
-    await this.restoreActiveWork();
-    await this.connectTransport();
+    // Resolve owner/channel only after activation, so a rebound notice cannot
+    // enter the previous workspace's ledger or use its notification identity.
+    for (const notice of next.sessionNotices) {
+      await this.notifyOwner(notice.dedupKey, notice.text).catch(error => console.warn(`[pa24] 会话重建通知写入失败：${(error as Error).message}`));
+    }
   }
 
-  private async openDatabaseFor(workspacePath: string): Promise<void> {
-    const probe = await this.probeStorageConfig(workspacePath);
+  private async openDatabaseFor(workspacePath: string, candidate: WorkspaceConfiguration): Promise<{ db: PaDb; postgresDsn: string | null }> {
+    const probe = candidate.config;
     // F25: default ledger is a SQLite file in the workspace; PostgreSQL runs
     // only by explicit workspace choice. No silent fallback either way.
     let db: PaDb;
+    let postgresDsn: string | null = null;
     if (probe.storage === 'postgres') {
-      db = new PaDatabase(resolveDsn(probe.pgDsnEnv, this.secretEnv()));
+      postgresDsn = resolveDsn(probe.pgDsnEnv, secretEnvironment(probe, this.env, candidate.secrets));
+      db = new PaDatabase(postgresDsn);
     } else {
       const dataDir = join(workspacePath, 'data');
       await mkdir(dataDir, { recursive: true });
@@ -833,40 +930,43 @@ export class PaRuntime {
       await db.close().catch(() => {});
       throw error;
     }
-    await this.db?.close().catch(() => {});
-    this.db = db;
-    this.repos = createRepos(db);
-  }
-
-  /** Read the storage choice from AGENTS.md before the full config is trusted. */
-  private async probeStorageConfig(workspacePath: string): Promise<{ storage: 'sqlite' | 'postgres'; pgDsnEnv: string }> {
-    try {
-      const source = await readFile(join(workspacePath, 'AGENTS.md'), 'utf8');
-      const { config } = parseAgentsMd(source);
-      return { storage: config.storage, pgDsnEnv: config.pgDsnEnv };
-    } catch (error) {
-      // An INVALID config block fails loud right here — before any ledger
-      // side effect (openDatabaseFor would otherwise migrate a file the
-      // broken workspace never asked for). A missing/unreadable AGENTS.md
-      // (fresh workspace) takes the zero-dependency product default.
-      if (error instanceof ConfigError) throw error;
-      return { storage: 'sqlite', pgDsnEnv: 'PA24_PG_DSN' };
-    }
+    return { db, postgresDsn };
   }
 
   async loadConfig(): Promise<PaConfig> {
-    const source = await readFile(join(this.workspace!.statePath, 'AGENTS.md'), 'utf8');
-    const parsed = parseAgentsMd(source);
-    const previous = this.config;
-    if (previous && previous.mode !== parsed.config.mode && (await this.hasActiveWork())) {
+    const parsed = await readWorkspaceConfiguration(this.workspace!.statePath);
+    await this.checkWorkspaceConfiguration(parsed.config, parsed.secrets);
+    const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(parsed.config, parsed.secrets);
+    const connection = reconnect ? await this.prepareTransport(parsed.config, parsed.secrets) : null;
+    this.applyWorkspaceConfiguration(parsed);
+    if (connection) await this.activateTransport(connection);
+    return parsed.config;
+  }
+
+  private async checkWorkspaceConfiguration(config: PaConfig, secrets = this.secretStore): Promise<void> {
+    if (this.config && this.config.storage !== config.storage) {
+      throw new ConfigError('切换存储后端涉及数据迁移，请按初始化指南完成迁移后重新绑定工作区。');
+    }
+    if (this.config?.storage === 'postgres' && this.activePostgresDsn !== resolveSecret(secretRefs(config).pgDsn, this.env, secrets, 'pgDsn')) {
+      throw new ConfigError('PostgreSQL 连接变化不能热重载；请按初始化指南更新连接配置后重新绑定工作区，当前账本连接保持不变。');
+    }
+    if (this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile) && (await this.hasActiveWork())) {
       throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
     }
+  }
+
+  private applyWorkspaceConfiguration(parsed: WorkspaceConfiguration): void {
     this.config = parsed.config;
+    this.secretStore = parsed.secrets;
     this.instructions = parsed.instructions;
     this.sourceHash = parsed.sourceHash;
     this.loadedAt = nowIso();
     this.configError = null;
-    return parsed.config;
+  }
+
+  private transportIdentity(config: PaConfig | null, store: SecretStore): string {
+    const refs = secretRefs(config);
+    return JSON.stringify([config?.mode, resolveSecret(refs.feishuAppId, this.env, store, 'feishuAppId'), resolveSecret(refs.feishuAppSecret, this.env, store, 'feishuAppSecret')]);
   }
 
   /**
@@ -881,7 +981,6 @@ export class PaRuntime {
 
   async reloadWorkspace(): Promise<void> {
     return this.enqueue(async () => {
-      const previousConfig = this.config;
       const previousHash = this.sourceHash;
       try {
         await this.loadConfig();
@@ -890,50 +989,23 @@ export class PaRuntime {
         this.sourceHash = previousHash;
         throw error;
       }
-      // Non-destructive reload: keep sessions, work items and diagnostics.
-      if (previousConfig?.mode !== this.config!.mode) {
-        await this.connectTransport();
-      }
     });
   }
 
   /**
    * F33/P60: 参数配置表单保存——以磁盘当前 raw 配置为底合并补丁（防快照过期
    * 覆盖），先跑完整校验器再原子写回唯一 ```json 块（工作规则区逐字节不变），
-   * 随后走与 reload 相同的装载路径。storage/version/密钥引用名不在表单白名单。
+   * 随后走与 reload 相同的装载路径。storage/version 不在表单白名单。
    */
   async updateWorkspaceConfig(patch: Record<string, unknown>): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
-    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new ConfigError('配置补丁必须是对象。');
-    const rejected = Object.keys(patch).filter(key => !CONFIG_UPDATE_ALLOWED.has(key));
-    if (rejected.length) throw new ConfigError(`不接受从表单更新的字段：${rejected.join('、')}（storage 切换走迁移流程；version 固定；密钥值走「密钥」组，进工作区密钥库）。`);
     return this.enqueue(async () => {
-      const path = join(this.workspace!.statePath, 'AGENTS.md');
-      const source = await readFile(path, 'utf8');
-      const merged = { ...rawAgentsMdConfig(source), ...patch };
-      // 校验通过才落盘：失败时 AGENTS.md 保持原文，表单拿字段级错误。
-      const validated = validateConfig(merged);
-      if (this.config && this.config.mode !== validated.mode && (await this.hasActiveWork())) {
-        throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
-      }
-      const next = replaceAgentsMdConfig(source, merged);
-      const tmp = `${path}.pa24-tmp`;
-      try {
-        await writeFile(tmp, next, 'utf8');
-        await rename(tmp, path);
-      } catch (error) {
-        await rm(tmp, { force: true }).catch(() => {});
-        throw error;
-      }
-      const previousConfig = this.config;
+      await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets));
       try {
         await this.loadConfig();
       } catch (error) {
         this.configError = `表单保存后重载失败（文件已写入，保留旧生效配置）：${(error as Error).message}`;
         throw error;
-      }
-      if (previousConfig?.mode !== this.config!.mode) {
-        await this.connectTransport();
       }
     });
   }
@@ -942,27 +1014,12 @@ export class PaRuntime {
 
   /** 每个能力位对应的配置引用名（env 优先时读哪个变量）；空配置落规范名。 */
   private secretRefs(): Record<SecretKey, string> {
-    return {
-      feishuAppId: this.config?.appIdEnv || 'PA24_FEISHU_APP_ID',
-      feishuAppSecret: this.config?.appSecretEnv || 'PA24_FEISHU_APP_SECRET',
-      pgDsn: this.config?.pgDsnEnv || 'PA24_PG_DSN',
-      // tts.volcKeyEnv 模板默认空串——空引用名会让密钥库兜底失效，落规范名
-      // （与初始化指南 env 示例同名）。
-      volcTtsKey: this.config?.tts?.volcKeyEnv || 'PA24_VOLC_TTS_KEY',
-    };
+    return secretRefs(this.config);
   }
 
   /** env 副本＋密钥库兜底值按引用名回填——消费点统一用它，解析顺序单点成立。 */
   private secretEnv(): Record<string, string | undefined> {
-    const env: Record<string, string | undefined> = { ...this.env };
-    const refs = this.secretRefs();
-    for (const key of SECRET_KEYS) {
-      const ref = refs[key];
-      if (!ref || (env[ref] ?? '').trim()) continue;
-      const fromStore = (this.secretStore[key] ?? '').trim();
-      if (fromStore) env[ref] = fromStore;
-    }
-    return env;
+    return secretEnvironment(this.config, this.env, this.secretStore);
   }
 
   secretValue(key: SecretKey): string {
@@ -985,7 +1042,7 @@ export class PaRuntime {
     const unknown = Object.keys(values).filter(k => !(SECRET_KEYS as readonly string[]).includes(k));
     if (unknown.length) throw new ConfigError(`未知密钥字段：${unknown.join('、')}。`);
     return this.enqueue(async () => {
-      const next: SecretStore = { ...this.secretStore };
+      const next: SecretStore = { ...(await readWorkspaceConfiguration(this.workspace!.statePath)).secrets };
       for (const key of SECRET_KEYS) {
         if (!(key in values)) continue;
         const value = values[key];
@@ -994,10 +1051,13 @@ export class PaRuntime {
         if (trimmed) next[key] = trimmed;
         else delete next[key];
       }
+      await this.checkWorkspaceConfiguration(this.config!, next);
       await writeSecretStore(this.workspace!.statePath, next);
+      const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next);
+      const connection = reconnect || (this.config?.mode === 'feishu' && !this.transport) ? await this.prepareTransport(this.config!, next) : null;
       this.secretStore = next;
       // 凭据可能刚到位/被清除：feishu 模式下按新解析结果重连（与配置保存同口径）。
-      await this.connectTransport();
+      if (connection) await this.activateTransport(connection);
     });
   }
 
@@ -1010,37 +1070,66 @@ export class PaRuntime {
     return count > 0;
   }
 
-  private async connectTransport(): Promise<void> {
-    await this.transport?.close().catch(() => {});
-    this.transport = null;
-    this.transportError = null;
-    if (!this.config) return;
-    if (this.config.mode !== 'feishu') {
-      this.transportError = 'demo：未连接飞书；业务账本按工作区配置运行。';
-      return;
-    }
-    const env = this.secretEnv();
-    const appId = env[this.config.appIdEnv];
-    const appSecret = env[this.config.appSecretEnv];
+  private async activateTransport(connection: Awaited<ReturnType<PaRuntime['prepareTransport']>>): Promise<void> {
+    const previous = this.transport;
+    this.transport = connection.transport;
+    this.transportError = connection.error;
+    connection.activate();
+    await previous?.close().catch(() => {});
+  }
+
+  private async prepareTransport(config: PaConfig, store: SecretStore): Promise<{ transport: FeishuTransport | null; error: string | null; activate(): void; cancel(): void }> {
+    const inactive = (error: string) => ({ transport: null, error, activate() {}, cancel() {} });
+    if (config.mode !== 'feishu') return inactive('demo：未连接飞书；业务账本按工作区配置运行。');
+    const env = secretEnvironment(config, this.env, store);
+    const appId = env[config.appIdEnv];
+    const appSecret = env[config.appSecretEnv];
     if (!appId || !appSecret) {
-      this.transportError = `feishu 模式缺少凭据（${this.config.appIdEnv}/${this.config.appSecretEnv}）：在面板「工作区与配置 → 密钥」填写，或设置同名环境变量；机器人未启动。`;
-      return;
+      return inactive(`feishu 模式缺少凭据（${config.appIdEnv}/${config.appSecretEnv}）：在面板「工作区与配置 → 密钥」填写，或设置同名环境变量；机器人未启动。`);
     }
-    if ((this.env.PA24_TRANSPORT || '').trim() === 'fake') {
-      this.transport = new FakeFeishuTransport(appId);
-    } else {
-      this.transport = new SdkFeishuTransport(appId, appSecret);
-    }
+    const transport = (this.env.PA24_TRANSPORT || '').trim() === 'fake' ? new FakeFeishuTransport(appId) : new SdkFeishuTransport(appId, appSecret);
+    let settle!: (active: boolean) => void;
+    const activated = new Promise<boolean>(resolve => { settle = resolve; });
     try {
-      await this.transport.start(event => this.handleInbound(event));
+      await transport.start(async event => {
+        if (!await activated) throw new Error('接入准备已取消，事件尚未持久接收，请重试。');
+        // Keep the ownership check and durable receive in the workspace gate.
+        // Cancellation/retirement must reject so the platform can redeliver.
+        await this.enqueue(async () => {
+          if (this.closed || this.transport !== transport) throw new Error('接入已停止或切换，事件尚未持久接收，请重试。');
+          await this.handleInbound(event);
+        });
+      });
+      return { transport, error: null, activate: () => settle(true), cancel: () => settle(false) };
     } catch (error) {
-      this.transportError = `飞书长连接未启动：${(error as Error).message}`;
-      await this.transport.close().catch(() => {});
-      this.transport = null;
+      settle(false);
+      await transport.close().catch(() => {});
+      throw new Error(`飞书长连接未启动（保留当前生效工作区）：${(error as Error).message}`);
     }
   }
 
   // ---- sessions ------------------------------------------------------------
+
+  private async prepareOwnedSession(kind: 'feishu' | 'local', target: NonNullable<PaRuntime['preparingWorkspace']>): Promise<string> {
+    const key = kind === 'feishu' ? 'accessSessionId' : 'localSessionId';
+    const create = () => this.ctx.sessionController.create({ sessionId: target[key], workspaceId: target.workspace.id, agentPreset: 'pa24' });
+    try { await create(); }
+    catch (error) {
+      if ((error as { code?: string }).code !== 'agent-preset/conflict') throw error;
+      const previous = target[key];
+      target[key] = `pa24-${hash(target.workspace.statePath).slice(0, 12)}-${kind}-${randomUUID().slice(0, 8)}`;
+      await create();
+      target.sessionNotices.push({ dedupKey: `notice:session-rebound:${target[key]}`, text: `旧会话 ${previous} 已选择其他预设，历史保留；24私助已建立新的${kind === 'feishu' ? '飞书接入' : '本地助理'}会话。` });
+    }
+    await this.ctx.sessionController.rename({ sessionId: target[key], title: kind === 'feishu' ? '24私助 · 飞书接入会话' : '24私助' }).catch(() => {});
+    return target[key];
+  }
+
+  /** Agent creation during preparation must use that agent's workspace config. */
+  configFor(agent: DshAgent): PaConfig | null {
+    const pending = this.preparingWorkspace;
+    return pending && agent.session.header.cwd === pending.workspace.statePath && [pending.accessSessionId, pending.localSessionId].includes(agent.id) ? pending.config : this.config;
+  }
 
   private async createOwnedSession(kind: 'feishu' | 'local'): Promise<string> {
     const key = kind === 'feishu' ? 'accessSessionId' : 'localSessionId';
@@ -1075,6 +1164,17 @@ export class PaRuntime {
     return this.localSessionId!;
   }
 
+  /** Tool construction may precede activation; this never authorizes business calls. */
+  roleForToolMount(agent: DshAgent | undefined): RuntimeRole {
+    const pending = this.preparingWorkspace;
+    if (agent && pending && agent.session.header.cwd === pending.workspace.statePath) {
+      if (agent.id === pending.accessSessionId) return 'feishu-access';
+      if (agent.id === pending.localSessionId && !agent.parentAgent && !agent.session.header.parentSession && agent.session.header.origin !== 'subagent') return 'local-robot';
+    }
+    return this.roleFor(agent);
+  }
+
+  /** Business access belongs exclusively to the currently activated workspace. */
   roleFor(agent: DshAgent | undefined): RuntimeRole {
     if (!agent || !this.workspace || agent.session.header.cwd !== this.workspace.statePath) return null;
     if (agent.id === this.accessSessionId) return 'feishu-access';
@@ -1100,6 +1200,7 @@ export class PaRuntime {
 
   /** Latest extraLocalTools resolution for the local role; surfaced by the health report (F18). */
   noteExtraToolResolution(resolution: { requested: string[]; active: string[]; filtered: string[] }): void {
+    if (this.preparingWorkspace) { this.preparingWorkspace.extraToolResolution = resolution; return; }
     this.extraToolResolution = resolution;
   }
 
@@ -1126,13 +1227,26 @@ export class PaRuntime {
   }
 
   private readonly workItemByChild = new Map<string, WorkItemRow>();
+  private readonly workLifecycle = new WorkItemLifecycle({
+    repo: () => this.repos!.workItems,
+    maxWorkers: () => this.config!.maxWorkers,
+    available: () => !!this.repos && !!this.config && !this.closed && !this.workspaceChanging,
+    start: item => this.startWorker(item),
+    resume: async (item, input) => {
+      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
+      if ('error' in parent) throw parent.error;
+      await this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }], { signal: this.lifetime.signal });
+    },
+    interrupt: item => this.ctx.subagents.interrupt(item.child_session_id ?? item.id, { kind: 'user', parentSessionId: item.parent_session_id }),
+    track: item => this.trackWorkItem(item),
+  });
   private trackWorkItem(item: WorkItemRow): void {
     if (this.workItemByChild.size > 500) {
       for (const [id, row] of this.workItemByChild) {
         if (['completed', 'failed', 'stopped'].includes(row.status)) this.workItemByChild.delete(id);
       }
     }
-    this.workItemByChild.set(item.id, item);
+    this.workItemByChild.set(item.child_session_id ?? item.id, item);
   }
 
   getTransport(): FeishuTransport | null {
@@ -1179,28 +1293,33 @@ export class PaRuntime {
 
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
-    if (!this.config) return; // unbound: nothing to address yet
+    const notification = await this.ownerNotification(dedupKey, text);
+    if (notification) await this.repos!.outbox.enqueue(notification);
+  }
+
+  /** Resolve the target before a caller commits its business change + outbox. */
+  private async ownerNotification(dedupKey: string, text: string): Promise<NewOutbox | null> {
+    if (!this.config) return null;
     if (this.config.notifyChannel === 'wecom') {
       // Single-direction wecom push; the reminder ledger stays the single
       // schedule track, only the delivery exit changes (ADR-0001).
       const owner = await this.wecomChannels.wecomOwnerUserid();
-      await this.repos!.outbox.enqueue({
+      return {
         dedupKey,
         channel: 'wecom',
         target: owner.userid,
         kind: 'text',
         content: { text },
-      });
-      return;
+      };
     }
-    if (!this.config.ownerOpenId) return; // demo/feishu without binding: nothing to address yet
-    await this.repos!.outbox.enqueue({
+    if (!this.config.ownerOpenId) return null;
+    return {
       dedupKey,
       channel: 'feishu',
       target: this.config.ownerOpenId,
       kind: 'text',
       content: { text },
-    });
+    };
   }
 
   /** Public channel surfaces (F30): panel RPC and the connection tool keep a
@@ -1404,27 +1523,7 @@ export class PaRuntime {
       await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
       return;
     }
-    const previousStatus = item.status;
-    if (['running', 'queued', 'accepted'].includes(item.status)) {
-      // Running children receive the supplement at the nearest step boundary.
-      await this.repos!.workItems.update(item.id, { progress: '收到补充输入，等待 Worker 处理' });
-    } else {
-      await this.repos!.workItems.update(item.id, { status: 'running', progress: '按引用继续处理' });
-    }
-    try {
-      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
-      if ('error' in parent) throw parent.error;
-      await this.ctx.subagents.sendMessage(
-        parent.agent,
-        item.child_session_id,
-        [{ type: 'text', text: `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]` }],
-        { signal: this.lifetime.signal },
-      );
-    } catch (error) {
-      // Never leave the item dangling in running without a listener.
-      await this.repos!.workItems.update(item.id, { status: previousStatus as any, progress: `补充输入未送达：${(error as Error).message}` });
-      throw error;
-    }
+    await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
     await this.repos!.inbox.mark(inboxEventId, { status: 'admitted', targetSession: item.child_session_id, requestId: `followup:${inboxEventId}` });
   }
 
@@ -1484,51 +1583,18 @@ export class PaRuntime {
     if (!item) return;
     const fresh = await this.repos.workItems.get(item.id);
     if (!fresh || !['running', 'queued'].includes(fresh.status)) return;
-    if (failure || !output) {
-      await this.repos.workItems.update(item.id, {
-        status: 'failed',
-        progress: failure?.message ?? 'Worker 未产生结果',
-      });
-      await this.deliverWorkItemResult(item.id, `「${fresh.title}」未完成：${failure?.message ?? 'Worker 未产生结果'}`, turn);
-      return;
-    }
-    await this.repos.workItems.update(item.id, {
-      status: 'completed',
-      result: output,
-      progress: 'Worker 已完成，结果已交回',
-    });
-    await this.deliverWorkItemResult(item.id, output, turn);
-    // Follow-up inputs routed to this child are settled by this turn.
-    await this.repos!.inbox.settleDelivered(item.id).catch(() => {});
-  }
-
-  private async deliverWorkItemResult(workItemId: string, output: string, turn?: number): Promise<void> {
-    if (!this.repos || !this.config) return;
-    const item = await this.repos.workItems.get(workItemId);
-    if (!item) return;
-    if (item.origin === 'feishu') {
-      const ref = item.result_ref as { docUrl?: string; operationId?: string; noteId?: string; versionId?: string } | null;
+    const failed = !!failure || !output;
+    const result = failed ? `「${fresh.title}」未完成：${failure?.message ?? 'Worker 未产生结果'}` : output;
+    await this.workLifecycle.finish(item.id, { output: result, failed, delivery: row => {
+      const dedupKey = `workitem:${row.id}:result:t${turn ?? 'n'}${row.recovery_gen ? `:g${row.recovery_gen}` : ''}`;
+      const ref = row.result_ref as { docUrl?: string; operationId?: string } | null;
       const source = ref?.docUrl ? `\n出处：${ref.docUrl}\n操作编号：${ref.operationId}` : '';
-      await this.notifyOwner(`workitem:${workItemId}:result:t${turn ?? 'n'}`, `「${item.title}」已完成：\n${output}${source}`);
-      return;
-    }
-    // Local origin: report back inside the originating 24私助 session.
-    const requestId = `workitem:${workItemId}:delivery`;
-    await this.gate(item.parent_session_id, async () => {
-      const resolved = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
-      if ('error' in resolved) return;
-      const result = await this.ctx.sessionController.prompt(
-        {
-          requestId,
-          sessionId: item.parent_session_id,
-          mode: 'queue',
-          content: [{ type: 'text', text: `[事项回传]「${item.title}」已完成，Worker 结果如下；请向本人汇报要点与出处。\n\n${output}` }],
-          clientTimeZone: this.config!.timeZone,
-        },
-        this.lifetime.signal,
-      ).catch(() => null);
-      if (result && !('error' in result)) await this.ctx.sessions.flush(resolved.agent.session);
-    });
+      return row.origin === 'local'
+        ? { dedupKey, channel: 'local', target: row.parent_session_id, kind: 'text', content: { text: `[事项回传]「${row.title}」${failed ? '未完成' : '已完成'}；请向本人汇报要点与出处。\n\n${result}${source}` } }
+        : { dedupKey, channel: 'feishu', target: row.delivery.replace(/^feishu:/, ''), kind: 'text', content: { text: `「${row.title}」${failed ? '未完成' : '已完成'}：\n${result}${source}` } };
+    } });
+    await this.repos.inbox.settleDelivered(item.child_session_id ?? item.id);
+    void this.kickOutbox();
   }
 
   // ---- delegation & worker control -----------------------------------------
@@ -1537,6 +1603,7 @@ export class PaRuntime {
     const role = this.roleFor(agent);
     if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
     const config = this.config!;
+    const workspace = this.workspace;
     const roleDef = this.roles.get(String(args.worker));
     if (!roleDef) {
       throw new Error(`未注册的 Worker 类型：${args.worker}。已注册：${this.roles.list().map(r => r.id).join(', ')}。`);
@@ -1577,126 +1644,119 @@ export class PaRuntime {
     }
     const origin: 'feishu' | 'local' = agent.id === this.accessSessionId ? 'feishu' : 'local';
     const id = `pa24-work-${args.worker}-${randomUUID()}`;
-    const item = await this.repos!.workItems.insert({
-      id,
-      title,
-      role: args.worker,
-      // Raw delegation text only; time, brief, done criteria and the safety
-      // reiteration are composed fresh when the worker starts (src/prompts.ts).
-      instruction,
-      origin,
-      parent_session_id: agent.id,
-      child_session_id: id,
-      delivery: origin === 'feishu' ? `feishu:${config.ownerOpenId}` : `local:${agent.id}`,
-      status: 'accepted',
+    const fresh = await this.workLifecycle.admit(async () => {
+      if (this.workspace !== workspace) throw new Error('工作区已切换，请在当前工作区重新交办。');
+      const item = await this.repos!.workItems.insert({
+        id,
+        title,
+        role: args.worker,
+        // Raw delegation text only; context is composed when the child starts.
+        instruction,
+        origin,
+        parent_session_id: agent.id,
+        child_session_id: id,
+        delivery: origin === 'feishu' ? `feishu:${config.ownerOpenId}` : `local:${agent.id}`,
+        status: 'accepted',
+      });
+      try {
+        if (String(args.worker) === 'digest') await this.digest.admit(item, agent.session);
+        if (note) await this.repos!.notes.updateNote(note.id, { work_item_id: id });
+        return (await this.repos!.workItems.update(id, { status: 'queued', progress: '排队等待 Worker' }))!;
+      } catch (error) {
+        await this.repos!.workItems.update(item.id, { status: 'failed', progress: `事项准入未完成：${(error as Error).message}` });
+        throw error;
+      }
     });
-    if (note) await this.repos!.notes.updateNote(note.id, { work_item_id: id });
-    this.trackWorkItem(item);
-    await this.repos!.workItems.update(id, { status: 'queued', progress: '排队等待 Worker' });
-    await this.pump();
-    const fresh = await this.repos!.workItems.get(id);
     return { workId: id, worker: args.worker, status: fresh?.status, message: '事项已接纳；接纳不代表完成。' };
   }
 
-  async pump(): Promise<void> {
-    if (!this.repos || !this.config) return;
-    const running = await this.repos.workItems.countByStatus('running');
-    let slots = Math.max(0, this.config.maxWorkers - running);
-    if (slots === 0) return;
-    const queued = await this.repos.workItems.list(['queued'], 20);
-    for (const item of queued) {
-      if (slots <= 0) break;
-      slots -= 1;
-      await this.repos.workItems.update(item.id, { status: 'running', progress: 'Worker 正在处理' });
-      this.trackWorkItem(item);
-      try {
-        const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
-        if ('error' in parent) throw parent.error;
-        const roleDef = this.roles.get(item.role);
-        if (!roleDef) throw new Error(`Worker 类型未注册：${item.role}`);
-        const modelRoute = this.config.workerModels[item.role];
-        // B7: a route flagged simplePersona swaps in the reviewed simplified
-        // copy when one exists; registered (dynamic) roles always use their
-        // own persona as the fallback.
-        // F42：persona 单一来源迁任务 skill 目录（worker-persona-<role>，simple
-        // 变体随 simplePersona 路由）；registry 缺席时目录自带内置回落，
-        // 动态注册角色仍用自己的 persona 兜底。
-        const persona = (await this.skillCatalog.workerPersona(item.role, modelRoute?.simplePersona === true))
-          ?? workerPersonaFor(item.role, modelRoute, roleDef.persona);
-        // Handwriting children receive the saved originals inline; the dsh
-        // attachment service persists them and the vision route carries them
-        // to the model (P29: the request really contains the image).
-        // startContinuable itself does NOT admit image parts (only the
-        // subagent prompt remote does), so admission happens here: inline
-        // base64 blocks would otherwise persist unadmitted and break the
-        // model request.
-        // Legacy in-flight items (delegated before the structured template)
-        // carry the old composite instruction with its own time/brief lines;
-        // they render one redundant pair of those lines until drained.
-        let prompt: ContentBlock[] = [
-          {
-            type: 'text',
-            text: workerStartPrompt({
-              title: item.title,
-              instruction: item.instruction,
-              nowIso: nowIso(),
-              timeZone: this.config.timeZone,
-              brief: roleDef.brief,
-              doneCriteria: WORKER_PROMPTS[item.role]?.doneCriteria,
-            }),
-          },
-        ];
-        const note = await this.repos.notes.noteByWorkItem(item.id);
-        if (item.role === 'handwriting' && note) {
-          const savedPages = (await this.repos.notes.pagesOf(note.id)).filter(p => p.status === 'saved');
-          const { readFile } = await import('node:fs/promises');
-          const imageBlocks: ContentBlock[] = [];
-          for (const page of savedPages) {
-            const bytes = await readFile(page.storage_path);
-            imageBlocks.push({ type: 'image', mediaType: page.media_type, data: bytes.toString('base64') });
-          }
-          if (imageBlocks.length > 0) {
-            const attachments = this.ctx.get('attachments');
-            if (!attachments || typeof attachments.admitPromptContent !== 'function') {
-              throw new Error('手写识别需要宿主附件服务（attachments）；当前 Host 未提供。');
-            }
-            const head = prompt[0] as { text: string };
-            prompt = [
-              ...imageBlocks,
-              { type: 'text', text: `${head.text}\n以上是笔记 ${note.id} 的原稿图片（按页序）。完成后调用 pa24_work action=note_submit 提交结构化结果。` },
-            ];
-            prompt = (await attachments.admitPromptContent(prompt)) as ContentBlock[];
-          }
+  async pump(): Promise<void> { return this.workLifecycle.pump(); }
+
+  private async startWorker(item: WorkItemRow): Promise<void> {
+    if (!this.repos || !this.config) throw new Error('工作区尚未就绪。');
+    const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
+    if ('error' in parent) throw parent.error;
+    const roleDef = this.roles.get(item.role);
+    if (!roleDef) throw new Error(`Worker 类型未注册：${item.role}`);
+    const modelRoute = this.config.workerModels[item.role];
+    // B7: a route flagged simplePersona swaps in the reviewed simplified
+    // copy when one exists; registered (dynamic) roles always use their
+    // own persona as the fallback.
+    // F42：persona 单一来源迁任务 skill 目录（worker-persona-<role>，simple
+    // 变体随 simplePersona 路由）；registry 缺席时目录自带内置回落，
+    // 动态注册角色仍用自己的 persona 兜底。
+    const persona = (await this.skillCatalog.workerPersona(item.role, modelRoute?.simplePersona === true))
+      ?? workerPersonaFor(item.role, modelRoute, roleDef.persona);
+    // Handwriting children receive the saved originals inline; the dsh
+    // attachment service persists them and the vision route carries them
+    // to the model (P29: the request really contains the image).
+    // startContinuable itself does NOT admit image parts (only the
+    // subagent prompt remote does), so admission happens here: inline
+    // base64 blocks would otherwise persist unadmitted and break the
+    // model request.
+    // Legacy in-flight items (delegated before the structured template)
+    // carry the old composite instruction with its own time/brief lines;
+    // they render one redundant pair of those lines until drained.
+    let prompt: ContentBlock[] = [
+      {
+        type: 'text',
+        text: workerStartPrompt({
+          title: item.title,
+          instruction: item.instruction,
+          nowIso: nowIso(),
+          timeZone: this.config.timeZone,
+          brief: roleDef.brief,
+          doneCriteria: WORKER_PROMPTS[item.role]?.doneCriteria,
+        }),
+      },
+    ];
+    const note = await this.repos.notes.noteByWorkItem(item.id);
+    if (item.role === 'handwriting' && note) {
+      const savedPages = (await this.repos.notes.pagesOf(note.id)).filter(p => p.status === 'saved');
+      const { readFile } = await import('node:fs/promises');
+      const imageBlocks: ContentBlock[] = [];
+      for (const page of savedPages) {
+        const bytes = await readFile(page.storage_path);
+        imageBlocks.push({ type: 'image', mediaType: page.media_type, data: bytes.toString('base64') });
+      }
+      if (imageBlocks.length > 0) {
+        const attachments = this.ctx.get('attachments');
+        if (!attachments || typeof attachments.admitPromptContent !== 'function') {
+          throw new Error('手写识别需要宿主附件服务（attachments）；当前 Host 未提供。');
         }
-        // dsh 0.2.1-alpha.2 renames startContinuable to startActivation and
-        // requires an explicit delivery; 'parent' keeps the continuable
-        // semantics (the child's completion notifies this Lead). Older hosts
-        // (0.2.0-rc.2 / 0.2.1-alpha.1) only expose the legacy name.
-        const startSpec: Omit<ContinuableStartSpec, 'delivery'> = {
-          provider: 'spawn',
-          label: `${roleDef.name} · ${item.title}`,
-          childId: item.id,
-          signal: this.lifetime.signal,
-          request: {
-            parent: parent.agent,
-            prompt,
-            persona,
-            // send_message arrives as an adjacent-agent scoped tool and is
-            // unaffected by global restrict(); the child can still report to
-            // its parent through the native continuation channel.
-            toolFilter: { allow: ['pa24_work', 'pa24_memory', ...(roleDef.tools ?? [])] },
-            maxDepth: 1,
-            ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } } : {}),
-          },
-        };
-        const subagents = this.ctx.subagents;
-        if (typeof subagents.startActivation === 'function') await subagents.startActivation({ ...startSpec, delivery: 'parent' });
-        else if (typeof subagents.startContinuable === 'function') await subagents.startContinuable(startSpec);
-        else throw new Error('宿主未提供 subagents 启动接口（startActivation/startContinuable 均缺失），请核对 dsh 版本兼容声明。');
-      } catch (error) {
-        await this.repos.workItems.update(item.id, { status: 'failed', progress: `Worker 未启动：${(error as Error).message}` });
+        const head = prompt[0] as { text: string };
+        prompt = [
+          ...imageBlocks,
+          { type: 'text', text: `${head.text}\n以上是笔记 ${note.id} 的原稿图片（按页序）。完成后调用 pa24_work action=note_submit 提交结构化结果。` },
+        ];
+        prompt = (await attachments.admitPromptContent(prompt)) as ContentBlock[];
       }
     }
+    // dsh 0.2.1-alpha.2 renames startContinuable to startActivation and
+    // requires an explicit delivery; 'parent' keeps the continuable
+    // semantics (the child's completion notifies this Lead). Older hosts
+    // (0.2.0-rc.2 / 0.2.1-alpha.1) only expose the legacy name.
+    const startSpec: Omit<ContinuableStartSpec, 'delivery'> = {
+      provider: 'spawn',
+      label: `${roleDef.name} · ${item.title}`,
+      childId: item.id,
+      signal: this.lifetime.signal,
+      request: {
+        parent: parent.agent,
+        prompt,
+        persona,
+        // send_message arrives as an adjacent-agent scoped tool and is
+        // unaffected by global restrict(); the child can still report to
+        // its parent through the native continuation channel.
+        toolFilter: { allow: ['pa24_work', 'pa24_memory', ...(roleDef.tools ?? [])] },
+        maxDepth: 1,
+        ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } } : {}),
+      },
+    };
+    const subagents = this.ctx.subagents;
+    if (typeof subagents.startActivation === 'function') await subagents.startActivation({ ...startSpec, delivery: 'parent' });
+    else if (typeof subagents.startContinuable === 'function') await subagents.startContinuable(startSpec);
+    else throw new Error('宿主未提供 subagents 启动接口（startActivation/startContinuable 均缺失），请核对 dsh 版本兼容声明。');
   }
 
   async control(args: { action: string; workId?: string; instruction?: string }, agent: DshAgent): Promise<unknown> {
@@ -1715,25 +1775,11 @@ export class PaRuntime {
       return view;
     }
     if (args.action === 'stop') {
-      if (!['running', 'queued', 'accepted'].includes(item.status)) throw new Error('此事项已结束。');
-      await repos.workItems.update(id, { status: 'stopped', progress: '本人要求停止；已完成的外部操作保留' });
-      this.ctx.subagents.interrupt(id, { kind: 'user', parentSessionId: item.parent_session_id });
+      await this.workLifecycle.stop(id);
       return { workId: id, status: 'stopped' };
     }
     if (args.action === 'continue') {
-      if (!item.child_session_id) throw new Error('此事项尚无原生 Worker 会话，请核对后重新委派。');
-      if (['running', 'queued'].includes(item.status)) throw new Error('事项正在运行或排队中。');
-      const running = await repos.workItems.countByStatus('running');
-      if (running >= this.config!.maxWorkers) throw new Error('Worker 并发已满，请稍后继续。');
-      await repos.workItems.update(id, { status: 'running', progress: '继续处理' });
-      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
-      if ('error' in parent) throw parent.error;
-      await this.ctx.subagents.sendMessage(
-        parent.agent,
-        id,
-        [{ type: 'text', text: text(args.instruction ?? '请继续处理本事项。', 2000) }],
-        { signal: this.lifetime.signal },
-      );
+      await this.workLifecycle.resume(id, text(args.instruction ?? '请继续处理本事项。', 2000));
       return { workId: id, status: 'running' };
     }
     throw new Error('未知事项操作。');
@@ -1868,122 +1914,25 @@ export class PaRuntime {
   // ---- tasks & projects (F03) ----------------------------------------------
 
   /** Best-effort remote refresh folded into the projection; returns the fresh row or null. */
-  private async refreshTaskFromRemote(task: TaskRow): Promise<TaskRow | null> {
-    if (task.channel === 'wecom') return this.wecomChannels.refreshWecomTaskFromRemote(task);
-    try {
-      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-        'task', '+search', '--as', 'user', '--query', task.summary.replace(/^\[24PA\] /, '').slice(0, 20),
-      ]);
-      const remote = (data?.tasks ?? data?.items ?? []).find((t: any) => String(t.guid ?? t.task_guid) === task.task_guid);
-      if (!remote) return null;
-      const status = remote.completed === true || remote.status === 'completed' ? 'completed' : 'open';
-      return await this.repos!.tasks.save({
-        ...task,
-        summary: typeof remote.summary === 'string' && remote.summary ? remote.summary : task.summary,
-        status,
-        last_synced_at: new Date(),
-        external_updated_at: new Date(),
-      });
-    } catch {
-      return null;
-    }
-  }
+  private async refreshTaskFromRemote(task: TaskRow): Promise<TaskRow | null> { return this.taskLifecycle.refresh(task); }
 
   /** Record a staged operation's failure with the unknown/failed distinction. */
-  private async failStaged(operationId: string, error: unknown): Promise<void> {
-    const outcome = (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed';
-    await this.repos!.operations.update(operationId, { status: outcome, error: (error as Error).message });
-  }
+  private async failStaged(operationId: string, error: unknown): Promise<void> { return this.externalOperations.fail(operationId, error); }
 
-  private async stagedOperation(
-    item: WorkItemRow,
-    kind: string,
-    paramsKey: string,
-    params: Record<string, unknown>,
-    reconcileHint = '请先核对远端实际对象，确认后再继续，不自动重试。',
-  ): Promise<{ created: boolean; row: ActionOperationRow }> {
-    const operationId = `${kind}:${item.id}:${hash(paramsKey)}`;
-    const { created, row } = await this.repos!.operations.begin({ id: operationId, workItemId: item.id, action: kind, params });
-    if (!created) {
-      if (row.status === 'succeeded') return { created: false, row };
-      if (row.status === 'unknown') {
-        throw new Error(`上次操作结果未知（超时或响应丢失）；${reconcileHint}`);
-      }
-    }
-    await this.repos!.operations.update(operationId, { status: 'running' });
-    return { created: true, row };
-  }
+  private async stagedOperation(item: WorkItemRow, kind: string, paramsKey: string, params: Record<string, unknown>, reconcileHint?: string): Promise<{ created: boolean; row: ActionOperationRow }> { return this.externalOperations.stage(item, kind, paramsKey, params, reconcileHint); }
 
   /** Staged operation under a caller-chosen stable id (minutes candidates). */
-  private async stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }> {
-    const { created, row } = await this.repos!.operations.begin({ id: operationId, workItemId: item.id, action, params });
-    if (!created && row.status === 'unknown') {
-      throw new Error(`上次操作结果未知（超时或响应丢失）；请先核对远端实际对象，确认后再继续，不自动重试。`);
-    }
-    if (created || row.status !== 'succeeded') await this.repos!.operations.update(operationId, { status: 'running' });
-    return { created, row };
-  }
+  private async stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }> { return this.externalOperations.stageWithId(operationId, item, action, params); }
 
-  private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    if (this.config!.todoChannel === 'wecom') return this.wecomChannels.wecomTaskCreate(item, args);
-    return this.feishu.taskCreate(item, args);
-  }
+  private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.create(item, args); }
 
-  private async resolveTask(args: Record<string, unknown>) {
-    return this.feishu.resolveTask(args);
-  }
+  private async resolveTask(args: Record<string, unknown>) { return this.taskLifecycle.resolve(args); }
 
-  private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    return this.feishu.taskUpdate(item, args);
-  }
+  private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.update(item, args); }
 
-  private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const taskRef = await this.resolveTask(args);
-    if (taskRef.channel === 'wecom') return this.wecomChannels.wecomTaskFinish(item, taskRef);
-    return this.gate(`task:${taskRef.task_guid}`, async () => {
-      // Idempotency check inside the gate, against the freshest remote state.
-      const local = await this.repos!.tasks.get(taskRef.id);
-      if (!local) throw new Error('任务不存在；请先用 task_list 查看。');
-      const refreshed = (await this.refreshTaskFromRemote(local)) ?? local;
-      if (refreshed.status === 'completed') {
-        return { guid: refreshed.task_guid, status: 'completed', reused: true, message: '任务此前已是完成状态（含远端核对）。' };
-      }
-      const task = refreshed;
-      const staged = await this.stagedOperation(item, 'task.complete', task.task_guid, { guid: task.task_guid });
-      if (!staged.created && staged.row.status === 'succeeded') {
-        await this.repos!.tasks.save({ ...task, status: 'completed' });
-        return { operationId: staged.row.id, guid: task.task_guid, status: 'completed', reused: true, message: '此前已完成，未重复提交。' };
-      }
-      try {
-        await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), ['task', '+complete', '--as', 'user', '--task-id', task.task_guid]);
-        const updated = await this.repos!.tasks.save({ ...task, status: 'completed', last_synced_at: new Date(), external_updated_at: new Date() });
-        await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: task.task_guid, status: 'completed' } });
-        return { operationId: staged.row.id, guid: updated.task_guid, url: updated.url, status: 'completed', message: '任务已完成（以飞书实际状态为准）。' };
-      } catch (error) {
-        await this.failStaged(staged.row.id, error);
-        throw error;
-      }
-    });
-  }
+  private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.complete(item, args); }
 
-  private async taskGet(args: Record<string, unknown>): Promise<unknown> {
-    const task = await this.resolveTask(args);
-    const refreshed = await this.refreshTaskFromRemote(task);
-    const view = refreshed ?? task;
-    return {
-      guid: view.task_guid,
-      url: view.url,
-      summary: view.summary,
-      dueAt: isoDate(view.due_at),
-      plannedAt: isoDate(view.planned_at),
-      estimateMinutes: view.estimate_minutes,
-      status: view.status,
-      channel: view.channel,
-      // stale = 本次未能核对到远端最新状态（刷新失败或未命中）
-      stale: !refreshed,
-      message: refreshed ? `已按${view.channel === 'wecom' ? '企微' : '飞书'}最新状态刷新。` : view.last_synced_at ? '本次远端核对未完成，展示此前同步的投影。' : '本地投影（远端核对未完成，状态可能滞后）。',
-    };
-  }
+  private async taskGet(args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.get(args); }
 
   private async taskList(args: Record<string, unknown>): Promise<unknown> {
     const projectId = args.projectId ? String(args.projectId) : null;
@@ -2064,12 +2013,7 @@ export class PaRuntime {
     const content = text(args.content);
     const source = text(args.source ?? `事项 ${item.id}`, 500);
     const operationId = `memo:${item.id}:${hash(`${topic}\n${content}`)}`;
-    const { created, row: operation } = await this.repos!.operations.begin({
-      id: operationId,
-      workItemId: item.id,
-      action: 'memo.save_doc',
-      params: { topic, contentHash: hash(content) },
-    });
+    const { created, row: operation } = await this.stagedOperationWithId(operationId, item, 'memo.save_doc', { topic, contentHash: hash(content) });
     if (!created) {
       if (operation.status === 'succeeded') {
         const memo = await this.repos!.memos.get(operationId);
@@ -2084,7 +2028,6 @@ export class PaRuntime {
         throw new Error('上次保存的结果未知（超时或响应丢失）；请先核对配置的目录或知识库是否已生成文档，确认后再继续，不会自动重试。');
       }
     }
-    await this.repos!.operations.update(operationId, { status: 'running' });
     const live = this.transport !== null;
     try {
       let external: { docId: string | null; url: string | null; revision: string | null; warnings: string[] } = {
@@ -2094,13 +2037,7 @@ export class PaRuntime {
         warnings: [],
       };
       if (live && this.config!.mode === 'feishu' && !external.docId) {
-        external = await this.feishu.createMemoDocument(item, topic, content);
-        // Persist the created document id before anything else can fail, so
-        // a retry resumes instead of duplicating the external write.
-        await this.repos!.operations.update(operationId, {
-          status: 'running',
-          receipt: { docId: external.docId, docUrl: external.url, stage: 'created' },
-        });
+        external = await this.externalOperations.perform(operationId, () => this.feishu.createMemoDocument(item, topic, content));
       }
       if (external.docId && live && this.config!.mode === 'feishu') {
         const readback = await this.feishu.readMemoDocument(external.docId);
@@ -2183,15 +2120,22 @@ export class PaRuntime {
     if (!inserted && row.status === 'unknown') {
       throw new Error('上次发送结果未知（超时或响应丢失）；请先核对飞书是否已送达（操作号见回执），确认后让本人明确要求重发。');
     }
+    if (!inserted && row.status === 'pending' && !(await this.repos!.operations.get(id))) {
+      await this.repos!.outreach.mark(id, { status: 'unknown', error: '旧发送记录没有阶段回执；请先核对远端。' });
+      throw new Error('旧发送记录没有阶段回执；请先核对远端，不自动重发。');
+    }
     try {
-      const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+      await this.stagedOperationWithId(id, item, 'outreach.send', { target: resolved.openId, content, instruction });
+      const { data } = await this.externalOperations.perform(id, () => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
         'im', '+messages-send', '--as', 'user', '--user-id', resolved.openId, '--text', content, '--idempotency-key', id,
-      ]);
+      ]));
       const messageId = String(data?.message?.message_id ?? data?.message_id ?? '');
-      if (!messageId) throw new Error('平台未返回消息标识；请先核对飞书是否已送达，不要盲目重试。');
+      if (!messageId) throw Object.assign(new Error('平台未返回消息标识；请先核对飞书是否已送达，不要盲目重试。'), { outcome: 'unknown' });
       await this.repos!.outreach.mark(id, { status: 'succeeded', messageId });
+      await this.repos!.operations.update(id, { status: 'succeeded', receipt: { messageId } });
       return { operationId: id, messageId, target: resolved, message: `已按本人明确指令发送给 ${resolved.name}（以平台回执为准）。` };
     } catch (error) {
+      await this.failStaged(id, error);
       const unknown = (error as any)?.outcome === 'unknown';
       await this.repos!.outreach.mark(id, { status: unknown ? 'unknown' : 'failed', error: (error as Error).message });
       throw error;
@@ -2201,6 +2145,7 @@ export class PaRuntime {
   /** Assign an existing task to a collaborator under an explicit instruction (P13). */
   private async taskAssign(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const taskRef = await this.resolveTask(args);
+    if (taskRef.channel !== 'feishu') throw new Error('当前分派能力只支持飞书任务；企微待办未执行分派。');
     const instruction = String(args.instruction ?? '').trim();
     if (!instruction) throw new Error('分派任务必须携带本人明确的指令依据（instruction）；未执行任何分派。');
     const resolved = await this.resolveCollaborator(args);
@@ -2217,10 +2162,10 @@ export class PaRuntime {
       return { operationId: staged.row.id, reused: true, guid: taskRef.task_guid, message: '此分派此前已提交，未重复执行。' };
     }
     try {
-      await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+      await this.externalOperations.perform(staged.row.id, () => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
         'task', '+assign', '--as', 'user', '--task-id', taskRef.task_guid, '--add', resolved.openId, '--idempotency-key', staged.row.id,
-      ]);
-      const { inserted } = await this.repos!.outreach.insert({
+      ]));
+      await this.repos!.outreach.insert({
         id: staged.row.id,
         work_item_id: item.id,
         kind: 'assign',
@@ -2230,7 +2175,7 @@ export class PaRuntime {
         instruction,
         status: 'pending',
       });
-      if (inserted) await this.repos!.outreach.mark(staged.row.id, { status: 'succeeded', taskGuid: taskRef.task_guid });
+      await this.repos!.outreach.mark(staged.row.id, { status: 'succeeded', taskGuid: taskRef.task_guid });
       await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: taskRef.task_guid, assignee: resolved.openId } });
       return { operationId: staged.row.id, guid: taskRef.task_guid, assignee: resolved, message: `已把任务分派给 ${resolved.name}（以平台回执为准）。` };
     } catch (error) {
@@ -2440,10 +2385,10 @@ export class PaRuntime {
           continue;
         }
         try {
-          await this.repos.operations.update(operationId, { status: 'running' });
-          const { data } = await runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
+          await this.externalOperations.stageWithId(operationId, { id: 'pa24-system-templates' }, 'task.repeat_generate', { instanceId: instance.id, title: template.title });
+          const { data } = await this.externalOperations.perform(operationId, () => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
             'task', '+create', '--as', 'user', '--summary', `[24PA] ${template.title}`, '--tasklist-id', template.tasklist_id, '--idempotency-key', operationId,
-          ]);
+          ]));
           const external = taskExternal(data);
           await this.repos.tasks.save({
             id: operationId,
@@ -2625,7 +2570,7 @@ export class PaRuntime {
   private async meetingPrepBuild(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const plan = await this.repos!.digests.getPlan(String(args.planId ?? ''));
     if (!plan || plan.kind !== 'meeting_prep') throw new Error('会前准备计划不存在。');
-    if (plan.status === 'stopped') return { planId: plan.id, skipped: 'plan_stopped', message: '该准备计划已停止（会议可能已变化）；如需准备请按最新安排重设。' };
+    if (plan.status !== 'active') return { planId: plan.id, skipped: 'plan_stopped', message: `该准备计划已${plan.status === 'stopped' ? '停止' : '暂停'}（会议可能已变化）；如需准备请按最新安排重设。` };
     const eventId = String(plan.schedule_spec?.eventId ?? '');
     // Pre-send meeting re-check: canceled/moved meetings never ship a stale package.
     const event = await this.repos!.calendar.findEvent(eventId);
@@ -2638,8 +2583,8 @@ export class PaRuntime {
       await this.repos!.digests.updatePlan(plan.id, { status: 'stopped', schedule_id: null });
       return { planId: plan.id, skipped: 'meeting_moved', message: `会议时间已变化（${isoDate(event.start_time)}），本准备包按旧时间不发送；请按新时间重设。` };
     }
-    const { created, row } = await this.repos!.digests.claimOccurrence({ planId: plan.id, windowKey: eventId });
-    if (!created && row.status === 'model_done') {
+    const { created, row } = await this.repos!.digests.claimRun({ planId: plan.id, windowKey: eventId, workItemId: item.id });
+    if (!created && (row.status === 'model_done' || row.status === 'sent') && row.outbox_key) {
       return { planId: plan.id, reused: true, message: '本会议的准备包已生成，不重复发送。' };
     }
     // Authorized materials only, each scoped by the plan's allowed sources.
@@ -2708,11 +2653,8 @@ export class PaRuntime {
     lines.push('');
     lines.push(`来源：会议投影（${event.event_id}）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：${item.id}`);
     const report = lines.join('\n');
-    await this.repos!.digests.updateOccurrence(row.id, { status: 'model_done', report: { report }, completed_at: new Date() });
-    if (this.config!.notifyChannel === 'wecom' || this.config!.ownerOpenId) {
-      await this.notifyOwner(`digest:${row.id}`, report);
-    }
-    await this.repos!.workItems.update(item.id, { result_ref: { planId: plan.id, eventId, outboxKey: `digest:${row.id}` } });
+    const outboxKey = await this.digest.deliverPrepared(plan, row, report);
+    await this.repos!.workItems.update(item.id, { result_ref: { planId: plan.id, eventId, outboxKey } });
     return { planId: plan.id, eventId, message: '会前准备包已生成并入发送队列（发送前复查过会议状态）。' };
   }
 
@@ -2785,13 +2727,13 @@ export class PaRuntime {
           // Minutes-scoped idempotency for calendar candidates too: repeated
           // selections from any session return the existing event (P27).
           const operationId = `minutes.action:${minutes.id}:${index}`;
-          const staged = await this.stagedOperationWithId(operationId, item, 'calendar.create', { minutesId: minutes.id, index, summary: candidate.summary, start: candidate.start, end: candidate.end });
-          if (!staged.created && staged.row.status === 'succeeded') {
-            const receipt = staged.row.receipt as { eventId?: string; url?: string | null } | null;
+          const previous = await this.repos!.operations.get(operationId);
+          if (previous?.status === 'succeeded') {
+            const receipt = previous.receipt as { eventId?: string; url?: string | null } | null;
             results.push({ index, ok: true, kind: 'calendar', reused: true, eventId: receipt?.eventId ?? null, url: receipt?.url ?? null, message: '该候选此前已执行，返回已有日程。' });
             continue;
           }
-          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end }, operationId)) as { eventId?: string; url?: string | null; operationId?: string };
+          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, _authorization: { minutesId: minutes.id, index } }, operationId)) as { eventId?: string; url?: string | null; operationId?: string };
           await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, minutesId: minutes.id, index } });
           results.push({ index, ok: true, kind: 'calendar', ...(created as object), minutesId: minutes.id });
         } else {
@@ -2834,8 +2776,8 @@ export class PaRuntime {
     const note = await this.repos!.notes.getNote(noteId);
     if (!note) throw new Error('笔记不存在。');
     const versionId = String(args.versionId ?? '');
-    const version = await this.repos!.notes.getVersion(versionId);
-    if (!version || version.note_id !== noteId) throw new Error('版本不存在或不属于该笔记。');
+    const trust = await this.handwriting.inspectTrust(noteId, versionId);
+    const version = trust.version;
     const instruction = String(args.instruction ?? '').trim();
     if (!instruction) throw new Error('执行笔记行动需要本人明确的指令依据（instruction）；审核通过不等于行动授权。');
     if (version.status !== 'approved') {
@@ -2843,13 +2785,8 @@ export class PaRuntime {
     }
     // Re-verify the live document still matches the approved fingerprint:
     // edited or unverifiable content never silently becomes execution params.
-    let liveFingerprint: string;
-    try {
-      liveFingerprint = await this.handwriting.currentFingerprint(noteId, version.doc_id!, version);
-    } catch (error) {
-      throw new Error(`无法核验文档当前内容（${(error as Error).message}）；暂不执行，请稍后再试。`);
-    }
-    if (liveFingerprint !== version.fingerprint) {
+    if (trust.currentValidity === 'unknown') throw new Error(`无法核验文档当前内容（${trust.reason}）；暂不执行，请稍后再试。`);
+    if (trust.currentValidity !== 'matches') {
       throw new Error('文档内容与已审核版本不一致（已修改）；旧批准不覆盖新内容，请先重新发布候选并审核。');
     }
     const candidates = (Array.isArray(version.content?.candidates) ? version.content.candidates : []) as NoteCandidate[];
@@ -2869,13 +2806,13 @@ export class PaRuntime {
       const operationId = `note.action:${noteId}:v${version.version}:${index}`;
       try {
         if (candidate.start && candidate.end) {
-          const staged = await this.stagedOperationWithId(operationId, item, 'calendar.create', { noteId, versionId, index, summary: candidate.summary, start: candidate.start, end: candidate.end, instruction });
-          if (!staged.created && staged.row.status === 'succeeded') {
-            const receipt = staged.row.receipt as { eventId?: string; url?: string | null } | null;
+          const previous = await this.repos!.operations.get(operationId);
+          if (previous?.status === 'succeeded') {
+            const receipt = previous.receipt as { eventId?: string; url?: string | null } | null;
             results.push({ index, ok: true, kind: 'calendar', reused: true, eventId: receipt?.eventId ?? null, url: receipt?.url ?? null });
             continue;
           }
-          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end }, operationId)) as { eventId?: string; url?: string | null };
+          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, _authorization: { noteId, versionId, index, instruction } }, operationId)) as { eventId?: string; url?: string | null };
           await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, noteId, versionId, index, instruction } });
           results.push({ index, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
         } else {
@@ -2920,16 +2857,13 @@ export class PaRuntime {
       if (query && !(`${transcript}${summary}${row.note_id}`.includes(query))) continue;
       let validity: 'matches' | 'changed' | 'unknown' | 'unreviewed' = 'unreviewed';
       let unknownReason: string | null = null;
-      if (row.status === 'approved') {
-        try {
-          const live = await this.handwriting.currentFingerprint(row.note_id, row.doc_id, row as { id: string; content: any });
-          validity = live === row.fingerprint ? 'matches' : 'changed';
-        } catch (error) {
-          validity = 'unknown';
-          unknownReason = (error as Error).message;
-        }
-      } else if (row.status === 'stale' || row.status === 'superseded') {
-        validity = 'changed';
+      try {
+        const trust = await this.handwriting.inspectTrust(row.note_id, row.id);
+        validity = trust.currentValidity;
+        if (validity === 'unknown') unknownReason = trust.reason;
+      } catch (error) {
+        validity = 'unknown';
+        unknownReason = (error as Error).message;
       }
       items.push({
         noteId: row.note_id,
@@ -3255,25 +3189,6 @@ export class PaRuntime {
     if (this.config?.mode !== 'feishu' || !this.transport) throw new Error(`${context}：需要 feishu 模式与已启动的飞书连接。`);
   }
 
-  /** Map a sent platform message to the work item / note / inbox it answers (P05, P28/P31). */
-  private async recordMessageRoute(dedupKey: string, messageId: string): Promise<void> {
-    if (!messageId) return;
-    if (dedupKey.startsWith('workitem:')) {
-      const workItemId = dedupKey.slice('workitem:'.length).split(':')[0];
-      await this.repos!.messageRoutes.record(messageId, { kind: 'workitem', workItemId });
-    } else if (dedupKey.startsWith('noteack:')) {
-      const noteId = dedupKey.slice('noteack:'.length).split(':')[0];
-      await this.repos!.messageRoutes.record(messageId, { kind: 'note', noteId });
-    } else if (dedupKey.startsWith('notereview:')) {
-      // Key form: notereview:<noteId>:v<version>
-      const noteId = dedupKey.slice('notereview:'.length).split(':')[0]!;
-      await this.repos!.messageRoutes.record(messageId, { kind: 'note', noteId });
-    } else if (dedupKey.startsWith('reply:')) {
-      const inboxEventId = dedupKey.slice('reply:'.length).split(':')[0];
-      await this.repos!.messageRoutes.record(messageId, { kind: 'reply', inboxEventId });
-    }
-  }
-
   private noteVerifyTick(): void {
     if (this.noteVerifying || this.closed) return;
     this.noteVerifying = true;
@@ -3419,88 +3334,8 @@ export class PaRuntime {
     });
   }
 
-  /** Shared outbox failure policy: unknown parks, 3+ attempts fail, else back off. */
-  private async markOutboxFailure(row: { id: number; attempts: number }, error: unknown): Promise<void> {
-    const unknown = (error as any)?.outcome === 'unknown';
-    if (unknown) {
-      await this.repos!.outbox.mark(row.id, { status: 'unknown', error: (error as Error).message }).catch(() => {});
-    } else if (row.attempts >= 3) {
-      await this.repos!.outbox.mark(row.id, { status: 'failed', error: (error as Error).message }).catch(() => {});
-    } else {
-      await this.repos!.outbox.mark(row.id, { status: 'pending', error: (error as Error).message, retryInMs: 2000 * row.attempts }).catch(() => {});
-    }
-  }
-
-  async sendOutbox(): Promise<void> {
-    // wecom rows deliver through the CLI gateway and need no SDK transport;
-    // a transport-less host still drains them (demo + notifyChannel=wecom).
-    if (!this.repos || (!this.transport && this.config?.notifyChannel !== 'wecom')) return;
-    for (;;) {
-      const rows = await this.repos.outbox.claim(5);
-      if (rows.length === 0) return;
-      for (const row of rows) {
-        if (row.channel === 'wecom') {
-          // Review cards are Feishu-only; a wecom channel on a card row means
-          // a mixed setup drifted — report it instead of rendering garbage.
-          if (row.kind === 'card') {
-            await this.repos.outbox.mark(row.id, { status: 'failed', error: '企微通道不支持卡片消息（手写审核卡限定飞书）。' }).catch(() => {});
-            continue;
-          }
-          try {
-            const sent = await this.wecomChannels.wecomSendText(row.target, String(row.content?.text ?? ''), row.dedup_key.slice(0, 50));
-            this.lastSentAt = nowIso();
-            await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
-            await this.recordMessageRoute(row.dedup_key, sent.messageId);
-          } catch (error) {
-            await this.markOutboxFailure(row, error);
-          }
-          continue;
-        }
-        if (!this.transport) {
-          // Feishu rows cannot be delivered on a wecom-only host; park them
-          // visibly instead of silently looping through claim().
-          await this.repos.outbox.mark(row.id, { status: 'pending', error: '飞书传输未连接，暂缓投递', retryInMs: 60_000 }).catch(() => {});
-          continue;
-        }
-        if (row.kind === 'audio') {
-          // F19（spec 2.3）：语音行只在投递时合成（自包含可重放）。行内存的
-          // 是口播正文；合成或发送失败走共享 outbox 失败策略（退避重试，
-          // 3 次后 failed），紧跟的全文文本行独立投递、不受此行牵连。
-          try {
-            const synth = resolveTtsEngine(this.config!.tts, this.secretEnv());
-            const spoken = String(row.content?.text ?? '');
-            if (!synth) throw new Error('TTS 引擎未配置（tts.engine=none），语音行无法投递。');
-            const ogg = await synth(spoken);
-            const sent = await sendLarkAudioMessage(
-              cliOptions(this.config!, this.options.larkCliBin, 120_000),
-              row.target,
-              ogg,
-              row.dedup_key,
-            );
-            this.lastSentAt = nowIso();
-            await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
-            await this.recordMessageRoute(row.dedup_key, sent.messageId);
-          } catch (error) {
-            console.warn(`[pa24] 语音行投递失败（${row.dedup_key}）：${(error as Error).message}；按 outbox 策略退避重试，全文文本行不受牵连。`);
-            await this.markOutboxFailure(row, error);
-          }
-          continue;
-        }
-        try {
-          const uuid = row.dedup_key.slice(0, 50);
-          const sent =
-            row.kind === 'card'
-              ? await this.transport.sendCard(row.target, row.content, uuid)
-              : await this.transport.sendText(row.target, String(row.content?.text ?? ''), uuid);
-          this.lastSentAt = nowIso();
-          await this.repos.outbox.mark(row.id, { status: 'sent', messageId: sent.messageId });
-          await this.recordMessageRoute(row.dedup_key, sent.messageId);
-        } catch (error) {
-          await this.markOutboxFailure(row, error);
-        }
-      }
-    }
-  }
+  /** The delivery module owns durable receipts, retries and reply routing. */
+  async sendOutbox(): Promise<void> { if (this.repos) await this.outboxDelivery.drain(); }
 
   // ---- diagnostics & readiness ---------------------------------------------
 

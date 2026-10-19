@@ -1,6 +1,8 @@
 // Split from repo.ts (round-3 review): one aggregate per file; the
 // Repos facade in index.ts is the unchanged seam every caller already uses.
-import type { PaDb } from '../db.js';
+import type { PaDb, PaQueryer } from '../db.js';
+import type { ActionOperationRow } from './work.js';
+import { hash } from '../util.js';
 
 export type NoteStatus = 'collecting' | 'awaiting_review' | 'approved' | 'returned' | 'needs_rereview';
 export type NoteVersionStatus = 'pending_review' | 'approved' | 'returned' | 'stale' | 'superseded';
@@ -171,14 +173,51 @@ export class NoteRepo {
     return result.rows;
   }
 
-  async insertVersion(row: Omit<NoteVersionRow, 'created_at' | 'decided_at' | 'verified_at' | 'verify_result' | 'verify_fingerprint'>): Promise<NoteVersionRow> {
-    const result = await this.db.query<NoteVersionRow>(
-      `insert into pa24.note_version (id, note_id, version, doc_id, doc_url, doc_revision, fingerprint, normalized_text, content, doc_snapshot, status)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
-      [row.id, row.note_id, row.version, row.doc_id, row.doc_url, row.doc_revision, row.fingerprint, row.normalized_text,
-       JSON.stringify(row.content), row.doc_snapshot, row.status],
+  /** Reserve the candidate number once, before any document write. The input
+   * identity survives version insertion and a restarted publication attempt. */
+  async beginPublication(input: { noteId: string; workItemId: string; contentKey: string; legacyParamsKey: string; republish: boolean }): Promise<ActionOperationRow> {
+    return this.db.withTransaction(async client => {
+      await client.query('select id from pa24.note where id = $1 for update', [input.noteId]);
+      const attempts = (await client.query<ActionOperationRow>(
+        "select * from pa24.action_operation where action = 'note.publish' and params->>'noteId' = $1", [input.noteId],
+      )).rows.sort((a, b) => Number(a.params?.version) - Number(b.params?.version));
+      const id = `note.publish:${input.workItemId}:content:${input.contentKey}`;
+      const existing = attempts.find(row => row.id === id) ?? attempts.find(row =>
+        row.work_item_id === input.workItemId && Number.isInteger(row.params?.version) &&
+        row.id === `note.publish:${input.workItemId}:${hash(`${input.noteId}:v${row.params.version}\n${input.legacyParamsKey}`)}`,
+      );
+      if (existing) return existing;
+      const latest = (await client.query<{ version: number }>('select version from pa24.note_version where note_id = $1 order by version desc limit 1', [input.noteId])).rows[0];
+      const version = Math.max(latest?.version ?? 0, ...attempts.map(row => Number(row.params?.version) || 0)) + 1;
+      const params = { noteId: input.noteId, version, republish: input.republish, contentKey: input.contentKey };
+      return (await client.query<ActionOperationRow>(
+        `insert into pa24.action_operation (id, work_item_id, action, params, status)
+         values ($1, $2, 'note.publish', $3, 'pending') returning *`,
+        [id, input.workItemId, JSON.stringify(params)],
+      )).rows[0]!;
+    });
+  }
+
+  /** A saved candidate owns its unfinished publication, including when a new
+   * tool invocation has a different WorkItem or the operation uses a legacy key. */
+  async unfinishedPublicationForVersion(noteId: string, version: number): Promise<ActionOperationRow | null> {
+    const result = await this.db.query<ActionOperationRow>(
+      "select * from pa24.action_operation where action = 'note.publish' and params->>'noteId' = $1 and status <> 'succeeded'", [noteId],
     );
-    return result.rows[0]!;
+    return result.rows.find(row => row.params?.republish === true && row.params?.version === version) ?? null;
+  }
+
+  async insertVersion(row: Omit<NoteVersionRow, 'created_at' | 'decided_at' | 'verified_at' | 'verify_result' | 'verify_fingerprint'>): Promise<NoteVersionRow> {
+    return this.db.withTransaction(async client => {
+      await client.query('select id from pa24.note where id = $1 for update', [row.note_id]);
+      const result = await client.query<NoteVersionRow>(
+        `insert into pa24.note_version (id, note_id, version, doc_id, doc_url, doc_revision, fingerprint, normalized_text, content, doc_snapshot, status)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+        [row.id, row.note_id, row.version, row.doc_id, row.doc_url, row.doc_revision, row.fingerprint, row.normalized_text,
+         JSON.stringify(row.content), row.doc_snapshot, row.status],
+      );
+      return result.rows[0]!;
+    });
   }
 
   async updateVersion(id: string, patch: Partial<Pick<NoteVersionRow, 'status' | 'decided_at' | 'doc_revision' | 'verified_at' | 'verify_result' | 'verify_fingerprint'>>): Promise<NoteVersionRow | null> {
@@ -217,17 +256,6 @@ export class NoteRepo {
     return result.rows[0] ?? null;
   }
 
-  /** Single-writer claim: only the first click decides; later clicks see the stored result. */
-  async useToken(token: string): Promise<{ claimed: boolean; row: ReviewTokenRow }> {
-    const result = await this.db.query<ReviewTokenRow>(
-      `update pa24.review_token set used_at = now() where token = $1 and used_at is null returning *`,
-      [token],
-    );
-    if ((result.rowCount ?? 0) > 0) return { claimed: true, row: result.rows[0]! };
-    const existing = await this.db.query<ReviewTokenRow>('select * from pa24.review_token where token = $1', [token]);
-    return { claimed: false, row: existing.rows[0]! };
-  }
-
   async markTokenResult(token: string, result: unknown): Promise<void> {
     await this.db.query(`update pa24.review_token set result = $2 where token = $1`, [token, JSON.stringify(result)]);
   }
@@ -256,7 +284,7 @@ export class NoteRepo {
    * Transactional review decision (P31): credential, version state, note state
    * and the owner-notification intent commit together on one client.
    */
-  async decideVersion(client: any, row: {
+  async decideVersion(client: PaQueryer, row: {
     decisionId: string;
     noteId: string;
     versionId: string;
@@ -269,7 +297,19 @@ export class NoteRepo {
     notifyDedupKey: string;
     notifyTarget: string;
     notifyText: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
+    // Serialize publication and decisions for this note. The document was
+    // checked outside the transaction; local identity must still be current.
+    await client.query('select id from pa24.note where id = $1 for update', [row.noteId]);
+    const latest = (await client.query<NoteVersionRow>('select * from pa24.note_version where note_id = $1 order by version desc limit 1', [row.noteId])).rows[0];
+    if (!latest || latest.id !== row.versionId || latest.status !== 'pending_review' || latest.fingerprint !== row.fingerprint) {
+      throw new Error('待审版本已变化，本次点击未产生裁决；请核对最新审核卡。');
+    }
+    const token = await client.query(
+      `update pa24.review_token set used_at = now() where token = $1 and used_at is null and version_id = $2 and owner_open_id = $3 and fingerprint = $4 and expires_at > now() returning token`,
+      [row.token, row.versionId, row.reviewerOpenId, row.fingerprint],
+    );
+    if (!token.rowCount) return false;
     await client.query(
       `insert into pa24.review_decision (id, note_id, version_id, decision, reviewer_open_id, token, fingerprint)
        values ($1,$2,$3,$4,$5,$6,$7)`,
@@ -284,6 +324,7 @@ export class NoteRepo {
     );
     // Decided versions stop nagging immediately, in the same transaction (P33).
     await client.query(new ReviewReminderRepo(this.db).cancelForVersionSql, [row.versionId]);
+    return true;
   }
 
   /** Review queue: notes awaiting action with their latest version state (P33). */

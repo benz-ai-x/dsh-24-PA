@@ -290,6 +290,9 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     const report = (await rows(`select status, (report is not null) as has_report from pa24.digest_occurrence where id='${planId}:${windowKey}'`))[0];
     expect(report.status).toBe('model_done');
     expect(report.has_report).toBe(true);
+    const binding = (await rows(`select b.source, p.schedule_id from pa24.digest_work_binding b join pa24.digest_occurrence o on o.id=b.occurrence_id join pa24.digest_plan p on p.id=o.plan_id where o.id='${planId}:${windowKey}'`))[0];
+    expect(binding.source.kind).toBe('schedule');
+    expect(binding.source.deliveries.some(row => row.scheduleId === binding.schedule_id && row.messageId && row.occurrenceAt)).toBe(true);
     const out = await waitOutbox(`digest:${planId}:${windowKey}`, '晨报发送');
     const text = out.content?.text ?? '';
     expect(text).toContain('一、事实');
@@ -394,17 +397,13 @@ describe('F41：agent 轨任务 skill', () => {
     const planId = (enabled.match(/"planId":"(dig-[^"]+)"/) || [])[1];
     expect(planId).toBeTruthy();
     // 委派 digest Worker：digest_build → agent 轨交接
-    await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '出自定义晨报', instruction: 'x', planId }, leadReply: '已生成。', workerAction: { action: 'digest_build', planId }, workerReply: '已交付。' });
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '出自定义晨报', instruction: 'x', planId }, leadReply: '已生成。', workerAction: { action: 'digest_build', planId }, workerFollowupAction: { action: 'digest_deliver', planId, report: '自定义简报：今日无到期事项（e2e 数据面为空，达到完成标准的可用部分已列出）。' }, workerReply: '已交付。' });
     before = llm.log.length;
     await inject(ownerEvent('evt-f41b', { text: '现在出一份自定义晨报' }));
     await waitWorkItem('出自定义晨报', '自定义晨报生成', 180_000);
     const handoff = await waitToolResult('pa24_work', 'agentTrack', 'agent 轨交接', 60_000, before);
     expect(unescapeJsonish(handoff)).toContain('e2e-custom-brief');
-    // 二次委派：digest_deliver 交付全文
-    await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '交付自定义晨报', instruction: 'x', planId }, leadReply: '已交付。', workerAction: { action: 'digest_deliver', planId, report: '自定义简报：今日无到期事项（e2e 数据面为空，达到完成标准的可用部分已列出）。' }, workerReply: '完成。' });
-    before = llm.log.length;
-    await inject(ownerEvent('evt-f41c', { text: '交付刚才的自定义晨报' }));
-    await waitWorkItem('交付自定义晨报', '自定义晨报交付', 180_000);
+    // 同一事项内交付：不能由新 Worker 猜测计划的最新窗口。
     const delivered = await waitToolResult('pa24_work', 'digest:', '交付回执', 60_000, before);
     const outboxKey = (delivered.match(/"outboxKey":"(digest:[^"]+)"/) || [])[1];
     expect(outboxKey).toBeTruthy();

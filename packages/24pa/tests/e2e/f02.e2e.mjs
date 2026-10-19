@@ -21,6 +21,7 @@ const writeConfig = async (patch = {}) => {
     join(workspace, 'AGENTS.md'),
     `# 24私助工作区\n\n\`\`\`json\n${JSON.stringify({
       version: 1, mode: 'feishu', larkProfile: 'default', ownerOpenId: 'ou_test_owner',
+      storage: process.env.PA24_E2E_STORAGE === 'sqlite' ? 'sqlite' : 'postgres',
       folderToken: 'fld_test', tasklistId: 'tl_test', calendarId: 'primary', timeZone: 'Asia/Shanghai',
       appIdEnv: 'PA24_FEISHU_APP_ID', appSecretEnv: 'PA24_FEISHU_APP_SECRET', pgDsnEnv: 'PA24_PG_DSN',
       maxWorkers: 5, enabledWorkers: ['memo'], workerModels: {}, ...patch,
@@ -252,7 +253,10 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
 
     await waitDb(`select recovery_gen from pa24.work_item where id='wip-crash-1'`, '1', '恢复代次递增');
     const progress = await cluster.query(`select progress from pa24.work_item where id='wip-crash-1'`);
-    expect(progress).toContain('重启恢复');
+    // This seed has no real native child. Recovery must expose that missing
+    // context, rather than pretending to run and occupying a worker forever.
+    expect(progress).toContain('恢复输入未确认');
+    expect((await cluster.query(`select status from pa24.work_item where id='wip-crash-1'`)).trim()).toBe('needs_reconciliation');
     // 重派后可能已被派发器处理（该种子行无正文 → rejected 空消息）；断言它不再卡在 processing
     for (let i = 0; i < 120; i++) {
       const status = (await cluster.query(`select status from pa24.inbox where event_id='evt-crash-1'`)).trim();

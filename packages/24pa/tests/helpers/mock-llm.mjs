@@ -75,7 +75,11 @@ export async function startMockLlm({ scriptPath, logPath }) {
             ? { tool: { name: script.leadTool.name, input: script.leadTool.input } }
             : { tools: [].concat(script.delegate ?? []).map(d => ({ name: 'pa24_delegate', input: d })) };
       } else if (tools.includes('pa24_work')) {
-        step = isContinuation
+        const handoff = isContinuation && script.workerFollowupAction &&
+          (last.content ?? []).some(block => block.type === 'tool_result' && JSON.stringify(block.content).includes('agentTrack'));
+        step = handoff
+          ? { tool: { name: 'pa24_work', input: script.workerFollowupAction } }
+          : isContinuation
           ? { text: script.workerReply ?? '已完成。' }
           : script.workerTool
             ? { tool: { name: script.workerTool.name, input: script.workerTool.input } }

@@ -103,6 +103,7 @@ const png = (seed = 0) => {
 const garbage = Buffer.from('this is definitely not an image');
 const b64 = buf => buf.toString('base64');
 const baseConfig = (withVision) => ({
+  storage: process.env.PA24_E2E_STORAGE === 'sqlite' ? 'sqlite' : 'postgres',
   version: 1, mode: 'feishu', larkProfile: 'default', ownerOpenId: 'ou_test_owner',
   folderToken: 'fld_test', tasklistId: 'tl_test', calendarId: 'primary', timeZone: 'Asia/Shanghai',
   appIdEnv: 'PA24_FEISHU_APP_ID', appSecretEnv: 'PA24_FEISHU_APP_SECRET', pgDsnEnv: 'PA24_PG_DSN',

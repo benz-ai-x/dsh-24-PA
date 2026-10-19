@@ -65,7 +65,7 @@ Removal withdraws the preset and host plugin on the next Profile start; PostgreS
 
 ### Configuration
 
-Secrets live only in the server environment; the workspace `AGENTS.md` holds one machine-checked JSON block with variable names, revalidated on reload — a bad block never replaces the effective configuration.
+Secrets live in the server environment or the workspace's private `.24pa/secrets.json` store; environment values take precedence. The workspace `AGENTS.md` holds one machine-checked JSON block with variable names, revalidated on reload — a bad block never replaces the effective configuration.
 
 | Variable | Meaning |
 |---|---|
@@ -88,6 +88,23 @@ External CLI delegation rows ship enabled but stay dormant: `subagent_codex` and
 ### Failure and recovery
 
 Digests and meeting prep on a dsh 0.2.0-rc.2 host report「当前 Host 未提供原生 Schedule 服务」until the schedule companions above are installed; the registry `dsh-schedule@0.2.0-rc.1` is peer-incompatible and its row stays disabled. An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A fresh Profile ships an unresolved `allowBuilds` placeholder for `protobufjs` (a transitive dependency of the Feishu SDK), so the first install exits nonzero until you set it to `true` in the Profile `pnpm-workspace.yaml`; the package is fully added either way. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
+
+The reliability update adds schema migration v14 on both storage backends. It
+stores each digest WorkItem's trusted trigger and occurrence binding without
+rewriting existing plans or reports. Stop the host and retain a verified backup
+before upgrading. Scheduled work uses the host's original occurrence time;
+manual work uses its recorded admission time. An old, unbound WorkItem without
+verifiable trigger provenance remains available for inspection but must be
+delegated again; its execution date is never substituted silently.
+
+After interruption, a saved remote receipt permits local bookkeeping repair
+without sending or creating the remote object again. An unacknowledged send or
+external write remains `unknown` for reconciliation. Local results target the
+original parent session. PostgreSQL connection changes require an explicit
+workspace rebind; parameter and secret updates cannot silently move the ledger.
+For rollback, stop the host first and keep the v14 ledger intact: the additional
+table is non-destructive, but older code does not understand its recovery guards.
+Reconcile unfinished operations before resuming them under an older release.
 
 -----
 
@@ -150,7 +167,7 @@ ledger, sessions and attachments together before restarting.
 
 ### Run flow
 
-On start the host plugin takes a single-writer lock on `$DSH_HOME/24pa`, opens the ledger (SQLite workspace file by default, or PostgreSQL), loads and validates the workspace `AGENTS.md`, and establishes the fixed Feishu access and local sessions through the SessionController. Inbound Feishu events durably enter an inbox before acknowledgment, the coordinator delegates to workers through the continuable child API, and each item records its origin, parent, and delivery target. Ticks drain the outbox with receipts, fire due non-delegated reminder occurrences, verify published note fingerprints, and wake digest plans through the native Schedule service; results return to the entry that originated the work. At agent creation the role whitelist restricts the inherited tool catalog, and an `AGENTS.md` reload replaces the workspace-rules prompt section without touching the effective configuration on failure.
+On start the host plugin takes a single-writer lock on `$DSH_HOME/24pa`, loads and validates the target workspace `AGENTS.md` and secret store, prepares the ledger (SQLite workspace file by default, or PostgreSQL), and establishes the fixed Feishu access and local sessions through the SessionController. Inbound Feishu events durably enter an inbox before acknowledgment, the coordinator delegates to workers through the continuable child API, and each item records its origin, parent, and delivery target. Ticks drain the outbox with receipts, fire due non-delegated reminder occurrences, verify published note fingerprints, and wake digest plans through the native Schedule service; results return to the entry that originated the work. At agent creation the role whitelist restricts the inherited tool catalog, and an `AGENTS.md` reload replaces the workspace-rules prompt section without touching the effective configuration on failure.
 
 </details>
 

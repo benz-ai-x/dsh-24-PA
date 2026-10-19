@@ -245,9 +245,9 @@ export function validateConfig(raw: unknown): PaConfig {
     ? (['appIdEnv', 'appSecretEnv', 'pgDsnEnv'] as const)
     : (['appIdEnv', 'appSecretEnv'] as const);
   for (const key of dsnEnvKeys) {
-    if (!ENV_NAME.test(input[key] as string)) throw new ConfigError(`${key} 应填写环境变量名称（大写字母、数字、下划线）。`);
+    if (typeof input[key] !== 'string' || (input[key] !== '' && !ENV_NAME.test(input[key] as string))) throw new ConfigError(`${key} 应填写环境变量名称（大写字母、数字、下划线）。`);
   }
-  if (storage === 'sqlite' && input.pgDsnEnv !== undefined && !ENV_NAME.test(input.pgDsnEnv as string)) {
+  if (storage === 'sqlite' && input.pgDsnEnv !== undefined && input.pgDsnEnv !== '' && !ENV_NAME.test(input.pgDsnEnv as string)) {
     throw new ConfigError('pgDsnEnv 应填写环境变量名称（大写字母、数字、下划线）。');
   }
   const maxWorkers = input.maxWorkers;
@@ -310,9 +310,9 @@ export function validateConfig(raw: unknown): PaConfig {
     todoChannel: (input.todoChannel ?? 'feishu') as PaConfig['todoChannel'],
     notifyChannel: (input.notifyChannel ?? 'feishu') as PaConfig['notifyChannel'],
     timeZone: input.timeZone as string,
-    appIdEnv: input.appIdEnv as string,
-    appSecretEnv: input.appSecretEnv as string,
-    pgDsnEnv: (input.pgDsnEnv ?? 'PA24_PG_DSN') as string,
+    appIdEnv: (input.appIdEnv || DEFAULT_CONFIG.appIdEnv) as string,
+    appSecretEnv: (input.appSecretEnv || DEFAULT_CONFIG.appSecretEnv) as string,
+    pgDsnEnv: (input.pgDsnEnv || DEFAULT_CONFIG.pgDsnEnv) as string,
     maxWorkers: maxWorkers as number,
     enabledWorkers: enabledWorkers as string[],
     workerModels: workerModels as PaConfig['workerModels'],

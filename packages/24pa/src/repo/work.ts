@@ -1,6 +1,7 @@
 // Split from repo.ts (round-3 review): one aggregate per file; the
 // Repos facade in index.ts is the unchanged seam every caller already uses.
 import type { PaDb } from '../db.js';
+import { enqueueOutbox, type NewOutbox } from './outbox.js';
 
 export type WorkItemStatus =
   | 'accepted'
@@ -32,6 +33,28 @@ export interface WorkItemRow {
 
 export class WorkItemRepo {
   constructor(private readonly db: PaDb) {}
+
+  async claimNext(): Promise<WorkItemRow | null> {
+    const result = await this.db.query<WorkItemRow>(
+      `update pa24.work_item set status = 'running', progress = 'Worker 正在处理', updated_at = now()
+       where id = (select id from pa24.work_item where status in ('queued', 'accepted') order by created_at, id limit 1)
+       and status in ('queued', 'accepted') returning *`,
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async finishWithDelivery(id: string, output: string, failed: boolean, delivery: NewOutbox): Promise<WorkItemRow | null> {
+    return this.db.withTransaction(async tx => {
+      const result = await tx.query<WorkItemRow>(
+        `update pa24.work_item set status = $2, result = $3, progress = $4, updated_at = now()
+         where id = $1 and status = 'running' returning *`,
+        [id, failed ? 'failed' : 'completed', output, failed ? 'Worker 未完成，结果待回传' : 'Worker 已完成，结果待回传'],
+      );
+      if (!result.rows[0]) return null;
+      await enqueueOutbox(tx, delivery);
+      return result.rows[0];
+    });
+  }
 
   async insert(row: Omit<WorkItemRow, 'created_at' | 'updated_at' | 'progress' | 'result' | 'result_ref' | 'child_session_id'> & { child_session_id?: string }): Promise<WorkItemRow> {
     const result = await this.db.query<WorkItemRow>(
@@ -110,9 +133,19 @@ export interface ActionOperationRow {
 export class ActionOperationRepo {
   constructor(private readonly db: PaDb) {}
 
+  /** Claim only a never-executed or explicitly failed attempt. Running and
+   * unknown writes are not eligible, including after a process restart. */
+  async claim(id: string): Promise<ActionOperationRow | null> {
+    const result = await this.db.query<ActionOperationRow>(
+      `update pa24.action_operation set status = 'running', updated_at = now()
+       where id = $1 and status in ('pending', 'failed') returning *`, [id],
+    );
+    return result.rows[0] ?? null;
+  }
+
   /**
-   * Register an operation under its stable key. Returns the existing row when
-   * the key repeats, so retries never execute the external write twice.
+   * Register an operation under its stable key. Execution eligibility and
+   * durable remote receipts are enforced by ExternalOperations, not insertion.
    */
   async begin(row: { id: string; workItemId: string; action: string; params: unknown }): Promise<{ created: boolean; row: ActionOperationRow }> {
     const result = await this.db.query<ActionOperationRow>(
