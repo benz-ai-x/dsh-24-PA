@@ -11,6 +11,7 @@ import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, Con
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
+import { InboxLifecycle } from './inbox-lifecycle.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
@@ -103,11 +104,6 @@ export class HostStartupError extends Error {
   }
 }
 
-interface PendingDelivery {
-  inboxId: string;
-  sessionId: string;
-}
-
 export interface RuntimeOptions {
   stateDirectory: string;
   backupSessionsRoot?: string;
@@ -139,7 +135,12 @@ export class PaRuntime {
   private readonly env: Record<string, string | undefined>;
   private serial: Promise<unknown> = Promise.resolve();
   private readonly sessionGates = new Map<string, Promise<unknown>>();
-  private readonly pendingDeliveries = new Map<string, PendingDelivery[]>();
+  private readonly inboxLifecycle = new InboxLifecycle({
+    repo: () => this.repos?.inbox ?? null,
+    available: () => !this.closed && !this.workspaceChanging,
+    process: row => this.processInbox(row),
+  });
+  private workspaceBinding: string | null = null;
 
   private lock: HostLock | null = null;
   /** Best-effort usage counters since host start (P39 预算观测). */
@@ -368,7 +369,6 @@ export class PaRuntime {
   async digestRunNow(planId: string): Promise<unknown> {
     return this.digest.digestRunNow(planId);
   }
-  private dispatching = false;
   private outboxSending = false;
   /** 最近一次 tts.probe 结果（健康面只读缓存，不做子进程探测）。 */
   private ttsProbeCache: { at: string; result: TtsReadiness } | null = null;
@@ -750,6 +750,7 @@ export class PaRuntime {
 
   /** Release every acquired resource; safe to call again after a late start(). */
   private async cleanup(): Promise<void> {
+    await this.inboxLifecycle.stop();
     await this.workLifecycle.idle();
     if (this.noteVerifyTimer) clearInterval(this.noteVerifyTimer);
     this.noteVerifyTimer = null;
@@ -776,21 +777,6 @@ export class PaRuntime {
    */
   private async reconcileAfterRestart(): Promise<void> {
     if (!this.repos) return;
-    // Inbox rows claimed but never processed run again (admission is
-    // idempotent through the stable requestId).
-    await this.repos!.inbox.resetProcessing().catch(() => {});
-    // Admitted-but-undelivered rows cannot be attributed to a turn across a
-    // crash: surface them instead of guessing an outcome.
-    const orphaned = await this.repos!.inbox.listAdmitted();
-    for (const row of orphaned) {
-      await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: '重启中断；请重新发送该消息' });
-      if (this.config?.ownerOpenId) {
-        await this.notifyOwner(
-          `reconcile:${row.event_id}`,
-          '服务重启前有一条消息正在处理但未完成；如仍需要请重新发送。',
-        );
-      }
-    }
     await this.outboxDelivery.recover();
     await this.workLifecycle.recover();
   }
@@ -805,8 +791,8 @@ export class PaRuntime {
   async bind(path: string, initialize = false): Promise<void> {
     return this.enqueue(async () => {
       this.workspaceChanging = true;
-      try { await this.bindWorkspace(path, initialize); }
-      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); }
+      try { await this.inboxLifecycle.pauseForSwitch(); await this.bindWorkspace(path, initialize); }
+      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); this.inboxLifecycle.resume(); }
     });
   }
 
@@ -847,6 +833,11 @@ export class PaRuntime {
       next.localSessionId = await this.prepareOwnedSession('local', next);
       await repos.workspaceState.save(real, { feishuSessionId: next.accessSessionId, localSessionId: next.localSessionId });
       active = await repos.workItems.list(['accepted', 'queued', 'running', 'waiting_input'], 100);
+      await InboxLifecycle.recover(repos.inbox, async row => {
+        await repos.outbox.enqueue({ dedupKey: `reconcile:${row.event_id}`, channel: 'feishu',
+          target: row.payload?.senderOpenId || candidate.config.ownerOpenId, kind: 'text',
+          content: { text: '服务重启前有一条消息正在处理但未完成；如仍需要请重新发送。' } });
+      });
       connection = await this.prepareTransport(candidate.config, candidate.secrets);
       await this.outboxDelivery.pause();
       await this.workLifecycle.idle();
@@ -868,6 +859,7 @@ export class PaRuntime {
     this.activePostgresDsn = postgresDsn;
     this.repos = repos;
     this.workspace = next.workspace;
+    this.workspaceBinding = randomUUID();
     this.accessSessionId = next.accessSessionId;
     this.localSessionId = next.localSessionId;
     this.applyWorkspaceConfiguration(candidate);
@@ -950,9 +942,12 @@ export class PaRuntime {
     if (this.config?.storage === 'postgres' && this.activePostgresDsn !== resolveSecret(secretRefs(config).pgDsn, this.env, secrets, 'pgDsn')) {
       throw new ConfigError('PostgreSQL 连接变化不能热重载；请按初始化指南更新连接配置后重新绑定工作区，当前账本连接保持不变。');
     }
-    if (this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile) && (await this.hasActiveWork())) {
-      throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
+    const identityChanged = this.config && (this.config.mode !== config.mode || this.config.ownerOpenId !== config.ownerOpenId || this.config.larkProfile !== config.larkProfile || this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(config, secrets));
+    if (identityChanged) {
+      await this.inboxLifecycle.assertIdle();
+      if (await this.hasActiveWork()) throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
     }
+
   }
 
   private applyWorkspaceConfiguration(parsed: WorkspaceConfiguration): void {
@@ -997,9 +992,10 @@ export class PaRuntime {
    * 覆盖），先跑完整校验器再原子写回唯一 ```json 块（工作规则区逐字节不变），
    * 随后走与 reload 相同的装载路径。storage/version 不在表单白名单。
    */
-  async updateWorkspaceConfig(patch: Record<string, unknown>): Promise<void> {
+  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
     return this.enqueue(async () => {
+      this.assertWorkspaceBinding(expectedBinding);
       await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets));
       try {
         await this.loadConfig();
@@ -1013,6 +1009,10 @@ export class PaRuntime {
   // ---- F36: 工作区密钥库 ----------------------------------------------------
 
   /** 每个能力位对应的配置引用名（env 优先时读哪个变量）；空配置落规范名。 */
+  private assertWorkspaceBinding(expected: string | null): void {
+    if (!expected || expected !== this.workspaceBinding) throw new Error('工作区已切换，请刷新后重新编辑。');
+  }
+
   private secretRefs(): Record<SecretKey, string> {
     return secretRefs(this.config);
   }
@@ -1036,12 +1036,13 @@ export class PaRuntime {
    * 表单密钥更新：非空字符串＝写入密钥库，空串＝清除该位，缺省＝不动。
    * 与 AGENTS.md 完全解耦（密钥值永不进配置块）；feishu 凭据变化时重连通道。
    */
-  async updateWorkspaceSecrets(values: Record<string, unknown>): Promise<void> {
+  async updateWorkspaceSecrets(values: Record<string, unknown>, expectedBinding = this.workspaceBinding): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
     if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ConfigError('密钥补丁必须是对象。');
     const unknown = Object.keys(values).filter(k => !(SECRET_KEYS as readonly string[]).includes(k));
     if (unknown.length) throw new ConfigError(`未知密钥字段：${unknown.join('、')}。`);
     return this.enqueue(async () => {
+      this.assertWorkspaceBinding(expectedBinding);
       const next: SecretStore = { ...(await readWorkspaceConfiguration(this.workspace!.statePath)).secrets };
       for (const key of SECRET_KEYS) {
         if (!(key in values)) continue;
@@ -1390,28 +1391,7 @@ export class PaRuntime {
     void this.kickDispatcher();
   }
 
-  private kickDispatcher(): void {
-    if (this.dispatching || this.closed) return;
-    this.dispatching = true;
-    void this.dispatchLoop().catch(() => {}).finally(() => {
-      this.dispatching = false;
-    });
-  }
-
-  private async dispatchLoop(): Promise<void> {
-    if (!this.repos) return;
-    for (;;) {
-      const rows = await this.repos.inbox.claim(5);
-      if (rows.length === 0) return;
-      for (const row of rows) {
-        try {
-          await this.processInbox(row);
-        } catch (error) {
-          await this.repos.inbox.mark(row.event_id, { status: 'rejected', error: (error as Error).message }).catch(() => {});
-        }
-      }
-    }
-  }
+  private kickDispatcher(): void { this.inboxLifecycle.dispatch(); }
 
   private async processInbox(row: { event_id: string; kind: string; payload: any }): Promise<void> {
     if (!this.config || !this.repos) return;
@@ -1523,25 +1503,21 @@ export class PaRuntime {
       await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
       return;
     }
-    await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
     await this.repos!.inbox.mark(inboxEventId, { status: 'admitted', targetSession: item.child_session_id, requestId: `followup:${inboxEventId}` });
+    await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
   }
 
   private async submitToSession(sessionId: string, requestId: string, content: ContentBlock[], timeZone: string, inboxId: string): Promise<void> {
-    const resolved = await this.ctx.sessionController.resolveAgent(sessionId);
-    if ('error' in resolved) throw resolved.error;
-    const result = await this.ctx.sessionController.prompt(
-      { requestId, sessionId, mode: 'queue', content, clientTimeZone: timeZone },
-      this.lifetime.signal,
-    );
-    if ('error' in result) throw result.error;
-    await this.ctx.sessions.flush(resolved.agent.session);
-    if (inboxId) {
-      await this.repos!.inbox.mark(inboxId, { status: 'admitted', requestId, targetSession: sessionId });
-      const queue = this.pendingDeliveries.get(sessionId) ?? [];
-      queue.push({ inboxId, sessionId });
-      this.pendingDeliveries.set(sessionId, queue);
-    }
+    await this.inboxLifecycle.admit(sessionId, inboxId, requestId, async () => {
+      const resolved = await this.ctx.sessionController.resolveAgent(sessionId);
+      if ('error' in resolved) throw resolved.error;
+      this.lifetime.signal.throwIfAborted();
+      const result = await this.ctx.sessionController.prompt(
+        { requestId, sessionId, mode: 'queue', content, clientTimeZone: timeZone }, this.lifetime.signal,
+      );
+      if ('error' in result) throw result.error;
+      await this.ctx.sessions.flush(resolved.agent.session);
+    });
   }
 
   // ---- session events: committed results become deliveries -----------------
@@ -1563,19 +1539,14 @@ export class PaRuntime {
     const output = textOf(messages.at(-1)?.data?.message?.content);
 
     if (session.id === this.accessSessionId) {
-      const queue = this.pendingDeliveries.get(session.id) ?? [];
-      const pending = queue.shift();
-      this.pendingDeliveries.set(session.id, queue);
       const reply = failure
         ? `本轮未完成：${failure.code === 'MISSING_CREDENTIAL' ? 'dsh 尚未配置模型，请先在模型设置中配置。' : failure.message ?? '模型执行失败'}`
         : output || '（本轮没有产生回复）';
-      if (pending) {
-        await this.notifyOwner(`reply:${pending.inboxId}:${turn}`, reply);
-        await this.repos.inbox.mark(pending.inboxId, {
-          status: failure ? 'rejected' : 'delivered',
-          error: failure?.message,
-        });
-      }
+      await this.inboxLifecycle.complete(session.id, async inboxId => {
+        const row = await this.repos!.inbox.get(inboxId);
+        await this.repos!.outbox.enqueue({ dedupKey: `reply:${inboxId}:${turn}`, channel: 'feishu',
+          target: row!.payload.senderOpenId, kind: 'text', content: { text: reply } });
+      }, failure ? String(failure.message ?? '模型执行失败') : undefined);
       return;
     }
 
@@ -1775,7 +1746,8 @@ export class PaRuntime {
       return view;
     }
     if (args.action === 'stop') {
-      await this.workLifecycle.stop(id);
+      if (item.status !== 'stopped') await this.workLifecycle.stop(id);
+      await repos.inbox.rejectForTarget(item.child_session_id ?? item.id, '本人要求停止事项，补充输入不再续办。');
       return { workId: id, status: 'stopped' };
     }
     if (args.action === 'continue') {
@@ -3412,6 +3384,7 @@ export class PaRuntime {
 
   snapshot(): Record<string, unknown> {
     return {
+      workspaceBinding: this.workspaceBinding,
       readiness: this.readiness(),
       workspace: this.workspace
         ? {

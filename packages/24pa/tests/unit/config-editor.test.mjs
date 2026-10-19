@@ -6,7 +6,7 @@ import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG, CONFIG_FIELDS } from '../../lib/config.js';
 import { readWorkspaceConfiguration, writeWorkspaceConfiguration } from '../../lib/workspace-config.js';
 
-let React, createRoot, act, win, root, container, saved, requests, failSave, workspacePath, pendingSave;
+let React, createRoot, act, win, root, container, saved, requests, failSave, workspacePath, pendingSave, binding, pollSnapshots;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 beforeAll(async () => {
   win = new Window({ url: 'http://localhost/' });
@@ -15,7 +15,7 @@ beforeAll(async () => {
   React = await import('react'); ({ act } = React);
   ({ createRoot } = await import('react-dom/client'));
 });
-const snapshot = () => ({ workspace: { path: '/test/workspace', config: structuredClone(saved) }, configMeta: { fields: CONFIG_FIELDS }, work: [], outbox: [], secrets: {}, readiness: { items: [] } });
+const snapshot = () => ({ workspace: { path: '/test/workspace', config: structuredClone(saved) }, workspaceBinding: binding, configMeta: { fields: CONFIG_FIELDS }, work: [], outbox: [], secrets: {}, readiness: { items: [] } });
 const button = label => [...container.querySelectorAll('button')].find(node => node.textContent === label);
 const field = name => [...container.querySelectorAll('label')].find(node => node.textContent.includes(`（${name}）`))?.control;
 const modelField = (role, key) => container.querySelector(`input[aria-label="${role} ${key}"]`);
@@ -34,7 +34,12 @@ const change = async (node, value) => {
   });
 };
 beforeEach(async () => {
-  saved = structuredClone(DEFAULT_CONFIG); requests = []; failSave = false; pendingSave = Promise.resolve();
+  const setIntervalOriginal = globalThis.setInterval;
+  vi.spyOn(globalThis, 'setInterval').mockImplementation((callback, delay, ...args) => {
+    if (delay === 2500) pollSnapshots = callback;
+    return setIntervalOriginal(callback, delay, ...args);
+  });
+  binding = 'binding-a'; saved = structuredClone(DEFAULT_CONFIG); requests = []; failSave = false; pendingSave = Promise.resolve();
   workspacePath = await mkdtemp(join(tmpdir(), 'pa24-config-editor-'));
   win.localStorage.clear();
   vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
@@ -135,7 +140,7 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(button('保存密钥').disabled).toBe(false);
     expect(container.textContent).toContain('密钥有未保存修改');
     await click(button('保存密钥'));
-    expect(requests.filter(r => r.endpoint === 'action').map(r => r.payload)).toEqual([{ type: 'workspace.secret-update', values: { feishuAppSecret: 'new-test-key' } }]);
+    expect(requests.filter(r => r.endpoint === 'action').map(r => r.payload)).toEqual([{ type: 'workspace.secret-update', workspaceBinding: 'binding-a', values: { feishuAppSecret: 'new-test-key' } }]);
     expect(field('feishuAppSecret').value).toBe('');
     expect(button('保存密钥').disabled).toBe(true);
   });
@@ -154,4 +159,35 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(button('保存并重载').disabled).toBe(true);
     expect(requests.some(r => r.payload.type === 'workspace.config-update')).toBe(false);
   });
+});
+
+
+describe('配置草稿的工作区归属', () => {
+  it('工作区切换清除旧参数/密钥草稿，提交携带新绑定身份', async () => {
+    await change(field('maxWorkers'), '3'); await change(field('feishuAppSecret'), 'A-secret-draft');
+    binding = 'binding-b'; saved = { ...saved, maxWorkers: 5 };
+    await click(button('刷新'));
+    expect(field('maxWorkers').value).toBe('5');
+    expect(field('feishuAppSecret').value).toBe('');
+    expect(button('保存并重载').disabled).toBe(true);
+    await change(field('maxWorkers'), '6'); await click(button('保存并重载'));
+    expect(requests.find(r => r.payload.type === 'workspace.config-update').payload.workspaceBinding).toBe('binding-b');
+  });
+});
+
+
+it('较早轮询的 A 快照晚到，不覆盖手动刷新得到的 B 配置', async () => {
+  const originalFetch = globalThis.fetch.getMockImplementation(), oldSnapshot = snapshot();
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  globalThis.fetch.mockImplementationOnce(async () => { await held; return { ok: true, json: async () => ({ ok: true, value: oldSnapshot }) }; });
+  await act(async () => { pollSnapshots(); });
+  globalThis.fetch.mockImplementation(originalFetch);
+  binding = 'binding-b'; saved = { ...saved, maxWorkers: 5 };
+  await click(button('刷新'));
+  expect(field('maxWorkers').value).toBe('5');
+  await act(async () => { release(); await held; });
+  expect(field('maxWorkers').value).toBe('5');
+  await change(field('maxWorkers'), '6'); await click(button('保存并重载'));
+  expect(requests.find(r => r.payload.type === 'workspace.config-update').payload.workspaceBinding).toBe('binding-b');
 });

@@ -972,7 +972,7 @@ window.__ModuleLoader__.load({
               capLine(L('存储', 'Storage'), config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'),
               state.workspace?.configError && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-danger)' } }, state.workspace.configError))
               : h('p', { className: 'pa24-meta' }, L('尚未绑定工作区', 'No workspace bound'))),
-            detail: helpers => h(ConfigFormDetail, { key: 'config', helpers }),
+            detail: helpers => h(ConfigFormDetail, { key: helpers.state.workspaceBinding, helpers }),
           },
           {
             id: 'budget', cat: 'ops', tone: 'green', icon: 'pulse', title: ['模型与预算', 'Models & budget'], sub: ['路由 · 用量 · 健康判定', 'Routing · usage · health verdict'], action: ['健康报告', 'Health report'],
@@ -1123,7 +1123,7 @@ window.__ModuleLoader__.load({
                 if (Object.keys(routes).length) patch.workerModels = routes;
                 else delete patch.workerModels;
               }
-              const saved = Object.keys(patch).length ? await rpc('action', { type: 'workspace.config-update', config: patch }) : state;
+              const saved = Object.keys(patch).length ? await rpc('action', { type: 'workspace.config-update', config: patch, workspaceBinding: state.workspaceBinding }) : state;
               adoptSaved(saved.workspace.config);
               await helpers.refresh().catch(() => {});
               setSaveState({ ok: true, message: L('已保存并重载生效。', 'Saved and reloaded.') });
@@ -1170,7 +1170,7 @@ window.__ModuleLoader__.load({
             if (!changed) { setSaveState({ ok: true, message: L('密钥无改动。', 'No secret changes.') }); return; }
             setBusy(true);
             try {
-              await rpc('action', { type: 'workspace.secret-update', values });
+              await rpc('action', { type: 'workspace.secret-update', values, workspaceBinding: state.workspaceBinding });
               setSecretDraft({}); setSecretClears({});
               await helpers.refresh().catch(() => {});
               setSaveState({ ok: true, message: L('密钥已保存到工作区密钥库。', 'Secrets saved to the workspace store.') });
@@ -1325,11 +1325,13 @@ window.__ModuleLoader__.load({
             return () => window.removeEventListener('keydown', onKey);
           }, [manage]);
           const main = React.useRef(null);
+          const snapshotSequence = React.useRef(0);
           const refresh = async () => {
             setRefreshing(true);
+            const sequence = ++snapshotSequence.current;
             try {
               const s = await rpc('snapshot');
-              setState(s); setConnError(''); setExtraTick(v => v + 1); setLastRefreshAt(new Date().toISOString());
+              if (sequence === snapshotSequence.current) { setState(s); setConnError(''); setExtraTick(v => v + 1); setLastRefreshAt(new Date().toISOString()); }
               return s;
             } finally { setRefreshing(false); }
           };
@@ -1338,7 +1340,8 @@ window.__ModuleLoader__.load({
             const load = async () => {
               if (pending) return;
               pending = true;
-              try { const s = await rpc('snapshot'); if (live) { setState(s); setConnError(''); } }
+              const sequence = ++snapshotSequence.current;
+              try { const s = await rpc('snapshot'); if (live && sequence === snapshotSequence.current) { setState(s); setConnError(''); } }
               catch (e) { if (live) setConnError(e.message); }
               finally { pending = false; }
             };

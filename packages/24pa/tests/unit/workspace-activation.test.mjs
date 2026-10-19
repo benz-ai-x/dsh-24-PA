@@ -23,7 +23,7 @@ async function workspace(name, patch = {}, secrets = {}) {
 function runtime(env = {}) {
   const ctx = {
     skills: null, get: () => null,
-    workspaceRegistry: { create: async path => ({ id: path, path, title: '24私助' }) },
+    workspaceRegistry: { list: () => [], create: async path => ({ id: path, path, title: '24私助' }) },
     sessionController: { create: vi.fn(async () => {}), rename: async () => {}, resolveAgent: async () => null },
   };
   const rt = new PaRuntime(ctx, { stateDirectory: root, workspacePath: '', env, reminderTickMs: 60000, larkCliBin: 'lark-cli', wecomCliBin: 'wecom-cli', cliTimeoutMs: 1000 });
@@ -191,4 +191,22 @@ describe('工作区激活：公开 bind/update/reload，真实文件与账本', 
     expect(await readFile(join(path, 'AGENTS.md'), 'utf8')).toContain('NEXT_APP');
     await rt.reloadWorkspace(); expect(rt.getTransport()).not.toBe(old); expect(rt.config.appIdEnv).toBe('NEXT_APP');
   });
+});
+
+
+it('配置与密钥请求在队列执行时核对归属，拒绝 A → B → A 的旧草稿', async () => {
+  const a = await workspace('draft-a'), b = await workspace('draft-b', { maxWorkers: 5 });
+  const { rt } = runtime(); await rt.bind(a);
+  const bindingA = rt.snapshot().workspaceBinding;
+  const switching = rt.bind(b);
+  const queued = rt.updateWorkspaceConfig({ maxWorkers: 3 }).catch(e => e);
+  await switching;
+  expect((await queued).message).toMatch(/工作区已切换/);
+  await expect(rt.updateWorkspaceSecrets({ feishuAppSecret: 'from-a' }, bindingA)).rejects.toThrow(/工作区已切换/);
+  expect(rt.config.maxWorkers).toBe(5);
+  expect((await readSecretStore(b)).feishuAppSecret).toBeUndefined();
+  await rt.bind(a);
+  await expect(rt.updateWorkspaceConfig({ maxWorkers: 4 }, bindingA)).rejects.toThrow(/工作区已切换/);
+  await rt.updateWorkspaceConfig({ maxWorkers: 4 }, rt.snapshot().workspaceBinding);
+  expect(rt.config.maxWorkers).toBe(4);
 });

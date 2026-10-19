@@ -139,6 +139,12 @@ async function snapshot(runtime: PaRuntime): Promise<Record<string, unknown>> {
  */
 type PanelActionHandler = (runtime: PaRuntime, payload: PanelAction) => Promise<unknown>;
 
+function requiredBinding(payload: PanelAction): string {
+  const binding = str(payload.workspaceBinding);
+  if (!binding) throw new ConfigError('缺少工作区绑定标识，请刷新后重新编辑。');
+  return binding;
+}
+
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.workspaceBind]: async (runtime, payload) => {
     const path = String(payload.path ?? '');
@@ -148,13 +154,13 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.workspaceConfigUpdate]: (runtime, payload) => {
     const config = payload.config as Record<string, unknown> | undefined;
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ConfigError('缺少配置补丁。');
-    return runtime.updateWorkspaceConfig(config).then(() => snapshot(runtime));
+    return runtime.updateWorkspaceConfig(config, requiredBinding(payload)).then(() => snapshot(runtime));
   },
   // F36: 密钥值进工作区密钥库（.24pa/secrets.json，0600），与 AGENTS.md 解耦。
   [PANEL_RPC.actions.workspaceSecretUpdate]: (runtime, payload) => {
     const values = payload.values as Record<string, unknown> | undefined;
     if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ConfigError('缺少密钥补丁。');
-    return runtime.updateWorkspaceSecrets(values).then(() => snapshot(runtime));
+    return runtime.updateWorkspaceSecrets(values, requiredBinding(payload)).then(() => snapshot(runtime));
   },
   [PANEL_RPC.actions.connectionCheck]: runtime => runtime.checkAccess(),
   [PANEL_RPC.actions.connectionWecomCheck]: runtime => runtime.wecomCheck(),
