@@ -98,7 +98,7 @@ describe('handwriting 纯函数（F06）', () => {
   it('规范化排除系统状态块：状态块更新不改变指纹（P32）', () => {
     const xml = noteDocumentXml('N-1', 1, recognized, [{ pageNo: 1, sha256: 'a'.repeat(64), mediaType: 'image/png', byteSize: 1024 }]);
     const before = fingerprintOf(normalizeDocument(xml), ['a'.repeat(64)]);
-    const updated = xml.replace(pendingReviewLine('N-1', 1), `${SYSTEM_BLOCK_PREFIX}审核状态：本人已审核 N-1 v1`);
+    const updated = xml.replace(pendingReviewLine('N-1', 1), `${SYSTEM_BLOCK_PREFIX}审核状态：本人已审核 N-1 v1（2026-10-19T01:00:00.000Z；覆盖指纹 0123456789ab…）`);
     const after = fingerprintOf(normalizeDocument(updated), ['a'.repeat(64)]);
     expect(after).toBe(before);
     // 原稿变化（换页哈希）必须反映到指纹
@@ -111,9 +111,9 @@ describe('handwriting 纯函数（F06）', () => {
     const base = normalizeDocument(xml);
     const edited = normalizeDocument(`${xml}<p>新增的一段主人修改</p>`);
     expect(edited).not.toBe(base);
-    expect(diffNormalized(base, edited).added).toEqual(['新增的一段主人修改']);
+    expect(diffNormalized(base, edited).added).toEqual([expect.stringContaining('新增的一段主人修改')]);
     const withImage = normalizeDocument(`${xml}<img src="x"/><img src="y"/>`);
-    expect(withImage.endsWith('[图片 x2]')).toBe(true);
+    expect(withImage.split('unverified-image')).toHaveLength(3);
     expect(withImage).not.toBe(base);
   });
 

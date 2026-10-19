@@ -16,7 +16,7 @@ let cluster, llm, host, root, workspace, stubStatePath, scriptPath, bootEnv, hos
 
 const writeScript = async script => writeFile(scriptPath, JSON.stringify(script, null, 2));
 const inject = (event) => host.api('action', { type: 'test.inject', event });
-const ownerEvent = (eventId, extra = {}) => ({ eventId, senderOpenId: 'ou_test_owner', appId: 'cli_test_app', chatType: 'p2p', ...extra });
+const ownerEvent = (eventId, extra = {}) => ({ eventId, messageId: eventId, senderOpenId: 'ou_test_owner', appId: 'cli_test_app', chatType: 'p2p', ...extra });
 const waitWorkItem = async (title, label, timeoutMs = 180_000) =>
   host.waitUntil(s => (s.work ?? []).some(w => w.title === title && w.status === 'completed'), { timeoutMs, label });
 const unescapeJsonish = text => text.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
@@ -209,6 +209,7 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     const search = await waitToolResult('pa24_work', 'currentValidity', '检索回执', 60_000, before);
     expect(search).toContain(`"${noteId}:v1"`);
     expect(search).toContain(`"${noteId}:v2"`);
+    expect(search).toContain('needs_rebuild'); // 修订文档没有继承旧派生行动
     expect(search).toContain('changed'); // v1 因文档已改而失效
     expect(search).toContain('不因曾通过而继承');
 
@@ -235,8 +236,8 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     await inject(ownerEvent('evt-b4', { text: '看看今天的概览' }));
     await waitWorkItem('今日概览', '概览完成');
     const overview = await waitToolResult('pa24_work', 'reviewedNotes', '概览回执', 60_000, before);
-    expect(overview).toContain('"version":3');
-    expect(overview).toContain('docUrl');
+    expect(overview).toContain('摘要/候选尚未重建');
+    expect(overview).not.toContain('"version":3'); // 审核原文不使旧派生内容重新可信
     // 全类事项汇总：任务/日历/等待/待审均在，未读取范围明示
     expect(overview).toContain('"calendar"');
     expect(overview).toContain('"tasks"');

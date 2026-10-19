@@ -4,6 +4,7 @@ import { consumedTurn } from './host-turn.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { WorkspaceBackup } from './backup.js';
 import { readFileSync } from 'node:fs';
+import { isDeepStrictEqual } from 'node:util';
 
 /** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
 const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任务 skill（worker-persona-*）在会话启动时装载；此处仅注册占位。';
@@ -55,7 +56,7 @@ import {
   type RecurringScheduleRecord,
 } from '@deepseek-ai/dsh-schedule';
 import {
-  RECOGNITION_PAGE_LIMIT,
+  candidateUnknowns, RECOGNITION_PAGE_LIMIT,
   advanceReminder,
   looksLikeVisionModel,
   sha256Hex,
@@ -1715,6 +1716,12 @@ export class PaRuntime {
       const id = `pa24-work-${args.worker}-${randomUUID()}`;
       const fresh = await this.workLifecycle.admit(async () => {
         if (this.workspace !== workspace) throw new Error('工作区已切换，请在当前工作区重新交办。');
+        if (note) {
+          const current = await this.repos!.notes.getNote(note.id);
+          if (!current) throw new Error('笔记已不存在。');
+          const existing = current.work_item_id ? await this.repos!.workItems.get(current.work_item_id) : null;
+          if (existing && UNSETTLED_WORK_STATUSES.some(status => status === existing.status)) throw new Error(`这页笔记已有进行中的事项（${existing.id}）；请继续原事项。`);
+        }
         const item = await this.repos!.workItems.insert({
           id,
           title,
@@ -2625,7 +2632,11 @@ export class PaRuntime {
   // ---- meeting prep & minutes (F10) -------------------------------------------
 
   /** Bind a prep package to a meeting: a once digest firing at start-lead (P26). */
-  private async meetingPrepEnable(args: Record<string, unknown>): Promise<unknown> {
+  private meetingPrepEnable(args: Record<string, unknown>): Promise<unknown> {
+    return this.gate(`meeting-prep:${String(args.eventId ?? '')}`, () => this.enableMeetingPrep(args));
+  }
+
+  private async enableMeetingPrep(args: Record<string, unknown>): Promise<unknown> {
     const schedule = this.nativeSchedule();
     if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务，无法安排会前准备。');
     const eventId = String(args.eventId ?? '');
@@ -2645,7 +2656,8 @@ export class PaRuntime {
     const active = await this.repos!.digests.activeMeetingPreps(eventId);
     if (active.some(plan => plan.id !== id)) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；如需调整请先停止原计划。`);
     const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: event.start_time.toISOString(), eventFingerprint: eventFingerprint(event), scope };
-    await this.digest.plans.enable({
+    const existing = await this.repos!.digests.getPlan(id);
+    if (!(existing?.status === 'active' && !existing.lifecycle)) await this.digest.plans.enable({
       id, kind: 'meeting_prep', title: `会前准备：${event.summary}`, session_id: this.accessSessionId!,
       schedule_spec: spec, last_window: null, voice: false, skill: 'meeting-prep',
     });
@@ -2701,34 +2713,24 @@ export class PaRuntime {
     }
     // Authorized materials only, each scoped by the plan's allowed sources.
     const scope = (plan.schedule_spec?.scope ?? {}) as { memo?: boolean; memory?: boolean; tasks?: boolean; minutes?: boolean };
-    const keyword = event.summary.slice(0, 12);
-    const materials: { topic: string; url: string | null; date: string }[] = [];
-    if (scope.memo !== false) {
-      const memos = await this.repos!.memos.search({ query: keyword, limit: 5 }).catch(() => []);
-      const recent = await this.repos!.memos.search({ limit: 5 }).catch(() => []);
-      const seen = new Set<string>();
-      for (const memo of [...memos, ...recent]) {
-        if (seen.has(memo.id)) continue;
-        seen.add(memo.id);
-        if (materials.length >= 6) break;
-        materials.push({ topic: memo.topic, url: memo.doc_url, date: String(memo.occurred_on ?? '').slice(0, 10) });
-      }
-    }
+    const keyword = event.summary.replace(/^\[24PA\]\s*/, '').slice(0, 12);
+    const sources: Record<string, { status: 'ok' | 'failed' | 'disabled'; error?: string }> = {};
+    const readSource = async <T>(name: string, enabled: boolean, read: () => Promise<T>): Promise<T | null> => {
+      if (!enabled) { sources[name] = { status: 'disabled' }; return null; }
+      try { const result = await read(); sources[name] = { status: 'ok' }; return result; }
+      catch (error) { sources[name] = { status: 'failed', error: (error as Error).message }; return null; }
+    };
+    const memos = await readSource('备忘', scope.memo !== false, () => this.repos!.memos.search({ query: keyword, limit: 6 }));
+    const materials = (memos ?? []).map(memo => ({ topic: memo.topic, url: memo.doc_url, date: String(memo.occurred_on ?? '').slice(0, 10) }));
     let lastMinutes: { topic: string; url: string | null; actions: string[] } | null = null;
-    if (scope.minutes !== false) {
-      const rows = await this.repos!.minutes.recent(3).catch(() => [] as Array<{ id: string; topic: string; doc_url: string | null; candidates: unknown }>);
-      const match = rows.find(m => m.topic.includes(keyword.slice(0, 4))) ?? rows[0] ?? null;
-      if (match) lastMinutes = { topic: match.topic, url: match.doc_url, actions: (Array.isArray(match.candidates) ? match.candidates : []).map((c: { summary: string }) => c.summary).slice(0, 5) };
-    }
-    let memoryFacts: string[] = [];
-    if (scope.memory !== false) {
-      try {
-        const memory = await this.memory!.search({ query: keyword, limit: 5 });
-        memoryFacts = memory.records.filter(r => r.status === 'confirmed').map(r => `${r.topic}：${r.content.slice(0, 60)}（来源：${r.source}）`);
-      } catch {
-        memoryFacts = [];
-      }
-    }
+    const minutes = await readSource('纪要', scope.minutes !== false, () => this.repos!.minutes.recent(30));
+    const match = minutes?.find(m => m.event_id === eventId) ?? minutes?.find(m => {
+      const topic = m.topic.trim();
+      return topic === keyword || (Math.min(topic.length, keyword.length) >= 4 && (topic.includes(keyword) || keyword.includes(topic)));
+    });
+    if (match) lastMinutes = { topic: match.topic, url: match.doc_url, actions: (Array.isArray(match.candidates) ? match.candidates : []).map((candidate: { summary: string }) => candidate.summary).slice(0, 5) };
+    const memory = await readSource('记忆', scope.memory !== false, () => this.memory!.search({ query: keyword, limit: 5 }));
+    const memoryFacts = (memory?.records ?? []).filter(record => record.status === 'confirmed').map(record => `${record.topic}：${record.content.slice(0, 60)}（来源：${record.source}）`);
     // Only tasks sharing a token with the meeting count as related; otherwise
     // the section stays absent rather than pretending relevance.
     // CJK summaries rarely use separators: match on 2-character sliding
@@ -2739,7 +2741,8 @@ export class PaRuntime {
       if (token.length <= 3) tokens.add(token);
       for (let i = 0; i + 2 <= token.length; i++) tokens.add(token.slice(i, i + 2));
     }
-    const openTasks = scope.tasks === false ? [] : (await this.repos!.tasks.list('open').catch(() => []))
+    const tasks = await readSource('任务', scope.tasks !== false, () => this.repos!.tasks.list('open'));
+    const openTasks = (tasks ?? [])
       .filter(t => [...tokens].some(token => t.summary.includes(token)))
       .slice(0, 5)
       .map(t => t.summary);
@@ -2756,12 +2759,15 @@ export class PaRuntime {
       }
       if (openTasks.length) lines.push(`· 相关未完成任务：${openTasks.join('、')}`);
     } else {
-      lines.push('一、资料：没有找到与该会议相关的备忘、记忆、纪要或任务——请直接补充材料，本包不编造议程。');
+      lines.push(Object.values(sources).some(source => source.status === 'failed')
+        ? '一、资料：查询不完整，目前没有可引用材料；不能据此认定没有相关资料。'
+        : Object.values(sources).some(source => source.status === 'ok') ? '一、资料：已查询授权来源，未找到相关材料；请补充材料，本包不编造议程。' : '一、资料：本计划未授权查询资料来源。');
     }
     lines.push('');
+    for (const [name, source] of Object.entries(sources)) lines.push(`资料来源 ${name}：${source.status === 'failed' ? `读取失败（${source.error}）` : source.status === 'disabled' ? '未授权查询' : '查询成功'}${name === '纪要' && source.status === 'ok' ? '（最近 30 条内按会议 ID/主题匹配）' : ''}`);
     lines.push('二、建议议程与问题清单（建议，供你确认）');
     lines.push('· 建议先确认上次行动项进展（如有）');
-    lines.push(materials.length ? '· 针对上述资料列出待确认问题后带出处提问' : '· 没有材料，建议先明确本次会议要决定的 1–3 件事');
+    lines.push(materials.length || memoryFacts.length || openTasks.length || lastMinutes ? '· 针对上述资料列出待确认问题后带出处提问' : '· 没有材料，建议先明确本次会议要决定的 1–3 件事');
     lines.push('');
     lines.push(`来源：会议投影（${event.event_id}）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：${item.id}`);
     const report = lines.join('\n');
@@ -2769,7 +2775,7 @@ export class PaRuntime {
     if (changedDuringBuild) return changedDuringBuild;
     const outboxKey = await this.digest.deliverPrepared(plan, row, report);
     await this.repos!.workItems.update(item.id, { result_ref: { planId: plan.id, eventId, outboxKey } });
-    return { planId: plan.id, eventId, message: '会前准备包已生成并入发送队列（发送前复查过会议状态）。' };
+    return { planId: plan.id, eventId, sources, message: '会前准备包已生成并入发送队列（发送前复查过会议状态）；资料缺口见 sources 与正文。' };
   }
 
   /**
@@ -2791,19 +2797,21 @@ export class PaRuntime {
       end: entry.end ? String(entry.end) : null,
       unknown: entry.unknown ? text(entry.unknown, 200) : null,
     }));
-    const id = `min-${randomUUID().slice(0, 12)}`;
+    const revisionKey = args.revisionKey ? text(args.revisionKey, 200) : '';
     // Save the minutes document through the memo pipeline (create + readback).
     const saved = (await this.saveMemo(item, { topic: `会议纪要：${topic}`, content, source: `会后纪要（事项 ${item.id}${eventId ? `，会议 ${eventId}` : ''}）` })) as { operationId: string; docUrl?: string | null };
     const memoRow = (await this.repos!.memos.get(saved.operationId)) ?? null;
-    const minutes = await this.repos!.minutes.insert({
-      id,
-      work_item_id: item.id,
-      event_id: eventId,
-      topic,
-      memo_id: memoRow?.id ?? null,
-      doc_url: memoRow?.doc_url ?? saved.docUrl ?? null,
-      candidates,
-      status: 'draft',
+    const generation = { workItemId: item.id, memoId: memoRow?.id ?? saved.operationId, eventId, topic, candidates, revisionKey };
+    const id = `min-${hash(JSON.stringify(generation))}`;
+    const minutes = await this.gate(`minutes:${id}`, async () => {
+      // Legacy versions used random IDs. Preserve their action identities.
+      const prior = await this.repos!.minutes.get(id) ?? (!revisionKey ? await this.repos!.minutes.findGeneration(generation) : null);
+      const operationId = `minutes.generate:${id}`;
+      await this.repos!.operations.begin({ id: operationId, workItemId: item.id, action: 'minutes.generate', params: generation });
+      const row = prior ?? await this.repos!.minutes.insert({ id, work_item_id: item.id, event_id: eventId, topic,
+        memo_id: memoRow?.id ?? null, doc_url: memoRow?.doc_url ?? saved.docUrl ?? null, candidates, status: 'draft' });
+      await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { minutesId: row.id } });
+      return row;
     });
     return {
       minutesId: minutes.id,
@@ -2822,7 +2830,8 @@ export class PaRuntime {
   private async minutesAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const minutes = await this.repos!.minutes.get(String(args.minutesId ?? ''));
     if (!minutes) throw new Error('纪要不存在；请先用 minutes_build 生成。');
-    if (!String(args.instruction ?? '').trim()) throw new Error('执行候选行动需要本人明确的指令依据（instruction）。');
+    const instruction = text(args.instruction ?? '', 500);
+    if (!instruction) throw new Error('执行候选行动需要本人明确的指令依据（instruction）。');
     const wanted = Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [];
     if (wanted.length === 0) throw new Error('需要提供选择的候选编号（indexes[]）。');
     const results = [];
@@ -2847,8 +2856,8 @@ export class PaRuntime {
             results.push({ index, ok: true, kind: 'calendar', reused: true, eventId: receipt?.eventId ?? null, url: receipt?.url ?? null, message: '该候选此前已执行，返回已有日程。' });
             continue;
           }
-          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, _authorization: { minutesId: minutes.id, index } }, operationId)) as { eventId?: string; url?: string | null; operationId?: string };
-          await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, minutesId: minutes.id, index } });
+          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, _authorization: { minutesId: minutes.id, index, instruction, sourceQuote: candidate.sourceQuote } }, operationId)) as { eventId?: string; url?: string | null; operationId?: string };
+          await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, minutesId: minutes.id, index, instruction } });
           results.push({ index, ok: true, kind: 'calendar', ...(created as object), minutesId: minutes.id });
         } else {
           // Minutes-scoped idempotency: the stable key is (minutes, index), not
@@ -2858,6 +2867,8 @@ export class PaRuntime {
             summary: candidate.summary,
             due: candidate.due ?? undefined,
             _operationId: `minutes.action:${minutes.id}:${index}`,
+            _instruction: instruction,
+            _authorization: { minutesId: minutes.id, index, sourceQuote: candidate.sourceQuote },
           });
           results.push({ index, ok: true, kind: 'task', ...(created as object) });
         }
@@ -2885,13 +2896,17 @@ export class PaRuntime {
    * Content approval and action authorization stay separate records; the
    * version must be approved AND still match the live document.
    */
-  private async noteAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+  private noteAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    return this.gate(`note-actions:${String(args.noteId ?? '')}`, () => this.adoptNoteActions(item, args));
+  }
+
+  private async adoptNoteActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const noteId = String(args.noteId ?? '');
     const note = await this.repos!.notes.getNote(noteId);
     if (!note) throw new Error('笔记不存在。');
-    const versionId = String(args.versionId ?? '');
-    const trust = await this.handwriting.inspectTrust(noteId, versionId);
+    const trust = await this.handwriting.inspectTrust(noteId, String(args.versionId ?? ''));
     const version = trust.version;
+    const versionId = version.id;
     const instruction = String(args.instruction ?? '').trim();
     if (!instruction) throw new Error('执行笔记行动需要本人明确的指令依据（instruction）；审核通过不等于行动授权。');
     if (version.status !== 'approved') {
@@ -2903,30 +2918,64 @@ export class PaRuntime {
     if (trust.currentValidity !== 'matches') {
       throw new Error('文档内容与已审核版本不一致（已修改）；旧批准不覆盖新内容，请先重新发布候选并审核。');
     }
+    if (version.content?.derivedStatus === 'needs_rebuild') throw new Error('当前文档已重发，但结构化候选尚未重建；请先重新整理当前文档并审核新候选，不能执行旧版本行动。');
     const candidates = (Array.isArray(version.content?.candidates) ? version.content.candidates : []) as NoteCandidate[];
     const wanted = Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [];
     if (wanted.length === 0) throw new Error('需要提供选择的候选编号（indexes[]）。');
     const results = [];
     for (const index of wanted) {
-      const candidate = candidates[index];
+      let candidate = candidates[index];
       if (!candidate?.summary) {
         results.push({ index, ok: false, error: `候选 ${index} 不存在或无摘要。` });
         continue;
+      }
+      const operationId = `note.action:${noteId}:v${version.version}:${index}`;
+      const previous = await this.repos!.operations.get(operationId);
+      if (previous?.status === 'succeeded') {
+        results.push({ index, ok: true, kind: previous.action.includes('calendar') ? 'calendar' : 'task', operationId, reused: true, ...previous.receipt });
+        continue;
+      }
+      const unknowns = candidateUnknowns(candidate, index, Array.isArray(version.content?.unknowns) ? version.content.unknowns : []);
+      const requestedClarification = Array.isArray(args.clarifications) ? args.clarifications.find((entry: any) => entry?.index === index) as Record<string, any> | undefined : undefined;
+      // Once an operation is recorded, its intent is immutable even when the
+      // remote acknowledgement arrived before a local projection failed. The
+      // action gate also prevents two concurrent clarifications from racing.
+      if (previous && requestedClarification && !isDeepStrictEqual(requestedClarification, previous.params.clarification)) {
+        results.push({ index, ok: false, error: '该候选已按原澄清记录执行意图，不能在重试中改写；请先按原参数恢复并核对已有对象，再明确修改对象或整理新版本。' });
+        continue;
+      }
+      const clarification = previous ? previous.params.clarification as Record<string, any> | undefined : requestedClarification;
+      if (previous) {
+        const isCalendar = previous.action.includes('calendar');
+        const channel = previous.action.startsWith('wecom_') ? 'wecom' : 'feishu';
+        const currentChannel = isCalendar ? this.config!.calendarChannel : this.config!.todoChannel;
+        const changedTarget = channel !== currentChannel || (channel === 'feishu' && (isCalendar
+          ? previous.params.calendarId !== this.config!.calendarId : previous.params.tasklistId !== this.config!.tasklistId));
+        if (changedTarget) {
+          results.push({ index, ok: false, error: '该候选已有原渠道和目标记录；当前配置已改变，请恢复原目标后重试或先核对已有对象，不能换目标重复创建。' });
+          continue;
+        }
+      }
+      if (unknowns.length) {
+        const resolutions = Array.isArray(clarification?.resolutions) ? clarification.resolutions : [];
+        if (!clarification?.resolved?.summary || unknowns.some(unknown => !resolutions.some((r: any) => r?.unknown === unknown && typeof r.answer === 'string' && r.answer.trim()))) {
+          results.push({ index, ok: false, error: `候选 ${index} 含未澄清疑点：${unknowns.join('、')}；请提供逐项答案及 resolved 行动字段。` });
+          continue;
+        }
+        const resolved = clarification.resolved;
+        candidate = { ...candidate, summary: text(resolved.summary, 500),
+          due: resolved.due == null ? undefined : text(resolved.due, 100),
+          start: resolved.start == null ? undefined : text(resolved.start, 100),
+          end: resolved.end == null ? undefined : text(resolved.end, 100) };
+        if (!!candidate.start !== !!candidate.end) { results.push({ index, ok: false, error: '澄清后的时间块需要完整开始和结束时间。' }); continue; }
       }
       // Action identity = (note, version, index): repeats from any session
       // return the existing object (P27 contract reused for notes). The
       // owner's instruction is persisted with the operation so authorization
       // and content approval stay separate records (P34).
-      const operationId = `note.action:${noteId}:v${version.version}:${index}`;
       try {
         if (candidate.start && candidate.end) {
-          const previous = await this.repos!.operations.get(operationId);
-          if (previous?.status === 'succeeded') {
-            const receipt = previous.receipt as { eventId?: string; url?: string | null } | null;
-            results.push({ index, ok: true, kind: 'calendar', reused: true, eventId: receipt?.eventId ?? null, url: receipt?.url ?? null });
-            continue;
-          }
-          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, _authorization: { noteId, versionId, index, instruction } }, operationId)) as { eventId?: string; url?: string | null };
+          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, timeZone: previous?.params.timeZone, _authorization: { noteId, versionId, index, instruction, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) } }, operationId)) as { eventId?: string; url?: string | null };
           await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, noteId, versionId, index, instruction } });
           results.push({ index, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
         } else {
@@ -2935,6 +2984,7 @@ export class PaRuntime {
             due: candidate.due ?? undefined,
             _operationId: operationId,
             _instruction: instruction,
+            _authorization: { noteId, versionId, index, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) },
           });
           results.push({ index, ok: true, kind: 'task', sourceQuote: candidate.sourceQuote ?? null, dueRaw: candidate.due ?? null, ...(created as object) });
         }
@@ -2962,7 +3012,7 @@ export class PaRuntime {
    */
   private async notesSearch(args: Record<string, unknown>): Promise<unknown> {
     const query = args.query ? text(args.query, 200) : '';
-    const versions = await this.repos!.notes.versionsWithDecisions(30).catch(() => [] as Array<Record<string, any>>);
+    const versions = await this.repos!.notes.versionsWithDecisions(30);
     const items = [];
     for (const row of versions) {
       const content = row.content ?? {};
@@ -2990,6 +3040,8 @@ export class PaRuntime {
         currentValidity: validity,
         ...(unknownReason ? { unknownReason } : {}),
         summary,
+        derivedStatus: content.derivedStatus ?? 'ready',
+        ...(content.derivedStatus === 'needs_rebuild' ? { missing: '当前文档已重发，摘要/转写/候选尚未重建；请查看当前版本文档。' } : {}),
         docUrl: row.doc_url,
         candidates: Array.isArray(content.candidates) ? content.candidates : [],
       });

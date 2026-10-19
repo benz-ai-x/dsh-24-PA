@@ -86,6 +86,18 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     } finally { await db.query("delete from pa24.task where id like 'load-%'"); }
   });
 
+  it('项目列表或单个项目任务读取失败进入 missing，其余事实继续保留', async () => {
+    await plan();
+    repos.projects.listIdNames = async () => { throw new Error('project offline'); };
+    const absent = await digest.digestBuild(await item('work'), { planId: 'plan' });
+    expect(absent.facts.projects).toEqual([]); expect(absent.facts.missing).toContain('项目列表读取失败，概览未包含该部分，不按零处理');
+    repos.projects.listIdNames = async () => [{ id: 'ok', name: '完整项目' }, { id: 'bad', name: '故障项目' }];
+    repos.projects.tasksOf = async id => { if (id === 'bad') throw new Error('tasks offline'); return [{ status: 'completed' }, { status: 'open' }]; };
+    const partial = await digest.digestBuild(await item('work'), { planId: 'plan' });
+    expect(partial.facts.projects).toEqual([{ id: 'ok', name: '完整项目', completed: 1, total: 2 }]);
+    expect(partial.facts.missing).toContain('项目「故障项目」任务读取失败，未按零处理');
+  });
+
   it('agent 轨交接不发送；同事项交付和重复交付只生成一份全文', async () => {
     await plan();
     const built = await digest.digestBuild(await item('work'), { planId: 'plan' });

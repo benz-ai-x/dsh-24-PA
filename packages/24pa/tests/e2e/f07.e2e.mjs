@@ -18,7 +18,7 @@ let cluster, llm, host, root, workspace, stubStatePath, scriptPath, bootEnv, hos
 
 const writeScript = async script => writeFile(scriptPath, JSON.stringify(script, null, 2));
 const inject = (event) => host.api('action', { type: 'test.inject', event });
-const ownerEvent = (eventId, extra = {}) => ({ eventId, senderOpenId: 'ou_test_owner', appId: 'cli_test_app', chatType: 'p2p', ...extra });
+const ownerEvent = (eventId, extra = {}) => ({ eventId, messageId: eventId, senderOpenId: 'ou_test_owner', appId: 'cli_test_app', chatType: 'p2p', ...extra });
 const waitWorkItem = async (title, label, timeoutMs = 180_000) =>
   host.waitUntil(s => (s.work ?? []).some(w => w.title === title && w.status === 'completed'), { timeoutMs, label });
 const waitToolResult = async (toolName, substr, label, timeoutMs = 60_000, since = 0) => {

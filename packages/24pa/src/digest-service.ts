@@ -270,6 +270,7 @@ export class DigestService {
       const recent = await this.deps.repos().notes.recentApproved(5);
       for (const row of recent) {
         if (reviewedNotes.length >= 3) break;
+        if (row.content?.derivedStatus === 'needs_rebuild') { missing.push(`笔记 ${row.note_id} v${row.version} 已重发但摘要/候选尚未重建，未引用旧派生资料`); continue; }
         // Overview facts must be currently valid: re-verify the live document
         // so an externally edited note stops being presented as confirmed (P35).
         try {
@@ -291,12 +292,15 @@ export class DigestService {
     } catch {
       missing.push('已审笔记列表读取失败；概览未包含该部分，不按零处理');
     }
-    const projectRows = await this.deps.repos().projects.listIdNames().catch(() => [] as Array<{ id: string; name: string }>);
     const projects: { id: string; name: string; completed: number; total: number }[] = [];
-    for (const project of projectRows) {
-      const projectTasks = await this.deps.repos().projects.tasksOf(project.id);
-      projects.push({ id: project.id, name: project.name, completed: projectTasks.filter(t => t.status === 'completed').length, total: projectTasks.length });
-    }
+    try {
+      for (const project of await this.deps.repos().projects.listIdNames()) {
+        try {
+          const projectTasks = await this.deps.repos().projects.tasksOf(project.id);
+          projects.push({ id: project.id, name: project.name, completed: projectTasks.filter(task => task.status === 'completed').length, total: projectTasks.length });
+        } catch { missing.push(`项目「${project.name}」任务读取失败，未按零处理`); }
+      }
+    } catch { missing.push('项目列表读取失败，概览未包含该部分，不按零处理'); }
     return {
       calendar: {
         fresh: sync.ok,

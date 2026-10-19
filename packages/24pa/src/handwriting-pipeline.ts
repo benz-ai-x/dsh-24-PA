@@ -4,6 +4,7 @@
 // domain concept (原稿/待审版本/人工审核凭证) lives here. See GLOSSARY.
 
 import { randomUUID } from 'node:crypto';
+import { parseNoteDocument, registeredStatus, documentText } from './note-document.js';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { DshAgent } from './host.js';
@@ -12,7 +13,7 @@ import type { ChannelContextDeps } from './channel-deps.js';
 import { runLarkCli } from './lark.js';
 import { cliOptions, type FeishuTransport, type InboundEvent } from './feishu.js';
 import {
-  extensionOf, fingerprintOf, normalizeDocument, diffNormalized, sha256Hex,
+  candidateUnknowns, extensionOf, fingerprintOf, normalizeDocument, diffNormalized, sha256Hex,
   cropBox, noteDocumentXml, newReviewToken, reviewCard, systemLine, pendingReviewLine,
   detectImageMediaType, MAX_PAGE_BYTES, MAX_PAGES_PER_NOTE, REVIEW_TOKEN_TTL_MS,
   type CropSpec, type DoubtSpec, type DiagramSpec, type RecognizedNote, type Region,
@@ -21,7 +22,7 @@ import type { PaDb } from './db.js';
 import type { Repos, NoteRow, NotePageRow, NoteVersionRow, WorkItemRow, ActionOperationRow, ReviewReminderRow } from './repo.js';
 import { text, nowIso, isoDate, hash } from './util.js';
 import type { RuntimeRole } from './runtime.js';
-import { LarkNoteDocumentReader, TrustedNotes, type NoteDocumentReader, type NoteTrustResult } from './note-trust.js';
+import { LarkNoteDocumentReader, TrustedNotes, type NoteDocumentReader, type NoteTrustResult, type NoteDocumentSnapshot } from './note-trust.js';
 
 export interface HandwritingDeps extends ChannelContextDeps {
   /** F44：工作流口径参数（handwriting-review-flow 的 frontmatter params）。 */
@@ -42,6 +43,14 @@ export class HandwritingPipeline {
   constructor(private readonly deps: HandwritingDeps, reader?: NoteDocumentReader) {
     this.reader = reader ?? new LarkNoteDocumentReader(() => this.cli());
     this.trust = new TrustedNotes(() => this.deps.repos().notes, this.reader);
+  }
+
+  private readonly pending = new Map<string, Promise<unknown>>();
+  private serial<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const next = (this.pending.get(key) ?? Promise.resolve()).catch(() => {}).then(work);
+    this.pending.set(key, next);
+    void next.finally(() => { if (this.pending.get(key) === next) this.pending.delete(key); }).catch(() => {});
+    return next;
   }
 
   inspectTrust(noteId: string, versionId?: string): Promise<NoteTrustResult> {
@@ -78,7 +87,18 @@ export class HandwritingPipeline {
    * bytes + hash under the workspace, page order tracked in PG, owner ack
    * message routed back to the note so replies append pages to it.
    */
-  async collectNotePage(inboxEventId: string, event: InboundEvent, noteId: string | null): Promise<void> {
+  collectNotePage(inboxEventId: string, event: InboundEvent, noteId: string | null): Promise<void> {
+    return this.serial(`message:${event.messageId ?? event.eventId}`, () =>
+      noteId ? this.serial(`note:${noteId}`, () => this.collectPage(inboxEventId, event, noteId)) : this.collectPage(inboxEventId, event, noteId));
+  }
+
+  private async acknowledgePage(inboxEventId: string, page: NotePageRow): Promise<void> {
+    await this.deps.notifyOwner(`noteack:${page.note_id}:p${page.page_no}:${page.message_id}`,
+      `已收到笔记 ${page.note_id} 第 ${page.page_no} 页原稿（${page.media_type}，${page.byte_size} 字节，sha256 ${page.sha256.slice(0, 16)}…，${page.source_type === 'file' ? '文件原图' : '平台图片，可能已压缩'}）。收集中可回复本条消息追加图片；整理识别请回复“整理这份笔记”，或说“结束这批笔记”。`);
+    await this.deps.repos().inbox.mark(inboxEventId, { status: 'delivered', requestId: `note:${page.note_id}:p${page.page_no}` });
+  }
+
+  private async collectPage(inboxEventId: string, event: InboundEvent, noteId: string | null): Promise<void> {
     const config = this.deps.config();
     if (config.mode !== 'feishu' || !this.deps.transport()) {
       await this.deps.notifyOwner(`noteinfo:${event.eventId}`, '手写笔记收集需要 feishu 模式与已启动的飞书连接。');
@@ -110,10 +130,13 @@ export class HandwritingPipeline {
       await this.deps.notifyOwner(`noteinfo:${event.eventId}`, notifyText);
       await this.deps.repos().inbox.mark(inboxEventId, { status: 'rejected', error: reason });
     };
+    let savedPage: NotePageRow | null = null;
     try {
+      savedPage = await this.deps.repos().notes.savedPageForMessage(event.messageId);
+      if (savedPage) { await this.acknowledgePage(inboxEventId, savedPage); return; }
       if (noteId) {
         const current = await this.deps.repos().notes.getNote(noteId);
-        if (current?.status === 'collected') {
+        if (current && current.status !== 'collecting') {
           await this.deps.notifyOwner(`noteinfo:${event.eventId}`, `笔记 ${noteId} 的批次已结束，不再追加页；如需补充请发新笔记。`);
           await this.deps.repos().inbox.mark(inboxEventId, { status: 'rejected', error: '批次已结束' });
           return;
@@ -164,7 +187,7 @@ export class HandwritingPipeline {
       const storagePath = join(dir, `p${nextNo}-${sha.slice(0, 12)}.${extensionOf(mediaType)}`);
       await (await import('node:fs/promises')).writeFile(storagePath, bytes, { mode: 0o600 });
       this.deps.usage.notePagesInput += 1;
-      await this.deps.repos().notes.insertPage({
+      savedPage = (await this.deps.repos().notes.insertPage({
         note_id: note.id,
         page_no: nextNo,
         message_id: String(event.messageId),
@@ -176,19 +199,16 @@ export class HandwritingPipeline {
         source_type: resourceType,
         quality: null,
         status: 'saved',
-      });
-      // The ack message carries the route back to this note: replying with
-      // another photo appends the next page; replying with text reaches Lead.
-      await this.deps.notifyOwner(
-        `noteack:${note.id}:p${nextNo}:${event.eventId}`,
-        `已收到笔记 ${note.id} 第 ${nextNo} 页原稿（${mediaType}，${bytes.length} 字节，sha256 ${sha.slice(0, 16)}…，${resourceType === 'file' ? '文件原图' : '平台图片，可能已压缩'}）。继续拍下一页请直接回复本条消息再发图；整理识别请回复“整理这份笔记”，或说“结束这批笔记”。`,
-      );
-      await this.deps.repos().inbox.mark(inboxEventId, { status: 'delivered', requestId: `note:${note.id}:p${nextNo}` });
+      })).row;
+      await this.acknowledgePage(inboxEventId, savedPage);
     } catch (error) {
-      // Download interrupted: nothing durable was written; a re-send retries.
+      if (savedPage) {
+        throw new Error(`原稿已保存为 ${savedPage.note_id} 第 ${savedPage.page_no} 页，但回执登记未完成：${(error as Error).message}；重试只补回执，不会重复保存。`);
+      }
+      // No page was committed; report the actual collection failure.
       await this.deps.notifyOwner(
         `noteinfo:${event.eventId}`,
-        `原稿下载未完成（${(error as Error).message}）；笔记记录未保存该页，请重新发送这张图片。`,
+        `原稿收集未完成（${(error as Error).message}）；笔记记录未保存该页，请重新发送这张图片。`,
       );
       await this.deps.repos().inbox.mark(inboxEventId, { status: 'rejected', error: `原稿下载失败：${(error as Error).message}` });
     }
@@ -196,6 +216,12 @@ export class HandwritingPipeline {
 
   /** Worker-side structured recognition result → publish the pending version (P29/P30). */
   async noteSubmit(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const note = await this.deps.repos().notes.noteByWorkItem(item.id);
+    if (!note) throw new Error('本事项未绑定手写笔记；请核对 noteId。');
+    return this.serial(`note:${note.id}`, () => this.submitNote(item, args));
+  }
+
+  private async submitNote(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const notes = this.deps.repos().notes;
     const note = await notes.noteByWorkItem(item.id);
     if (!note) throw new Error('本事项未绑定手写笔记；请核对 noteId。');
@@ -258,14 +284,19 @@ export class HandwritingPipeline {
         ...(record.due != null && record.due !== '' ? { due: String(record.due) } : {}),
         ...(record.start ? { start: String(record.start) } : {}),
         ...(record.end ? { end: String(record.end) } : {}),
+        ...((Array.isArray(record.unknowns) && record.unknowns.length) || record.unknown ? { unknowns: boundedStringList([...(Array.isArray(record.unknowns) ? record.unknowns : []), ...(record.unknown ? [record.unknown] : [])], 300, 20) } : {}),
       };
     }).filter(c => c.summary);
+    const unknowns = boundedStringList(args.unknowns, 500, 50);
     const recognized: RecognizedNote = {
       transcript: text(args.transcript, 20000),
       summary: text(args.summary ?? '（无摘要）', 2000),
       suggestions: boundedStringList(args.suggestions, 500, 50),
-      unknowns: boundedStringList(args.unknowns, 500, 50),
-      candidates: noteCandidates,
+      unknowns,
+      candidates: noteCandidates.map((candidate, index) => {
+        const linked = candidateUnknowns(candidate, index, unknowns);
+        return linked.length ? { ...candidate, unknowns: linked } : candidate;
+      }),
       relativeDates: (Array.isArray(args.relativeDates) ? args.relativeDates : []).slice(0, 20).map((entry: Record<string, unknown>) => ({
         original: text(entry.original, 200),
         interpretation: text(entry.interpretation, 500),
@@ -333,7 +364,7 @@ export class HandwritingPipeline {
     item: WorkItemRow,
     note: NoteRow,
     recognized: RecognizedNote | null,
-    republishFromDoc: { docId: string; docUrl: string | null; normalized: string; snapshot: string; revision: string | null } | null,
+    republishFromDoc: { docId: string; docUrl: string | null; normalized: string; snapshot: string; revision: string | null; mediaHashes?: string[]; referenceMap?: Record<string, any> } | null,
     crops: CropSpec[] = [],
   ): Promise<unknown> {
     const notes = this.deps.repos().notes;
@@ -393,18 +424,28 @@ export class HandwritingPipeline {
         }
         await this.deps.repos().operations.update(operation.id, { status: 'running', receipt: { docId, docUrl, stage: 'media', mediaInserted: true } });
       }
-      const readback = await this.fetchNoteDocument(docId);
+      const readback: NoteDocumentSnapshot = republishFromDoc
+        ? { content: republishFromDoc.snapshot, revision: republishFromDoc.revision, normalized: republishFromDoc.normalized, mediaHashes: republishFromDoc.mediaHashes, referenceMap: republishFromDoc.referenceMap }
+        : await this.fetchNoteDocument(docId);
       // Resource completeness: every saved page's original and every crop must
       // be present in the read-back before the review link may go out (P29/P30).
       const imageCount = (readback.content.match(/<img\b/g) ?? []).length;
       if (imageCount < pages.length + crops.length) {
         throw new Error(`文档回读不完整：仅见到 ${imageCount} 张图片（应有 ${pages.length} 页原稿 + ${crops.length} 张裁片）；不发送待审链接，请核对文档。`);
       }
-      const normalized = normalizeDocument(readback.content);
+      if (readback.mediaHashes) {
+        const available = [...readback.mediaHashes];
+        for (const sha of [...pages.map(p => p.sha256), ...crops.map(c => c.sha256)]) {
+          const index = available.indexOf(sha);
+          if (index < 0) throw new Error('文档资源摘要未包含全部原稿/裁片，不能发布完整待审版本。');
+          available.splice(index, 1);
+        }
+      }
+      const normalized = readback.normalized ?? normalizeDocument(readback.content);
       const fingerprint = fingerprintOf(normalized, pages.map(p => p.sha256), crops.map(c => c.sha256));
       const snapshot = republishFromDoc?.snapshot ?? readback.content;
       const finalRecognized = republishFromDoc
-        ? { ...(latest?.content ?? {}), republishedFromDoc: true, previousVersion: latest?.version ?? null }
+        ? { transcript: '', summary: '', candidates: [], unknowns: [], derivedStatus: 'needs_rebuild', crops, republishedFromDoc: true, previousVersion: latest?.version ?? null }
         : { ...recognized, model: visionRoute ? { provider: visionRoute.provider, model: visionRoute.model } : null, crops };
       const published = await notes.insertVersion({
         id: versionId,
@@ -415,7 +456,7 @@ export class HandwritingPipeline {
         doc_revision: readback.revision,
         fingerprint,
         normalized_text: normalized,
-        content: finalRecognized,
+        content: { ...finalRecognized, documentResources: { hashes: readback.mediaHashes ?? [], references: readback.referenceMap ?? {} } },
         doc_snapshot: snapshot,
         status: 'pending_review',
       });
@@ -442,7 +483,10 @@ export class HandwritingPipeline {
     await this.deps.repos().workItems.update(item.id, {
       result_ref: { operationId: operation.id, docId, docUrl, noteId, versionId },
     });
-    if (current?.id === versionId && current.status === 'pending_review') await this.sendReviewCard(noteId, versionId);
+    if (current?.id === versionId && current.status === 'pending_review') {
+      await this.synchronizeStatus(published, pendingReviewLine(noteId, version));
+      await this.sendReviewCard(noteId, versionId);
+    }
     // Revision impact (P34): objects created from older versions get a change
     // suggestion — never silent deletion or overwrite; one notice per new version.
     if (latest) {
@@ -472,7 +516,7 @@ export class HandwritingPipeline {
     };
   }
 
-  private async fetchNoteDocument(docId: string): Promise<{ content: string; revision: string | null }> {
+  private async fetchNoteDocument(docId: string): Promise<NoteDocumentSnapshot> {
     return this.reader.read(docId);
   }
 
@@ -481,17 +525,22 @@ export class HandwritingPipeline {
     const notes = this.deps.repos().notes;
     const version = await notes.getVersion(versionId);
     if (!version) throw new Error('版本不存在，无法发送审核卡。');
-    const approveToken = newReviewToken();
-    const returnToken = newReviewToken();
-    const expires = new Date(Date.now() + REVIEW_TOKEN_TTL_MS);
-    await notes.insertToken({ token: approveToken, note_id: noteId, version_id: versionId, action: 'approve', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
-    await notes.insertToken({ token: returnToken, note_id: noteId, version_id: versionId, action: 'return', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
+    const existing = await notes.tokensOf(versionId);
+    const usable = existing.filter(row => row.owner_open_id === this.deps.config().ownerOpenId && row.fingerprint === version.fingerprint && !row.used_at && !row.result && row.expires_at.getTime() > Date.now());
+    let approveToken = usable.find(row => row.action === 'approve')?.token;
+    let returnToken = usable.find(row => row.action === 'return')?.token;
+    if (!approveToken || !returnToken) {
+      approveToken = newReviewToken(); returnToken = newReviewToken();
+      const expires = new Date(Date.now() + REVIEW_TOKEN_TTL_MS);
+      await notes.insertToken({ token: approveToken, note_id: noteId, version_id: versionId, action: 'approve', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
+      await notes.insertToken({ token: returnToken, note_id: noteId, version_id: versionId, action: 'return', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
+    }
     const summary = String(version.content?.summary ?? '（见文档）');
     const flowParams = await this.deps.skillParams('handwriting-review-flow');
     const card = reviewCard(noteId, version.version, version.doc_url, summary, version.fingerprint.slice(0, 12), approveToken, returnToken,
       typeof flowParams.cardHeader === 'string' ? flowParams.cardHeader : undefined);
     await this.deps.repos().outbox.enqueue({
-      dedupKey: `notereview:${noteId}:v${version.version}`,
+      dedupKey: `notereview:${noteId}:v${version.version}:${hash(approveToken)}`,
       channel: 'feishu',
       target: this.deps.config().ownerOpenId,
       kind: 'card',
@@ -504,6 +553,11 @@ export class HandwritingPipeline {
    * The button only carries an opaque token; every binding is re-checked here.
    */
   async processReviewCard(inboxEventId: string, event: InboundEvent): Promise<void> {
+    const token = await this.deps.repos().notes.getToken(String(event.cardAction?.value?.token ?? ''));
+    return this.serial(`note:${token?.note_id ?? 'invalid'}`, () => this.reviewCard(inboxEventId, event));
+  }
+
+  private async reviewCard(inboxEventId: string, event: InboundEvent): Promise<void> {
     const value = (event.cardAction?.value ?? {}) as Record<string, unknown>;
     const finish = async (status: 'delivered' | 'rejected' | 'duplicate', error?: string, requestId?: string) => {
       await this.deps.repos().inbox.mark(inboxEventId, { status, error, requestId });
@@ -597,23 +651,11 @@ export class HandwritingPipeline {
     // Document status refresh runs after the ledger commit; a failure here
     // keeps the credential and reports "saved / syncing" (P32).
     let syncMessage: string;
-    if (this.deps.config().mode === 'feishu' && this.deps.transport()) {
-      try {
-        const decidedAt = nowIso();
-        const newLine = decision === 'approve'
-          ? systemLine(`本人已审核 ${row.note_id} v${version.version}（${decidedAt}；覆盖指纹 ${row.fingerprint.slice(0, 12)}…）`)
-          : systemLine(`本人退回 ${row.note_id} v${version.version}（${decidedAt}）；修改后可要求重新发布候选`);
-        await runLarkCli(this.cli(), [
-          'docs', '+update', '--as', 'user', '--doc', version.doc_id!,
-          '--command', 'str_replace', '--pattern', pendingReviewLine(row.note_id, version.version),
-          '--content', newLine,
-        ]);
-        await notes.updateDecisionSync(decisionId, { docSyncStatus: 'synced' });
-        syncMessage = decision === 'approve' ? '文档审核状态已同步。' : '文档已标注退回状态。';
-      } catch (error) {
-        await notes.updateDecisionSync(decisionId, { docSyncStatus: 'failed', error: (error as Error).message });
-        syncMessage = `审核凭证已保存，但文档状态同步失败（${(error as Error).message}）；标识同步中，可稍后重试核验。`;
-      }
+    if (this.deps.config().mode === 'feishu') {
+      await this.repairDecisionSync(row.note_id);
+      const decisionRow = (await notes.decisionsOf(row.note_id)).find(saved => saved.id === decisionId);
+      syncMessage = decisionRow?.doc_sync_status === 'synced' ? '文档审核状态已同步。'
+        : `审核凭证已保存，但文档状态同步失败（${decisionRow?.doc_sync_error ?? '等待恢复'}）；标识同步中，可稍后重试核验。`;
     } else {
       syncMessage = 'demo 模式：凭证已入账本，未同步文档状态。';
     }
@@ -637,6 +679,24 @@ export class HandwritingPipeline {
     await finish('delivered', undefined, `review:${decisionId}`);
   }
 
+  private async synchronizeStatus(version: NoteVersionRow, line: string): Promise<void> {
+    const notes = this.deps.repos().notes;
+    if ((await notes.latestVersion(version.note_id))?.id !== version.id) return;
+    if (!version.doc_id) throw new Error('版本缺少文档。');
+    const before = await this.fetchNoteDocument(version.doc_id);
+    const block = registeredStatus(parseNoteDocument(before.content));
+    if (!block) throw new Error('未找到已登记的审核状态块，需修复文档状态后重试。');
+    const oldLine = documentText(block);
+    if (!oldLine.includes(` ${version.note_id} v`)) throw new Error('审核状态块不属于本笔记。');
+    if (oldLine === line) return;
+    if ((await notes.latestVersion(version.note_id))?.id !== version.id) return;
+    await runLarkCli(this.cli(), ['docs', '+update', '--as', 'user', '--doc', version.doc_id,
+      '--command', 'str_replace', '--pattern', oldLine, '--content', line]);
+    const after = await this.fetchNoteDocument(version.doc_id);
+    const fresh = registeredStatus(parseNoteDocument(after.content));
+    if (!fresh || documentText(fresh) !== line) throw new Error('审核状态更新尚未读回确认。');
+  }
+
   /**
    * Retry document status-block sync for decisions whose refresh failed: the
    * credential is durable, only the projection lags (P32 恢复).
@@ -648,26 +708,30 @@ export class HandwritingPipeline {
     for (const decision of failed) {
       const version = await notes.getVersion(decision.version_id);
       if (!version?.doc_id) continue;
+      if ((await notes.latestVersion(noteId))?.id !== version.id) {
+        await notes.updateDecisionSync(decision.id, { docSyncStatus: 'superseded', error: '更新版本已接管文档状态，不再回写旧裁决。' });
+        continue;
+      }
       try {
         const newLine = decision.decision === 'approve'
           ? systemLine(`本人已审核 ${noteId} v${version.version}（${new Date(decision.decided_at).toISOString()}；覆盖指纹 ${decision.fingerprint.slice(0, 12)}…）`)
           : systemLine(`本人退回 ${noteId} v${version.version}（${new Date(decision.decided_at).toISOString()}）；修改后可要求重新发布候选`);
-        await runLarkCli(this.cli(), [
-          'docs', '+update', '--as', 'user', '--doc', version.doc_id,
-          '--command', 'str_replace', '--pattern', pendingReviewLine(noteId, version.version),
-          '--content', newLine,
-        ]);
+        await this.synchronizeStatus(version, newLine);
         await notes.updateDecisionSync(decision.id, { docSyncStatus: 'synced' });
         repaired += 1;
-      } catch {
-        // Still failing; the credential remains and the lag stays visible.
+      } catch (error) {
+        await notes.updateDecisionSync(decision.id, { docSyncStatus: 'failed', error: (error as Error).message });
       }
     }
     return repaired;
   }
 
   /** Bounded verification of a published version against the live document (P32). */
-  async verifyNote(noteId: string, options: { persist?: boolean } = {}): Promise<unknown> {
+  verifyNote(noteId: string, options: { persist?: boolean } = {}): Promise<unknown> {
+    return this.serial(`note:${noteId}`, () => this.verifyCurrentNote(noteId, options));
+  }
+
+  private async verifyCurrentNote(noteId: string, options: { persist?: boolean }): Promise<unknown> {
     const notes = this.deps.repos().notes;
     const note = await notes.getNote(noteId);
     if (!note) throw new Error('笔记不存在。');
@@ -725,19 +789,24 @@ export class HandwritingPipeline {
   }
 
   /** Refresh the candidate: current document content becomes v(n+1) (P32). */
-  async republishNote(item: WorkItemRow, noteId: string): Promise<unknown> {
+  republishNote(item: WorkItemRow, noteId: string): Promise<unknown> {
+    return this.serial(`note:${noteId}`, () => this.refreshCandidate(item, noteId));
+  }
+
+  private async refreshCandidate(item: WorkItemRow, noteId: string): Promise<unknown> {
     const notes = this.deps.repos().notes;
     const note = await notes.getNote(noteId);
     if (!note) throw new Error('笔记不存在。');
     const latest = await notes.latestVersion(noteId);
     if (!latest) throw new Error('这份笔记还没有已发布版本，无候选可刷新；请先识别整理。');
     const readback = await this.fetchNoteDocument(latest.doc_id!);
-    const normalized = normalizeDocument(readback.content);
+    const normalized = readback.normalized ?? normalizeDocument(readback.content);
     const carriedCrops = (Array.isArray(latest.content?.crops) ? latest.content.crops : []) as CropSpec[];
     if (normalized === latest.normalized_text) {
       const operation = await notes.unfinishedPublicationForVersion(noteId, latest.version);
       if (operation) return this.finishPublication(item, operation, latest);
-      return { noteId, result: 'unchanged', message: `当前文档与 v${latest.version} 一致，无需重发候选。` };
+      if (latest.status === 'pending_review') await this.sendReviewCard(noteId, latest.id);
+      return { noteId, result: 'unchanged', message: `当前文档与 v${latest.version} 一致；仍待审时已确保可用审核卡，不新建内容版本。` };
     }
     const diff = diffNormalized(latest.normalized_text, normalized);
     const result = (await this.publishNoteVersion(item, note, null, {
@@ -746,18 +815,8 @@ export class HandwritingPipeline {
       normalized,
       snapshot: readback.content,
       revision: readback.revision,
+      mediaHashes: readback.mediaHashes, referenceMap: readback.referenceMap,
     }, carriedCrops)) as Record<string, unknown>;
-    // Point the document's status line at the new candidate version; the
-    // system line is fingerprint-excluded, so this never invalidates it.
-    try {
-      await runLarkCli(this.cli(), [
-        'docs', '+update', '--as', 'user', '--doc', latest.doc_id!,
-        '--command', 'str_replace', '--pattern', pendingReviewLine(noteId, latest.version),
-        '--content', pendingReviewLine(noteId, Number(result.version)),
-      ]);
-    } catch {
-      // Status-line drift is cosmetic; the review card names the version.
-    }
     return {
       ...result,
       diff: {
@@ -817,7 +876,7 @@ export class HandwritingPipeline {
       if (!noteId) throw new Error('需要 noteId。');
       return this.verifyNote(noteId);
     }
-    if (action === 'finish') {
+    if (action === 'finish') return this.serial(`note:${noteId}`, async () => {
       if (!noteId) throw new Error('需要 noteId。');
       const note = await notes.getNote(noteId);
       if (!note) throw new Error('笔记不存在。');
@@ -826,7 +885,7 @@ export class HandwritingPipeline {
       if (pages.length === 0) throw new Error('该笔记还没有已保存原稿，不能结束为可整理批次。');
       await notes.updateNote(noteId, { status: 'collected' });
       return { noteId, status: 'collected', pages: pages.length, message: `批次已结束（共 ${pages.length} 页）；现在可以委派 handwriting 整理，之后不再追加页。` };
-    }
+    });
     if (action === 'remind') {
       if (!noteId) throw new Error('需要 noteId。');
       const latest = await notes.latestVersion(noteId);
@@ -905,9 +964,12 @@ export class HandwritingPipeline {
       });
       this.deps.trackWorkItem(republishItem);
       try {
-        return await this.republishNote(republishItem, noteId);
-      } finally {
+        const result = await this.republishNote(republishItem, noteId);
         await this.deps.repos().workItems.update(id, { status: 'completed', progress: '候选刷新完成' });
+        return result;
+      } catch (error) {
+        await this.deps.repos().workItems.update(id, { status: 'failed', progress: `候选刷新未完成：${(error as Error).message}` });
+        throw error;
       }
     }
     throw new Error('未知笔记操作。');

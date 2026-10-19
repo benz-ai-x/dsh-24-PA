@@ -57,7 +57,7 @@ describe('待审版本当前可信裁定（真实账本＋文档 stub adapter）
     await version(1);
     content = original.replace('周五', '周一');
     expect((await trust.inspect('N-1')).currentValidity).toBe('changed');
-    content = original.replace(pendingReviewLine('N-1', 1), systemLine('本人已审核 N-1 v1'));
+    content = original.replace(pendingReviewLine('N-1', 1), systemLine('本人已审核 N-1 v1（2026-10-19T01:00:00.000Z；覆盖指纹 0123456789ab…）'));
     expect((await trust.inspect('N-1')).currentValidity).toBe('matches');
   });
 
