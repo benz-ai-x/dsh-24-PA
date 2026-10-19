@@ -225,7 +225,7 @@ export class MemoryStore {
       await this.recoverAudit(file);
       await guard?.(file);
       const normalized = changes.map(change => {
-        if (change?.op === 'delete' && (typeof change.id !== 'string' || !change.id.trim())) throw new MemoryError('delete 的 id 必须是非空字符串。');
+        if (change?.op === 'delete' && (typeof change.id !== 'string' || !change.id)) throw new MemoryError('delete 的 id 必须是非空字符串。');
         if (change?.op !== 'put' || !change.record) return change;
         if (change.id && change.record.id && change.id !== change.record.id) throw new MemoryError('put 的 id 与 record.id 不一致，请明确唯一目标。');
         const { id, ...put } = change;

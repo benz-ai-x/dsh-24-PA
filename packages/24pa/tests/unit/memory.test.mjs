@@ -187,6 +187,10 @@ describe('R3-04 记忆批次边界与故障恢复', () => {
     await expect(store.applyChangeset([{ op: 'put', record: record('c'), reason: 'ok' }], { ...options(2), reason: '' })).rejects.toThrow(/指令依据/);
     expect((await store.search({})).revision).toBe(2);
   }));
+  it.each([' ', '\t', '__proto__'])('字符串 ID 按字面保持，%j 新增和撤销一致', id => fixture(async ({ store }) => {
+    const batch = await store.applyChangeset([{ op: 'put', record: record(id), reason: 'new' }], options(0));
+    await store.undo(batch.changesetId, options(1)); expect((await store.search({})).records).toEqual([]);
+  }));
   it.each(['source', 'status', 'topic', 'category', 'validUntil', 'sourceVersion', 'reason', 'updatedBy'])('手改 %s 不变 revision/正文也拒绝过时撤销', field => fixture(async ({ dir, store }) => {
     const batch = await store.applyChangeset([{ op: 'put', record: record('r'), reason: 'new' }], options(0));
     const path = join(dir, '.24pa/memory.json'), current = JSON.parse(await readFile(path, 'utf8'));
