@@ -92,21 +92,21 @@ export class DailyPlanning {
     for (const [index, block] of blocks.entries()) {
       let operationId = `plan_adopt:${item.id}:${hash(JSON.stringify({ requestedCalendar: args.calendarId ?? null, summary: block.summary, start: block.start.toISOString(), end: block.end.toISOString() }))}`;
       let previous = await operations.get(operationId);
-      // Pre-R3 adoption used each channel's ordinary create key. Keep those
-      // exact identities when recovering, including a stored remote receipt.
-      const legacy = !previous ? historical.filter(op => op.id.startsWith(`${op.action}:${item.id}:`) &&
+      // Recover the stored identity across old channel keys and equivalent
+      // omitted/explicit calendar arguments; the target check below still applies.
+      const candidates = !previous ? historical.filter(op => (op.id.startsWith(`${op.action}:${item.id}:`) || op.id.startsWith(`plan_adopt:${item.id}:`)) &&
         op.params.summary === block.summary && Date.parse(op.params.start) === block.start.getTime() && Date.parse(op.params.end) === block.end.getTime()) : [];
-      if (legacy.length > 1) { results.push({ index, ok: false, outcome: 'unknown', error: '同一时间块有多个历史操作身份，请逐一核对，不能新建或猜测重试。' }); continue; }
-      if (legacy[0]) { previous = legacy[0]; operationId = previous.id; }
+      if (candidates.length > 1) { results.push({ index, ok: false, outcome: 'unknown', error: '同一时间块有多个历史操作身份，请逐一核对，不能新建或猜测重试。' }); continue; }
+      if (candidates[0]) { previous = candidates[0]; operationId = previous.id; }
       const legacyKey = channel === 'wecom'
         ? `wecom\ncreate\n\n${block.summary}\n${block.start.toISOString()}\n${block.end.toISOString()}\n${timeZone}\nnull`
         : `${calendarId}\ncreate\n\n${block.summary}\n${block.start.toISOString()}\n${block.end.toISOString()}\n\n\n`;
-      const legacyMatches = legacy.length === 1 && operationId === `${channel === 'wecom' ? 'wecom_calendar' : 'calendar'}.create:${item.id}:${hash(legacyKey)}`;
-      if (previous?.status === 'succeeded') {
-        busy.push(block); results.push({ index, ok: true, outcome: 'succeeded', operationId, ...previous.receipt }); continue;
-      }
+      const legacyMatches = candidates.length === 1 && operationId === `${channel === 'wecom' ? 'wecom_calendar' : 'calendar'}.create:${item.id}:${hash(legacyKey)}`;
       if (previous && !legacyMatches && (previous.params.planningChannel !== channel || previous.params.planningCalendarId !== calendarId || previous.params.planningTimeZone !== timeZone)) {
         results.push({ index, ok: false, outcome: 'unknown', operationId, error: '原采纳操作的日历归属或时区已改变，请恢复原设置并核对原操作，不能改投。' }); continue;
+      }
+      if (previous?.status === 'succeeded') {
+        busy.push(block); results.push({ index, ok: true, outcome: 'succeeded', operationId, ...previous.receipt }); continue;
       }
       // An acknowledged result only needs local repair; the projected event
       // itself must not block that repair. The channel never sends it again.
