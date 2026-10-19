@@ -1,0 +1,18 @@
+{
+  "case": "archive-skips-inbox-release",
+  "archived": {
+    "stoppedWork": 1,
+    "nativeDisposed": 0,
+    "rulesStopped": 0,
+    "failures": [],
+    "remaining": {
+      "running": 0,
+      "native": 0,
+      "outboxPending": 0
+    },
+    "message": "已停止 1 个运行中事项、处置 0 个原生计划（外部提醒按你的选择保留）；恢复后不会自动重建已删计划。"
+  },
+  "afterArchive": "admitted",
+  "switchError": "有已接收消息正在处理或等待回传；请完成后再切换工作区或接入身份。",
+  "afterExplicitStop": "rejected"
+}

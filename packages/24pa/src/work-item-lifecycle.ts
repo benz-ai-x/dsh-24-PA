@@ -11,6 +11,7 @@ export class WorkItemLifecycle {
     start: (item: WorkItemRow) => Promise<void>;
     resume: (item: WorkItemRow, input: string) => Promise<void>;
     interrupt: (item: WorkItemRow) => void;
+    quiesce?: (item: WorkItemRow) => Promise<void>;
     track: (item: WorkItemRow) => void;
   }) {}
 
@@ -58,6 +59,10 @@ export class WorkItemLifecycle {
       if (['accepted', 'queued'].includes(item.status)) throw new Error('事项尚在排队，请启动后再补充。');
       if (!supplement && item.status === 'running') throw new Error('事项正在运行或排队中。');
       if (item.status !== 'running' && await repo.countByStatus('running') >= this.deps.maxWorkers()) throw new Error('Worker 并发已满，请稍后继续。');
+      if (item.status !== 'running') {
+        await this.deps.quiesce?.(item);
+        await repo.setRecoveryGen(id, (item.recovery_gen ?? 0) + 1);
+      }
       const running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待 Worker 处理' : '继续处理' });
       this.deps.track(running!);
       try { await this.deps.resume(running!, input); }
@@ -82,11 +87,11 @@ export class WorkItemLifecycle {
     });
   }
 
-  finish(id: string, result: { output: string; failed?: boolean; delivery: (item: WorkItemRow) => NewOutbox }): Promise<void> {
+  finish(id: string, result: { output: string; failed?: boolean; generation?: number; delivery: (item: WorkItemRow) => NewOutbox }): Promise<void> {
     return this.gate(async () => {
       const repo = this.deps.repo();
       const item = await repo.get(id);
-      if (!item || item.status !== 'running') return;
+      if (!item || item.status !== 'running' || (result.generation !== undefined && result.generation !== (item.recovery_gen ?? 0))) return;
       const finished = await repo.finishWithDelivery(id, result.output, result.failed === true, result.delivery(item));
       if (finished) this.deps.track(finished);
       await this.fillSlots();
@@ -108,7 +113,8 @@ export class WorkItemLifecycle {
         await repo.setRecoveryGen(item.id, gen);
         try {
           if (!item.child_session_id) throw new Error('缺少原生 Worker 会话映射');
-          await this.deps.resume(item, `[恢复 第${gen}代] 服务重启。请先核对已完成步骤与外部结果，再继续未完成部分；已成功的操作不要重复执行。`);
+          await this.deps.quiesce?.(item);
+          await this.deps.resume({ ...item, recovery_gen: gen }, `[恢复 第${gen}代] 服务重启。请先核对已完成步骤与外部结果，再继续未完成部分；已成功的操作不要重复执行。`);
           await repo.update(item.id, { progress: `重启恢复（第 ${gen} 代）；等待 Worker 核对后续办` });
         } catch (error) {
           await repo.update(item.id, { status: 'needs_reconciliation', progress: `恢复输入未确认：${(error as Error).message}` });

@@ -1,0 +1,24 @@
+{
+  "case": "accepted-input-flush-failure",
+  "hostAccepted": 1,
+  "finalInbox": {
+    "event_id": "accepted-but-flush-failed",
+    "source": "feishu",
+    "kind": "message",
+    "payload": {
+      "eventId": "accepted-but-flush-failed",
+      "kind": "message",
+      "appId": "app",
+      "senderOpenId": "owner-A",
+      "chatType": "p2p",
+      "text": "委托内容"
+    },
+    "status": "rejected",
+    "request_id": null,
+    "target_session": null,
+    "error": "flush offline after accepted",
+    "created_at": "2026-10-19T04:59:16.554Z",
+    "processed_at": "2026-10-19T04:59:16.555Z"
+  },
+  "outbox": []
+}

@@ -23,6 +23,7 @@ export interface SilencePolicy {
 }
 
 export interface ReminderEngineHooks {
+  execute?<T>(work: () => Promise<T>): Promise<T>;
   /** Enqueue one durable owner notification; returns the outbox dedup key. */
   notify(dedupKey: string, text: string): Promise<void>;
   /** Look up an outbox row's send state by dedup key (platform acceptance). */
@@ -87,7 +88,7 @@ export class ReminderEngine {
     this.timer = setInterval(() => {
       // A failed tick (bad SQL, transient PG drop) must never take down the
       // Host; the next interval retries and occurrences stay pending.
-      void this.tick().catch(error => {
+      void (this.hooks.execute ? this.hooks.execute(() => this.tick()) : this.tick()).catch(error => {
         if (!this.closed) console.warn(`[pa24] 提醒调度轮次失败：${(error as Error).message}`);
       });
     }, tickMs);

@@ -1,0 +1,11 @@
+{
+  "case": "late-old-turn-after-continue",
+  "resumed": "running",
+  "became": "failed",
+  "outbox": [
+    {
+      "key": "workitem:work-A:result:t1",
+      "text": "[事项回传]「待续办工作」未完成；请向本人汇报要点与出处。\n\n「待续办工作」未完成：Worker 未产生结果"
+    }
+  ]
+}

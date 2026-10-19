@@ -35,6 +35,7 @@ export interface DshAgent {
   id: string;
   session: DshSession;
   status: string;
+  whenIdle?(): Promise<void>;
   parentAgent?: DshAgent;
   ctx?: DshContext;
 }
@@ -169,6 +170,7 @@ export interface DshContext {
     interrupt(targetSessionId: string, authority: { kind: string; parentSessionId?: string }): void;
     /** dsh 0.2.1-alpha.2+; legacy drainContinuableDescendants below. */
     drainDescendants?(parents: readonly DshAgent[]): Promise<unknown>;
+    drainChildren?(parent: DshAgent, childIds: readonly string[]): Promise<void>;
     drainContinuableDescendants?(parents: readonly DshAgent[]): Promise<unknown>;
     listChildren(parentSessionId: string, signal?: AbortSignal): Promise<unknown>;
     /** Named-provider probe (F18, present since 0.2.0-rc.2): no result means the provider bundle is not installed. */

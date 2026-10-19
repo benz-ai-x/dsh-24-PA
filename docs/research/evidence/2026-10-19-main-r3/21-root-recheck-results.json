@@ -1,0 +1,77 @@
+{
+  "baseline": "8f70020a2f3808c3afb899e88092ee430d222efd",
+  "environment": "real runtime bind/delegate/work + real SQLite; fake Host; no external writes",
+  "observations": [
+    {
+      "probe": "05-weekdays-public-worker",
+      "workStatus": "running",
+      "updateError": "UNIQUE constraint failed: pa24_task_template.id",
+      "retainedExpression": "weekly 09:00:00 Asia/Shanghai 1"
+    },
+    {
+      "probe": "05-skip-public-worker",
+      "templateStatus": "active",
+      "instances": [
+        {
+          "status": "skipped"
+        }
+      ]
+    },
+    {
+      "probe": "05-first-instance-write-failure",
+      "seedError": "controlled-instance-write-failure",
+      "activeWithoutInstance": [
+        {
+          "id": "ttpl-057b23ac921c8beb",
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "probe": "06-concurrent-create-public-worker",
+      "ids": [
+        "wt-9af27316-e62",
+        "wt-0b72358f-498"
+      ],
+      "count": 2
+    },
+    {
+      "probe": "06-overlapping-runtime-followup-ticks",
+      "entered": 2,
+      "askCount": 2,
+      "outboxKeys": [
+        "waiting:wt-0df25be3-2d2:1",
+        "waiting:wt-0df25be3-2d2:2"
+      ]
+    },
+    {
+      "probe": "11-public-bind-delegate-live-without-transport",
+      "configMode": "feishu",
+      "workStatus": "running",
+      "first": {
+        "operationId": "memo:pa24-work-memo-62a6f8a5-9ccd-447d-bac2-fe5231ddcf90:cbe079b07178c3958fdc00592eab472390523f4bb4dbd8a8145b9e361dc44c45",
+        "docUrl": null,
+        "demo": true,
+        "message": "演示模式：备忘已入业务账本，未创建飞书文档。"
+      },
+      "retry": {
+        "operationId": "memo:pa24-work-memo-62a6f8a5-9ccd-447d-bac2-fe5231ddcf90:cbe079b07178c3958fdc00592eab472390523f4bb4dbd8a8145b9e361dc44c45",
+        "reused": true,
+        "message": "此备忘此前已保存，未重复创建文档。",
+        "docUrl": null
+      },
+      "remoteCreates": 0,
+      "operationStatus": "succeeded"
+    },
+    {
+      "probe": "05-claim-full-runtime-restart",
+      "instances": [
+        {
+          "status": "generating",
+          "taskId": null
+        }
+      ],
+      "operationCount": 0
+    }
+  ]
+}

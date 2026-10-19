@@ -1,0 +1,2 @@
+{"probe":"cli_ignores_sigterm","configuredTimeoutMs":300,"elapsedMs":904,"settled":false}
+{"afterExplicitProbeCleanup":"timeout"}

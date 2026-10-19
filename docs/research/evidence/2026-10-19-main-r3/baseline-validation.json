@@ -1,0 +1,38 @@
+{
+  "baseline": "8f70020a2f3808c3afb899e88092ee430d222efd",
+  "build": "PASS",
+  "presetCheck": "PASS",
+  "unit": {
+    "files": 38,
+    "passed": 394,
+    "failed": 0,
+    "log": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-main-third-analysis-d2ne6txz/unit-tests.log"
+  },
+  "loaderE2E": {
+    "postgres": {
+      "files": 17,
+      "passed": 84,
+      "failed": 0,
+      "seconds": 416.02,
+      "log": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-main-consolidated-kizkbjvc/e2e-postgres.log"
+    },
+    "sqlite": {
+      "files": 17,
+      "passed": 84,
+      "failed": 0,
+      "seconds": 412.5,
+      "log": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-main-consolidated-kizkbjvc/e2e-sqlite.log"
+    }
+  },
+  "limitations": [
+    "真实本地 dsh Loader；模型请求由脚本模拟，不证明真实模型参数选择",
+    "飞书/企微 CLI 与 transport 使用隔离桩，不是真实平台端到端验收",
+    "故障探针按具体证据区分生产入口、真实账本、可控 adapter 与静态可达链",
+    "HTML 已完成静态检查；浏览器策略拒绝 file URL 自动预览，未作渲染验收"
+  ],
+  "durableLogs": {
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-main-consolidated-kizkbjvc/e2e-sqlite.log": "35-e2e-sqlite.log",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-main-third-analysis-d2ne6txz/unit-tests.log": "46-unit-tests.log",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-main-consolidated-kizkbjvc/e2e-postgres.log": "34-e2e-postgres.log"
+  }
+}

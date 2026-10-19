@@ -1,0 +1,86 @@
+[
+  {
+    "script": "/tmp/pa24-round3-workspace-background-probe.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.143,
+    "stdout": "{\n  \"case\": \"review-reminder-switch\",\n  \"switchAccepted\": true,\n  \"sent\": 1,\n  \"outboxB\": [\n    {\n      \"key\": \"noteremind:review-A:1\",\n      \"target\": \"owner_B\",\n      \"text\": \"手写笔记待审核提醒：N-A v1 仍在等待你的审核（https://example.invalid/A-private-note）；审核请在飞书审核卡上批准或退回，也可以让助理“暂停/取消这个提醒”。\"\n    }\n  ],\n  \"sourceReminderPresentInB\": null\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-tool-schema-probe.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.041,
+    "stdout": "{\n  \"source\": \"actual tools.apply registration\",\n  \"tool\": \"pa24_work\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"action\"\n  ],\n  \"declaredCount\": 51,\n  \"calls\": [\n    {\n      \"action\": \"task_get\",\n      \"undeclaredProperties\": [\n        \"taskId\"\n      ]\n    },\n    {\n      \"action\": \"task_update\",\n      \"undeclaredProperties\": [\n        \"taskId\",\n        \"plannedAt\",\n        \"estimateMinutes\"\n      ]\n    },\n    {\n      \"action\": \"task_create\",\n      \"undeclaredProperties\": [\n        \"due\"\n      ]\n    },\n    {\n      \"action\": \"meeting_schedule\",\n      \"undeclaredProperties\": [\n        \"title\",\n        \"attendees\"\n      ]\n    },\n    {\n      \"action\": \"reminder_pause\",\n      \"undeclaredProperties\": [\n        \"reason\"\n      ]\n    },\n    {\n      \"action\": \"reminder_snooze\",\n      \"undeclaredProperties\": [\n        \"seconds\",\n        \"reason\"\n      ]\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-startup.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.117,
+    "stdout": "{\n  \"case\": \"panel-bound-restart\",\n  \"persistedWorkspace\": \"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-round3-audit-GbZSFf/a\",\n  \"secondWorkspace\": null,\n  \"secondStartupError\": null,\n  \"snapshot\": null\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-activation-recovery.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.125,
+    "stdout": "{\n  \"case\": \"workspace-activation-recovery\",\n  \"manualBindAfterStartup\": {\n    \"status\": \"queued\",\n    \"starts\": 0\n  },\n  \"configuredPathStartup\": {\n    \"status\": \"running\",\n    \"starts\": 1\n  }\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-inbox-correlation.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.128,
+    "stdout": "{\n  \"case\": \"unrelated-turn-consumes-inbox\",\n  \"beforeStatus\": \"admitted\",\n  \"admittedPrompt\": [\n    {\n      \"requestId\": \"feishu:new-inbox\",\n      \"mode\": \"queue\"\n    }\n  ],\n  \"afterStatus\": \"delivered\",\n  \"outbox\": [\n    {\n      \"key\": \"reply:new-inbox:7\",\n      \"text\": \"与该委托无关的既有周期回顾结果\"\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-worker-turn-correlation.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.119,
+    "stdout": "{\n  \"case\": \"late-old-turn-after-continue\",\n  \"resumed\": \"running\",\n  \"became\": \"failed\",\n  \"outbox\": [\n    {\n      \"key\": \"workitem:work-A:result:t1\",\n      \"text\": \"[事项回传]「待续办工作」未完成；请向本人汇报要点与出处。\\n\\n「待续办工作」未完成：旧轮次完成中断\"\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-inbox-admission-failure.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.14,
+    "stdout": "{\n  \"case\": \"accepted-input-flush-failure\",\n  \"hostAccepted\": 1,\n  \"finalInbox\": {\n    \"event_id\": \"accepted-but-flush-failed\",\n    \"source\": \"feishu\",\n    \"kind\": \"message\",\n    \"payload\": {\n      \"eventId\": \"accepted-but-flush-failed\",\n      \"kind\": \"message\",\n      \"appId\": \"app\",\n      \"senderOpenId\": \"owner-A\",\n      \"chatType\": \"p2p\",\n      \"text\": \"委托内容\"\n    },\n    \"status\": \"rejected\",\n    \"request_id\": null,\n    \"target_session\": null,\n    \"error\": \"flush offline after accepted\",\n    \"created_at\": \"2026-10-19T04:38:33.345Z\",\n    \"processed_at\": \"2026-10-19T04:38:33.346Z\"\n  },\n  \"outbox\": []\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-roles.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.132,
+    "stdout": "{\n  \"case\": \"role-save-failure\",\n  \"error\": \"ENOENT: no such file or directory, open '/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-round3-audit-dOfg5S/cold/.24pa/roles.json'\",\n  \"roleStillPresent\": true,\n  \"retry\": \"角色已注册：customa；如需更新请先移除并处理在途事项。\"\n}\n{\n  \"case\": \"role-workspace-bleed\",\n  \"presentInB\": true,\n  \"delegatedInB\": {\n    \"workId\": \"pa24-work-customa-b3053e32-24f3-49da-bb01-aee27e32e666\",\n    \"worker\": \"customa\",\n    \"status\": \"running\",\n    \"message\": \"事项已接纳；接纳不代表完成。\"\n  },\n  \"starts\": [\n    {\n      \"persona\": \"仅处理本工作区主人的资料摘要并保存出处。\",\n      \"child\": \"pa24-work-customa-b3053e32-24f3-49da-bb01-aee27e32e666\"\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-stopped-action-switch.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 1.391,
+    "stdout": "{\n  \"case\": \"stopped-action-crosses-switch\",\n  \"switchedToB\": true,\n  \"result\": {\n    \"result\": {\n      \"operationId\": \"calendar.create:work-A:34a6dd84ede853acf697579213131a6a18aee319940b971eb25f9e84c257bbb2\",\n      \"eventId\": \"event-from-A\",\n      \"url\": null,\n      \"message\": \"日程已创建（以平台回执为准）。\"\n    }\n  },\n  \"calendarProjectionB\": {\n    \"event_id\": \"event-from-A\",\n    \"calendar_id\": \"primary\",\n    \"summary\": \"A-private-calendar\",\n    \"start_time\": \"2026-10-20T01:00:00.000Z\",\n    \"end_time\": \"2026-10-20T02:00:00.000Z\",\n    \"is_all_day\": false,\n    \"timezone\": null,\n    \"status\": \"active\",\n    \"recurring\": false,\n    \"attendees\": null,\n    \"url\": null,\n    \"raw\": {\n      \"event_id\": \"event-from-A\",\n      \"summary\": \"A-private-calendar\",\n      \"start_time\": {\n        \"timestamp\": \"1792458000\"\n      },\n      \"end_time\": {\n        \"timestamp\": \"1792461600\"\n      }\n    },\n    \"synced_at\": \"2026-10-19T04:38:34.894Z\",\n    \"channel\": \"feishu\"\n  },\n  \"operationsB\": null\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-stop-drain.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.157,
+    "stdout": "{\n  \"case\": \"stop-extracts-host-method\",\n  \"drainCallsAfterRuntimeStop\": 0,\n  \"drainCallsAfterCorrectMethodInvocation\": 1,\n  \"runtimeReposClosed\": true\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-identity-reload-race.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.122,
+    "stdout": "{\n  \"case\": \"identity-reload-admission-race\",\n  \"changedOwner\": \"owner-B\",\n  \"changedProfile\": \"profile-B\",\n  \"activeWorkStatus\": \"running\",\n  \"activeWorkDelivery\": \"local:pa24-b93995adae5f-local\",\n  \"activeWorkParent\": \"pa24-b93995adae5f-local\"\n}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round3-audit-archive-inbox.mjs",
+    "exitCode": 0,
+    "elapsedSeconds": 0.123,
+    "stdout": "{\n  \"case\": \"archive-skips-inbox-release\",\n  \"archived\": {\n    \"stoppedWork\": 1,\n    \"nativeDisposed\": 0,\n    \"rulesStopped\": 0,\n    \"failures\": [],\n    \"remaining\": {\n      \"running\": 0,\n      \"native\": 0,\n      \"outboxPending\": 0\n    },\n    \"message\": \"已停止 1 个运行中事项、处置 0 个原生计划（外部提醒按你的选择保留）；恢复后不会自动重建已删计划。\"\n  },\n  \"afterArchive\": \"admitted\",\n  \"switchError\": \"有已接收消息正在处理或等待回传；请完成后再切换工作区或接入身份。\",\n  \"afterExplicitStop\": \"rejected\"\n}\n",
+    "stderr": ""
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "coldWorkspace": null,
+  "afterTimers": {
+    "status": "queued",
+    "starts": []
+  },
+  "afterUnrelatedAdmission": {
+    "status": "running",
+    "starts": [
+      "queued-before-restart",
+      "pa24-work-memo-d37afa2b-0ec3-41ab-ac91-10d6363df39c"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "script": "/tmp/pa24-round4-plan-input-proof.mjs",
+    "exitCode": 0,
+    "stdout": "{\"case\":\"react-controlled-input-state\",\"domValue\":\"09:30\",\"reactValue\":\"09:30\"}\n{\"case\":\"snapshot poll while editing\",\"before\":\"09:30\",\"after\":\"08:00\",\"sameDomNode\":false}\n{\"case\":\"snapshot poll while request pending\",\"requests\":1,\"disabledBefore\":false,\"disabledAfter\":false}\n{\"case\":\"second click while first request pending\",\"requests\":2}\n",
+    "stderr": ""
+  },
+  {
+    "script": "/tmp/pa24-round4-public-lifecycle-probe.mjs",
+    "exitCode": 0,
+    "stdout": "{\"case\":\"public-delegate-work-router-cancel-race\",\"channelsLive\":true,\"created\":{\"ruleId\":\"rmd-557b76ce-a3c\",\"nextDueAt\":\"2026-10-19T04:59:29.233Z\",\"message\":\"提醒已保存（once，after 1s）；到期由业务账本触发，不依赖模型在线。\"},\"stopped\":{\"ruleId\":\"rmd-557b76ce-a3c\",\"status\":\"stopped\",\"message\":\"提醒已停止（已排期的未发送实例一并取消）。\"},\"ruleStatus\":\"stopped\",\"outbox\":[{\"status\":\"pending\",\"text\":\"提醒：待取消跟随提醒\"}]}\n{\"case\":\"public-work-router-two-snoozes\",\"replies\":[{\"ruleId\":\"rmd-b92cc8d3-3c1\",\"snoozedOccurrence\":\"rmd-b92cc8d3-3c1:2026-10-19T05:01:09.292Z\",\"followUpId\":\"rmd-b92cc8d3-3c1:2026-10-19T05:00:29.294Z\",\"dueAt\":\"2026-10-19T05:00:29.294Z\",\"message\":\"已稍后 60 秒提醒（关联原实例）。\"},{\"ruleId\":\"rmd-b92cc8d3-3c1\",\"snoozedOccurrence\":\"rmd-b92cc8d3-3c1:2026-10-19T05:01:09.292Z\",\"followUpId\":\"rmd-b92cc8d3-3c1:2026-10-19T05:00:29.305Z\",\"dueAt\":\"2026-10-19T05:00:29.305Z\",\"message\":\"已稍后 60 秒提醒（关联原实例）。\"}],\"followups\":[{\"id\":\"rmd-b92cc8d3-3c1:2026-10-19T05:00:29.305Z\",\"status\":\"pending\",\"origin\":\"rmd-b92cc8d3-3c1:2026-10-19T05:01:09.292Z\"},{\"id\":\"rmd-b92cc8d3-3c1:2026-10-19T05:00:29.294Z\",\"status\":\"pending\",\"origin\":\"rmd-b92cc8d3-3c1:2026-10-19T05:01:09.292Z\"}]}\n{\"case\":\"public-project-progress-canceled-task\",\"result\":{\"projectId\":\"project\",\"name\":\"取消任务测试\",\"goal\":\"\",\"total\":1,\"completed\":0,\"remaining\":[{\"guid\":\"known-task\",\"summary\":\"未完成任务\",\"dueAt\":null,\"plannedAt\":null,\"estimateMinutes\":null}],\"next\":{\"guid\":\"known-task\",\"summary\":\"未完成任务\",\"dueAt\":null},\"message\":\"剩余 1 项；下一步：未完成任务\"}}\n{\"case\":\"actual-runtime-notification-target-after-reauth\",\"beforeTarget\":\"user-a\",\"afterTarget\":\"user-a\",\"actualIdentity\":\"user-b\",\"identityCalls\":1,\"networkSent\":false}\n",
+    "stderr": ""
+  }
+]

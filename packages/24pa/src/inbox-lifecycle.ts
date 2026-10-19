@@ -6,13 +6,14 @@ export class InboxLifecycle {
   private paused = false;
   private draining: Promise<void> | null = null;
   private readonly admissions = new Map<string, Promise<void>>();
-  private readonly replies = new Map<string, { inboxId: string; finish?: () => Promise<void> }[]>();
+  private readonly replies = new Map<string, { inboxId: string; requestId: string; finish?: () => Promise<void> }[]>();
   private finishing: Promise<void> | null = null;
 
   constructor(private readonly deps: {
     repo(): InboxRepo | null;
     available(): boolean;
     process(row: InboxRow): Promise<void>;
+    execute?<T>(work: () => Promise<T>): Promise<T>;
   }) {}
 
   async assertIdle(): Promise<void> {
@@ -31,7 +32,7 @@ export class InboxLifecycle {
     if (this.paused || this.draining || !this.deps.available()) return;
     const repo = this.deps.repo();
     if (!repo) return;
-    this.draining = this.drain(repo).catch(() => {}).finally(() => { this.draining = null; });
+    this.draining = (this.deps.execute ? this.deps.execute(() => this.drain(repo)) : this.drain(repo)).catch(() => {}).finally(() => { this.draining = null; });
   }
 
   private async drain(repo: InboxRepo): Promise<void> {
@@ -52,29 +53,37 @@ export class InboxLifecycle {
     const pending = new Promise<void>(resolve => { release = resolve; });
     this.admissions.set(sessionId, pending);
     try {
-      await submit();
+      // Persist intent before crossing the host boundary. A timeout after
+      // acceptance must never turn into an automatically resendable input.
       await repo.mark(inboxId, { status: 'admitted', requestId, targetSession: sessionId });
       const queue = this.replies.get(sessionId) ?? [];
-      queue.push({ inboxId });
+      const reply = { inboxId, requestId };
+      queue.push(reply);
       this.replies.set(sessionId, queue);
+      try { await submit(); }
+      catch (error) {
+        if ((error as { outcome?: string }).outcome === 'rejected') {
+          queue.splice(queue.indexOf(reply), 1);
+          throw error;
+        }
+        await repo.mark(inboxId, { status: 'admitted', error: `宿主接纳待核对，不能自动重发：${(error as Error).message}` });
+      }
     } finally {
       this.admissions.delete(sessionId);
       release();
     }
   }
 
-  async complete(sessionId: string, deliver: (inboxId: string) => Promise<void>, error?: string): Promise<void> {
-    // A fast host may finish a turn while prompt admission is still flushing.
+  async complete(sessionId: string, requestIds: ReadonlySet<string>, deliver: (inboxId: string) => Promise<void>, error?: string): Promise<void> {
     await this.admissions.get(sessionId);
-    const pending = this.replies.get(sessionId)?.find(row => !row.finish);
-    if (!pending) return;
     const repo = this.deps.repo()!;
-    // Assign the result once. A later turn can never consume this input even
-    // when its local commit fails and is retried by the dispatcher.
-    pending.finish = async () => {
-      await deliver(pending.inboxId);
-      await repo.mark(pending.inboxId, { status: error ? 'rejected' : 'delivered', error });
-    };
+    for (const pending of this.replies.get(sessionId) ?? []) {
+      if (pending.finish || !requestIds.has(pending.requestId)) continue;
+      pending.finish = async () => {
+        await deliver(pending.inboxId);
+        await repo.mark(pending.inboxId, { status: error ? 'rejected' : 'delivered', error });
+      };
+    }
     await this.flushReplies();
   }
 
@@ -82,7 +91,11 @@ export class InboxLifecycle {
     if (this.finishing) return this.finishing;
     this.finishing = (async () => {
       for (const queue of this.replies.values()) {
-        while (queue[0]?.finish) { await queue[0].finish(); queue.shift(); }
+        for (let index = 0; index < queue.length;) {
+          const reply = queue[index]!;
+          if (!reply.finish) { index++; continue; }
+          await reply.finish(); queue.splice(index, 1);
+        }
       }
     })().finally(() => { this.finishing = null; });
     return this.finishing;

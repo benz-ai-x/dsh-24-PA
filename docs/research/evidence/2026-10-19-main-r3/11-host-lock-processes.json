@@ -1,0 +1,18 @@
+{
+  "before": {
+    "event": "before-write",
+    "pid": 21340
+  },
+  "first": {
+    "event": "acquired",
+    "pid": 21340
+  },
+  "second": {
+    "event": "acquired",
+    "pid": 21341
+  },
+  "distinctPids": true,
+  "bothGranted": true,
+  "secondProcessAlive": true,
+  "lockAfterFirstRelease": false
+}
