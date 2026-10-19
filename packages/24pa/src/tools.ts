@@ -134,6 +134,8 @@ export function apply(ctx: DshContext) {
       linkTaskGuid: string,
       linkEventId: string,
       planId: string,
+      skill: string,
+      report: string,
       eventId: string,
       leadMinutes: { type: 'integer', minimum: 1, maximum: 1440 },
       minutesId: string,

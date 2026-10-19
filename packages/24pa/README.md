@@ -225,6 +225,16 @@ Append-only: the catalog is constant across one session's requests, so conversat
 
 Indirectly, through the preset rows this bundle composes, each inserted standard package owns its own tool descriptions and prompt contributions.
 
+## Plan and reminder recovery
+
+Schema migration 15 adds the delegated skill selection and validated definition, plus a native-plan mutation record and revision. SQLite and PostgreSQL apply the same additive migration. Existing WorkItems without a validated skill definition require a new delegation; existing completed history is retained.
+
+A calendar reminder records its original channel, calendar, time, and operation identity before writing remotely. Retrying a failed local backup repairs that backup using the recorded receipt. WeCom daily/weekly reminders submit recurrence, the IANA time zone and a five-minute reminder explicitly. Feishu reminders use the native events-create command because the shortcut drops the IANA time zone. These contracts were checked against lark-cli 1.0.87 and WeCom CLI 1.3.4; phone delivery and server-side DST expansion still require tenant verification.
+
+Native plans record an intent before calling Schedule. Pause/stop blocks business delivery first; a failed delete keeps its native ID for cleanup after restart. A lost create/update reply is reconciled using the original session and unique instruction marker, including inactive one-off plans. Zero or multiple matches remain visibly pending in the plans view and `digest_list`; they are not blindly recreated. Safe adjustment requires Host `catalog` and `update` support. If unavailable or conflicted, use the original native plan to verify the state, then explicitly pause/stop or adjust through 24PA.
+
+Before upgrading, create the joint workspace/ledger/Host backup described by the initialization guide. Before rolling back, resolve pending plan changes and confirm native IDs agree with the ledger; an older package cannot interpret pending mutation records. Keep the additive columns when rolling back code, and restore paired Host and business-ledger backups together when restoring data.
+
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>

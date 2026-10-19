@@ -493,4 +493,13 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `create index if not exists digest_work_binding_occurrence_idx on pa24.digest_work_binding (occurrence_id)`,
     ],
   },
+  {
+    version: 15,
+    statements: [
+      `alter table pa24.work_item add column if not exists skill text`,
+      `alter table pa24.work_item add column if not exists skill_definition jsonb`,
+      `alter table pa24.digest_plan add column if not exists lifecycle jsonb`,
+      `alter table pa24.digest_plan add column if not exists revision integer not null default 0`,
+    ],
+  },
 ];

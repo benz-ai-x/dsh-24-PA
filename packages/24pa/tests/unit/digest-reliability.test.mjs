@@ -13,7 +13,7 @@ import { renderReminderFraming, renderRecurringReminderBatchFraming } from '@dee
 const catalog = new SkillCatalog({
   register: () => () => {},
   list: async () => [{ name: 'custom-brief', description: '简报', provider: 'filesystem', source: 'project-dsh', metadata: {} }],
-  get: async name => name === 'custom-brief' ? { name, description: '', content: '按完成标准 X 生成简报。' } : undefined,
+  get: async name => name === 'custom-brief' ? { name, description: '', source: 'project-dsh', content: '按完成标准 X 生成简报。' } : new SkillCatalog(null).builtinAll().find(s => s.name === name),
 });
 
 // Replace the former mocked-status delivery tests with the business interface
@@ -42,7 +42,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     deps = {
       repos: () => repos, config: () => config, skillCatalog: () => catalog,
       accessSessionId: () => 'access', workspace: () => ({ statePath: '/tmp/digest-test' }),
-      startedAt: () => new Date().toISOString(), nativeSchedule: () => ({ create: async () => ({ id: 'schedule-1' }), delete: async () => {} }),
+      startedAt: () => new Date().toISOString(), nativeSchedule: () => ({ create: async () => ({ id: 'schedule-1' }), delete: async () => ({ deleted: true }) }),
       memory: () => null, reviewQueueCount: async () => 0, inspectNoteTrust: async () => { throw new Error('unexpected note'); },
       syncCalendarWindow: async () => ({ ok: true }),
       notifyOwner: async () => { throw new Error('completion must commit outbox with the ledger'); },
@@ -53,7 +53,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     };
     digest = new DigestService(deps);
   });
-  const plan = (skill = 'custom-brief', voice = false, kind = 'morning') => repos.digests.insertPlan({ id: 'plan', kind, title: '晨报', schedule_id: 'schedule-1', session_id: 'access', schedule_spec: {}, status: 'active', last_window: null, voice, skill });
+  const plan = (skill = 'custom-brief', voice = false, kind = 'morning') => repos.digests.insertPlan({ id: 'plan', kind, title: '晨报', schedule_id: 'schedule-1', session_id: 'access', schedule_spec: { daily: { time: '08:00:00', time_zone: 'Asia/Shanghai' } }, status: 'active', last_window: null, voice, skill });
   const item = async id => (await repos.workItems.get(id)) ?? admittedItem(id, new Date());
   const session = events => ({ id: 'access', ownEvents: () => events });
   const manualSession = () => session([{ type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: { id: 'manual', content: [{ type: 'text', text: '请生成简报' }], source: { kind: 'user' } } }]);
@@ -215,7 +215,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     await digest.digestControl({ planId: 'plan', op: 'skill', skill: 'custom-brief' });
     await expect(digest.digestRunNow('plan')).rejects.toThrow('agent 轨');
     await repos.digests.updatePlan('plan', { skill: 'deleted' });
-    await expect(digest.digestRunNow('plan')).rejects.toThrow('已不在目录中');
+    await expect(digest.digestRunNow('plan')).rejects.toThrow('不在目录中');
     expect(await repos.digests.occurrencesOf('plan')).toHaveLength(2);
   });
 

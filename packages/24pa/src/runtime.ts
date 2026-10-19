@@ -27,7 +27,7 @@ import { DigestService } from './digest-service.js';
 import { ExternalOperations } from './external-operations.js';
 import { OutboxDelivery } from './outbox-delivery.js';
 import { TaskLifecycle } from './task-lifecycle.js';
-import { SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
+import { assertToolDeclaration, type ResolvedTaskSkill, SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
 import { text, nowIso, isoDate, eventFingerprint, hash } from './util.js';
 
@@ -289,7 +289,6 @@ export class PaRuntime {
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
-    linkedEventIdsInWindow: (from, to) => this.linkedEventIdsInWindow(from, to),
     isClosed: () => this.closed,
   });
 
@@ -301,7 +300,6 @@ export class PaRuntime {
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
-    linkedEventIdsInWindow: (from, to) => this.linkedEventIdsInWindow(from, to),
     memory: () => this.memory,
   });
 
@@ -311,7 +309,7 @@ export class PaRuntime {
   private readonly reminderRouter = new ReminderRouter({
     config: () => this.config!,
     repos: () => this.repos!,
-    calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
+    calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
     channelsLive: () => {
       if (this.config?.calendarChannel === 'wecom') return true;
       return this.config?.mode === 'feishu' && !!this.transport;
@@ -335,6 +333,7 @@ export class PaRuntime {
     reviewQueueCount: async () => Number(((await this.reviewQueue()) as { count?: number }).count ?? 0),
     memory: () => this.memory,
     nativeSchedule: () => this.nativeSchedule(),
+    planChangesAvailable: () => !this.closed && !this.workspaceChanging,
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
     calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
     inspectNoteTrust: (noteId, versionId) => this.handwriting.inspectTrust(noteId, versionId),
@@ -491,12 +490,13 @@ export class PaRuntime {
         // F44（spec 2.11）：载入放行面内的任务 skill 正文；越权名直接拒绝。
         // 轨判定收在 SkillCatalog.resolveForAgentRun（arch-6）：模板轨 skill
         // 在该 seam 被拒绝，调用方无法遗忘分支而烧掉模型回合。
-        skill_run: async args => {
-          const name = String(args.skill ?? '');
+        skill_run: async (args, item) => {
+          const name = String(args.skill ?? item.skill ?? '');
+          if (!item.skill || name !== item.skill) throw new Error('任务 skill 必须与该事项持久记录的委派选择一致；旧事项缺少选择时请重新委派。');
           if (!this.config?.extraBusinessSkills.includes(name)) {
             throw new Error(`任务 skill ${name || '（未指定）'} 未在 extraBusinessSkills 放行面内；请在 AGENTS.md 配置后重试。`);
           }
-          const resolved = await this.skillCatalog.resolveForAgentRun(name, ['pa24_work', 'pa24_memory']);
+          const resolved = (await this.selectedWorkSkill(item))!;
           return { skill: resolved.name, track: 'agent' as const, content: resolved.content, message: '按上述任务指令执行，完成后汇报（含完成标准核对）；工具面以白名单为准，越权项如实报拒因。' };
         },
       },
@@ -750,6 +750,7 @@ export class PaRuntime {
 
   /** Release every acquired resource; safe to call again after a late start(). */
   private async cleanup(): Promise<void> {
+    await this.digest.pause();
     await this.workLifecycle.idle();
     if (this.noteVerifyTimer) clearInterval(this.noteVerifyTimer);
     this.noteVerifyTimer = null;
@@ -805,8 +806,9 @@ export class PaRuntime {
   async bind(path: string, initialize = false): Promise<void> {
     return this.enqueue(async () => {
       this.workspaceChanging = true;
-      try { await this.bindWorkspace(path, initialize); }
-      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); }
+      try { await this.digest.pause(); await this.bindWorkspace(path, initialize); }
+      finally { this.workspaceChanging = false; this.outboxDelivery.resume(); this.digest.resume(); }
+      if (!this.closed) await this.digest.recoverPlans();
     });
   }
 
@@ -1233,6 +1235,8 @@ export class PaRuntime {
     available: () => !!this.repos && !!this.config && !this.closed && !this.workspaceChanging,
     start: item => this.startWorker(item),
     resume: async (item, input) => {
+      const selected = await this.selectedWorkSkill(item);
+      if (selected) input += `\n\n任务 skill ${selected.name}：\n${selected.content}`;
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
       if ('error' in parent) throw parent.error;
       await this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }], { signal: this.lifetime.signal });
@@ -1610,14 +1614,14 @@ export class PaRuntime {
     }
     if (!roleDef.available) throw new Error(`「${roleDef.name}」已注册但业务能力尚未交付（${roleDef.brief}）`);
     if (!config.enabledWorkers.includes(String(args.worker))) throw new Error('此 Worker 未在配置中启用（enabledWorkers）。');
+    let skillDefinition: ResolvedTaskSkill | null = null;
     if (String(args.worker) === 'skill') {
       // F44：通用 skill 执行 Worker 的双门——enabledWorkers 启用角色（上方既有
       // 校验）＋ per-skill 放行面；未放行在建事项前拒绝，不留半途事项。
       const skillName = String((args as { skill?: unknown }).skill ?? '');
       if (!skillName) throw new Error('委派任务 skill 需要携带 skill 名（worker=skill, skill=<name>）。');
       if (!config.extraBusinessSkills.includes(skillName)) throw new Error(`任务 skill ${skillName} 未在 extraBusinessSkills 放行面内；请先在工作区配置放行。`);
-      const bound = await this.skillCatalog.find(skillName);
-      if (!bound) throw new Error(`任务 skill ${skillName} 不在目录中（内置＋工作区 .dsh/skills）。`);
+      skillDefinition = await this.skillCatalog.resolveForAgentRun(skillName, ['pa24_work', 'pa24_memory']);
     }
     const title = text(args.title, 200);
     const instruction = text(args.instruction);
@@ -1652,6 +1656,8 @@ export class PaRuntime {
         role: args.worker,
         // Raw delegation text only; context is composed when the child starts.
         instruction,
+        skill: args.worker === 'skill' ? args.skill! : null,
+        skill_definition: skillDefinition,
         origin,
         parent_session_id: agent.id,
         child_session_id: id,
@@ -1672,8 +1678,19 @@ export class PaRuntime {
 
   async pump(): Promise<void> { return this.workLifecycle.pump(); }
 
+  private async selectedWorkSkill(item: WorkItemRow): Promise<{ name: string; content: string } | null> {
+    if (item.role !== 'skill') return null;
+    if (!item.skill || !this.config?.extraBusinessSkills.includes(item.skill)) throw new Error('事项选定的任务 skill 缺失或已撤销放行；请核对后重新委派。');
+    if (!this.config.enabledWorkers.includes('skill')) throw new Error('任务 skill Worker 已撤销启用。');
+    const definition = item.skill_definition;
+    if (!definition || definition.name !== item.skill || definition.track !== 'agent' || !definition.content?.trim()) throw new Error('事项缺少已校验的任务 skill 定义，请重新委派。');
+    assertToolDeclaration(definition.metadata, ['pa24_work', 'pa24_memory'], item.skill);
+    return definition;
+  }
+
   private async startWorker(item: WorkItemRow): Promise<void> {
     if (!this.repos || !this.config) throw new Error('工作区尚未就绪。');
+    const selected = await this.selectedWorkSkill(item);
     const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
     if ('error' in parent) throw parent.error;
     const roleDef = this.roles.get(item.role);
@@ -1702,7 +1719,7 @@ export class PaRuntime {
         type: 'text',
         text: workerStartPrompt({
           title: item.title,
-          instruction: item.instruction,
+          instruction: selected ? `${item.instruction}\n\n任务 skill ${selected.name}：\n${selected.content}` : item.instruction,
           nowIso: nowIso(),
           timeZone: this.config.timeZone,
           brief: roleDef.brief,
@@ -1888,11 +1905,11 @@ export class PaRuntime {
   }
 
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
-    if (this.config!.calendarChannel === 'wecom') {
-      if (operationIdOverride) throw new Error('企微日程渠道不支持操作键覆盖（meeting/minutes 流程限定飞书）。');
-      return this.wecomChannels.wecomCalendarWrite(item, kind, args);
-    }
-    return this.feishu.calendarWrite(item, kind, args, operationIdOverride);
+    const prior = kind === 'create' ? null : await this.repos!.calendar.findEvent(String(args.eventId ?? ''));
+    const channel = prior?.channel ?? args.channel ?? this.config!.calendarChannel;
+    const scoped = { ...args, calendarId: prior?.calendar_id ?? args.calendarId };
+    if (channel === 'wecom') return this.wecomChannels.wecomCalendarWrite(item, kind, scoped, operationIdOverride);
+    return this.feishu.calendarWrite(item, kind, scoped, operationIdOverride);
   }
 
   /**
@@ -1908,6 +1925,7 @@ export class PaRuntime {
   }
 
   private async syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }> {
+    if (calendarId === 'wecom' && this.config!.calendarChannel === 'wecom') return this.wecomChannels.syncWecomCalendarWindow(from, to);
     return this.feishu.syncCalendarWindow(calendarId, from, to);
   }
 
@@ -2186,7 +2204,7 @@ export class PaRuntime {
   }
 
   /** Current fingerprint of a followed source, or null when it cannot be read. */
-  private async sourceVerdict(sourceType: 'task' | 'calendar', sourceId: string, expected: string | null): Promise<{ valid: boolean; reason?: string }> {
+  private async sourceVerdict(sourceType: 'task' | 'calendar', sourceId: string, expected: string | null): Promise<{ valid: boolean; unknown?: boolean; reason?: string }> {
     try {
       if (sourceType === 'task') {
         const task = (await this.repos!.tasks.byGuid(sourceId)) ?? (await this.repos!.tasks.get(sourceId));
@@ -2196,23 +2214,15 @@ export class PaRuntime {
       }
       const event = await this.repos!.calendar.findEvent(sourceId);
       if (!event || event.status === 'canceled') return { valid: false, reason: event ? '日程已取消' : '日程已不存在' };
-      const state = await this.repos!.calendar.getSync(this.config!.calendarId);
-      if (state && (!state.complete || state.last_error)) {
-        return { valid: false, reason: `日历同步异常（${state.last_error ?? '窗口未完成'}），投影可能过期；请先重新查询日历` };
+      const state = await this.repos!.calendar.getSync(event.calendar_id);
+      if (!state || state.channel !== event.channel || !state.complete || state.last_error || state.window_start > event.start_time || state.window_end < event.end_time) {
+        return { valid: false, unknown: true, reason: `日历同步异常（${state?.last_error ?? '窗口未覆盖该日程'}），投影可能过期；请先重新查询日历` };
       }
       const fingerprint = eventFingerprint(event);
       return fingerprint === expected ? { valid: true } : { valid: false, reason: '日程内容或时间已变化' };
     } catch (error) {
-      return { valid: false, reason: `来源核对失败：${(error as Error).message}` };
+      return { valid: false, unknown: true, reason: `来源核对失败：${(error as Error).message}` };
     }
-  }
-
-  /** Linked calendar events whose projection overlaps the synced window: only
-   * these can be judged gone by this sync — events outside the window were
-   * never observed and must not be falsely canceled. */
-  private async linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]> {
-    if (!this.repos) return [];
-    return this.repos.reminders.linkedEventIdsInWindow(from, to).catch(() => [] as string[]);
   }
 
   /**
@@ -2230,9 +2240,9 @@ export class PaRuntime {
       // upcoming next_due_at) owes the owner a drop notice; timing between
       // materialization and this check must not decide visibility.
       const upcoming = rule.next_due_at != null;
-      await this.repos.reminders.updateRule(rule.id, { status: 'stopped' }).catch(() => {});
-      await this.repos.reminders.cancelPendingOccurrences(rule.id).catch(() => {});
-      if ((counts && counts.pending > 0) || upcoming) {
+      await this.repos.reminders.updateRule(rule.id, { status: 'stopped' });
+      await this.repos.reminders.cancelPendingOccurrences(rule.id);
+      if ((counts && (counts.pending > 0 || counts.canceled > 0)) || upcoming) {
         // Unsent occurrences die with their source; the owner is told the
         // reminder was dropped, not left wondering (P19).
         await this.notifyOwner(
@@ -2250,16 +2260,9 @@ export class PaRuntime {
     if (sourceType === 'calendar') {
       // Prep packages bound to this meeting stop too (P26): no stale packages.
       const preps = await this.repos!.digests.activeMeetingPreps(sourceId).catch(() => [] as Array<{ id: string; schedule_id: string | null; session_id: string }>);
-      const schedule = this.nativeSchedule();
       for (const prep of preps) {
-        if (prep.schedule_id && schedule) {
-          try {
-            await schedule.delete({ sessionId: prep.session_id, id: prep.schedule_id });
-          } catch (error) {
-            console.warn(`[pa24] 停止会前准备时移除原生计划失败（build 时仍会复查会议状态）：${(error as Error).message}`);
-          }
-        }
-        await this.repos!.digests.updatePlan(prep.id, { status: 'stopped', schedule_id: null });
+        const stopped = await this.digest.plans.stop(prep.id, 'stopped');
+        if (stopped.warning) throw new Error(stopped.warning);
       }
     }
   }
@@ -2534,26 +2537,13 @@ export class PaRuntime {
       tasks: args.scopeTasks === false ? false : true,
       minutes: args.scopeMinutes === false ? false : true,
     };
-    const active = await this.repos!.digests.activeMeetingPreps(eventId).catch(() => [] as Array<{ id: string; schedule_id: string | null; session_id: string }>);
-    if (active.length > 0) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；不要重复设置，如需调整请先停止原计划。`);
-    const id = `prep-${randomUUID().slice(0, 12)}`;
-    const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: new Date(event.start_time).toISOString(), scope };
-    const created = await schedule.create(this.accessSessionId!, {
-      at: fireAt.toISOString(),
-      title: `[24PA] 会前准备 ${eventId}`,
-      prompt: digestWakePrompt(id, `会前准备（${event.summary}）`),
-    });
-    await this.repos!.digests.insertPlan({
-      id,
-      kind: 'meeting_prep',
-      title: `会前准备：${event.summary}`,
-      schedule_id: String(created.id),
-      session_id: this.accessSessionId!,
-      schedule_spec: spec,
-      status: 'active',
-      last_window: null,
-      voice: false,
-      skill: 'meeting-prep',
+    const id = `prep-${hash(JSON.stringify({ eventId, start: event.start_time.toISOString(), leadMinutes, scope })).slice(0, 24)}`;
+    const active = await this.repos!.digests.activeMeetingPreps(eventId);
+    if (active.some(plan => plan.id !== id)) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；如需调整请先停止原计划。`);
+    const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: event.start_time.toISOString(), scope };
+    await this.digest.plans.enable({
+      id, kind: 'meeting_prep', title: `会前准备：${event.summary}`, session_id: this.accessSessionId!,
+      schedule_spec: spec, last_window: null, voice: false, skill: 'meeting-prep',
     });
     return {
       planId: id,
@@ -2903,7 +2893,7 @@ export class PaRuntime {
     // Native schedules are inventoried from our durable plan rows (every
     // schedule the plugin creates is mirrored there with its schedule_id);
     // dsh's own archive gate remains the authoritative blocker.
-    const digestPlans = (await this.repos.digests.listPlans('active')).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null }));
+    const digestPlans = (await this.repos.digests.listPlans()).filter(plan => plan.status === 'active' || plan.schedule_id || plan.lifecycle).map(plan => ({ id: plan.id, kind: plan.kind, status: plan.status, native: plan.schedule_id != null || plan.lifecycle != null }));
     // F45：delegated 行（日程化备份）也列出——归档处置需要看到它们，带渠道标记。
     const reminderRules = (await this.repos.reminders.listRules())
       .filter(rule => rule.status === 'active' || rule.status === 'delegated')
@@ -2943,23 +2933,13 @@ export class PaRuntime {
     }
     // 2. Dispose native schedules with readback. Without the schedule service
     // the mirror must NOT claim disposal — that would be a silent divergence.
-    const schedule = this.nativeSchedule();
-    const plans = await this.repos.digests.listPlans('active');
+    const plans = await this.repos.digests.listPlans();
     let nativeDisposed = 0;
     for (const plan of plans) {
-      if (!plan.schedule_id) continue;
-      if (!schedule) {
-        failures.push(`原生计划 ${plan.id} 无法处置：当前 Host 未提供原生 Schedule 服务`);
-        continue;
-      }
-      try {
-        await schedule.delete({ sessionId: plan.session_id, id: plan.schedule_id });
-        nativeDisposed += 1;
-      } catch (error) {
-        failures.push(`原生计划 ${plan.id} 删除失败：${(error as Error).message}`);
-        continue;
-      }
-      await this.repos.digests.updatePlan(plan.id, { status: 'paused', schedule_id: null });
+      if (!plan.schedule_id && !plan.lifecycle && plan.status !== 'active') continue;
+      const result = await this.digest.plans.stop(plan.id, 'paused');
+      if (result.warning) failures.push(`原生计划 ${plan.id} 清理未完成：${result.warning}`);
+      else if (plan.schedule_id) nativeDisposed += 1;
     }
     // 3. External PG reminders (both kinds) only when explicitly chosen;
     // only successful stops are counted.

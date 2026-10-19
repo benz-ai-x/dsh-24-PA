@@ -23,28 +23,23 @@ describe('F40：任务 skill 目录', () => {
     expect(await catalog.content('digest-morning')).toContain('事实');
   });
 
-  it('宿主挂载：合并工作区来源，metadata.track 判轨，同名内置不被工作区覆盖', async () => {
-    const registry = {
-      register: () => () => {},
-      list: async () => [
-        { name: 'digest-morning', description: '工作区同名', provider: 'filesystem', metadata: { track: 'agent' } },
-        { name: 'standup-prep', description: '自定义站会准备', source: 'project-dsh', metadata: {} },
-        { name: 'weekly-report-x', description: '自定义', source: 'project-dsh', metadata: { track: 'template' } },
-      ],
-      get: async name => (name === 'standup-prep' ? { name, content: '正文', description: '' } : undefined),
+  it('宿主完整定义决定来源与执行轨；读取失败的条目不进入可绑定目录', async () => {
+    const definitions = new Map(new SkillCatalog(null).builtinAll().map(s => [s.name, s]));
+    definitions.set('digest-morning', { name: 'digest-morning', description: '工作区覆盖', source: 'project-dsh', content: '晨报正文', metadata: { track: 'agent' } });
+    definitions.set('standup-prep', { name: 'standup-prep', description: '站会准备', source: 'project-dsh', content: '正文' });
+    const registry = { register() {},
+      list: async () => [...definitions.values(), { name: 'broken', source: 'project-dsh' }].map(({ name, description, source }) => ({ name, description, source })),
+      get: async name => { if (name === 'broken') throw new Error('read failed'); return definitions.get(name); },
     };
     const catalog = new SkillCatalog(registry);
-    const list = await catalog.list();
-    const byName = Object.fromEntries(list.map(s => [s.name, s]));
-    // 工作区同名 digest-morning 走宿主胜者（filesystem 覆盖 runtime），目录如实反映
-    expect(byName['digest-morning'].track).toBe('agent');
-    expect(byName['standup-prep'].track).toBe('agent'); // 缺省 track=agent
-    expect(byName['weekly-report-x'].track).toBe('template');
-    // 未被工作区覆盖的内置其余两件补齐
+    const byName = Object.fromEntries((await catalog.list()).map(s => [s.name, s]));
+    expect(byName['digest-morning']).toMatchObject({ track: 'agent', source: 'project-dsh' });
+    expect(byName['standup-prep'].track).toBe('agent');
     expect(byName['digest-evening'].source).toBe('builtin');
-    expect(await catalog.content('standup-prep')).toBe('正文');
-    expect(await catalog.content('digest-evening')).toContain('复盘');
+    expect(byName.broken).toBeUndefined();
+    await expect(catalog.resolveForAgentRun('broken', ['pa24_work'])).rejects.toThrow('read failed');
   });
+
 });
 
 describe('F44：工作流参数与受控接入', () => {
@@ -122,5 +117,27 @@ describe('arch-6：执行轨判定收进 SkillCatalog（resolveForAgentRun）', 
     };
     const catalog = new SkillCatalog(registry);
     await expect(catalog.resolveForAgentRun('e2e-overclaim', ['pa24_work', 'pa24_memory'])).rejects.toThrow(/越权/);
+  });
+});
+
+describe('同一完整定义决定执行轨、正文和工具准入', () => {
+  it('第一次读取失败即拒绝，不能用随后模板定义拼出 agent 轨', async () => {
+    let reads = 0;
+    const catalog = new SkillCatalog({ register() {}, list: async () => [{ name: 'unstable', source: 'project-dsh' }],
+      get: async () => { if (++reads === 1) throw new Error('definition unavailable'); return { name: 'unstable', source: 'project-dsh', content: 'TEMPLATE_BODY', metadata: { track: 'template' } }; } });
+    await expect(catalog.resolveForAgentRun('unstable', ['pa24_work'])).rejects.toThrow(/definition unavailable|加载/);
+    expect(reads).toBe(1);
+  });
+  it('一次执行只读一份定义，正文与准入不混用后续版本', async () => {
+    let reads = 0;
+    const catalog = new SkillCatalog({ register() {}, list: async () => [{ name: 'changing', source: 'project-dsh' }],
+      get: async () => ({ name: 'changing', source: 'project-dsh', content: ++reads === 1 ? 'BODY_A' : 'BODY_B', metadata: { track: reads === 1 ? 'agent' : 'template', tools: ['pa24_work'] } }) });
+    expect((await catalog.resolveForAgentRun('changing', ['pa24_work'])).content).toBe('BODY_A');
+    expect(reads).toBe(1);
+  });
+  it('全局用户 skill 不能凭 digest 前缀伪装内置执行来源', async () => {
+    const catalog = new SkillCatalog({ register() {}, list: async () => [{ name: 'digest-foreign', source: 'user-dsh' }],
+      get: async () => ({ name: 'digest-foreign', source: 'user-dsh', content: 'FOREIGN', metadata: { track: 'agent' } }) });
+    await expect(catalog.resolveForAgentRun('digest-foreign', ['pa24_work'])).rejects.toThrow(/不在目录中|来源/);
   });
 });

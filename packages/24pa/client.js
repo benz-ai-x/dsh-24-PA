@@ -754,6 +754,8 @@ window.__ModuleLoader__.load({
                 badge(plan.voice ? L('语音＋文本', 'Voice + text') : L('纯文本', 'Text only'), 'neutral', plan.voice ? 'bot' : 'note'),
                 badge(L('skill ', 'Skill ') + (plan.skill || '—'), 'neutral', 'code')),
               h('p', { className: 'pa24-meta' }, scheduleText(plan)),
+              plan.pendingChange && h('p', { role: 'alert', className: 'pa24-error' },
+                L('计划变更尚未确认：', 'Plan change is not confirmed: ') + (plan.pendingChange.error || L('正在核对原计划，请勿重复创建。', 'Checking the original plan; do not create a duplicate.'))),
               plan.lastWindow && h('p', { className: 'pa24-meta' }, L('最近窗口 ', 'Last window ') + plan.lastWindow),
               editable && h('div', { className: 'pa24-row', style: { flexWrap: 'wrap', alignItems: 'center', gap: 8 } },
                 h('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--pa-muted)' } },

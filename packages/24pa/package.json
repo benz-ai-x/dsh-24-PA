@@ -1,7 +1,7 @@
 {
   "name": "@benz-ai-x/dsh-24pa",
   "version": "0.2.1-rc.2.9",
-  "description": "24私助（24PA）: Feishu-backed personal assistant as a dsh workspace bundle.",
+  "description": "24\u79c1\u52a9\uff0824PA\uff09: Feishu-backed personal assistant as a dsh workspace bundle.",
   "type": "module",
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
@@ -30,6 +30,7 @@
     "prepare": "node scripts/link-peer.mjs"
   },
   "dependencies": {
+    "@js-temporal/polyfill": "0.5.1",
     "@larksuiteoapi/node-sdk": "1.74.0",
     "pg": "8.23.1",
     "sharp": "0.35.3"

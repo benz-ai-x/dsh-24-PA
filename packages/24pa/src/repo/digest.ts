@@ -2,6 +2,7 @@
 // Repos facade in index.ts is the unchanged seam every caller already uses.
 import type { PaDb, PaQueryer } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
+import type { PlanIntent } from '../plan-lifecycle.js';
 import type { DigestTriggerSource } from '../digest-trigger.js';
 
 export interface DigestPlanRow {
@@ -11,6 +12,8 @@ export interface DigestPlanRow {
   schedule_id: string | null;
   session_id: string;
   schedule_spec: any;
+  lifecycle?: PlanIntent | null;
+  revision?: number;
   status: 'active' | 'paused' | 'stopped' | string;
   last_window: string | null;
   /** F19（spec 2.3）：本计划是否投递语音版（引擎取工作区 tts 配置）。 */
@@ -38,7 +41,7 @@ export interface DigestOccurrenceRow {
 function digestPatch(setsOut: string[], valuesOut: unknown[], patch: Record<string, unknown>, jsonKeys: readonly string[] = []): void {
   for (const [key, value] of Object.entries(patch)) {
     setsOut.push(`${key} = $${valuesOut.length + 1}`);
-    valuesOut.push(jsonKeys.includes(key) ? JSON.stringify(value) : value ?? null);
+    valuesOut.push(jsonKeys.includes(key) && value != null ? JSON.stringify(value) : value ?? null);
   }
 }
 
@@ -47,9 +50,9 @@ export class DigestRepo {
 
   async insertPlan(row: Omit<DigestPlanRow, 'created_at' | 'updated_at'>): Promise<DigestPlanRow> {
     const result = await this.db.query<DigestPlanRow>(
-      `insert into pa24.digest_plan (id, kind, title, schedule_id, session_id, schedule_spec, status, last_window, voice, skill)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
-      [row.id, row.kind, row.title, row.schedule_id, row.session_id, JSON.stringify(row.schedule_spec), row.status, row.last_window, row.voice, row.skill],
+      `insert into pa24.digest_plan (id, kind, title, schedule_id, session_id, schedule_spec, status, last_window, voice, skill, lifecycle)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+      [row.id, row.kind, row.title, row.schedule_id, row.session_id, JSON.stringify(row.schedule_spec), row.status, row.last_window, row.voice, row.skill, row.lifecycle ? JSON.stringify(row.lifecycle) : null],
     );
     return result.rows[0]!;
   }
@@ -59,12 +62,21 @@ export class DigestRepo {
     return result.rows[0] ?? null;
   }
 
-  async updatePlan(id: string, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'last_window' | 'title' | 'voice' | 'skill'>>): Promise<DigestPlanRow | null> {
-    const sets = ['updated_at = now()'];
+  async updatePlan(id: string, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'last_window' | 'title' | 'voice' | 'skill' | 'kind' | 'lifecycle' | 'session_id'>>): Promise<DigestPlanRow | null> {
+    const sets = ['updated_at = now()', 'revision = revision + 1'];
     const values: unknown[] = [id];
-    digestPatch(sets, values, patch, ['schedule_spec']);
+    digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle']);
     const result = await this.db.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 returning *`, values);
     return result.rows[0] ?? null;
+  }
+
+  async comparePlan(plan: DigestPlanRow, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'kind' | 'lifecycle'>>): Promise<DigestPlanRow> {
+    const sets = ['updated_at = now()', 'revision = revision + 1'];
+    const values: unknown[] = [plan.id, plan.revision ?? 0];
+    digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle']);
+    const result = await this.db.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 and revision = $2 returning *`, values);
+    if (!result.rows[0]) throw new Error('计划状态已变化，请读取当前状态后重试。');
+    return result.rows[0];
   }
 
   async listPlans(status?: string): Promise<DigestPlanRow[]> {
@@ -78,7 +90,7 @@ export class DigestRepo {
    *  duplicate-start guard and the source-change cancel path share it. */
   async activeMeetingPreps(eventId: string): Promise<Array<{ id: string; schedule_id: string | null; session_id: string }>> {
     const result = await this.db.query<{ id: string; schedule_id: string | null; session_id: string }>(
-      `select id, schedule_id, session_id from pa24.digest_plan where kind = 'meeting_prep' and status = 'active' and schedule_spec->>'eventId' = $1`,
+      `select id, schedule_id, session_id from pa24.digest_plan where kind = 'meeting_prep' and (status = 'active' or lifecycle is not null) and schedule_spec->>'eventId' = $1`,
       [eventId],
     );
     return result.rows;

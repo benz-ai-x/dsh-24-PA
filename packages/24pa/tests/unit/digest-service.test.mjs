@@ -115,7 +115,7 @@ describe('F40：计划绑定任务 skill', () => {
       { name: 'standup-prep', description: '站会准备', provider: 'filesystem', source: 'project-dsh', metadata: {} },
       { name: 'quiet-report', description: '静默汇报', provider: 'filesystem', source: 'project-dsh', metadata: { track: 'template', kind: 'morning' } },
     ],
-    get: async () => undefined,
+    get: async name => ['standup-prep', 'quiet-report'].includes(name) ? { name, source: 'project-dsh', content: '完成简报', metadata: { track: name === 'quiet-report' ? 'template' : 'agent', kind: 'morning' } } : undefined,
   });
 
   const planRow = (skill = 'digest-morning') => ({ id: 'dig-morning-x', kind: 'morning', title: '晨报', schedule_id: 's', session_id: 'sess', schedule_spec: {}, status: 'active', last_window: null, voice: false, skill, created_at: new Date(), updated_at: new Date() });
@@ -124,7 +124,7 @@ describe('F40：计划绑定任务 skill', () => {
     workspace: () => ({ statePath: '/tmp/ws' }),
     accessSessionId: () => 'sess',
     nativeSchedule: () => ({ create: async () => ({ id: 'sch-1' }) }),
-    repos: () => ({ digests: { getPlan: async () => null, insertPlan: async row => ({ ...row }) } }),
+    repos: () => ({ digests: { getPlan: async () => null, insertPlan: async row => ({ ...row }), comparePlan: async (row, patch) => ({ ...row, ...patch }) } }),
   });
 
   it('digest_enable：默认映射内置 skill；点名不存在拒绝；agent 轨拒绝（挂载目录）', async () => {
