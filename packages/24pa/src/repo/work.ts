@@ -1,5 +1,6 @@
 // Split from repo.ts (round-3 review): one aggregate per file; the
 // Repos facade in index.ts is the unchanged seam every caller already uses.
+import type { ResolvedTaskSkill } from '../skills.js';
 import type { PaDb } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
 
@@ -18,6 +19,8 @@ export interface WorkItemRow {
   title: string;
   role: string;
   instruction: string;
+  skill?: string | null;
+  skill_definition?: ResolvedTaskSkill | null;
   origin: 'feishu' | 'local';
   parent_session_id: string;
   child_session_id: string | null;
@@ -58,9 +61,9 @@ export class WorkItemRepo {
 
   async insert(row: Omit<WorkItemRow, 'created_at' | 'updated_at' | 'progress' | 'result' | 'result_ref' | 'child_session_id'> & { child_session_id?: string }): Promise<WorkItemRow> {
     const result = await this.db.query<WorkItemRow>(
-      `insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, child_session_id, delivery, status)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
-      [row.id, row.title, row.role, row.instruction, row.origin, row.parent_session_id, row.child_session_id ?? null, row.delivery, row.status],
+      `insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, child_session_id, delivery, status, skill, skill_definition)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning *`,
+      [row.id, row.title, row.role, row.instruction, row.origin, row.parent_session_id, row.child_session_id ?? null, row.delivery, row.status, row.skill ?? null, row.skill_definition ? JSON.stringify(row.skill_definition) : null],
     );
     return result.rows[0]!;
   }

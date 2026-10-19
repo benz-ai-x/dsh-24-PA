@@ -156,7 +156,7 @@ export function translateQuery(inputSql: string, inputValues: readonly unknown[]
       if (!Array.isArray(arr)) throw new Error(`SQLite 适配：$${anyNum} 应为数组（any/all）。SQL：${inputSql}`);
       const keyword = op === 'not in' ? 'not in' : 'in';
       // PG semantics: <> ALL over an EMPTY array is true; IN over empty is false.
-      if (arr.length === 0) return keyword === 'not in' ? '1 = 1' : 'in (select 1 where 0)';
+      if (arr.length === 0) return `${keyword} (select 1 where 0)`;
       values.push(...arr);
       return `${keyword} (${arr.map(() => '?').join(', ')})`;
     }

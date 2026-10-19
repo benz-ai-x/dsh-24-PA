@@ -1,3 +1,4 @@
+import { observeCalendar } from './calendar-observation.js';
 // WeCom channel module (F30): the calendar/todo/notify operations plus the
 // auth monitor behind one deep module. Channel selection (calendarChannel /
 // todoChannel / notifyChannel config semantics) and role bindings stay in the
@@ -39,7 +40,6 @@ export interface WecomDeps extends SharedChannelDeps {
   notifySourceChanged(sourceType: 'task' | 'calendar', sourceId: string, currentFingerprint: string | null): Promise<void>;
   gate<T>(key: string, work: () => Promise<T>): Promise<T>;
   stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;
-  linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]>;
   isClosed(): boolean;
 }
 
@@ -86,69 +86,40 @@ export class WecomChannels {
   }
 
   mapWecomSchedule(rawEvent: any): {
-    eventId: string; summary: string; start: Date; end: Date; attendees: unknown;
+    eventId: string; summary: string; start: Date; end: Date; attendees: unknown; timezone: string; isAllDay: boolean; recurring: boolean;
   } | null {
     const eventId = String(rawEvent?.schedule_id ?? '');
     const summary = rawEvent?.subject == null ? '' : String(rawEvent.subject);
-    const tz = this.deps.config().timeZone;
+    const tz = String(rawEvent?.timezone?.timezone_id ?? this.deps.config().timeZone);
     const start = wecomParseWallTime(String(rawEvent?.begin_time ?? ''), tz);
     const end = wecomParseWallTime(String(rawEvent?.end_time ?? ''), tz);
-    if (!eventId || !summary || !start || !end) return null;
+    if (!eventId || !start || !end || !(start < end)) return null;
     const attendees = Array.isArray(rawEvent?.attendees)
       ? (rawEvent.attendees as any[]).map(a => String(a?.name ?? a?.userid ?? '')).filter(Boolean)
       : null;
-    return { eventId, summary, start, end, attendees };
+    return { eventId, summary, start, end, attendees, timezone: tz, isAllDay: rawEvent.is_all_day === true, recurring: rawEvent.repeat_rule?.is_repeat === true };
   }
 
   async syncWecomCalendarWindow(from: Date, to: Date): Promise<{ ok: boolean; error?: string }> {
-    const tz = this.deps.config().timeZone;
-    try {
-      const { data } = await this.wecomRun(['calendar', 'schedules', 'list', '--begin-time', wecomWallTime(from, tz), '--end-time', wecomWallTime(to, tz)]);
-      // An unrecognized response shape means the full window is unknown;
-      // never run destructive cancellation marking in that case.
-      const raw = Array.isArray(data?.schedule_list) ? data.schedule_list : null;
-      if (!raw) {
-        await this.deps.repos().calendar.saveSync({ calendar_id: WECOM_CALENDAR_ID, window_start: from, window_end: to, complete: false, lastError: '同步返回形状无法识别', channel: 'wecom' });
-        return { ok: false, error: '同步返回形状无法识别' };
-      }
-      const live: string[] = [];
-      for (const rawEvent of raw) {
-        const mapped = this.mapWecomSchedule(rawEvent);
-        if (!mapped) continue;
-        const existing = await this.deps.repos().calendar.findEvent(mapped.eventId);
-        if (existing) {
-          const afterFp = eventFingerprint({ event_id: mapped.eventId, summary: mapped.summary, start_time: mapped.start });
-          if (eventFingerprint(existing) !== afterFp) await this.deps.notifySourceChanged('calendar', mapped.eventId, afterFp);
-        }
-        await this.deps.repos().calendar.upsertEvent({
-          event_id: mapped.eventId,
-          calendar_id: WECOM_CALENDAR_ID,
-          summary: mapped.summary,
-          start_time: mapped.start,
-          end_time: mapped.end,
-          is_all_day: false,
-          timezone: tz,
-          status: 'active',
-          recurring: false,
-          attendees: mapped.attendees,
-          url: null,
-          raw: rawEvent,
-          channel: 'wecom',
+    return this.deps.gate('calendar-observation:wecom', () => observeCalendar(
+      this.deps.repos().calendar, this.deps.notifySourceChanged,
+      { calendarId: WECOM_CALENDAR_ID, channel: 'wecom', from, to }, async () => {
+        const now = Date.now(), horizon = 30 * 86400000;
+        if (from.getTime() < now - horizon || to.getTime() > now + horizon) throw new Error('企微查询仅覆盖当前时间前后 30 天，所请求窗口无法完整观察');
+        const tz = this.deps.config().timeZone;
+        const { data } = await this.wecomRun(['calendar', 'schedules', 'list', '--begin-time', wecomWallTime(from, tz), '--end-time', wecomWallTime(to, tz)]);
+        const raw = data?.schedule_list;
+        if (!Array.isArray(raw) || !Number.isInteger(data?.schedule_list_count) || data.schedule_list_count !== raw.length || data.has_more === true) throw new Error('企微同步返回形状或数量不完整');
+        return raw.map((rawEvent: any) => {
+          const mapped = this.mapWecomSchedule(rawEvent);
+          if (!mapped) throw new Error('企微日历条目无法完整解析');
+          return { event_id: mapped.eventId, calendar_id: WECOM_CALENDAR_ID, channel: 'wecom' as const,
+            summary: mapped.summary, start_time: mapped.start, end_time: mapped.end,
+            is_all_day: mapped.isAllDay, timezone: mapped.timezone, status: 'active',
+            recurring: mapped.recurring, attendees: mapped.attendees, url: null, raw: rawEvent };
         });
-        live.push(mapped.eventId);
-      }
-      await this.deps.repos().calendar.markCanceledExcept(WECOM_CALENDAR_ID, live, from, to);
-      for (const eventId of await this.deps.linkedEventIdsInWindow(from, to)) {
-        if (!live.includes(eventId)) await this.deps.notifySourceChanged('calendar', eventId, null);
-      }
-      await this.deps.repos().calendar.saveSync({ calendar_id: WECOM_CALENDAR_ID, window_start: from, window_end: to, complete: true, channel: 'wecom' });
-      return { ok: true };
-    } catch (error) {
-      await this.deps.repos().calendar
-        .saveSync({ calendar_id: WECOM_CALENDAR_ID, window_start: from, window_end: to, complete: false, lastError: (error as Error).message, channel: 'wecom' })
-        .catch(() => {});
-      return { ok: false, error: (error as Error).message };
-    }
+      },
+    ));
   }
 
   async wecomCalendarQuery(args: Record<string, unknown>): Promise<unknown> {
@@ -190,7 +161,7 @@ export class WecomChannels {
     };
   }
 
-  async wecomCalendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown> {
+  async wecomCalendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
     if (kind === 'update') {
       throw new Error('企微日程首版不支持修改（F16 范围：查询/创建/取消）；如需变更，可取消后重建，或本人手动调整。');
     }
@@ -202,10 +173,13 @@ export class WecomChannels {
     if (kind === 'create' && (!summary || !start || !end)) throw new Error('创建需要 summary、start、end。');
     const eventId = kind === 'create' ? '' : String(args.eventId ?? '');
     if (kind === 'cancel' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询企微日程）。');
-    const tz = this.deps.config().timeZone;
-    const paramsKey = `wecom\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}`;
+    const tz = String(args.timeZone ?? this.deps.config().timeZone);
+    const repeatRule = wecomRepeatRule(args.rrule);
+    const paramsKey = `wecom\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${tz}\n${JSON.stringify(repeatRule)}`;
     return this.deps.gate(`calendar-event:${eventId || 'wecom-new'}`, async () => {
-      const staged = await this.deps.stagedOperation(
+      const staged = operationIdOverride
+        ? await this.deps.stagedOperationWithId(operationIdOverride, item, `wecom_calendar.${kind}`, { channel: 'wecom', kind, eventId, summary, start, end, timeZone: tz, repeatRule })
+        : await this.deps.stagedOperation(
         item,
         `wecom_calendar.${kind}`,
         paramsKey,
@@ -223,6 +197,9 @@ export class WecomChannels {
             '--subject', `[24PA] ${summary}`,
             '--begin-time', wecomWallTime(start!, tz),
             '--end-time', wecomWallTime(end!, tz),
+            '--timezone', JSON.stringify({ timezone_id: tz }),
+            '--reminders', JSON.stringify({ is_remind: true, reminder_time: [-300] }),
+            ...(repeatRule ? ['--repeat-rule', JSON.stringify(repeatRule)] : []),
           ]));
           newEventId = String(data?.schedule_id ?? '');
           if (!newEventId) throw Object.assign(new Error('企微创建成功但未返回 schedule_id；以 calendar_query 核对。'), { outcome: 'unknown' });
@@ -235,7 +212,7 @@ export class WecomChannels {
             is_all_day: false,
             timezone: tz,
             status: 'active',
-            recurring: false,
+            recurring: !!repeatRule,
             attendees: null,
             url: null,
             raw: data,
@@ -509,4 +486,14 @@ export class WecomChannels {
     }
     this.wecomAuthLastAlertAt = now;
   }
+}
+
+/** Deliberately bounded to the clock reminders we promise; never silently
+ * flatten an unsupported recurrence into a one-off event. */
+function wecomRepeatRule(value: unknown): Record<string, unknown> | null {
+  if (value == null || value === '') return null;
+  if (value === 'FREQ=DAILY;INTERVAL=1') return { is_repeat: true, repeat_type: 'daily', repeat_interval: 1, repeat_until: '0' };
+  const weekly = /^FREQ=WEEKLY;BYDAY=((?:MO|TU|WE|TH|FR|SA|SU)(?:,(?:MO|TU|WE|TH|FR|SA|SU))*)$/.exec(String(value));
+  if (weekly) return { is_repeat: true, is_custom: true, repeat_type: 'weekly', repeat_interval: 1, repeat_day_of_week: [...new Set(weekly[1]!.split(','))], repeat_until: '0' };
+  throw new Error('企微日程不支持该重复规则；目前支持 daily 或指定 weekdays 的 weekly。');
 }

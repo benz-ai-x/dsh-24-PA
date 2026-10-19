@@ -202,10 +202,18 @@ if (plain[0] === 'calendar' && plain[1] === '+agenda') {
     await writeState({ ...state, failNext: null });
     fail(state.failNext.error ?? 'agenda injected failure');
   }
+  if (state.agendaOverride) ok({ events: state.agendaOverride });
   const start = argOf('--start');
   const end = argOf('--end');
-  const inWindow = events.filter(e => e.status !== 'canceled' && e.start.slice(0, 10) >= start && e.end.slice(0, 10) <= end);
+  const inWindow = events.filter(e => e.status !== 'canceled' && new Date(e.start) < new Date(end) && new Date(e.end) > new Date(start));
   ok({ events: inWindow.map(e => ({ event_id: e.event_id, summary: e.summary, start_time: e.start, end_time: e.end, is_all_day: e.all_day === true, status: e.status, url: e.url, attendees: e.attendees ?? [] })) });
+}
+if (plain[0] === 'calendar' && plain[1] === 'events' && plain[2] === 'create') {
+  const body = JSON.parse(argOf('--data'));
+  const event_id = `evtstub-${events.length + 1}`;
+  const record = { event_id, summary: body.summary, start: new Date(Number(body.start_time.timestamp) * 1000).toISOString(), end: new Date(Number(body.end_time.timestamp) * 1000).toISOString(), status: 'active', all_day: false, rrule: body.recurrence ?? null, timezone: body.start_time.timezone, reminders: body.reminders, url: `https://example.feishu.cn/calendar/event/${event_id}`, attendees: [] };
+  await appendFile(eventsPath, JSON.stringify(record) + '\n');
+  ok({ event: { event_id, url: record.url, summary: record.summary } });
 }
 if (plain[0] === 'calendar' && plain[1] === '+create') {
   const summary = argOf('--summary');

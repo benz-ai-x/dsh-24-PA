@@ -4,14 +4,13 @@
 // to the ledger it routes between. The runtime's role table keeps only
 // declarations; delegated-row lifecycle (reject/cancel) lives here too.
 
-import { randomUUID } from 'node:crypto';
 import { ReminderError, firstOccurrence } from './reminders.js';
 import {
   createDailyScheduleRecord,
   createWeeklyScheduleRecord,
   ScheduleId,
 } from '@deepseek-ai/dsh-schedule';
-import { text, eventFingerprint } from './util.js';
+import { text, eventFingerprint, hash } from './util.js';
 import { taskFingerprint } from './feishu-channels.js';
 import type { PaConfig } from './config.js';
 import type { Repos, TaskRow, WorkItemRow } from './repo.js';
@@ -21,7 +20,7 @@ export interface ReminderRouterDeps {
   config(): PaConfig;
   repos(): Repos;
   /** Channel-dispatching calendar write (routes wecom/feishu in the runtime). */
-  calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown>;
+  calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationId?: string): Promise<unknown>;
   /** Whether a calendar channel is live (wecom always; feishu needs mode+transport). */
   channelsLive(): boolean;
   /** Lazy: repos/engine bind at workspace load, after the router is built. */
@@ -38,7 +37,7 @@ export class ReminderRouter {
     const hasLink = !!(args.linkTaskGuid || args.linkEventId);
     // 测试缝：__forceLedger 显式走账本保留面（every/跟随型回归同路径）。
     const forceLedger = args.__forceLedger === true;
-    if (!hasLink && !forceLedger && ['once', 'daily', 'weekly'].includes(clockKind) && this.deps.channelsLive()) {
+    if (!hasLink && !forceLedger && ['once', 'daily', 'weekly'].includes(clockKind) && (this.deps.channelsLive() || await this.deps.repos().operations.get(this.intentId(item, args)))) {
       return this.toCalendar(item, args);
     }
     let link: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string } | undefined;
@@ -68,7 +67,14 @@ export class ReminderRouter {
     return result;
   }
 
+  private intentId(item: WorkItemRow, args: Record<string, unknown>): string {
+    return `reminder.calendar:${item.id}:${hash(JSON.stringify({ kind: args.kind ?? 'once', text: text(args.text, 500), at: args.at ?? null, afterSeconds: args.afterSeconds ?? null, time: args.time ?? null, weekdays: Array.isArray(args.weekdays) ? [...new Set(args.weekdays)].sort() : null, timeZone: args.timeZone ?? null, source: args.source ?? null }))}`;
+  }
+
   async toCalendar(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const intentId = this.intentId(item, args);
+    const existing = await this.deps.repos().operations.get(intentId);
+    if (existing) return this.completeCalendarIntent(item, intentId, existing.params);
     const summary = text(args.text, 500);
     if (!summary) throw new ReminderError('提醒内容不能为空。');
     const kind = String(args.kind ?? 'once');
@@ -108,38 +114,39 @@ export class ReminderRouter {
       throw new ReminderError('时钟型日程化支持 once/daily/weekly；every 与跟随来源型仍走账本引擎。');
     }
     const end = new Date(start.getTime() + 15 * 60 * 1000);
-    const created = (await this.deps.calendarWrite(item, 'create', {
-      summary: `提醒：${summary}`,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      ...(rrule ? { rrule } : {}),
-    })) as { event_id?: string; eventId?: string; operationId?: string };
-    const eventId = created.event_id ?? created.eventId ?? null;
-    // 备份行：delegated 状态＝引擎不投递，仅面板/历史/取消路径数据源。
-    const ruleId = `rmd-cal-${randomUUID().slice(0, 10)}`;
-    await this.deps.repos().reminders.insertRule({
-      id: ruleId,
-      kind,
-      text: summary,
-      record: { type: 'calendar', channel: this.deps.config().calendarChannel, event_id: eventId, start: start.toISOString(), rrule: rrule ?? null, operation_id: created.operationId ?? null },
-      status: 'delegated',
-      next_due_at: start,
-      time_zone: timeZone,
-      origin_expression: originExpression,
-      source: args.source ? text(args.source, 500) : null,
-      work_item_id: item.id,
-      link_source_type: null,
-      link_source_id: null,
-      link_fingerprint: null,
+    const channel = this.deps.config().calendarChannel;
+    const calendarId = channel === 'wecom' ? 'wecom' : this.deps.config().calendarId;
+    const { row } = await this.deps.repos().operations.begin({
+      id: intentId, workItemId: item.id, action: 'reminder.calendar', params: {
+        ruleId: `rmd-cal-${hash(intentId)}`, kind, summary, timeZone, originExpression,
+        source: args.source ? text(args.source, 500) : null,
+        calendar: { channel, calendarId, summary: `提醒：${summary}`, start: start.toISOString(), end: end.toISOString(), timeZone, ...(rrule ? { rrule } : {}) },
+      },
     });
-    return {
-      ruleId,
-      eventId,
-      calendarChannel: this.deps.config().calendarChannel,
-      start: start.toISOString(),
-      ...(rrule ? { rrule } : {}),
-      message: `提醒已写入${this.deps.config().calendarChannel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；到点由对应 App 原生日程提醒（默认提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
+    return this.completeCalendarIntent(item, intentId, row.params);
+  }
+
+  private async completeCalendarIntent(item: WorkItemRow, intentId: string, intent: any): Promise<unknown> {
+    const { ruleId, kind, summary, timeZone, originExpression, source, calendar } = intent;
+    const created = await this.deps.calendarWrite(item, 'create', calendar, `${intentId}:write`) as { eventId?: string; event_id?: string; operationId?: string };
+    const eventId = created.eventId ?? created.event_id;
+    if (!eventId) throw new ReminderError('日程回执缺少事件标识；备份尚未完成，请先核对原操作。');
+    if (!await this.deps.repos().reminders.getRule(ruleId)) {
+      await this.deps.repos().reminders.insertRule({
+        id: ruleId, kind, text: summary,
+        record: { type: 'calendar', channel: calendar.channel, calendar_id: calendar.calendarId, event_id: eventId, start: calendar.start, rrule: calendar.rrule ?? null, operation_id: created.operationId ?? null },
+        status: 'delegated', next_due_at: new Date(calendar.start), time_zone: timeZone,
+        origin_expression: originExpression, source, work_item_id: item.id,
+        link_source_type: null, link_source_id: null, link_fingerprint: null,
+      }).catch(async error => { if (!await this.deps.repos().reminders.getRule(ruleId)) throw error; });
+    }
+    const result = {
+      ruleId, eventId, calendarChannel: calendar.channel, start: calendar.start,
+      ...(calendar.rrule ? { rrule: calendar.rrule } : {}),
+      message: `提醒已写入${calendar.channel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；由对应 App 原生日程提醒（提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
     };
+    await this.deps.repos().operations.update(intentId, { status: 'succeeded', receipt: result });
+    return result;
   }
 
   async rejectDelegated(ruleId: string, op: string): Promise<unknown> {
@@ -153,9 +160,13 @@ export class ReminderRouter {
   async cancel(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
     const rule = await this.deps.repos().reminders.getRule(ruleId);
     if (rule?.status === 'delegated') {
-      const record = rule.record as { event_id?: string | null };
+      const record = rule.record as { event_id?: string | null; channel?: string; calendar_id?: string };
       if (record?.event_id) {
-        await this.deps.calendarWrite(item, 'cancel', { eventId: record.event_id });
+        const event = await this.deps.repos().calendar.findEvent(record.event_id);
+        const channel = record.channel ?? event?.channel;
+        const calendarId = record.calendar_id ?? event?.calendar_id;
+        if (!channel || !calendarId) throw new ReminderError('原提醒的日历归属缺失，请先核对原事件。');
+        await this.deps.calendarWrite(item, 'cancel', { eventId: record.event_id, channel, calendarId });
       }
       return this.deps.ledger().setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
     }

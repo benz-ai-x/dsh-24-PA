@@ -51,21 +51,30 @@ export class CalendarRepo {
          url = excluded.url,
          raw = excluded.raw,
          synced_at = now()
+       where pa24.calendar_event.calendar_id = excluded.calendar_id and pa24.calendar_event.channel = excluded.channel
        returning *`,
       [row.event_id, row.calendar_id, row.summary, row.start_time, row.end_time, row.is_all_day, row.timezone, row.status, row.recurring,
        row.attendees === undefined ? null : JSON.stringify(row.attendees), row.url, row.raw === undefined ? null : JSON.stringify(row.raw), row.channel ?? 'feishu'],
     );
-    return result.rows[0]!;
+    if (!result.rows[0]) throw new Error('日程标识与已有归属冲突');
+    return result.rows[0];
   }
 
-  async markCanceledExcept(calendarId: string, liveEventIds: readonly string[], windowStart: Date, windowEnd: Date): Promise<void> {
+  async markCanceledExcept(calendarId: string, liveEventIds: readonly string[], windowStart: Date, windowEnd: Date, channel: DataChannel = 'feishu'): Promise<void> {
     await this.db.query(
       `update pa24.calendar_event set status = 'canceled', synced_at = now()
-       where calendar_id = $1 and status = 'active'
+       where calendar_id = $1 and channel = $5 and status = 'active'
          and not (end_time <= $2 or start_time >= $3)
          and event_id <> all($4::text[])`,
-      [calendarId, windowStart, windowEnd, liveEventIds],
+      [calendarId, windowStart, windowEnd, liveEventIds, channel],
     );
+  }
+
+  async observedIn(calendarId: string, from: Date, to: Date, channel: DataChannel): Promise<CalendarEventRow[]> {
+    return (await this.db.query<CalendarEventRow>(
+      'select * from pa24.calendar_event where calendar_id = $1 and channel = $4 and start_time < $3 and end_time > $2',
+      [calendarId, from, to, channel],
+    )).rows;
   }
 
   async eventsIn(calendarId: string, from: Date, to: Date): Promise<CalendarEventRow[]> {
@@ -94,7 +103,7 @@ export class CalendarRepo {
    */
   async saveSync(row: Omit<CalendarSyncRow, 'last_synced_at' | 'last_error' | 'channel'> & { lastError?: string; channel?: DataChannel }): Promise<void> {
     const ok = row.complete && !row.lastError;
-    await this.db.query(
+    const result = await this.db.query(
       `insert into pa24.calendar_sync_state (calendar_id, window_start, window_end, complete, last_synced_at, last_error, channel)
        values ($1,$2,$3,$4,${ok ? 'now()' : 'null'},$5,$6)
        on conflict (calendar_id) do update set
@@ -102,9 +111,12 @@ export class CalendarRepo {
          window_end = excluded.window_end,
          complete = excluded.complete,
          last_synced_at = coalesce(excluded.last_synced_at, pa24.calendar_sync_state.last_synced_at),
-         last_error = excluded.last_error`,
+         last_error = excluded.last_error
+       where pa24.calendar_sync_state.channel = excluded.channel
+       returning calendar_id`,
       [row.calendar_id, row.window_start, row.window_end, row.complete, row.lastError ?? null, row.channel ?? 'feishu'],
     );
+    if (!result.rows[0]) throw new Error('日历同步状态与已有渠道归属冲突');
   }
 
   async getSync(calendarId: string): Promise<CalendarSyncRow | null> {

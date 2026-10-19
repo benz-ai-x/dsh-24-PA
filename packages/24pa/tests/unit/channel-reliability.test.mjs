@@ -5,9 +5,10 @@ import { join, resolve } from 'node:path';
 import { SqliteDb } from '../../lib/sqlite.js';
 import { createRepos } from '../../lib/repo.js';
 import { ExternalOperations } from '../../lib/external-operations.js';
+import { ReminderRouter } from '../../lib/reminder-router.js';
 import { OutboxDelivery } from '../../lib/outbox-delivery.js';
 import { TaskLifecycle } from '../../lib/task-lifecycle.js';
-import { FeishuChannels } from '../../lib/feishu-channels.js';
+import { FeishuChannels, mapRemoteEvent } from '../../lib/feishu-channels.js';
 import { WecomChannels } from '../../lib/wecom-channels.js';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 
@@ -168,6 +169,100 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     await lifecycle.complete(item, { guid: created.guid });
     await lifecycle.cancel(item, { guid: created.guid, reason: '本人取消' });
     expect(calls).toEqual(['wecom:create', 'feishu:refresh', 'feishu:update', 'feishu:complete', 'feishu:cancel']);
+  });
+
+  it('相对提醒备份失败跨重启仍沿用原时间、渠道与操作身份', async () => {
+    const dispatches = [];
+    const router = () => new ReminderRouter({ config: () => config, repos: () => repos, channelsLive: () => true,
+      calendarWrite: async (work, kind, args, id) => { dispatches.push({ kind, args, id }); return lark.calendarWrite(work, kind, args, id); },
+      ledger: () => ({ setStatus: (id, status) => repos.reminders.updateRule(id, { status }) }),
+    });
+    repos.reminders.insertRule = async () => { throw new Error('backup unavailable'); };
+    const args = { kind: 'once', afterSeconds: 60, text: '喝水' };
+    await expect(router().route(item, args)).rejects.toThrow('backup unavailable');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    await reopen(); config.calendarChannel = 'wecom'; config.calendarId = 'new-cal';
+    const result = await router().route(item, args);
+    expect(await journal('lark-cli.json.events.jsonl')).toHaveLength(1);
+    expect(dispatches[1].args.start).toBe(dispatches[0].args.start);
+    expect(dispatches[1].args).toMatchObject({ channel: 'feishu', calendarId: 'cal-1' });
+    expect(dispatches[1].id).toBeTruthy(); expect(dispatches[1].id).toBe(dispatches[0].id);
+    const repeated = await router().route(item, args); expect(repeated.ruleId).toBe(result.ruleId);
+    await router().cancel(item, result.ruleId, '取消');
+    expect(dispatches.at(-1).args).toMatchObject({ channel: 'feishu', calendarId: 'cal-1', eventId: result.eventId });
+    expect(await repos.reminders.listRules()).toHaveLength(1);
+  });
+
+  it('飞书提醒原生创建携带 IANA 时区、重复规则、五分钟偏移与稳定幂等键', async () => {
+    const args = { summary: '喝水', start: '2026-10-21T13:00:00Z', end: '2026-10-21T13:15:00Z', timeZone: 'America/New_York', rrule: 'FREQ=DAILY' };
+    await lark.calendarWrite(item, 'create', args);
+    const calls = await journal('lark-cli.json.calls.jsonl');
+    const call = calls.find(call => call.args.includes('--data'))?.args; expect(call).toBeTruthy();
+    const data = JSON.parse(call[call.indexOf('--data') + 1]);
+    expect(data).toMatchObject({ start_time: { timezone: 'America/New_York', timestamp: String(Date.parse(args.start) / 1000) }, end_time: { timezone: 'America/New_York' }, recurrence: 'FREQ=DAILY', reminders: [{ minutes: 5 }] });
+    expect(call[call.indexOf('--idempotency-key') + 1]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    await expect(lark.calendarWrite(item, 'create', { ...args, attendees: ['ou_guest'] })).rejects.toThrow('本次未创建');
+    expect(await journal('lark-cli.json.events.jsonl')).toHaveLength(1);
+  });
+
+  it('企微周期提醒明确传递重复规则、时区与五分钟提醒，未知规则先拒绝', async () => {
+    const calls = []; wecom.wecomRun = async args => { calls.push(args); return { data: { schedule_id: 'weekly-event' } }; };
+    const args = { summary: '喝水', start: '2026-10-21T01:00:00Z', end: '2026-10-21T01:15:00Z', timeZone: 'Asia/Tokyo', rrule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR' };
+    await wecom.wecomCalendarWrite(item, 'create', args);
+    const option = flag => JSON.parse(calls[0][calls[0].indexOf(flag) + 1]);
+    expect(option('--repeat-rule')).toMatchObject({ is_repeat: true, is_custom: true, repeat_type: 'weekly', repeat_day_of_week: ['MO', 'WE', 'FR'] });
+    expect(option('--timezone')).toEqual({ timezone_id: 'Asia/Tokyo' });
+    expect(option('--reminders')).toEqual({ is_remind: true, reminder_time: [-300] });
+    expect((await repos.calendar.findEvent('weekly-event')).recurring).toBe(true);
+    await expect(wecom.wecomCalendarWrite(item, 'create', { ...args, rrule: 'FREQ=MONTHLY' })).rejects.toThrow(/不支持/);
+    expect(calls).toHaveLength(1);
+  });
+
+  const projected = (id, calendar = 'cal-1', channel = 'feishu') => ({ event_id: id, calendar_id: calendar, channel, summary: id, start_time: new Date('2026-10-21T01:00:00Z'), end_time: new Date('2026-10-21T02:00:00Z'), is_all_day: false, timezone: 'Asia/Shanghai', status: 'active', recurring: false, attendees: [], url: null, raw: {} });
+  const window = () => [new Date('2026-10-20T16:00:00Z'), new Date('2026-10-21T16:00:00Z')];
+  it('同步只裁决原渠道与日历内的来源，空窗口也通知无提醒规则的会前计划来源', async () => {
+    for (const row of [projected('own'), projected('other-calendar', 'cal-2'), projected('other-channel', 'wecom', 'wecom')]) await repos.calendar.upsertEvent(row);
+    const notified = [];
+    const channel = new FeishuChannels({ ...deps(larkBin), notifySourceChanged: async (_, id, fp) => { notified.push([id, fp]); }, linkedEventIdsInWindow: (...args) => repos.reminders.linkedEventIdsInWindow(...args) });
+    expect(await channel.syncCalendarWindow('cal-1', ...window())).toEqual({ ok: true });
+    expect(notified).toEqual([['own', null]]);
+    expect((await repos.calendar.findEvent('other-calendar')).status).toBe('active');
+    expect((await repos.calendar.findEvent('other-channel')).status).toBe('active');
+    const calls = await journal('lark-cli.json.calls.jsonl');
+    expect(JSON.stringify(calls)).toContain('2026-10-20T16:00:00.000Z');
+  });
+  it('飞书嵌套时间、全天包含式结束日与空标题保留；坏条目令整个观察不完整', async () => {
+    const mapped = mapRemoteEvent({ event_id: 'all-day', summary: '', start_time: { date: '2026-10-21' }, end_time: { date: '2026-10-21' } }, 'Asia/Shanghai');
+    expect(mapped?.start.toISOString()).toBe('2026-10-20T16:00:00.000Z');
+    expect(mapped?.end.toISOString()).toBe('2026-10-21T16:00:00.000Z'); expect(mapped?.isAllDay).toBe(true);
+    await repos.calendar.upsertEvent(projected('preserved'));
+    await writeFile(join(root, 'lark-cli.json'), JSON.stringify({ agendaOverride: [{ event_id: 'broken', start_time: { datetime: 'bad' }, end_time: { datetime: 'bad' } }] }));
+    expect((await lark.syncCalendarWindow('cal-1', ...window())).ok).toBe(false);
+    expect((await repos.calendar.findEvent('preserved')).status).toBe('active');
+    expect((await repos.calendar.getSync('cal-1')).complete).toBe(false);
+  });
+  it('来源通知失败可重试且未发布完整观察，跨归属同ID不能覆盖旧事件', async () => {
+    await repos.calendar.upsertEvent(projected('preserved')); let count = 0;
+    const channel = new FeishuChannels({ ...deps(larkBin), notifySourceChanged: async () => { if (++count === 1) throw new Error('notify failed'); } });
+    expect((await channel.syncCalendarWindow('cal-1', ...window())).ok).toBe(false);
+    expect((await repos.calendar.getSync('cal-1')).complete).toBe(false);
+    expect((await channel.syncCalendarWindow('cal-1', ...window())).ok).toBe(true); expect(count).toBe(2);
+    await expect(repos.calendar.upsertEvent(projected('preserved', 'wecom', 'wecom'))).rejects.toThrow(/归属/);
+    expect((await repos.calendar.findEvent('preserved')).calendar_id).toBe('cal-1');
+  });
+  it('同步状态的日历ID跨渠道碰撞不能报告成功或覆盖原渠道新鲜度', async () => {
+    await repos.calendar.saveSync({ calendar_id: 'cal-1', channel: 'wecom', window_start: window()[0], window_end: window()[1], complete: true });
+    expect((await lark.syncCalendarWindow('cal-1', ...window())).ok).toBe(false);
+    expect((await repos.calendar.getSync('cal-1')).channel).toBe('wecom');
+  });
+  it('企微只接受覆盖窗口且数量完整的观察，越界和缺行不能宣告来源删除', async () => {
+    const from = new Date(Date.now() - 3600000), to = new Date(Date.now() + 3600000);
+    let calls = 0; wecom.wecomRun = async () => { calls++; return { data: { schedule_list: [], schedule_list_count: 1 } }; };
+    expect((await wecom.syncWecomCalendarWindow(from, to)).ok).toBe(false);
+    wecom.wecomRun = async () => { calls++; return { data: { schedule_list: [], schedule_list_count: 0 } }; };
+    expect((await wecom.syncWecomCalendarWindow(new Date(Date.now() - 40 * 86400000), to)).ok).toBe(false);
+    expect(calls).toBe(1);
+    expect((await wecom.syncWecomCalendarWindow(from, to)).ok).toBe(true);
   });
 
   const delivery = (send, routes = () => repos.messageRoutes, extra = {}) => new OutboxDelivery({

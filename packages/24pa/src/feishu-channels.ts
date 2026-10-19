@@ -1,3 +1,5 @@
+import { observeCalendar } from './calendar-observation.js';
+import { localDay } from './calendar-time.js';
 // Feishu channel module (round-3 arch-1): the calendar/task/memo operations
 // that talk to lark-cli behind one deep module — CLI envelopes, staged
 // operations, projection sync and receipts. Channel selection semantics
@@ -19,25 +21,33 @@ export interface FeishuDeps extends SharedChannelDeps {
   gate<T>(key: string, work: () => Promise<T>): Promise<T>;
   stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;
   notifySourceChanged(sourceType: 'task' | 'calendar', sourceId: string, currentFingerprint: string | null): Promise<void>;
-  linkedEventIdsInWindow(from: Date, to: Date): Promise<string[]>;
   memory(): MemoryStore | null;
 }
 
 // ---- remote-shape mappers (moved from runtime.ts; pure, Feishu-CLI shaped) ----
 
-export function mapRemoteEvent(raw: any): { eventId: string; summary: string; start: Date; end: Date; isAllDay: boolean; timezone: string | null; canceled: boolean; recurring: boolean; attendees: unknown; url: string | null } | null {
+export function mapRemoteEvent(raw: any, defaultTimezone = 'Asia/Shanghai'): { eventId: string; summary: string; start: Date; end: Date; isAllDay: boolean; timezone: string | null; canceled: boolean; recurring: boolean; attendees: unknown; url: string | null } | null {
   const eventId = String(raw?.event_id ?? raw?.eventId ?? raw?.id ?? '');
   const summary = String(raw?.summary ?? raw?.title ?? '');
-  const start = new Date(String(raw?.start_time ?? raw?.start ?? raw?.startTime ?? ''));
-  const end = new Date(String(raw?.end_time ?? raw?.end ?? raw?.endTime ?? ''));
-  if (!eventId || !summary || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const rawStart = raw?.start_time ?? raw?.start ?? raw?.startTime;
+  const rawEnd = raw?.end_time ?? raw?.end ?? raw?.endTime;
+  const timezone = String(rawStart?.timezone ?? raw?.timezone ?? defaultTimezone);
+  const dateOnly = typeof rawStart === 'object' && typeof rawStart?.date === 'string';
+  const parse = (value: any, inclusiveEnd = false): Date => {
+    if (value?.date) return localDay(String(value.date), timezone, inclusiveEnd ? 1 : 0).from;
+    if (value?.timestamp != null) return new Date(Number(value.timestamp) * 1000);
+    return new Date(String(value?.datetime ?? value ?? ''));
+  };
+  let start: Date, end: Date;
+  try { start = parse(rawStart); end = parse(rawEnd, dateOnly); } catch { return null; }
+  if (!eventId || !(start < end)) return null;
   return {
     eventId,
     summary,
     start,
     end,
-    isAllDay: raw?.is_all_day === true || raw?.allDay === true,
-    timezone: raw?.timezone ? String(raw.timezone) : null,
+    isAllDay: dateOnly || raw?.is_all_day === true || raw?.allDay === true,
+    timezone,
     canceled: raw?.status === 'canceled' || raw?.canceled === true,
     recurring: !!(raw?.rrule ?? raw?.recurrence?.length),
     attendees: raw?.attendees ?? raw?.attendee_ids ?? null,
@@ -126,7 +136,8 @@ export class FeishuChannels {
     if (kind !== 'create' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询）。');
     if (kind === 'update' && !summary && !start && !end) throw new Error('需要至少一项修改（summary/start/end）。');
     const attendees = Array.isArray(args.attendees) ? (args.attendees as string[]) : null;
-    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}\n${typeof args.rrule === 'string' ? args.rrule : ''}`;
+    if (kind === 'create' && args.timeZone && attendees?.length) throw new Error('指定 IANA 时区的日程暂不支持同时邀请参会人；本次未创建或发送邀请。');
+    const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}\n${typeof args.rrule === 'string' ? args.rrule : ''}\n${String(args.timeZone ?? '')}`;
     return this.deps.gate(`calendar-event:${eventId || 'new'}`, async () => {
     const staged = operationIdOverride
       ? await this.deps.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end, ...(args._authorization as Record<string, unknown> ?? {}) })
@@ -155,6 +166,19 @@ export class FeishuChannels {
       } else {
         cliArgs.push('--event-id', eventId);
       }
+      if (kind === 'create' && args.timeZone) {
+        // The shortcut discards IANA zones. Recurrences must submit their zone
+        // in the same create request, along with the promised reminder offset.
+        const key = hash(staged.row.id);
+        const idempotencyKey = `${key.slice(0, 8)}-${key.slice(8, 12)}-5${key.slice(13, 16)}-a${key.slice(17, 20)}-${key.slice(20, 32)}`;
+        cliArgs.splice(0, cliArgs.length, 'calendar', 'events', 'create', '--as', 'user', '--calendar-id', calendarId,
+          '--idempotency-key', idempotencyKey, '--data', JSON.stringify({
+            summary: `[24PA] ${summary}`,
+            start_time: { timestamp: String(Math.floor(start!.getTime() / 1000)), timezone: String(args.timeZone) },
+            end_time: { timestamp: String(Math.floor(end!.getTime() / 1000)), timezone: String(args.timeZone) },
+            reminders: [{ minutes: 5 }], ...(args.rrule ? { recurrence: args.rrule } : {}),
+          }));
+      }
       const { data } = await this.deps.performExternal(staged.row.id, () => runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs));
       const event = data?.event ?? data;
       const newEventId = String(event?.event_id ?? event?.eventId ?? eventId);
@@ -179,9 +203,9 @@ export class FeishuChannels {
             start_time: startTime,
             end_time: endTime,
             is_all_day: prior?.is_all_day ?? false,
-            timezone: prior?.timezone ?? null,
+            timezone: args.timeZone ? String(args.timeZone) : prior?.timezone ?? null,
             status: 'active',
-            recurring: prior?.recurring ?? false,
+            recurring: typeof args.rrule === 'string' && !!args.rrule || prior?.recurring || false,
             attendees: attendees ?? prior?.attendees ?? null,
             url: url ?? prior?.url ?? null,
             raw: event,
@@ -265,57 +289,25 @@ export class FeishuChannels {
   }
 
   async syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }> {
-    try {
-      const { data } = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), [
-        'calendar', '+agenda', '--as', 'user', '--calendar-id', calendarId,
-        '--start', from.toISOString().slice(0, 10), '--end', to.toISOString().slice(0, 10),
-      ]);
-      const raw = (data?.events ?? data?.items ?? data ?? []);
-      // An unrecognized response shape means the full window is unknown;
-      // never run destructive cancellation marking in that case.
-      if (!Array.isArray(raw)) {
-        await this.deps.repos().calendar.saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: false, lastError: '同步返回形状无法识别' });
-        return { ok: false, error: '同步返回形状无法识别' };
-      }
-      const live: string[] = [];
-      for (const rawEvent of raw) {
-        const mapped = mapRemoteEvent(rawEvent);
-        if (!mapped) continue;
-        const existing = await this.deps.repos().calendar.findEvent(mapped.eventId);
-        if (existing) {
-          const afterFp = eventFingerprint({ event_id: mapped.eventId, summary: mapped.summary, start_time: mapped.start });
-          if (eventFingerprint(existing) !== afterFp) await this.deps.notifySourceChanged('calendar', mapped.eventId, afterFp);
-        }
-        await this.deps.repos().calendar.upsertEvent({
-          event_id: mapped.eventId,
-          calendar_id: calendarId,
-          summary: mapped.summary,
-          start_time: mapped.start,
-          end_time: mapped.end,
-          is_all_day: mapped.isAllDay,
-          timezone: mapped.timezone,
-          status: mapped.canceled ? 'canceled' : 'active',
-          recurring: mapped.recurring,
-          attendees: mapped.attendees,
-          url: mapped.url,
-          raw: rawEvent,
+    return this.deps.gate(`calendar-observation:feishu:${calendarId}`, () => observeCalendar(
+      this.deps.repos().calendar, this.deps.notifySourceChanged,
+      { calendarId, channel: 'feishu', from, to }, async () => {
+        const { data } = await runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), [
+          'calendar', '+agenda', '--as', 'user', '--calendar-id', calendarId,
+          '--start', from.toISOString(), '--end', to.toISOString(),
+        ]);
+        const raw = data?.events ?? data?.items ?? data;
+        if (!Array.isArray(raw)) throw new Error('同步返回形状无法识别');
+        return raw.map(rawEvent => {
+          const mapped = mapRemoteEvent(rawEvent, this.deps.config().timeZone);
+          if (!mapped) throw new Error('日历条目无法完整解析');
+          return { event_id: mapped.eventId, calendar_id: calendarId, channel: 'feishu' as const,
+            summary: mapped.summary, start_time: mapped.start, end_time: mapped.end,
+            is_all_day: mapped.isAllDay, timezone: mapped.timezone, status: mapped.canceled ? 'canceled' : 'active',
+            recurring: mapped.recurring, attendees: mapped.attendees, url: mapped.url, raw: rawEvent };
         });
-        live.push(mapped.eventId);
-      }
-      await this.deps.repos().calendar.markCanceledExcept(calendarId, live, from, to);
-      // Remote cancellations surface through linked reminders too: any linked
-      // event in this window that is no longer live gets its correction (P19).
-      for (const eventId of await this.deps.linkedEventIdsInWindow(from, to)) {
-        if (!live.includes(eventId)) await this.deps.notifySourceChanged('calendar', eventId, null);
-      }
-      await this.deps.repos().calendar.saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: true });
-      return { ok: true };
-    } catch (error) {
-      await this.deps.repos().calendar
-        .saveSync({ calendar_id: calendarId, window_start: from, window_end: to, complete: false, lastError: (error as Error).message })
-        .catch(() => {});
-      return { ok: false, error: (error as Error).message };
-    }
+      },
+    ));
   }
 
   // ---- tasks ----------------------------------------------------------------
