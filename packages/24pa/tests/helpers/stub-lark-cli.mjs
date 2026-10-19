@@ -230,6 +230,12 @@ if (plain[0] === 'calendar' && plain[1] === '+agenda') {
   ok({ events: inWindow.map(e => ({ event_id: e.event_id, summary: e.summary, start_time: e.start, end_time: e.end, is_all_day: e.all_day === true, status: e.status, url: e.url, attendees: e.attendees ?? [] })) });
 }
 if (plain[0] === 'calendar' && plain[1] === 'events' && plain[2] === 'create') {
+  if (state.failNext?.command === 'calendar.create') {
+    await writeState({ ...state, failNext: null }); fail('calendar create rejected');
+  }
+  if (state.failNext?.command === 'calendar.create_unknown') {
+    await writeState({ ...state, failNext: null }); console.log('receipt unavailable'); process.exit(0);
+  }
   const body = JSON.parse(argOf('--data'));
   const event_id = `evtstub-${events.length + 1}`;
   const record = { event_id, summary: body.summary, start: new Date(Number(body.start_time.timestamp) * 1000).toISOString(), end: new Date(Number(body.end_time.timestamp) * 1000).toISOString(), status: 'active', all_day: false, rrule: body.recurrence ?? null, timezone: body.start_time.timezone, reminders: body.reminders, url: `https://example.feishu.cn/calendar/event/${event_id}`, attendees: [] };

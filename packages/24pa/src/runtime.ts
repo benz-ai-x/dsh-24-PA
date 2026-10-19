@@ -320,7 +320,7 @@ export class PaRuntime {
     nativeSchedule: () => this.nativeSchedule(),
     planChangesAvailable: () => !this.closed && !this.workspaceChanging,
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
-    calendarWrite: (item, kind, args) => this.calendarWrite(item, kind, args),
+    calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
     inspectNoteTrust: (noteId, versionId) => this.handwriting.inspectTrust(noteId, versionId),
     ownerNotification: (key, report) => this.ownerNotification(key, report),
     waitingFollowups: () => this.waitingFollowups,
@@ -1717,6 +1717,7 @@ export class PaRuntime {
         });
         try {
           if (String(args.worker) === 'digest') await this.digest.admit(item, agent.session);
+          if (String(args.worker) === 'calendar') await this.digest.admit(item, agent.session, true);
           if (note) await this.repos!.notes.updateNote(note.id, { work_item_id: id });
           return (await this.repos!.workItems.update(id, { status: 'queued', progress: '排队等待 Worker' }))!;
         } catch (error) {

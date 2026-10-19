@@ -8,7 +8,7 @@ import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { startPgCluster } from '../helpers/pg.mjs';
-import { renderReminderFraming, renderRecurringReminderBatchFraming } from '@deepseek-ai/dsh-schedule';
+import { ScheduleService, renderReminderFraming, renderRecurringReminderBatchFraming } from '@deepseek-ai/dsh-schedule';
 
 const catalog = new SkillCatalog({
   register: () => () => {},
@@ -28,7 +28,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
   afterAll(async () => { await db?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true }); });
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
   beforeEach(async () => {
-    for (const table of ['digest_work_binding', 'digest_occurrence', 'digest_plan', 'outbox', 'work_item']) await db.query(`delete from pa24.${table}`);
+    for (const table of ['digest_work_binding', 'digest_occurrence', 'digest_plan', 'outbox', 'work_item', 'task', 'calendar_event', 'calendar_sync_state']) await db.query(`delete from pa24.${table}`);
     failInsert = false; failTarget = false;
     const faultDb = {
       query: (...args) => db.query(...args),
@@ -251,4 +251,131 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     expect(await outbox()).toHaveLength(2);
     expect((await outbox()).every(row => row.kind === 'text')).toBe(true);
   });
+
+  it('周事实覆盖本周多日完成和完整下周，迟到及重建继续使用计划时区', async () => {
+    await plan('custom-brief', false, 'weekly');
+    await repos.digests.updatePlan('plan', { schedule_spec: { weekly: { time: '09:00:00', time_zone: 'America/New_York', weekdays: [7] } } });
+    config.timeZone = 'Asia/Tokyo';
+    for (const [id, status, synced, due] of [
+      ['monday', 'completed', '2026-10-26T04:00:00Z', null], ['sunday', 'completed', '2026-11-02T04:59:59Z', null],
+      ['boundary', 'completed', '2026-11-02T05:00:00Z', null], ['next-sunday', 'open', null, '2026-11-09T04:59:59Z'], ['outside', 'open', null, '2026-11-09T05:00:00Z'],
+    ]) await repos.tasks.save({ id, task_guid: id, summary: id, status, url: null, due_at: due ? new Date(due) : null, due_has_time: true, planned_at: null, estimate_minutes: null, work_item_id: null, external_updated_at: null, last_synced_at: synced ? new Date(synced) : null });
+    const windows = []; deps.syncCalendarWindow = async (_id, from, to) => { windows.push([from.toISOString(), to.toISOString()]); return { ok: true }; };
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-03T01:00:00Z'));
+    const work = await admittedItem('late-week', new Date(), scheduledSession('2026-11-01T14:00:00.000Z'));
+    const first = await digest.digestBuild(work, { planId: 'plan' });
+    expect(first.facts.period).toMatchObject({ from: '2026-10-26T04:00:00.000Z', to: '2026-11-02T05:00:00.000Z', nextTo: '2026-11-09T05:00:00.000Z', timeZone: 'America/New_York', late: true, source: 'schedule' });
+    expect(first.facts.tasksCompletedToday.map(t => t.guid).sort()).toEqual(['monday', 'sunday']);
+    expect(first.facts.nextWeek.tasks.map(t => t.guid)).toEqual(['next-sunday']);
+    expect(windows).toEqual([['2026-10-26T04:00:00.000Z', '2026-11-02T05:00:00.000Z'], ['2026-11-02T05:00:00.000Z', '2026-11-09T05:00:00.000Z']]);
+    await repos.digests.updatePlan('plan', { schedule_spec: { weekly: { time: '09:00:00', time_zone: 'UTC', weekdays: [7] } } });
+    digest = new DigestService(deps); vi.setSystemTime(new Date('2026-11-10T01:00:00Z'));
+    expect((await digest.digestBuild(work, { planId: 'plan' })).facts.period).toMatchObject({ from: first.facts.period.from, to: first.facts.period.to, timeZone: 'America/New_York' });
+  });
+
+  it('跨日迟到模板按原日界生成并标明查询时间，手动运行另存当前上下文', async () => {
+    await plan('digest-evening');
+    await repos.digests.updatePlan('plan', { schedule_spec: { daily: { time: '20:00:00', time_zone: 'America/New_York' } } });
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-03T01:00:00Z'));
+    const work = await admittedItem('late-day', new Date(), scheduledSession('2026-11-01T14:00:00.000Z'));
+    await digest.digestBuild(work, { planId: 'plan' });
+    const saved = await repos.digests.runForWorkItem('plan', work.id);
+    expect(saved.time_context).toMatchObject({ kind: 'evening', from: '2026-11-01T04:00:00.000Z', to: '2026-11-02T05:00:00.000Z' });
+    expect(saved.report).toContain('迟到'); expect(saved.report).toContain('2026-11-01'); expect(saved.report).toContain('2026-11-03T01:00:00.000Z');
+    await digest.digestRunNow('plan');
+    const manual = (await repos.digests.occurrencesOf('plan')).find(o => o.window_key.startsWith('manual-'));
+    expect(manual.time_context).toMatchObject({ source: 'manual', localFrom: '2026-11-02', timeZone: 'America/New_York' });
+  });
+
+  it('手动完成不能抵消自动漏办，宽限从实际投递计算且重启不重置', async () => {
+    await plan('digest-morning'); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-19T04:00:00Z'));
+    await digest.digestRunNow('plan'); const notices = []; deps.notifyOwner = async (...args) => notices.push(args);
+    deps.startedAt = () => '2020-01-01T00:00:00Z';
+    const native = { history: async () => ({ records: [{ scheduledAt: '2026-10-18T00:00:00Z', deliveredAt: '2026-10-19T03:59:30Z', messageId: 'not-completed' }] }), delete: async () => ({ deleted: true }) };
+    deps.nativeSchedule = () => native;
+    expect((await digest.superviseDigests(60000)).results[0].action).toBe('checked'); expect((await repos.digests.getPlan('plan')).status).toBe('active');
+    vi.setSystemTime(new Date('2026-10-19T04:01:00Z')); digest = new DigestService(deps); deps.startedAt = () => new Date().toISOString();
+    expect((await digest.superviseDigests(60000)).results[0]).toMatchObject({ action: 'paused_unconfirmed', unattributed: 1 }); expect(notices).toHaveLength(1);
+  });
+
+  it('历史逐页核对消息与发生身份，完成一次不能抵消另一次消息', async () => {
+    await plan(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-19T04:00:00Z'));
+    const work = await admittedItem('done', new Date(), scheduledSession('2026-10-18T00:00:00.000Z'));
+    await digest.digestBuild(work, { planId: 'plan' }); await digest.digestDeliver(work, { planId: 'plan', report: '已办' });
+    const calls = [], notices = []; deps.notifyOwner = async (...args) => notices.push(args);
+    deps.nativeSchedule = () => ({ delete: async () => ({ deleted: true }), history: async args => {
+      calls.push(args); return args.before ? { records: [
+        { scheduledAt: '2026-10-18T00:00:00Z', deliveredAt: '2026-10-18T00:00:01Z', messageId: 'schedule-message' },
+        { scheduledAt: '2026-10-18T00:00:00Z', deliveredAt: '2026-10-18T00:00:02Z', messageId: 'other-message' },
+      ], earlierRecordsPruned: true } : { records: Array.from({ length: 100 }, (_, i) => ({ scheduledAt: '2026-10-19T03:59:50Z', deliveredAt: '2026-10-19T03:59:50Z', messageId: 'recent-' + i })), nextBefore: 'cursor' };
+    } });
+    const result = (await digest.superviseDigests(60000)).results[0];
+    expect(result).toMatchObject({ observed: 102, unattributed: 1, action: 'paused_unconfirmed' }); expect(result.overdue[0].messageId).toBe('other-message');
+    expect(calls[1].before).toBe('cursor'); expect(result.warnings.join('')).toContain('保留范围'); expect(notices).toHaveLength(1);
+  });
+
+  it('监督慢历史读取遇到改计划，不能暂停或宣称已暂停新状态', async () => {
+    await plan(); let release, entered; const ready = new Promise(resolve => { entered = resolve; }); const barrier = new Promise(resolve => { release = resolve; }); let deletes = 0; const notices = [];
+    deps.notifyOwner = async (...args) => notices.push(args);
+    deps.nativeSchedule = () => ({ delete: async () => { deletes += 1; return { deleted: true }; }, history: async () => { entered(); await barrier; return { records: [{ scheduledAt: '2020-01-01T00:00:00Z', deliveredAt: '2020-01-01T00:00:00Z', messageId: 'old' }] }; } });
+    const checking = digest.superviseDigests(1); await ready; await digest.digestControl({ planId: 'plan', op: 'voice', voice: true }); release();
+    expect((await checking).results[0].action).toBe('changed_during_check'); expect((await repos.digests.getPlan('plan')).status).toBe('active'); expect(deletes).toBe(0); expect(notices).toHaveLength(0);
+  });
+
+
+  it('旧未完成窗口缺事实区间时不随当前时区重建，旧报告仍按原文恢复', async () => {
+    await plan(); const work = await admittedItem('legacy', new Date('2026-11-01T23:00:00Z'));
+    await repos.digests.claimRun({ planId: 'plan', windowKey: '2026-11-01', workItemId: work.id });
+    await expect(digest.digestBuild(work, { planId: 'plan' })).rejects.toThrow('缺少已固定的事实区间');
+    expect((await repos.digests.runForWorkItem('plan', work.id)).time_context).toBeNull(); expect(await outbox()).toHaveLength(0);
+    await repos.digests.completeRun({ planId: 'plan', occurrenceId: 'plan:2026-11-01', report: '旧版实际报告与原说明', notifications: [] });
+    await repos.digests.updatePlan('plan', { skill: 'deleted-skill' });
+    await digest.digestBuild(work, { planId: 'plan' }); expect((await outbox())[0].content.text).toBe('旧版实际报告与原说明');
+  });
+
+  it('旧正文没有发送意图仍待核对，恢复原文入队后才满足监督完成', async () => {
+    await plan(); const at = new Date(Date.now() - 120000).toISOString();
+    const work = await admittedItem('legacy-unsent', new Date(), scheduledSession(at));
+    const { row } = await repos.digests.claimRun({ planId: 'plan', windowKey: 'legacy', workItemId: work.id });
+    await repos.digests.updateOccurrence(row.id, { status: 'model_done', report: '已保存未发送' });
+    const records = [{ scheduledAt: at, deliveredAt: at, messageId: 'schedule-message' }];
+    deps.notifyOwner = async () => {};
+    deps.nativeSchedule = () => ({ history: async () => ({ records }), delete: async () => ({ deleted: true }) });
+    expect((await digest.superviseDigests(1)).results[0].action).toBe('paused_unconfirmed');
+    expect(await outbox()).toHaveLength(0);
+    await repos.digests.updatePlan('plan', { status: 'active', schedule_id: 'schedule-1' });
+    await digest.digestBuild(work, { planId: 'plan' });
+    expect((await outbox())[0].content.text).toBe('已保存未发送');
+    expect((await digest.superviseDigests(1)).results[0].overdue).toEqual([]);
+  });
+
+  it('真实原生同 ID 调整保留历史，旧代只待核对，新代漏办仍监督且重启不丢代次', async () => {
+    const table = new Map(); table.put = async (key, value) => table.set(key, value);
+    // Exercise installed create/update/catalog/history/delete; replace storage
+    // and Session ownership only, preserving the host history semantics.
+    const native = Object.create(ScheduleService.prototype);
+    Object.assign(native, { getDomain: async () => ({ table: () => table }), serialize: async fn => fn(), reminderTargetRefusal: () => undefined, emitChanged: () => {}, retention: { days: 90, records: 1000 } });
+    deps.nativeSchedule = () => native; deps.notifyOwner = async () => {};
+    const enabled = await digest.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'custom-brief' });
+    const before = await repos.digests.getPlan(enabled.planId);
+    const at = new Date(Date.now() - 120000).toISOString(), oldPrompt = table.get(before.schedule_id).record.prompt;
+    const oldRecord = { scheduledAt: at, deliveredAt: at, messageId: 'old-native', prompt: oldPrompt };
+    table.get(before.schedule_id).deliveryHistory.records.push(oldRecord);
+    const stale = await admittedItem('old-before-build', new Date(), session([
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { id: 'old-native', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming({ id: before.schedule_id, prompt: oldPrompt, scheduledAt: at }) }] } },
+    ]));
+    await digest.digestControl({ planId: before.id, op: 'adjust', time: '09:30:00', timeZone: 'UTC' });
+    const adjusted = await repos.digests.getPlan(before.id);
+    expect(adjusted.schedule_id).toBe(before.schedule_id); expect(adjusted.schedule_generation).not.toBe(before.schedule_generation);
+    await expect(digest.digestBuild(stale, { planId: before.id })).rejects.toThrow('安排代次');
+    digest = new DigestService(deps);
+    const observed = (await digest.superviseDigests(1)).results[0];
+    expect(observed).toMatchObject({ action: 'checked', overdue: [], previousUnconfirmed: [oldRecord] });
+    expect(observed.warnings.join('')).toContain('旧安排'); expect((await repos.digests.getPlan(before.id)).status).toBe('active');
+    table.get(before.schedule_id).deliveryHistory.records.push({ ...oldRecord, messageId: 'new-native', prompt: table.get(before.schedule_id).record.prompt });
+    const missed = (await digest.superviseDigests(1)).results[0];
+    expect(missed.action).toBe('paused_unconfirmed'); expect(missed.overdue.map(row => row.messageId)).toEqual(['new-native']);
+  });
+
 });

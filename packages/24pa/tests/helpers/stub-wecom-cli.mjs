@@ -183,6 +183,12 @@ if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'list') 
 }
 
 if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'create') {
+  if (state.failNext?.command === 'calendar.create') {
+    await writeState({ ...state, failNext: null }); failErrcode(850002, 'calendar create rejected');
+  }
+  if (state.failNext?.command === 'calendar.create_unknown') {
+    await writeState({ ...state, failNext: null }); console.log('receipt unavailable'); process.exit(0);
+  }
   const subject = argOf('--subject');
   const begin = argOf('--begin-time');
   const end = argOf('--end-time');

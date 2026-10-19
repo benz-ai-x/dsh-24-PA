@@ -110,7 +110,7 @@ export interface NativeScheduleService {
   delete(request: { sessionId: string; id: string }): Promise<unknown>;
   catalog?(): Promise<Array<Record<string, unknown> & { id: string; sessionId: string; status: string; prompt: string }>>;
   update?(request: { sessionId: string; id: string; expected: Record<string, unknown>; change: Record<string, unknown>; title: string; prompt: string }): Promise<{ id: string; updated: boolean; record?: Record<string, unknown>; code?: string }>;
-  history(request: { sessionId: string; id: string; limit: number }): Promise<{ records?: unknown[] } & Record<string, unknown>>;
+  history(request: { sessionId: string; id: string; limit: number; before?: string }): Promise<{ records?: unknown[] } & Record<string, unknown>>;
 }
 
 export interface FsTarget {

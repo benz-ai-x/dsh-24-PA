@@ -502,4 +502,11 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `alter table pa24.digest_plan add column if not exists revision integer not null default 0`,
     ],
   },
+  {
+    version: 16,
+    statements: [
+      `alter table pa24.digest_occurrence add column if not exists time_context jsonb`,
+      `alter table pa24.digest_plan add column if not exists schedule_generation text`,
+    ],
+  },
 ];

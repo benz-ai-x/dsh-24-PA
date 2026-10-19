@@ -1,3 +1,4 @@
+import { inspectDigestDeliveries } from './digest-supervision.js';
 // Recurring-digest & daily-planning service (F32): 周期服务 (GLOSSARY) — the
 // owner-enabled morning/evening/weekly digests, today's overview and daily
 // planning behind one deep module. F19 voice delivery extends here. The
@@ -13,6 +14,7 @@ import type { ResolvedTaskSkill } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
 import { localDay } from './calendar-time.js';
+import { digestPeriod, type DigestPeriod } from './digest-period.js';
 import { captureDigestTrigger } from './digest-trigger.js';
 
 export interface DigestDeps extends ChannelContextDeps {
@@ -22,7 +24,7 @@ export interface DigestDeps extends ChannelContextDeps {
   nativeSchedule(): NativeScheduleService | null;
   planChangesAvailable?(): boolean;
   syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }>;
-  calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>): Promise<unknown>;
+  calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationId?: string): Promise<unknown>;
   inspectNoteTrust(noteId: string, versionId: string): Promise<NoteTrustResult>;
   ownerNotification(dedupKey: string, report: string): Promise<NewOutbox | null>;
   /** F40（spec 2.11）：任务 skill 目录（宿主挂载时含工作区自定义）。 */
@@ -65,6 +67,8 @@ export function buildSpokenVariant(report: string): string {
 }
 
 export type DigestFacts = {
+    period?: DigestPeriod & { observedAt: string; late: boolean; snapshotNote: string; completionTimeNote: string };
+    nextWeek?: { calendar: DigestFacts['calendar']; tasks: DigestFacts['tasksDue'] };
     calendar: { fresh: boolean; syncedAt: string | null; events: { summary: string; start: string; end: string; allDay: boolean }[] };
     tasksDue: { guid: string; summary: string; dueAt: string | null; plannedAt: string | null; estimateMinutes: number | null; overdue: boolean }[];
     tasksCompletedToday: { guid: string; summary: string }[];
@@ -103,9 +107,10 @@ export class DigestService {
   recoverPlans() { return this.plans.recover(); }
 
   /** Called by delegation before a Worker can start; never accepts model args. */
-  async admit(item: WorkItemRow, session: DshSession): Promise<void> {
+  async admit(item: WorkItemRow, session: DshSession, scheduleOnly = false): Promise<void> {
     if (item.parent_session_id !== session.id) throw new Error('事项与触发会话不一致，不能保存计划来源。');
-    await this.deps.repos().digests.recordWorkSource(item.id, captureDigestTrigger(session));
+    const source = captureDigestTrigger(session, scheduleOnly);
+    if (source) await this.deps.repos().digests.recordWorkSource(item.id, source);
   }
 
   /** Local-date window key for a plan kind (morning/evening share the date, weekly uses ISO week). */
@@ -161,7 +166,7 @@ export class DigestService {
       kind,
       title,
       session_id: this.deps.accessSessionId()!,
-      schedule_spec: request,
+      schedule_spec: { ...request, time_zone: timeZone },
       last_window: null,
       // F19：开启时可选语音版（引擎取工作区 tts 配置，默认文本）。
       voice: args.voice === true,
@@ -228,7 +233,7 @@ export class DigestService {
           ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays ?? [1])].sort() } }
           : { daily: { time: String(args.time), time_zone: timeZone } };
       }
-      const adjusted = await this.plans.adjust(plan.id, request, kind);
+      const adjusted = await this.plans.adjust(plan.id, { ...request, time_zone: timeZone }, kind);
       return { planId: plan.id, scheduleId: adjusted.schedule_id, message: '计划已按新安排调整（同一计划保留历史，只影响以后）。' };
     }
     throw new Error('未知计划操作（pause/resume/stop/adjust/voice/skill）。');
@@ -257,15 +262,29 @@ export class DigestService {
   }
 
   /** Gather planning facts once: calendar (with freshness), tasks, waiting, review queue, preferences. */
-  private async planningFacts(now: Date): Promise<DigestFacts> {
-    const { from: dayStart, to: dayEnd, calendarId, sync, events } = await this.planning.observe(now);
+  private async planningFacts(now: Date, context = digestPeriod('morning', this.deps.config().timeZone, now, 'manual')): Promise<DigestFacts> {
+    const dayStart = new Date(context.from), dayEnd = new Date(context.to), calendarId = this.planning.calendarId();
     const missing: string[] = [];
-    if (!sync.ok) missing.push(`日历同步失败（${sync.error ?? '未知'}）：以下为投影，可能过期`);
-    const state = await this.deps.repos().calendar.getSync(calendarId);
-    const tasks = await this.deps.repos().tasks.list();
-    const todayTasks = tasks.filter(t => t.status === 'open' && (
-      (t.due_at && t.due_at < dayEnd) || (t.planned_at && t.planned_at >= dayStart && t.planned_at < dayEnd)));
+    const observe = async (from: Date, to: Date) => {
+      const sync = await this.deps.syncCalendarWindow(calendarId, from, to).catch(error => ({ ok: false, error: (error as Error).message }));
+      const events = await this.deps.repos().calendar.eventsIn(calendarId, from, to);
+      const state = await this.deps.repos().calendar.getSync(calendarId);
+      if (!sync.ok) missing.push(`日历同步失败（${from.toISOString()} 至 ${to.toISOString()}，${sync.error ?? '未知'}）：以下为投影，可能过期`);
+      return { fresh: sync.ok, syncedAt: isoDate(state?.last_synced_at ?? null), events: events.map(e => ({ summary: e.summary,
+        start: new Date(Math.max(e.start_time.getTime(), from.getTime())).toISOString(), end: new Date(Math.min(e.end_time.getTime(), to.getTime())).toISOString(), allDay: e.is_all_day })) };
+    };
+    const calendar = await observe(dayStart, dayEnd);
+    const tasks = await this.deps.repos().tasks.all();
+    const mapTask = (t: typeof tasks[number]) => ({ guid: t.task_guid, summary: t.summary, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes,
+      overdue: !!(t.due_at && new Date(t.due_at).getTime() < new Date(context.anchorAt).getTime()) });
+    const todayTasks = tasks.filter(t => t.status === 'open' && ((t.due_at && t.due_at < dayEnd) || (t.planned_at && t.planned_at >= dayStart && t.planned_at < dayEnd)));
     const completedToday = tasks.filter(t => t.status === 'completed' && t.last_synced_at && t.last_synced_at >= dayStart && t.last_synced_at < dayEnd);
+    let nextWeek: DigestFacts['nextWeek'];
+    if (context.nextTo) {
+      const nextEnd = new Date(context.nextTo);
+      nextWeek = { calendar: await observe(dayEnd, nextEnd), tasks: tasks.filter(t => t.status === 'open' &&
+        ((t.due_at && t.due_at >= dayEnd && t.due_at < nextEnd) || (t.planned_at && t.planned_at >= dayEnd && t.planned_at < nextEnd))).map(mapTask) };
+    }
     const waiting = await this.deps.repos().waiting.list('waiting');
     const reviewQueueCount = await this.deps.reviewQueueCount().catch(() => -1);
     const reviewedNotes: { noteId: string; version: number; summary: string; docUrl: string | null; reviewedAt: string | null }[] = [];
@@ -305,19 +324,9 @@ export class DigestService {
       }
     } catch { missing.push('项目列表读取失败，概览未包含该部分，不按零处理'); }
     return {
-      calendar: {
-        fresh: sync.ok,
-        syncedAt: isoDate(state?.last_synced_at ?? null),
-        events: events.map(e => ({ summary: e.summary, start: new Date(Math.max(e.start_time.getTime(), dayStart.getTime())).toISOString(), end: new Date(Math.min(e.end_time.getTime(), dayEnd.getTime())).toISOString(), allDay: e.is_all_day })),
-      },
-      tasksDue: todayTasks.map(t => ({
-        guid: t.task_guid,
-        summary: t.summary,
-        dueAt: isoDate(t.due_at),
-        plannedAt: isoDate(t.planned_at),
-        estimateMinutes: t.estimate_minutes,
-        overdue: !!(t.due_at && new Date(t.due_at).getTime() < now.getTime()),
-      })),
+      period: { ...context, observedAt: now.toISOString(), late: now >= dayEnd, snapshotNote: '任务、等待、项目与笔记反映查询时的当前投影，并非原发生时刻的完整历史快照。', completionTimeNote: '完成任务按投影最后同步时间筛选，不能作为精确完成时间。' },
+      calendar, nextWeek,
+      tasksDue: todayTasks.map(mapTask),
       tasksCompletedToday: completedToday.map(t => ({ guid: t.task_guid, summary: t.summary })),
       waiting: waiting.map(w => ({ id: w.id, title: w.title, checkpointAt: w.checkpoint_at?.toISOString() ?? null })),
       reviewQueueCount,
@@ -340,8 +349,13 @@ export class DigestService {
     if (boundRun && this.wasDelivered(boundRun)) return this.completedDelivery(item, plan, boundRun);
     if (plan.kind === 'meeting_prep') throw new Error('会前准备计划请用 meeting_prep_build 生成准备包。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
+    const originalReport = boundRun && this.savedReport(boundRun);
+    if (originalReport) return this.restoreSavedReport(item, plan, boundRun!, originalReport);
+    const boundSkill = await this.boundSkillOrThrow(plan);
+    if (boundRun && !boundRun.time_context && !this.savedReport(boundRun)) throw new Error('历史运行缺少已固定的事实区间，原记录保留待核对；请明确重新运行，不能按当前计划猜测。');
+    let timeContext = boundRun?.time_context ?? undefined;
     let requestedWindow = boundRun?.window_key;
-    if (!requestedWindow) {
+    if (!requestedWindow || !timeContext) {
       const admitted = await this.deps.repos().workItems.get(item.id);
       if (!admitted?.created_at || !Number.isFinite(new Date(admitted.created_at).getTime())) {
         throw new Error('本事项缺少可确认的准入时间，不能猜测运行窗口。');
@@ -356,6 +370,7 @@ export class DigestService {
         if (source.sessionId !== plan.session_id || !delivery || !Number.isFinite(Date.parse(delivery.occurrenceAt))) {
           throw new Error('本事项的宿主触发无法匹配当前计划（计划可能已调整），请按当前计划重新委派，不能猜测窗口。');
         }
+        if (plan.schedule_generation && delivery.generation !== plan.schedule_generation) throw new Error('本事项来自旧安排或无法核验安排代次；原记录保留待核对，不能套用新计划区间。');
         occurrenceAt = new Date(delivery.occurrenceAt);
       } else if (source.kind === 'admission') {
         // A current, explicitly captured non-Schedule turn is manual work.
@@ -363,25 +378,21 @@ export class DigestService {
       } else {
         throw new Error('事项触发来源无法核验，请重新委派计划任务。');
       }
-      const timeZone = plan.schedule_spec?.daily?.time_zone ?? plan.schedule_spec?.weekly?.time_zone ?? this.deps.config().timeZone;
-      requestedWindow = this.digestWindowKey(plan.kind, timeZone, occurrenceAt);
+      const timeZone = plan.schedule_spec?.daily?.time_zone ?? plan.schedule_spec?.weekly?.time_zone ?? plan.schedule_spec?.time_zone ?? this.deps.config().timeZone;
+      requestedWindow ??= this.digestWindowKey(plan.kind, timeZone, occurrenceAt);
+      timeContext = digestPeriod(boundSkill?.kind ?? plan.kind, timeZone, occurrenceAt, source.kind === 'schedule' ? 'schedule' : 'manual');
     }
-    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey: requestedWindow, workItemId: item.id });
+    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey: requestedWindow, workItemId: item.id, timeContext });
     const windowKey = row.window_key;
     if (!created && this.wasDelivered(row)) {
       return { planId, windowKey, reused: true, status: row.status, message: `本窗口（${windowKey}）简报已生成，不重复发布。` };
     }
     const savedReport = this.savedReport(row);
-    if (savedReport) {
-      const outboxKey = await this.deliverReport(plan, windowKey, row.id, savedReport);
-      await this.deps.repos().workItems.update(item.id, { result_ref: { planId, windowKey, outboxKey } });
-      return { planId, windowKey, outboxKey, message: '已恢复保存的简报并入发送队列，未重新生成内容。' };
-    }
+    if (savedReport) return this.restoreSavedReport(item, plan, row, savedReport);
     // F41（spec 2.11）：agent 轨＝任务指令交接——Worker（模型）亲自按 skill 正文
     // 与事实生成简报，再经 digest_deliver 交付；模板轨才走确定性组装。
-    const boundSkill = await this.boundSkillOrThrow(plan);
     if (boundSkill?.track === 'agent') {
-      const facts = plan.kind === 'waiting_followup' ? await this.deps.waitingFollowups!().facts(plan) : await this.planningFacts(new Date());
+      const facts = plan.kind === 'waiting_followup' ? await this.deps.waitingFollowups!().facts(plan) : await this.planningFacts(new Date(), row.time_context!);
       return {
         planId,
         windowKey,
@@ -394,6 +405,12 @@ export class DigestService {
     const { facts, report, outboxKey } = await this.buildAndDeliver(plan, windowKey, row.id, boundSkill);
     await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey, outboxKey } });
     return { planId, windowKey, outboxKey, message: '简报已生成并入发送队列（Outbox 持久，平台接受状态以发送记录为准）。' };
+  }
+
+  private async restoreSavedReport(item: WorkItemRow, plan: DigestPlanRow, row: DigestOccurrenceRow, report: string) {
+    const outboxKey = await this.deliverReport(plan, row.window_key, row.id, report);
+    await this.deps.repos().workItems.update(item.id, { result_ref: { planId: plan.id, windowKey: row.window_key, outboxKey } });
+    return { planId: plan.id, windowKey: row.window_key, outboxKey, message: '已恢复保存的简报并入发送队列，未重新生成内容。' };
   }
 
   /** F40：点名 skill 必须在目录中；报错携带可用清单（spec AC）。 */
@@ -418,8 +435,10 @@ export class DigestService {
    * 周报渲染）；agent 轨执行随 F41——在此 fail-loud，不静默换轨。
    */
   private async buildAndDeliver(plan: import('./repo.js').DigestPlanRow, windowKey: string, occurrenceId: string, boundSkill: import('./skills.js').TaskSkill | null): Promise<{ facts: DigestFacts; report: string; outboxKey: string }> {
-    const renderKind = boundSkill?.kind ?? plan.kind;
-    const facts = await this.planningFacts(new Date());
+    const context = (await this.deps.repos().digests.occurrence(occurrenceId))?.time_context;
+    if (!context) throw new Error('运行缺少可核验的事实区间，请核对原发生记录，不能按当前时间补写旧报告。');
+    const renderKind = context.kind;
+    const facts = await this.planningFacts(new Date(), context);
     const report = this.renderDigest({ ...plan, kind: renderKind }, windowKey, facts);
     const outboxKey = await this.deliverReport(plan, windowKey, occurrenceId, report);
     return { facts, report, outboxKey };
@@ -514,20 +533,21 @@ export class DigestService {
    * 计划窗口（08:00 照常触发），不落 WorkItem（面板发起，无事项上下文）。
    */
   digestRunNow(planId: string): Promise<unknown> {
-    return this.withPlanWork(() => this.runPlanNow(planId));
+    const admittedAt = new Date();
+    return this.withPlanWork(() => this.runPlanNow(planId, admittedAt));
   }
-  private async runPlanNow(planId: string): Promise<unknown> {
+  private async runPlanNow(planId: string, admittedAt: Date): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
     if (plan.kind === 'waiting_followup') throw new Error('等待跟进请经原检查点的 digest Worker 办理；调整时间用 waiting_control。');
     if (plan.kind === 'meeting_prep') throw new Error('会前准备请经对话委派 calendar Worker，先复查会议来源。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
-    const windowKey = `manual-${Date.now()}`;
+    const windowKey = `manual-${admittedAt.getTime()}`;
     const bound = await this.boundSkillOrThrow(plan);
     if (bound?.track === 'agent') {
       throw new Error(`计划绑定 agent 轨 skill ${plan.skill}；「立即运行一次」经对话发起（委派 digest Worker），面板直跑仅支持模板轨。`);
     }
-    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey });
+    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey, timeContext: digestPeriod(bound?.kind ?? plan.kind, plan.schedule_spec?.daily?.time_zone ?? plan.schedule_spec?.weekly?.time_zone ?? plan.schedule_spec?.time_zone ?? this.deps.config().timeZone, admittedAt, 'manual') });
     if (!created && this.wasDelivered(row)) {
       return { planId, windowKey, reused: true, message: '本次手动运行已生成过，不重复发布。' };
     }
@@ -542,13 +562,18 @@ export class DigestService {
   ): string {
     const lines: string[] = [];
     lines.push(`【${plan.title}】窗口 ${windowKey}`);
+    const periodLabel = plan.kind === 'weekly' ? '本周' : '本期';
+    if (facts.period) {
+      lines.push(`事实区间：${facts.period.localFrom} 至 ${facts.period.localTo}（不含结束日，${facts.period.timeZone}）；实际查询：${facts.period.observedAt}`);
+      lines.push(`${facts.period.late ? '迟到运行：保留原发生区间；' : ''}任务为当前投影，等待/项目/笔记为查询时当前状态，不代表历史时点快照。`);
+    }
     lines.push('');
     lines.push('一、事实（来自实际对象）');
     if (facts.calendar.events.length) {
       lines.push(`· 日程 ${facts.calendar.events.length} 项（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}${facts.calendar.fresh ? '' : '，本次同步失败可能过期'}）：`);
       for (const event of facts.calendar.events.slice(0, 8)) lines.push(`  - ${event.summary} ${event.start} → ${event.end}${event.allDay ? '（全天）' : ''}`);
     } else {
-      lines.push(`· 今日无日程（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}${facts.calendar.fresh ? '' : '，本次同步失败可能过期'}）`);
+      lines.push(`· ${periodLabel}无日程（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}${facts.calendar.fresh ? '' : '，本次同步失败可能过期'}）`);
     }
     if (facts.tasksDue.length) {
       lines.push(`· 待办 ${facts.tasksDue.length} 项（截止与计划时间分开记录）：`);
@@ -556,10 +581,15 @@ export class DigestService {
         lines.push(`  - ${task.summary}${task.dueAt ? `，截止 ${task.dueAt}` : ''}${task.plannedAt ? `，计划 ${task.plannedAt}` : ''}${task.estimateMinutes != null ? `，估时 ${task.estimateMinutes} 分钟` : ''}${task.overdue ? '，【已逾期】' : ''}`);
       }
     } else {
-      lines.push('· 今日没有到期或计划中的待办');
+      lines.push(`· ${periodLabel}没有到期或计划中的待办`);
     }
     if (plan.kind !== 'morning' && facts.tasksCompletedToday.length) {
-      lines.push(`· 今日同步到完成状态 ${facts.tasksCompletedToday.length} 项（来源：任务投影的同步时间，非精确完成时刻）：${facts.tasksCompletedToday.map(t => t.summary).join('、')}`);
+      lines.push(`· ${periodLabel}同步到完成状态 ${facts.tasksCompletedToday.length} 项（来源：任务投影的同步时间，非精确完成时刻）：${facts.tasksCompletedToday.map(t => t.summary).join('、')}`);
+    }
+    if (facts.nextWeek) {
+      lines.push(`· 下周日历 ${facts.nextWeek.calendar.events.length} 项（同步于 ${facts.nextWeek.calendar.syncedAt ?? '无记录'}${facts.nextWeek.calendar.fresh ? '' : '，可能过期'}）：`);
+      for (const event of facts.nextWeek.calendar.events.slice(0, 12)) lines.push(`  - ${event.summary} ${event.start} → ${event.end}`);
+      lines.push(`· 下周到期/计划任务 ${facts.nextWeek.tasks.length} 项：${facts.nextWeek.tasks.map(t => t.summary).join('、') || '无已知安排'}`);
     }
     if (facts.waiting.length) {
       lines.push(`· 等待事项 ${facts.waiting.length} 项：${facts.waiting.map(w => `${w.title}${w.checkpointAt ? `（检查点 ${w.checkpointAt}）` : ''}`).join('；')}`);
@@ -610,32 +640,20 @@ export class DigestService {
     const results = [];
     for (const plan of await this.deps.repos().digests.listPlans('active')) {
       if (!plan.schedule_id) continue;
-      let delivered = 0;
-      try {
-        const history = await schedule.history({ sessionId: plan.session_id, id: plan.schedule_id, limit: 100 });
-        delivered = Array.isArray((history as { records?: unknown[] }).records) ? (history as { records: unknown[] }).records.length : 0;
-      } catch {
-        continue;
+      const completed = await this.deps.repos().digests.completedSources(plan.id);
+      const observation = await inspectDigestDeliveries(schedule, plan, completed, graceMs, Date.now());
+      if (!observation.overdue.length) { results.push({ planId: plan.id, action: 'checked', ...observation }); continue; }
+      // History reads may overlap owner edits. The lifecycle gate compares the
+      // revision again before changing either the mirror or the native task.
+      const result = await this.plans.stop(plan.id, 'paused', plan.revision);
+      if (result.changedDuringCheck) {
+        results.push({ planId: plan.id, action: 'changed_during_check', ...observation, warning: result.warning }); continue;
       }
-      const completed = (await this.deps.repos().digests.occurrencesOf(plan.id, 100)).filter(o => o.status === 'model_done').length;
-      if (delivered > completed) {
-        const staleDelivery = delivered - completed;
-        const oldest = await this.deps.repos().digests.occurrencesOf(plan.id, 1);
-        const lastDone = oldest[0]?.completed_at ? new Date(oldest[0].completed_at).getTime() : 0;
-        // Unattributable deliveries older than the grace pause the plan.
-        const startedAt = this.deps.startedAt();
-        const startedAtMs = startedAt ? new Date(startedAt).getTime() : Date.now();
-        if (Date.now() - Math.max(lastDone, startedAtMs) > graceMs) {
-          await this.plans.stop(plan.id, 'paused');
-          if (this.deps.config().ownerOpenId) {
-            await this.deps.notifyOwner(
-              `digestunconfirmed:${plan.id}`,
-              `「${plan.title}」计划有 ${staleDelivery} 次投递无法归属到已完成的简报（可能模型未完成或回执写失败），已暂停并标记待核对；恢复前请先核对，不会为过期窗口补发一串简报。`,
-            );
-          }
-          results.push({ planId: plan.id, action: 'paused_unconfirmed', unattributed: staleDelivery });
-        }
+      if (this.deps.config().ownerOpenId) {
+        await this.deps.notifyOwner(`digestunconfirmed:${plan.id}:${plan.schedule_id}`,
+          `「${plan.title}」有 ${observation.overdue.length} 条原生投递超过宽限仍无对应完成回执，已暂停并标记待核对${result.warning ? '，原生清理尚未确认' : ''}；恢复前请先核对，不会为过期窗口补发一串简报。`);
       }
+      results.push({ planId: plan.id, action: 'paused_unconfirmed', unattributed: observation.overdue.length, ...observation, warning: result.warning });
     }
     return { checked: results.length, results };
   }
