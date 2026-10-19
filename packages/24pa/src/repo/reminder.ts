@@ -99,9 +99,35 @@ export class ReminderRepo {
 
   async listRules(status?: string): Promise<ReminderRuleRow[]> {
     const result = status
-      ? await this.db.query<ReminderRuleRow>('select * from pa24.reminder_rule where status = $1 order by next_due_at nulls last limit 100', [status])
-      : await this.db.query<ReminderRuleRow>('select * from pa24.reminder_rule order by next_due_at nulls last limit 100');
+      ? await this.db.query<ReminderRuleRow>('select * from pa24.reminder_rule where status = $1 order by next_due_at nulls last', [status])
+      : await this.db.query<ReminderRuleRow>('select * from pa24.reminder_rule order by next_due_at nulls last');
     return result.rows;
+  }
+
+  /** Retire local timing and unclaimed sends atomically; already dispatched
+   * effects remain visible because neither a sent nor unknown message is undone. */
+  async stopRule(id: string, reason: string): Promise<{ pendingCanceled: number; unresolvedSends: number }> {
+    return this.db.withTransaction(async client => {
+      const row = (await client.query<ReminderRuleRow>('select * from pa24.reminder_rule where id = $1 for update', [id])).rows[0];
+      if (!row) throw new Error('提醒不存在。');
+      await client.query("update pa24.reminder_rule set status = 'stopped', next_due_at = null, record = $2, updated_at = now() where id = $1", [id, JSON.stringify({ ...row.record, stopReason: reason })]);
+      await client.query("update pa24.reminder_occurrence set status = 'canceled', last_error = $2, updated_at = now() where rule_id = $1 and status = 'pending'", [id, reason]);
+      const keys = "select 'reminder:' || id from pa24.reminder_occurrence where rule_id = $1";
+      const canceled = await client.query(`update pa24.outbox set status = 'expired', next_attempt_at = null, last_error = $2 where dedup_key in (${keys}) and status in ('pending', 'failed')`, [id, reason]);
+      const unresolved = await client.query<{ n: number }>(`select count(*) as n from pa24.outbox where dedup_key in (${keys}) and status in ('sending', 'unknown')`, [id]);
+      return { pendingCanceled: canceled.rowCount, unresolvedSends: Number(unresolved.rows[0]?.n ?? 0) };
+    });
+  }
+
+  async retireLegacy(): Promise<number> {
+    let retired = 0;
+    for (const rule of await this.listRules()) {
+      if (rule.record?.type === 'calendar') continue;
+      if (!['active', 'paused', 'completed'].includes(rule.status)) continue;
+      await this.stopRule(rule.id, 'F45 旧提醒引擎已退役；历史保留，需本人明确安排原生日历或智能跟进。');
+      retired += 1;
+    }
+    return retired;
   }
 
   async dueRuleIds(now: Date, lookaheadMs: number): Promise<ReminderRuleRow[]> {

@@ -1,17 +1,11 @@
-// Reminder routing (round-3 arch-8): the F45 decision — clock-shaped
-// reminders become calendar events on the chosen channel, everything else
-// (linked/every/forced) stays on the ledger engine — behind one module next
-// to the ledger it routes between. The runtime's role table keeps only
-// declarations; delegated-row lifecycle (reject/cancel) lives here too.
-
+// F45: clock reminders belong to native calendars; the ledger is a backup.
 import { ReminderError, firstOccurrence } from './reminders.js';
 import {
   createDailyScheduleRecord,
   createWeeklyScheduleRecord,
   ScheduleId,
 } from '@deepseek-ai/dsh-schedule';
-import { text, eventFingerprint, hash } from './util.js';
-import { taskFingerprint } from './feishu-channels.js';
+import { text, hash } from './util.js';
 import type { PaConfig } from './config.js';
 import type { Repos, TaskRow, WorkItemRow } from './repo.js';
 import type { ReminderEngine } from './reminders.js';
@@ -31,40 +25,12 @@ export interface ReminderRouterDeps {
 export class ReminderRouter {
   constructor(private readonly deps: ReminderRouterDeps) {}
 
-  /** F45 路由：时钟型（once/daily/weekly，无跟随、未强制）且日历渠道可用 → 日历；其余 → 账本引擎。 */
+  /** No public route may start the retired F05 timer. */
   async route(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const clockKind = String(args.kind ?? 'once');
-    const hasLink = !!(args.linkTaskGuid || args.linkEventId);
-    // 测试缝：__forceLedger 显式走账本保留面（every/跟随型回归同路径）。
-    const forceLedger = args.__forceLedger === true;
-    if (!hasLink && !forceLedger && ['once', 'daily', 'weekly'].includes(clockKind) && (this.deps.channelsLive() || await this.deps.repos().operations.get(this.intentId(item, args)))) {
-      return this.toCalendar(item, args);
+    if (args.__forceLedger || args.linkTaskGuid || args.linkEventId || !['once', 'daily', 'weekly'].includes(String(args.kind ?? 'once'))) {
+      throw new ReminderError('旧账本提醒引擎已退役；时钟提醒支持 once/daily/weekly，条件或来源跟进请使用智能任务 skill（等待回复可用 waiting_create）。');
     }
-    let link: { sourceType: 'task' | 'calendar'; sourceId: string; fingerprint: string } | undefined;
-    if (args.linkTaskGuid || args.linkEventId) {
-      if (args.linkTaskGuid && args.linkEventId) throw new Error('一次只能跟随一个来源（任务或日程）。');
-      if (args.linkTaskGuid) {
-        const task = await this.deps.resolveTask({ taskId: args.linkTaskGuid, guid: args.linkTaskGuid });
-        link = { sourceType: 'task', sourceId: task.task_guid, fingerprint: taskFingerprint(task) };
-      } else {
-        const event = await this.deps.repos().calendar.findEvent(String(args.linkEventId));
-        if (!event) throw new Error('日程不存在；请先 calendar_query 同步并取得 event_id。');
-        link = { sourceType: 'calendar', sourceId: event.event_id, fingerprint: eventFingerprint(event) };
-      }
-    }
-    const result = await this.deps.ledger().create({
-      kind: String(args.kind ?? 'once') as any,
-      text: text(args.text, 500),
-      afterSeconds: args.afterSeconds == null ? undefined : Number(args.afterSeconds),
-      at: args.at == null ? undefined : String(args.at),
-      everySeconds: args.everySeconds == null ? undefined : Number(args.everySeconds),
-      time: args.time == null ? undefined : String(args.time),
-      weekdays: Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined,
-      timeZone: String(args.timeZone ?? this.deps.config().timeZone),
-      source: args.source ? text(args.source, 500) : undefined,
-      link,
-    });
-    return result;
+    return this.toCalendar(item, args);
   }
 
   private intentId(item: WorkItemRow, args: Record<string, unknown>): string {
@@ -111,7 +77,7 @@ export class ReminderRouter {
       rrule = `FREQ=WEEKLY;BYDAY=${sorted.map(d => ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'][d - 1]).join(',')}`;
       originExpression = `weekly ${args.time} ${sorted.join(',')} ${timeZone}`;
     } else {
-      throw new ReminderError('时钟型日程化支持 once/daily/weekly；every 与跟随来源型仍走账本引擎。');
+      throw new ReminderError('时钟型日程化支持 once/daily/weekly；条件与来源跟进由智能任务 skill 承接。');
     }
     const end = new Date(start.getTime() + 15 * 60 * 1000);
     const channel = this.deps.config().calendarChannel;
@@ -154,22 +120,23 @@ export class ReminderRouter {
     if (rule?.status === 'delegated') {
       throw new Error(`该提醒已日程化（App 原生提醒），账本侧「${op}」不适用；请在对应日历 App 内操作，或让我更新/删除该日程事件。`);
     }
-    return undefined;
+    throw new ReminderError('旧账本提醒引擎已退役，不能继续计时；请明确设置新的原生日历提醒，历史记录保留。');
   }
 
   async cancel(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
     const rule = await this.deps.repos().reminders.getRule(ruleId);
     if (rule?.status === 'delegated') {
-      const record = rule.record as { event_id?: string | null; channel?: string; calendar_id?: string };
-      if (record?.event_id) {
+      const record = rule.record as { event_id?: string | null; channel?: string; calendar_id?: string; rrule?: string | null };
+      if (!record?.event_id) throw new ReminderError('原提醒缺少事件标识，请先核对原事件，不能确认停止。');
+      if (record.event_id) {
         const event = await this.deps.repos().calendar.findEvent(record.event_id);
         const channel = record.channel ?? event?.channel;
         const calendarId = record.calendar_id ?? event?.calendar_id;
         if (!channel || !calendarId) throw new ReminderError('原提醒的日历归属缺失，请先核对原事件。');
-        await this.deps.calendarWrite(item, 'cancel', { eventId: record.event_id, channel, calendarId });
+        await this.deps.calendarWrite(item, 'cancel', { eventId: record.event_id, channel, calendarId, ...(record.rrule || event?.recurring ? { repeatScope: 'all' } : {}) }, `reminder.cancel:${rule.id}`);
       }
       return this.deps.ledger().setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
     }
-    return this.deps.ledger().setStatus(ruleId, 'stopped', reason);
+    return this.deps.ledger().setStatus(ruleId, 'stopped', reason || '本人取消历史提醒');
   }
 }

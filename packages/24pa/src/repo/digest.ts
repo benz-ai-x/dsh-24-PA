@@ -160,6 +160,12 @@ export class DigestRepo {
       if ((row.status === 'model_done' || row.status === 'sent') && (row.outbox_key || input.notifications.length === 0)) {
         return { reused: true, row };
       }
+      if (plan.kind === 'waiting_followup') {
+        const waiting = await client.query(`update pa24.waiting_item set ask_count = ask_count + 1, last_asked_at = now(), checkpoint_at = null, updated_at = now()
+          where id = $1 and status = 'waiting' and checkpoint_at = $2 returning id`, [plan.schedule_spec.waitingId, new Date(plan.schedule_spec.checkpointAt)]);
+        if (!waiting.rowCount) throw new Error('等待状态或检查点已改变，旧询问不再发布。');
+        if (input.notifications.length !== 1) throw new Error('等待询问缺少本人投递目标，尚未完成。');
+      }
       const outboxKey = `digest:${row.id}`;
       for (const notification of input.notifications) await enqueueOutbox(client, notification);
       await client.query(

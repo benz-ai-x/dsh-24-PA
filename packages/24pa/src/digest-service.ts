@@ -27,6 +27,7 @@ export interface DigestDeps extends ChannelContextDeps {
   ownerNotification(dedupKey: string, report: string): Promise<NewOutbox | null>;
   /** F40（spec 2.11）：任务 skill 目录（宿主挂载时含工作区自定义）。 */
   skillCatalog(): import('./skills.js').SkillCatalog;
+  waitingFollowups?(): import('./waiting-followups.js').WaitingFollowups;
 }
 
 export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
@@ -182,6 +183,7 @@ export class DigestService {
     const plan = await this.deps.repos().digests.getPlan(String(args.planId ?? ''));
     if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
     const op = String(args.op ?? '');
+    if (plan.kind === 'waiting_followup' && !['pause', 'stop'].includes(op)) throw new Error('等待检查点请用 waiting_control 管理，不能更换任务 skill 或执行规则。');
     const schedule = this.deps.nativeSchedule();
     if (op === 'pause' || op === 'stop') {
       const { plan: stopped, warning: nativeWarning } = await this.plans.stop(plan.id, op === 'pause' ? 'paused' : 'stopped');
@@ -208,6 +210,7 @@ export class DigestService {
     if (op === 'adjust') {
       // Compare-and-update the same native task; retain business history.
       if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务。');
+      if (plan.kind === 'waiting_followup') throw new Error('等待检查点请用 waiting_control 调整，不能换成简报计划。');
       const kind = String(args.kind ?? plan.kind);
       if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('调整后的计划类型无效。');
       const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
@@ -377,7 +380,7 @@ export class DigestService {
     // 与事实生成简报，再经 digest_deliver 交付；模板轨才走确定性组装。
     const boundSkill = await this.boundSkillOrThrow(plan);
     if (boundSkill?.track === 'agent') {
-      const facts = await this.planningFacts(new Date());
+      const facts = plan.kind === 'waiting_followup' ? await this.deps.waitingFollowups!().facts(plan) : await this.planningFacts(new Date());
       return {
         planId,
         windowKey,
@@ -433,6 +436,7 @@ export class DigestService {
 
   /** Template/agent/meeting preparation share one atomic completion protocol. */
   private async deliverReport(plan: DigestPlanRow, windowKey: string, occurrenceId: string, report: string): Promise<string> {
+    if (plan.kind === 'waiting_followup') await this.deps.waitingFollowups!().beforeDelivery(plan);
     const config = this.deps.config();
     const outboxKey = `digest:${occurrenceId}`;
     const notifications: NewOutbox[] = [];
@@ -503,6 +507,7 @@ export class DigestService {
   private async runPlanNow(planId: string): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
+    if (plan.kind === 'waiting_followup') throw new Error('等待跟进请经原检查点的 digest Worker 办理；调整时间用 waiting_control。');
     if (plan.kind === 'meeting_prep') throw new Error('会前准备请经对话委派 calendar Worker，先复查会议来源。');
     if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
     const windowKey = `manual-${Date.now()}`;

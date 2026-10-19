@@ -195,6 +195,7 @@ if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'cancel'
   const schedule_id = argOf('--schedule-id');
   const schedule = schedules.get(schedule_id);
   if (!schedule) failErrorBody(90460, `日程不存在: ${schedule_id}`);
+  if (schedule.repeat_rule?.is_repeat && JSON.parse(argOf('--repeat-mod') ?? '{}').repeat_edit_type !== 'all') failErrorBody(40001, '周期整条取消需要 repeat_mod all');
   await appendFile(schedulesPath, JSON.stringify({ ...schedule, canceled: true }) + '\n').catch(() => {});
   ok({});
 }

@@ -208,7 +208,8 @@ export class WecomChannels {
     if (kind === 'cancel' && !eventId) throw new Error('需要 eventId（可先 calendar_query 查询企微日程）。');
     const tz = String(args.timeZone ?? this.deps.config().timeZone);
     const repeatRule = wecomRepeatRule(args.rrule);
-    const paramsKey = `wecom\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${tz}\n${JSON.stringify(repeatRule)}`;
+    const repeatMod = kind === 'cancel' && args.repeatScope === 'all' ? { repeat_edit_type: 'all' } : null;
+    const paramsKey = `wecom\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${tz}\n${JSON.stringify(repeatRule)}\n${JSON.stringify(repeatMod)}`;
     return this.deps.gate(`calendar-event:${eventId || 'wecom-new'}`, async () => {
       const staged = operationIdOverride
         ? await this.deps.stagedOperationWithId(operationIdOverride, item, `wecom_calendar.${kind}`, { channel: 'wecom', kind, eventId, summary, start, end, timeZone: tz, repeatRule, ...(args._authorization as Record<string, unknown> ?? {}) })
@@ -252,7 +253,7 @@ export class WecomChannels {
             channel: 'wecom',
           });
         } else {
-          await this.deps.performExternal(staged.row.id, () => this.wecomRun(['calendar', 'schedules', 'cancel', '--schedule-id', eventId]));
+          await this.deps.performExternal(staged.row.id, () => this.wecomRun(['calendar', 'schedules', 'cancel', '--schedule-id', eventId, ...(repeatMod ? ['--repeat-mod', JSON.stringify(repeatMod)] : [])]));
           await this.deps.repos().calendar.markCanceled(eventId);
           await this.deps.notifySourceChanged('calendar', eventId, null);
         }

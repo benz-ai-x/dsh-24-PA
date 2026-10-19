@@ -190,7 +190,11 @@ export class ReminderEngine {
         status: rule.status,
         timeZone: rule.time_zone,
         expression: rule.origin_expression,
-        nextDueAt: rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null,
+        nextDueAt: rule.record?.type === 'calendar' ? null : rule.next_due_at ? new Date(rule.next_due_at).toISOString() : null,
+        calendarChannel: rule.record?.type === 'calendar' ? rule.record.channel ?? null : null,
+        eventId: rule.record?.event_id ?? null,
+        firstStart: rule.record?.start ?? null,
+        stopReason: rule.record?.stopReason ?? null,
         nextOccurrence: next ? { id: next.id, dueAt: new Date(next.due_at).toISOString(), status: next.status } : null,
       });
     }
@@ -211,6 +215,10 @@ export class ReminderEngine {
     if (!reason.trim()) throw new ReminderError('变更提醒状态需要本人指令依据。');
     const rule = await this.repo.getRule(ruleId);
     if (!rule) throw new ReminderError('提醒不存在。');
+    if (status === 'stopped') {
+      const disposition = await this.repo.stopRule(ruleId, reason);
+      return { ruleId, status: 'stopped', ...disposition, message: `提醒已停止；未发送意图已取消${disposition.unresolvedSends ? '，仍有发送中或结果未知的历史消息需核对' : ''}。` };
+    }
     // Cancelling/pausing also cancels not-yet-dispatched occurrences so a
     // snoozed follow-up never fires after its rule is gone (P21).
     if (status !== 'active') {
@@ -221,7 +229,7 @@ export class ReminderEngine {
     }
     const next = status === 'active' && rule.kind !== 'once' ? await this.recomputeNext(rule, Date.now()) : rule.next_due_at;
     const updated = await this.repo.updateRule(ruleId, { status, next_due_at: next });
-    return { ruleId, status: updated?.status ?? status, message: `提醒已${status === 'stopped' ? '停止（已排期的未发送实例一并取消）' : status === 'paused' ? '暂停' : '恢复'}。` };
+    return { ruleId, status: updated?.status ?? status, message: `提醒已${status === 'paused' ? '暂停' : '恢复'}。` };
   }
 
   /** Materialize a not-yet-due occurrence so skip/snooze can act on it. */
@@ -319,6 +327,12 @@ export class ReminderEngine {
     }
   }
 
+  private async dispatchStillAllowed(ruleId: string, occurrenceId: string): Promise<boolean> {
+    if (this.closed) return false;
+    const rule = await this.repo.getRule(ruleId), occurrence = await this.repo.occurrence(occurrenceId);
+    return !this.closed && !!rule && ['active', 'completed'].includes(rule.status) && occurrence?.status === 'pending';
+  }
+
   private async dispatch(): Promise<void> {
     const now = new Date();
     const due = await this.repo.claimDueOccurrences(now, 20);
@@ -335,6 +349,7 @@ export class ReminderEngine {
       }
       // 'completed' one-shot rules still deliver their materialized occurrence.
       const silentUntil = await this.policy.silentUntil();
+      if (!await this.dispatchStillAllowed(rule.id, occurrence.id)) continue;
       if (silentUntil && silentUntil.getTime() > now.getTime()) {
         // Quiet hours / vacation: hold the occurrence, do not drop it (P21).
         await this.repo.updateOccurrence(occurrence.id, { status: 'pending', deferred_until: silentUntil, last_error: null });
@@ -342,6 +357,7 @@ export class ReminderEngine {
       }
       if (rule.link_source_id && this.hooks.sourceValid) {
         const verdict = await this.hooks.sourceValid(rule).catch(() => ({ valid: false, unknown: true, reason: '来源核对失败' }));
+        if (!await this.dispatchStillAllowed(rule.id, occurrence.id)) continue;
         if (verdict.unknown) {
           await this.repo.updateOccurrence(occurrence.id, { status: 'pending', deferred_until: new Date(now.getTime() + 60000), last_error: verdict.reason }, 'pending');
           continue;
@@ -353,6 +369,7 @@ export class ReminderEngine {
           continue;
         }
       }
+      if (!await this.dispatchStillAllowed(rule.id, occurrence.id)) continue;
       const dedupKey = `reminder:${occurrence.id}`;
       try {
         await this.hooks.notify(dedupKey, `提醒：${rule.text}`);

@@ -678,6 +678,7 @@ window.__ModuleLoader__.load({
           const kindName = kind => ({ once: L('单次', 'Once'), every: L('按间隔', 'Interval'), daily: L('每日', 'Daily'), weekly: L('每周', 'Weekly') }[kind] || kind);
           const ruleStatus = status => {
             const meta = {
+              delegated: [L('日历 App 提醒', 'Calendar app reminder'), 'blue', 'calendar'],
               active: [L('已启用', 'Active'), 'blue', 'check'], paused: [L('已暂停', 'Paused'), 'amber', 'clock'],
               stopped: [L('已停止', 'Stopped'), 'neutral', 'close'], completed: [L('已结束', 'Completed'), 'neutral', 'check'],
             }[status];
@@ -687,21 +688,23 @@ window.__ModuleLoader__.load({
             ? badge(L('已跳过', 'Skipped'), 'neutral', 'close')
             : status === 'snoozed' ? badge(L('已稍后', 'Snoozed'), 'amber', 'clock') : badgeOf(status);
           return h('section', null,
-            sectionHead('clock', L('提醒管理', 'Reminder management'), L('设置、稍后、暂停与休假通过24私助会话办理；这里核对真实规则与投递实例。', 'Edit reminders in chat; inspect actual rules and delivery occurrences here.'),
+            sectionHead('clock', L('提醒管理', 'Reminder management'), L('时钟提醒由日历 App 送达，稍后与改期在对应 App 办理；条件跟进由智能任务执行。', 'Calendar apps deliver clock reminders and handle snoozing; agent skills handle follow-ups.'),
               h('div', { className: 'pa24-row' }, button('refresh', L('刷新', 'Refresh'), refresh, { className: 'pa24-quiet' }), button('chat', L('通过对话管理', 'Manage in chat'), openRobot)), 'amber'),
             extra._errors?.reminders && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, L('提醒读取失败', 'Failed to read reminders')), h('p', null, extra._errors.reminders)),
             !data && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取提醒…', 'Reading reminders…')),
             data && rules.length === 0 && occurrences.length === 0 && h('div', { className: 'pa24-card' }, empty('clock', 'amber', L('还没有提醒', 'No reminders yet'), L('告诉24私助要提醒的内容和时间，保存后可在这里核对。', 'Tell 24PA what and when to remind; saved rules will appear here.'), button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { className: 'pa24-primary' }))),
-            rules.length > 0 && h('section', { className: 'pa24-card' }, sectionHead('tasks', L('提醒规则', 'Reminder rules'), L('启用状态、计划和下一次触发。', 'Status, schedule, and next trigger.')), rules.map(rule => h('article', { key: rule.ruleId, className: 'pa24-job' },
+            rules.length > 0 && h('section', { className: 'pa24-card' }, sectionHead('tasks', L('提醒规则', 'Reminder rules'), L('核对实际日历归属、事件与首次安排。', 'Inspect the actual calendar, event, and original start.')), rules.map(rule => h('article', { key: rule.ruleId, className: 'pa24-job' },
               h('div', { className: 'pa24-row pa24-between' }, h('h3', null, rule.text), ruleStatus(rule.status)),
               h('div', { className: 'pa24-row' }, badge(kindName(rule.kind), 'neutral', 'clock')),
               h('p', { className: 'pa24-meta' }, (rule.expression || rule.kind) + ' · ' + rule.timeZone),
-              h('p', { className: 'pa24-meta' }, rule.nextDueAt ? L('下次触发 ', 'Next due ') + date(rule.nextDueAt, tz) : L('没有后续触发', 'No upcoming trigger')),
+              h('p', { className: 'pa24-meta' }, rule.calendarChannel ? (rule.calendarChannel === 'wecom' ? L('企微日历', 'WeCom Calendar') : L('飞书日历', 'Feishu Calendar')) + ' · ' + L('事件 ', 'Event ') + (rule.eventId || L('标识待核对', 'ID unconfirmed')) : L('历史账本记录', 'Legacy ledger record')),
+              h('p', { className: 'pa24-meta' }, rule.firstStart ? L('首次安排 ', 'Original start ') + date(rule.firstStart, tz) + ' · ' + L('后续时间以日历 App 为准', 'Check the calendar app for future occurrences') : rule.nextDueAt ? L('下次触发 ', 'Next due ') + date(rule.nextDueAt, tz) : L('没有后续账本计时', 'No future ledger timer')),
+              rule.stopReason && h('p', { className: 'pa24-meta' }, rule.stopReason),
               rule.nextOccurrence && h('p', { className: 'pa24-meta' }, L('待发送实例 ', 'Pending occurrence ') + date(rule.nextOccurrence.dueAt, tz))))),
             occurrences.length > 0 && h('section', { className: 'pa24-card' }, sectionHead('pulse', L('最近投递实例', 'Recent occurrences'), L('到期、稍后、跳过、发送和异常状态。', 'Due, snoozed, skipped, sent, and failed occurrences.')), occurrences.slice(0, 12).map(row => h('article', { key: row.id, className: 'pa24-job' },
               h('div', { className: 'pa24-row pa24-between' }, h('h3', null, row.ruleId), occurrenceStatus(row.status)),
               h('p', { className: 'pa24-meta' }, L('计划时间 ', 'Due ') + date(row.dueAt, tz) + (row.deferredUntil ? L(' · 稍后到 ', ' · Snoozed until ') + date(row.deferredUntil, tz) : ''))))),
-            h('p', { className: 'pa24-meta' }, L('提醒内容经24私助会话调整；投递出口：', 'Edit reminders in chat. Delivery outlet: ') + (config?.notifyChannel === 'wecom' ? L('企微', 'WeCom') : L('飞书', 'Feishu'))));
+            h('p', { className: 'pa24-meta' }, L('提醒归属以每条记录的日历渠道为准；这里保留备份和历史，平台接受不代表本人已读。', 'Each record keeps its calendar channel; this view preserves backups and history. Platform acceptance does not mean read.')));
         }
 
         function DigestDetail({ extra, state, config, tz, button, openRobot, openCard, refresh }) {

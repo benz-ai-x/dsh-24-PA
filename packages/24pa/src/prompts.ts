@@ -60,7 +60,7 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
       '### 待办与项目',
       '明确的待办交给 tasks Worker 创建真实待办并返回标识（渠道由工作区配置 todoChannel 决定：feishu 建飞书任务、wecom 建企微待办；不双写）；完成须有本人明确动作。企微待办首版支持创建/完成/删除，不支持修改——需要调整时删除后重建并说明。截止时间、计划投入时间和估时分开记录；目标拆解先给子任务建议，本人采纳后才用 project_adopt 入账并按实际任务状态汇报进展。',
       '### 提醒',
-      '时间/时区/内容确认后交给 reminders Worker；提醒由账本触发，模型离线也能发出（投递出口由 notifyChannel 决定：feishu 走飞书、wecom 走企微机器人单向推送；企微不做收信）。完成、稍后、取消都绑定原规则，重复指令不产生多份；只报告平台接受，不推断已读。可跟随任务或日程（linkTaskGuid/linkEventId）：来源改期/取消后旧提醒不再发送并给更正。免打扰与临时休假在本地24私助会话中写入记忆（主题「通知偏好」/「休假」）。',
+      '时间/时区/内容确认后交给 reminders Worker；时钟提醒按 calendarChannel 写入原生日历，由对应 App 送达；其他主动消息按 notifyChannel 选择飞书或企微机器人单向推送；企微不做收信。取消绑定原规则和事件，稍后/改期在 App 或明确日程修改中完成。条件跟进由智能任务 skill 承接，旧账本 every/来源跟随入口已关闭；只报告平台接受，不推断已读。免打扰与临时休假在本地24私助会话中写入记忆（主题「通知偏好」/「休假」）。',
       '### 交办与跟进',
       '对外发信（outreach_send）和任务分派（task_assign）只凭本人明确指令（instruction 依据），草稿不发送、目标不清先澄清；周期事项用 task_repeat_* 模板生成真实任务（跳过本次/停止以后）；等待事项（waiting_*）到点只询问本人，绝不自动催办他人。',
       '### 规划与简报',
@@ -131,7 +131,7 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     version: 2,
   },
   reminders: {
-    brief: 'reminder_create（once/every/daily/weekly，可 linkTaskGuid/linkEventId 跟随任务或日程）、reminder_list/cancel/pause/resume/skip/snooze/status、digest_enable/control/list。',
+    brief: 'reminder_create（once/daily/weekly 原生日历）、reminder_list/cancel/status（稍后/改期由 App 办理）、digest_enable/control/list。',
     doneCriteria: '平台接受状态（规则/实例编号）已返回；绑定来源的提醒已带来源标识。',
     version: 1,
   },

@@ -72,7 +72,7 @@ const baseConfig = {
   version: 1, mode: 'feishu', larkProfile: 'default', ownerOpenId: 'ou_test_owner',
   folderToken: 'fld_test', tasklistId: 'tl_test', calendarId: 'primary', timeZone: 'Asia/Shanghai',
   appIdEnv: 'PA24_FEISHU_APP_ID', appSecretEnv: 'PA24_FEISHU_APP_SECRET', pgDsnEnv: 'PA24_PG_DSN',
-  maxWorkers: 3, enabledWorkers: ['memo', 'tasks', 'reminders', 'calendar'], workerModels: {},
+  maxWorkers: 3, enabledWorkers: ['memo', 'tasks', 'reminders', 'calendar', 'digest'], workerModels: {},
 };
 const tasksScript = (title, workerAction, worker = 'tasks') => ({
   mode: 'dispatch',
@@ -193,57 +193,12 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     expect((await rows(`select count(*)::int as n from pa24.outreach where kind='assign' and status='succeeded'`))[0].n).toBe(1);
   });
 
-  it('P19：任务改期后，跟随该任务的提醒取消并说明原因', async () => {
-    await writeScript(tasksScript('建任务供跟随', { action: 'task_create', summary: '季度对账', due: '2026-10-08' }));
-    let before = llm.log.length;
-    await inject(ownerEvent('evt-lk-0', { text: '建任务：季度对账，截止 10 月 8 日' }));
-    await waitWorkItem('建任务供跟随', '跟随任务建立');
-    const created = await waitToolResult('pa24_work', '"guid"', '跟随任务回执', 60_000, before);
-    const guid = (created.match(/"guid":"(tskstub-[^"]+)"/) || [])[1];
-
-    await writeScript(tasksScript('设跟随提醒', { action: 'reminder_create', kind: 'once', afterSeconds: 3, text: '季度对账今天截止', linkTaskGuid: guid }, 'reminders'));
-    before = llm.log.length;
-    await inject(ownerEvent('evt-lk-1', { text: '三秒后提醒我季度对账' }));
-    await waitWorkItem('设跟随提醒', '跟随提醒建立');
-    await waitToolResult('pa24_work', 'ruleId', '提醒回执', 60_000, before);
-    const allRules = await rows(`select id, kind, text, link_source_id, origin_expression from pa24.reminder_rule order by created_at`);
-    console.error('RULES:', JSON.stringify(allRules), 'GUID:', guid);
-    const rule = allRules.find(r => r.link_source_id === guid);
-    expect(rule?.link_source_id).toBe(guid);
-
-    // 任务改期 → 来源指纹变化 → 规则停止、实例取消、说明原因
-    await writeScript(tasksScript('改期对账', { action: 'task_update', guid, due: '2026-10-20' }));
-    before = llm.log.length;
-    await inject(ownerEvent('evt-lk-2', { text: '季度对账改到 10 月 20 日' }));
-    await waitWorkItem('改期对账', '改期完成');
-    await waitOutbox('remindsrc:', '来源变更说明', 30_000);
-    // once 规则到期即 completed；被拦下的路径既可能是主动停用，也可能是发送前复核
-    const ruleStatus = (await rows(`select status from pa24.reminder_rule where id='${rule.id}'`))[0].status;
-    expect(['stopped', 'completed']).toContain(ruleStatus);
-    expect((await rows(`select count(*)::int as n from pa24.reminder_occurrence where rule_id='${rule.id}' and status='sent'`))[0].n).toBe(0);
-  });
-
-  it('P19：已发送的旧提醒在来源变化后补发关联更正', async () => {
-    await writeScript(tasksScript('建任务供更正', { action: 'task_create', summary: '周报汇总', due: '2026-10-08' }));
-    let before = llm.log.length;
-    await inject(ownerEvent('evt-cr-0', { text: '建任务：周报汇总，截止 10 月 8 日' }));
-    await waitWorkItem('建任务供更正', '更正任务建立');
-    const created = await waitToolResult('pa24_work', '"guid"', '更正任务回执', 60_000, before);
-    const guid = (created.match(/"guid":"(tskstub-[^"]+)"/) || [])[1];
-
-    await writeScript(tasksScript('设即时提醒', { action: 'reminder_create', kind: 'once', afterSeconds: 1, text: '周报汇总今天截止', linkTaskGuid: guid }, 'reminders'));
-    before = llm.log.length;
-    await inject(ownerEvent('evt-cr-1', { text: '一秒后提醒我周报汇总' }));
-    await waitWorkItem('设即时提醒', '即时提醒建立');
-    const ruleId = ((await waitToolResult('pa24_work', 'ruleId', '即时提醒回执', 60_000, before)).match(/(rmd-[a-z0-9-]+)/) || [])[1];
-    await waitOutbox(`reminder:${ruleId}:`, '旧提醒已发出', 30_000);
-
-    // 来源变化 → 已发送的旧提醒补更正
-    await writeScript(tasksScript('改期周报', { action: 'task_update', guid, due: '2026-10-15' }));
-    before = llm.log.length;
-    await inject(ownerEvent('evt-cr-2', { text: '周报汇总改到 10 月 15 日' }));
-    await waitWorkItem('改期周报', '周报改期完成');
-    await waitOutbox('srccorr:', '关联更正', 30_000);
+  it.each(['linkTaskGuid', 'linkEventId'])('P19/F45：%s 旧来源跟随入口明确拒绝，保持智能 skill 归属', async field => {
+    const title = `拒绝旧跟随-${field}`;
+    await writeScript(tasksScript(title, { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: title, [field]: 'historical-source' }, 'reminders'));
+    const before = llm.log.length; await inject(ownerEvent(title, { text: title })); await waitWorkItem(title, '拒绝完成');
+    await waitToolResult('pa24_work', '智能任务 skill', '跟进归属', 60000, before);
+    expect((await rows(`select count(*)::int as n from pa24.reminder_rule where text='${title}'`))[0].n).toBe(0);
   });
 
   it('P22：周期任务模板生成真实任务，支持跳过本次与停止以后（含重启）', async () => {
@@ -295,7 +250,7 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-tp-3', { text: '检查账单以后改叫检查账单并回执' }));
     await waitWorkItem('改模板标题', '改标题完成');
-    await waitToolResult('pa24_work', '已修改以后', '改标题回执', 60_000, before);
+    await waitToolResult('pa24_work', '以后任务标题已修改', '改标题回执', 60_000, before);
 
     // 停止以后：剩余 pending 实例全部跳过，模板停止
     await writeScript(tasksScript('停止模板', { action: 'task_repeat_stop', templateId }));
@@ -310,15 +265,17 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
   }, 300_000);
 
   it('P23：等待事项到点只询问本人；收到后停止；同源去重', async () => {
-    await writeScript(tasksScript('建等待事项', { action: 'waiting_create', title: '等李雷回预算数字', sourceDesc: '李雷的消息', dedupKey: 'wait:lilei:budget', checkpointInSeconds: 2 }));
+    await writeScript(tasksScript('建等待事项', { action: 'waiting_create', title: '等李雷回预算数字', sourceDesc: '李雷的消息', dedupKey: 'wait:lilei:budget', checkpointInSeconds: 10 }));
     let before = llm.log.length;
     await inject(ownerEvent('evt-wt-0', { text: '记一下：等李雷回预算数字，两秒后问我收到没' }));
     await waitWorkItem('建等待事项', '等待建立');
     const created = await waitToolResult('pa24_work', 'waitingId', '等待回执', 60_000, before);
     const waitingId = (created.match(/"waitingId":"(wt-[^"]+)"/) || [])[1];
 
-    // 到点询问本人（绝不催办他人）
-    const ask = await waitOutbox(`waiting:${waitingId}:`, '到点询问', 30_000);
+    const planId = created.match(/"planId":"([^"]+)"/)[1];
+    await writeScript({ ...tasksScript('智能等待询问', { action: 'digest_build', planId }, 'digest'), workerFollowupAction: { action: 'digest_deliver', planId, report: '等待跟进：等李雷回预算数字，收到了吗？来源：本人等待事项。可选择收到、继续等、改时间或取消；不会自动催办他人。' } });
+    // Native Schedule -> real Session -> digest Worker -> agent skill -> Outbox.
+    const ask = await waitOutbox(`digest:${planId}:`, '智能检查点询问', 60_000);
     expect(ask.content?.text ?? '').toContain('等李雷回预算数字');
     // 等待跟进绝不催办他人：对外发送日志里只有 P13 那条正式消息
     const sends = await stubSends();
@@ -330,7 +287,7 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-wt-1', { text: '再记一下等李雷回预算' }));
     await waitWorkItem('重复等待', '重复等待完成');
-    await waitToolResult('pa24_work', '不重复建立', '去重回执', 60_000, before);
+    await waitToolResult('pa24_work', '"reused":true', '去重回执', 60_000, before);
 
     // 改时间：检查点调整且继续等待
     await writeScript(tasksScript('改等待时间', { action: 'waiting_control', waitingId, op: 'reschedule', inSeconds: 3600 }));
@@ -346,37 +303,11 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-wt-2', { text: '李雷的预算数字收到了' }));
     await waitWorkItem('收到材料', '收到完成');
-    await waitToolResult('pa24_work', '后续检查点停止询问', '收到回执', 60_000, before);
+    await waitToolResult('pa24_work', '旧检查点不再新增询问', '收到回执', 60_000, before);
     const asked = (await rows(`select ask_count, status from pa24.waiting_item where id='${waitingId}'`))[0];
     expect(asked.status).toBe('received');
     await new Promise(r => setTimeout(r, 3000));
     expect((await rows(`select ask_count from pa24.waiting_item where id='${waitingId}'`))[0].ask_count).toBe(asked.ask_count);
   });
 
-  it('P19：跟随日程的提醒在日程取消后拦截并告知', async () => {
-    await writeScript(tasksScript('建日程供跟随', { action: 'calendar_create', summary: '评审会', start: '2026-10-09T10:00:00+08:00', end: '2026-10-09T10:30:00+08:00' }, 'calendar'));
-    let before = llm.log.length;
-    await inject(ownerEvent('evt-ev-0', { text: '建一个日程：10 月 9 日 10 点评审会半小时' }));
-    await waitWorkItem('建日程供跟随', '日程建立');
-    const created = await waitToolResult('pa24_work', 'eventId', '日历回执', 60_000, before);
-    const eventId = (created.match(/"eventId":"(evtstub-[^"]+)"/) || [])[1];
-
-    await writeScript(tasksScript('设日程跟随提醒', { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: '评审会即将开始', linkEventId: eventId }, 'reminders'));
-    before = llm.log.length;
-    await inject(ownerEvent('evt-ev-1', { text: '开会前一分钟提醒我评审会' }));
-    await waitWorkItem('设日程跟随提醒', '日程提醒建立');
-    await waitToolResult('pa24_work', 'ruleId', '日程提醒回执', 60_000, before);
-    const linked = (await rows(`select id from pa24.reminder_rule where link_source_id='${eventId}'`))[0];
-    expect(linked).toBeTruthy();
-
-    // 日程取消 → 跟随提醒拦截并告知（未到期的实例取消）
-    await writeScript(tasksScript('取消评审会', { action: 'calendar_cancel', eventId }, 'calendar'));
-    before = llm.log.length;
-    await inject(ownerEvent('evt-ev-2', { text: '评审会取消了' }));
-    await waitWorkItem('取消评审会', '日程取消完成');
-    await waitOutbox('remindsrc:', '日程取消告知', 30_000);
-    expect((await rows(`select status from pa24.reminder_rule where id='${linked.id}'`))[0].status).toBe('stopped');
-    expect((await rows(`select count(*)::int as n from pa24.reminder_occurrence where rule_id='${linked.id}' and status='sent'`))[0].n).toBe(0);
-  });
 });
-
