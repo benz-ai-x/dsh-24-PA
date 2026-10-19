@@ -90,16 +90,26 @@ export class WorkItemLifecycle {
     });
   }
 
+  private async stopItem(id: string): Promise<void> {
+    const repo = this.deps.repo();
+    const item = await repo.get(id);
+    if (!item || !UNSETTLED_WORK_STATUSES.some(status => status === item.status)) throw new Error('此事项已结束。');
+    const stopped = await repo.update(id, { status: 'stopped', progress: '本人要求停止；已完成及待核对的外部效果保留' });
+    this.deps.track(stopped!);
+    if (item.status === 'running' || item.status === 'needs_reconciliation') this.deps.interrupt(item);
+  }
+
   stop(id: string): Promise<void> {
     return this.gate(async () => {
-      const repo = this.deps.repo();
-      const item = await repo.get(id);
-      if (!item || !UNSETTLED_WORK_STATUSES.some(status => status === item.status)) throw new Error('此事项已结束。');
-      const stopped = await repo.update(id, { status: 'stopped', progress: '本人要求停止；已完成的外部操作保留' });
-      this.deps.track(stopped!);
-      try { if (item.status === 'running' || item.status === 'needs_reconciliation') this.deps.interrupt(item); }
+      try { await this.stopItem(id); }
       finally { await this.fillSlots(); }
     });
+  }
+
+  /** Archive stops the selected queue as one admission decision. Never start a
+   * queued worker between two stops, even when an uncertain item freed a slot. */
+  stopMany(ids: readonly string[]): Promise<void> {
+    return this.gate(async () => { for (const id of ids) await this.stopItem(id); });
   }
 
   finish(id: string, result: { output: string; failed?: boolean; generation?: number; delivery: (item: WorkItemRow) => NewOutbox }): Promise<void> {

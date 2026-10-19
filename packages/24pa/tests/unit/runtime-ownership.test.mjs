@@ -124,8 +124,16 @@ describe('公开 runtime 执行归属与恢复', () => {
     await vi.waitFor(async () => expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('needs_reconciliation'));
     expect((await f.rt.maintenanceArchiveCheck()).runningWork.some(row => row.id === task.workId)).toBe(true);
     await expect(f.rt.control({ action: 'continue', workId: task.workId }, local)).rejects.toThrow(/核对/);
+    const start = vi.spyOn(f.ctx.subagents, 'startActivation');
     if (action === 'stop') await f.rt.control({ action: 'stop', workId: task.workId }, local);
-    else await f.rt.maintenanceArchiveExecute({ confirmStop: true });
+    else {
+      await f.rt.repos.workItems.insert({ ...row('queue-one', 'queued'), parent_session_id: local.id });
+      await f.rt.repos.workItems.insert({ ...row('queue-two', 'queued'), parent_session_id: local.id });
+      await f.rt.maintenanceArchiveExecute({ confirmStop: true });
+      expect(start).not.toHaveBeenCalled();
+      expect((await f.rt.repos.workItems.get('queue-one')).status).toBe('stopped');
+      expect((await f.rt.repos.workItems.get('queue-two')).status).toBe('stopped');
+    }
     expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('stopped');
     expect((await f.rt.repos.inbox.get('input')).status).toBe('rejected'); expect(interrupt).toHaveBeenCalled();
     await f.rt.bind(await f.workspace('b'));

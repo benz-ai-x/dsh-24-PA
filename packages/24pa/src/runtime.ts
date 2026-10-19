@@ -3004,7 +3004,7 @@ export class PaRuntime {
   async maintenanceArchiveCheck(): Promise<unknown> {
     return this.executions.run(async () => {
       if (!this.repos) throw new Error('业务账本未就绪。');
-      const running = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 50);
+      const running = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 10000);
       // Native schedules are inventoried from our durable plan rows (every
       // schedule the plugin creates is mirrored there with its schedule_id);
       // dsh's own archive gate remains the authoritative blocker.
@@ -3043,9 +3043,9 @@ export class PaRuntime {
       const stopRules = args.stopRules === true;
       const failures: string[] = [];
       // 1. Stop running work (user-stopped items never resurrect).
-      const running = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 50);
+      const running = await this.repos.workItems.list(UNSETTLED_WORK_STATUSES, 10000);
+      await this.workLifecycle.stopMany(running.map(item => item.id));
       for (const item of running) {
-        await this.workLifecycle.stop(item.id);
         await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '归档前按本人指令停止，补充输入不再续办。');
       }
       // 2. Dispose native schedules with readback. Without the schedule service
