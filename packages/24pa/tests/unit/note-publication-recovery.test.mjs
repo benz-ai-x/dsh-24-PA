@@ -69,10 +69,13 @@ for (const backend of ['sqlite', 'postgres']) describe(`手写发布恢复 (${ba
     failProjection = true;
     await expect(pipeline.noteSubmit(item, args)).rejects.toThrow('post-version');
     expect(await repos.notes.versionsOf('N-1')).toHaveLength(1);
+    const frozen = (await repos.notes.getVersion('N-1:v1')).content;
+    expect(frozen.derivedStatus).toBe('ready');
     const before = await calls();
     failProjection = false; pipeline = makePipeline();
     expect(await pipeline.noteSubmit(item, args)).toMatchObject({ version: 1, versionId: 'N-1:v1' });
     expect(await pipeline.noteSubmit(item, args)).toMatchObject({ version: 1, reused: true });
+    expect((await repos.notes.getVersion('N-1:v1')).content).toEqual(frozen);
     expect(await createCount()).toBe(1); expect((await calls()).filter(row => row.args.includes('+media-insert'))).toHaveLength(before.filter(row => row.args.includes('+media-insert')).length);
     expect(await repos.notes.versionsOf('N-1')).toHaveLength(1);
     expect((await attempts()).map(row => row.status)).toEqual(['succeeded']);
@@ -89,6 +92,31 @@ for (const backend of ['sqlite', 'postgres']) describe(`手写发布恢复 (${ba
     expect(await pipeline.noteSubmit(item, args)).toMatchObject({ version: 1 });
     expect(await createCount()).toBe(1); expect(await repos.notes.versionsOf('N-1')).toHaveLength(1);
     expect((await attempts()).map(row => row.id)).toEqual([legacyId]);
+  });
+
+  it.each(['readback', 'version'])('V01 %s 失败后正文被改，重建发布不能把旧候选与新正文拼接', async fault => {
+    let removeFault = async () => {};
+    if (fault === 'readback') await writeFile(statePath, JSON.stringify({ documentOverride: { content: '<unsupported/>', revision_id: 1 } }));
+    else if (backend === 'sqlite') {
+      await db.query("create trigger version_fault before insert on pa24_note_version begin select raise(abort, 'VERSION_SQL_DOWN'); end");
+      removeFault = () => db.query('drop trigger version_fault');
+    } else {
+      await db.query("create function pa24.version_fault() returns trigger language plpgsql as $$ begin raise exception 'VERSION_SQL_DOWN'; end $$");
+      await db.query('create trigger version_fault before insert on pa24.note_version for each row execute function pa24.version_fault()');
+      removeFault = async () => { await db.query('drop trigger version_fault on pa24.note_version'); await db.query('drop function pa24.version_fault()'); };
+    }
+    try { await expect(pipeline.noteSubmit(item, { ...args, candidates: [{ summary: '联系王工' }] })).rejects.toThrow(fault === 'version' ? 'VERSION_SQL_DOWN' : /不支持|尚无/); }
+    finally { await removeFault(); }
+    expect(await repos.notes.versionsOf('N-1')).toHaveLength(0);
+    const doc = (await readFile(`${statePath}.docs.jsonl`, 'utf8')).trim().split('\n').map(JSON.parse).at(-1);
+    await writeFile(`${statePath}.docs.jsonl`, JSON.stringify({ ...doc, content: doc.content.replaceAll('王工', '李工'), revision: doc.revision + 1 }) + '\n', { flag: 'a' });
+    await writeFile(statePath, '{}'); pipeline = makePipeline();
+    expect(await pipeline.noteSubmit(item, { ...args, candidates: [{ summary: '联系王工' }] })).toMatchObject({ version: 1 });
+    const version = await repos.notes.getVersion('N-1:v1');
+    expect(version.doc_snapshot).toContain('李工'); expect(version.doc_snapshot).not.toContain('王工');
+    expect(version.content).toMatchObject({ candidates: [], summary: '', derivedStatus: 'needs_rebuild' });
+    expect(await createCount()).toBe(1);
+    expect(JSON.stringify((await repos.outbox.recent(10))[0].content)).toContain('仅批准正文');
   });
 
   it('重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过', async () => {

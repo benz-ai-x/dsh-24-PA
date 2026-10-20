@@ -44,11 +44,12 @@ export function registeredStatus(root: DocumentNode): DocumentNode | null {
 
 /** Preserve structure and image positions; supplied hashes bind actual media
  * bytes. Without hashes this is structural normalization only (test readers). */
-export function canonicalDocument(xml: string, mediaHashes?: readonly string[]): string {
+function canonical(xml: string, mediaHashes?: readonly string[], omitImages = false): string {
   const root = parseNoteDocument(xml), status = registeredStatus(root);
   let imageIndex = 0;
   const encode = (node: DocumentNode | string): unknown => {
     if (typeof node === 'string') return node.replace(/\s+/g, ' ').trim();
+    if (omitImages && node.name === 'img') return '';
     const attrs = Object.fromEntries(Object.entries(node.attributes).filter(([key]) => !metadata.has(key) && !(node.name === 'img' && ['src', 'url'].includes(key))).sort(([a], [b]) => a.localeCompare(b)));
     if (node.name === 'img') attrs.sha256 = mediaHashes ? mediaHashes[imageIndex++]! : 'unverified-image';
     if (node.name === 'img' && !attrs.sha256) throw new Error('图片资源摘要缺失，不能核验整稿。');
@@ -57,4 +58,14 @@ export function canonicalDocument(xml: string, mediaHashes?: readonly string[]):
   const canonical = root.children.filter(node => node !== status).map(encode).filter(value => value !== '');
   if (mediaHashes && imageIndex !== mediaHashes.length) throw new Error('图片资源数量与快照不符。');
   return 'note-document-v2\n' + canonical.map(value => JSON.stringify(value)).join('\n');
+}
+
+export function canonicalDocument(xml: string, mediaHashes?: readonly string[]): string {
+  return canonical(xml, mediaHashes);
+}
+
+/** Generated prose precedes image upload. Compare its full structure while
+ * the independent review fingerprint continues to bind media and positions. */
+export function canonicalDerivationSource(xml: string): string {
+  return canonical(xml, undefined, true);
 }

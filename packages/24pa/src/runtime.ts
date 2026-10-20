@@ -32,6 +32,7 @@ import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
+import { noteDerivedContent } from './note-derivation.js';
 import { OutboxDelivery } from './outbox-delivery.js';
 import { WaitingFollowups } from './waiting-followups.js';
 import { TaskTemplates } from './task-templates.js';
@@ -2693,8 +2694,9 @@ export class PaRuntime {
     if (trust.currentValidity !== 'matches') {
       throw new Error('文档内容与已审核版本不一致（已修改）；旧批准不覆盖新内容，请先重新发布候选并审核。');
     }
-    if (version.content?.derivedStatus === 'needs_rebuild') throw new Error('当前文档已重发，但结构化候选尚未重建；请先重新整理当前文档并审核新候选，不能执行旧版本行动。');
-    const candidates = (Array.isArray(version.content?.candidates) ? version.content.candidates : []) as NoteCandidate[];
+    const derived = noteDerivedContent(version);
+    if (derived.derivedStatus === 'needs_rebuild') throw new Error('当前版本的结构化候选尚未重建或缺少同源证明；请重新整理当前文档并审核新候选，不能执行旧版本行动。');
+    const candidates = (Array.isArray(derived.candidates) ? derived.candidates : []) as NoteCandidate[];
     const wanted = Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [];
     if (wanted.length === 0) throw new Error('需要提供选择的候选编号（indexes[]）。');
     const results = [];
@@ -2706,7 +2708,7 @@ export class PaRuntime {
       }
       const operationId = `note.action:${noteId}:v${version.version}:${index}`;
       const previous = await this.repos!.operations.get(operationId);
-      const unknowns = candidateUnknowns(candidate, index, Array.isArray(version.content?.unknowns) ? version.content.unknowns : []);
+      const unknowns = candidateUnknowns(candidate, index, Array.isArray(derived.unknowns) ? derived.unknowns : []);
       const requestedClarification = Array.isArray(args.clarifications) ? args.clarifications.find((entry: any) => entry?.index === index) as Record<string, any> | undefined : undefined;
       // Once an operation is recorded, its intent is immutable even when the
       // remote acknowledgement arrived before a local projection failed. The
@@ -2774,7 +2776,7 @@ export class PaRuntime {
     const versions = await this.repos!.notes.versionsWithDecisions(30);
     const items = [];
     for (const row of versions) {
-      const content = row.content ?? {};
+      const content = noteDerivedContent(row);
       const transcript = String(content.transcript ?? '');
       const summary = String(content.summary ?? '');
       if (query && !(`${transcript}${summary}${row.note_id}`.includes(query))) continue;
@@ -2800,7 +2802,7 @@ export class PaRuntime {
         ...(unknownReason ? { unknownReason } : {}),
         summary,
         derivedStatus: content.derivedStatus ?? 'ready',
-        ...(content.derivedStatus === 'needs_rebuild' ? { missing: '当前文档已重发，摘要/转写/候选尚未重建；请查看当前版本文档。' } : {}),
+        ...(content.derivedStatus === 'needs_rebuild' ? { missing: '当前版本的摘要/转写/候选尚未重建或缺少同源证明；请查看当前版本文档并重新整理。' } : {}),
         docUrl: row.doc_url,
         candidates: Array.isArray(content.candidates) ? content.candidates : [],
       });
@@ -3246,20 +3248,24 @@ export class PaRuntime {
             .filter(r => r.note_id === note.id)
             .map(r => ({ id: r.id, kind: r.kind, status: r.status, remindAt: new Date(r.remind_at).toISOString(), sent: r.sent_count })),
         })),
-        history: history.map(row => ({
-          noteId: row.note_id,
-          title: row.title ?? row.note_id,
-          version: row.version,
-          status: row.status,
-          decision: row.decision ?? null,
-          summary: String(row.content?.summary ?? ''),
-          docUrl: row.doc_url ?? null,
-          fingerprint: String(row.fingerprint ?? '').slice(0, 12) + '…',
-          decidedAt: isoDate(row.decision_at ?? row.decided_at),
-          verifiedAt: isoDate(row.verified_at),
-          verifyResult: row.verify_result ?? null,
-          createdAt: isoDate(row.created_at),
-        })),
+        history: history.map(row => {
+          const derived = noteDerivedContent(row);
+          return {
+            noteId: row.note_id,
+            title: row.title ?? row.note_id,
+            version: row.version,
+            status: row.status,
+            decision: row.decision ?? null,
+            summary: String(derived.summary ?? ''),
+            derivedStatus: derived.derivedStatus,
+            docUrl: row.doc_url ?? null,
+            fingerprint: String(row.fingerprint ?? '').slice(0, 12) + '…',
+            decidedAt: isoDate(row.decision_at ?? row.decided_at),
+            verifiedAt: isoDate(row.verified_at),
+            verifyResult: row.verify_result ?? null,
+            createdAt: isoDate(row.created_at),
+          };
+        }),
       };
     });
   }

@@ -66,6 +66,13 @@ export interface ReviewTokenRow {
   result: any;
 }
 
+type NoteVersionDecision = NoteVersionRow & {
+  title: string | null;
+  decision: string | null;
+  reviewer_open_id: string | null;
+  decision_at: Date | null;
+};
+
 export interface ReviewDecisionRow {
   id: string;
   note_id: string;
@@ -374,10 +381,9 @@ export class NoteRepo {
 
   /** Versions with their review decisions for notes search (F28): unreviewed
    *  states are labeled from the decision join, never inherited. */
-  async versionsWithDecisions(limit: number): Promise<Array<Record<string, any>>> {
-    const result = await this.db.query<Record<string, any>>(
-      `select v.id, v.note_id, v.version, v.status, v.fingerprint, v.doc_id, v.doc_url, v.content, v.decided_at,
-              v.verified_at, v.verify_result, v.created_at, n.title,
+  async versionsWithDecisions(limit: number): Promise<NoteVersionDecision[]> {
+    const result = await this.db.query<NoteVersionDecision>(
+      `select v.*, n.title,
               d.decision, d.reviewer_open_id, d.decided_at as decision_at
        from pa24.note_version v
        left join pa24.note n on n.id = v.note_id
