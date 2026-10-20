@@ -3,6 +3,17 @@
 import type { ResolvedTaskSkill } from '../skills.js';
 import type { PaDb } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
+import { randomUUID } from 'node:crypto';
+import { readLedgerOwner } from './ledger.js';
+
+export interface WorkExecutionScope {
+  workspaceId: string;
+  workspacePath: string;
+  parentSessionId: string;
+  childSessionId: string;
+  generation: number;
+  input: 'start' | 'followup';
+}
 
 export type WorkItemStatus =
   | 'accepted'
@@ -28,6 +39,8 @@ export interface WorkItemRow {
   child_session_id: string | null;
   delivery: string;
   recovery_gen?: number;
+  execution_id?: string | null;
+  execution_scope?: WorkExecutionScope | null;
   status: WorkItemStatus;
   progress: string | null;
   result: string | null;
@@ -48,12 +61,44 @@ export class WorkItemRepo {
     return result.rows[0] ?? null;
   }
 
-  async finishWithDelivery(id: string, output: string, failed: boolean, delivery: NewOutbox): Promise<WorkItemRow | null> {
+  /** Commit the input identity before native admission, so a later DB outage
+   * cannot erase the link to the independently persisted Session history. */
+  async beginExecution(item: WorkItemRow, workspacePath: string, input: WorkExecutionScope['input']): Promise<WorkItemRow> {
+    return this.db.withTransaction(async tx => {
+      const owner = await readLedgerOwner(tx);
+      if (!owner) throw new Error('账本尚未登记工作区，不能接纳 Worker 输入。');
+      const scope: WorkExecutionScope = { workspaceId: owner.workspace_id, workspacePath,
+        parentSessionId: item.parent_session_id, childSessionId: item.child_session_id ?? item.id,
+        generation: item.recovery_gen ?? 0, input };
+      const result = await tx.query<WorkItemRow>(
+        `update pa24.work_item set execution_id = $2, execution_scope = $3, updated_at = now()
+         where id = $1 and status = 'running' and recovery_gen = $4 returning *`,
+        [item.id, randomUUID(), JSON.stringify(scope), scope.generation],
+      );
+      if (!result.rows[0]) throw new Error('事项代次或状态已变更，未接纳新输入。');
+      return result.rows[0];
+    });
+  }
+
+  async restoreExecution(id: string, expectedId: string, previous: WorkItemRow): Promise<void> {
+    await this.db.query(`update pa24.work_item set execution_id = $3, execution_scope = $4
+      where id = $1 and execution_id = $2`,
+    [id, expectedId, previous.execution_id ?? null, previous.execution_scope ? JSON.stringify(previous.execution_scope) : null]);
+  }
+
+  async ownsExecution(item: WorkItemRow): Promise<boolean> {
+    return !!item.execution_scope?.workspaceId && (await readLedgerOwner(this.db))?.workspace_id === item.execution_scope.workspaceId;
+  }
+
+  async finishWithDelivery(id: string, output: string, failed: boolean, delivery: NewOutbox, expected?: { executionId?: string; generation: number }): Promise<WorkItemRow | null> {
     return this.db.withTransaction(async tx => {
       const result = await tx.query<WorkItemRow>(
         `update pa24.work_item set status = $2, result = $3, progress = $4, updated_at = now()
-         where id = $1 and status = 'running' returning *`,
-        [id, failed ? 'failed' : 'completed', output, failed ? 'Worker 未完成，结果待回传' : 'Worker 已完成，结果待回传'],
+         where id = $1 and status = 'running'
+         ${expected ? 'and recovery_gen = $5' : ''}
+         ${expected?.executionId ? 'and execution_id = $6' : ''} returning *`,
+        [id, failed ? 'failed' : 'completed', output, failed ? 'Worker 未完成，结果待回传' : 'Worker 已完成，结果待回传',
+          ...(expected ? [expected.generation] : []), ...(expected?.executionId ? [expected.executionId] : [])],
       );
       if (!result.rows[0]) return null;
       await enqueueOutbox(tx, delivery);

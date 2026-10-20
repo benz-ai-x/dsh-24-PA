@@ -303,3 +303,11 @@ This Dev Note is working context for maintainers: open questions and undecided d
 - **Local harness adjacency** — dev type-checking links vendored peers from an adjacent `deepseek-harness` checkout through `scripts/link-peer.mjs`; registry installs never depend on that checkout.
 
 </details>
+
+### Original-turn settlement recovery
+
+From schema 18, each Worker input has a durable execution identity saved before native admission. A completed turn whose result transaction fails is automatically retried with bounded backoff (up to 30 seconds between retries). The result and its Outbox intent commit together; neither the model nor the external action is called again for settlement. A committed transaction with a lost acknowledgement also releases waiting capacity on reconciliation.
+
+Restart recovery checks the original workspace, parent/child Session, generation, actually consumed input and completed turn in the host's persisted history. Keep the business ledger **and native Session history** together in backups. Missing, mismatched or interrupted history is shown as `needs_reconciliation`; inspect the original result and external objects before explicitly stopping or continuing. A temporary history-read failure remains pending and is retried. Legacy work without the new input identity retains the previous generation-incrementing recovery path and asks the Worker to verify prior effects.
+
+The native flush checkpoint must succeed; `false` or a failure does not prove durability. Older hosts without a public cold-history reader can finish live work after a successful checkpoint, but unverified cold recovery requires reconciliation. No private Session file format is written by 24PA. To roll back, stop the Host and restore the complete pre-upgrade ledger, workspace and Session backup with the corresponding old version; older code may resume work that this version would settle without re-execution.

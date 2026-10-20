@@ -1,0 +1,121 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:49102) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/runtime-ownership.test.mjs (16 tests) 908ms
+(node:49179) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/ledger-ownership.test.mjs (25 tests) 3457ms
+   ✓ postgres 历史账本与身份恢复 > schema 16 接纳判定：unproven；拒绝不写迁移和业务状态 334ms
+(node:49372) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失败后，下一回合仍绑定自己的输入并重试原结果
+[pa24] 回合结算待核对：disk temporarily unavailable
+
+ ✓ tests/unit/transport-activation.test.mjs (11 tests) 581ms
+(node:49378) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > before-update fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > outbox fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > total ledger outage still checkpoints the Session before exit; cold restart never resends
+[pa24] 原回合结算暂未提交，将自动重试：all ledger reads/writes unavailable
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > committed transaction with lost acknowledgement is not delivered twice after restart
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > lost commit acknowledgements still automatically fill the next free slot
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > temporary cold-read failure retries evidence without resuming the Worker
+[pa24] 原回合结算暂未提交，将自动重试：history backend unavailable
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > flush false does not authorize completion; a later successful checkpoint retries automatically
+[pa24] 原回合持久化待确认，将自动重试：宿主没有持久化监听者，原回合结算等待持久化确认。
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > flush throw does not authorize completion; a later successful checkpoint retries automatically
+[pa24] 原回合持久化待确认，将自动重试：native checkpoint failed
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > stop defeats a queued settlement; continuation only accepts the new execution identity
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > before-update fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > before-update fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > outbox fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > outbox fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > total ledger outage still checkpoints the Session before exit; cold restart never resends
+[pa24] 原回合结算暂未提交，将自动重试：all ledger reads/writes unavailable
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > committed transaction with lost acknowledgement is not delivered twice after restart
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > lost commit acknowledgements still automatically fill the next free slot
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > lost commit acknowledgements still automatically fill the next free slot
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > temporary cold-read failure retries evidence without resuming the Worker
+[pa24] 原回合结算暂未提交，将自动重试：history backend unavailable
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > flush false does not authorize completion; a later successful checkpoint retries automatically
+[pa24] 原回合持久化待确认，将自动重试：宿主没有持久化监听者，原回合结算等待持久化确认。
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > flush throw does not authorize completion; a later successful checkpoint retries automatically
+[pa24] 原回合持久化待确认，将自动重试：native checkpoint failed
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > stop defeats a queued settlement; continuation only accepts the new execution identity
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+ ✓ tests/unit/work-completion.test.mjs (40 tests) 15289ms
+   ✓ original work completion / sqlite > before-update fault automatically retries the same generation and releases both slots 442ms
+   ✓ original work completion / sqlite > outbox fault automatically retries the same generation and releases both slots 431ms
+   ✓ original work completion / sqlite > lost commit acknowledgements still automatically fill the next free slot 427ms
+   ✓ original work completion / sqlite > temporary cold-read failure retries evidence without resuming the Worker 435ms
+   ✓ original work completion / sqlite > flush false does not authorize completion; a later successful checkpoint retries automatically 475ms
+   ✓ original work completion / sqlite > flush throw does not authorize completion; a later successful checkpoint retries automatically 485ms
+   ✓ original work completion / sqlite > stop defeats a queued settlement; continuation only accepts the new execution identity 1491ms
+   ✓ original work completion / sqlite > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff 1270ms
+   ✓ original work completion / postgres > before-update fault automatically retries the same generation and releases both slots 534ms
+   ✓ original work completion / postgres > outbox fault automatically retries the same generation and releases both slots 540ms
+   ✓ original work completion / postgres > lost commit acknowledgements still automatically fill the next free slot 531ms
+   ✓ original work completion / postgres > temporary cold-read failure retries evidence without resuming the Worker 660ms
+   ✓ original work completion / postgres > flush false does not authorize completion; a later successful checkpoint retries automatically 557ms
+   ✓ original work completion / postgres > flush throw does not authorize completion; a later successful checkpoint retries automatically 610ms
+   ✓ original work completion / postgres > stop defeats a queued settlement; continuation only accepts the new execution identity 1613ms
+   ✓ original work completion / postgres > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff 1447ms
+(node:49822) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/work-item-lifecycle.test.mjs (12 tests) 779ms
+
+ Test Files  5 passed (5)
+      Tests  104 passed (104)
+   Start at  11:16:49
+   Duration  22.03s (transform 127ms, setup 0ms, collect 590ms, tests 21.01s, environment 0ms, prepare 102ms)

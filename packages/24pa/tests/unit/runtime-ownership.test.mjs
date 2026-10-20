@@ -9,8 +9,8 @@ const cleanups = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const cleanup of cleanups.splice(0)) await cleanup(); });
 async function setup(patch = {}, options = {}) { const f = await fixture(options); cleanups.push(f.cleanup); const a = await f.workspace('a', patch); await f.rt.bind(a); return { ...f, a }; }
 const row = (id, status = 'running') => ({ id, title: id, role: 'memo', instruction: '保存', origin: 'local', parent_session_id: 'parent', child_session_id: id, delivery: 'local:parent', status });
-const end = (turn, messageId, requestId, output = '结果', reason = { kind: 'completed' }) => [
-  { type: 'turn/start', data: { turn } }, { type: 'user/message', data: { id: messageId, source: requestId ? { rpcId: requestId } : {} } },
+const end = (turn, messageId, requestId, output = '结果', reason = { kind: 'completed' }, message) => [
+  { type: 'turn/start', data: { turn } }, { type: 'user/message', data: message ?? { id: messageId, source: requestId ? { rpcId: requestId } : {} } },
   ...(output ? [{ type: 'assistant/message', data: { turn, message: { content: [{ type: 'text', text: output }] } } }] : []), { type: 'turn/end', data: { turn, reason } },
 ];
 
@@ -87,9 +87,9 @@ describe('公开 runtime 执行归属与恢复', () => {
     await f.rt.control({ action: 'stop', workId: task.workId }, local); const drained = deferred(); child.whenIdle = () => drained.promise;
     const continuation = f.rt.control({ action: 'continue', workId: task.workId }, local); await new Promise(resolve => setImmediate(resolve)); expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('stopped');
     drained.resolve(); await continuation;
-    let events = end(1, 'start-' + task.workId, null, '', { kind: 'aborted' }); child.session.ownEvents = () => events;
+    let events = end(1, 'start-' + task.workId, null, '', { kind: 'aborted' }, f.nativeInputs.get('start-' + task.workId)); child.session.ownEvents = () => events;
     f.rt.onSessionEvent(child.session, events.at(-1)); await new Promise(resolve => setImmediate(resolve)); expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('running');
-    events = [...events, ...end(2, 'continue-0', null, '续办完成')]; f.rt.onSessionEvent(child.session, events.at(-1));
+    events = [...events, ...end(2, 'continue-0', null, '续办完成', undefined, f.nativeInputs.get('continue-0'))]; f.rt.onSessionEvent(child.session, events.at(-1));
     await vi.waitFor(async () => expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('completed'));
   });
   it('prompt 已接纳但 flush 失败仍保留关联；计划回合不抢走新输入', async () => {
@@ -153,17 +153,17 @@ describe('公开 runtime 执行归属与恢复', () => {
     const f = await setup({ mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }, { env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'secret' } });
     const local = f.agents.get(await f.rt.openLocalSession()); const task = await f.rt.delegate({ worker: 'memo', title: '保存', instruction: '保存' }, local);
     await f.rt.repos.messageRoutes.record('original', { kind: 'workitem', workItemId: task.workId });
-    let sequence = 0; f.ctx.subagents.sendMessage = async () => `supplement-${++sequence}`;
+    let sequence = 0; f.ctx.subagents.sendMessage = async (parent, _id, content) => f.acceptInput(`supplement-${++sequence}`, content, { kind: 'agent-message', senderSessionId: parent.id });
     const inject = id => f.rt.getTransport().inject({ eventId: id, kind: 'message', appId: 'app', senderOpenId: 'owner', chatType: 'p2p', text: id, parentMessageId: 'original' });
     await inject('first'); await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('first')).request_id).toBe('supplement-1'));
     const child = f.agents.get(task.workId), entered = deferred(), release = deferred();
-    let events = end(1, 'supplement-1', null, 'first done'); child.session.ownEvents = () => events;
-    vi.spyOn(f.ctx.sessions, 'flush').mockImplementationOnce(async () => { entered.resolve(); await release.promise; });
+    let events = end(1, 'supplement-1', null, 'first done', undefined, f.nativeInputs.get('supplement-1')); child.session.ownEvents = () => events;
+    vi.spyOn(f.ctx.sessions, 'flush').mockImplementationOnce(async () => { entered.resolve(); await release.promise; return true; });
     f.rt.onSessionEvent(child.session, events.at(-1)); await entered.promise;
     await inject('second'); await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('second')).request_id).toBe('supplement-2'));
     release.resolve(); await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('first')).status).toBe('delivered'));
     expect((await f.rt.repos.inbox.get('second')).status).toBe('admitted'); expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('running');
-    events = [...events, ...end(2, 'supplement-2', null, 'second done')]; f.rt.onSessionEvent(child.session, events.at(-1));
+    events = [...events, ...end(2, 'supplement-2', null, 'second done', undefined, f.nativeInputs.get('supplement-2'))]; f.rt.onSessionEvent(child.session, events.at(-1));
     await vi.waitFor(async () => expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('completed'));
     expect((await f.rt.repos.inbox.get('second')).status).toBe('delivered'); await f.rt.bind(await f.workspace('b'));
   });
@@ -171,7 +171,7 @@ describe('公开 runtime 执行归属与恢复', () => {
     const f = await setup({ mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }, { env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'secret' } });
     const local = f.agents.get(await f.rt.openLocalSession()); const task = await f.rt.delegate({ worker: 'memo', title: '保存', instruction: '保存' }, local);
     await f.rt.repos.messageRoutes.record('original', { kind: 'workitem', workItemId: task.workId });
-    const send = vi.spyOn(f.ctx.subagents, 'sendMessage').mockResolvedValue('accepted-message');
+    const send = vi.spyOn(f.ctx.subagents, 'sendMessage').mockImplementation(async (parent, _id, content) => f.acceptInput('accepted-message', content, { kind: 'agent-message', senderSessionId: parent.id }));
     const mark = f.rt.repos.inbox.mark.bind(f.rt.repos.inbox); let failed = false;
     vi.spyOn(f.rt.repos.inbox, 'mark').mockImplementation(async (id, patch) => {
       if (!failed && patch.requestId === 'accepted-message') { failed = true; throw new Error('local commit failed'); }
@@ -180,7 +180,7 @@ describe('公开 runtime 执行归属与恢复', () => {
     await f.rt.getTransport().inject({ eventId: 'input', kind: 'message', appId: 'app', senderOpenId: 'owner', chatType: 'p2p', text: '补充', parentMessageId: 'original' });
     await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('input')).request_id).toBe('accepted-message'));
     expect((await f.rt.repos.inbox.get('input')).status).toBe('admitted'); expect(send).toHaveBeenCalledTimes(1);
-    const child = f.agents.get(task.workId), events = end(1, 'accepted-message', null, '补充已完成'); child.session.ownEvents = () => events;
+    const child = f.agents.get(task.workId), events = end(1, 'accepted-message', null, '补充已完成', undefined, f.nativeInputs.get('accepted-message')); child.session.ownEvents = () => events;
     f.rt.onSessionEvent(child.session, events.at(-1)); await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('input')).status).toBe('delivered'));
     expect(send).toHaveBeenCalledTimes(1);
   });

@@ -34,9 +34,11 @@ async function legacyLedger(storage, path, { paths = [path], owners = ['owner-a'
   await mkdir(join(path, 'data'), { recursive: true });
   const db = storage === 'sqlite' ? new SqliteDb(join(path, 'data', 'pa24.db')) : new PaDatabase(pg.dsn);
   await db.migrate();
-  // Schema 17 adds only the ownership table: removing it recreates schema 16.
+  // Remove the later admission and execution fields to recreate schema 16.
   await db.query('drop table pa24.ledger_owner');
-  await db.query('delete from pa24.schema_migrations where version = 17');
+  await db.query('alter table pa24.work_item drop column execution_id');
+  await db.query('alter table pa24.work_item drop column execution_scope');
+  await db.query('delete from pa24.schema_migrations where version >= 17');
   const repos = createRepos(db);
   for (const path of paths) await repos.workspaceState.save(path, {});
   for (const owner of owners) await repos.bindings.upsert({ appId: 'app', tenantKey: 'tenant', ownerOpenId: owner, larkProfile: 'default' });
@@ -98,7 +100,7 @@ describe.each(['sqlite', 'postgres'])('%s 历史账本与身份恢复', storage 
       : { owners: ['owner-b'] };
     const db = await legacyLedger(storage, a, options);
     try {
-      if (scenario === 'empty') { await f.rt.bind(a); expect(await db.schemaVersion()).toBe(17); }
+      if (scenario === 'empty') { await f.rt.bind(a); expect(await db.schemaVersion()).toBe(18); }
       else {
         const paths = (await db.query('select * from pa24.workspace_state')).rows;
         await expect(f.rt.bind(a)).rejects.toThrow(/历史账本归属/);

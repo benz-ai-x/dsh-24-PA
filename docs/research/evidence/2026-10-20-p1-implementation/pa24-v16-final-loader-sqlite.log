@@ -1,0 +1,19 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:64417) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | tests/e2e/work-settlement.e2e.mjs > V16: same Host retries without another event and releases both default slots
+{"recovery":"same-host","work":[{"title":"settle-3","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-2","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-1","generation":0,"acceptedInputs":1,"turns":1}],"workerModelRequests":6,"externalDocuments":3,"resultIntents":3}
+
+stdout | tests/e2e/work-settlement.e2e.mjs > V16: restart recovers durable original turns and releases both default slots
+{"recovery":"restart","work":[{"title":"settle-3","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-2","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-1","generation":0,"acceptedInputs":1,"turns":1}],"workerModelRequests":6,"externalDocuments":3,"resultIntents":3}
+
+ ✓ tests/e2e/work-settlement.e2e.mjs (2 tests) 7976ms
+   ✓ V16: same Host retries without another event and releases both default slots 3031ms
+   ✓ V16: restart recovers durable original turns and releases both default slots 4945ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  11:26:58
+   Duration  8.11s (transform 30ms, setup 0ms, collect 43ms, tests 7.98s, environment 0ms, prepare 20ms)
