@@ -1,0 +1,44 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:25428) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/workspace-activation.test.mjs (14 tests) 1364ms
+(node:25493) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/sqlite.test.mjs (29 tests) 57ms
+(node:25495) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/unit/ledger-ownership.test.mjs (23 tests | 1 failed) 2271ms
+   × 同主人不同工作区不能共用 PG；独立 PG 库与默认 SQLite 各自隔离 169ms
+     → expected { count: +0, memos: [] } to deeply equal []
+ ✓ tests/unit/repo.test.mjs (15 tests) 1496ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/ledger-ownership.test.mjs > 同主人不同工作区不能共用 PG；独立 PG 库与默认 SQLite 各自隔离
+AssertionError: expected { count: +0, memos: [] } to deeply equal []
+
+- Expected:
+Array []
+
++ Received:
+Object {
+  "count": 0,
+  "memos": Array [],
+}
+
+ ❯ tests/unit/ledger-ownership.test.mjs:169:83
+    167|   await pg.query('create database pa24_independent owner pa24_app');
+    168|   const separate = await fixture({ env: { PA24_PG_DSN: pg.dsn.replace(…
+    169|   await separate.rt.bind(b); expect(await findMemo(separate.rt, separa…
+       |                                                                                   ^
+    170|   const c = await f.workspace('sqlite-c', { ownerOpenId: 'owner-c' });…
+    171|   expect(await findMemo(f.rt, f.agents)).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 80 passed (81)
+   Start at  10:38:35
+   Duration  5.98s (transform 145ms, setup 0ms, collect 454ms, tests 5.19s, environment 0ms, prepare 81ms)

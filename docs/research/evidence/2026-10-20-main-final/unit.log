@@ -212,4 +212,3 @@ stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失�
       Tests  648 passed (648)
    Start at  17:40:02
    Duration  170.40s (transform 215ms, setup 0ms, collect 2.32s, tests 163.89s, environment 3ms, prepare 896ms)
-

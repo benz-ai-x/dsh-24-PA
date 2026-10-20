@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ❯ tests/unit/ledger-ownership.test.mjs (1 test | 1 failed) 797ms
+   × 账本接纳：公开工作区绑定及备忘路径 > 拒绝不同主人工作区接纳 A 的 PG 账本，保留 A 并允许同一 A 重开 86ms
+     → promise resolved "undefined" instead of rejecting
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/ledger-ownership.test.mjs > 账本接纳：公开工作区绑定及备忘路径 > 拒绝不同主人工作区接纳 A 的 PG 账本，保留 A 并允许同一 A 重开
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+[Error: rejected promise]
+
++ Received:
+undefined
+
+ ❯ tests/unit/ledger-ownership.test.mjs:33:31
+     31|     const before = await findMemo(f.rt, f.agents);
+     32|     expect(JSON.stringify(before)).toContain('只属于工作区 A');
+     33|     await expect(f.rt.bind(b)).rejects.toThrow(/账本.*归属/);
+       |                               ^
+     34|     expect(f.rt.workspace.statePath).toBe(a);
+     35|     expect(f.rt.config.ownerOpenId).toBe('owner-a');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  10:33:09
+   Duration  1.15s (transform 118ms, setup 0ms, collect 259ms, tests 797ms, environment 0ms, prepare 24ms)

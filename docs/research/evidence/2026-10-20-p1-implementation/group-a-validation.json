@@ -1,0 +1,35 @@
+{
+  "implementationSha": "ba71e7a78154e20ebfa314885442cf94617935aa",
+  "baseSha": "0ef85772a10f45e8e3b4c4d2c85d7249bf28e256",
+  "hostSha": "1600d8a1e140dcde43a1a0941940a0480712c011",
+  "node": "22.19.0",
+  "build": true,
+  "presetCheck": true,
+  "unit": {
+    "files": 49,
+    "passed": 685
+  },
+  "loaderSqlite": {
+    "files": 17,
+    "passed": 84
+  },
+  "loaderPostgres": {
+    "files": 17,
+    "passed": 84
+  },
+  "standards": {
+    "hardViolations": 0,
+    "possibleSmells": 0,
+    "newFindings": 0
+  },
+  "spec": {
+    "findings": 0,
+    "scopeCreep": 0
+  },
+  "externalPlatformWrites": "not exercised; external adapters controlled",
+  "initialUnitFailure": "679 passed / 1 failed: the old recovery fault fixture seeded an unowned ledger; now publicly admits B before seeding, with original assertions retained",
+  "reviewRepairs": [
+    "transaction-close self-wait regression",
+    "schema 17 backup must include valid identity matching registered ledger"
+  ]
+}

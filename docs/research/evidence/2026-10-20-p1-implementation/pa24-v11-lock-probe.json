@@ -1,0 +1,20 @@
+{
+  "version": "16.13 (Homebrew)",
+  "results": [
+    {
+      "status": "fulfilled",
+      "value": "a"
+    },
+    {
+      "status": "rejected",
+      "error": "owner conflict"
+    }
+  ],
+  "rows": [
+    {
+      "id": 1,
+      "owner": "a"
+    }
+  ],
+  "rolledBackDdl": true
+}

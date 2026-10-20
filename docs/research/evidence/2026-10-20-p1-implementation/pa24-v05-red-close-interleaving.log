@@ -29,4 +29,3 @@ Received: "close waited on its own transaction"
       Tests  1 failed | 28 skipped (29)
    Start at  10:28:19
    Duration  366ms (transform 34ms, setup 0ms, collect 51ms, tests 223ms, environment 0ms, prepare 20ms)
-

@@ -1,0 +1,252 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:32383) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/channel-reliability.test.mjs (41 tests) 18256ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书 GUID 读取改名与截止，保留计划字段；自身标记不误报，坏观察不标新鲜 967ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 企微按 ID 读取标题/日期/终态；未知状态或缺少目标不伪造已完成 1297ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 日期型截止在 America/Los_Angeles 原日期往返；datetime 保留实际时刻 811ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 日期型截止在 Asia/Shanghai 原日期往返；datetime 保留实际时刻 764ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 日期型截止在 UTC 原日期往返；datetime 保留实际时刻 874ms
+   ✓ 渠道可靠性：真实账本与模块 interface > DST 重复小时保留已知 instant；远端新歧义/不存在时刻保持 stale 656ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 个人完成保持整项 open，重启重试不扩大授权；整项完成必须读回 784ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[]} 为 unknown，重复不能重发 627ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[{"todo_id":"other","success":true}]} 为 unknown，重复不能重发 595ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[{"todo_id":"tdstub-1"}]} 为 unknown，重复不能重发 610ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 明确拒绝可安全重试；单参与人整项完成后再次调用不写入 804ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 完成写入成功后读回失败，重启只补读回，不再发 finish 680ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同进程显式检查刷新授权身份；并发检查共用一次，失败不沿用旧目标 784ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 检查失败后旧在途 whoami 不能重新填充缓存，下一次成功检查可恢复 334ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 企微无幂等键：创建成功后任务投影失败，重试仍只有一个远端对象 491ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书日程创建成功后投影失败，凭回执补账而不重复创建 533ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书创建回执与后续观察使用同一真实标题，不把自身前缀误判为来源变更 544ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 计划投入与估时修改有独立操作身份，并且不调用空的远端 update 1146ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 任务远端修改成功后来源通知失败，只补本地通知、不重复远端修改 643ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 当前渠道切换只改变新建，已有对象的查看/修改/完成/删除仍走自身 channel 499ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 相对提醒备份失败跨重启仍沿用原时间、渠道与操作身份 566ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书提醒原生创建携带 IANA 时区、重复规则、五分钟偏移与稳定幂等键 1011ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同步只裁决原渠道与日历内的来源，空窗口也通知无提醒规则的会前计划来源 533ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书嵌套时间、全天包含式结束日与空标题保留；坏条目令整个观察不完整 509ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 来源通知失败可重试且未发布完整观察，跨归属同ID不能覆盖旧事件 552ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同步状态的日历ID跨渠道碰撞不能报告成功或覆盖原渠道新鲜度 507ms
+(node:32763) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/followup-lifecycle.test.mjs (64 tests) 39988ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 首实例失败回滚；远端成功/本地失败保留回执，后继与投影均可恢复 517ms
+   ✓ R3 周期与等待公开入口 (sqlite) > claim 后重启恢复；无回执 running 作为未知不重放，仍推进下一发生 517ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 后继提交失败不丢当前发生，成功操作恢复不重复远端写入 519ms
+   ✓ R3 周期与等待公开入口 (sqlite) > feishu 三类日历提醒按原归属取消，周期明确 all 708ms
+   ✓ R3 周期与等待公开入口 (sqlite) > wecom 三类日历提醒按原归属取消，周期明确 all 695ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 升级保留企微创建旧操作身份，同一事项重试不新增日程 522ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 归档默认保留原生提醒；显式停止报告部分失败与剩余规则 620ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 后继仅失败一次也保留成功任务，重复 tick 修复实例而不重复创建 508ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 停止后重启仍修复已确认远端任务的投影，不产生未来实例 515ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 升级清理规则级旧通知，退役来源不阻断公开任务更新 599ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 历史活动来源更正原子停止并入队，随后公开取消一并清理 594ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 来源更正目标解析晚于公开取消，业务更新收口但不新增通知 628ms
+   ✓ R3 周期与等待公开入口 (postgres) > 完整规则去重、仅星期/时区变化可替换；skip 保留后继，stop 保留历史 1066ms
+   ✓ R3 周期与等待公开入口 (postgres) > 首实例失败回滚；远端成功/本地失败保留回执，后继与投影均可恢复 1332ms
+   ✓ R3 周期与等待公开入口 (postgres) > claim 后重启恢复；无回执 running 作为未知不重放，仍推进下一发生 1274ms
+   ✓ R3 周期与等待公开入口 (postgres) > 后继提交失败不丢当前发生，成功操作恢复不重复远端写入 1251ms
+   ✓ R3 周期与等待公开入口 (postgres) > 同源等待唯一且原生计划唯一，tick 不询问；agent skill 只交付一次 762ms
+   ✓ R3 周期与等待公开入口 (postgres) > received 与慢免打扰读取交叠时不新增过期询问 748ms
+   ✓ R3 周期与等待公开入口 (postgres) > cancel 与慢免打扰读取交叠时不新增过期询问 738ms
+   ✓ R3 周期与等待公开入口 (postgres) > 免打扰延期为新原生检查点，通知事务失败不增加询问次数 747ms
+   ✓ R3 周期与等待公开入口 (postgres) > 原生创建未知经重启恢复；旧同源多项报告歧义 1331ms
+   ✓ R3 周期与等待公开入口 (postgres) > feishu 三类日历提醒按原归属取消，周期明确 all 1973ms
+   ✓ R3 周期与等待公开入口 (postgres) > wecom 三类日历提醒按原归属取消，周期明确 all 1445ms
+   ✓ R3 周期与等待公开入口 (postgres) > 升级保留企微创建旧操作身份，同一事项重试不新增日程 1250ms
+   ✓ R3 周期与等待公开入口 (postgres) > 归档默认保留原生提醒；显式停止报告部分失败与剩余规则 1466ms
+   ✓ R3 周期与等待公开入口 (postgres) > 旧计时入口和并发稍后明确拒绝，升级清偿历史 active 规则未发送意图 748ms
+   ✓ R3 周期与等待公开入口 (postgres) > 旧计时入口和并发稍后明确拒绝，升级清偿历史 stopped 规则未发送意图 745ms
+   ✓ R3 周期与等待公开入口 (postgres) > 升级过期旧等待询问；控制取消新旧待投递意图而保留已发生历史 757ms
+   ✓ R3 周期与等待公开入口 (postgres) > 后继仅失败一次也保留成功任务，重复 tick 修复实例而不重复创建 1334ms
+   ✓ R3 周期与等待公开入口 (postgres) > 停止后重启仍修复已确认远端任务的投影，不产生未来实例 1347ms
+   ✓ R3 周期与等待公开入口 (postgres) > 未来检查点不能由跳过 facts 的直接交付提前消费 735ms
+   ✓ R3 周期与等待公开入口 (postgres) > 询问已入队但事项回执保存失败，自动停止后重试补齐实际结果 745ms
+   ✓ R3 周期与等待公开入口 (postgres) > 最终目标身份查询晚返回，取消与通知事务互斥且不复活实例 762ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史在途 silence 查询晚返回时，公开取消后不产生通知 773ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史在途 source 查询晚返回时，公开取消后不产生通知 796ms
+   ✓ R3 周期与等待公开入口 (postgres) > 旧 active 快照晚返回，取消后物化不能复活规则或新增实例 866ms
+   ✓ R3 周期与等待公开入口 (postgres) > 归档盘点并停止已完成但仍在途的一次性提醒 762ms
+   ✓ R3 周期与等待公开入口 (postgres) > 来源失效通知 pending 随公开取消清理或如实披露 730ms
+   ✓ R3 周期与等待公开入口 (postgres) > 来源失效通知 unknown 随公开取消清理或如实披露 739ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史 paused 已决定延迟但 DB 晚写，公开取消保持实例终态 737ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史 quiet 已决定延迟但 DB 晚写，公开取消保持实例终态 745ms
+   ✓ R3 周期与等待公开入口 (postgres) > 升级清理规则级旧通知，退役来源不阻断公开任务更新 1334ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史活动来源更正原子停止并入队，随后公开取消一并清理 1325ms
+   ✓ R3 周期与等待公开入口 (postgres) > 来源更正目标解析晚于公开取消，业务更新收口但不新增通知 1407ms
+(node:34117) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/digest-reliability.test.mjs (50 tests) 1204ms
+ ✓ tests/unit/client.test.mjs (14 tests) 10ms
+(node:34169) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/runtime-ownership.test.mjs (16 tests) 954ms
+(node:34247) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/knowledge-actions.test.mjs (26 tests) 44074ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 728ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 1240ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 新旧顶层行动疑点兼容且无关候选不受阻：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 1463ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 新旧顶层行动疑点兼容且无关候选不受阻：'联系人原稿不清' 1419ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 新旧顶层行动疑点兼容且无关候选不受阻：'日期原稿不清' 1383ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 混合联系人与日期疑点独立关联，新旧版本均阻止相关候选且允许无关候选 1382ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:task 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象 1661ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:task 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象 2154ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:calendar 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象 1752ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:calendar 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象 2210ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 1552ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同一笔记跨 session 并发最多一个活动事项，停止后可重新委派 846ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同会议并发同参数复用，异参数拒绝；创建未知跨重启恢复仍唯一 752ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 1582ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 2134ms
+   ✓ R3 知识与行动公开入口 (postgres) > 新旧顶层行动疑点兼容且无关候选不受阻：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 2378ms
+   ✓ R3 知识与行动公开入口 (postgres) > 新旧顶层行动疑点兼容且无关候选不受阻：'联系人原稿不清' 2109ms
+   ✓ R3 知识与行动公开入口 (postgres) > 新旧顶层行动疑点兼容且无关候选不受阻：'日期原稿不清' 2194ms
+   ✓ R3 知识与行动公开入口 (postgres) > 混合联系人与日期疑点独立关联，新旧版本均阻止相关候选且允许无关候选 2116ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:task 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象 2523ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:task 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象 2940ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:calendar 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象 2397ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:calendar 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象 2870ms
+   ✓ R3 知识与行动公开入口 (postgres) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 2252ms
+ ✓ tests/unit/memory.test.mjs (26 tests) 58ms
+(node:35901) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/workspace-activation.test.mjs (14 tests) 1316ms
+(node:36015) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/note-publication-recovery.test.mjs (20 tests) 12878ms
+   ✓ 手写发布恢复 (sqlite) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 680ms
+   ✓ 手写发布恢复 (sqlite) > 重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过 539ms
+   ✓ 手写发布恢复 (sqlite) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=false） 665ms
+   ✓ 手写发布恢复 (sqlite) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=true） 573ms
+   ✓ 手写发布恢复 (sqlite) > 旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档 319ms
+   ✓ 手写发布恢复 (sqlite) > 重发只采纳同一读取快照，清空旧派生资料；后续编辑不得混入指纹 486ms
+   ✓ 手写发布恢复 (sqlite) > 过期卡可续发同版本，旧 token 无效；批准后重发 v2 状态可再次同步 1062ms
+   ✓ 手写发布恢复 (sqlite) > 审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文 633ms
+   ✓ 手写发布恢复 (sqlite) > pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2 1041ms
+   ✓ 手写发布恢复 (postgres) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 660ms
+   ✓ 手写发布恢复 (postgres) > 重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过 480ms
+   ✓ 手写发布恢复 (postgres) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=false） 551ms
+   ✓ 手写发布恢复 (postgres) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=true） 550ms
+   ✓ 手写发布恢复 (postgres) > 旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档 312ms
+   ✓ 手写发布恢复 (postgres) > 重发只采纳同一读取快照，清空旧派生资料；后续编辑不得混入指纹 484ms
+   ✓ 手写发布恢复 (postgres) > 过期卡可续发同版本，旧 token 无效；批准后重发 v2 状态可再次同步 1004ms
+   ✓ 手写发布恢复 (postgres) > 审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文 633ms
+   ✓ 手写发布恢复 (postgres) > pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2 1066ms
+(node:36616) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/ledger-ownership.test.mjs (25 tests) 3538ms
+   ✓ 两个独立进程同时首次声明同一 PG 账本，只有赢家接纳并写业务 331ms
+(node:36807) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失败后，下一回合仍绑定自己的输入并重试原结果
+[pa24] 回合结算待核对：disk temporarily unavailable
+
+ ✓ tests/unit/transport-activation.test.mjs (11 tests) 844ms
+(node:36822) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:36822) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/backup.test.mjs (13 tests) 1137ms
+(node:36842) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/sqlite.test.mjs (29 tests) 49ms
+(node:36844) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/plan-lifecycle.test.mjs (30 tests) 1042ms
+ ✓ tests/unit/config-editor.test.mjs (11 tests) 355ms
+ ✓ tests/unit/config.test.mjs (19 tests) 13ms
+ ✓ tests/unit/handwriting.test.mjs (12 tests) 5ms
+ ✓ tests/unit/skills.test.mjs (12 tests) 4ms
+ ✓ tests/unit/prompts.test.mjs (18 tests) 10ms
+(node:36911) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/meeting-source.test.mjs (9 tests) 86ms
+ ✓ tests/unit/plan-panel.test.mjs (9 tests) 302ms
+(node:36917) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/runtime-channels.test.mjs (5 tests) 2286ms
+   ✓ R3 Runtime 渠道边界 > 真实模式没有长连接也用 CLI 保存备忘；缺 CLI 失败后同一意图可修复且只创建一次 569ms
+   ✓ R3 Runtime 渠道边界 > 旧 demo 成功记录本人再次保存时补真实文档；已有文档不再创建 561ms
+   ✓ R3 Runtime 渠道边界 > 任务来源检查核对远端终态和失败；完成或取消不进入项目 next 606ms
+   ✓ R3 Runtime 渠道边界 > CLI audio 与同一长前缀的 text 键不同，audio 重试仍仅交付一次 531ms
+ ✓ tests/unit/digest-service.test.mjs (8 tests) 10ms
+(node:36946) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/planning-adoption.test.mjs (20 tests) 20658ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 701ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 确定拒绝释放时段，后续重叠块正常成功 594ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 确认实际未写后，同一未知操作可安全续办且身份不变 601ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 570ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 596ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 696ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 确定拒绝释放时段，后续重叠块正常成功 587ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 确认实际未写后，同一未知操作可安全续办且身份不变 595ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 568ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1064ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 1443ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 确定拒绝释放时段，后续重叠块正常成功 1332ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 确认实际未写后，同一未知操作可安全续办且身份不变 1474ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 1314ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1299ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 1428ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 确定拒绝释放时段，后续重叠块正常成功 1302ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 确认实际未写后，同一未知操作可安全续办且身份不变 1338ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 1317ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1838ms
+(node:37520) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/note-trust.test.mjs (12 tests) 25ms
+ ✓ tests/unit/work-tool-schema.test.mjs (23 tests) 9ms
+ ✓ tests/unit/feishu-setup.test.mjs (11 tests) 2ms
+ ✓ tests/unit/wecom.test.mjs (9 tests) 1934ms
+   ✓ wecom-cli 受控执行 > 成功体剥离身份前缀字段，raw 保留原文 501ms
+   ✓ wecom-cli 受控执行 > 超时归类为结果未知，提示先核对再重试 1302ms
+(node:37543) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/work-item-lifecycle.test.mjs (12 tests) 752ms
+ ✓ tests/unit/lock.test.mjs (9 tests) 89ms
+ ✓ tests/unit/daily-planning.test.mjs (7 tests) 10ms
+ ✓ tests/unit/repo.test.mjs (15 tests) 1450ms
+ ✓ tests/unit/extra-tools.test.mjs (11 tests) 2ms
+ ✓ tests/unit/cli-gateway.test.mjs (8 tests) 2371ms
+   ✓ R3 CLI 有界终止 > 真实子进程忽略 TERM 后强制退出，调用有限结束且进程消失 809ms
+   ✓ R3 CLI 有界终止 > 主进程响应 TERM 先退出后，忽略 TERM 的独立 stdio 后代仍被 KILL 回收 932ms
+   ✓ R3 CLI 有界终止 > 无限 stdout 在上限终止，连续 stderr 只保留定额字节 573ms
+(node:37742) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/skill-delegation.test.mjs (3 tests) 39ms
+ ✓ tests/unit/tts.test.mjs (7 tests) 10ms
+ ✓ tests/unit/preset-sync.test.mjs (5 tests) 5ms
+ ✓ tests/unit/note-document.test.mjs (8 tests) 3858ms
+   ✓ 生产 reader 解析同响应 sidecar，换 token 同图片等价，同 token 换字节 changed 788ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<synced_reference src-token="x" src-block-id="y"/> 503ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<sheet token="x"/> 501ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<whiteboard token="x"/> 511ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<fragment><p>部分正文</p></fragment> 513ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<p>不完整 496ms
+   ✓ 无法下载图片不能退化成仅计数的通过结果 545ms
+ ✓ tests/unit/reminder-panel.test.mjs (2 tests) 78ms
+ ✓ tests/unit/local-tool-access.test.mjs (7 tests) 6ms
+ ✓ tests/unit/lark.test.mjs (6 tests) 1931ms
+   ✓ lark-cli 受控执行 > 成功路径：固定 argv + stdin + ok 信封 492ms
+   ✓ lark-cli 受控执行 > 超时归类为结果未知，提示先核对再重试 1304ms
+ ✓ tests/unit/secrets.test.mjs (4 tests) 4ms
+ ✓ tests/unit/digest-trigger.test.mjs (5 tests) 2ms
+(node:37810) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/note-collection.test.mjs (7 tests) 47ms
+ ✓ tests/unit/pg-backup.test.mjs (1 test) 957ms
+   ✓ 真实 LATIN1 库备份可恢复原始文字，不能经 UTF-8 有损解码 957ms
+ ✓ tests/unit/panel-rpc.test.mjs (4 tests) 2ms
+ ✓ tests/unit/wecom-channels.test.mjs (3 tests) 4ms
+ ✓ tests/unit/handwriting-pipeline.test.mjs (3 tests) 2ms
+ ✓ tests/unit/wecom-setup.test.mjs (1 test) 1ms
+
+ Test Files  49 passed (49)
+      Tests  685 passed (685)
+   Start at  10:48:48
+   Duration  169.02s (transform 249ms, setup 0ms, collect 2.40s, tests 162.67s, environment 3ms, prepare 940ms)

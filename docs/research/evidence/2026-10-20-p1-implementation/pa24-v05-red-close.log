@@ -23,4 +23,3 @@ Error: database is not open
       Tests  1 failed | 25 skipped (26)
    Start at  10:12:06
    Duration  156ms (transform 30ms, setup 0ms, collect 49ms, tests 11ms, environment 0ms, prepare 22ms)
-

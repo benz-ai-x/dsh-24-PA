@@ -1,0 +1,27 @@
+{
+  "node": "v26.4.0",
+  "controls": [
+    {
+      "kind": "normal",
+      "backupComplete": true,
+      "failures": [],
+      "bindResult": {
+        "accepted": true,
+        "rows": [
+          "marker"
+        ]
+      }
+    },
+    {
+      "kind": "missing-identity",
+      "backupComplete": false,
+      "failures": [
+        "workspace-manifest: 缺少账本恢复所需的工作区身份文件"
+      ],
+      "bindResult": {
+        "accepted": false,
+        "error": "账本归属与当前工作区或主人不符；请核对连接与工作区身份，按初始化指南备份、核对和导出，不能直接接纳。"
+      }
+    }
+  ]
+}
