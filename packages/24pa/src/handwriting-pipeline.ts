@@ -4,6 +4,7 @@
 // domain concept (原稿/待审版本/人工审核凭证) lives here. See GLOSSARY.
 
 import { randomUUID } from 'node:crypto';
+import { freezeNoteDerivation, noteDerivedContent } from './note-derivation.js';
 import { parseNoteDocument, registeredStatus, documentText } from './note-document.js';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -396,16 +397,16 @@ export class HandwritingPipeline {
         throw Object.assign(new Error('先前发布结果未知；请先核对是否已生成待审文档，不会自动重试。'), { outcome: 'unknown' });
       }
       const latest = (await notes.versionsOf(note.id)).filter(row => row.version < version).at(-1) ?? null;
+      const generatedXml = recognized ? noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size, sourceType: p.source_type }))) : null;
       let docId = (operation.receipt?.docId as string | undefined) ?? republishFromDoc?.docId ?? null;
       let docUrl = (operation.receipt?.docUrl as string | undefined) ?? republishFromDoc?.docUrl ?? null;
       if (!docId) {
         if (!recognized) throw new Error('发布新版本需要结构化识别结果。');
-        const xmlBody = noteDocumentXml(note.id, version, recognized, pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256, mediaType: p.media_type, byteSize: p.byte_size, sourceType: p.source_type })));
         // F22：待审文档同样落在知识库节点（wiki 优先、folder 回退）。
         const parentToken = noteParentToken(this.deps.config());
         const { data } = await this.externalWrite(item, `${operation.id}:create`, 'note.document.create', { noteId: note.id, version }, () => runLarkCli(this.cli(), [
           'docs', '+create', '--as', 'user', '--doc-format', 'xml', '--parent-token', parentToken, '--content', '-',
-        ], xmlBody));
+        ], generatedXml!));
         const doc = data?.document;
         if (!doc?.document_id || !doc?.url) throw new Error('文档创建未返回标识；请先核对配置的目录或知识库，不要盲目重试。');
         docId = String(doc.document_id);
@@ -444,9 +445,9 @@ export class HandwritingPipeline {
       const normalized = readback.normalized ?? normalizeDocument(readback.content);
       const fingerprint = fingerprintOf(normalized, pages.map(p => p.sha256), crops.map(c => c.sha256));
       const snapshot = republishFromDoc?.snapshot ?? readback.content;
-      const finalRecognized = republishFromDoc
-        ? { transcript: '', summary: '', candidates: [], unknowns: [], derivedStatus: 'needs_rebuild', crops, republishedFromDoc: true, previousVersion: latest?.version ?? null }
-        : { ...recognized, model: visionRoute ? { provider: visionRoute.provider, model: visionRoute.model } : null, crops };
+      const finalRecognized = { ...freezeNoteDerivation(recognized, generatedXml, snapshot, fingerprint), crops,
+        ...(republishFromDoc ? { republishedFromDoc: true, previousVersion: latest?.version ?? null }
+          : { model: visionRoute ? { provider: visionRoute.provider, model: visionRoute.model } : null }) };
       const published = await notes.insertVersion({
         id: versionId,
         note_id: note.id,
@@ -525,20 +526,22 @@ export class HandwritingPipeline {
     const notes = this.deps.repos().notes;
     const version = await notes.getVersion(versionId);
     if (!version) throw new Error('版本不存在，无法发送审核卡。');
+    const derived = noteDerivedContent(version), bodyOnly = derived.derivedStatus === 'needs_rebuild';
+    const tokenScope = bodyOnly ? ':body' : ':derived';
     const existing = await notes.tokensOf(versionId);
-    const usable = existing.filter(row => row.owner_open_id === this.deps.config().ownerOpenId && row.fingerprint === version.fingerprint && !row.used_at && !row.result && row.expires_at.getTime() > Date.now());
+    const usable = existing.filter(row => row.token.endsWith(tokenScope) && row.owner_open_id === this.deps.config().ownerOpenId && row.fingerprint === version.fingerprint && !row.used_at && !row.result && row.expires_at.getTime() > Date.now());
     let approveToken = usable.find(row => row.action === 'approve')?.token;
     let returnToken = usable.find(row => row.action === 'return')?.token;
     if (!approveToken || !returnToken) {
-      approveToken = newReviewToken(); returnToken = newReviewToken();
+      approveToken = newReviewToken() + tokenScope; returnToken = newReviewToken() + tokenScope;
       const expires = new Date(Date.now() + REVIEW_TOKEN_TTL_MS);
       await notes.insertToken({ token: approveToken, note_id: noteId, version_id: versionId, action: 'approve', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
       await notes.insertToken({ token: returnToken, note_id: noteId, version_id: versionId, action: 'return', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
     }
-    const summary = String(version.content?.summary ?? '（见文档）');
+    const summary = String(derived.summary ?? '（见文档）');
     const flowParams = await this.deps.skillParams('handwriting-review-flow');
     const card = reviewCard(noteId, version.version, version.doc_url, summary, version.fingerprint.slice(0, 12), approveToken, returnToken,
-      typeof flowParams.cardHeader === 'string' ? flowParams.cardHeader : undefined);
+      typeof flowParams.cardHeader === 'string' ? flowParams.cardHeader : undefined, bodyOnly);
     await this.deps.repos().outbox.enqueue({
       dedupKey: `notereview:${noteId}:v${version.version}:${hash(approveToken)}`,
       channel: 'feishu',
@@ -615,7 +618,17 @@ export class HandwritingPipeline {
       await finish('rejected', '内容已变化');
       return;
     }
+    const bodyOnly = noteDerivedContent(trust.version).derivedStatus === 'needs_rebuild';
+    // The scope suffix is stored inside the opaque token; historical tokens
+    // and cards for a different scope cannot approve under a new promise.
+    if (!row.token.endsWith(bodyOnly ? ':body' : ':derived')) {
+      await this.sendReviewCard(row.note_id, version.id);
+      await notify('本按钮的审核范围已失效，未产生裁决；已换发最新审核卡，请按卡片说明核对后操作。');
+      await finish('rejected', '审核范围已变化');
+      return;
+    }
     const decision = row.action === 'approve' ? 'approve' : 'return';
+    const approvalScope = bodyOnly ? '仅批准正文；摘要与候选需重新整理，旧行动不可执行。' : '';
     const decisionId = `rvw-${randomUUID().slice(0, 16)}`;
     // Credential, statuses and the owner-notification intent commit together.
     let decided: boolean;
@@ -634,7 +647,7 @@ export class HandwritingPipeline {
           notifyDedupKey: `review:${token.slice(0, 12)}:${inboxEventId}`,
           notifyTarget: this.deps.config().ownerOpenId,
           notifyText: decision === 'approve'
-            ? `已批准 ${row.note_id} v${version.version}（覆盖指纹 ${row.fingerprint.slice(0, 12)}…，审核人 ${event.senderOpenId}）。`
+            ? `已批准 ${row.note_id} v${version.version}（覆盖指纹 ${row.fingerprint.slice(0, 12)}…，审核人 ${event.senderOpenId}）。${approvalScope}`
             : `已退回 ${row.note_id} v${version.version}；修改草稿后可要求重新发布候选版本。`,
         }),
       );
@@ -666,7 +679,7 @@ export class HandwritingPipeline {
       fingerprint: row.fingerprint,
       message:
         decision === 'approve'
-          ? `已批准 ${row.note_id} v${version.version}（覆盖指纹 ${row.fingerprint.slice(0, 12)}…，审核人 ${event.senderOpenId}）。${syncMessage}`
+          ? `已批准 ${row.note_id} v${version.version}（覆盖指纹 ${row.fingerprint.slice(0, 12)}…，审核人 ${event.senderOpenId}）。${approvalScope}${syncMessage}`
           : `已退回 ${row.note_id} v${version.version}；修改草稿后可要求重新发布候选版本。${syncMessage}`,
     };
     await notes.markTokenResult(token, result);

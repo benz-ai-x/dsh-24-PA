@@ -31,7 +31,8 @@ import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, typ
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
-import { ExternalOperations } from './external-operations.js';
+import { ExternalOperations, isCandidateOperation } from './external-operations.js';
+import { noteDerivedContent } from './note-derivation.js';
 import { OutboxDelivery } from './outbox-delivery.js';
 import { WaitingFollowups } from './waiting-followups.js';
 import { TaskTemplates } from './task-templates.js';
@@ -1976,6 +1977,15 @@ export class PaRuntime {
   }
 
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
+    if (kind === 'create' && operationIdOverride && isCandidateOperation(operationIdOverride)) {
+      return this.gate(`candidate:${operationIdOverride}`, async () => {
+        const original = await this.externalOperations.candidateCreation(operationIdOverride, 'calendar', args);
+        const channel = original?.channel ?? this.config!.calendarChannel;
+        return channel === 'wecom'
+          ? this.wecomChannels.wecomCalendarWrite(item, kind, original?.args ?? args, operationIdOverride)
+          : this.feishu.calendarWrite(item, kind, original?.args ?? args, operationIdOverride);
+      });
+    }
     const prior = kind === 'create' ? null : await this.repos!.calendar.findEvent(String(args.eventId ?? ''));
     const channel = prior?.channel ?? args.channel ?? this.config!.calendarChannel;
     const scoped = { ...args, calendarId: prior?.calendar_id ?? args.calendarId };
@@ -2013,7 +2023,14 @@ export class PaRuntime {
   /** Staged operation under a caller-chosen stable id (minutes candidates). */
   private async stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }> { return this.externalOperations.stageWithId(operationId, item, action, params); }
 
-  private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.create(item, args); }
+  private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const id = String(args._operationId ?? '');
+    if (!isCandidateOperation(id)) return this.taskLifecycle.create(item, args);
+    return this.gate(`candidate:${id}`, async () => {
+      const original = await this.externalOperations.candidateCreation(id, 'task', args);
+      return this.taskLifecycle.create(item, original?.args ?? args, original?.channel);
+    });
+  }
 
   private async resolveTask(args: Record<string, unknown>) { return this.taskLifecycle.resolve(args); }
 
@@ -2616,14 +2633,7 @@ export class PaRuntime {
           // Minutes-scoped idempotency for calendar candidates too: repeated
           // selections from any session return the existing event (P27).
           const operationId = `minutes.action:${minutes.id}:${index}`;
-          const previous = await this.repos!.operations.get(operationId);
-          if (previous?.status === 'succeeded') {
-            const receipt = previous.receipt as { eventId?: string; url?: string | null } | null;
-            results.push({ index, ok: true, kind: 'calendar', reused: true, eventId: receipt?.eventId ?? null, url: receipt?.url ?? null, message: '该候选此前已执行，返回已有日程。' });
-            continue;
-          }
           const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, _authorization: { minutesId: minutes.id, index, instruction, sourceQuote: candidate.sourceQuote } }, operationId)) as { eventId?: string; url?: string | null; operationId?: string };
-          await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, minutesId: minutes.id, index, instruction } });
           results.push({ index, ok: true, kind: 'calendar', ...(created as object), minutesId: minutes.id });
         } else {
           // Minutes-scoped idempotency: the stable key is (minutes, index), not
@@ -2684,8 +2694,9 @@ export class PaRuntime {
     if (trust.currentValidity !== 'matches') {
       throw new Error('文档内容与已审核版本不一致（已修改）；旧批准不覆盖新内容，请先重新发布候选并审核。');
     }
-    if (version.content?.derivedStatus === 'needs_rebuild') throw new Error('当前文档已重发，但结构化候选尚未重建；请先重新整理当前文档并审核新候选，不能执行旧版本行动。');
-    const candidates = (Array.isArray(version.content?.candidates) ? version.content.candidates : []) as NoteCandidate[];
+    const derived = noteDerivedContent(version);
+    if (derived.derivedStatus === 'needs_rebuild') throw new Error('当前版本的结构化候选尚未重建或缺少同源证明；请重新整理当前文档并审核新候选，不能执行旧版本行动。');
+    const candidates = (Array.isArray(derived.candidates) ? derived.candidates : []) as NoteCandidate[];
     const wanted = Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [];
     if (wanted.length === 0) throw new Error('需要提供选择的候选编号（indexes[]）。');
     const results = [];
@@ -2697,11 +2708,7 @@ export class PaRuntime {
       }
       const operationId = `note.action:${noteId}:v${version.version}:${index}`;
       const previous = await this.repos!.operations.get(operationId);
-      if (previous?.status === 'succeeded') {
-        results.push({ index, ok: true, kind: previous.action.includes('calendar') ? 'calendar' : 'task', operationId, reused: true, ...previous.receipt });
-        continue;
-      }
-      const unknowns = candidateUnknowns(candidate, index, Array.isArray(version.content?.unknowns) ? version.content.unknowns : []);
+      const unknowns = candidateUnknowns(candidate, index, Array.isArray(derived.unknowns) ? derived.unknowns : []);
       const requestedClarification = Array.isArray(args.clarifications) ? args.clarifications.find((entry: any) => entry?.index === index) as Record<string, any> | undefined : undefined;
       // Once an operation is recorded, its intent is immutable even when the
       // remote acknowledgement arrived before a local projection failed. The
@@ -2711,17 +2718,6 @@ export class PaRuntime {
         continue;
       }
       const clarification = previous ? previous.params.clarification as Record<string, any> | undefined : requestedClarification;
-      if (previous) {
-        const isCalendar = previous.action.includes('calendar');
-        const channel = previous.action.startsWith('wecom_') ? 'wecom' : 'feishu';
-        const currentChannel = isCalendar ? this.config!.calendarChannel : this.config!.todoChannel;
-        const changedTarget = channel !== currentChannel || (channel === 'feishu' && (isCalendar
-          ? previous.params.calendarId !== this.config!.calendarId : previous.params.tasklistId !== this.config!.tasklistId));
-        if (changedTarget) {
-          results.push({ index, ok: false, error: '该候选已有原渠道和目标记录；当前配置已改变，请恢复原目标后重试或先核对已有对象，不能换目标重复创建。' });
-          continue;
-        }
-      }
       if (unknowns.length) {
         const resolutions = Array.isArray(clarification?.resolutions) ? clarification.resolutions : [];
         if (!clarification?.resolved?.summary || unknowns.some(unknown => !resolutions.some((r: any) => r?.unknown === unknown && typeof r.answer === 'string' && r.answer.trim()))) {
@@ -2742,7 +2738,6 @@ export class PaRuntime {
       try {
         if (candidate.start && candidate.end) {
           const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, timeZone: previous?.params.timeZone, _authorization: { noteId, versionId, index, instruction, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) } }, operationId)) as { eventId?: string; url?: string | null };
-          await this.repos!.operations.update(operationId, { status: 'succeeded', receipt: { eventId: created.eventId, url: created.url, noteId, versionId, index, instruction } });
           results.push({ index, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
         } else {
           const created = await this.taskCreate(item, {
@@ -2781,7 +2776,7 @@ export class PaRuntime {
     const versions = await this.repos!.notes.versionsWithDecisions(30);
     const items = [];
     for (const row of versions) {
-      const content = row.content ?? {};
+      const content = noteDerivedContent(row);
       const transcript = String(content.transcript ?? '');
       const summary = String(content.summary ?? '');
       if (query && !(`${transcript}${summary}${row.note_id}`.includes(query))) continue;
@@ -2807,7 +2802,7 @@ export class PaRuntime {
         ...(unknownReason ? { unknownReason } : {}),
         summary,
         derivedStatus: content.derivedStatus ?? 'ready',
-        ...(content.derivedStatus === 'needs_rebuild' ? { missing: '当前文档已重发，摘要/转写/候选尚未重建；请查看当前版本文档。' } : {}),
+        ...(content.derivedStatus === 'needs_rebuild' ? { missing: '当前版本的摘要/转写/候选尚未重建或缺少同源证明；请查看当前版本文档并重新整理。' } : {}),
         docUrl: row.doc_url,
         candidates: Array.isArray(content.candidates) ? content.candidates : [],
       });
@@ -3253,20 +3248,24 @@ export class PaRuntime {
             .filter(r => r.note_id === note.id)
             .map(r => ({ id: r.id, kind: r.kind, status: r.status, remindAt: new Date(r.remind_at).toISOString(), sent: r.sent_count })),
         })),
-        history: history.map(row => ({
-          noteId: row.note_id,
-          title: row.title ?? row.note_id,
-          version: row.version,
-          status: row.status,
-          decision: row.decision ?? null,
-          summary: String(row.content?.summary ?? ''),
-          docUrl: row.doc_url ?? null,
-          fingerprint: String(row.fingerprint ?? '').slice(0, 12) + '…',
-          decidedAt: isoDate(row.decision_at ?? row.decided_at),
-          verifiedAt: isoDate(row.verified_at),
-          verifyResult: row.verify_result ?? null,
-          createdAt: isoDate(row.created_at),
-        })),
+        history: history.map(row => {
+          const derived = noteDerivedContent(row);
+          return {
+            noteId: row.note_id,
+            title: row.title ?? row.note_id,
+            version: row.version,
+            status: row.status,
+            decision: row.decision ?? null,
+            summary: String(derived.summary ?? ''),
+            derivedStatus: derived.derivedStatus,
+            docUrl: row.doc_url ?? null,
+            fingerprint: String(row.fingerprint ?? '').slice(0, 12) + '…',
+            decidedAt: isoDate(row.decision_at ?? row.decided_at),
+            verifiedAt: isoDate(row.verified_at),
+            verifyResult: row.verify_result ?? null,
+            createdAt: isoDate(row.created_at),
+          };
+        }),
       };
     });
   }

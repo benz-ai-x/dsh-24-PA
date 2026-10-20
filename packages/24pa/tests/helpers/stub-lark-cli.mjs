@@ -109,9 +109,11 @@ if (plain[0] === 'docs' && plain[1] === '+create') {
     process.stdin.on('error', () => resolveStdin(data));
   });
   const id = `docstub-${docs.length + 1}`;
+  // Controlled owner edit after platform creation but before the first read.
+  const content = (state.docCreateEdits ?? []).reduce((body, edit) => body.replaceAll(edit.from, edit.to), stdin);
   // F22: record the parent token so e2e can assert where a doc landed
   // (wiki node vs. folder) without re-parsing raw call args.
-  await appendFile(docsPath, JSON.stringify({ id, content: stdin, revision: 1, parentToken: argOf('--parent-token') ?? null }) + '\n');
+  await appendFile(docsPath, JSON.stringify({ id, content, revision: content === stdin ? 1 : 2, parentToken: argOf('--parent-token') ?? null }) + '\n');
   ok({ document: { document_id: id, url: `https://example.feishu.cn/wiki/${id}`, revision_id: 1 }, warnings: [] });
 }
 if (plain[0] === 'docs' && plain[1] === '+fetch') {

@@ -1,0 +1,37 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:76989) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/candidate-recovery.test.mjs (26 tests) 22396ms
+   ✓ candidate recovery / sqlite > feishu:task preserves original receipt, target and owner after restart 1353ms
+   ✓ candidate recovery / sqlite > wecom:task preserves original receipt, target and owner after restart 1103ms
+   ✓ candidate recovery / sqlite > feishu:calendar preserves original receipt, target and owner after restart 1143ms
+   ✓ candidate recovery / sqlite > wecom:calendar preserves original receipt, target and owner after restart 1129ms
+   ✓ candidate recovery / sqlite > feishu:task:container preserves original receipt, target and owner after restart 625ms
+   ✓ candidate recovery / sqlite > feishu:calendar:container preserves original receipt, target and owner after restart 641ms
+   ✓ candidate recovery / sqlite > missing-target does not guess a candidate identity or replay an unknown write 628ms
+   ✓ candidate recovery / sqlite > unknown-format does not guess a candidate identity or replay an unknown write 627ms
+   ✓ candidate recovery / sqlite > foreign-source does not guess a candidate identity or replay an unknown write 618ms
+   ✓ candidate recovery / sqlite > wrong-action does not guess a candidate identity or replay an unknown write 592ms
+   ✓ candidate recovery / sqlite > unknown-result does not guess a candidate identity or replay an unknown write 599ms
+   ✓ candidate recovery / sqlite > bad-receipt does not guess a candidate identity or replay an unknown write 599ms
+   ✓ candidate recovery / sqlite > legacy does not guess a candidate identity or replay an unknown write 1051ms
+   ✓ candidate recovery / postgres > feishu:task preserves original receipt, target and owner after restart 1174ms
+   ✓ candidate recovery / postgres > wecom:task preserves original receipt, target and owner after restart 1196ms
+   ✓ candidate recovery / postgres > feishu:calendar preserves original receipt, target and owner after restart 1176ms
+   ✓ candidate recovery / postgres > wecom:calendar preserves original receipt, target and owner after restart 1180ms
+   ✓ candidate recovery / postgres > feishu:task:container preserves original receipt, target and owner after restart 711ms
+   ✓ candidate recovery / postgres > feishu:calendar:container preserves original receipt, target and owner after restart 704ms
+   ✓ candidate recovery / postgres > missing-target does not guess a candidate identity or replay an unknown write 660ms
+   ✓ candidate recovery / postgres > unknown-format does not guess a candidate identity or replay an unknown write 669ms
+   ✓ candidate recovery / postgres > foreign-source does not guess a candidate identity or replay an unknown write 791ms
+   ✓ candidate recovery / postgres > wrong-action does not guess a candidate identity or replay an unknown write 674ms
+   ✓ candidate recovery / postgres > unknown-result does not guess a candidate identity or replay an unknown write 661ms
+   ✓ candidate recovery / postgres > bad-receipt does not guess a candidate identity or replay an unknown write 665ms
+   ✓ candidate recovery / postgres > legacy does not guess a candidate identity or replay an unknown write 678ms
+
+ Test Files  1 passed (1)
+      Tests  26 passed (26)
+   Start at  11:38:57
+   Duration  22.73s (transform 118ms, setup 0ms, collect 246ms, tests 22.40s, environment 0ms, prepare 19ms)
