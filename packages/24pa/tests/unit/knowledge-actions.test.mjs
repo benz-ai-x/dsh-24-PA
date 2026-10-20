@@ -101,6 +101,29 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     expect((await f.rt.repos.tasks.list()).map(row => row.summary)).toEqual(['联系王工']);
   });
 
+  it.each(['refresh', 'click'])('V01 升级前待审卡在 %s 时换发正文卡，旧按钮不能批准', async mode => {
+    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    const published = await f.rt.work({ action: 'note_submit', transcript: '联系王工', summary: '联系王工', candidates: [{ summary: '联系王工' }] }, child);
+    const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
+    const oldToken = token.replace(/:(body|derived)$/, '');
+    await f.rt.db.query('update pa24.review_token set token = $2 where token = $1', [token, oldToken]);
+    const version = await f.rt.repos.notes.getVersion(published.versionId); delete version.content.derivation; delete version.content.derivedStatus;
+    await f.rt.db.query('update pa24.note_version set content = $2 where id = $1', [version.id, JSON.stringify(version.content)]);
+    if (mode === 'refresh') await f.rt.notesTool({ action: 'republish', noteId: 'N-1' }, local);
+    const click = token => f.rt.handwriting.processReviewCard('click-' + token, { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });
+    await click(oldToken);
+    expect((await f.rt.repos.notes.getVersion(version.id)).status).toBe('pending_review');
+    expect(await f.rt.repos.notes.decisionsOf('N-1')).toEqual([]);
+    const cards = (await f.rt.repos.outbox.recent(30)).filter(row => row.dedup_key.startsWith('notereview:N-1:v1:'));
+    expect(cards).toHaveLength(2);
+    const replacement = cards.find(row => JSON.stringify(row.content).includes('仅批准正文'));
+    expect(replacement).toBeTruthy(); expect(JSON.stringify(replacement.content)).not.toContain('联系王工');
+    const current = (await f.rt.repos.notes.tokensOf(version.id)).find(row => row.action === 'approve' && row.token !== oldToken);
+    await click(current.token);
+    expect((await f.rt.repos.notes.getVersion(version.id)).status).toBe('approved');
+    await expect(f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: version.id, indexes: [0], instruction: '执行第一项' }, child)).rejects.toThrow(/同源|重建/);
+  });
+
   it.each(['legacy', 'changed-derived'])('V01 %s 已批准版本不能继承未证实的候选，历史凭证保留', async mode => {
     await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王工', summary: '联系王工', candidates: [{ summary: '联系王工' }] }, child);

@@ -273,7 +273,9 @@ describe('F10 会议资料与纪要行动（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-mn7', { text: '复盘会再执行一遍试试' }));
     await waitWorkItem('重复日历候选', '重复日历执行完成');
-    await waitToolResult('pa24_work', '返回已有日程', '日历幂等回执', 60_000, before);
+    const reusedCalendar = await waitToolResult('pa24_work', '"reused":true', '日历幂等回执', 60_000, before);
+    expect(reusedCalendar).toContain('"channel":"feishu"');
+    expect(reusedCalendar).toContain('未重复写入');
     expect((await rows(`select count(*)::int as n from pa24.calendar_event where summary like '%复盘会时间块%'`))[0].n).toBe(1);
 
     // 信息不足候选 → 明确拒绝执行

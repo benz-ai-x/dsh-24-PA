@@ -93,7 +93,8 @@ describe('待审版本当前可信裁定（真实账本＋文档 stub adapter）
 
   it('审核事务失败不消费按钮；重试保存一个凭证，重复点击不再裁决', async () => {
     const v = await version(1, 'pending_review');
-    await notes.insertToken({ token: 'opaque-token', note_id: 'N-1', version_id: v.id, action: 'approve', owner_open_id: 'owner', fingerprint: v.fingerprint, expires_at: new Date(Date.now() + 60_000) });
+    // This fixture reviews the body only; no structured provenance is claimed.
+    await notes.insertToken({ token: 'opaque-token:body', note_id: 'N-1', version_id: v.id, action: 'approve', owner_open_id: 'owner', fingerprint: v.fingerprint, expires_at: new Date(Date.now() + 60_000) });
     let failCommit = true;
     const pipeline = new HandwritingPipeline({
       repos: () => repos, config: () => ({ ownerOpenId: 'owner', mode: 'demo' }), transport: () => null,
@@ -103,15 +104,15 @@ describe('待审版本当前可信裁定（真实账本＋文档 stub adapter）
         return client.query(sql, values);
       } })) }),
     }, { read: async () => ({ content: original, revision: 'rev' }) });
-    const event = { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token: 'opaque-token' } } };
+    const event = { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token: 'opaque-token:body' } } };
     await pipeline.processReviewCard('first', event);
-    expect((await notes.getToken('opaque-token')).used_at).toBeNull();
+    expect((await notes.getToken('opaque-token:body')).used_at).toBeNull();
     expect(await notes.decisionsOf('N-1')).toHaveLength(0);
     failCommit = false;
     await pipeline.processReviewCard('retry', event);
     await pipeline.processReviewCard('duplicate', event);
     expect(await notes.decisionsOf('N-1')).toHaveLength(1);
     expect((await notes.getVersion(v.id)).status).toBe('approved');
-    expect((await notes.getToken('opaque-token')).used_at).not.toBeNull();
+    expect((await notes.getToken('opaque-token:body')).used_at).not.toBeNull();
   });
 });

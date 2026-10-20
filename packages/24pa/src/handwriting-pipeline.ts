@@ -526,20 +526,22 @@ export class HandwritingPipeline {
     const notes = this.deps.repos().notes;
     const version = await notes.getVersion(versionId);
     if (!version) throw new Error('版本不存在，无法发送审核卡。');
+    const derived = noteDerivedContent(version), bodyOnly = derived.derivedStatus === 'needs_rebuild';
+    const tokenScope = bodyOnly ? ':body' : ':derived';
     const existing = await notes.tokensOf(versionId);
-    const usable = existing.filter(row => row.owner_open_id === this.deps.config().ownerOpenId && row.fingerprint === version.fingerprint && !row.used_at && !row.result && row.expires_at.getTime() > Date.now());
+    const usable = existing.filter(row => row.token.endsWith(tokenScope) && row.owner_open_id === this.deps.config().ownerOpenId && row.fingerprint === version.fingerprint && !row.used_at && !row.result && row.expires_at.getTime() > Date.now());
     let approveToken = usable.find(row => row.action === 'approve')?.token;
     let returnToken = usable.find(row => row.action === 'return')?.token;
     if (!approveToken || !returnToken) {
-      approveToken = newReviewToken(); returnToken = newReviewToken();
+      approveToken = newReviewToken() + tokenScope; returnToken = newReviewToken() + tokenScope;
       const expires = new Date(Date.now() + REVIEW_TOKEN_TTL_MS);
       await notes.insertToken({ token: approveToken, note_id: noteId, version_id: versionId, action: 'approve', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
       await notes.insertToken({ token: returnToken, note_id: noteId, version_id: versionId, action: 'return', owner_open_id: this.deps.config().ownerOpenId, fingerprint: version.fingerprint, expires_at: expires });
     }
-    const derived = noteDerivedContent(version), summary = String(derived.summary ?? '（见文档）');
+    const summary = String(derived.summary ?? '（见文档）');
     const flowParams = await this.deps.skillParams('handwriting-review-flow');
     const card = reviewCard(noteId, version.version, version.doc_url, summary, version.fingerprint.slice(0, 12), approveToken, returnToken,
-      typeof flowParams.cardHeader === 'string' ? flowParams.cardHeader : undefined, derived.derivedStatus === 'needs_rebuild');
+      typeof flowParams.cardHeader === 'string' ? flowParams.cardHeader : undefined, bodyOnly);
     await this.deps.repos().outbox.enqueue({
       dedupKey: `notereview:${noteId}:v${version.version}:${hash(approveToken)}`,
       channel: 'feishu',
@@ -616,8 +618,17 @@ export class HandwritingPipeline {
       await finish('rejected', '内容已变化');
       return;
     }
+    const bodyOnly = noteDerivedContent(trust.version).derivedStatus === 'needs_rebuild';
+    // The scope suffix is stored inside the opaque token; historical tokens
+    // and cards for a different scope cannot approve under a new promise.
+    if (!row.token.endsWith(bodyOnly ? ':body' : ':derived')) {
+      await this.sendReviewCard(row.note_id, version.id);
+      await notify('本按钮的审核范围已失效，未产生裁决；已换发最新审核卡，请按卡片说明核对后操作。');
+      await finish('rejected', '审核范围已变化');
+      return;
+    }
     const decision = row.action === 'approve' ? 'approve' : 'return';
-    const approvalScope = noteDerivedContent(trust.version).derivedStatus === 'needs_rebuild' ? '仅批准正文；摘要与候选需重新整理，旧行动不可执行。' : '';
+    const approvalScope = bodyOnly ? '仅批准正文；摘要与候选需重新整理，旧行动不可执行。' : '';
     const decisionId = `rvw-${randomUUID().slice(0, 16)}`;
     // Credential, statuses and the owner-notification intent commit together.
     let decided: boolean;

@@ -316,21 +316,23 @@ describe('F07 多页笔记与集中复核（真实 Loader + 隔离 PG）', () =>
   });
 
   it('P33：免打扰窗口把到期催办扣住，窗口结束后补发', async () => {
-    const vacationEnd = new Date(Date.now() + 12000).toISOString();
-    await writeScript({
-      mode: 'dispatch',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-f07', category: 'preference', topic: '休假', content: '本人休假中，暂停提醒推送', source: '本人指示', status: 'confirmed', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } },
-      leadReply: '已记录休假。',
-    });
-    await promptLocal('f07-vacation-1', '我要休假一会儿：接下来十二秒内不要提醒我');
-    await waitMemoryRevision(1, '休假写入');
-
     await inject(ownerEvent('evt-sil-1', { messageType: 'image', imageKey: 'sil-1', imageData: b64(png(51)) }));
     const ack = await waitAck('evt-sil-1');
     const noteId = noteIdOfAck(ack);
     await writeScript(recognizeScript(noteId, singleSubmit(noteId)));
     await inject(ownerEvent('evt-sil-org', { text: '整理这份笔记', parentMessageId: ack.message_id }));
     await waitWorkItem(`整理 ${noteId}`, '静默用识别完成');
+
+    // Start the bounded quiet window after document creation; recognition
+    // latency must not consume the window before the held-state assertion.
+    const vacationEnd = new Date(Date.now() + 30000).toISOString();
+    await writeScript({
+      mode: 'dispatch',
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-f07', category: 'preference', topic: '休假', content: '本人休假中，暂停提醒推送', source: '本人指示', status: 'confirmed', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } },
+      leadReply: '已记录休假。',
+    });
+    await promptLocal('f07-vacation-1', '我要休假一会儿：接下来三十秒内不要提醒我');
+    await waitMemoryRevision(1, '休假写入');
 
     await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_notes', input: { action: 'remind', noteId, inSeconds: 2, kind: 'once' } }, leadReply: '已设。' });
     const beforeSilence = llm.log.length;
@@ -345,7 +347,7 @@ describe('F07 多页笔记与集中复核（真实 Loader + 隔离 PG）', () =>
     expect(held[0].status).toBe('pending');
     expect(held[0].has_next).toBe(true);
     // 窗口结束后补发
-    const row = await waitOutbox(`noteremind:${reminderId}:`, '休假后催办补发', 30_000);
+    const row = await waitOutbox(`noteremind:${reminderId}:`, '休假后催办补发', 60_000);
     expect(row.message_id).toMatch(/^fake-/);
   });
 });
