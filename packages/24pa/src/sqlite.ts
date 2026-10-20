@@ -400,8 +400,8 @@ export class SqliteDb implements PaDb {
   }
 
   close(): Promise<void> {
-    if (this.closing) return this.closing;
     if (this.txOwner.getStore()?.active) return Promise.reject(new Error('请在事务结束后关闭 SQLite 账本。'));
+    if (this.closing) return this.closing;
     this.closed = true;
     this.closing = this.enqueue(async () => {
       try {

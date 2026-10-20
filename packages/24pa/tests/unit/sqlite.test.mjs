@@ -219,6 +219,45 @@ it('rejects snapshot or close inside its transaction, rolls back, and remains us
   } finally { await db.close(); await rm(root, { recursive: true, force: true }); }
 });
 
+it('rejects close inside a transaction even when external backup and close are already queued', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pa24-close-interleaving-'));
+  const db = new SqliteDb(join(root, 'source.db'));
+  const entered = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  let restored;
+  try {
+    await db.migrate();
+    const transaction = db.withTransaction(async tx => {
+      await tx.query("insert into pa24.memo (id, topic, content, source) values ('rollback', 'backup', 'uncommitted', 'test')");
+      entered.resolve();
+      await release.promise;
+      let timer;
+      try {
+        // Bound a broken implementation's self-wait so rollback can release
+        // the queued operations and the test can close its real database.
+        await Promise.race([
+          db.close(),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('close waited on its own transaction')), 200); }),
+        ]);
+      } finally { clearTimeout(timer); }
+    });
+    await entered.promise;
+    const snapshot = db.backup();
+    const closing = db.close();
+    const rejected = expect(transaction).rejects.toThrow('事务');
+    release.resolve();
+    const [, parts] = await Promise.all([rejected, snapshot, closing]);
+    await writeFile(join(root, 'restored.db'), parts[0].bytes);
+    restored = new SqliteDb(join(root, 'restored.db'));
+    expect((await restored.query('select id from pa24.memo')).rows).toEqual([]);
+  } finally {
+    release.resolve();
+    await restored?.close();
+    await db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 // Round-3 equivalence matrix: the shared business-behavior table runs against
 // the SQLite factory too — new repo methods covered by the table are proven on
 // both adapters by derivation, not by hand-copying cases.
