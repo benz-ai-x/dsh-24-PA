@@ -18,8 +18,7 @@ export interface BackupPart {
   id: string;
   name: string;
   bytes: Buffer;
-  /** Best-effort part: a write failure degrades the backup but does not
-   *  fail it (e.g. the SQLite WAL append when -wal vanished mid-backup). */
+  /** Legacy multipart metadata; current SQLite backups are self-contained. */
   optional?: boolean;
 }
 
@@ -33,8 +32,7 @@ export interface PaDb extends PaQueryer {
   /** Note numbering N-1, N-2… (PG sequence / SQLite counter table). */
   nextNoteSeq(): Promise<number>;
   withTransaction<T>(work: (client: PaQueryer) => Promise<T>): Promise<T>;
-  /** Ledger bytes for backup: SQLite checkpoints + file copy (WAL appended
-   *  when a truncate left frames behind), PostgreSQL runs pg_dump. */
+  /** Consistent ledger snapshot: SQLite native backup, PostgreSQL pg_dump. */
   backup(): Promise<BackupPart[]>;
   close(): Promise<void>;
 }

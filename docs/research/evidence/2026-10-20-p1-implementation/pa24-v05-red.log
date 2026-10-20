@@ -1,0 +1,38 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ❯ tests/unit/backup.test.mjs (6 tests | 1 failed | 5 skipped) 28ms
+   × workspace backup recovery coverage > restores committed business rows when a reader retires and the live WAL changes generation during backup 27ms
+     → expected [] to deeply equal [ { id: 'before', …(1) } ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/backup.test.mjs > workspace backup recovery coverage > restores committed business rows when a reader retires and the live WAL changes generation during backup
+AssertionError: expected [] to deeply equal [ { id: 'before', …(1) } ]
+
+- Expected
++ Received
+
+- Array [
+-   Object {
+-     "content": "committed before backup",
+-     "id": "before",
+-   },
+- ]
++ Array []
+
+ ❯ tests/unit/backup.test.mjs:79:87
+     77|     const restored = new DatabaseSync(join(result.backupDir, 'pa24.db'…
+     78|     try {
+     79|       expect(restored.prepare('select id, content from pa24_memo order…
+       |                                                                                       ^
+     80|         { id: 'before', content: 'committed before backup' },
+     81|       ]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+   Start at  10:09:50
+   Duration  149ms (transform 20ms, setup 0ms, collect 29ms, tests 28ms, environment 0ms, prepare 21ms)
+

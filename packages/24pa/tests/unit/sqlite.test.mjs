@@ -3,7 +3,7 @@
 // the same JS shapes PostgreSQL hands back (Date timestamps, parsed jsonb,
 // booleans).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SqliteDb, translateQuery } from '../../lib/sqlite.js';
@@ -144,16 +144,79 @@ describe('F25：SQLite 账本（迁移＋业务往返）', () => {
     db.checkpoint();
   });
 
-  it('F28 backup()：返回可恢复的账本件（sqlite 主件，busy 时附 WAL）', async () => {
+  it('backup() 返回一个独立、可恢复的账本快照', async () => {
     await db.query(`insert into pa24.memo (id, topic, content, source) values ($1, $2, $3, $4)`, ['memo-bk', 'bk', '备份前写入', 'test']);
     const parts = await db.backup();
     expect(parts.length).toBeGreaterThanOrEqual(1);
     expect(parts[0].id).toBe('sqlite');
     expect(parts[0].name).toBe('pa24.db');
     expect(parts[0].bytes.length).toBeGreaterThan(0);
-    // WAL 为条件件：checkpoint truncate 忙时才有；件 id 只允许这两个
-    expect(parts.every(p => ['sqlite', 'sqlite-wal'].includes(p.id))).toBe(true);
+    expect(parts.map(p => p.id)).toEqual(['sqlite']);
   });
+});
+
+it('closing waits for an accepted backup and its committed rows remain restorable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pa24-backup-close-'));
+  const db = new SqliteDb(join(root, 'source.db'));
+  let restored;
+  try {
+    await db.migrate();
+    await db.query("insert into pa24.memo (id, topic, content, source) values ('before-close', 'backup', 'keep me', 'test')");
+    const snapshot = db.backup();
+    const closing = db.close();
+    const [parts] = await Promise.all([snapshot, closing, db.close()]);
+    await writeFile(join(root, 'restored.db'), parts[0].bytes);
+    restored = new SqliteDb(join(root, 'restored.db'));
+    expect((await restored.query('select id, content from pa24.memo')).rows).toEqual([{ id: 'before-close', content: 'keep me' }]);
+    await expect(db.backup()).rejects.toThrow('已关闭');
+  } finally {
+    await restored?.close();
+    await db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('a backup queued behind a transaction includes its commit even when close is requested', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pa24-backup-tx-'));
+  const db = new SqliteDb(join(root, 'source.db'));
+  let restored;
+  try {
+    await db.migrate();
+    const entered = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const transaction = db.withTransaction(async tx => {
+      entered.resolve();
+      await release.promise;
+      await tx.query("insert into pa24.memo (id, topic, content, source) values ('committed', 'backup', 'whole transaction', 'test')");
+    });
+    await entered.promise;
+    const snapshot = db.backup();
+    const closing = db.close();
+    release.resolve();
+    const [, parts] = await Promise.all([transaction, snapshot, closing]);
+    await writeFile(join(root, 'restored.db'), parts[0].bytes);
+    restored = new SqliteDb(join(root, 'restored.db'));
+    expect((await restored.query('select id, content from pa24.memo')).rows).toEqual([{ id: 'committed', content: 'whole transaction' }]);
+  } finally {
+    await restored?.close(); await db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('rejects snapshot or close inside its transaction, rolls back, and remains usable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'pa24-backup-in-tx-'));
+  const db = new SqliteDb(join(root, 'source.db'));
+  try {
+    await db.migrate();
+    for (const operation of [() => db.backup(), () => db.close()]) {
+      await expect(db.withTransaction(async tx => {
+        await tx.query("insert into pa24.memo (id, topic, content, source) values ('rolled-back', 'backup', 'uncommitted', 'test')");
+        await operation();
+      })).rejects.toThrow('事务');
+    }
+    expect((await db.query('select id from pa24.memo')).rows).toEqual([]);
+    expect((await db.backup()).map(p => p.id)).toEqual(['sqlite']);
+  } finally { await db.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 // Round-3 equivalence matrix: the shared business-behavior table runs against

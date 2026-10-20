@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/sqlite.test.mjs (26 tests | 25 skipped) 13ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 25 skipped (26)
+   Start at  10:12:22
+   Duration  155ms (transform 30ms, setup 0ms, collect 47ms, tests 13ms, environment 0ms, prepare 22ms)
+

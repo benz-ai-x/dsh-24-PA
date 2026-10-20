@@ -134,16 +134,29 @@ host's persistence paths must override these three roots to match. Choose a
 backup destination outside every source directory. Symbolic links fail the
 backup instead of following them into unrelated files.
 
+SQLite uses the native online backup operation to produce one self-contained
+`pa24.db` snapshot, even when a reader prevents a WAL checkpoint. PostgreSQL
+continues to use `pg_dump`. The ledger is consistent; the other collections are
+copied live and do not share a transaction timestamp with it. A snapshot or
+target-write failure rejects backup creation and leaves the source unchanged.
+
 `backup_verify` checks the ledger, collection coverage, each listing's own
 hash, and every listed file. Missing required collections, modified listings,
 missing content, and old manifests without coverage evidence cannot pass as a
 complete joint backup. An absent, configured attachment directory is recorded
 explicitly when the host has not stored attachments yet.
+Format 3 records the ledger snapshot guarantee. Old format-2 SQLite DB/WAL
+bundles cannot prove it and no longer pass verification: keep those files for
+recovery investigation and create a fresh backup before an upgrade. Existing
+format-2 PostgreSQL dumps with complete collection coverage remain verifiable.
+Older plugin versions cannot verify format 3; use this version to verify a new
+bundle before any code rollback. The ledger schema is unchanged by this fix.
 
 To restore, stop the host and verify the backup. First restore the ledger and
 collections into isolated staging directories: load `pa24.sql` into a separate
-database with psql, or copy `pa24.db` (and `pa24.db-wal`, if included) into a
-separate `data/` directory. Check the schema and each memory record's revision,
+database with psql, or copy the snapshot `pa24.db` into an empty, separate
+`data/` directory, without a live or old `pa24.db-wal`/`pa24.db-shm` alongside it.
+Check the schema and each memory record's revision,
 source and expiry against the existing destination before replacing any files.
 Keep newer destination memory; resolve conflicts with the owner explicitly.
 Only then install the verified ledger and collections at their configured roots,

@@ -1,5 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createRequire } from 'node:module';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { BackupPart, PaDb, PaQueryResult, PaQueryer } from './db.js';
 import { MIGRATIONS } from './db.js';
 
@@ -230,6 +233,7 @@ export class SqliteDb implements PaDb {
   readonly filePath: string;
   private readonly db: SqliteDatabase;
   private closed = false;
+  private closing: Promise<void> | null = null;
   /** Serializes every statement; a transaction holds it until commit. */
   private lock: Promise<unknown> = Promise.resolve();
   private readonly txOwner = new AsyncLocalStorage<{ active: boolean }>();
@@ -271,12 +275,13 @@ export class SqliteDb implements PaDb {
   }
 
   query<T extends Record<string, any> = Record<string, any>>(text: string, values: readonly unknown[] = []): Promise<PaQueryResult<T>> {
-    if (this.closed) return Promise.reject(new Error('SQLite 账本已关闭。'));
     // Inside the owning transaction the statement must join it, not queue
-    // behind the lock the transaction itself holds.
+    // behind the lock the transaction itself holds. Closing drains that
+    // already accepted transaction before it releases the connection.
     if (this.txOwner.getStore()?.active) {
       return Promise.resolve(this.runTranslated<T>(text, values));
     }
+    if (this.closed) return Promise.reject(new Error('SQLite 账本已关闭。'));
     return this.enqueue(() => Promise.resolve(this.runTranslated<T>(text, values)));
   }
 
@@ -322,11 +327,11 @@ export class SqliteDb implements PaDb {
   }
 
   withTransaction<T>(work: (client: PaQueryer) => Promise<T>): Promise<T> {
-    if (this.closed) return Promise.reject(new Error('SQLite 账本已关闭。'));
     // Nested transaction inside the owning scope becomes a SAVEPOINT —
     // queueing behind the outer lock would deadlock on one connection.
     if (this.txOwner.getStore()?.active) {
-      return this.txOwner.run({ active: true }, async () => {
+      const scope = { active: true };
+      return this.txOwner.run(scope, async () => {
         const sp = `sp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
         this.db.exec(`savepoint ${sp}`);
         try {
@@ -337,27 +342,31 @@ export class SqliteDb implements PaDb {
           this.db.exec(`rollback to savepoint ${sp}`);
           this.db.exec(`release savepoint ${sp}`);
           throw error;
+        } finally {
+          scope.active = false;
         }
       });
     }
+    if (this.closed) return Promise.reject(new Error('SQLite 账本已关闭。'));
     return this.enqueue(async () => {
+      const scope = { active: true };
       this.db.exec('begin immediate');
       try {
-        const result = await this.txOwner.run({ active: true }, () => work(this));
+        const result = await this.txOwner.run(scope, () => work(this));
         this.db.exec('commit');
         return result;
       } catch (error) {
         this.db.exec('rollback');
         throw error;
+      } finally {
+        scope.active = false;
       }
     });
   }
 
   /**
-   * Checkpoint WAL so a plain file copy is a consistent backup. Runs UNQUEUED
-   * (owning transactions may hold the serial lock; WAL checkpoints are safe
-   * to attempt concurrently) and reports the busy frame count — a nonzero
-   * value means frames stayed in the WAL and the caller must copy -wal too.
+   * WAL maintenance only, not a backup snapshot. A successful checkpoint
+   * does not prevent another connection from writing or replacing the WAL.
    */
   checkpoint(): { busy: number } {
     return this.runUnqueued(() => {
@@ -367,20 +376,21 @@ export class SqliteDb implements PaDb {
     });
   }
 
-  /** F28: checkpoint then copy the ledger file; a busy truncate appends the
-   *  WAL so committed writes never silently miss from the backup. */
+  /** SQLite owns the snapshot; never combine separately read live DB/WAL files. */
   async backup(): Promise<BackupPart[]> {
-    const { readFile } = await import('node:fs/promises');
-    const { busy } = this.checkpoint();
-    const parts: BackupPart[] = [{ id: 'sqlite', name: 'pa24.db', bytes: await readFile(this.filePath) }];
-    if (busy > 0) {
+    if (this.closed) throw new Error('SQLite 账本已关闭。');
+    if (this.txOwner.getStore()?.active) throw new Error('请在事务提交后创建 SQLite 备份。');
+    return this.enqueue(async () => {
+      const { backup }: { backup: (db: SqliteDatabase, path: string) => Promise<number> } = createRequire(import.meta.url)('node:sqlite');
+      const directory = await mkdtemp(join(tmpdir(), 'pa24-sqlite-backup-'));
       try {
-        parts.push({ id: 'sqlite-wal', name: 'pa24.db-wal', bytes: await readFile(`${this.filePath}-wal`), optional: true });
-      } catch {
-        // -wal absent between checkpoints: nothing to append.
+        const snapshot = join(directory, 'pa24.db');
+        await backup(this.db, snapshot);
+        return [{ id: 'sqlite', name: 'pa24.db', bytes: await readFile(snapshot) }];
+      } finally {
+        await rm(directory, { recursive: true, force: true });
       }
-    }
-    return parts;
+    });
   }
 
   /** Runs immediately without the serial queue; checkpoint busy-ness is
@@ -390,14 +400,17 @@ export class SqliteDb implements PaDb {
   }
 
   close(): Promise<void> {
-    if (this.closed) return Promise.resolve();
+    if (this.closing) return this.closing;
+    if (this.txOwner.getStore()?.active) return Promise.reject(new Error('请在事务结束后关闭 SQLite 账本。'));
     this.closed = true;
-    try {
-      this.db.exec('pragma wal_checkpoint(truncate)');
-    } catch {
-      // best effort; close still flushes
-    }
-    this.db.close();
-    return Promise.resolve();
+    this.closing = this.enqueue(async () => {
+      try {
+        this.db.exec('pragma wal_checkpoint(truncate)');
+      } catch {
+        // best effort; close still flushes
+      }
+      this.db.close();
+    });
+    return this.closing;
   }
 }

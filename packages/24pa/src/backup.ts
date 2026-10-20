@@ -80,10 +80,11 @@ export class WorkspaceBackup {
       coverage.push({ id, required, state: 'copied', files: files.length });
     }
     const manifest = {
-      formatVersion: 2, createdAt: new Date().toISOString(), storage: this.db.kind,
+      formatVersion: 3, createdAt: new Date().toISOString(), storage: this.db.kind,
       schemaVersion: await this.db.schemaVersion(), parts, coverage, ...metadata,
       consistency: 'live-copy',
-      note: '在线文件快照；恢复前停止 Host，核对外部对象及旧 Outbox。凭据不包含在备份中。',
+      ledgerConsistency: 'snapshot',
+      note: '业务账本为一致快照，其余文件在线收集，不保证跨系统同一事务时点；恢复前停止 Host，核对外部对象及旧 Outbox。凭据不包含在备份中。',
     };
     await writeFile(join(dir, 'backup-manifest.json'), JSON.stringify(manifest, null, 2));
     const checked = await WorkspaceBackup.verify(dir);
@@ -98,8 +99,12 @@ export class WorkspaceBackup {
     const manifest = JSON.parse((await safeRead(dir, 'backup-manifest.json')).toString());
     const failures: string[] = [];
     const results: { id: string; ok: boolean; files?: number }[] = [];
-    if (manifest.formatVersion !== 2) failures.push('旧格式缺少集合覆盖证据，不能证明联合备份完整；请重新创建备份');
+    if (![2, 3].includes(manifest.formatVersion)) failures.push('不支持的格式或缺少集合覆盖证据，不能证明联合备份完整；请重新创建备份');
     const parts = Array.isArray(manifest.parts) ? manifest.parts : [];
+    if (manifest.storage === 'sqlite' && (manifest.formatVersion !== 3 || manifest.ledgerConsistency !== 'snapshot'
+      || parts.some((part: FileEntry & { id: string }) => part.id === 'sqlite-wal' || part.path === 'pa24.db-wal'))) {
+      failures.push('SQLite 备份缺少独立一致快照证明；旧 DB/WAL 文件集合不能认证，请重新创建备份');
+    }
     const coverage: Coverage[] = Array.isArray(manifest.coverage) ? manifest.coverage : [];
     const ids = new Set<string>();
     for (const part of parts) {

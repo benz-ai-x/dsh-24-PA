@@ -1,0 +1,26 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ❯ tests/unit/sqlite.test.mjs (26 tests | 1 failed | 25 skipped) 11ms
+   × closing waits for an accepted backup and its committed rows remain restorable 11ms
+     → database is not open
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/sqlite.test.mjs > closing waits for an accepted backup and its committed rows remain restorable
+Error: database is not open
+ ❯ lib/sqlite.js:354:23
+    352|             try {
+    353|                 const snapshot = join(directory, 'pa24.db');
+    354|                 await backup(this.db, snapshot);
+       |                       ^
+    355|                 return [{ id: 'sqlite', name: 'pa24.db', bytes: await …
+    356|             }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 25 skipped (26)
+   Start at  10:12:06
+   Duration  156ms (transform 30ms, setup 0ms, collect 49ms, tests 11ms, environment 0ms, prepare 22ms)
+

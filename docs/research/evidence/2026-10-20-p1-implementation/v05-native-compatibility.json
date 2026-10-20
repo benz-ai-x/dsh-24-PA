@@ -1,0 +1,28 @@
+[
+  {
+    "node": "v22.19.0",
+    "sqlite": "3.50.4",
+    "busy": 1,
+    "restored": [
+      {
+        "id": 1,
+        "value": "committed-before-backup"
+      }
+    ],
+    "sourceCount": 2,
+    "errorControl": "rejected, source unchanged"
+  },
+  {
+    "node": "v24.0.0",
+    "sqlite": "3.49.1",
+    "busy": 1,
+    "restored": [
+      {
+        "id": 1,
+        "value": "committed-before-backup"
+      }
+    ],
+    "sourceCount": 2,
+    "errorControl": "rejected, source unchanged"
+  }
+]
