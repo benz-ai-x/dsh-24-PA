@@ -198,6 +198,8 @@ copy and resolve ownership before retrying. Do not fabricate binding rows or cle
 ownership metadata. An initially empty owner can be enrolled once; later owner
 changes require a separate workspace/ledger rather than configuration reload.
 
+Schema-17 backup verification requires a valid identity file in the copied workspace collection matching the ledger UUID recorded in the manifest. Missing, damaged or mismatched identity means incomplete backup.
+
 Keep the identity file with the workspace and ledger backup. Moving or restoring
 them preserves the logical workspace; explicitly rebind the destination after
 stopping the original Host. Copying the identity denotes a restore of the same

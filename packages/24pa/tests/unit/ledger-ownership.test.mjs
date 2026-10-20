@@ -5,8 +5,10 @@ import { cp, mkdir, rename, rm } from 'node:fs/promises';
 import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
-import { fork } from 'node:child_process';
+import { execFile, fork } from 'node:child_process';
 import { once } from 'node:events';
+import { promisify } from 'node:util';
+import { WorkspaceBackup } from '../../lib/backup.js';
 
 let pg;
 const cleanups = [];
@@ -43,6 +45,35 @@ async function legacyLedger(storage, path, { paths = [path], owners = ['owner-a'
 }
 
 describe.each(['sqlite', 'postgres'])('%s 历史账本与身份恢复', storage => {
+  it('联合备份的账本和身份可一起恢复，通过公开绑定检索原资料', async () => {
+    const f = await fixture({ env: { PA24_PG_DSN: pg.dsn } }); cleanups.push(f.cleanup);
+    const path = await f.workspace('backup-source', { storage, ownerOpenId: 'owner-a' });
+    await f.rt.bind(path); await savePrivateMemo(f.rt, f.agents);
+    const sources = { workspace: path, stateDirectory: f.options.stateDirectory };
+    for (const name of ['sessions', 'storages', 'attachments']) {
+      sources[name] = join(f.root, name); await mkdir(sources[name]);
+    }
+    const db = storage === 'sqlite' ? new SqliteDb(join(path, 'data', 'pa24.db')) : new PaDatabase(pg.dsn);
+    let backup;
+    try { backup = await new WorkspaceBackup(sources, db).create(join(f.root, 'backups'), { credentialReferences: [], watermarks: [] }); }
+    finally { await db.close(); }
+    expect(backup.complete).toBe(true);
+    await f.rt.stop();
+    const restoredPath = path + '-restored'; await cp(join(backup.backupDir, 'workspace'), restoredPath, { recursive: true });
+    let restoreDsn = pg.dsn;
+    if (storage === 'sqlite') {
+      await mkdir(join(restoredPath, 'data'));
+      await cp(join(backup.backupDir, 'pa24.db'), join(restoredPath, 'data', 'pa24.db'));
+    } else {
+      await pg.query('create database pa24_restore owner pa24_app');
+      restoreDsn = pg.dsn.replace('/pa24_test', '/pa24_restore');
+      await promisify(execFile)(join(process.env.PA24_PG_BIN || '/opt/homebrew/bin', 'psql'), ['--dbname', restoreDsn, '-v', 'ON_ERROR_STOP=1', '-f', join(backup.backupDir, 'pa24.sql')]);
+    }
+    const restored = await fixture({ env: { PA24_PG_DSN: restoreDsn } }); cleanups.push(restored.cleanup);
+    await restored.rt.bind(restoredPath);
+    expect(JSON.stringify(await findMemo(restored.rt, restored.agents))).toContain('只属于工作区 A');
+  });
+
   it('明确单工作区、单主人历史库升级和搬移后仍可检索', async () => {
     const f = await fixture({ env: { PA24_PG_DSN: pg.dsn } }); cleanups.push(f.cleanup);
     const a = await f.workspace('legacy', { storage, ownerOpenId: 'owner-a' });

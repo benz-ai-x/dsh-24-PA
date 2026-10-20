@@ -9,6 +9,7 @@ import { Worker } from 'node:worker_threads';
 import { once } from 'node:events';
 import { WorkspaceBackup } from '../../lib/backup.js';
 import { SqliteDb } from '../../lib/sqlite.js';
+import { workspaceLedgerIdentity } from '../../lib/ledger-identity.js';
 
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 
@@ -37,13 +38,23 @@ async function fixture() {
   await mkdir(join(sources.stateDirectory, 'host.lock.d'));
   await writeFile(join(sources.stateDirectory, 'host.lock.d/owner-test.json'), 'live owner');
   const db = new SqliteDb(join(root, 'ledger.db'));
-  await db.migrate();
+  await db.migrate(await workspaceLedgerIdentity(sources.workspace, 'owner'));
   cleanup.push(() => db.close());
   return { root, sources, assets, backup: new WorkspaceBackup(sources, db), db };
 }
 const create = f => f.backup.create(join(f.root, 'backups'), { credentialReferences: ['PA24_PG_DSN'], watermarks: [] });
 
 describe('workspace backup recovery coverage', () => {
+  it.each(['missing', 'damaged', 'different'])('schema 17 backup cannot report complete with %s workspace identity', async state => {
+    const f = await fixture();
+    const file = join(f.sources.workspace, '.24pa', 'ledger-identity.json');
+    if (state === 'missing') await rm(file);
+    else await writeFile(file, state === 'damaged' ? '{broken' : JSON.stringify({ version: 1, workspaceId: '00000000-0000-4000-8000-000000000000' }));
+    const result = await create(f);
+    expect(result.complete).toBe(false);
+    expect(result.failures.join(' ')).toMatch(/身份/);
+  });
+
   it('concurrent external transactions leave a coherent two-table snapshot', async () => {
     const f = await fixture();
     await f.db.query('create table backup_left (version integer)');

@@ -20,11 +20,16 @@ export async function workspaceLedgerIdentity(workspacePath: string, ownerOpenId
     } finally { await rm(temporary, { force: true }); }
     source = await readFile(path, 'utf8');
   }
+  return { workspaceId: parseWorkspaceIdentity(source), workspacePath, ownerOpenId };
+}
+
+/** Shared by admission and backup verification; never regenerates bad data. */
+export function parseWorkspaceIdentity(source: string): string {
   let identity: { version?: unknown; workspaceId?: unknown };
   try { identity = JSON.parse(source); }
   catch { throw new Error('工作区账本身份文件损坏；请从同一工作区的备份恢复后重试。'); }
   if (identity?.version !== 1 || typeof identity.workspaceId !== 'string' || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(identity.workspaceId)) {
     throw new Error('工作区账本身份文件无效；请核对或从同一工作区的备份恢复。');
   }
-  return { workspaceId: identity.workspaceId, workspacePath, ownerOpenId };
+  return identity.workspaceId;
 }
