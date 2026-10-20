@@ -160,6 +160,7 @@ export interface DshContext {
   };
   sessions: {
     flush(session: DshSession): Promise<boolean>;
+    get?(id: string): DshSession | undefined;
   };
   subagents: {
     /** dsh 0.2.1-alpha.2+; the runtime probes and falls back to the legacy name below. */

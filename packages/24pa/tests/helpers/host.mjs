@@ -141,6 +141,11 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
     url,
     api,
     remote,
+    async exportSession(sessionId) {
+      const response = await fetch(`${origin}/api/session.export?sessionId=${encodeURIComponent(sessionId)}&includeDescendants=false`, { headers: { cookie } });
+      if (!response.ok) throw new Error(`session export HTTP ${response.status}`);
+      return Buffer.from(await response.arrayBuffer());
+    },
     waitUntil,
     child,
     logs: () => ({ stdout, stderr }),

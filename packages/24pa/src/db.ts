@@ -525,4 +525,11 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 18,
+    statements: [
+      `alter table pa24.work_item add column if not exists execution_id text`,
+      `alter table pa24.work_item add column if not exists execution_scope jsonb`,
+    ],
+  },
 ];

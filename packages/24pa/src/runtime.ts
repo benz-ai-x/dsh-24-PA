@@ -18,6 +18,7 @@ import type { PaDb } from './db.js';
 import { workspaceLedgerIdentity } from './ledger-identity.js';
 import { InboxLifecycle } from './inbox-lifecycle.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
+import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
@@ -122,7 +123,6 @@ export class PaRuntime {
   private readonly executions = new WorkspaceExecution();
   private builtInRoles: WorkerRoleDefinition[] = [];
   private readonly workerParents = new Set<string>();
-  private readonly executionMessages = new Map<string, { generation: number; messageId: string }>();
   private readonly sessionGates = new Map<string, Promise<unknown>>();
   private readonly inboxLifecycle = new InboxLifecycle({
     repo: () => this.repos?.inbox ?? null,
@@ -888,7 +888,7 @@ export class PaRuntime {
     this.diagnostics = null;
     this.extraToolResolution = next.extraToolResolution ?? null;
     this.roles.replace(candidateRoles);
-    this.executionMessages.clear();
+    this.workLifecycle.reset();
     this.workItemByChild.clear();
     for (const item of active) this.trackWorkItem(item);
     this.reminders = new ReminderEngine(
@@ -1275,8 +1275,7 @@ export class PaRuntime {
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
       if ('error' in parent) throw parent.error;
       this.workerParents.add(item.parent_session_id);
-      const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }], { signal: this.lifetime.signal })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
-      if (typeof messageId === 'string') this.executionMessages.set(item.id, { generation: item.recovery_gen ?? 0, messageId });
+      const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }, workExecutionContent(item)], { signal: this.lifetime.signal })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
       return typeof messageId === 'string' ? messageId : undefined;
     },
     quiesce: async item => {
@@ -1294,6 +1293,10 @@ export class PaRuntime {
     },
     interrupt: item => this.ctx.subagents.interrupt(item.child_session_id ?? item.id, { kind: 'user', parentSessionId: item.parent_session_id }),
     track: item => this.trackWorkItem(item),
+    completion: { workspacePath: () => this.workspace!.statePath,
+      read: item => new WorkCompletionHistory(this.ctx).read(item),
+      delivered: () => { void this.kickOutbox(); }, warn: message => console.warn(`[pa24] ${message}`),
+    },
   });
   private trackWorkItem(item: WorkItemRow): void {
     if (this.workItemByChild.size > 500) {
@@ -1456,7 +1459,13 @@ export class PaRuntime {
     });
   }
 
-  private kickDispatcher(): void { this.executions.detached(() => this.inboxLifecycle.dispatch()); }
+  private kickDispatcher(): void {
+    this.executions.detached(() => this.inboxLifecycle.dispatch());
+    const binding = this.workspaceBinding;
+    void this.executions.afterTransition(async () => {
+      if (binding === this.workspaceBinding && !this.closed) await this.workLifecycle.retryCompletions();
+    }).catch(() => { /* Shutdown/transition refuses new leases; native evidence remains recoverable. */ });
+  }
 
   private async processInbox(row: { event_id: string; kind: string; payload: any }): Promise<void> {
     return this.executions.run(async () => {
@@ -1608,7 +1617,7 @@ export class PaRuntime {
   private async onTurnEnd(session: DshSession, event: { data: Record<string, any> }): Promise<void> {
     if (!this.repos || !this.config) return;
     this.usage.modelRequests += 1;
-    await this.ctx.sessions.flush(session).catch(() => { });
+    if (session.id === this.accessSessionId) await this.ctx.sessions.flush(session).catch(() => { });
     const turn = event.data.turn;
     const consumed = consumedTurn(session, turn);
     const failure = event.data.reason?.error;
@@ -1633,27 +1642,10 @@ export class PaRuntime {
 
     const item = this.workItemByChild.get(session.id);
     if (!item) return;
-    await this.workLifecycle.idle();
-    // Settle each consumed follow-up independently. A newer input can already
-    // be queued while this turn flushes, but cannot steal the earlier receipt.
+    await this.workLifecycle.complete(item.id, () => new WorkCompletionHistory(this.ctx).checkpoint(session));
+    // Each consumed follow-up retains its own receipt even when a newer input
+    // has replaced this work item's current execution identity.
     await this.inboxLifecycle.complete(session.id, consumed.messageIds, async () => {});
-    const fresh = await this.repos.workItems.get(item.id);
-    if (!fresh || fresh.status !== 'running') return;
-    const execution = this.executionMessages.get(fresh.id);
-    if (!execution || execution.generation !== (fresh.recovery_gen ?? 0) || !consumed.messageIds.has(execution.messageId)) return;
-    const failed = !!failure || !output;
-    const result = failed ? `「${fresh.title}」未完成：${failure?.message ?? 'Worker 未产生结果'}` : output;
-    await this.workLifecycle.finish(item.id, {
-      output: result, failed, generation: execution.generation, delivery: row => {
-        const dedupKey = `workitem:${row.id}:result:t${turn ?? 'n'}${row.recovery_gen ? `:g${row.recovery_gen}` : ''}`;
-        const ref = row.result_ref as { docUrl?: string; operationId?: string } | null;
-        const source = ref?.docUrl ? `\n出处：${ref.docUrl}\n操作编号：${ref.operationId}` : '';
-        return row.origin === 'local'
-          ? { dedupKey, channel: 'local', target: row.parent_session_id, kind: 'text', content: { text: `[事项回传]「${row.title}」${failed ? '未完成' : '已完成'}；请向本人汇报要点与出处。\n\n${result}${source}` } }
-          : { dedupKey, channel: 'feishu', target: row.delivery.replace(/^feishu:/, ''), kind: 'text', content: { text: `「${row.title}」${failed ? '未完成' : '已完成'}：\n${result}${source}` } };
-      }
-    });
-    void this.kickOutbox();
   }
 
   // ---- delegation & worker control -----------------------------------------
@@ -1817,6 +1809,7 @@ export class PaRuntime {
         prompt = (await attachments.admitPromptContent(prompt)) as ContentBlock[];
       }
     }
+    prompt.push(workExecutionContent(item));
     // dsh 0.2.1-alpha.2 renames startContinuable to startActivation and
     // requires an explicit delivery; 'parent' keeps the continuable
     // semantics (the child's completion notifies this Lead). Older hosts
@@ -1844,7 +1837,6 @@ export class PaRuntime {
     if (typeof subagents.startActivation === 'function') activation = await this.executions.detached(() => subagents.startActivation!({ ...startSpec, delivery: 'parent' }));
     else if (typeof subagents.startContinuable === 'function') activation = await this.executions.detached(() => subagents.startContinuable!(startSpec));
     else throw new Error('宿主未提供 subagents 启动接口（startActivation/startContinuable 均缺失），请核对 dsh 版本兼容声明。');
-    if (typeof activation?.messageId === 'string') this.executionMessages.set(item.id, { generation: item.recovery_gen ?? 0, messageId: activation.messageId });
     void activation?.result?.catch(() => { });
   }
 

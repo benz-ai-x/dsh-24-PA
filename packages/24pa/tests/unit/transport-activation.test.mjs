@@ -198,10 +198,16 @@ it.each(['finish', 'stop'])('引用 Worker 的补充输入在 %s 后释放原工
   const localId = await rt.openLocalSession(), accessId = localId.replace(/-local$/, '-feishu');
   await rt.repos.workItems.insert({ id: 'work', child_session_id: 'child', title: '原事项', role: 'memo', instruction: 'work', origin: 'feishu', parent_session_id: accessId, delivery: 'feishu:owner', status: 'completed' });
   await rt.repos.messageRoutes.record('original-message', { kind: 'workitem', workItemId: 'work' });
-  ctx.sessions = { flush: async () => {} };
+  let child;
+  ctx.sessions = { get: id => id === 'child' ? child : undefined, flush: async () => true };
   ctx.sessionController.resolveAgent = async id => ({ agent: { id, session: { id } } });
-  ctx.subagents = { interrupt: () => {}, sendMessage: async () => {
-    if (outcome === 'finish') rt.onSessionEvent({ id: 'child', ownEvents: () => [{type:'turn/start',data:{turn:2}}, {type:'user/message',data:{id:'accepted-supplement',source:{}}}, { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: 'supplement result' }] } } }] }, { type: 'turn/end', data: { turn: 2 } });
+  ctx.subagents = { interrupt: () => {}, sendMessage: async (parent, _id, content) => {
+    const events = [{ type: 'turn/start', data: { turn: 2 } },
+      { type: 'user/message', data: { id: 'accepted-supplement', source: { kind: 'agent-message', senderSessionId: parent.id }, content } },
+      { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: 'supplement result' }] } } },
+      { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } }];
+    child = { id: 'child', header: { cwd: a, parentSession: parent.id }, ownEvents: () => events };
+    if (outcome === 'finish') rt.onSessionEvent(child, events.at(-1));
     return 'accepted-supplement';
   } };
   await rt.getTransport().inject({ ...event('supplement'), senderOpenId: 'owner', parentMessageId: 'original-message' });
