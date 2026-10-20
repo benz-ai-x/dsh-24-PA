@@ -245,4 +245,36 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     expect(overview).toContain('"reviewQueue"');
     expect(overview).toContain('"missing"');
   });
+
+  it('V01：首次回读已修改正文，真实审核卡只批准正文且不能执行旧候选', async () => {
+    await writeFile(stubStatePath, JSON.stringify({ ownerOpenId: 'ou_test_owner', docCreateEdits: [{ from: '王工', to: '李工' }] }));
+    await inject(ownerEvent('evt-v01-image', { messageType: 'image', imageKey: 'img-v01', imageData: b64(png(94)) }));
+    const ack = await waitAck('evt-v01-image'), noteId = ack.dedup_key.slice('noteack:'.length).split(':')[0];
+    await writeScript(hwScript('V01整理', { action: 'note_submit', noteId, transcript: '联系王工', summary: '联系王工', candidates: [{ summary: '联系王工' }] }, noteId));
+    await inject(ownerEvent('evt-v01-submit', { text: '整理刚才笔记', parentMessageId: ack.message_id }));
+    await waitWorkItem('V01整理', '同源发布完成');
+    const card = await waitOutbox(`notereview:${noteId}:v1`, '正文审核卡');
+    expect(JSON.stringify(card.content)).toContain('仅批准正文');
+    const version = (await rows(`select doc_snapshot, content from pa24.note_version where id='${noteId}:v1'`))[0];
+    expect(version.doc_snapshot).toContain('李工'); expect(version.doc_snapshot).not.toContain('王工');
+    expect(version.content).toMatchObject({ candidates: [], summary: '', derivedStatus: 'needs_rebuild' });
+    let token = (await rows(`select token from pa24.review_token where version_id='${noteId}:v1' and action='approve'`))[0].token;
+    const legacy = token.replace(/:(body|derived)$/, '');
+    await cluster.query(`update pa24.review_token set token='${legacy}' where token='${token}'`);
+    await clickCard('evt-v01-legacy-review', legacy);
+    await waitOutbox(`review:${legacy.slice(0, 12)}:`, '旧按钮范围拒绝');
+    expect((await rows(`select status from pa24.note_version where id='${noteId}:v1'`))[0].status).toBe('pending_review');
+    token = (await rows(`select token from pa24.review_token where version_id='${noteId}:v1' and action='approve' and token<>'${legacy}' order by expires_at desc`))[0].token;
+    await clickCard('evt-v01-review', token);
+    const notice = await waitOutbox(`review:${token.slice(0, 12)}:`, '正文批准');
+    expect(notice.content.text).toContain('仅批准正文');
+    const count = (await rows('select count(*)::int as n from pa24.task'))[0].n;
+    await writeScript(hwScript('V01阻断旧行动', { action: 'note_adopt_actions', noteId, versionId: `${noteId}:v1`, indexes: [0], instruction: '执行第0项' }, noteId));
+    const before = llm.log.length;
+    await inject(ownerEvent('evt-v01-adopt', { text: '执行第一项' }));
+    await waitWorkItem('V01阻断旧行动', '旧候选拒绝完成');
+    await waitToolResult('pa24_work', '缺少同源证明', '同源拒绝', 60_000, before);
+    expect((await rows('select count(*)::int as n from pa24.task'))[0].n).toBe(count);
+  });
+
 });

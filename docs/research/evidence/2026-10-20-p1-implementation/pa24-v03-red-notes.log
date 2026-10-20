@@ -1,0 +1,91 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:71786) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/unit/knowledge-actions.test.mjs (26 tests | 8 failed | 18 skipped) 17782ms
+   × R3 知识与行动公开入口 (sqlite) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1674ms
+     → expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+   × R3 知识与行动公开入口 (sqlite) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2072ms
+     → expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+   × R3 知识与行动公开入口 (sqlite) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1561ms
+     → expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+   × R3 知识与行动公开入口 (sqlite) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2064ms
+     → expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+   × R3 知识与行动公开入口 (postgres) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2287ms
+     → expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+   × R3 知识与行动公开入口 (postgres) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2814ms
+     → expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+   × R3 知识与行动公开入口 (postgres) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2415ms
+     → expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+   × R3 知识与行动公开入口 (postgres) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2894ms
+     → expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复
+AssertionError: expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "executed": 1,
+-   "failed": 0,
++   "executed": 0,
++   "failed": 1,
+  }
+
+ ❯ tests/unit/knowledge-actions.test.mjs:165:44
+    163|     for (const attempt of competing.slice(1)) { expect(attempt).toMatc…
+    164|     const channelKey = kind === 'task' ? 'todoChannel' : 'calendarChan…
+    165|     expect(await f.rt.work(action, child)).toMatchObject({ executed: 1…
+       |                                            ^
+    166|     expect(await f.rt.work({ ...action, instruction: '按原授权恢复' },…
+    167|     const op = await f.rt.repos.operations.get('note.action:N-1:v1:0');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复
+AssertionError: expected { noteId: 'N-1', …(5) } to match object { executed: 1, failed: +0 }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "executed": 1,
+-   "failed": 0,
++   "executed": 0,
++   "failed": 1,
+  }
+
+ ❯ tests/unit/knowledge-actions.test.mjs:165:44
+    163|     for (const attempt of competing.slice(1)) { expect(attempt).toMatc…
+    164|     const channelKey = kind === 'task' ? 'todoChannel' : 'calendarChan…
+    165|     expect(await f.rt.work(action, child)).toMatchObject({ executed: 1…
+       |                                            ^
+    166|     expect(await f.rt.work({ ...action, instruction: '按原授权恢复' },…
+    167|     const op = await f.rt.repos.operations.get('note.action:N-1:v1:0');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 18 skipped (26)
+   Start at  11:34:55
+   Duration  18.10s (transform 108ms, setup 0ms, collect 225ms, tests 17.78s, environment 0ms, prepare 18ms)

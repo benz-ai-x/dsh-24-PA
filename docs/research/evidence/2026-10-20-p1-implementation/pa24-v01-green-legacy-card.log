@@ -1,0 +1,18 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:6469) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/knowledge-actions.test.mjs (54 tests | 50 skipped) 7489ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 升级前待审卡在 refresh 时换发正文卡，旧按钮不能批准 1565ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 升级前待审卡在 click 时换发正文卡，旧按钮不能批准 1571ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 升级前待审卡在 refresh 时换发正文卡，旧按钮不能批准 2246ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 升级前待审卡在 click 时换发正文卡，旧按钮不能批准 2106ms
+(node:6694) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/note-trust.test.mjs (12 tests | 11 skipped) 12ms
+
+ Test Files  2 passed (2)
+      Tests  5 passed | 61 skipped (66)
+   Start at  12:00:52
+   Duration  8.00s (transform 137ms, setup 0ms, collect 310ms, tests 7.50s, environment 0ms, prepare 41ms)

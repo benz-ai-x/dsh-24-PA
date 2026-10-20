@@ -12,6 +12,7 @@ import { cliOptions } from './feishu.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint, hash } from './util.js';
 import { noteParentToken } from './config.js';
 import { taskPlanKey, taskFingerprint, saveTaskObservation } from './task-lifecycle.js';
+import { isCandidateOperation } from './external-operations.js';
 export { taskFingerprint } from './task-lifecycle.js';
 import type { PaConfig } from './config.js';
 import type { SharedChannelDeps } from './channel-deps.js';
@@ -59,8 +60,8 @@ export function mapRemoteEvent(raw: any, defaultTimezone = 'Asia/Shanghai', endD
 export function taskExternal(data: any): { guid: string; url: string | null } {
   const task = data?.task ?? data;
   const guid = task?.guid ?? task?.task_guid ?? task?.taskId;
-  if (!guid) throw Object.assign(new Error('未取得真实任务 ID；请先核对飞书任务清单，不要盲目重试。'), { outcome: 'unknown' });
-  return { guid: String(guid), url: task?.url ? String(task.url) : null };
+  if (typeof guid !== 'string' || !guid.trim()) throw Object.assign(new Error('未取得真实任务 ID；请先核对飞书任务清单，不要盲目重试。'), { outcome: 'unknown' });
+  return { guid, url: task?.url ? String(task.url) : null };
 }
 
 export class FeishuChannels {
@@ -122,6 +123,8 @@ export class FeishuChannels {
   }
 
   async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
+    const candidate = operationIdOverride && isCandidateOperation(operationIdOverride);
+    args = { ...args, timeZone: args.timeZone === null ? undefined : args.timeZone ?? (candidate ? this.deps.config().timeZone : undefined) };
     const calendarId = String(args.calendarId ?? this.deps.config().calendarId);
     const summary = kind === 'cancel' ? null : args.summary === undefined ? null : text(args.summary, 500);
     const start = args.start !== undefined ? new Date(String(args.start)) : null;
@@ -137,7 +140,8 @@ export class FeishuChannels {
     const paramsKey = `${calendarId}\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${(attendees ?? []).join(',')}\n${typeof args.rrule === 'string' ? args.rrule : ''}\n${String(args.timeZone ?? '')}`;
     return this.deps.gate(`calendar-event:${eventId || 'new'}`, async () => {
     const staged = operationIdOverride
-      ? await this.deps.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end, ...(args._authorization as Record<string, unknown> ?? {}) })
+      ? await this.deps.stagedOperationWithId(operationIdOverride, item, `calendar.${kind}`, { calendarId, kind, eventId, summary, start, end,
+          ...(candidate ? { channel: 'feishu', receiptFormat: 'feishu-calendar-v1', timeZone: args.timeZone } : {}), ...(args._authorization as Record<string, unknown> ?? {}) })
       : await this.deps.stagedOperation(
           item,
           `calendar.${kind}`,
@@ -178,8 +182,8 @@ export class FeishuChannels {
       }
       const { data } = await this.deps.performExternal(staged.row.id, () => runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs));
       const event = data?.event ?? data;
-      const newEventId = String(event?.event_id ?? event?.eventId ?? eventId);
-      if (!newEventId) throw Object.assign(new Error('日程回执缺少真实 eventId；请先核对远端。'), { outcome: 'unknown' });
+      const newEventId = event?.event_id ?? event?.eventId ?? eventId;
+      if (typeof newEventId !== 'string' || !newEventId.trim()) throw Object.assign(new Error('日程回执缺少真实 eventId；请先核对远端。'), { outcome: 'unknown' });
       const url = event?.url ? String(event.url) : null;
       if (newEventId && (kind === 'create' || kind === 'update')) {
         // Merge with the prior projection and the platform receipt; never
@@ -218,12 +222,13 @@ export class FeishuChannels {
         const prior = await this.deps.repos().calendar.findEvent(newEventId);
         await this.deps.notifySourceChanged('calendar', newEventId, eventFingerprint({ event_id: newEventId, summary: prior?.summary ?? summary ?? '', start_time: prior?.start_time ?? start! }));
       }
-      await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind } });
+      await this.deps.repos().operations.update(staged.row.id, { status: 'succeeded', receipt: { eventId: newEventId, url, kind, channel: 'feishu' } });
       return {
         operationId: staged.row.id,
         eventId: newEventId,
         url,
-        message: kind === 'create' ? '日程已创建（以平台回执为准）。' : kind === 'update' ? '日程已修改（以平台回执为准）。' : '日程已取消（以平台回执为准）。',
+        channel: 'feishu',
+        message: kind === 'create' ? '飞书日程已创建（以平台回执为准）。' : kind === 'update' ? '飞书日程已修改（以平台回执为准）。' : '飞书日程已取消（以平台回执为准）。',
       };
     } catch (error) {
       await this.deps.failStaged(staged.row.id, error);
@@ -363,6 +368,7 @@ export class FeishuChannels {
   }
 
   async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const tasklistId = String(args._tasklistId ?? this.deps.config().tasklistId);
     const summary = text(args.summary, 500);
     const { dueAt, dueHasTime, dueArg } = parseDue(args.due);
     const plannedAt = args.plannedAt ? new Date(String(args.plannedAt)) : null;
@@ -373,9 +379,9 @@ export class FeishuChannels {
     const overrideId = args._operationId ? String(args._operationId) : null;
     const authorization = { ...(args._authorization as Record<string, unknown> ?? {}), ...(args._instruction ? { instruction: text(args._instruction, 500) } : {}) };
     const staged = overrideId
-      ? await this.deps.stagedOperationWithId(overrideId, item, 'task.create', { tasklistId: this.deps.config().tasklistId, summary, due: dueArg, ...authorization })
-      : await this.deps.stagedOperation(item, 'task.create', `${this.deps.config().tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
-          tasklistId: this.deps.config().tasklistId,
+      ? await this.deps.stagedOperationWithId(overrideId, item, 'task.create', { channel: 'feishu', receiptFormat: 'feishu-task-v1', tasklistId, summary, due: dueArg, ...authorization })
+      : await this.deps.stagedOperation(item, 'task.create', `${tasklistId}\n${summary}\n${dueArg ?? ''}${batchSuffix}`, {
+          tasklistId,
           summary,
           due: dueArg,
           ...authorization,
@@ -385,13 +391,13 @@ export class FeishuChannels {
       return { operationId: staged.row.id, reused: true, guid: existing?.task_guid ?? staged.row.receipt?.guid, url: existing?.url ?? staged.row.receipt?.url ?? null, message: '此任务此前已创建，未重复写入飞书。' };
     }
     try {
-      const cliArgs = ['task', '+create', '--as', 'user', '--summary', `[24PA] ${summary}`, '--tasklist-id', this.deps.config().tasklistId, '--idempotency-key', staged.row.id];
+      const cliArgs = ['task', '+create', '--as', 'user', '--summary', `[24PA] ${summary}`, '--tasklist-id', tasklistId, '--idempotency-key', staged.row.id];
       if (dueArg) cliArgs.push('--due', dueArg);
       const { data } = await this.deps.performExternal(staged.row.id, () => runLarkCli(cliOptions(this.deps.config(), this.deps.cli().bin, this.deps.cli().timeoutMs), cliArgs));
       const external = taskExternal(data);
       const task = await this.deps.repos().tasks.save({
         id: staged.row.id,
-        work_item_id: item.id,
+        work_item_id: staged.row.work_item_id,
         task_guid: external.guid,
         url: external.url,
         summary,

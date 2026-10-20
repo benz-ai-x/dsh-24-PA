@@ -1,4 +1,5 @@
 import { inspectDigestDeliveries } from './digest-supervision.js';
+import { noteDerivedContent } from './note-derivation.js';
 // Recurring-digest & daily-planning service (F32): 周期服务 (GLOSSARY) — the
 // owner-enabled morning/evening/weekly digests, today's overview and daily
 // planning behind one deep module. F19 voice delivery extends here. The
@@ -292,7 +293,8 @@ export class DigestService {
       const recent = await this.deps.repos().notes.recentApproved(5);
       for (const row of recent) {
         if (reviewedNotes.length >= 3) break;
-        if (row.content?.derivedStatus === 'needs_rebuild') { missing.push(`笔记 ${row.note_id} v${row.version} 已重发但摘要/候选尚未重建，未引用旧派生资料`); continue; }
+        const derived = noteDerivedContent(row);
+        if (derived.derivedStatus === 'needs_rebuild') { missing.push(`笔记 ${row.note_id} v${row.version} 摘要/候选尚未重建或缺少同源证明，未引用旧派生资料`); continue; }
         // Overview facts must be currently valid: re-verify the live document
         // so an externally edited note stops being presented as confirmed (P35).
         try {
@@ -306,7 +308,7 @@ export class DigestService {
         reviewedNotes.push({
           noteId: row.note_id,
           version: row.version,
-          summary: String(row.content?.summary ?? '').slice(0, 60),
+          summary: String(derived.summary ?? '').slice(0, 60),
           docUrl: row.doc_url,
           reviewedAt: row.decided_at ? new Date(row.decided_at).toISOString() : null,
         });

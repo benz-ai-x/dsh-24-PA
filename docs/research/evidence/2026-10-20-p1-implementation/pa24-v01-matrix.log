@@ -1,0 +1,138 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:83454) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/knowledge-actions.test.mjs (50 tests) 94386ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'人名'变化不能沿用旧派生内容 1625ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'日期'变化不能沿用旧派生内容 1962ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'删除候选'变化不能沿用旧派生内容 1380ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'疑点'变化不能沿用旧派生内容 1397ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'人名'变化不能沿用旧派生内容 2093ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'日期'变化不能沿用旧派生内容 2090ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容 2097ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'疑点'变化不能沿用旧派生内容 2112ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=false） 1520ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=true） 1573ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留 1346ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留 1380ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 747ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 1200ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 1544ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'联系人原稿不清' 1535ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'日期原稿不清' 1553ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 混合联系人与日期疑点独立关联，派生变更后不能沿用原批准 1387ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1705ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2182ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1729ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2194ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 1538ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'人名'变化不能沿用旧派生内容 2132ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'日期'变化不能沿用旧派生内容 2203ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'删除候选'变化不能沿用旧派生内容 2173ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'疑点'变化不能沿用旧派生内容 2241ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'人名'变化不能沿用旧派生内容 2859ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'日期'变化不能沿用旧派生内容 2867ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容 2844ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'疑点'变化不能沿用旧派生内容 2843ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=false） 2358ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=true） 2315ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留 2074ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留 2115ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同一笔记跨 session 并发最多一个活动事项，停止后可重新委派 738ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同会议并发同参数复用，异参数拒绝；创建未知跨重启恢复仍唯一 784ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 1498ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 1976ms
+   ✓ R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 2336ms
+   ✓ R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'联系人原稿不清' 2320ms
+   ✓ R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'日期原稿不清' 2325ms
+   ✓ R3 知识与行动公开入口 (postgres) > 混合联系人与日期疑点独立关联，派生变更后不能沿用原批准 2115ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2510ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 3005ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2525ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 3051ms
+   ✓ R3 知识与行动公开入口 (postgres) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 2260ms
+(node:86455) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/unit/note-publication-recovery.test.mjs (24 tests | 2 failed) 14495ms
+   ✓ 手写发布恢复 (sqlite) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 711ms
+   × 手写发布恢复 (sqlite) > V01 version 失败后正文被改，重建发布不能把旧候选与新正文拼接 230ms
+     → promise resolved "{ noteId: 'N-1', version: 1, …(4) }" instead of rejecting
+   ✓ 手写发布恢复 (sqlite) > 重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过 582ms
+   ✓ 手写发布恢复 (sqlite) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=false） 644ms
+   ✓ 手写发布恢复 (sqlite) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=true） 603ms
+   ✓ 手写发布恢复 (sqlite) > 旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档 306ms
+   ✓ 手写发布恢复 (sqlite) > 重发只采纳同一读取快照，清空旧派生资料；后续编辑不得混入指纹 523ms
+   ✓ 手写发布恢复 (sqlite) > 过期卡可续发同版本，旧 token 无效；批准后重发 v2 状态可再次同步 1093ms
+   ✓ 手写发布恢复 (sqlite) > 审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文 648ms
+   ✓ 手写发布恢复 (sqlite) > pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2 1108ms
+   ✓ 手写发布恢复 (postgres) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 683ms
+   × 手写发布恢复 (postgres) > V01 version 失败后正文被改，重建发布不能把旧候选与新正文拼接 261ms
+     → promise resolved "{ noteId: 'N-1', version: 1, …(4) }" instead of rejecting
+   ✓ 手写发布恢复 (postgres) > 重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过 549ms
+   ✓ 手写发布恢复 (postgres) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=false） 612ms
+   ✓ 手写发布恢复 (postgres) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=true） 593ms
+   ✓ 手写发布恢复 (postgres) > 旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档 328ms
+   ✓ 手写发布恢复 (postgres) > 重发只采纳同一读取快照，清空旧派生资料；后续编辑不得混入指纹 515ms
+   ✓ 手写发布恢复 (postgres) > 过期卡可续发同版本，旧 token 无效；批准后重发 v2 状态可再次同步 1082ms
+   ✓ 手写发布恢复 (postgres) > 审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文 669ms
+   ✓ 手写发布恢复 (postgres) > pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2 1097ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/note-publication-recovery.test.mjs > 手写发布恢复 (sqlite) > V01 version 失败后正文被改，重建发布不能把旧候选与新正文拼接
+AssertionError: promise resolved "{ noteId: 'N-1', version: 1, …(4) }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "docUrl": "https://example.feishu.cn/wiki/docstub-1",
++   "fingerprint": "c32ca9f93e5be0e7aa23308b7941f2a0218595e5aaa9ef4e9c168307751b10d0",
++   "message": "已生成待审版本 v1 并回读确认；等待本人在飞书审核卡上批准或退回。",
++   "noteId": "N-1",
++   "version": 1,
++   "versionId": "N-1:v1",
++ }
+
+ ❯ tests/unit/note-publication-recovery.test.mjs:101:92
+     99|     if (fault === 'readback') await writeFile(statePath, JSON.stringif…
+    100|     else failVersion = true;
+    101|     await expect(pipeline.noteSubmit(item, { ...args, candidates: [{ s…
+       |                                                                                            ^
+    102|     expect(await repos.notes.versionsOf('N-1')).toHaveLength(0);
+    103|     const doc = (await readFile(`${statePath}.docs.jsonl`, 'utf8')).tr…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/note-publication-recovery.test.mjs > 手写发布恢复 (postgres) > V01 version 失败后正文被改，重建发布不能把旧候选与新正文拼接
+AssertionError: promise resolved "{ noteId: 'N-1', version: 1, …(4) }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "docUrl": "https://example.feishu.cn/wiki/docstub-1",
++   "fingerprint": "c32ca9f93e5be0e7aa23308b7941f2a0218595e5aaa9ef4e9c168307751b10d0",
++   "message": "已生成待审版本 v1 并回读确认；等待本人在飞书审核卡上批准或退回。",
++   "noteId": "N-1",
++   "version": 1,
++   "versionId": "N-1:v1",
++ }
+
+ ❯ tests/unit/note-publication-recovery.test.mjs:101:92
+     99|     if (fault === 'readback') await writeFile(statePath, JSON.stringif…
+    100|     else failVersion = true;
+    101|     await expect(pipeline.noteSubmit(item, { ...args, candidates: [{ s…
+       |                                                                                            ^
+    102|     expect(await repos.notes.versionsOf('N-1')).toHaveLength(0);
+    103|     const doc = (await readFile(`${statePath}.docs.jsonl`, 'utf8')).tr…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 72 passed (74)
+   Start at  11:49:15
+   Duration  109.39s (transform 124ms, setup 0ms, collect 300ms, tests 108.88s, environment 0ms, prepare 46ms)

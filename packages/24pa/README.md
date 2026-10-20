@@ -312,6 +312,14 @@ Restart recovery checks the original workspace, parent/child Session, generation
 
 The native flush checkpoint must succeed; `false` or a failure does not prove durability. Older hosts without a public cold-history reader can finish live work after a successful checkpoint, but unverified cold recovery requires reconciliation. No private Session file format is written by 24PA. To roll back, stop the Host and restore the complete pre-upgrade ledger, workspace and Session backup with the corresponding old version; older code may resume work that this version would settle without re-execution.
 
+### Recovering authorized candidate actions
+
+Minutes and reviewed-note candidate retries retain their original channel, calendar/task list, authorization and receipt format. Changing channel preferences only affects new candidates. An acknowledged remote creation can repair its local projection after restart without a second write. Unknown remote outcomes or legacy records without enough original identity require reconciliation; do not switch preferences to force another creation. No schema migration is required for this change.
+
+Reviewed-note summaries and actions now require a proof binding the structured content to the fetched document snapshot. If the document was edited before its first readback, or a body-only revision was republished, old summaries, candidates and doubts are cleared. The review card explicitly offers body-only approval until those fields are rebuilt and reviewed. Historical approvals without this proof remain recorded, but cannot authorize old candidates or contribute derived facts to search and digests. Reorganize the current document into a new reviewed version before selecting actions; approval never executes actions by itself.
+
+Review tokens also bind the approval scope. An outstanding card from an older version of the plugin is replaced when refreshed or clicked; its old button cannot make a new decision. Already recorded decisions remain historical evidence. These changes use existing JSON/text columns without a schema migration. Downgrading to a build without these checks reopens the provenance and channel-recovery defects.
+
 ## Manticore Skill catalog (M01a)
 
 Open **Work & plans → Skill management** to browse built-in originals and discovered workspace skills, inspect instructions, metadata, configuration restrictions and linked plans, and download the selected instruction Markdown. Same-name originals and workspace entries stay separate. The panel reads definitions; it does not run skills or grant permissions.

@@ -1,0 +1,124 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f09.e2e.mjs (8 tests) 47872ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P16：plan_today 给出重点/容量/冲突与偏好缓冲；过载如实提示不自动延期 2079ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P16：plan_preview 插单只影响重叠项；plan_adopt 选择性采纳并回执 2604ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P25：晚间回顾呈现完成/等待/逾期，不自动延期、不写记忆 3764ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24/P25：once 晨报经原生 Schedule 唤醒 Lead→digest Worker→Outbox，事实与建议分离 3617ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24：同窗重复投递不重复发布；投递无法归属时监督暂停（delivery_unconfirmed） 8163ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24：重启后原生 Schedule 续跑，业务状态按账本恢复，不补发过期窗口 10635ms
+   ✓ F41：agent 轨任务 skill > 自定义 skill 交接→Worker 生成→digest_deliver 交付 1594ms
+   ✓ F44：任务 skill 受控接入（双门） > 未放行拒绝且不留事项；放行后 skill 执行 Worker 载入正文执行 12566ms
+ ✓ tests/e2e/f06.e2e.mjs (8 tests) 27714ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P28：批次收集三页、重复页识别、损坏资源反馈，重启后原稿与页序仍在 6549ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P29：视觉路由缺失时明确报错；配置重载后识别请求真的携带图片并发布待审文档 2760ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31：非主人点击被拒绝，主人批准指定版本，重复点击返回原结果 2181ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31：退回指定版本并记录凭证 2088ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P32：文档修改后旧批准仅覆盖旧快照，重发候选 v2 再批准，历史凭证保留 3205ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31/P32：状态同步失败时凭证仍保存，核验后补同步；结束批次后不再追加页 5204ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P29：媒体插入失败不发送待审链接，操作保留可恢复回执 1553ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31/P29：识别 Worker 没有任何批准或外部行动工具 1533ms
+ ✓ tests/e2e/f07.e2e.mjs (6 tests) 44125ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P30：三页笔记逐页识别，区域疑点生成裁片并进入同一审核管线 4643ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P30：单页基线与多页增强共用同一视觉路由与审核管线（无第二套模型运行时） 1043ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P33：队列集中列出待审对象；批准后移出并自动取消催办 1603ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P33：催办到期经 Outbox 发出；暂停不再发送；稍后改时间仍绑定原版本 7605ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P33：重启后未到期催办按账本继续；旧版本不催审 13884ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P33：免打扰窗口把到期催办扣住，窗口结束后补发 13113ms
+ ✓ tests/e2e/f08.e2e.mjs (6 tests) 86103ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P13：联系人入库后按明确指令发信；草稿不发送、目标不清先澄清 2606ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P13：按明确指令把任务分派给联系人，操作留痕 1052ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P19/F45：linkTaskGuid 旧来源跟随入口明确拒绝，保持智能 skill 归属 530ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P19/F45：linkEventId 旧来源跟随入口明确拒绝，保持智能 skill 归属 530ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P22：周期任务模板生成真实任务，支持跳过本次与停止以后（含重启） 63943ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P23：等待事项到点只询问本人；收到后停止；同源去重 15183ms
+ ❯ tests/e2e/f10.e2e.mjs (3 tests | 1 failed) 138874ms
+   ✓ F10 会议资料与纪要行动（真实 Loader + 隔离 PG） > P26：会前准备包绑定会议，发送前复查状态；资料缺失如实说明；会议取消联动停止 36929ms
+   ✓ F10 会议资料与纪要行动（真实 Loader + 隔离 PG） > P26：准备包含上次纪要与相关任务（带出处），范围可绑定 36373ms
+   × F10 会议资料与纪要行动（真实 Loader + 隔离 PG） > P27：会后纪要保存文档＋候选行动分离；选择性采纳幂等、信息不足不执行 63353ms
+     → 等待工具结果（日历幂等回执，含 "返回已有日程"）超时；最后工具结果：[{"type":"text","text":"{"minutesId":"min-71d31a54f02d8529ce32a3d4277e7f1daedfe4bd9113105153713a697dd95c10","executed":1,"failed":0,"results":[{"index":0,"ok":true,"kind":"create","operationId":"minutes.action:min-71d31a54f02d8529ce32a3d4277e7f1daedfe4bd9113105153713a697dd95c10:0","reused":true,"url":"https://example.feishu.cn/calendar/event/evtstub-3","channel":"feishu","eventId":"evtstub-3","message":"此日程操作此前已提交，未重复写入。","minutesId":"min-71d31a54f02d8529ce32a3d4277e7f1daedfe4bd9113105153713a697
+ ✓ tests/e2e/f02.e2e.mjs (5 tests) 11686ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P04：一段话拆五项备忘，五路 Worker 并行完成并分别回传 2010ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P05：回复旧结果消息固定路由到原事项续办；未知引用明确拒绝 1533ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P42/P36/P43：本地会话维护 JSON 记忆，冲突拒绝、变更集应用与撤销、越权写入被拒 3085ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P07：重启后恢复未完成事项（恢复代次）、processing 收件重派、停止事项不复活 1850ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P44：注册「资料摘要」职责并沿用统一委派边界 2269ms
+ ✓ tests/e2e/f11.e2e.mjs (4 tests) 15023ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：批准后只执行选定行动，重复幂等；过期审核拒绝 5756ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：修订产生变更建议且不重复打扰；P35：多版本可信检索 3071ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P35：晨报/概览包含已审核笔记与等待/待审（缺数据明示） 1569ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > V01：首次回读已修改正文，真实审核卡只批准正文且不能执行旧候选 2119ms
+ ✓ tests/e2e/f16.e2e.mjs (4 tests) 9479ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > wecom_guide/wecom_check：指南随包分发，检查通过并含 nextSteps 1022ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 日程域：查询同步投影（channel=wecom）、创建、取消均有 staged 回执 1599ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 待办域：创建/幂等（无平台幂等键，靠操作账）/完成；失败如实上报不盲重试 2122ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 时钟提醒归企微日历；智能简报独立经企微投递；授权过期给出续期指引 2630ms
+ ✓ tests/e2e/f12.e2e.mjs (3 tests) 7486ms
+   ✓ F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P37：归档检查列出原生计划与外部提醒；执行需确认、外部提醒默认保留；取消零副作用 2711ms
+   ✓ F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P38：联合备份创建→校验→恢复到全新 cluster→迁移→代表性数据可读、旧 Outbox 不重放 1925ms
+   ✓ F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P39：健康报告含能力状态/投入统计/数据流披露；PG 异常时如实报错不假成功 511ms
+ ✓ tests/e2e/f01.e2e.mjs (8 tests) 11274ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P02：/24pa 状态回复经持久 Outbox 回执；重复事件、他人与错应用不处理 3064ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P03+P14：飞书委托经 Lead 委派 memo Worker，保存真实文档并回传出处 549ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P03：本地24私助会话发起同一备忘流程，结果回到本地会话且不进飞书 514ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P14：memo_find 经真实工具执行，找回带出处的备忘 511ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P02：提交后重启，工作区/会话/账本从持久状态恢复，重复事件不重投 4220ms
+ ✓ tests/e2e/f04.e2e.mjs (4 tests) 8028ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P11：创建、改期、取消本人日程，均有 staged 回执且投影一致 1592ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P10：查询返回日程、冲突与新鲜度；取消后不再计入 1043ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P10：同步失败时明确报告投影可能过期，不冒充空日历 530ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P12：明确指令的会议邀请按记忆解析联系人；歧义拒绝且不发邀请 2563ms
+ ✓ tests/e2e/f05.e2e.mjs (7 tests) 9735ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > F45：一次性时钟提醒写入日历渠道（App 原生提醒），账本只留 delegated 备份 569ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P18/F45：稍后交给 App，取消整条日历规则且不生成 ledger 实例 1572ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P20/F45：重启保留原生事件和备份，不重建日历或启动 ledger 发送 2219ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P20/F45：旧 every 新入口明确拒绝，不能静默回退计时 532ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P15/P21/F45：本人休假偏好可记录；时钟免打扰归 App，不重新启动旧发送器 1043ms
+   ✓ F45 补充：delegated 取消与周期 rrule > 取消时钟型提醒＝同步删除日历事件＋备份行置 stopped 1057ms
+   ✓ F45 补充：delegated 取消与周期 rrule > daily 时钟提醒＝rrule 重复日程（FREQ=DAILY） 517ms
+ ✓ tests/e2e/f03.e2e.mjs (3 tests) 6327ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P08：一句话创建真实任务并返回链接；重复委派不重复建任务 1092ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P09：修改截止（区分计划/估时）、完成与远端刷新查询 1573ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P17：目标拆解采纳后建立真实任务与项目关联，进展来自实际状态 1589ms
+ ✓ tests/e2e/f13.e2e.mjs (5 tests) 3693ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 本地会话工具面＝标准编程工具全集＋完整 pa24 工具；schedule 与外部 CLI 委派缺席 511ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 飞书接入会话维持业务白名单：无终端/文件/通用委派工具 509ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 飞书接入会话可实调 pa24_connection 只读动作（不被本地门禁拒绝） 503ms
+ ✓ tests/e2e/f33.e2e.mjs (5 tests) 1407ms
+(node:5870) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | tests/e2e/work-settlement.e2e.mjs > V16: same Host retries without another event and releases both default slots
+{"recovery":"same-host","work":[{"title":"settle-3","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-2","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-1","generation":0,"acceptedInputs":1,"turns":1}],"workerModelRequests":6,"externalDocuments":3,"resultIntents":3}
+
+stdout | tests/e2e/work-settlement.e2e.mjs > V16: restart recovers durable original turns and releases both default slots
+{"recovery":"restart","work":[{"title":"settle-3","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-2","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-1","generation":0,"acceptedInputs":1,"turns":1}],"workerModelRequests":6,"externalDocuments":3,"resultIntents":3}
+
+ ✓ tests/e2e/work-settlement.e2e.mjs (2 tests) 8804ms
+   ✓ V16: same Host retries without another event and releases both default slots 3920ms
+   ✓ V16: restart recovers durable original turns and releases both default slots 4884ms
+ ✓ tests/e2e/f22.e2e.mjs (4 tests) 3260ms
+   ✓ F22 飞书知识库笔记落库（wiki 优先、folder 回退） > 配置 wikiNodeToken 后备忘文档以知识库节点为父级创建 524ms
+   ✓ F22 飞书知识库笔记落库（wiki 优先、folder 回退） > 移除 wikiNodeToken 重载后回退 folderToken，行为与存量一致 627ms
+ ✓ tests/e2e/f15.e2e.mjs (2 tests) 2626ms
+   ✓ F15 飞书接入配置向导（真实 Loader + 隔离 PG） > guide 返回随包分发的指南全文与版本 512ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/f10.e2e.mjs > F10 会议资料与纪要行动（真实 Loader + 隔离 PG） > P27：会后纪要保存文档＋候选行动分离；选择性采纳幂等、信息不足不执行
+Error: 等待工具结果（日历幂等回执，含 "返回已有日程"）超时；最后工具结果：[{"type":"text","text":"{"minutesId":"min-71d31a54f02d8529ce32a3d4277e7f1daedfe4bd9113105153713a697dd95c10","executed":1,"failed":0,"results":[{"index":0,"ok":true,"kind":"create","operationId":"minutes.action:min-71d31a54f02d8529ce32a3d4277e7f1daedfe4bd9113105153713a697dd95c10:0","reused":true,"url":"https://example.feishu.cn/calendar/event/evtstub-3","channel":"feishu","eventId":"evtstub-3","message":"此日程操作此前已提交，未重复写入。","minutesId":"min-71d31a54f02d8529ce32a3d4277e7f1daedfe4bd9113105153713a697
+ ❯ waitToolResult tests/e2e/f10.e2e.mjs:29:9
+     27|   }
+     28|   const last = llm.log.slice(since).filter(r => r.tools.includes(toolN…
+     29|   throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后…
+       |         ^
+     30| };
+     31| const waitOutbox = async (prefix, label, timeoutMs = 60_000) => {
+ ❯ tests/e2e/f10.e2e.mjs:276:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 17 passed (18)
+      Tests  1 failed | 86 passed (87)
+   Start at  11:53:06
+   Duration  445.39s (transform 101ms, setup 0ms, collect 311ms, tests 443.52s, environment 1ms, prepare 377ms)

@@ -1,0 +1,120 @@
+{
+  "testedMainSha": "7c3845e2ee99439ff1aa4ae5055de40bac9c2c70",
+  "implementationSha": "10a8cf39480bb2736cd6dd9f3f648e10903aeb44",
+  "packageTree": "0f7364c3e69b3657344afa88ff6c26dd768d164c",
+  "hostSha": "1600d8a1e140dcde43a1a0941940a0480712c011",
+  "node": "22.19.0",
+  "build": {
+    "passed": true,
+    "command": "node node_modules/typescript/bin/tsc -p tsconfig.json"
+  },
+  "presetCheck": {
+    "passed": true,
+    "command": "node scripts/sync-preset.mjs --check"
+  },
+  "originalAndCrossUnit": {
+    "files": 4,
+    "passed": 50,
+    "failed": 0,
+    "skippedByNameFilter": 68,
+    "log": "pa24-final-main-originals-unit.log",
+    "filesSelected": [
+      "tests/unit/backup.test.mjs",
+      "tests/unit/ledger-ownership.test.mjs",
+      "tests/unit/candidate-recovery.test.mjs",
+      "tests/unit/knowledge-actions.test.mjs"
+    ],
+    "nameFilter": "restores committed|拒绝不同主人|preserves original|V01|原意图恢复"
+  },
+  "originalLoaderSqlite": {
+    "files": 2,
+    "passed": 3,
+    "failed": 0,
+    "skippedByNameFilter": 3,
+    "log": "pa24-final-main-originals-loader-sqlite.log"
+  },
+  "originalLoaderPostgres": {
+    "files": 2,
+    "passed": 3,
+    "failed": 0,
+    "skippedByNameFilter": 3,
+    "log": "pa24-final-main-originals-loader-postgres.log"
+  },
+  "loaderSelection": {
+    "files": [
+      "tests/e2e/work-settlement.e2e.mjs",
+      "tests/e2e/f11.e2e.mjs"
+    ],
+    "nameFilter": "V16|V01",
+    "DSH_BIN": "/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js"
+  },
+  "scenarioMapping": {
+    "V05": {
+      "unitPassed": 1,
+      "proof": "Live WAL generation changes while reader retires; restored backup retains previously committed business rows."
+    },
+    "V11": {
+      "unitPassed": 1,
+      "proof": "Different owner/workspace rejected on shared PG ledger; A remains intact and can reopen."
+    },
+    "V16": {
+      "loaderPassedPerBackend": 2,
+      "proof": "Same-host and restart settle original generation 0 turns without new accepted input, model turn or duplicate external action; both slots released and third item starts."
+    },
+    "V03": {
+      "unitPassed": 20,
+      "proof": "Twelve minutes restart/container/channel scenarios plus eight note action original-intent recovery scenarios across SQLite/PG; old platform object once, new candidate uses new configuration."
+    },
+    "V01": {
+      "unitPassed": 28,
+      "loaderPassedPerBackend": 1,
+      "proof": "Initial/republished person/date/deletion/doubt edits, unchanged/metadata controls, legacy approvals and pending cards; original stale candidate not executable."
+    }
+  },
+  "priorFullSuite": {
+    "implementationSha": "10a8cf39480bb2736cd6dd9f3f648e10903aeb44",
+    "unitPassed": 783,
+    "loaderPassedPerBackend": 87,
+    "reference": "group-c-validation.json",
+    "scope": "Full suites ran on fixed implementation before merge; package tree is identical at tested main. Exact merged main was separately rebuilt and tested with original failure/cross-impact selection."
+  },
+  "review": {
+    "standardsUnresolved": 0,
+    "specUnresolved": 0,
+    "sources": [
+      "pa24-group-c-standards-rereview.md",
+      "pa24-group-c-spec-rereview.md",
+      "pa24-group-c-standards-delivery.md",
+      "pa24-group-c-spec-delivery.md"
+    ]
+  },
+  "functionalPRs": [
+    210,
+    211,
+    223
+  ],
+  "closedIssues": [
+    205,
+    206,
+    207,
+    208,
+    209
+  ],
+  "remaining": {
+    "p1FromThisAudit": 0,
+    "p2": 18,
+    "p2Disposition": "保留待修，未作风险接受",
+    "releaseIssue46": "OPEN",
+    "confirmedP0": 0,
+    "p0Limit": "本轮未发现已确认P0，不构成不存在P0的保证。"
+  },
+  "limits": [
+    "No real Feishu/WeCom account writes, package installation or field trial performed.",
+    "Earlier blocked outbound/knowledge audit probes were not rerun; the authorized fix regression is not a substitute for those areas."
+  ],
+  "logSha256": {
+    "pa24-final-main-originals-unit.log": "09dca3f15c2697423cd4738aa386438b267bde1ba4e39cd69ac1e0d65ff531a5",
+    "pa24-final-main-originals-loader-sqlite.log": "68e1111cdaddbcc85005353329e7da9fbf718e8b89a42ed0c9df1225ab2825a0",
+    "pa24-final-main-originals-loader-postgres.log": "b0b3110301a4f930f7716dae5320da85d5fffdaceba5fd1bc5cfdf9bfd5a39fd"
+  }
+}

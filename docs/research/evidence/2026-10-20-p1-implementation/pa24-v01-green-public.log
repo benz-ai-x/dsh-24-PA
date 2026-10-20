@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:79634) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/knowledge-actions.test.mjs (28 tests | 26 skipped) 3721ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 首次回读正文已改为李工，正文批准不能执行旧王工候选 1626ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 首次回读正文已改为李工，正文批准不能执行旧王工候选 2094ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 26 skipped (28)
+   Start at  11:42:52
+   Duration  4.06s (transform 115ms, setup 0ms, collect 244ms, tests 3.72s, environment 0ms, prepare 21ms)

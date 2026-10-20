@@ -313,7 +313,7 @@ export function newReviewToken(): string {
 }
 
 /** Feishu interactive card for a pending review version (P31). */
-export function reviewCard(noteId: string, version: number, docUrl: string | null, summary: string, fingerprintStart: string, approveToken: string, returnToken: string, headerTemplate?: string): Record<string, unknown> {
+export function reviewCard(noteId: string, version: number, docUrl: string | null, summary: string, fingerprintStart: string, approveToken: string, returnToken: string, headerTemplate?: string, bodyOnly = false): Record<string, unknown> {
   const elements: Record<string, unknown>[] = [
     {
       tag: 'div',
@@ -321,7 +321,7 @@ export function reviewCard(noteId: string, version: number, docUrl: string | nul
         tag: 'lark_md',
         content: (headerTemplate && headerTemplate.includes('{noteId}')
             ? headerTemplate.replaceAll('{noteId}', noteId).replaceAll('{version}', String(version))
-            : `**手写笔记 ${noteId} 待审版本 v${version}**`) + `\n摘要：${summary}\n内容指纹：${fingerprintStart}…\n请先打开文档核对完整正文、疑点定位与原稿，再批准这一具体版本；按钮仅对本版本指纹有效。`,
+            : `**手写笔记 ${noteId} 待审版本 v${version}**`) + `\n摘要：${summary || '请查看当前正文'}\n内容指纹：${fingerprintStart}…\n请先打开文档核对完整正文、疑点定位与原稿，再批准这一具体版本；按钮仅对本版本指纹有效。${bodyOnly ? '\n当前正文的摘要与候选需重新整理；本次仅批准正文，旧行动不可执行。' : ''}`,
       },
     },
   ];
@@ -334,7 +334,7 @@ export function reviewCard(noteId: string, version: number, docUrl: string | nul
   elements.push({
     tag: 'action',
     actions: [
-      { tag: 'button', text: { tag: 'plain_text', content: `批准 v${version}` }, type: 'primary', value: { pa24: 'review', token: approveToken } },
+      { tag: 'button', text: { tag: 'plain_text', content: `${bodyOnly ? '仅批准正文' : '批准'} v${version}` }, type: 'primary', value: { pa24: 'review', token: approveToken } },
       { tag: 'button', text: { tag: 'plain_text', content: '退回修改' }, type: 'danger', value: { pa24: 'review', token: returnToken } },
     ],
   });

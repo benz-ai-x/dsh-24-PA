@@ -54,8 +54,8 @@ export class TaskLifecycle {
     return task;
   }
 
-  create(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    return this.deps.adapters[this.deps.createChannel()].create(item, args);
+  create(item: WorkItemRow, args: Record<string, unknown>, originalChannel?: DataChannel): Promise<unknown> {
+    return this.deps.adapters[originalChannel ?? this.deps.createChannel()].create(item, args);
   }
 
   async update(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {

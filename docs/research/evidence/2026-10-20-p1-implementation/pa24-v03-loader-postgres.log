@@ -1,0 +1,21 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f09.e2e.mjs (8 tests) 47611ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P16：plan_today 给出重点/容量/冲突与偏好缓冲；过载如实提示不自动延期 2080ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P16：plan_preview 插单只影响重叠项；plan_adopt 选择性采纳并回执 2627ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P25：晚间回顾呈现完成/等待/逾期，不自动延期、不写记忆 3810ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24/P25：once 晨报经原生 Schedule 唤醒 Lead→digest Worker→Outbox，事实与建议分离 3628ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24：同窗重复投递不重复发布；投递无法归属时监督暂停（delivery_unconfirmed） 8183ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24：重启后原生 Schedule 续跑，业务状态按账本恢复，不补发过期窗口 10972ms
+   ✓ F41：agent 轨任务 skill > 自定义 skill 交接→Worker 生成→digest_deliver 交付 1597ms
+   ✓ F44：任务 skill 受控接入（双门） > 未放行拒绝且不留事项；放行后 skill 执行 Worker 载入正文执行 12558ms
+ ✓ tests/e2e/f11.e2e.mjs (3 tests) 13071ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：批准后只执行选定行动，重复幂等；过期审核拒绝 5712ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：修订产生变更建议且不重复打扰；P35：多版本可信检索 3577ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P35：晨报/概览包含已审核笔记与等待/待审（缺数据明示） 1564ms
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  11:37:33
+   Duration  60.91s (transform 34ms, setup 0ms, collect 60ms, tests 60.68s, environment 0ms, prepare 42ms)

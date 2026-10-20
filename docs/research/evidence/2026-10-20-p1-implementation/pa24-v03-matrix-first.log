@@ -1,0 +1,87 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:72633) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/knowledge-actions.test.mjs (26 tests) 44741ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 1025ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 1216ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 新旧顶层行动疑点兼容且无关候选不受阻：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 1414ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 新旧顶层行动疑点兼容且无关候选不受阻：'联系人原稿不清' 1402ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 新旧顶层行动疑点兼容且无关候选不受阻：'日期原稿不清' 1924ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 混合联系人与日期疑点独立关联，新旧版本均阻止相关候选且允许无关候选 1425ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1736ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2189ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1685ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2176ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 1541ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同一笔记跨 session 并发最多一个活动事项，停止后可重新委派 764ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同会议并发同参数复用，异参数拒绝；创建未知跨重启恢复仍唯一 787ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 1490ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 1966ms
+   ✓ R3 知识与行动公开入口 (postgres) > 新旧顶层行动疑点兼容且无关候选不受阻：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 2141ms
+   ✓ R3 知识与行动公开入口 (postgres) > 新旧顶层行动疑点兼容且无关候选不受阻：'联系人原稿不清' 2166ms
+   ✓ R3 知识与行动公开入口 (postgres) > 新旧顶层行动疑点兼容且无关候选不受阻：'日期原稿不清' 2160ms
+   ✓ R3 知识与行动公开入口 (postgres) > 混合联系人与日期疑点独立关联，新旧版本均阻止相关候选且允许无关候选 2097ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2430ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2950ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2395ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 3386ms
+   ✓ R3 知识与行动公开入口 (postgres) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 2235ms
+(node:73932) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/planning-adoption.test.mjs (20 tests) 20622ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 723ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 确定拒绝释放时段，后续重叠块正常成功 591ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 确认实际未写后，同一未知操作可安全续办且身份不变 630ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 610ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 576ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 686ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 确定拒绝释放时段，后续重叠块正常成功 576ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 确认实际未写后，同一未知操作可安全续办且身份不变 604ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 653ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1061ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 1438ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 确定拒绝释放时段，后续重叠块正常成功 1317ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 确认实际未写后，同一未知操作可安全续办且身份不变 1379ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 1282ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1324ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 1398ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 确定拒绝释放时段，后续重叠块正常成功 1292ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 确认实际未写后，同一未知操作可安全续办且身份不变 1369ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 1308ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1803ms
+(node:74593) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/candidate-recovery.test.mjs (26 tests) 21708ms
+   ✓ candidate recovery / sqlite > feishu:task preserves original receipt, target and owner after restart 1098ms
+   ✓ candidate recovery / sqlite > wecom:task preserves original receipt, target and owner after restart 1108ms
+   ✓ candidate recovery / sqlite > feishu:calendar preserves original receipt, target and owner after restart 1073ms
+   ✓ candidate recovery / sqlite > wecom:calendar preserves original receipt, target and owner after restart 1467ms
+   ✓ candidate recovery / sqlite > feishu:task:container preserves original receipt, target and owner after restart 642ms
+   ✓ candidate recovery / sqlite > feishu:calendar:container preserves original receipt, target and owner after restart 650ms
+   ✓ candidate recovery / sqlite > missing-target does not guess a candidate identity or replay an unknown write 600ms
+   ✓ candidate recovery / sqlite > unknown-format does not guess a candidate identity or replay an unknown write 581ms
+   ✓ candidate recovery / sqlite > foreign-source does not guess a candidate identity or replay an unknown write 591ms
+   ✓ candidate recovery / sqlite > wrong-action does not guess a candidate identity or replay an unknown write 610ms
+   ✓ candidate recovery / sqlite > unknown-result does not guess a candidate identity or replay an unknown write 620ms
+   ✓ candidate recovery / sqlite > bad-receipt does not guess a candidate identity or replay an unknown write 606ms
+   ✓ candidate recovery / sqlite > legacy does not guess a candidate identity or replay an unknown write 596ms
+   ✓ candidate recovery / postgres > feishu:task preserves original receipt, target and owner after restart 1178ms
+   ✓ candidate recovery / postgres > wecom:task preserves original receipt, target and owner after restart 1172ms
+   ✓ candidate recovery / postgres > feishu:calendar preserves original receipt, target and owner after restart 1171ms
+   ✓ candidate recovery / postgres > wecom:calendar preserves original receipt, target and owner after restart 1184ms
+   ✓ candidate recovery / postgres > feishu:task:container preserves original receipt, target and owner after restart 717ms
+   ✓ candidate recovery / postgres > feishu:calendar:container preserves original receipt, target and owner after restart 693ms
+   ✓ candidate recovery / postgres > missing-target does not guess a candidate identity or replay an unknown write 663ms
+   ✓ candidate recovery / postgres > unknown-format does not guess a candidate identity or replay an unknown write 652ms
+   ✓ candidate recovery / postgres > foreign-source does not guess a candidate identity or replay an unknown write 655ms
+   ✓ candidate recovery / postgres > wrong-action does not guess a candidate identity or replay an unknown write 665ms
+   ✓ candidate recovery / postgres > unknown-result does not guess a candidate identity or replay an unknown write 661ms
+   ✓ candidate recovery / postgres > bad-receipt does not guess a candidate identity or replay an unknown write 660ms
+   ✓ candidate recovery / postgres > legacy does not guess a candidate identity or replay an unknown write 679ms
+
+ Test Files  3 passed (3)
+      Tests  72 passed (72)
+   Start at  11:35:46
+   Duration  87.80s (transform 119ms, setup 0ms, collect 465ms, tests 87.07s, environment 0ms, prepare 62ms)
