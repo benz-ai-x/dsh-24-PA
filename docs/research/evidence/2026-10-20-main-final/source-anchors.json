@@ -1,0 +1,270 @@
+[
+  {
+    "file": "packages/24pa/src/handwriting-pipeline.ts",
+    "line": 444
+  },
+  {
+    "file": "packages/24pa/src/handwriting-pipeline.ts",
+    "line": 290
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2629
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1825
+  },
+  {
+    "file": "packages/24pa/src/sqlite.ts",
+    "line": 374
+  },
+  {
+    "file": "packages/24pa/src/calendar-observation.ts",
+    "line": 39
+  },
+  {
+    "file": "packages/24pa/src/feishu-channels.ts",
+    "line": 349
+  },
+  {
+    "file": "packages/24pa/src/task-templates.ts",
+    "line": 104
+  },
+  {
+    "file": "packages/24pa/src/digest-service.ts",
+    "line": 382
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2840
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 929
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 828
+  },
+  {
+    "file": "packages/24pa/src/pg.ts",
+    "line": 10
+  },
+  {
+    "file": "packages/24pa/src/db.ts",
+    "line": 60
+  },
+  {
+    "file": "packages/24pa/src/repo/memo.ts",
+    "line": 70
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1204
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 3213
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2832
+  },
+  {
+    "file": "packages/24pa/src/panel.ts",
+    "line": 178
+  },
+  {
+    "file": "packages/24pa/src/panel.ts",
+    "line": 183
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 3097
+  },
+  {
+    "file": "packages/24pa/src/feishu.ts",
+    "line": 112
+  },
+  {
+    "file": "packages/24pa/src/feishu.ts",
+    "line": 160
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1414
+  },
+  {
+    "file": "packages/24pa/src/inbox-lifecycle.ts",
+    "line": 44
+  },
+  {
+    "file": "packages/24pa/src/inbox-lifecycle.ts",
+    "line": 124
+  },
+  {
+    "file": "packages/24pa/src/handwriting-pipeline.ts",
+    "line": 203
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1431
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1588
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1594
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1631
+  },
+  {
+    "file": "packages/24pa/src/work-item-lifecycle.ts",
+    "line": 115
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2047
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2055
+  },
+  {
+    "file": "packages/24pa/src/feishu-channels.ts",
+    "line": 372
+  },
+  {
+    "file": "packages/24pa/src/work-tool-schema.ts",
+    "line": 10
+  },
+  {
+    "file": "packages/24pa/src/feishu-channels.ts",
+    "line": 428
+  },
+  {
+    "file": "packages/24pa/src/feishu-channels.ts",
+    "line": 450
+  },
+  {
+    "file": "packages/24pa/src/feishu-channels.ts",
+    "line": 458
+  },
+  {
+    "file": "packages/24pa/src/feishu-channels.ts",
+    "line": 468
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2439
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2473
+  },
+  {
+    "file": "packages/24pa/src/digest-service.ts",
+    "line": 363
+  },
+  {
+    "file": "packages/24pa/src/repo/memo.ts",
+    "line": 14
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 474
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2487
+  },
+  {
+    "file": "packages/24pa/src/pg.ts",
+    "line": 74
+  },
+  {
+    "file": "packages/24pa/src/backup.ts",
+    "line": 24
+  },
+  {
+    "file": "packages/24pa/src/backup.ts",
+    "line": 62
+  },
+  {
+    "file": "packages/24pa/src/backup.ts",
+    "line": 74
+  },
+  {
+    "file": "packages/24pa/src/backup.ts",
+    "line": 128
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2921
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2177
+  },
+  {
+    "file": "packages/24pa/src/feishu-channels.ts",
+    "line": 264
+  },
+  {
+    "file": "packages/24pa/src/memory.ts",
+    "line": 212
+  },
+  {
+    "file": "packages/24pa/src/digest-service.ts",
+    "line": 641
+  },
+  {
+    "file": "packages/24pa/src/digest-service.ts",
+    "line": 648
+  },
+  {
+    "file": "packages/24pa/src/plan-lifecycle.ts",
+    "line": 74
+  },
+  {
+    "file": "packages/24pa/src/plan-lifecycle.ts",
+    "line": 148
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1343
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 2373
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1594
+  },
+  {
+    "file": "packages/24pa/src/runtime.ts",
+    "line": 1631
+  },
+  {
+    "file": "packages/24pa/src/work-item-lifecycle.ts",
+    "line": 115
+  },
+  {
+    "file": "packages/24pa/src/work-item-lifecycle.ts",
+    "line": 125
+  },
+  {
+    "file": "packages/24pa/src/sqlite.ts",
+    "line": 291
+  },
+  {
+    "file": "packages/24pa/src/pg.ts",
+    "line": 46
+  }
+]

@@ -1,0 +1,160 @@
+{
+  "commit": "0ef85772a10f45e8e3b4c4d2c85d7249bf28e256",
+  "root": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-final-p0-runtime-eKg3Li",
+  "model": "loopback scripted only",
+  "config": {
+    "version": 1,
+    "mode": "demo",
+    "storage": "sqlite",
+    "larkProfile": "default",
+    "ownerOpenId": "",
+    "folderToken": "",
+    "wikiNodeToken": "",
+    "tasklistId": "",
+    "calendarId": "primary",
+    "calendarChannel": "feishu",
+    "todoChannel": "feishu",
+    "notifyChannel": "feishu",
+    "timeZone": "Asia/Shanghai",
+    "appIdEnv": "PA24_FEISHU_APP_ID",
+    "appSecretEnv": "PA24_FEISHU_APP_SECRET",
+    "pgDsnEnv": "PA24_PG_DSN",
+    "maxWorkers": 2,
+    "enabledWorkers": [
+      "memo"
+    ],
+    "workerModels": {},
+    "extraLocalTools": [],
+    "extraBusinessSkills": [],
+    "tts": {
+      "engine": "none",
+      "voice": "",
+      "volcKeyEnv": "",
+      "meloDir": ""
+    }
+  },
+  "steps": [
+    {
+      "action": "default startup",
+      "ready": true,
+      "configError": null
+    },
+    {
+      "action": "fault removed, normal dispatcher cycles allowed",
+      "fault": "real SQLite trigger blocked final result Outbox inserts",
+      "waitMs": 4200,
+      "work": [
+        {
+          "id": "pa24-work-memo-2b658703-1d33-405d-862e-a8c08064acf0",
+          "title": "fault-3",
+          "status": "queued",
+          "result": null,
+          "recovery_gen": 0,
+          "progress": "排队等待 Worker"
+        },
+        {
+          "id": "pa24-work-memo-40c9978e-2a46-4a0a-9452-8ef29c563b1b",
+          "title": "fault-2",
+          "status": "running",
+          "result": null,
+          "recovery_gen": 0,
+          "progress": "Worker 正在处理"
+        },
+        {
+          "id": "pa24-work-memo-cf3c756f-84ed-412a-aa56-e7b80822064d",
+          "title": "fault-1",
+          "status": "running",
+          "result": null,
+          "recovery_gen": 0,
+          "progress": "Worker 正在处理"
+        }
+      ],
+      "resultOutbox": []
+    },
+    {
+      "action": "ordinary same-profile restart",
+      "work": [
+        {
+          "id": "pa24-work-memo-2b658703-1d33-405d-862e-a8c08064acf0",
+          "title": "fault-3",
+          "status": "completed",
+          "result": "LOCAL_READ_COMPLETED",
+          "recovery_gen": 0,
+          "progress": "Worker 已完成，结果待回传"
+        },
+        {
+          "id": "pa24-work-memo-40c9978e-2a46-4a0a-9452-8ef29c563b1b",
+          "title": "fault-2",
+          "status": "completed",
+          "result": "LOCAL_READ_COMPLETED",
+          "recovery_gen": 1,
+          "progress": "Worker 已完成，结果待回传"
+        },
+        {
+          "id": "pa24-work-memo-cf3c756f-84ed-412a-aa56-e7b80822064d",
+          "title": "fault-1",
+          "status": "completed",
+          "result": "LOCAL_READ_COMPLETED",
+          "recovery_gen": 1,
+          "progress": "Worker 已完成，结果待回传"
+        }
+      ],
+      "resultOutbox": [
+        {
+          "key": "workitem:pa24-work-memo-2b658703-1d33-405d-862e-a8c08064acf0:result:t1",
+          "status": "sent"
+        },
+        {
+          "key": "workitem:pa24-work-memo-cf3c756f-84ed-412a-aa56-e7b80822064d:result:t2:g1",
+          "status": "sent"
+        },
+        {
+          "key": "workitem:pa24-work-memo-40c9978e-2a46-4a0a-9452-8ef29c563b1b:result:t2:g1",
+          "status": "sent"
+        }
+      ],
+      "nativeResultsPresent": 10
+    },
+    {
+      "action": "new ordinary request after restart",
+      "work": [
+        {
+          "id": "pa24-work-memo-998b07c2-fbe6-4d77-bf32-abf719ea3e38",
+          "title": "healthy-after-restart",
+          "status": "completed",
+          "result": "LOCAL_READ_COMPLETED",
+          "recovery_gen": 0,
+          "progress": "Worker 已完成，结果待回传"
+        },
+        {
+          "id": "pa24-work-memo-2b658703-1d33-405d-862e-a8c08064acf0",
+          "title": "fault-3",
+          "status": "completed",
+          "result": "LOCAL_READ_COMPLETED",
+          "recovery_gen": 0,
+          "progress": "Worker 已完成，结果待回传"
+        },
+        {
+          "id": "pa24-work-memo-40c9978e-2a46-4a0a-9452-8ef29c563b1b",
+          "title": "fault-2",
+          "status": "completed",
+          "result": "LOCAL_READ_COMPLETED",
+          "recovery_gen": 1,
+          "progress": "Worker 已完成，结果待回传"
+        },
+        {
+          "id": "pa24-work-memo-cf3c756f-84ed-412a-aa56-e7b80822064d",
+          "title": "fault-1",
+          "status": "completed",
+          "result": "LOCAL_READ_COMPLETED",
+          "recovery_gen": 1,
+          "progress": "Worker 已完成，结果待回传"
+        }
+      ],
+      "totalWork": 4
+    }
+  ],
+  "error": null,
+  "hostRoot": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-host-pYyEyu",
+  "modelRequests": 25
+}

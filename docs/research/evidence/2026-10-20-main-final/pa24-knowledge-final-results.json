@@ -1,0 +1,264 @@
+[
+  {
+    "name": "initial-publication-edit-before-first-readback",
+    "toolSchemaAcceptsInput": true,
+    "submit": {
+      "action": "note_submit",
+      "transcript": "联系王工",
+      "summary": "联系王工",
+      "candidates": [
+        {
+          "summary": "联系王工",
+          "sourceQuote": "联系王工"
+        }
+      ]
+    },
+    "docSnapshot": "<title>[24PA] 手写笔记 N-1 v1</title>\n<p>【24PA·系统】审核状态：待本人审核 N-1 v1（尚未经人工审核）</p>\n<h1>整理摘要</h1>\n<p>联系李工</p>\n<h1>整理正文</h1>\n<p>联系李工</p>\n<h1>候选行动（未授权执行）</h1>\n<li>联系李工（原文：联系李工）</li>\n<h1>原稿索引</h1>\n<p>第 1 页：image/png，8 字节，sha256 4c4b6a3be1314ab8…，平台图片（可能已压缩）（原件已保存，识别内容为派生副本）</p>\n<h1>发布说明</h1>\n<p>本候选版本尚未经人工审核；批准/退回请使用24私助发送的审核卡按钮，按钮仅对本版本内容指纹有效。模型自报的置信度不作为概率使用；无法辨认的内容保持未知。</p>\n<img token=\"media-4c4b6a3be1314ab86138bef4314dde02\"/>",
+    "persistedCandidates": [
+      {
+        "summary": "联系王工",
+        "sourceQuote": "联系王工"
+      }
+    ],
+    "persistedUnknowns": [],
+    "trust": {
+      "status": "approved",
+      "currentValidity": "matches"
+    },
+    "adopted": {
+      "noteId": "N-1",
+      "versionId": "N-1:v1",
+      "executed": 1,
+      "failed": 0,
+      "results": [
+        {
+          "index": 0,
+          "ok": true,
+          "kind": "task",
+          "sourceQuote": "联系王工",
+          "dueRaw": null,
+          "operationId": "note.action:N-1:v1:0",
+          "guid": "tskstub-1",
+          "url": "https://example.feishu.cn/task/tskstub-1",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "message": "任务已创建（飞书为权威对象）。"
+        }
+      ],
+      "message": "已按你的选择执行 1 项（依据已审核的 N-1 v1；重复选择返回已有对象）。"
+    },
+    "tasks": [
+      {
+        "summary": "联系王工",
+        "dueAt": null
+      }
+    ],
+    "actionOperation": {
+      "id": "note.action:N-1:v1:0",
+      "work_item_id": "pa24-work-handwriting-12a24132-c9ba-41b9-b5dd-4e4b2d3a488c",
+      "action": "task.create",
+      "params": {
+        "tasklistId": "list",
+        "summary": "联系王工",
+        "due": null,
+        "noteId": "N-1",
+        "versionId": "N-1:v1",
+        "index": 0,
+        "sourceQuote": "联系王工",
+        "instruction": "执行所选候选行动"
+      },
+      "status": "succeeded",
+      "attempt": 2,
+      "receipt": {
+        "guid": "tskstub-1",
+        "url": "https://example.feishu.cn/task/tskstub-1",
+        "summary": "联系王工"
+      },
+      "error": null,
+      "created_at": "2026-10-19T09:42:37.824Z",
+      "updated_at": "2026-10-19T09:42:37.861Z"
+    }
+  },
+  {
+    "name": "doubts-only-critical-name",
+    "toolSchemaAcceptsInput": true,
+    "submit": {
+      "action": "note_submit",
+      "transcript": "联系王或李，原稿不清",
+      "summary": "联系负责人",
+      "doubts": [
+        {
+          "pageNo": 1,
+          "kind": "name",
+          "quote": "联系王或李",
+          "note": "候选0联系人的姓氏不清，须确认是王工还是李工"
+        }
+      ],
+      "candidates": [
+        {
+          "summary": "联系王工",
+          "sourceQuote": "联系王或李"
+        }
+      ]
+    },
+    "docSnapshot": "<title>[24PA] 手写笔记 N-1 v1</title>\n<p>【24PA·系统】审核状态：待本人审核 N-1 v1（尚未经人工审核）</p>\n<h1>整理摘要</h1>\n<p>联系负责人</p>\n<h1>整理正文</h1>\n<p>联系王或李，原稿不清</p>\n<h1>候选行动（未授权执行）</h1>\n<li>联系王工（原文：联系王或李）</li>\n<h1>疑点与定位（重点复核：数字/人名/缩写/日期/否定/勾选/不清）</h1>\n<li>第 1 页【人名】“联系王或李”；候选0联系人的姓氏不清，须确认是王工还是李工；整页引用（页级）</li>\n<h1>原稿索引</h1>\n<p>第 1 页：image/png，8 字节，sha256 4c4b6a3be1314ab8…，平台图片（可能已压缩）（原件已保存，识别内容为派生副本）</p>\n<h1>发布说明</h1>\n<p>本候选版本尚未经人工审核；批准/退回请使用24私助发送的审核卡按钮，按钮仅对本版本内容指纹有效。模型自报的置信度不作为概率使用；无法辨认的内容保持未知。</p>\n<img token=\"media-4c4b6a3be1314ab86138bef4314dde02\"/>",
+    "persistedCandidates": [
+      {
+        "summary": "联系王工",
+        "sourceQuote": "联系王或李"
+      }
+    ],
+    "persistedDoubts": [
+      {
+        "pageNo": 1,
+        "kind": "name",
+        "quote": "联系王或李",
+        "certainty": "page",
+        "note": "候选0联系人的姓氏不清，须确认是王工还是李工"
+      }
+    ],
+    "persistedUnknowns": [],
+    "trust": {
+      "status": "approved",
+      "currentValidity": "matches"
+    },
+    "adopted": {
+      "noteId": "N-1",
+      "versionId": "N-1:v1",
+      "executed": 1,
+      "failed": 0,
+      "results": [
+        {
+          "index": 0,
+          "ok": true,
+          "kind": "task",
+          "sourceQuote": "联系王或李",
+          "dueRaw": null,
+          "operationId": "note.action:N-1:v1:0",
+          "guid": "tskstub-1",
+          "url": "https://example.feishu.cn/task/tskstub-1",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "message": "任务已创建（飞书为权威对象）。"
+        }
+      ],
+      "message": "已按你的选择执行 1 项（依据已审核的 N-1 v1；重复选择返回已有对象）。"
+    },
+    "tasks": [
+      {
+        "summary": "联系王工",
+        "dueAt": null
+      }
+    ],
+    "actionOperation": {
+      "id": "note.action:N-1:v1:0",
+      "work_item_id": "pa24-work-handwriting-2d5b94b0-51b3-4fbf-ac00-d0b9b1caad05",
+      "action": "task.create",
+      "params": {
+        "tasklistId": "list",
+        "summary": "联系王工",
+        "due": null,
+        "noteId": "N-1",
+        "versionId": "N-1:v1",
+        "index": 0,
+        "sourceQuote": "联系王或李",
+        "instruction": "执行所选候选行动"
+      },
+      "status": "succeeded",
+      "attempt": 2,
+      "receipt": {
+        "guid": "tskstub-1",
+        "url": "https://example.feishu.cn/task/tskstub-1",
+        "summary": "联系王工"
+      },
+      "error": null,
+      "created_at": "2026-10-19T09:42:39.210Z",
+      "updated_at": "2026-10-19T09:42:39.248Z"
+    }
+  },
+  {
+    "name": "partial-time-block",
+    "toolSchemaAcceptsInput": true,
+    "submit": {
+      "action": "note_submit",
+      "transcript": "11月1日上午安排评审，结束时间待定",
+      "summary": "安排评审",
+      "candidates": [
+        {
+          "summary": "安排评审",
+          "sourceQuote": "11月1日上午安排评审",
+          "start": "2026-11-01T02:00:00Z"
+        }
+      ]
+    },
+    "docSnapshot": "<title>[24PA] 手写笔记 N-1 v1</title>\n<p>【24PA·系统】审核状态：待本人审核 N-1 v1（尚未经人工审核）</p>\n<h1>整理摘要</h1>\n<p>安排评审</p>\n<h1>整理正文</h1>\n<p>11月1日上午安排评审，结束时间待定</p>\n<h1>候选行动（未授权执行）</h1>\n<li>安排评审（原文：11月1日上午安排评审）</li>\n<h1>原稿索引</h1>\n<p>第 1 页：image/png，8 字节，sha256 4c4b6a3be1314ab8…，平台图片（可能已压缩）（原件已保存，识别内容为派生副本）</p>\n<h1>发布说明</h1>\n<p>本候选版本尚未经人工审核；批准/退回请使用24私助发送的审核卡按钮，按钮仅对本版本内容指纹有效。模型自报的置信度不作为概率使用；无法辨认的内容保持未知。</p>\n<img token=\"media-4c4b6a3be1314ab86138bef4314dde02\"/>",
+    "persistedCandidates": [
+      {
+        "summary": "安排评审",
+        "sourceQuote": "11月1日上午安排评审",
+        "start": "2026-11-01T02:00:00Z"
+      }
+    ],
+    "persistedUnknowns": [],
+    "trust": {
+      "status": "approved",
+      "currentValidity": "matches"
+    },
+    "adopted": {
+      "noteId": "N-1",
+      "versionId": "N-1:v1",
+      "executed": 1,
+      "failed": 0,
+      "results": [
+        {
+          "index": 0,
+          "ok": true,
+          "kind": "task",
+          "sourceQuote": "11月1日上午安排评审",
+          "dueRaw": null,
+          "operationId": "note.action:N-1:v1:0",
+          "guid": "tskstub-1",
+          "url": "https://example.feishu.cn/task/tskstub-1",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "message": "任务已创建（飞书为权威对象）。"
+        }
+      ],
+      "message": "已按你的选择执行 1 项（依据已审核的 N-1 v1；重复选择返回已有对象）。"
+    },
+    "tasks": [
+      {
+        "summary": "安排评审",
+        "dueAt": null
+      }
+    ],
+    "actionOperation": {
+      "id": "note.action:N-1:v1:0",
+      "work_item_id": "pa24-work-handwriting-802ce543-a81f-4a2b-a890-bfb87aa705c4",
+      "action": "task.create",
+      "params": {
+        "tasklistId": "list",
+        "summary": "安排评审",
+        "due": null,
+        "noteId": "N-1",
+        "versionId": "N-1:v1",
+        "index": 0,
+        "sourceQuote": "11月1日上午安排评审",
+        "instruction": "执行所选候选行动"
+      },
+      "status": "succeeded",
+      "attempt": 2,
+      "receipt": {
+        "guid": "tskstub-1",
+        "url": "https://example.feishu.cn/task/tskstub-1",
+        "summary": "安排评审"
+      },
+      "error": null,
+      "created_at": "2026-10-19T09:42:41.088Z",
+      "updated_at": "2026-10-19T09:42:41.127Z"
+    }
+  }
+]

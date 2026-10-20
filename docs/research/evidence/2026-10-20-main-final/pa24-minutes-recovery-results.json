@@ -1,0 +1,274 @@
+[
+  {
+    "kind": "task",
+    "configChangeVia": "public updateWorkspaceConfig",
+    "first": {
+      "minutesId": "min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6",
+      "executed": 0,
+      "failed": 1,
+      "results": [
+        {
+          "index": 0,
+          "ok": false,
+          "error": "injected local projection failure"
+        }
+      ],
+      "message": "执行 0 项，1 项未执行（见明细：信息不足/失败逐项列出）；纪要生成不等于行动已执行。"
+    },
+    "before": {
+      "id": "minutes.action:min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6:0",
+      "work_item_id": "pa24-work-memo-74801433-0633-47a6-a9c5-75d1b11fdf11",
+      "action": "task.create",
+      "params": {
+        "tasklistId": "list",
+        "summary": "安排评审",
+        "due": "2026-11-01",
+        "minutesId": "min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6",
+        "index": 0,
+        "sourceQuote": "安排评审",
+        "instruction": "执行第0项"
+      },
+      "status": "failed",
+      "attempt": 2,
+      "receipt": {
+        "_externalResult": {
+          "data": {
+            "task": {
+              "guid": "tskstub-1",
+              "url": "https://example.feishu.cn/task/tskstub-1"
+            }
+          },
+          "raw": {
+            "ok": true,
+            "data": {
+              "task": {
+                "guid": "tskstub-1",
+                "url": "https://example.feishu.cn/task/tskstub-1"
+              }
+            }
+          }
+        }
+      },
+      "error": "injected local projection failure",
+      "created_at": "2026-10-19T09:43:54.677Z",
+      "updated_at": "2026-10-19T09:43:54.714Z"
+    },
+    "retry": {
+      "minutesId": "min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6",
+      "executed": 1,
+      "failed": 0,
+      "results": [
+        {
+          "index": 0,
+          "ok": true,
+          "kind": "task",
+          "operationId": "minutes.action:min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6:0",
+          "guid": {
+            "data": {
+              "task": {
+                "guid": "tskstub-1",
+                "url": "https://example.feishu.cn/task/tskstub-1"
+              }
+            },
+            "raw": {
+              "ok": true,
+              "data": {
+                "task": {
+                  "guid": "tskstub-1",
+                  "url": "https://example.feishu.cn/task/tskstub-1"
+                }
+              }
+            }
+          },
+          "url": null,
+          "dueAt": "2026-11-01T00:00:00.000Z",
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "channel": "wecom",
+          "message": "企微待办已创建（企微为权威对象）。"
+        }
+      ],
+      "message": "已按你的选择执行 1 项（幂等：重复选择同一编号返回已有对象）。"
+    },
+    "after": {
+      "id": "minutes.action:min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6:0",
+      "work_item_id": "pa24-work-memo-74801433-0633-47a6-a9c5-75d1b11fdf11",
+      "action": "task.create",
+      "params": {
+        "tasklistId": "list",
+        "summary": "安排评审",
+        "due": "2026-11-01",
+        "minutesId": "min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6",
+        "index": 0,
+        "sourceQuote": "安排评审",
+        "instruction": "执行第0项"
+      },
+      "status": "succeeded",
+      "attempt": 3,
+      "receipt": {
+        "guid": {
+          "data": {
+            "task": {
+              "guid": "tskstub-1",
+              "url": "https://example.feishu.cn/task/tskstub-1"
+            }
+          },
+          "raw": {
+            "ok": true,
+            "data": {
+              "task": {
+                "guid": "tskstub-1",
+                "url": "https://example.feishu.cn/task/tskstub-1"
+              }
+            }
+          }
+        },
+        "summary": "安排评审"
+      },
+      "error": null,
+      "created_at": "2026-10-19T09:43:54.677Z",
+      "updated_at": "2026-10-19T09:43:54.716Z"
+    },
+    "tasks": [
+      {
+        "id": "minutes.action:min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6:0",
+        "work_item_id": "pa24-work-memo-74801433-0633-47a6-a9c5-75d1b11fdf11",
+        "task_guid": "{\"data\":{\"task\":{\"guid\":\"tskstub-1\",\"url\":\"https://example.feishu.cn/task/tskstub-1\"}},\"raw\":{\"ok\":true,\"data\":{\"task\":{\"guid\":\"tskstub-1\",\"url\":\"https://example.feishu.cn/task/tskstub-1\"}}}}",
+        "url": null,
+        "summary": "安排评审",
+        "due_at": "2026-11-01T00:00:00.000Z",
+        "due_has_time": false,
+        "planned_at": null,
+        "estimate_minutes": null,
+        "status": "open",
+        "external_updated_at": "2026-10-19T09:43:54.715Z",
+        "last_synced_at": "2026-10-19T09:43:54.715Z",
+        "created_at": "2026-10-19T09:43:54.715Z",
+        "channel": "wecom"
+      }
+    ],
+    "events": [],
+    "remoteFeishu": "{\"guid\":\"tskstub-1\",\"url\":\"https://example.feishu.cn/task/tskstub-1\",\"summary\":\"[24PA] 安排评审\",\"due\":\"2026-11-01\",\"status\":\"open\",\"idempotencyKey\":\"minutes.action:min-2759bd0d44fce493f3a549edd0f8102b078e9709a8b0f04f4dda3c16ddde40c6:0\"}\n",
+    "remoteWecom": "{}"
+  },
+  {
+    "kind": "calendar",
+    "configChangeVia": "public updateWorkspaceConfig",
+    "first": {
+      "minutesId": "min-66eb173d4e078de9e881927b665209e383ef78b1c8d558385f5ad0b04078e756",
+      "executed": 0,
+      "failed": 1,
+      "results": [
+        {
+          "index": 0,
+          "ok": false,
+          "error": "injected local projection failure"
+        }
+      ],
+      "message": "执行 0 项，1 项未执行（见明细：信息不足/失败逐项列出）；纪要生成不等于行动已执行。"
+    },
+    "before": {
+      "id": "minutes.action:min-66eb173d4e078de9e881927b665209e383ef78b1c8d558385f5ad0b04078e756:0",
+      "work_item_id": "pa24-work-memo-e3f94f26-0229-495b-bfcc-bc29920e5fc3",
+      "action": "calendar.create",
+      "params": {
+        "calendarId": "calendar",
+        "kind": "create",
+        "eventId": "",
+        "summary": "安排评审",
+        "start": "2026-11-01T02:00:00.000Z",
+        "end": "2026-11-01T03:00:00.000Z",
+        "minutesId": "min-66eb173d4e078de9e881927b665209e383ef78b1c8d558385f5ad0b04078e756",
+        "index": 0,
+        "instruction": "执行第0项",
+        "sourceQuote": "安排评审"
+      },
+      "status": "failed",
+      "attempt": 2,
+      "receipt": {
+        "_externalResult": {
+          "data": {
+            "event": {
+              "event_id": "evtstub-1",
+              "url": "https://example.feishu.cn/calendar/event/evtstub-1",
+              "summary": "[24PA] 安排评审"
+            }
+          },
+          "raw": {
+            "ok": true,
+            "data": {
+              "event": {
+                "event_id": "evtstub-1",
+                "url": "https://example.feishu.cn/calendar/event/evtstub-1",
+                "summary": "[24PA] 安排评审"
+              }
+            }
+          }
+        }
+      },
+      "error": "injected local projection failure",
+      "created_at": "2026-10-19T09:43:55.260Z",
+      "updated_at": "2026-10-19T09:43:55.295Z"
+    },
+    "retry": {
+      "minutesId": "min-66eb173d4e078de9e881927b665209e383ef78b1c8d558385f5ad0b04078e756",
+      "executed": 0,
+      "failed": 1,
+      "results": [
+        {
+          "index": 0,
+          "ok": false,
+          "error": "企微创建成功但未返回 schedule_id；以 calendar_query 核对。"
+        }
+      ],
+      "message": "执行 0 项，1 项未执行（见明细：信息不足/失败逐项列出）；纪要生成不等于行动已执行。"
+    },
+    "after": {
+      "id": "minutes.action:min-66eb173d4e078de9e881927b665209e383ef78b1c8d558385f5ad0b04078e756:0",
+      "work_item_id": "pa24-work-memo-e3f94f26-0229-495b-bfcc-bc29920e5fc3",
+      "action": "calendar.create",
+      "params": {
+        "calendarId": "calendar",
+        "kind": "create",
+        "eventId": "",
+        "summary": "安排评审",
+        "start": "2026-11-01T02:00:00.000Z",
+        "end": "2026-11-01T03:00:00.000Z",
+        "minutesId": "min-66eb173d4e078de9e881927b665209e383ef78b1c8d558385f5ad0b04078e756",
+        "index": 0,
+        "instruction": "执行第0项",
+        "sourceQuote": "安排评审"
+      },
+      "status": "unknown",
+      "attempt": 3,
+      "receipt": {
+        "_externalResult": {
+          "data": {
+            "event": {
+              "event_id": "evtstub-1",
+              "url": "https://example.feishu.cn/calendar/event/evtstub-1",
+              "summary": "[24PA] 安排评审"
+            }
+          },
+          "raw": {
+            "ok": true,
+            "data": {
+              "event": {
+                "event_id": "evtstub-1",
+                "url": "https://example.feishu.cn/calendar/event/evtstub-1",
+                "summary": "[24PA] 安排评审"
+              }
+            }
+          }
+        }
+      },
+      "error": "企微创建成功但未返回 schedule_id；以 calendar_query 核对。",
+      "created_at": "2026-10-19T09:43:55.260Z",
+      "updated_at": "2026-10-19T09:43:55.296Z"
+    },
+    "tasks": [],
+    "events": [],
+    "remoteFeishu": "{\"event_id\":\"evtstub-1\",\"summary\":\"[24PA] 安排评审\",\"start\":\"2026-11-01T02:00:00.000Z\",\"end\":\"2026-11-01T03:00:00.000Z\",\"status\":\"active\",\"all_day\":false,\"rrule\":null,\"url\":\"https://example.feishu.cn/calendar/event/evtstub-1\",\"attendees\":[]}\n",
+    "remoteWecom": "{}"
+  }
+]

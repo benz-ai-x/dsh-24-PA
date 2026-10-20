@@ -1,0 +1,46 @@
+{
+  "node": "v26.4.0",
+  "timezone": "Asia/Shanghai",
+  "results": [
+    {
+      "storage": "sqlite",
+      "repositoryValue": "2026-10-19",
+      "repositoryValueType": "string",
+      "isDate": false,
+      "rawString": "2026-10-19",
+      "toolResult": {
+        "count": 1,
+        "memos": [
+          {
+            "id": "m-sqlite",
+            "topic": "季度评审",
+            "content": "日期应当保留年月日",
+            "url": null,
+            "source": "user",
+            "date": "2026-10-19"
+          }
+        ]
+      }
+    },
+    {
+      "storage": "postgres",
+      "repositoryValue": "2026-10-18T16:00:00.000Z",
+      "repositoryValueType": "object",
+      "isDate": true,
+      "rawString": "Mon Oct 19 2026 00:00:00 GMT+0800 (China Standard Time)",
+      "toolResult": {
+        "count": 1,
+        "memos": [
+          {
+            "id": "m-postgres",
+            "topic": "季度评审",
+            "content": "日期应当保留年月日",
+            "url": null,
+            "source": "user",
+            "date": "Mon Oct 19"
+          }
+        ]
+      }
+    }
+  ]
+}

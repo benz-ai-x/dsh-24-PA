@@ -1,0 +1,407 @@
+{
+  "sdkVersion": "1.74.0",
+  "rawMessageHeader": {
+    "event_id": "sdk-msg-evt",
+    "event_type": "im.message.receive_v1",
+    "app_id": "expected-app",
+    "tenant_key": "expected-tenant"
+  },
+  "rawCardHeader": {
+    "event_id": "sdk-card-evt",
+    "event_type": "card.action.trigger",
+    "app_id": "expected-app",
+    "tenant_key": "expected-tenant"
+  },
+  "identityControls": [
+    {
+      "label": "wrong-app",
+      "rawHeader": {
+        "event_id": "raw-wrong-app",
+        "event_type": "card.action.trigger",
+        "app_id": "foreign-app",
+        "tenant_key": "expected-tenant"
+      },
+      "mapped": {
+        "eventId": "be1cee66-dbbb-4e4e-955b-12caadd582b5",
+        "appId": "",
+        "tenantKey": "",
+        "kind": "card",
+        "senderOpenId": "owner",
+        "messageId": "review-card",
+        "chatId": "chat",
+        "cardAction": {
+          "value": {
+            "pa24": "review",
+            "token": "invalid"
+          },
+          "message": "review-card"
+        }
+      },
+      "directInbox": {
+        "event_id": "direct-wrong-app",
+        "source": "feishu",
+        "kind": "card",
+        "payload": {
+          "eventId": "direct-wrong-app",
+          "appId": "foreign-app",
+          "tenantKey": "expected-tenant",
+          "kind": "card",
+          "senderOpenId": "owner",
+          "messageId": "review-card",
+          "chatId": "chat",
+          "cardAction": {
+            "value": {
+              "pa24": "review",
+              "token": "invalid"
+            },
+            "message": "review-card"
+          },
+          "rejected": "事件来自另一个应用，不属于本24私助。"
+        },
+        "status": "rejected",
+        "request_id": null,
+        "target_session": null,
+        "error": "事件来自另一个应用，不属于本24私助。",
+        "created_at": "2026-10-19T10:07:32.822Z",
+        "processed_at": "2026-10-19T10:07:32.822Z"
+      }
+    },
+    {
+      "label": "wrong-tenant",
+      "rawHeader": {
+        "event_id": "raw-wrong-tenant",
+        "event_type": "card.action.trigger",
+        "app_id": "expected-app",
+        "tenant_key": "foreign-tenant"
+      },
+      "mapped": {
+        "eventId": "1c6001fc-e347-4e49-baa0-6f42a23debd1",
+        "appId": "",
+        "tenantKey": "",
+        "kind": "card",
+        "senderOpenId": "owner",
+        "messageId": "review-card",
+        "chatId": "chat",
+        "cardAction": {
+          "value": {
+            "pa24": "review",
+            "token": "invalid"
+          },
+          "message": "review-card"
+        }
+      },
+      "directInbox": {
+        "event_id": "direct-wrong-tenant",
+        "source": "feishu",
+        "kind": "card",
+        "payload": {
+          "eventId": "direct-wrong-tenant",
+          "appId": "expected-app",
+          "tenantKey": "foreign-tenant",
+          "kind": "card",
+          "senderOpenId": "owner",
+          "messageId": "review-card",
+          "chatId": "chat",
+          "cardAction": {
+            "value": {
+              "pa24": "review",
+              "token": "invalid"
+            },
+            "message": "review-card"
+          },
+          "rejected": "事件来自另一个租户，与已绑定的主人身份不一致。"
+        },
+        "status": "rejected",
+        "request_id": null,
+        "target_session": null,
+        "error": "事件来自另一个租户，与已绑定的主人身份不一致。",
+        "created_at": "2026-10-19T10:07:32.823Z",
+        "processed_at": "2026-10-19T10:07:32.823Z"
+      }
+    }
+  ],
+  "normalized": [
+    {
+      "eventId": "sdk-msg",
+      "appId": "",
+      "tenantKey": "",
+      "kind": "message",
+      "senderOpenId": "owner",
+      "chatType": "p2p",
+      "chatId": "chat",
+      "messageId": "sdk-msg",
+      "messageType": "text",
+      "text": "/24pa status"
+    },
+    {
+      "eventId": "1041cc14-e8ff-4221-a3ea-cf92c14f9850",
+      "appId": "",
+      "tenantKey": "",
+      "kind": "card",
+      "senderOpenId": "owner",
+      "messageId": "review-card",
+      "chatId": "chat",
+      "cardAction": {
+        "value": {
+          "pa24": "review",
+          "token": "invalid"
+        },
+        "message": "review-card"
+      }
+    },
+    {
+      "eventId": "6d975442-4565-4922-8070-91f464233989",
+      "appId": "",
+      "tenantKey": "",
+      "kind": "card",
+      "senderOpenId": "owner",
+      "messageId": "review-card",
+      "chatId": "chat",
+      "cardAction": {
+        "value": {
+          "pa24": "review",
+          "token": "invalid"
+        },
+        "message": "review-card"
+      }
+    },
+    {
+      "eventId": "be1cee66-dbbb-4e4e-955b-12caadd582b5",
+      "appId": "",
+      "tenantKey": "",
+      "kind": "card",
+      "senderOpenId": "owner",
+      "messageId": "review-card",
+      "chatId": "chat",
+      "cardAction": {
+        "value": {
+          "pa24": "review",
+          "token": "invalid"
+        },
+        "message": "review-card"
+      }
+    },
+    {
+      "eventId": "1c6001fc-e347-4e49-baa0-6f42a23debd1",
+      "appId": "",
+      "tenantKey": "",
+      "kind": "card",
+      "senderOpenId": "owner",
+      "messageId": "review-card",
+      "chatId": "chat",
+      "cardAction": {
+        "value": {
+          "pa24": "review",
+          "token": "invalid"
+        },
+        "message": "review-card"
+      }
+    }
+  ],
+  "inbox": [
+    {
+      "event_id": "sdk-msg",
+      "source": "feishu",
+      "kind": "message",
+      "payload": {
+        "eventId": "sdk-msg",
+        "appId": "",
+        "tenantKey": "",
+        "kind": "message",
+        "senderOpenId": "owner",
+        "chatType": "p2p",
+        "chatId": "chat",
+        "messageId": "sdk-msg",
+        "messageType": "text",
+        "text": "/24pa status"
+      },
+      "status": "admitted",
+      "request_id": "feishu:sdk-msg",
+      "target_session": "pa24-f460159c45bf-feishu",
+      "error": null,
+      "created_at": "2026-10-19T10:07:32.823Z",
+      "processed_at": "2026-10-19T10:07:32.823Z"
+    },
+    {
+      "event_id": "1041cc14-e8ff-4221-a3ea-cf92c14f9850",
+      "source": "feishu",
+      "kind": "card",
+      "payload": {
+        "eventId": "1041cc14-e8ff-4221-a3ea-cf92c14f9850",
+        "appId": "",
+        "tenantKey": "",
+        "kind": "card",
+        "senderOpenId": "owner",
+        "messageId": "review-card",
+        "chatId": "chat",
+        "cardAction": {
+          "value": {
+            "pa24": "review",
+            "token": "invalid"
+          },
+          "message": "review-card"
+        }
+      },
+      "status": "rejected",
+      "request_id": null,
+      "target_session": null,
+      "error": "未知审核令牌",
+      "created_at": "2026-10-19T10:07:32.823Z",
+      "processed_at": "2026-10-19T10:07:32.824Z"
+    },
+    {
+      "event_id": "6d975442-4565-4922-8070-91f464233989",
+      "source": "feishu",
+      "kind": "card",
+      "payload": {
+        "eventId": "6d975442-4565-4922-8070-91f464233989",
+        "appId": "",
+        "tenantKey": "",
+        "kind": "card",
+        "senderOpenId": "owner",
+        "messageId": "review-card",
+        "chatId": "chat",
+        "cardAction": {
+          "value": {
+            "pa24": "review",
+            "token": "invalid"
+          },
+          "message": "review-card"
+        }
+      },
+      "status": "rejected",
+      "request_id": null,
+      "target_session": null,
+      "error": "未知审核令牌",
+      "created_at": "2026-10-19T10:07:32.823Z",
+      "processed_at": "2026-10-19T10:07:32.825Z"
+    },
+    {
+      "event_id": "be1cee66-dbbb-4e4e-955b-12caadd582b5",
+      "source": "feishu",
+      "kind": "card",
+      "payload": {
+        "eventId": "be1cee66-dbbb-4e4e-955b-12caadd582b5",
+        "appId": "",
+        "tenantKey": "",
+        "kind": "card",
+        "senderOpenId": "owner",
+        "messageId": "review-card",
+        "chatId": "chat",
+        "cardAction": {
+          "value": {
+            "pa24": "review",
+            "token": "invalid"
+          },
+          "message": "review-card"
+        }
+      },
+      "status": "rejected",
+      "request_id": null,
+      "target_session": null,
+      "error": "未知审核令牌",
+      "created_at": "2026-10-19T10:07:32.824Z",
+      "processed_at": "2026-10-19T10:07:32.825Z"
+    },
+    {
+      "event_id": "1c6001fc-e347-4e49-baa0-6f42a23debd1",
+      "source": "feishu",
+      "kind": "card",
+      "payload": {
+        "eventId": "1c6001fc-e347-4e49-baa0-6f42a23debd1",
+        "appId": "",
+        "tenantKey": "",
+        "kind": "card",
+        "senderOpenId": "owner",
+        "messageId": "review-card",
+        "chatId": "chat",
+        "cardAction": {
+          "value": {
+            "pa24": "review",
+            "token": "invalid"
+          },
+          "message": "review-card"
+        }
+      },
+      "status": "rejected",
+      "request_id": null,
+      "target_session": null,
+      "error": "未知审核令牌",
+      "created_at": "2026-10-19T10:07:32.824Z",
+      "processed_at": "2026-10-19T10:07:32.825Z"
+    }
+  ],
+  "bindings": [
+    "expected-tenant"
+  ],
+  "outbox": [
+    {
+      "id": 4,
+      "dedup_key": "review:invalid:1c6001fc-e347-4e49-baa0-6f42a23debd1",
+      "channel": "feishu",
+      "target": "owner",
+      "kind": "text",
+      "content": {
+        "text": "这个审核按钮不属于当前工作区或已失效；请以最新审核卡为准。"
+      },
+      "status": "pending",
+      "message_id": null,
+      "attempts": 0,
+      "next_attempt_at": null,
+      "last_error": null,
+      "created_at": "2026-10-19T10:07:32.825Z",
+      "sent_at": null
+    },
+    {
+      "id": 3,
+      "dedup_key": "review:invalid:be1cee66-dbbb-4e4e-955b-12caadd582b5",
+      "channel": "feishu",
+      "target": "owner",
+      "kind": "text",
+      "content": {
+        "text": "这个审核按钮不属于当前工作区或已失效；请以最新审核卡为准。"
+      },
+      "status": "pending",
+      "message_id": null,
+      "attempts": 0,
+      "next_attempt_at": null,
+      "last_error": null,
+      "created_at": "2026-10-19T10:07:32.825Z",
+      "sent_at": null
+    },
+    {
+      "id": 2,
+      "dedup_key": "review:invalid:6d975442-4565-4922-8070-91f464233989",
+      "channel": "feishu",
+      "target": "owner",
+      "kind": "text",
+      "content": {
+        "text": "这个审核按钮不属于当前工作区或已失效；请以最新审核卡为准。"
+      },
+      "status": "pending",
+      "message_id": null,
+      "attempts": 0,
+      "next_attempt_at": null,
+      "last_error": null,
+      "created_at": "2026-10-19T10:07:32.824Z",
+      "sent_at": null
+    },
+    {
+      "id": 1,
+      "dedup_key": "review:invalid:1041cc14-e8ff-4221-a3ea-cf92c14f9850",
+      "channel": "feishu",
+      "target": "owner",
+      "kind": "text",
+      "content": {
+        "text": "这个审核按钮不属于当前工作区或已失效；请以最新审核卡为准。"
+      },
+      "status": "pending",
+      "message_id": null,
+      "attempts": 0,
+      "next_attempt_at": null,
+      "last_error": null,
+      "created_at": "2026-10-19T10:07:32.824Z",
+      "sent_at": null
+    }
+  ]
+}

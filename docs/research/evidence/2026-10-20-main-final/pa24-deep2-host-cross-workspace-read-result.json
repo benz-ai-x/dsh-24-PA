@@ -1,0 +1,23 @@
+{
+  "commit": "0ef85772a10f45e8e3b4c4d2c85d7249bf28e256",
+  "root": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-deep2-host-cross-workspace-read-hVf9Mx",
+  "hostRoot": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-host-E69cYX",
+  "localA": "pa24-dbb1ab66582a-local",
+  "localB": "pa24-d46a43bb96ed-local",
+  "activeWorkspace": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-deep2-host-cross-workspace-read-hVf9Mx/B",
+  "marker": "ONLY_B_PRIVATE_WORK_TITLE_c4f39",
+  "oldAMaintenanceToolResults": [
+    "[{\"type\":\"text\",\"text\":\"{\\\"runningWork\\\":[{\\\"id\\\":\\\"pa24-work-memo-95c35202-cb80-456f-9070-4b38640129ab\\\",\\\"title\\\":\\\"ONLY_B_PRIVATE_WORK_TITLE_c4f39\\\",\\\"role\\\":\\\"memo\\\",\\\"status\\\":\\\"running\\\"}],\\\"nativeSchedules\\\":[],\\\"externalPgReminders\\\":{\\\"reminderRules\\\":[],\\\"reviewReminders\\\":[]},\\\"outboxPending\\\":0,\\\"blocking\\\":true,\\\"message\\\":\\\"存在运行中事项/原生计划/未确认发送：归档会被原生闸阻止。明确停止请用 archive_execute {confirmStop:true, stopRules:...}；PG 提醒规则默认保留，需明确选择才停止。\\\"}\"}]"
+  ],
+  "oldAJobsToolResults": [
+    "[{\"type\":\"text\",\"text\":\"Error: 事项调度由24私助会话负责。\"}]"
+  ],
+  "bWork": [
+    {
+      "id": "pa24-work-memo-95c35202-cb80-456f-9070-4b38640129ab",
+      "title": "ONLY_B_PRIVATE_WORK_TITLE_c4f39",
+      "status": "completed"
+    }
+  ],
+  "controlledAdapter": "Only model SSE was held during B native Worker; all sessions, tool dispatch, permissions, work rows and SQLite reads are actual Loader/Runtime."
+}

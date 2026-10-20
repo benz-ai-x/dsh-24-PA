@@ -1,0 +1,40 @@
+{
+  "rubric": "P0 means evidenced catastrophic system consequence requiring immediate stop, assessed through reachability, blast radius, and recovery; preconditions alone do not rule it out. This is the review rubric, not a repository-wide incident SLA.",
+  "confirmedP0": 0,
+  "P1": 5,
+  "P2": 18,
+  "newIndependentFindings": 0,
+  "reassessed": [
+    {
+      "id": "V01",
+      "level": "P1",
+      "impact": "已审正文与旧候选不同源，能创建与本人审核内容不一致的任务。",
+      "scope": "证据落在具体内容版本与候选行动链，未证全局权限规则失效或整个权威账本破坏；仍是终验阻断。"
+    },
+    {
+      "id": "V03",
+      "level": "P1",
+      "impact": "平台成功后本地补账失败，切渠道再恢复会误解释原回执。",
+      "scope": "范围是该渠道切换后的恢复操作与投影；原平台对象并未被证明全库删除，不以有前置条件为降级理由。"
+    },
+    {
+      "id": "V05",
+      "level": "P1",
+      "impact": "混合 DB/WAL 代次的备份可丢失此前已提交行，完整校验仍通过。",
+      "scope": "已证损失位于恢复出的备份；探针原在线账本仍有原行。应阻止依赖此热备份放行，未证普通启动清空权威账本。"
+    },
+    {
+      "id": "V11",
+      "level": "P1",
+      "impact": "不同主人工作区复用同一 PG 数据库，可读到另一工作区备忘。",
+      "scope": "账本归属隔离确实失败；SQLite 对照隔离。证据未达到未授权远程访问所有部署或整体权限接管，不减轻其隐私后果。"
+    },
+    {
+      "id": "V16",
+      "level": "P1 · 升级",
+      "impact": "一次暂时的结算故障可占满默认全部 Worker 容量，后续交办持续排队。",
+      "scope": "真实默认配置 Host 验证普通重启可续办原工作并接收新工作；因此当前证据支持 P1，不支持不可恢复的系统级 P0。"
+    }
+  ],
+  "V23": "P2: one paused plan loses supervision alert; no evidenced exhaustion of general work capacity."
+}

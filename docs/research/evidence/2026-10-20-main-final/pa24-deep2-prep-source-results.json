@@ -1,0 +1,142 @@
+{
+  "plans": [
+    {
+      "id": "prep-db62919db79d77d7adc2fcca",
+      "kind": "meeting_prep",
+      "title": "会前准备：[24PA] 会议A",
+      "schedule_id": "native-1",
+      "session_id": "pa24-a9d884688321-feishu",
+      "schedule_spec": {
+        "at": "2026-10-19T10:51:57.333Z",
+        "eventId": "evtstub-1",
+        "leadMinutes": 15,
+        "eventStart": "2026-10-19T11:06:57.333Z",
+        "eventFingerprint": "fd0c6ba2d804a47d87e20644363662e333fab584edcd2d23c7c14a0391974f1e",
+        "scope": {
+          "memo": false,
+          "memory": false,
+          "tasks": false,
+          "minutes": false
+        }
+      },
+      "status": "active",
+      "last_window": null,
+      "created_at": "2026-10-19T10:06:58.074Z",
+      "updated_at": "2026-10-19T10:06:58.074Z",
+      "voice": false,
+      "skill": "meeting-prep",
+      "lifecycle": null,
+      "revision": 2,
+      "schedule_generation": "48a8f7a2-c964-4558-9bcd-618262329394"
+    },
+    {
+      "id": "prep-f0bced7a23f813acccb38634",
+      "kind": "meeting_prep",
+      "title": "会前准备：[24PA] 会议B",
+      "schedule_id": "native-2",
+      "session_id": "pa24-a9d884688321-feishu",
+      "schedule_spec": {
+        "at": "2026-10-21T09:51:58.074Z",
+        "eventId": "evtstub-2",
+        "leadMinutes": 15,
+        "eventStart": "2026-10-21T10:06:58.074Z",
+        "eventFingerprint": "bf92dfd46d5164e48750848275ece1d4cd335226c7b06cffa63c58b88a452954",
+        "scope": {
+          "memo": false,
+          "memory": false,
+          "tasks": false,
+          "minutes": false
+        }
+      },
+      "status": "active",
+      "last_window": null,
+      "created_at": "2026-10-19T10:06:58.112Z",
+      "updated_at": "2026-10-19T10:06:58.112Z",
+      "voice": false,
+      "skill": "meeting-prep",
+      "lifecycle": null,
+      "revision": 2,
+      "schedule_generation": "98bc8bba-41f1-45cf-aeeb-45195a995e12"
+    }
+  ],
+  "captured": {
+    "kind": "schedule",
+    "sessionId": "pa24-a9d884688321-feishu",
+    "turn": 1,
+    "deliveries": [
+      {
+        "scheduleId": "native-1",
+        "occurrenceAt": "2026-10-19T10:51:57.333Z",
+        "messageId": "native-delivery-A",
+        "generation": "48a8f7a2-c964-4558-9bcd-618262329394"
+      }
+    ]
+  },
+  "built": {
+    "planId": "prep-f0bced7a23f813acccb38634",
+    "eventId": "evtstub-2",
+    "sources": {
+      "备忘": {
+        "status": "disabled"
+      },
+      "纪要": {
+        "status": "disabled"
+      },
+      "记忆": {
+        "status": "disabled"
+      },
+      "任务": {
+        "status": "disabled"
+      }
+    },
+    "message": "会前准备包已生成并入发送队列（发送前复查过会议状态）；资料缺口见 sources 与正文。"
+  },
+  "boundRun": {
+    "id": "prep-f0bced7a23f813acccb38634:evtstub-2",
+    "plan_id": "prep-f0bced7a23f813acccb38634",
+    "window_key": "evtstub-2",
+    "status": "model_done",
+    "report": "【会前准备】[24PA] 会议B\n时间：2026-10-21T10:06:58.074Z → 2026-10-21T11:06:58.074Z（发送前已复查会议状态）\n\n一、资料：本计划未授权查询资料来源。\n\n资料来源 备忘：未授权查询\n资料来源 纪要：未授权查询\n资料来源 记忆：未授权查询\n资料来源 任务：未授权查询\n二、建议议程与问题清单（建议，供你确认）\n· 建议先确认上次行动项进展（如有）\n· 没有材料，建议先明确本次会议要决定的 1–3 件事\n\n来源：会议投影（evtstub-2）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：pa24-work-calendar-45178a67-ae7d-408d-8d65-b4bfb641cb5f",
+    "outbox_key": "digest:prep-f0bced7a23f813acccb38634:evtstub-2",
+    "delivered_at": "2026-10-19T10:06:58.150Z",
+    "completed_at": "2026-10-19T10:06:58.150Z",
+    "error": null,
+    "created_at": "2026-10-19T10:06:58.150Z",
+    "updated_at": "2026-10-19T10:06:58.150Z",
+    "time_context": null
+  },
+  "outbox": [
+    {
+      "id": 1,
+      "dedup_key": "digest:prep-f0bced7a23f813acccb38634:evtstub-2",
+      "channel": "feishu",
+      "target": "owner",
+      "kind": "text",
+      "content": {
+        "text": "【会前准备】[24PA] 会议B\n时间：2026-10-21T10:06:58.074Z → 2026-10-21T11:06:58.074Z（发送前已复查会议状态）\n\n一、资料：本计划未授权查询资料来源。\n\n资料来源 备忘：未授权查询\n资料来源 纪要：未授权查询\n资料来源 记忆：未授权查询\n资料来源 任务：未授权查询\n二、建议议程与问题清单（建议，供你确认）\n· 建议先确认上次行动项进展（如有）\n· 没有材料，建议先明确本次会议要决定的 1–3 件事\n\n来源：会议投影（evtstub-2）、24私助备忘/记忆/任务；本包生成不代表任何行动已执行。WorkItem：pa24-work-calendar-45178a67-ae7d-408d-8d65-b4bfb641cb5f"
+      },
+      "status": "pending",
+      "message_id": null,
+      "attempts": 0,
+      "next_attempt_at": null,
+      "last_error": null,
+      "created_at": "2026-10-19T10:06:58.150Z",
+      "sent_at": null
+    }
+  ],
+  "completedSourcesForB": [
+    {
+      "kind": "schedule",
+      "sessionId": "pa24-a9d884688321-feishu",
+      "turn": 1,
+      "deliveries": [
+        {
+          "scheduleId": "native-1",
+          "occurrenceAt": "2026-10-19T10:51:57.333Z",
+          "messageId": "native-delivery-A",
+          "generation": "48a8f7a2-c964-4558-9bcd-618262329394"
+        }
+      ]
+    }
+  ]
+}

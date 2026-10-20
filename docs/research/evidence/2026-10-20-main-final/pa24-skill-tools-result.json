@@ -1,0 +1,38 @@
+{
+  "work": {
+    "id": "pa24-work-skill-15894890-afbc-42d4-a249-5668bd0c69f2",
+    "status": "completed",
+    "skill_definition": {
+      "name": "restricted-probe",
+      "description": "Restrict probe",
+      "track": "agent",
+      "source": "project-dsh",
+      "content": "Do not use memory. Only pa24_work is declared.",
+      "metadata": {
+        "track": "agent",
+        "tools": [
+          "pa24_work"
+        ]
+      }
+    }
+  },
+  "workerRequests": [
+    {
+      "tools": [
+        "pa24_memory",
+        "pa24_work"
+      ],
+      "toolResults": []
+    },
+    {
+      "tools": [
+        "pa24_memory",
+        "pa24_work"
+      ],
+      "toolResults": [
+        "[{\"type\":\"text\",\"text\":\"{\\\"revision\\\":0,\\\"total\\\":0,\\\"matched\\\":0,\\\"offset\\\":0,\\\"limit\\\":20,\\\"records\\\":[]}\"}]"
+      ]
+    }
+  ],
+  "hostErrors": ""
+}

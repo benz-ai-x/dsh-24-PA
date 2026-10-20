@@ -1,0 +1,47 @@
+{
+  "scenario": "Two authenticated panel tabs: tab A retains snapshot/binding A, another tab binds B, delayed A test-voice action arrives after B active",
+  "aSnapshot": {
+    "path": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-Ezv2ga/A",
+    "binding": "04c08892-f991-467b-88e5-60a20ca6c621",
+    "owner": "owner-A"
+  },
+  "bSnapshot": {
+    "path": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-Ezv2ga/B",
+    "binding": "70e4816a-00d3-4487-8361-2131f773109e",
+    "owner": "owner-B"
+  },
+  "rejectedConfig": {
+    "ok": false,
+    "error": {
+      "message": "工作区已切换，请刷新后重新编辑。"
+    }
+  },
+  "testAccepted": {
+    "ok": true,
+    "value": {
+      "queued": true,
+      "dedupKey": "tts-test:ed971e0e",
+      "message": "测试语音已入发送队列，稍后送达主人飞书。"
+    }
+  },
+  "bOutbox": [
+    {
+      "id": 1,
+      "dedup_key": "tts-test:ed971e0e",
+      "channel": "feishu",
+      "target": "owner-B",
+      "kind": "audio",
+      "content": {
+        "text": "主人你好，这是二十四私助的语音测试。听到这条消息，说明语音投递链路已经打通。"
+      },
+      "status": "pending",
+      "message_id": null,
+      "attempts": 0,
+      "next_attempt_at": null,
+      "last_error": null,
+      "created_at": "2026-10-19T10:07:07.774Z",
+      "sent_at": null
+    }
+  ],
+  "aOutbox": []
+}

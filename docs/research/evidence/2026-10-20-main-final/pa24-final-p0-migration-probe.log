@@ -1,0 +1,71 @@
+{
+  "scope": "Real adapter migration and SQL triggers on isolated SQLite/PostgreSQL; historical schema fixture built from repository DDL prefix; no host startup, process-kill, power-loss or platform network in this probe.",
+  "results": [
+    {
+      "storage": "sqlite",
+      "oldVersion": 14,
+      "failedVersion": 15,
+      "injectedError": "AUDIT_MIGRATION_MARKER_FAILURE",
+      "schemaAfterFailure": 14,
+      "failedMigrationColumnsAbsent": true,
+      "committedRowsPreservedAfterFailure": true,
+      "committedRowsPreservedAfterReopen": true,
+      "schemaAfterRetry": 16,
+      "repeatedMigrate": 16,
+      "postRecoveryWrite": true,
+      "postRecoveryRollback": true,
+      "integrity": [
+        {
+          "integrity_check": "ok"
+        }
+      ]
+    },
+    {
+      "storage": "sqlite",
+      "oldVersion": 15,
+      "failedVersion": 16,
+      "injectedError": "AUDIT_MIGRATION_MARKER_FAILURE",
+      "schemaAfterFailure": 15,
+      "failedMigrationColumnsAbsent": true,
+      "committedRowsPreservedAfterFailure": true,
+      "committedRowsPreservedAfterReopen": true,
+      "schemaAfterRetry": 16,
+      "repeatedMigrate": 16,
+      "postRecoveryWrite": true,
+      "postRecoveryRollback": true,
+      "integrity": [
+        {
+          "integrity_check": "ok"
+        }
+      ]
+    },
+    {
+      "storage": "postgres",
+      "oldVersion": 14,
+      "failedVersion": 15,
+      "injectedError": "AUDIT_MIGRATION_MARKER_FAILURE",
+      "schemaAfterFailure": 14,
+      "failedMigrationColumnsAbsent": true,
+      "committedRowsPreservedAfterFailure": true,
+      "committedRowsPreservedAfterReopen": true,
+      "schemaAfterRetry": 16,
+      "repeatedMigrate": 16,
+      "postRecoveryWrite": true,
+      "postRecoveryRollback": true
+    },
+    {
+      "storage": "postgres",
+      "oldVersion": 15,
+      "failedVersion": 16,
+      "injectedError": "AUDIT_MIGRATION_MARKER_FAILURE",
+      "schemaAfterFailure": 15,
+      "failedMigrationColumnsAbsent": true,
+      "committedRowsPreservedAfterFailure": true,
+      "committedRowsPreservedAfterReopen": true,
+      "schemaAfterRetry": 16,
+      "repeatedMigrate": 16,
+      "postRecoveryWrite": true,
+      "postRecoveryRollback": true
+    }
+  ]
+}

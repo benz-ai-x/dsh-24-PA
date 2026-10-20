@@ -1,0 +1,23 @@
+{
+  "complete": true,
+  "failures": [],
+  "liveA": [
+    {
+      "id": 1,
+      "value": "committed-before-backup"
+    }
+  ],
+  "restoredA": [],
+  "restoredB": [
+    {
+      "id": 1,
+      "value": "new-wal-generation"
+    }
+  ],
+  "integrity": [
+    {
+      "integrity_check": "ok"
+    }
+  ],
+  "scope": "Read I/O seam controlled: after main file copied, external reader retires, checkpoint truncates WAL, next committed write creates a new WAL generation."
+}

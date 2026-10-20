@@ -1,0 +1,265 @@
+{
+  "imageDecoded": {
+    "format": "raw",
+    "width": 1,
+    "height": 1,
+    "channels": 4,
+    "depth": "uchar",
+    "premultiplied": false,
+    "hasAlpha": true,
+    "size": 4,
+    "pixels": [
+      32,
+      64,
+      96,
+      255
+    ]
+  },
+  "injection": "Only first Outbox.enqueue(noteack) throws after original page is durably saved",
+  "afterFault": {
+    "inbox": {
+      "event_id": "original-event",
+      "source": "feishu",
+      "kind": "message",
+      "payload": {
+        "eventId": "original-event",
+        "appId": "app",
+        "tenantKey": "tenant",
+        "kind": "message",
+        "senderOpenId": "owner",
+        "chatType": "p2p",
+        "chatId": "chat",
+        "messageId": "original-message",
+        "messageType": "image",
+        "imageKey": "image-key"
+      },
+      "status": "rejected",
+      "request_id": null,
+      "target_session": null,
+      "error": "原稿已保存为 N-1 第 1 页，但回执登记未完成：injected one-shot ack ledger write failure；重试只补回执，不会重复保存。",
+      "created_at": "2026-10-19T10:12:28.937Z",
+      "processed_at": "2026-10-19T10:12:28.939Z"
+    },
+    "notes": [
+      {
+        "id": "N-1",
+        "title": "手写笔记 N-1",
+        "status": "collecting",
+        "origin": "feishu",
+        "work_item_id": null,
+        "created_at": "2026-10-19T10:12:28.938Z",
+        "updated_at": "2026-10-19T10:12:28.938Z"
+      }
+    ],
+    "pages": [
+      [
+        {
+          "id": "N-1:p1",
+          "note_id": "N-1",
+          "page_no": 1,
+          "message_id": "original-message",
+          "image_key": "image-key",
+          "media_type": "image/png",
+          "byte_size": 70,
+          "sha256": "ca9cf2a6ea27541264c4fc55257fd9ebb835f204d73e66bda409d02a7c4474e9",
+          "storage_path": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-5M4KQP/a/.24pa/originals/N-1/p1-ca9cf2a6ea27.png",
+          "source_type": "image",
+          "quality": null,
+          "status": "saved",
+          "created_at": "2026-10-19T10:12:28.939Z"
+        }
+      ]
+    ],
+    "ackOutbox": [],
+    "modelPrompts": 0
+  },
+  "afterRedelivery": {
+    "inbox": {
+      "event_id": "original-event",
+      "source": "feishu",
+      "kind": "message",
+      "payload": {
+        "eventId": "original-event",
+        "appId": "app",
+        "tenantKey": "tenant",
+        "kind": "message",
+        "senderOpenId": "owner",
+        "chatType": "p2p",
+        "chatId": "chat",
+        "messageId": "original-message",
+        "messageType": "image",
+        "imageKey": "image-key"
+      },
+      "status": "rejected",
+      "request_id": null,
+      "target_session": null,
+      "error": "原稿已保存为 N-1 第 1 页，但回执登记未完成：injected one-shot ack ledger write failure；重试只补回执，不会重复保存。",
+      "created_at": "2026-10-19T10:12:28.937Z",
+      "processed_at": "2026-10-19T10:12:28.939Z"
+    },
+    "notes": [
+      {
+        "id": "N-1",
+        "title": "手写笔记 N-1",
+        "status": "collecting",
+        "origin": "feishu",
+        "work_item_id": null,
+        "created_at": "2026-10-19T10:12:28.938Z",
+        "updated_at": "2026-10-19T10:12:28.938Z"
+      }
+    ],
+    "pages": [
+      [
+        {
+          "id": "N-1:p1",
+          "note_id": "N-1",
+          "page_no": 1,
+          "message_id": "original-message",
+          "image_key": "image-key",
+          "media_type": "image/png",
+          "byte_size": 70,
+          "sha256": "ca9cf2a6ea27541264c4fc55257fd9ebb835f204d73e66bda409d02a7c4474e9",
+          "storage_path": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-5M4KQP/a/.24pa/originals/N-1/p1-ca9cf2a6ea27.png",
+          "source_type": "image",
+          "quality": null,
+          "status": "saved",
+          "created_at": "2026-10-19T10:12:28.939Z"
+        }
+      ]
+    ],
+    "ackOutbox": [],
+    "modelPrompts": 0
+  },
+  "afterRestartRedelivery": {
+    "inbox": {
+      "event_id": "original-event",
+      "source": "feishu",
+      "kind": "message",
+      "payload": {
+        "eventId": "original-event",
+        "appId": "app",
+        "tenantKey": "tenant",
+        "kind": "message",
+        "senderOpenId": "owner",
+        "chatType": "p2p",
+        "chatId": "chat",
+        "messageId": "original-message",
+        "messageType": "image",
+        "imageKey": "image-key"
+      },
+      "status": "rejected",
+      "request_id": null,
+      "target_session": null,
+      "error": "原稿已保存为 N-1 第 1 页，但回执登记未完成：injected one-shot ack ledger write failure；重试只补回执，不会重复保存。",
+      "created_at": "2026-10-19T10:12:28.937Z",
+      "processed_at": "2026-10-19T10:12:28.939Z"
+    },
+    "notes": [
+      {
+        "id": "N-1",
+        "title": "手写笔记 N-1",
+        "status": "collecting",
+        "origin": "feishu",
+        "work_item_id": null,
+        "created_at": "2026-10-19T10:12:28.938Z",
+        "updated_at": "2026-10-19T10:12:28.938Z"
+      }
+    ],
+    "pages": [
+      [
+        {
+          "id": "N-1:p1",
+          "note_id": "N-1",
+          "page_no": 1,
+          "message_id": "original-message",
+          "image_key": "image-key",
+          "media_type": "image/png",
+          "byte_size": 70,
+          "sha256": "ca9cf2a6ea27541264c4fc55257fd9ebb835f204d73e66bda409d02a7c4474e9",
+          "storage_path": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-5M4KQP/a/.24pa/originals/N-1/p1-ca9cf2a6ea27.png",
+          "source_type": "image",
+          "quality": null,
+          "status": "saved",
+          "created_at": "2026-10-19T10:12:28.939Z"
+        }
+      ]
+    ],
+    "ackOutbox": [],
+    "modelPrompts": 0
+  },
+  "afterDifferentEventSameMessage": {
+    "inbox": {
+      "event_id": "original-event",
+      "source": "feishu",
+      "kind": "message",
+      "payload": {
+        "eventId": "original-event",
+        "appId": "app",
+        "tenantKey": "tenant",
+        "kind": "message",
+        "senderOpenId": "owner",
+        "chatType": "p2p",
+        "chatId": "chat",
+        "messageId": "original-message",
+        "messageType": "image",
+        "imageKey": "image-key"
+      },
+      "status": "rejected",
+      "request_id": null,
+      "target_session": null,
+      "error": "原稿已保存为 N-1 第 1 页，但回执登记未完成：injected one-shot ack ledger write failure；重试只补回执，不会重复保存。",
+      "created_at": "2026-10-19T10:12:28.937Z",
+      "processed_at": "2026-10-19T10:12:28.939Z"
+    },
+    "notes": [
+      {
+        "id": "N-1",
+        "title": "手写笔记 N-1",
+        "status": "collecting",
+        "origin": "feishu",
+        "work_item_id": null,
+        "created_at": "2026-10-19T10:12:28.938Z",
+        "updated_at": "2026-10-19T10:12:28.938Z"
+      }
+    ],
+    "pages": [
+      [
+        {
+          "id": "N-1:p1",
+          "note_id": "N-1",
+          "page_no": 1,
+          "message_id": "original-message",
+          "image_key": "image-key",
+          "media_type": "image/png",
+          "byte_size": 70,
+          "sha256": "ca9cf2a6ea27541264c4fc55257fd9ebb835f204d73e66bda409d02a7c4474e9",
+          "storage_path": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-5M4KQP/a/.24pa/originals/N-1/p1-ca9cf2a6ea27.png",
+          "source_type": "image",
+          "quality": null,
+          "status": "saved",
+          "created_at": "2026-10-19T10:12:28.939Z"
+        }
+      ]
+    ],
+    "ackOutbox": [
+      {
+        "id": 1,
+        "dedup_key": "noteack:N-1:p1:original-message",
+        "channel": "feishu",
+        "target": "owner",
+        "kind": "text",
+        "content": {
+          "text": "已收到笔记 N-1 第 1 页原稿（image/png，70 字节，sha256 ca9cf2a6ea275412…，平台图片，可能已压缩）。收集中可回复本条消息追加图片；整理识别请回复“整理这份笔记”，或说“结束这批笔记”。"
+        },
+        "status": "pending",
+        "message_id": null,
+        "attempts": 0,
+        "next_attempt_at": null,
+        "last_error": null,
+        "created_at": "2026-10-19T10:12:29.016Z",
+        "sent_at": null
+      }
+    ],
+    "modelPrompts": 0
+  }
+}
