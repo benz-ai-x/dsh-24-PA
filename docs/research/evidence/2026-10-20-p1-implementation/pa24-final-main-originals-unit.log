@@ -1,0 +1,66 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:25066) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/knowledge-actions.test.mjs (54 tests | 18 skipped) 80246ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'人名'变化不能沿用旧派生内容 2478ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'日期'变化不能沿用旧派生内容 1435ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'删除候选'变化不能沿用旧派生内容 1510ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'疑点'变化不能沿用旧派生内容 2047ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'人名'变化不能沿用旧派生内容 2395ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'日期'变化不能沿用旧派生内容 2323ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容 2865ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'疑点'变化不能沿用旧派生内容 2256ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=false） 1591ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=true） 1550ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 升级前待审卡在 refresh 时换发正文卡，旧按钮不能批准 1504ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 升级前待审卡在 click 时换发正文卡，旧按钮不能批准 1353ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留 1385ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留 1363ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1761ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2163ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1739ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2206ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'人名'变化不能沿用旧派生内容 2175ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'日期'变化不能沿用旧派生内容 2281ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'删除候选'变化不能沿用旧派生内容 2197ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'疑点'变化不能沿用旧派生内容 2707ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'人名'变化不能沿用旧派生内容 2932ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'日期'变化不能沿用旧派生内容 2938ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容 3421ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'疑点'变化不能沿用旧派生内容 2935ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=false） 2326ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=true） 2335ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 升级前待审卡在 refresh 时换发正文卡，旧按钮不能批准 2242ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 升级前待审卡在 click 时换发正文卡，旧按钮不能批准 2133ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留 2109ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留 2637ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2494ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2959ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2524ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2977ms
+ ✓ tests/unit/ledger-ownership.test.mjs (25 tests | 24 skipped) 827ms
+(node:28436) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/backup.test.mjs (13 tests | 12 skipped) 30ms
+(node:28438) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/candidate-recovery.test.mjs (26 tests | 14 skipped) 14111ms
+   ✓ candidate recovery / sqlite > feishu:task preserves original receipt, target and owner after restart 1581ms
+   ✓ candidate recovery / sqlite > wecom:task preserves original receipt, target and owner after restart 1125ms
+   ✓ candidate recovery / sqlite > feishu:calendar preserves original receipt, target and owner after restart 1110ms
+   ✓ candidate recovery / sqlite > wecom:calendar preserves original receipt, target and owner after restart 1123ms
+   ✓ candidate recovery / sqlite > feishu:task:container preserves original receipt, target and owner after restart 647ms
+   ✓ candidate recovery / sqlite > feishu:calendar:container preserves original receipt, target and owner after restart 641ms
+   ✓ candidate recovery / postgres > feishu:task preserves original receipt, target and owner after restart 1184ms
+   ✓ candidate recovery / postgres > wecom:task preserves original receipt, target and owner after restart 1649ms
+   ✓ candidate recovery / postgres > feishu:calendar preserves original receipt, target and owner after restart 1689ms
+   ✓ candidate recovery / postgres > wecom:calendar preserves original receipt, target and owner after restart 1204ms
+   ✓ candidate recovery / postgres > feishu:task:container preserves original receipt, target and owner after restart 724ms
+   ✓ candidate recovery / postgres > feishu:calendar:container preserves original receipt, target and owner after restart 717ms
+
+ Test Files  4 passed (4)
+      Tests  50 passed | 68 skipped (118)
+   Start at  12:15:56
+   Duration  96.22s (transform 192ms, setup 0ms, collect 640ms, tests 95.21s, environment 0ms, prepare 91ms)

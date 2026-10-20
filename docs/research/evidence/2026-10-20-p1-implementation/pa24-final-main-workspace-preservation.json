@@ -1,0 +1,14 @@
+{
+  "root": "/Users/pc2026/DSH-Space/dsh-24-PA",
+  "head": "8f70020a2f3808c3afb899e88092ee430d222efd",
+  "baselineFiles": 58,
+  "unchangedFiles": 57,
+  "changedSinceBaseline": [
+    {
+      "path": "docs/planning/24PA-Manticore-产品定稿.md",
+      "baselineSha256": "bcddd0f6a107c4fe61f15169d3f2dd14214d9dc4b38440920aee7050d659e85e",
+      "currentSha256": "95d9905ae3bcef58c69adf9ad15e949003162f3a2872f91474d9392d5aede148"
+    }
+  ],
+  "note": "Manticore 产品定稿的外部修改已在前轮识别；本任务未编辑、恢复或暂存该主工作区。"
+}
