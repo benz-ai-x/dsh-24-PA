@@ -1,0 +1,49 @@
+{
+  "baseSha": "693011f94cc42bf8277e416ae67c33363b3552c0",
+  "implementationSha": "eaeeafbf3488eeff40b44bb4552afb322b4fd8e0",
+  "hostSha": "1600d8a1e140dcde43a1a0941940a0480712c011",
+  "node": "22.19.0",
+  "build": true,
+  "presetCheck": true,
+  "unit": {
+    "files": 50,
+    "passed": 725
+  },
+  "loaderSqlite": {
+    "files": 18,
+    "passed": 86
+  },
+  "loaderPostgres": {
+    "files": 18,
+    "passed": 86
+  },
+  "suiteScope": "Full Loader suites started at 04ac85e. The behavior-preserving retry helper was extracted and compiled during this run; final eaeeafb separately revalidated both V16 Loader scenarios per backend and all unit tests. No unrelated production changes followed.",
+  "originalTurnProof": {
+    "perWorkAcceptedInputs": 1,
+    "perWorkTurns": 1,
+    "generation": 0,
+    "externalDocuments": 3,
+    "workerModelRequests": 6,
+    "resultIntents": 3,
+    "modes": [
+      "same Host",
+      "restart"
+    ],
+    "backends": [
+      "sqlite",
+      "postgres"
+    ]
+  },
+  "standards": {
+    "hardViolations": 0,
+    "possibleSmells": 0,
+    "initialPossibleSmells": 1,
+    "repair": "private shared retry policy"
+  },
+  "spec": {
+    "findings": 0,
+    "scopeCreep": 0
+  },
+  "initialUnitFailure": "4 planning-adoption tests assumed automatic replay without completion evidence. Updated to assert needs_reconciliation and no new input, then explicit public stop/continue, retaining unknown-operation and write-count assertions.",
+  "externalPlatformWrites": "not exercised; controlled CLI processes with real SQL and native Loader"
+}

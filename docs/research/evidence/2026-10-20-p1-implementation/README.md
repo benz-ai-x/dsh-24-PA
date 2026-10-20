@@ -11,3 +11,9 @@
 - Spec：[初审](pa24-group-a-spec-review.md)、[复审](pa24-group-a-spec-rereview.md)，最终 0 项，初审身份文件缺口已消除。
 
 临时能力探针保留原执行路径以便核查，不是安装/生产命令。未进行真实飞书/企微写入或断电验证；其边界仍归 #46。其余 18 项 P2 保留。
+
+## B 组 V16
+
+最终实现 `eaeeafb`，详细范围见 [B 组验收](group-b-validation.json)。单测 725/725；双库 Loader 各 86/86；最终提交双库原回合专项各 2/2。`pa24-v16-red-loader-sqlite.log` 保存两条基线失败；`pa24-v16-boundaries-green.log` 为 104 项边界及相邻流程通过；`pa24-group-b-unit.log` 的初次四项失败由显式恢复夹具修正，最终以 `pa24-group-b-unit-final.log` 为准。
+
+Standards 与 Spec 分别保存在 `pa24-group-b-*-review.md` 和 `pa24-group-b-*-rereview.md`；初审判断性重复逻辑已清偿，最终两轴均无未清偿发现。

@@ -1,0 +1,49 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:42037) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/e2e/work-settlement.e2e.mjs (2 tests | 2 failed) 21928ms
+   × V16: same Host retries without another event and releases both default slots 17845ms
+     → 等待original turns settle automatically超时；最后状态：{"workspaceBinding":"f34d3b3b-4c1b-4c64-b5a7-3be4b189e363","readiness":{"startedAt":"2026-10-20T03:03:03.300Z","items":[{"id":"host","state":"ok","message":"24私助 Host 运行中（Node v22.19.0，dsh 0.2.1-rc.1，24私助插件 0.2.1-rc.2.9，飞书 SDK 1.74.0）"},{"id":"config","state":"ok","message":"配置有效：模式=飞书，profile=default，加载于 2026/10/20 11:03:03","detail":{"source":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-settlement-PhSO4A/workspace/AGENTS.md","hash":"e613f77f23a1fd47"}},{"id":"postgres","state":"ok","message":"SQLite 业务账本已连接（pa24.db）"},{"id":"workspace","state":"ok","message":"工作区：/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-settlement-PhSO4A/workspace"},{"id":"feishu","state":"ok","message":"飞书长连接已启动（fake）；收 无 / 发 无"},{"id":"sessions","state":"ok","message":"飞书接入会话 pa24-2c2ce6d41af0-feishu；本地助理会话 pa24-2c2ce6d41af0-local"}]},"workspace":{"path":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-settlement-PhSO4A/workspace","config":{"version":1,"mode":"feishu","storage":"sqlite","larkProfile":"default","ownerOpenId":"ou_test_owner","folderToken":"fld_test","wikiNodeToken":"","tasklistId":"tl_test","calendarId":"primary","calendarChannel":"feishu","todoChannel":"feishu","notifyChannel":"feishu","timeZone":"Asia/Shanghai","appIdEnv":"PA24_FEISHU_APP_ID","appSecretEnv":"PA24_FEISHU_APP_SECRET","pgDsnEnv":"PA24_PG_DSN","maxWorkers":2,"enabledWorkers":["memo"],"workerModels":{},"extraLocalTools":[],"extraBusinessSkills":[],"tts":{"engine":"none","voice":"","volcKeyEnv":"","meloDir":""}},"loadedAt":"2026-10-20T03:03:03.298Z","configError":null,"accessSessionId":"pa24-2c2ce6d41af0-feishu","localSessionId":"pa24-2c2ce6d41af0-local"},"availableWorkspaces":[{"id":"c5ebedfd-ff57-481a-aad3-e5c3bc6eefe8","title":"24私助","path":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-settlement-PhSO4A/workspace"}],"transport":{"connected":true,"name":"fake","message":null,"lastReceivedAt":null,"lastSentAt":null},"diagnostics":null,"wecom":null,"secrets":{"feishuAppId":{"set":true,"source":"env"},"feishuAppSecret":{"set":true,"source":"env"},"pgDsn":{"set":false,"source":null},"volcTtsKey":{"set":false,"source":null}},"tts":{"engine":"none","voice":"","probe":null},"work":[{"id":"pa24-work-memo-19eace2e-4520-480c-b9d3-11c28200e54b","title":"settle-3","role":"memo","instruction":"保存一份备忘并报告完成。","origin":"local","parent_session_id":"pa24-2c2ce6d41af0-local","child_session_id":"pa24-work-memo-19eace2e-4520-480c-b9d3-11c28200e54b","delivery":"local:pa24-2c2ce6d41af0-local","status":"queued","progress":"排队等待 Worker","result":null,"result_ref":null,"created_at":"2026-10-20T03:03:03.508Z","updated_at":"2026-10-20T03:03:03.511Z","recovery_gen":0,"skill":null,"skill_definition":null},{"id":"pa24-work-memo-ef31ac0d-5779-45ec-b78d-e378072534a7","title":"settle-2","role":"memo","instruction":"保存一份备忘并报告完成。","origin":"local","parent_session_id":"pa24-2c2ce6d41af0-local","child_session_id":"pa24-work-memo-ef31ac0d-5779-45ec-b78d-e378072534a7
+   × V16: restart recovers durable original turns and releases both default slots 4083ms
+     → expected false to be true // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/work-settlement.e2e.mjs > V16: same Host retries without another event and releases both default slots
+Error: 等待original turns settle automatically超时；最后状态：{"workspaceBinding":"f34d3b3b-4c1b-4c64-b5a7-3be4b189e363","readiness":{"startedAt":"2026-10-20T03:03:03.300Z","items":[{"id":"host","state":"ok","message":"24私助 Host 运行中（Node v22.19.0，dsh 0.2.1-rc.1，24私助插件 0.2.1-rc.2.9，飞书 SDK 1.74.0）"},{"id":"config","state":"ok","message":"配置有效：模式=飞书，profile=default，加载于 2026/10/20 11:03:03","detail":{"source":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-settlement-PhSO4A/workspace/AGENTS.md","hash":"e613f77f23a1fd47"}},{"id":"postgres","state":"ok","message":"SQLite 业务账本已连接（pa24.db）"},{"id":"workspace","state":"ok","message":"工作区：/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-settlement-PhSO4A/workspace"},{"id":"feishu","state":"ok","message":"飞书长连接已启动（fake）；收 无 / 发 无"},{"id":"sessions","state":"ok","message":"飞书接入会话 pa24-2c2ce6d41af0-feishu；本地助理会话 pa24-2c2ce6d41af0-local"}]},"workspace":{"path":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-settlement-PhSO4A/workspace","config":{"version":1,"mode":"feishu","storage":"sqlite","larkProfile":"default","ownerOpenId":"ou_test_owner","folderToken":"fld_test","wikiNodeToken":"","tasklistId":"tl_test","calendarId":"primary","calendarChannel":"feishu","todoChannel":"feishu","notifyChannel":"feishu","timeZone":"Asia/Shanghai","appIdEnv":"PA24_FEISHU_APP_ID","appSecretEnv":"PA24_FEISHU_APP_SECRET","pgDsnEnv":"PA24_PG_DSN","maxWorkers":2,"enabledWorkers":["memo"],"workerModels":{},"extraLocalTools":[],"extraBusinessSkills":[],"tts":{"engine":"none","voice":"","volcKeyEnv":"","meloDir":""}},"loadedAt":"2026-10-20T03:03:03.298Z","configError":null,"accessSessionId":"pa24-2c2ce6d41af0-feishu","localSessionId":"pa24-2c2ce6d41af0-local"},"availableWorkspaces":[{"id":"c5ebedfd-ff57-481a-aad3-e5c3bc6eefe8","title":"24私助","path":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-settlement-PhSO4A/workspace"}],"transport":{"connected":true,"name":"fake","message":null,"lastReceivedAt":null,"lastSentAt":null},"diagnostics":null,"wecom":null,"secrets":{"feishuAppId":{"set":true,"source":"env"},"feishuAppSecret":{"set":true,"source":"env"},"pgDsn":{"set":false,"source":null},"volcTtsKey":{"set":false,"source":null}},"tts":{"engine":"none","voice":"","probe":null},"work":[{"id":"pa24-work-memo-19eace2e-4520-480c-b9d3-11c28200e54b","title":"settle-3","role":"memo","instruction":"保存一份备忘并报告完成。","origin":"local","parent_session_id":"pa24-2c2ce6d41af0-local","child_session_id":"pa24-work-memo-19eace2e-4520-480c-b9d3-11c28200e54b","delivery":"local:pa24-2c2ce6d41af0-local","status":"queued","progress":"排队等待 Worker","result":null,"result_ref":null,"created_at":"2026-10-20T03:03:03.508Z","updated_at":"2026-10-20T03:03:03.511Z","recovery_gen":0,"skill":null,"skill_definition":null},{"id":"pa24-work-memo-ef31ac0d-5779-45ec-b78d-e378072534a7","title":"settle-2","role":"memo","instruction":"保存一份备忘并报告完成。","origin":"local","parent_session_id":"pa24-2c2ce6d41af0-local","child_session_id":"pa24-work-memo-ef31ac0d-5779-45ec-b78d-e378072534a7
+ ❯ Object.waitUntil tests/helpers/host.mjs:133:51
+    131|       const snapshot = await api('snapshot');
+    132|       if (predicate(snapshot)) return snapshot;
+    133|       if (Date.now() - started > timeoutMs) throw new Error(`等待${lab…
+       |                                                   ^
+    134|       await new Promise(r => setTimeout(r, intervalMs));
+    135|     }
+ ❯ tests/e2e/work-settlement.e2e.mjs:67:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/e2e/work-settlement.e2e.mjs > V16: restart recovers durable original turns and releases both default slots
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tests/e2e/work-settlement.e2e.mjs:68:58
+     66|   } else await f.removeFault();
+     67|   const snapshot = await f.host.waitUntil(s => s.work.length === 3 && …
+     68|   expect(snapshot.work.every(w => w.recovery_gen === 0)).toBe(true);
+       |                                                          ^
+     69|   expect(snapshot.work.every(w => w.result === 'DOCUMENT_CREATED_ONCE'…
+     70|   expect(snapshot.outbox.filter(r => r.dedup_key.startsWith('workitem:…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  11:03:01
+   Duration  22.06s (transform 30ms, setup 0ms, collect 44ms, tests 21.93s, environment 0ms, prepare 19ms)
