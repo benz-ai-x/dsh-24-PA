@@ -140,7 +140,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     expect((await f.rt.repos.tasks.list()).map(row => row.summary)).toEqual(['备份确认材料']);
   });
 
-  it.each(['feishu:task', 'wecom:task', 'feishu:calendar', 'wecom:calendar'])('%s 远端成功后本地失败，不能改澄清或渠道；原意图恢复只建一个对象', async mode => {
+  it.each(['feishu:task', 'wecom:task', 'feishu:calendar', 'wecom:calendar'])('%s 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复', async mode => {
     const [channel, kind] = mode.split(':'); f.rt.config.todoChannel = channel; f.rt.config.calendarChannel = channel;
     await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王或李，下周安排', summary: '整理', candidates: [{ summary: '联系某人', unknowns: ['人名和日期不清'] }] }, child);
@@ -162,7 +162,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     expect(competing[0]).toMatchObject({ executed: 0, failed: 1 }); expect(competing[0].results[0].error).toContain('local projection failed');
     for (const attempt of competing.slice(1)) { expect(attempt).toMatchObject({ executed: 0, failed: 1 }); expect(attempt.results[0].error).toContain('不能在重试中改写'); }
     const channelKey = kind === 'task' ? 'todoChannel' : 'calendarChannel'; f.rt.config[channelKey] = channel === 'feishu' ? 'wecom' : 'feishu';
-    expect((await f.rt.work(action, child)).results[0].error).toContain('当前配置已改变'); f.rt.config[channelKey] = channel;
+    expect(await f.rt.work(action, child)).toMatchObject({ executed: 1, failed: 0 });
     expect(await f.rt.work({ ...action, instruction: '按原授权恢复' }, child)).toMatchObject({ executed: 1, failed: 0 });
     const op = await f.rt.repos.operations.get('note.action:N-1:v1:0');
     expect(op.params).toMatchObject({ summary: '联系王工', clarification, instruction: action.instruction }); expect(op.status).toBe('succeeded');

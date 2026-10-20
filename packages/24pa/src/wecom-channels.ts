@@ -9,6 +9,7 @@ import { observeCalendar } from './calendar-observation.js';
 import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime, wecomObservedWallTime } from './wecom.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint } from './util.js';
 import { taskPlanKey, saveTaskObservation } from './task-lifecycle.js';
+import { isCandidateOperation } from './external-operations.js';
 import type { PaConfig } from './config.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import type { Repos, TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
@@ -212,7 +213,8 @@ export class WecomChannels {
     const paramsKey = `wecom\n${kind}\n${eventId}\n${summary ?? ''}\n${start?.toISOString() ?? ''}\n${end?.toISOString() ?? ''}\n${tz}\n${JSON.stringify(repeatRule)}${repeatMod ? `\n${JSON.stringify(repeatMod)}` : ''}`;
     return this.deps.gate(`calendar-event:${eventId || 'wecom-new'}`, async () => {
       const staged = operationIdOverride
-        ? await this.deps.stagedOperationWithId(operationIdOverride, item, `wecom_calendar.${kind}`, { channel: 'wecom', kind, eventId, summary, start, end, timeZone: tz, repeatRule, ...(args._authorization as Record<string, unknown> ?? {}) })
+        ? await this.deps.stagedOperationWithId(operationIdOverride, item, `wecom_calendar.${kind}`, { channel: 'wecom', kind, eventId, summary, start, end, timeZone: tz, repeatRule,
+            ...(isCandidateOperation(operationIdOverride) ? { receiptFormat: 'wecom-calendar-v1' } : {}), ...(args._authorization as Record<string, unknown> ?? {}) })
         : await this.deps.stagedOperation(
         item,
         `wecom_calendar.${kind}`,
@@ -235,8 +237,8 @@ export class WecomChannels {
             '--reminders', JSON.stringify({ is_remind: true, reminder_time: [-300] }),
             ...(repeatRule ? ['--repeat-rule', JSON.stringify(repeatRule)] : []),
           ]));
-          newEventId = String(data?.schedule_id ?? '');
-          if (!newEventId) throw Object.assign(new Error('企微创建成功但未返回 schedule_id；以 calendar_query 核对。'), { outcome: 'unknown' });
+          if (typeof data?.schedule_id !== 'string' || !data.schedule_id.trim()) throw Object.assign(new Error('企微创建成功但未返回 schedule_id；以 calendar_query 核对。'), { outcome: 'unknown' });
+          newEventId = data.schedule_id;
           await this.deps.repos().calendar.upsertEvent({
             event_id: newEventId,
             calendar_id: WECOM_CALENDAR_ID,
@@ -272,6 +274,7 @@ export class WecomChannels {
   }
 
   async wecomTaskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
+    const tz = String(args.timeZone ?? this.deps.config().timeZone);
     const summary = text(args.summary, 500);
     const { dueAt, dueHasTime } = parseDue(args.due);
     const plannedAt = args.plannedAt ? new Date(String(args.plannedAt)) : null;
@@ -282,7 +285,7 @@ export class WecomChannels {
     const overrideId = args._operationId ? String(args._operationId) : null;
     const authorization = { ...(args._authorization as Record<string, unknown> ?? {}), ...(args._instruction ? { instruction: text(args._instruction, 500) } : {}) };
     const staged = overrideId
-      ? await this.deps.stagedOperationWithId(overrideId, item, 'wecom_todo.create', { channel: 'wecom', summary, due: args.due ? String(args.due) : null, ...authorization })
+      ? await this.deps.stagedOperationWithId(overrideId, item, 'wecom_todo.create', { channel: 'wecom', receiptFormat: 'wecom-task-v1', timeZone: tz, summary, due: args.due ? String(args.due) : null, ...authorization })
       : await this.deps.stagedOperation(item, 'wecom_todo.create', `wecom\n${summary}\n${args.due ?? ''}${batchSuffix}`, {
           channel: 'wecom',
           summary,
@@ -294,7 +297,6 @@ export class WecomChannels {
       return { operationId: staged.row.id, reused: true, guid: existing?.task_guid ?? staged.row.receipt?.guid, url: null, message: '此企微待办此前已创建，未重复写入。' };
     }
     try {
-      const tz = this.deps.config().timeZone;
       const todoItem: Record<string, unknown> = { title: `[24PA] ${summary}` };
       if (dueAt) {
         todoItem.deadline = { type: dueHasTime ? 'datetime' : 'date', value: dueHasTime ? wecomWallTime(dueAt, tz) : dueAt.toISOString().slice(0, 10) };
@@ -303,13 +305,14 @@ export class WecomChannels {
       const guid = await this.deps.performExternal(staged.row.id, async () => {
         const { data } = await this.wecomRun(['todo', 'create', '--items', JSON.stringify([todoItem])]);
         const created = (data?.items ?? [])[0] as any;
-        const id = String(created?.todo_id ?? '');
-        if (created?.success === false || !id) throw Object.assign(new Error(`企微待办创建未成功：${created?.title ?? '未返回 todo_id'}；请核对企微待办列表后重试。`), { outcome: created?.success === false ? 'failed' : 'unknown' });
+        const id = created?.todo_id;
+        if (created?.success === false || typeof id !== 'string' || !id.trim()) throw Object.assign(new Error(`企微待办创建未成功：${created?.title ?? '未返回 todo_id'}；请核对企微待办列表后重试。`), { outcome: created?.success === false ? 'failed' : 'unknown' });
         return id;
       });
+      if (typeof guid !== 'string' || !guid.trim()) throw Object.assign(new Error('企微待办回执不是有效 todo_id，请先核对原操作。'), { outcome: 'unknown' });
       const task = await this.deps.repos().tasks.save({
         id: staged.row.id,
-        work_item_id: item.id,
+        work_item_id: staged.row.work_item_id,
         task_guid: guid,
         url: null,
         summary,
