@@ -1,0 +1,99 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:79040) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/unit/knowledge-actions.test.mjs (28 tests | 2 failed | 26 skipped) 3848ms
+   × R3 知识与行动公开入口 (sqlite) > V01 首次回读正文已改为李工，正文批准不能执行旧王工候选 1810ms
+     → promise resolved "{ noteId: 'N-1', …(5) }" instead of rejecting
+   × R3 知识与行动公开入口 (postgres) > V01 首次回读正文已改为李工，正文批准不能执行旧王工候选 2038ms
+     → promise resolved "{ noteId: 'N-1', …(5) }" instead of rejecting
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 首次回读正文已改为李工，正文批准不能执行旧王工候选
+AssertionError: promise resolved "{ noteId: 'N-1', …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "executed": 1,
++   "failed": 0,
++   "message": "已按你的选择执行 1 项（依据已审核的 N-1 v1；重复选择返回已有对象）。",
++   "noteId": "N-1",
++   "results": Array [
++     Object {
++       "dueAt": null,
++       "dueRaw": null,
++       "estimateMinutes": null,
++       "guid": "tskstub-1",
++       "index": 0,
++       "kind": "task",
++       "message": "任务已创建（飞书为权威对象）。",
++       "ok": true,
++       "operationId": "note.action:N-1:v1:0",
++       "plannedAt": null,
++       "sourceQuote": "联系王工",
++       "url": "https://example.feishu.cn/task/tskstub-1",
++     },
++   ],
++   "versionId": "N-1:v1",
++ }
+
+ ❯ tests/unit/knowledge-actions.test.mjs:52:152
+     50|     await f.rt.handwriting.processReviewCard('approve', { senderOpenId…
+     51|     expect((await f.rt.repos.notes.getVersion(published.versionId)).st…
+     52|     await expect(f.rt.work({ action: 'note_adopt_actions', noteId: 'N-…
+       |                                                                                                                                                        ^
+     53|     expect(version.content).toMatchObject({ derivedStatus: 'needs_rebu…
+     54|     const search = await f.rt.work({ action: 'notes_search', query: 'N…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 首次回读正文已改为李工，正文批准不能执行旧王工候选
+AssertionError: promise resolved "{ noteId: 'N-1', …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "executed": 1,
++   "failed": 0,
++   "message": "已按你的选择执行 1 项（依据已审核的 N-1 v1；重复选择返回已有对象）。",
++   "noteId": "N-1",
++   "results": Array [
++     Object {
++       "dueAt": null,
++       "dueRaw": null,
++       "estimateMinutes": null,
++       "guid": "tskstub-1",
++       "index": 0,
++       "kind": "task",
++       "message": "任务已创建（飞书为权威对象）。",
++       "ok": true,
++       "operationId": "note.action:N-1:v1:0",
++       "plannedAt": null,
++       "sourceQuote": "联系王工",
++       "url": "https://example.feishu.cn/task/tskstub-1",
++     },
++   ],
++   "versionId": "N-1:v1",
++ }
+
+ ❯ tests/unit/knowledge-actions.test.mjs:52:152
+     50|     await f.rt.handwriting.processReviewCard('approve', { senderOpenId…
+     51|     expect((await f.rt.repos.notes.getVersion(published.versionId)).st…
+     52|     await expect(f.rt.work({ action: 'note_adopt_actions', noteId: 'N-…
+       |                                                                                                                                                        ^
+     53|     expect(version.content).toMatchObject({ derivedStatus: 'needs_rebu…
+     54|     const search = await f.rt.work({ action: 'notes_search', query: 'N…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 26 skipped (28)
+   Start at  11:41:52
+   Duration  4.23s (transform 131ms, setup 0ms, collect 287ms, tests 3.85s, environment 0ms, prepare 25ms)

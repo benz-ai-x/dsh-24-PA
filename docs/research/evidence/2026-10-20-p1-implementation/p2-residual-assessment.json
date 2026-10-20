@@ -1,0 +1,192 @@
+{
+  "codeSha": "10a8cf39480bb2736cd6dd9f3f648e10903aeb44",
+  "method": "既有实测证据及本轮源码差异影响复核；没有重跑此前被工具安全检查中止的专项，也没有执行新平台写入。",
+  "remaining": 18,
+  "newConfirmedP0": 0,
+  "p0Statement": "本轮未取得新增P0证据，不等于证明不存在P0；完整发布验收仍由#46承接。",
+  "disposition": "全部18项继续保留，P1修复不自动关闭P2；后续建议先处理跨工作区/来源和收件人歧义，再处理状态与恢复。具体排期及风险接受待用户决定。",
+  "findings": [
+    {
+      "id": "V02",
+      "priority": "P2",
+      "title": "doubts 未进入行动澄清",
+      "status": "保留待修，未作风险接受",
+      "assessment": "同源证明只证明派生字段对应发布源；candidateUnknowns 仍只合并 unknowns，未把 doubts 变成逐项澄清。",
+      "priorEvidence": [
+        "pa24-knowledge-final-results.json"
+      ]
+    },
+    {
+      "id": "V04",
+      "priority": "P2",
+      "title": "skill 工具子集未生效",
+      "status": "保留待修，未作风险接受",
+      "assessment": "本轮未改变任务 skill 工具白名单的宿主挂载/执行约束。",
+      "priorEvidence": [
+        "pa24-skill-tools-result.json"
+      ]
+    },
+    {
+      "id": "V06",
+      "priority": "P2",
+      "title": "迟到查询覆盖日程取消",
+      "status": "保留待修，未作风险接受",
+      "assessment": "日历观察仍在异步 fetch 后覆盖投影，未引入取消/观察之间的版本比较。",
+      "priorEvidence": [
+        "pa24-channels-final-probe.json"
+      ]
+    },
+    {
+      "id": "V07",
+      "priority": "P2",
+      "title": "旧完成回执覆盖新任务状态",
+      "status": "保留待修，未作风险接受",
+      "assessment": "taskComplete 的旧 succeeded 分支仍可将刚读回 open 的任务写为 completed；本轮只修改候选创建恢复。",
+      "priorEvidence": [
+        "pa24-channels-final-probe.json"
+      ]
+    },
+    {
+      "id": "V08",
+      "priority": "P2",
+      "title": "周期任务产生虚假截止",
+      "status": "保留待修，未作风险接受",
+      "assessment": "task-templates 仍将 instance.due_at 写入任务截止投影。",
+      "priorEvidence": [
+        "pa24-channels-final-probe.json"
+      ]
+    },
+    {
+      "id": "V09",
+      "priority": "P2",
+      "title": "手动运行抵消自动发生",
+      "status": "保留待修，未作风险接受",
+      "assessment": "digestBuild 手动/自动来源仍按同一日期窗口 claimRun；V16 补结算不改变发生身份。",
+      "priorEvidence": [
+        "digest-manual-result.json"
+      ]
+    },
+    {
+      "id": "V10",
+      "priority": "P2",
+      "title": "归档用展示分页作完整盘点",
+      "status": "保留待修，未作风险接受",
+      "assessment": "归档完整盘点的展示分页限制未改变。",
+      "priorEvidence": [
+        "pa24-archive-caps-result.json"
+      ]
+    },
+    {
+      "id": "V12",
+      "priority": "P2",
+      "title": "旧 A 会话读取当前 B 的归档详情",
+      "status": "保留待修，未作风险接受",
+      "assessment": "账本归属核验防不同工作区接纳同一库，但旧本地会话的 archive_check/health 仍在角色拒绝前放行。",
+      "priorEvidence": [
+        "pa24-deep2-host-cross-workspace-read-result.json"
+      ]
+    },
+    {
+      "id": "V13",
+      "priority": "P2",
+      "title": "旧面板试听请求写入新工作区队列",
+      "status": "保留待修，未作风险接受",
+      "assessment": "试听请求的 workspaceBinding 约束未改变；执行 lease 不证明发起页面的工作区。",
+      "priorEvidence": [
+        "pa24-deep2-ui-knowledge-panel-results.json"
+      ]
+    },
+    {
+      "id": "V14",
+      "priority": "P2",
+      "title": "真实 SDK 事件形状使来源身份与去重失效",
+      "status": "保留待修，未作风险接受",
+      "assessment": "SDK 事件 mapper 未修改；令牌幂等与来源字段形状是两个问题。",
+      "priorEvidence": [
+        "pa24-deep2-ui-knowledge-sdk-results.json"
+      ]
+    },
+    {
+      "id": "V15",
+      "priority": "P2",
+      "title": "原稿回执失败后实际重投无法恢复",
+      "status": "保留待修，未作风险接受",
+      "assessment": "发布恢复和 Worker 完成恢复未改变原稿收集的 Inbox rejected 终态策略。",
+      "priorEvidence": [
+        "pa24-deep2-ui-knowledge-collection-results.json"
+      ]
+    },
+    {
+      "id": "V17",
+      "priority": "P2",
+      "title": "项目失败子集重试重复创建任务",
+      "status": "保留待修，未作风险接受",
+      "assessment": "原渠道恢复限定 note.action/minutes.action；projectAdopt 的 opSuffix 仍依赖本次数组 index。",
+      "priorEvidence": [
+        "pa24-deep2-planning-project-results.json",
+        "pa24-deep2-planning-project-postgres-results.json"
+      ]
+    },
+    {
+      "id": "V18",
+      "priority": "P2",
+      "title": "due:null 没有清除截止却报告成功",
+      "status": "保留待修，未作风险接受",
+      "assessment": "taskUpdate 的 due:null 仍进入无远端更新分支并保留旧 due_at。",
+      "priorEvidence": [
+        "pa24-deep2-planning-project-results.json",
+        "pa24-deep2-planning-project-postgres-results.json"
+      ]
+    },
+    {
+      "id": "V19",
+      "priority": "P2",
+      "title": "会前准备未核对自动触发来源对应的计划",
+      "status": "保留待修，未作风险接受",
+      "assessment": "会前准备所选计划与自动 Schedule 来源的匹配规则未改变。",
+      "priorEvidence": [
+        "pa24-deep2-prep-source-results.json"
+      ]
+    },
+    {
+      "id": "V20",
+      "priority": "P2",
+      "title": "PostgreSQL 备忘日期显示丢失年份",
+      "status": "保留待修，未作风险接受",
+      "assessment": "本轮未统一 PG DATE 与 SQLite 日期字符串的显示规则。",
+      "priorEvidence": [
+        "pa24-deep2-data-date-result.json"
+      ]
+    },
+    {
+      "id": "V21",
+      "priority": "P2",
+      "title": "备份集合重叠使凭据绕过排除",
+      "status": "保留待修，未作风险接受",
+      "assessment": "一致账本快照与身份文件核验不改变各集合按相对路径排除凭据的策略；目录重叠仍单列。",
+      "priorEvidence": [
+        "pa24-deep2-data-backup-secret-result.json"
+      ]
+    },
+    {
+      "id": "V22",
+      "priority": "P2",
+      "title": "联系人分页截断将同名歧义误判为唯一",
+      "status": "保留待修，未作风险接受",
+      "assessment": "两处联系人解析仍使用 limit:50，没有遍历 matched/offset。",
+      "priorEvidence": [
+        "pa24-deep3-contacts-results.json"
+      ]
+    },
+    {
+      "id": "V23",
+      "priority": "P2",
+      "title": "监督暂停与告警落账断开，失败后无法自动补告警",
+      "status": "保留待修，未作风险接受",
+      "assessment": "监督仍先 plans.stop 再 notifyOwner，且只扫描 active；WorkItem 结算补偿不能恢复 paused 计划的告警意图。",
+      "priorEvidence": [
+        "pa24-deep3-lifecycle-supervision-result.json"
+      ]
+    }
+  ]
+}

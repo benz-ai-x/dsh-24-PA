@@ -1,0 +1,29 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:87769) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/note-publication-recovery.test.mjs (24 tests) 14731ms
+   ✓ 手写发布恢复 (sqlite) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 951ms
+   ✓ 手写发布恢复 (sqlite) > 重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过 528ms
+   ✓ 手写发布恢复 (sqlite) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=false） 722ms
+   ✓ 手写发布恢复 (sqlite) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=true） 614ms
+   ✓ 手写发布恢复 (sqlite) > 旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档 320ms
+   ✓ 手写发布恢复 (sqlite) > 重发只采纳同一读取快照，清空旧派生资料；后续编辑不得混入指纹 525ms
+   ✓ 手写发布恢复 (sqlite) > 过期卡可续发同版本，旧 token 无效；批准后重发 v2 状态可再次同步 1104ms
+   ✓ 手写发布恢复 (sqlite) > 审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文 665ms
+   ✓ 手写发布恢复 (sqlite) > pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2 1069ms
+   ✓ 手写发布恢复 (postgres) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 693ms
+   ✓ 手写发布恢复 (postgres) > 重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过 513ms
+   ✓ 手写发布恢复 (postgres) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=false） 581ms
+   ✓ 手写发布恢复 (postgres) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=true） 593ms
+   ✓ 手写发布恢复 (postgres) > 旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档 334ms
+   ✓ 手写发布恢复 (postgres) > 重发只采纳同一读取快照，清空旧派生资料；后续编辑不得混入指纹 528ms
+   ✓ 手写发布恢复 (postgres) > 过期卡可续发同版本，旧 token 无效；批准后重发 v2 状态可再次同步 1082ms
+   ✓ 手写发布恢复 (postgres) > 审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文 659ms
+   ✓ 手写发布恢复 (postgres) > pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2 1082ms
+
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+   Start at  11:51:47
+   Duration  14.94s (transform 65ms, setup 0ms, collect 116ms, tests 14.73s, environment 0ms, prepare 22ms)

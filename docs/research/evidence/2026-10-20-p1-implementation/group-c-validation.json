@@ -1,0 +1,83 @@
+{
+  "baseSha": "67172733b0405718edd78e19d114a5ef6adc4db7",
+  "implementationSha": "10a8cf39480bb2736cd6dd9f3f648e10903aeb44",
+  "hostSha": "1600d8a1e140dcde43a1a0941940a0480712c011",
+  "node": "22.19.0",
+  "build": true,
+  "presetCheck": true,
+  "unit": {
+    "files": 51,
+    "passed": 783,
+    "failed": 0,
+    "log": "pa24-group-c-unit-final.log"
+  },
+  "loaderSqlite": {
+    "files": 18,
+    "passed": 87,
+    "failed": 0,
+    "log": "pa24-group-c-loader-sqlite-final.log"
+  },
+  "loaderPostgres": {
+    "files": 18,
+    "passed": 87,
+    "failed": 0,
+    "log": "pa24-group-c-loader-postgres-final.log"
+  },
+  "suiteScope": "All final suites started after compiling 10a8cf3; no source, tests, or compiled output changed while these suites ran. Documentation and evidence archival followed.",
+  "v03": {
+    "implementationSha": "38ee37cdb378ecadaf92a25d9de089c26063e903",
+    "finalBoundaries": 26,
+    "related": 72,
+    "neighbors": 49,
+    "loaderPerBackend": 11,
+    "behavior": "Durable original channel, container, authorization, receipt and work-item identity; original platform object created once, new channel receives no replay."
+  },
+  "v01": {
+    "knowledgeActions": 54,
+    "publicationRecovery": 24,
+    "behavior": "Initial and republished body edits invalidate all old derivatives; frozen provenance checked by public consumers; old approvals preserved but unproved actions blocked; old pending card cannot decide and is replaced with an explicit current-scope card."
+  },
+  "standards": {
+    "hardViolations": 0,
+    "possibleSmells": 0,
+    "newDefects": 0,
+    "report": "pa24-group-c-standards-rereview.md"
+  },
+  "spec": {
+    "findings": 0,
+    "scopeCreep": 0,
+    "initialFindings": 1,
+    "repair": "Legacy pending token and Outbox key reused the old approval scope; scope-bound token and replacement card now enforced. Independent probe plus dual-backend red/green regression passed.",
+    "report": "pa24-group-c-spec-rereview.md"
+  },
+  "historicalFailures": [
+    {
+      "log": "pa24-v01-matrix.log",
+      "passed": 72,
+      "failed": 2,
+      "cause": "Recovery fault fixture did not reach the version transaction; replaced with real SQL INSERT triggers. Final recovery matrix 24/24."
+    },
+    {
+      "log": "pa24-group-c-loader-sqlite.log",
+      "passed": 85,
+      "failed": 2,
+      "cause": "F07 quiet window expired during fixture preparation; start it after preparation and retain both pending and eventual-delivery assertions. F10 expected obsolete receipt wrapper; assert actual original-channel reused receipt and exactly one object."
+    },
+    {
+      "log": "pa24-group-c-loader-postgres.log",
+      "passed": 86,
+      "failed": 1,
+      "cause": "Same F10 stale wrapper expectation; fixed while retaining receipt/channel and object count assertions."
+    }
+  ],
+  "schemaMigration": "none; provenance in existing version content and approval scope in existing text token; existing decisions and external objects are retained",
+  "externalPlatformWrites": "not exercised; controlled CLI processes with real SQL, native Loader and Session",
+  "remainingP2": 18,
+  "releaseAcceptance": "#46 remains open",
+  "finalLogSha256": {
+    "pa24-group-c-unit-final.log": "67828fc267972d60ae3d7b7953ee5ff75e8e84be8b553d6c30190137efd7eb51",
+    "pa24-group-c-loader-sqlite-final.log": "3def8b77807e35df40771455170fbe6beaffcd3097d49b44605590ab070329c2",
+    "pa24-group-c-loader-postgres-final.log": "babb3d2359a64e09785db26f4942c69b3689fa4c70222f574992929a8c445fd2",
+    "pa24-group-c-build-final.log": "ca2ae86530fc21313b2600a0c8d77ccfcf1c0f8f060d98322fd4f45f627cf3c1"
+  }
+}
