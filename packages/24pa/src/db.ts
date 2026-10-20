@@ -22,12 +22,19 @@ export interface BackupPart {
   optional?: boolean;
 }
 
+export interface WorkspaceLedgerIdentity {
+  workspaceId: string;
+  workspacePath: string;
+  ownerOpenId: string;
+}
+
 export interface PaDb extends PaQueryer {
   readonly kind: 'postgres' | 'sqlite';
   /** SQLite only: absolute path of the ledger file (backup support). */
   readonly filePath?: string;
   check(): Promise<void>;
-  migrate(): Promise<number>;
+  /** Runtime admission supplies identity; ownership and migrations commit together. */
+  migrate(identity?: WorkspaceLedgerIdentity): Promise<number>;
   schemaVersion(): Promise<number>;
   /** Note numbering N-1, N-2… (PG sequence / SQLite counter table). */
   nextNoteSeq(): Promise<number>;
@@ -505,6 +512,17 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
     statements: [
       `alter table pa24.digest_occurrence add column if not exists time_context jsonb`,
       `alter table pa24.digest_plan add column if not exists schedule_generation text`,
+    ],
+  },
+  {
+    version: 17,
+    statements: [
+      `create table if not exists pa24.ledger_owner (
+        id integer primary key check (id = 1),
+        workspace_id text not null unique,
+        owner_open_id text not null,
+        created_at timestamptz not null default now()
+      )`,
     ],
   },
 ];

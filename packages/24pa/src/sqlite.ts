@@ -3,7 +3,8 @@ import { createRequire } from 'node:module';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { BackupPart, PaDb, PaQueryResult, PaQueryer } from './db.js';
+import type { BackupPart, PaDb, PaQueryResult, PaQueryer, WorkspaceLedgerIdentity } from './db.js';
+import { assertLedgerOwnership, claimLedgerOwnership } from './repo/ledger.js';
 import { MIGRATIONS } from './db.js';
 
 // F25: SQLite backend for the business ledger (default storage; PostgreSQL
@@ -289,26 +290,24 @@ export class SqliteDb implements PaDb {
     await this.query('select 1 as ok');
   }
 
-  async migrate(): Promise<number> {
-    return this.enqueue(async () => {
+  async migrate(identity?: WorkspaceLedgerIdentity): Promise<number> {
+    return this.withTransaction(async client => {
+      if (identity) {
+        const tables = this.db.prepare("select substr(name, 6) as name from sqlite_master where type = 'table' and name glob 'pa24_*'").all() as Array<{ name: string }>;
+        await assertLedgerOwnership(client, tables.map(row => row.name), identity);
+      }
       this.db.exec(`create table if not exists pa24_schema_migrations (version integer primary key, applied_at text not null default (${ISO_NOW}))`);
       const current = this.runTranslated<{ version: number }>('select coalesce(max(version), 0) as version from pa24.schema_migrations', []);
       let applied = Number(current.rows[0]!.version);
       for (const migration of MIGRATIONS) {
         if (migration.version <= applied) continue;
-        this.db.exec('begin');
-        try {
-          for (const statement of migration.statements) {
-            for (const translated of translateDdl(statement)) this.db.exec(translated);
-          }
-          this.db.exec(`insert into pa24_schema_migrations (version) values (${migration.version})`);
-          this.db.exec('commit');
-        } catch (error) {
-          this.db.exec('rollback');
-          throw error;
+        for (const statement of migration.statements) {
+          for (const translated of translateDdl(statement)) this.db.exec(translated);
         }
+        this.db.exec(`insert into pa24_schema_migrations (version) values (${migration.version})`);
         applied = migration.version;
       }
+      if (identity) await claimLedgerOwnership(client, identity);
       return applied;
     });
   }
