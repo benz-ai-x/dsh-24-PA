@@ -33,7 +33,7 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.export']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
@@ -45,7 +45,7 @@ describe('client.js 挂载面', () => {
     }
   });
 
-  it('能力卡片体系（F26/P58）：四分类 tab、15 卡注册表、角标聚合、管理态与详情导航', () => {
+  it('能力卡片体系（F26/P58）：四分类 tab、16 卡注册表、角标聚合、管理态与详情导航', () => {
     // 一级导航＝事务与计划 / 知识与资料 / 接入与设置 / 运行与维护
     expect(client).toContain("const CATEGORY_TABS = [['work', 'grid', 'blue'], ['knowledge', 'memory', 'violet'], ['setup', 'plug', 'green'], ['ops', 'shield', 'amber']];");
     expect(client).toContain("const [tab, setTab] = React.useState('work')");
@@ -53,9 +53,9 @@ describe('client.js 挂载面', () => {
     expect(client).toContain("work: 'Work & plans', knowledge: 'Knowledge & content', setup: 'Connections & setup', ops: 'Operations & maintenance'");
     // 注册表驱动：注册即生卡；每卡必有 tier（角标聚合纯函数）＋body＋detail
     const ids = [...client.matchAll(/id: '([a-z]+)', cat: '(work|knowledge|setup|ops)'/g)].map(m => m[1]);
-    expect(ids).toEqual(['work', 'activity', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'healthcheck', 'storage', 'config', 'budget']);
+    expect(ids).toEqual(['skills', 'work', 'activity', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'healthcheck', 'storage', 'config', 'budget']);
     expect((client.match(/^            tier: /gm) || []).length).toBe(ids.length);
-    expect(client).toContain("const CARD_ORDER = ['work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];");
+    expect(client).toContain("const CARD_ORDER = ['skills', 'work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];");
     // tab 角标＝分类内 warn/error 卡片数，error 转红
     expect(client).toContain('const chipOf = cat =>');
     expect(client).toContain("chip.tone === 'error' ? ' error' : ''");

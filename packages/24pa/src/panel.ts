@@ -28,6 +28,9 @@ export const PANEL_RPC = {
     roles: 'roles',
     reminders: 'reminders',
     digests: 'digests',
+    skillsCatalog: 'skills.catalog',
+    skillsInspect: 'skills.inspect',
+    skillsExport: 'skills.export',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -73,6 +76,9 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           if (endpoint === E.action) return respond({ ok: true, value: await action(runtime, payload) });
           if (endpoint === E.snapshot && runtime.closed) return respond({ ok: true, value: { ...runtime.snapshot(), work: [], outbox: [], configMeta: { fields: CONFIG_FIELDS } } });
           return await runtime.inspectWorkspace(async () => {
+            if (endpoint === E.skillsCatalog) return respond({ ok: true, value: await runtime.skillManagement.list(payload.workspaceBinding) });
+            if (endpoint === E.skillsInspect) return respond({ ok: true, value: await runtime.skillManagement.inspect(payload.id, payload.workspaceBinding) });
+            if (endpoint === E.skillsExport) return respond({ ok: true, value: await runtime.skillManagement.exportMarkdown(payload.id, payload.fingerprint, payload.workspaceBinding) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
             if (endpoint === E.memory) {
               if (!runtime.memory) throw new Error('尚未绑定工作区。');

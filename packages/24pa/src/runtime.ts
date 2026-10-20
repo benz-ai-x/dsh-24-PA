@@ -38,6 +38,7 @@ import { WaitingFollowups } from './waiting-followups.js';
 import { TaskTemplates } from './task-templates.js';
 import { TaskLifecycle } from './task-lifecycle.js';
 import { assertToolDeclaration, type ResolvedTaskSkill, SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
+import { SkillManagement } from './skill-management.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
 import { text, nowIso, isoDate, eventFingerprint, hash, platformMessageKey } from './util.js';
 
@@ -307,6 +308,7 @@ export class PaRuntime {
 
   /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
   private readonly skillCatalog: SkillCatalog;
+  readonly skillManagement: SkillManagement;
 
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  delivery; F19 voice + F40/F41 skill tracks extend here. The runtime
@@ -388,6 +390,17 @@ export class PaRuntime {
       }
     });
     this.skillCatalog.registerBuiltins();
+    this.skillManagement = new SkillManagement({
+      registry: hostSkillRegistry(ctx),
+      builtins: () => this.skillCatalog.builtinAll(),
+      context: () => ({
+        cwd: this.workspace?.statePath ?? null,
+        binding: this.workspaceBinding,
+        enabled: this.config?.enabledWorkers.includes('skill') ?? false,
+        allowed: this.config?.extraBusinessSkills ?? [],
+      }),
+      plans: () => this.repos ? this.repos.digests.listPlans() : Promise.resolve([]),
+    });
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
     this.builtInRoles = this.roles.list();
