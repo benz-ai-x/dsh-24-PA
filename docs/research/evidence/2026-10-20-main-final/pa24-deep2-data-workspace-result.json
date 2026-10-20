@@ -1,0 +1,50 @@
+{
+  "scenario": "One Host switches two workspaces with different owner ids and the same inherited PostgreSQL DSN. Real public bind/delegate/work/control flow in demo mode; no external writes.",
+  "results": [
+    {
+      "storage": "sqlite",
+      "ownerBefore": "ou_owner_a",
+      "ownerAfter": "ou_owner_b",
+      "workspacesDiffer": true,
+      "leadSessionsDiffer": true,
+      "boundToB": true,
+      "savedInA": {
+        "operationId": "memo:pa24-work-memo-315a5314-672f-4b3f-9a09-2deff34d137e:65b67dd6e568e13e1409fdb864d89500c09f3383e8f919a4291dc3b3d7e4489b",
+        "docUrl": null,
+        "demo": true,
+        "message": "演示模式：备忘已入业务账本，未创建飞书文档。"
+      },
+      "leakedIntoB": {
+        "count": 0,
+        "memos": []
+      }
+    },
+    {
+      "storage": "postgres",
+      "ownerBefore": "ou_owner_a",
+      "ownerAfter": "ou_owner_b",
+      "workspacesDiffer": true,
+      "leadSessionsDiffer": true,
+      "boundToB": true,
+      "savedInA": {
+        "operationId": "memo:pa24-work-memo-7c5d0ba9-2278-455b-8c6c-4304959edc0e:65b67dd6e568e13e1409fdb864d89500c09f3383e8f919a4291dc3b3d7e4489b",
+        "docUrl": null,
+        "demo": true,
+        "message": "演示模式：备忘已入业务账本，未创建飞书文档。"
+      },
+      "leakedIntoB": {
+        "count": 1,
+        "memos": [
+          {
+            "id": "memo:pa24-work-memo-7c5d0ba9-2278-455b-8c6c-4304959edc0e:65b67dd6e568e13e1409fdb864d89500c09f3383e8f919a4291dc3b3d7e4489b",
+            "topic": "A_PRIVATE_MARKER",
+            "content": "只属于工作区 A 的个人资料",
+            "url": null,
+            "source": "事项 pa24-work-memo-7c5d0ba9-2278-455b-8c6c-4304959edc0e",
+            "date": "Mon Oct 19"
+          }
+        ]
+      }
+    }
+  ]
+}

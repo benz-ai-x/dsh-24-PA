@@ -1,7 +1,8 @@
 import { runCliProcess } from './cli-gateway.js';
 import pg from 'pg';
 import { MIGRATIONS } from './db.js';
-import type { BackupPart, PaDb } from './db.js';
+import type { BackupPart, PaDb, WorkspaceLedgerIdentity } from './db.js';
+import { assertLedgerOwnership, claimLedgerOwnership } from './repo/ledger.js';
 
 // Business ledger lives in a dedicated `pa24` schema of the configured
 // PostgreSQL instance. The DSN itself comes from the environment variable
@@ -42,28 +43,28 @@ export class PaDatabase implements PaDb {
     await this.pool.query('select 1');
   }
 
-  async migrate(): Promise<number> {
-    await this.pool.query(`create schema if not exists ${SCHEMA_NAME}`);
-    await this.pool.query(`create table if not exists ${SCHEMA_NAME}.schema_migrations (version int primary key, applied_at timestamptz not null default now())`);
-    const current = await this.pool.query<{ version: number }>(`select coalesce(max(version), 0) as version from ${SCHEMA_NAME}.schema_migrations`);
-    let applied = current.rows[0]!.version;
-    for (const migration of MIGRATIONS) {
-      if (migration.version <= applied) continue;
-      const client = await this.pool.connect();
-      try {
-        await client.query('begin');
+  async migrate(identity?: WorkspaceLedgerIdentity): Promise<number> {
+    return this.withTransaction(async client => {
+      await client.query('set transaction isolation level read committed');
+      // A transaction lock exists even before the schema/ownership row does.
+      await client.query('select pg_advisory_xact_lock(842289217, 1)');
+      if (identity) {
+        const tables = await client.query<{ name: string }>(`select tablename as name from pg_tables where schemaname = $1`, [SCHEMA_NAME]);
+        await assertLedgerOwnership(client, tables.rows.map(row => row.name), identity);
+      }
+      await client.query(`create schema if not exists ${SCHEMA_NAME}`);
+      await client.query(`create table if not exists ${SCHEMA_NAME}.schema_migrations (version int primary key, applied_at timestamptz not null default now())`);
+      const current = await client.query<{ version: number }>(`select coalesce(max(version), 0) as version from ${SCHEMA_NAME}.schema_migrations`);
+      let applied = current.rows[0]!.version;
+      for (const migration of MIGRATIONS) {
+        if (migration.version <= applied) continue;
         for (const statement of migration.statements) await client.query(statement);
         await client.query(`insert into ${SCHEMA_NAME}.schema_migrations (version) values ($1)`, [migration.version]);
-        await client.query('commit');
-      } catch (error) {
-        await client.query('rollback').catch(() => {});
-        throw error;
-      } finally {
-        client.release();
+        applied = migration.version;
       }
-      applied = migration.version;
-    }
-    return applied;
+      if (identity) await claimLedgerOwnership(client, identity);
+      return applied;
+    });
   }
 
   async schemaVersion(): Promise<number> {

@@ -263,4 +263,27 @@ describe('F01 工作区助理与随手记（真实 Loader + 隔离 PG）', () =>
     // 备忘账本经 SQL 直读断言（memo 检索端点已随 RPC 常量化删除：面板面只保留 client 在用接口）
     expect(Number(await cluster.query(`select count(*) from pa24.memo where topic like '%合作%'`))).toBeGreaterThan(0);
   });
+
+  it('V11：真实 Loader 拒绝其他工作区接纳原 PG 账本，SQLite 独立库不串数据', async () => {
+    const before = await host.api('snapshot');
+    const other = join(root, 'other-workspace'); await mkdir(other);
+    const source = await readFile(join(workspace, 'AGENTS.md'), 'utf8');
+    await writeFile(join(other, 'AGENTS.md'), source.replace('ou_test_owner', 'ou_other_owner'));
+    if (process.env.PA24_E2E_STORAGE === 'sqlite') {
+      await host.api('action', { type: 'workspace.bind', path: other });
+      const separate = await host.api('snapshot');
+      expect(separate.workspace.config.ownerOpenId).toBe('ou_other_owner');
+      expect(separate.work).toEqual([]);
+      await host.api('action', { type: 'workspace.bind', path: workspace });
+    } else {
+      await expect(host.api('action', { type: 'workspace.bind', path: other })).rejects.toThrow(/账本.*归属/);
+    }
+    const after = await host.api('snapshot');
+    expect(after.workspace.path).toBe(before.workspace.path);
+    expect(after.workspace.config.ownerOpenId).toBe('ou_test_owner');
+    expect(after.workspace.accessSessionId).toBe(before.workspace.accessSessionId);
+    expect(after.workspace.localSessionId).toBe(before.workspace.localSessionId);
+    expect(after.work.map(item => item.id)).toEqual(before.work.map(item => item.id));
+    expect(Number(await cluster.query(`select count(*) from pa24.memo where topic like '%合作%'`))).toBeGreaterThan(0);
+  });
 });

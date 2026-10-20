@@ -15,6 +15,7 @@ import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, Con
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
+import { workspaceLedgerIdentity } from './ledger-identity.js';
 import { InboxLifecycle } from './inbox-lifecycle.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow, type NewOutbox } from './repo.js';
@@ -936,7 +937,7 @@ export class PaRuntime {
     }
     try {
       await db.check();
-      await db.migrate();
+      await db.migrate(await workspaceLedgerIdentity(workspacePath, probe.ownerOpenId));
     } catch (error) {
       await db.close().catch(() => { });
       throw error;
@@ -953,12 +954,22 @@ export class PaRuntime {
     await this.checkWorkspaceConfiguration(parsed.config, parsed.secrets);
     const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(parsed.config, parsed.secrets);
     const connection = reconnect ? await this.prepareTransport(parsed.config, parsed.secrets) : null;
+    try {
+      await this.dbRef.migrate(await workspaceLedgerIdentity(this.workspace!.statePath, parsed.config.ownerOpenId));
+    } catch (error) {
+      connection?.cancel();
+      await connection?.transport?.close().catch(() => { });
+      throw error;
+    }
     this.applyWorkspaceConfiguration(parsed);
     if (connection) await this.activateTransport(connection);
     return parsed.config;
   }
 
   private async checkWorkspaceConfiguration(config: PaConfig, secrets = this.secretStore): Promise<void> {
+    if (this.config?.ownerOpenId && this.config.ownerOpenId !== config.ownerOpenId) {
+      throw new ConfigError('已登记的账本主人不能通过配置转让或清空；请使用独立工作区与空账本，历史数据按初始化指南核对和导出。');
+    }
     if (this.config && this.config.storage !== config.storage) {
       throw new ConfigError('切换存储后端涉及数据迁移，请按初始化指南完成迁移后重新绑定工作区。');
     }

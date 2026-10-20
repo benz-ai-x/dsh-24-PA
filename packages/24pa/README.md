@@ -134,16 +134,29 @@ host's persistence paths must override these three roots to match. Choose a
 backup destination outside every source directory. Symbolic links fail the
 backup instead of following them into unrelated files.
 
+SQLite uses the native online backup operation to produce one self-contained
+`pa24.db` snapshot, even when a reader prevents a WAL checkpoint. PostgreSQL
+continues to use `pg_dump`. The ledger is consistent; the other collections are
+copied live and do not share a transaction timestamp with it. A snapshot or
+target-write failure rejects backup creation and leaves the source unchanged.
+
 `backup_verify` checks the ledger, collection coverage, each listing's own
 hash, and every listed file. Missing required collections, modified listings,
 missing content, and old manifests without coverage evidence cannot pass as a
 complete joint backup. An absent, configured attachment directory is recorded
 explicitly when the host has not stored attachments yet.
+Format 3 records the ledger snapshot guarantee. Old format-2 SQLite DB/WAL
+bundles cannot prove it and no longer pass verification: keep those files for
+recovery investigation and create a fresh backup before an upgrade. Existing
+format-2 PostgreSQL dumps with complete collection coverage remain verifiable.
+Older plugin versions cannot verify format 3; use this version to verify a new
+bundle before any code rollback. The ledger schema is unchanged by this fix.
 
 To restore, stop the host and verify the backup. First restore the ledger and
 collections into isolated staging directories: load `pa24.sql` into a separate
-database with psql, or copy `pa24.db` (and `pa24.db-wal`, if included) into a
-separate `data/` directory. Check the schema and each memory record's revision,
+database with psql, or copy the snapshot `pa24.db` into an empty, separate
+`data/` directory, without a live or old `pa24.db-wal`/`pa24.db-shm` alongside it.
+Check the schema and each memory record's revision,
 source and expiry against the existing destination before replacing any files.
 Keep newer destination memory; resolve conflicts with the owner explicitly.
 Only then install the verified ledger and collections at their configured roots,
@@ -166,6 +179,36 @@ ledger, sessions and attachments together before restarting.
 | [`feishu-setup.md`](feishu-setup.md) | The bundled access-setup guide served by `pa24_connection guide` |
 
 ### Run flow
+
+### Ledger ownership and upgrades
+
+Schema 17 binds each ledger to the UUID in the workspace's
+`.24pa/ledger-identity.json` and its registered owner. Runtime validates ownership
+before schema migration, session preparation or business recovery. First claim
+and migrations commit together: PostgreSQL uses a transaction advisory lock;
+SQLite uses its write transaction. A competing workspace fails before business
+writes. Each new workspace needs its own empty ledger, including when the same
+owner uses two workspaces.
+
+An empty legacy ledger may be enrolled. A populated legacy ledger requires one
+recorded canonical workspace path matching the selected directory and exactly one
+nonempty binding owner matching the configuration. Missing or mixed evidence is
+rejected without migration; preserve an offline backup, inspect/export an isolated
+copy and resolve ownership before retrying. Do not fabricate binding rows or clear
+ownership metadata. An initially empty owner can be enrolled once; later owner
+changes require a separate workspace/ledger rather than configuration reload.
+
+Schema-17 backup verification requires a valid identity file in the copied workspace collection matching the ledger UUID recorded in the manifest. Missing, damaged or mismatched identity means incomplete backup.
+
+Keep the identity file with the workspace and ledger backup. Moving or restoring
+them preserves the logical workspace; explicitly rebind the destination after
+stopping the original Host. Copying the identity denotes a restore of the same
+workspace, not a new workspace, and does not permit multiple active Hosts. Restore
+a missing/damaged identity from the same backup. Existing sessions, attachments
+and external objects still need reconciliation. Older binaries do not enforce
+schema-17 ownership: rollback requires stopping all Hosts and restoring the complete
+pre-upgrade backup, not deleting the ownership row. Detailed inspection and export
+steps are in `docs/24PA-初始化指南.md`, “工作区与账本归属”.
 
 On start the host plugin takes a single-writer lock on `$DSH_HOME/24pa`, loads and validates the target workspace `AGENTS.md` and secret store, prepares the ledger (SQLite workspace file by default, or PostgreSQL), and establishes the fixed Feishu access and local sessions through the SessionController. Inbound Feishu events durably enter an inbox before acknowledgment, the coordinator delegates to workers through the continuable child API, and each item records its origin, parent, and delivery target. Ticks drain the outbox with receipts, fire due non-delegated reminder occurrences, verify published note fingerprints, and wake digest plans through the native Schedule service; results return to the entry that originated the work. At agent creation the role whitelist restricts the inherited tool catalog, and an `AGENTS.md` reload replaces the workspace-rules prompt section without touching the effective configuration on failure.
 

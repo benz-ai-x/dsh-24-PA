@@ -1,0 +1,17 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/sqlite.test.mjs (28 tests) 74ms
+ ✓ tests/unit/backup.test.mjs (9 tests) 240089ms
+   ✓ workspace backup recovery coverage > snapshot-read failure preserves the source and an earlier verified backup; retry is restorable 30016ms
+   ✓ workspace backup recovery coverage > target-write failure preserves the source and an earlier verified backup; retry is restorable 29800ms
+   ✓ workspace backup recovery coverage > does not certify old empty manifests or a missing required collection 60032ms
+   ✓ workspace backup recovery coverage > rejects credential temporary files even if their manifest hashes match 60040ms
+   ✓ workspace backup recovery coverage > rejects symlinks and recursive destinations instead of silently collecting unrelated content 60021ms
+ ✓ tests/unit/pg-backup.test.mjs (1 test) 1060ms
+   ✓ 真实 LATIN1 库备份可恢复原始文字，不能经 UTF-8 有损解码 1059ms
+
+ Test Files  3 passed (3)
+      Tests  38 passed (38)
+   Start at  10:16:57
+   Duration  241.59s (transform 44ms, setup 0ms, collect 94ms, tests 241.22s, environment 0ms, prepare 58ms)

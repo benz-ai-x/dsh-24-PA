@@ -1,0 +1,41 @@
+{
+  "reviewedAt": "2026-10-19 Asia/Shanghai",
+  "branch": "origin/main",
+  "sha": "0ef85772a10f45e8e3b4c4d2c85d7249bf28e256",
+  "productTreeMatches": "603e06471cc2846409a68e35128bc9a627e150ef",
+  "reviewRoot": "/Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA",
+  "node": "v26.4.0",
+  "harnessSha": "1600d8a1e140dcde43a1a0941940a0480712c011",
+  "tsFiles": 66,
+  "tsLines": 16060,
+  "clientLines": 1530,
+  "checks": {
+    "build": {
+      "exitCode": 0,
+      "evidence": "tool chunk 0584c7"
+    },
+    "presetCheck": {
+      "exitCode": 0,
+      "evidence": "tool chunk 0584c7"
+    },
+    "unit": {
+      "files": 48,
+      "passed": 648,
+      "durationSeconds": 170.4,
+      "log": "unit.log"
+    },
+    "e2eSqlite": {
+      "files": 17,
+      "passed": 83,
+      "durationSeconds": 371.6,
+      "log": "e2e-sqlite.log"
+    },
+    "e2ePostgres": {
+      "files": 17,
+      "passed": 83,
+      "durationSeconds": 377.0,
+      "log": "e2e-postgres.log"
+    }
+  },
+  "scope": "Primary root + 3 skill-requested review subagents. New behavioural probes use real local state and controlled platform adapters; no real account writes, no deployment, no product changes."
+}

@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ❯ tests/unit/backup.test.mjs (7 tests | 1 failed | 6 skipped) 102ms
+   × workspace backup recovery coverage > does not certify a legacy SQLite live-copy bundle as a consistent ledger snapshot 101ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/backup.test.mjs > workspace backup recovery coverage > does not certify a legacy SQLite live-copy bundle as a consistent ledger snapshot
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/backup.test.mjs:122:30
+    120|     await writeFile(path, JSON.stringify(manifest));
+    121|     const checked = await WorkspaceBackup.verify(result.backupDir);
+    122|     expect(checked.complete).toBe(false);
+       |                              ^
+    123|     expect(checked.failures.join()).toContain('一致快照');
+    124|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  10:12:50
+   Duration  230ms (transform 21ms, setup 0ms, collect 33ms, tests 102ms, environment 0ms, prepare 22ms)

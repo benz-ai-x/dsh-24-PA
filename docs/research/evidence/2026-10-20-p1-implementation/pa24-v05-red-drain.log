@@ -1,0 +1,27 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ❯ tests/unit/sqlite.test.mjs (27 tests | 1 failed | 26 skipped) 15ms
+   × a backup queued behind a transaction includes its commit even when close is requested 15ms
+     → SQLite 账本已关闭。
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/sqlite.test.mjs > a backup queued behind a transaction includes its commit even when close is requested
+Error: SQLite 账本已关闭。
+ ❯ SqliteDb.query lib/sqlite.js:252:35
+    250|     query(text, values = []) {
+    251|         if (this.closed)
+    252|             return Promise.reject(new Error('SQLite 账本已关闭。'));
+       |                                   ^
+    253|         // Inside the owning transaction the statement must join it, n…
+    254|         // behind the lock the transaction itself holds.
+ ❯ tests/unit/sqlite.test.mjs:190:16
+ ❯ lib/sqlite.js:323:32
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 26 skipped (27)
+   Start at  10:14:48
+   Duration  151ms (transform 29ms, setup 0ms, collect 45ms, tests 15ms, environment 0ms, prepare 21ms)

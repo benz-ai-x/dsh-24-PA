@@ -1,0 +1,114 @@
+[
+  {
+    "storage": "sqlite",
+    "planId": "dig-once-959c1d688ed62aaa6216d75e",
+    "error": "AUDIT_ALERT_ENQUEUE_FAILURE",
+    "afterFailure": {
+      "status": "paused",
+      "scheduleId": null,
+      "lifecycle": null,
+      "alerts": 0
+    },
+    "sameProcessRetry": {
+      "checked": 0,
+      "results": []
+    },
+    "alertsAfterRetry": 0,
+    "afterRestart": {
+      "checked": 0,
+      "results": []
+    },
+    "alertsAfterRestart": 0,
+    "deletedNativeIds": [
+      "native-1",
+      "native-2"
+    ],
+    "control": {
+      "planId": "dig-once-353cd93e94db659d4984373a",
+      "supervision": {
+        "checked": 1,
+        "results": [
+          {
+            "planId": "dig-once-353cd93e94db659d4984373a",
+            "action": "paused_unconfirmed",
+            "unattributed": 1,
+            "observed": 1,
+            "overdue": [
+              {
+                "scheduledAt": "2026-10-20T01:17:11.520Z",
+                "deliveredAt": "2026-10-20T01:17:11.520Z",
+                "messageId": "native-wake-2"
+              }
+            ],
+            "previousUnconfirmed": [],
+            "warnings": [],
+            "warning": null
+          }
+        ]
+      },
+      "alerts": [
+        {
+          "dedupKey": "digestunconfirmed:dig-once-353cd93e94db659d4984373a:native-2",
+          "status": "pending",
+          "text": "「一次性简报」有 1 条原生投递超过宽限仍无对应完成回执，已暂停并标记待核对；恢复前请先核对，不会为过期窗口补发一串简报。"
+        }
+      ]
+    }
+  },
+  {
+    "storage": "postgres",
+    "planId": "dig-once-b21392bfddb1050622c9a7d9",
+    "error": "AUDIT_ALERT_ENQUEUE_FAILURE",
+    "afterFailure": {
+      "status": "paused",
+      "scheduleId": null,
+      "lifecycle": null,
+      "alerts": 0
+    },
+    "sameProcessRetry": {
+      "checked": 0,
+      "results": []
+    },
+    "alertsAfterRetry": 0,
+    "afterRestart": {
+      "checked": 0,
+      "results": []
+    },
+    "alertsAfterRestart": 0,
+    "deletedNativeIds": [
+      "native-1",
+      "native-2"
+    ],
+    "control": {
+      "planId": "dig-once-6ffcd13dadfa9872d85bca46",
+      "supervision": {
+        "checked": 1,
+        "results": [
+          {
+            "planId": "dig-once-6ffcd13dadfa9872d85bca46",
+            "action": "paused_unconfirmed",
+            "unattributed": 1,
+            "observed": 1,
+            "overdue": [
+              {
+                "scheduledAt": "2026-10-20T01:17:14.436Z",
+                "deliveredAt": "2026-10-20T01:17:14.436Z",
+                "messageId": "native-wake-2"
+              }
+            ],
+            "previousUnconfirmed": [],
+            "warnings": [],
+            "warning": null
+          }
+        ]
+      },
+      "alerts": [
+        {
+          "dedupKey": "digestunconfirmed:dig-once-6ffcd13dadfa9872d85bca46:native-2",
+          "status": "pending",
+          "text": "「一次性简报」有 1 条原生投递超过宽限仍无对应完成回执，已暂停并标记待核对；恢复前请先核对，不会为过期窗口补发一串简报。"
+        }
+      ]
+    }
+  }
+]

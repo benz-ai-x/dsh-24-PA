@@ -1,0 +1,2 @@
+{"node":"v26.4.0","after100ms":{"transaction":"pending","backup":"pending","outsideClose":"pending","insideClose":"pending"},"explanation":"inside close waits for outside close, which is queued behind this transaction and its accepted backup"}
+{"rescuedForCleanup":{"transaction":"resolved","backup":"resolved","outsideClose":"resolved","insideClose":"resolved"}}

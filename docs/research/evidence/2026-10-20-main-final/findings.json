@@ -1,0 +1,639 @@
+[
+  {
+    "id": "V01",
+    "priority": "P1",
+    "title": "待审正文与候选行动不同源",
+    "outcome": "批准「李工」正文后，创建「王工」任务。",
+    "candidate": "review",
+    "evidence": [
+      "pa24-knowledge-final-results.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "handwriting-pipeline.ts",
+        444
+      ]
+    ]
+  },
+  {
+    "id": "V02",
+    "priority": "P2",
+    "title": "doubts 未进入行动澄清",
+    "outcome": "合法 doubts-only 输入保留人名疑点，却无逐项答案即可执行。",
+    "candidate": "review",
+    "evidence": [
+      "pa24-knowledge-final-results.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "handwriting-pipeline.ts",
+        290
+      ]
+    ]
+  },
+  {
+    "id": "V03",
+    "priority": "P1",
+    "title": "纪要恢复改用另一渠道",
+    "outcome": "飞书成功回执被当企微 guid，投影损坏并伪报企微成功。",
+    "candidate": "actions",
+    "evidence": [
+      "pa24-minutes-recovery-results.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "runtime.ts",
+        2629
+      ]
+    ]
+  },
+  {
+    "id": "V04",
+    "priority": "P2",
+    "title": "skill 工具子集未生效",
+    "outcome": "只声明 pa24_work，实际仍能调用 pa24_memory。",
+    "candidate": "skills",
+    "evidence": [
+      "pa24-skill-tools-result.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "runtime.ts",
+        1825
+      ]
+    ]
+  },
+  {
+    "id": "V05",
+    "priority": "P1",
+    "title": "SQLite 快照混合 WAL 代次",
+    "outcome": "恢复丢失备份前已提交行；complete 与 integrity_check 仍通过。",
+    "candidate": "backup",
+    "evidence": [
+      "pa24-backup-complete-result.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "sqlite.ts",
+        374
+      ]
+    ]
+  },
+  {
+    "id": "V06",
+    "priority": "P2",
+    "title": "迟到查询覆盖日程取消",
+    "outcome": "平台已取消，本地恢复 active；查询仍报 fresh:true。",
+    "candidate": "calendar",
+    "evidence": [
+      "pa24-channels-final-probe.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "calendar-observation.ts",
+        39
+      ]
+    ]
+  },
+  {
+    "id": "V07",
+    "priority": "P2",
+    "title": "旧完成回执覆盖新任务状态",
+    "outcome": "远端重新打开且已读回 open，本地又写回 completed。",
+    "candidate": "tasks",
+    "evidence": [
+      "pa24-channels-final-probe.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "feishu-channels.ts",
+        349
+      ]
+    ]
+  },
+  {
+    "id": "V08",
+    "priority": "P2",
+    "title": "周期任务产生虚假截止",
+    "outcome": "发生时间被写为任务 due_at；权威回读随即变为 null。",
+    "candidate": "tasks",
+    "evidence": [
+      "pa24-channels-final-probe.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "task-templates.ts",
+        104
+      ]
+    ]
+  },
+  {
+    "id": "V09",
+    "priority": "P2",
+    "title": "手动运行抵消自动发生",
+    "outcome": "对话手动与计划共用日期键，自动消息被计入已完成来源。",
+    "candidate": "digest",
+    "evidence": [
+      "digest-manual-result.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "digest-service.ts",
+        382
+      ]
+    ]
+  },
+  {
+    "id": "V10",
+    "priority": "P2",
+    "title": "归档用展示分页作完整盘点",
+    "outcome": "200 条发送记录之外的 unknown 漏检；51 条催审只停 50。",
+    "candidate": "archive",
+    "evidence": [
+      "pa24-archive-caps-result.json"
+    ],
+    "round": 1,
+    "files": [
+      [
+        "runtime.ts",
+        2840
+      ]
+    ]
+  },
+  {
+    "id": "V11",
+    "priority": "P1",
+    "title": "共享 PostgreSQL 数据库混用工作区账本",
+    "outcome": "切到不同主人的 B 后，memo_find 能读出 A 的个人备忘。",
+    "trigger": "A、B 使用不同目录与主人，继承同一 PA24_PG_DSN；A 事项已停止，正常绑定 B 成功。",
+    "cause": "PG adapter 仅按 DSN 打开固定 pa24 schema；workspace_state 可存多目录，业务表没有工作区 scope，接纳阶段没有证明账本归属。",
+    "proof": "公开 bind → delegate → memo_save → stop → bind(B) → memo_find：PG 返回 A_PRIVATE_MARKER，count=1；同流程 SQLite count=0。",
+    "limits": "确证以备忘为例；不声称实测全部表或投递后果。必须复用同一 PG 数据库才触发，分离数据库不属于本次问题。SQLite 路径隔离、运行中切换闸、角色检查仍成立。",
+    "files": [
+      [
+        "runtime.ts",
+        929
+      ],
+      [
+        "runtime.ts",
+        828
+      ],
+      [
+        "pg.ts",
+        10
+      ],
+      [
+        "db.ts",
+        60
+      ],
+      [
+        "repo/memo.ts",
+        70
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-data-workspace-result.json"
+    ],
+    "probe": "pa24-deep2-data-workspace-probe.mjs",
+    "candidate": "workspace",
+    "method": "公开 Runtime + 真实 SQLite/PG；demo 仅关闭外部写",
+    "round": 2
+  },
+  {
+    "id": "V12",
+    "priority": "P2",
+    "title": "旧 A 会话读取当前 B 的归档详情",
+    "outcome": "旧 A 的 archive_check 返回 B 的 WorkItem id、标题、角色与状态，混入 A 历史。",
+    "trigger": "真实本地 A 会话保留，随后绑定 B；B 有一个正在执行的事项。",
+    "cause": "roleFor 已判断旧 A 不属于当前工作区，但 maintenanceTool 在角色检查前放行 archive_check/health，读取当前 repos。",
+    "proof": "真实 Loader 的旧 A session/prompt 调用 archive_check，得到 ONLY_B_PRIVATE_WORK_TITLE_c4f39；相同代理的 pa24_jobs list 正确拒绝。",
+    "limits": "仅证明同一用户旧本地会话的只读详情；未证明维护写权限或跨用户攻击。工具目录随会话固定本身符合设计。提醒正文为空，未声称实测其泄露。",
+    "files": [
+      [
+        "runtime.ts",
+        1204
+      ],
+      [
+        "runtime.ts",
+        3213
+      ],
+      [
+        "runtime.ts",
+        2832
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-host-cross-workspace-read-result.json"
+    ],
+    "probe": "pa24-deep2-host-cross-workspace-read.mjs",
+    "candidate": "workspace",
+    "method": "真实 Loader/Session/ToolRuntime/SQLite；模型 SSE 仅保持 B 事项在运行",
+    "round": 2
+  },
+  {
+    "id": "V13",
+    "priority": "P2",
+    "title": "旧面板试听请求写入新工作区队列",
+    "outcome": "A 页面发起的 tts.test 在切到 B 后，向 B Outbox 的 owner-B 建立 audio 投递意图。",
+    "trigger": "同一宿主两个已认证面板页；A 的快照或请求尚未更新，另一页已绑定 B。",
+    "cause": "tts.test 没有执行 workspaceBinding 检查；两个客户端试听按钮未携带 binding，服务端即便收到也忽略。执行 lease 仅固定执行时的 B。",
+    "proof": "实际 registerPanel HTTP route → Runtime：旧 A binding 的 config-update 被拒，同 binding 的 tts.test 返回 queued:true；B 有 1 条 audio，A 为 0。",
+    "limits": "只验证排队，未实际发送；没有绕过 Host 认证。未将所有面板动作一概认定为错误，config/secret 绑定检查有效。",
+    "files": [
+      [
+        "panel.ts",
+        178
+      ],
+      [
+        "panel.ts",
+        183
+      ],
+      [
+        "runtime.ts",
+        3097
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-ui-knowledge-panel-results.json"
+    ],
+    "probe": "pa24-deep2-ui-knowledge-panel-probe.mjs",
+    "candidate": "workspace",
+    "method": "真实面板 HTTP route + Runtime + SQLite，无连接平台",
+    "round": 2
+  },
+  {
+    "id": "V14",
+    "priority": "P2",
+    "title": "真实 SDK 事件形状使来源身份与去重失效",
+    "outcome": "app/tenant 为空，卡片同一 event_id 被映射成两个 UUID，生成两行 Inbox 与两条通知。",
+    "trigger": "固定版本 @larksuiteoapi/node-sdk 1.74.0 解析 schema 2.0 事件，已把 header 展平到回调顶层。",
+    "cause": "消息与卡片 mapper 仍只读取 data.header。测试 Fake transport 直接注入规范化事件，未经过 SDK parse。",
+    "proof": "真实 EventDispatcher.invoke → SdkFeishuTransport → Runtime；同一卡片投两次产生两个 eventId。直接规范化的错误 app/tenant 被拒，经 SDK mapper 后却越过该检查。",
+    "limits": "WS 仍使用配置凭据，sender/owner 校验仍在，审核 token 与事务一次性裁决有效。未在真实租户验证跨租户攻击，也没有证明重复批准或创建任务。",
+    "files": [
+      [
+        "feishu.ts",
+        112
+      ],
+      [
+        "feishu.ts",
+        160
+      ],
+      [
+        "runtime.ts",
+        1414
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-ui-knowledge-sdk-results.json"
+    ],
+    "probe": "pa24-deep2-ui-knowledge-sdk-probe.mjs",
+    "candidate": "sdk",
+    "method": "真实固定版本 SDK dispatcher；只替换 WS start/close 禁止联网",
+    "round": 2
+  },
+  {
+    "id": "V15",
+    "priority": "P2",
+    "title": "原稿回执失败后实际重投无法恢复",
+    "outcome": "原稿已经保存，但同事件重投和重启后重投始终是 1 笔记、1 页、0 回执。",
+    "trigger": "第一张有效 PNG 已持久保存；第一次 noteack Outbox 写入发生一次瞬时故障。",
+    "cause": "收集管线支持按 message 补回执，外层 InboxLifecycle 却把非 admitted 事件写成永久 rejected；去重和启动恢复不再把该事件交回管线。",
+    "proof": "公开 transport.inject → Runtime；有效 70 字节 PNG 经 sharp 解码。故障解除、同 event 重投、重启后同 event 重投均失败；改 eventId 保持 messageId 的控制成功补 1 ack 且页数不增。",
+    "limits": "原稿没有丢失，管理面仍可见。只针对 noteack 首次落账故障，不能推导所有 Inbox 最后标记失败都会丢通知。",
+    "files": [
+      [
+        "inbox-lifecycle.ts",
+        44
+      ],
+      [
+        "inbox-lifecycle.ts",
+        124
+      ],
+      [
+        "handwriting-pipeline.ts",
+        203
+      ],
+      [
+        "runtime.ts",
+        1431
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-ui-knowledge-collection-results.json"
+    ],
+    "probe": "pa24-deep2-ui-knowledge-collection-probe.mjs",
+    "candidate": "completion",
+    "method": "公开 Runtime 入站 + SQLite；只注入一次 noteack 落账异常",
+    "round": 2
+  },
+  {
+    "id": "V16",
+    "priority": "P1",
+    "title": "Worker 已完成但结算故障后持续占槽",
+    "outcome": "结算写入暂时失败可占满默认两个 Worker 槽位，故障解除后仍阻塞新交办；普通重启在本地只读场景下可恢复。",
+    "trigger": "真实 Worker 完成回合时，result Outbox 的 SQLite 插入被一次 SQL trigger 拒绝；随后立即移除 trigger。",
+    "cause": "onTurnEnd 仅 catch 后记录 warning，没有保留可重试结算；事务正确回滚，但唯一完成事件没有再次落账。",
+    "proof": "真实 Loader，maxWorkers=1；恢复后等待 4.2 秒、跨多个调度周期仍不补交。通过真实 pa24_jobs 停止第一项后，第二项立即 completed，证明数据库与宿主已恢复。",
+    "limits": "原生 Background 子会话 closing message 仍送到本地父会话，不是全部结果消失。确证限持久结算、槽位和切换；没有实测飞书回复。冷启动新代续办也不等于补交原回合。 第四轮默认配置的重启控制只执行本地记忆读取，模型为 loopback scripted adapter；恢复是 generation+1 的核对续办，不是补交原回合，不推断所有外部副作用都安全。",
+    "files": [
+      [
+        "runtime.ts",
+        1588
+      ],
+      [
+        "runtime.ts",
+        1594
+      ],
+      [
+        "runtime.ts",
+        1631
+      ],
+      [
+        "work-item-lifecycle.ts",
+        115
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-host-result-retry-result.json",
+      "pa24-final-p0-runtime-result.json"
+    ],
+    "probe": "pa24-deep2-host-result-retry.mjs",
+    "candidate": "completion",
+    "method": "真实 Loader/Worker/SQLite；实际 SQL trigger 故障及恢复",
+    "round": 2,
+    "severityRevision": {
+      "round": 4,
+      "from": "P2",
+      "to": "P1",
+      "reason": "新增真实 Loader 默认 maxWorkers=2 证据：两个已结束 Worker 留在 running，第三项 queued，故障解除后跨多个调度周期不自愈；核心交办容量全部耗尽，需要重启或人工处置。普通同 profile 重启使原三项完成且新事项可继续，未证 P0。"
+    },
+    "supplementalProbe": "pa24-final-p0-runtime-probe.mjs"
+  },
+  {
+    "id": "V17",
+    "priority": "P2",
+    "title": "项目失败子集重试重复创建任务",
+    "outcome": "首次 [A,B] 中 B 已远端成功、本地投影失败；重试 [B] 后平台模拟账本出现 A、B、B 三项。",
+    "trigger": "同一 WorkItem，部分采纳失败后按提示仅重试失败项或重排；已有 B 的持久 _externalResult 回执。",
+    "cause": "project_adopt 用当前数组 index 构造 opSuffix；B 从 index=1 变为 0，稳定操作身份改变，旧回执无法用于恢复。",
+    "proof": "真实 Runtime + CLI 进程受控返回；SQLite 与 PG 均出现两个不同 B GUID。旧失败操作保留成功远端回执，新操作又创建 B；项目进度仅显示 2 项，漏掉孤立的旧 B。",
+    "limits": "没有声称相同标题总应去重；错误限定同一失败候选的子集/重排重试。平台网络为受控 stub，未写真实账号。",
+    "files": [
+      [
+        "runtime.ts",
+        2047
+      ],
+      [
+        "runtime.ts",
+        2055
+      ],
+      [
+        "feishu-channels.ts",
+        372
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-planning-project-results.json",
+      "pa24-deep2-planning-project-postgres-results.json"
+    ],
+    "probe": "pa24-deep2-planning-project-probe.mjs",
+    "candidate": "task-intent",
+    "method": "公开 Runtime + 真实 SQLite/PG + CLI stub；远端回执后注入一次投影故障",
+    "round": 2
+  },
+  {
+    "id": "V18",
+    "priority": "P2",
+    "title": "due:null 没有清除截止却报告成功",
+    "outcome": "任务仍保留原截止日；实际 task +update 调用为 0，返回却说“已按本人指令修改”。",
+    "trigger": "对已有截止日的飞书任务调用公开 task_update，传入 schema 允许的 due:null。",
+    "cause": "输入检查接受显式 null，但 parseDue 与 truthy 判断把它当成没有修改；本地 due_at 沿用旧值，操作记 succeeded。",
+    "proof": "SQLite/PG 双后端均复现：创建截止 2026-11-01，due:null 后权威回读仍为旧截止，stale:false；taskUpdateCalls=[]。",
+    "limits": "plannedAt/estimateMinutes 的 null 清除逻辑存在；此问题只报告 due。若平台通道不支持清除，应明确拒绝，不能假报已完成。",
+    "files": [
+      [
+        "work-tool-schema.ts",
+        10
+      ],
+      [
+        "feishu-channels.ts",
+        428
+      ],
+      [
+        "feishu-channels.ts",
+        450
+      ],
+      [
+        "feishu-channels.ts",
+        458
+      ],
+      [
+        "feishu-channels.ts",
+        468
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-planning-project-results.json",
+      "pa24-deep2-planning-project-postgres-results.json"
+    ],
+    "probe": "pa24-deep2-planning-project-probe.mjs",
+    "candidate": "task-intent",
+    "method": "公开 Runtime + 真实 SQLite/PG + CLI stub + 权威回读",
+    "round": 2
+  },
+  {
+    "id": "V19",
+    "priority": "P2",
+    "title": "会前准备未核对自动触发来源对应的计划",
+    "outcome": "A 的可信 schedule 来源可以生成并排队 B 的准备包，B 的 completedSources 还记录了 A 的身份。",
+    "trigger": "自动来源已捕获 A 的 scheduleId/generation，calendar Worker 却调用 meeting_prep_build 指向另一 active 计划 B。",
+    "cause": "构建过程检查 B 的会议新鲜度、指纹和状态，但没有把 WorkItem 的可信来源与 B 的 schedule/generation 对应起来。",
+    "proof": "公开 Runtime，使用实际宿主 schedule record/framing，控制已消费的来源为 native-1；调用 native-2 对应计划成功，Outbox 为两天后会议 B，completedSourcesForB 为 A。",
+    "limits": "不是实际等宿主时钟触发，来源 adapter 受控；这条只针对已知自动 schedule 来源。主人手动明确要求现在生成 B 仍合法，会议 freshness 复查也有效。",
+    "files": [
+      [
+        "runtime.ts",
+        2439
+      ],
+      [
+        "runtime.ts",
+        2473
+      ],
+      [
+        "digest-service.ts",
+        363
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-prep-source-results.json"
+    ],
+    "probe": "pa24-deep2-prep-source-probe.mjs",
+    "candidate": "schedule-source",
+    "method": "公开 Runtime + SQLite + 真实 schedule framing；来源输入/日历 CLI 受控",
+    "round": 2
+  },
+  {
+    "id": "V20",
+    "priority": "P2",
+    "title": "PostgreSQL 备忘日期显示丢失年份",
+    "outcome": "同一 2026-10-19，SQLite 返回完整日期，PG 公开 memo_find 返回 Mon Oct 19。",
+    "trigger": "PG DATE 被驱动解析成本地午夜 Date；repository 将其声明为 string 并原样交给调用者。",
+    "cause": "Runtime 用 String(value).slice(0,10) 处理两个后端，错误截断 PG Date；相同表达式还用于会前准备。",
+    "proof": "真实 SQLite/PG 公开 memo_find 对照；Asia/Shanghai 下 PG 原值 ISO 为前一日 16:00Z，但应表达公历日 2026-10-19。",
+    "limits": "数据库原值、筛选没有丢失。会前准备同形表达式是源码证据，未另跑其日期输出。不能简单用 toISOString().slice 修复，否则可能错日。",
+    "files": [
+      [
+        "repo/memo.ts",
+        14
+      ],
+      [
+        "runtime.ts",
+        474
+      ],
+      [
+        "runtime.ts",
+        2487
+      ],
+      [
+        "pg.ts",
+        74
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-data-date-result.json"
+    ],
+    "probe": "pa24-deep2-data-date-probe.mjs",
+    "candidate": "civil-date",
+    "method": "真实 SQLite/PG + 公开 memo_find，时区 Asia/Shanghai",
+    "round": 2
+  },
+  {
+    "id": "V21",
+    "priority": "P2",
+    "title": "备份集合重叠使凭据绕过排除",
+    "outcome": "workspace=Host stateDirectory 时，secrets.json 经 dsh-state 集合进入备份，create/verify 都判完整。",
+    "trigger": "公开 bind 接受两根目录相等；通过公开密钥更新保存显式假密钥，随后创建联合备份。",
+    "cause": "凭据排除只按 workspace 集合相对路径执行，其他 collector 和 verifier 不识别同一实际敏感文件。复制模式也未保留 0600。",
+    "proof": "workspace 集合正确排除，同一文件仍出现在 dsh-state/.24pa/secrets.json；complete=true、failures=[]。umask022 下文件权限从 600 变 644。",
+    "limits": "只用了假密钥；常规分离目录不触发。既有 symlink、越界、摘要和集合覆盖保护有效；不同于 V05 的 SQLite WAL 代次问题。",
+    "files": [
+      [
+        "backup.ts",
+        24
+      ],
+      [
+        "backup.ts",
+        62
+      ],
+      [
+        "backup.ts",
+        74
+      ],
+      [
+        "backup.ts",
+        128
+      ],
+      [
+        "runtime.ts",
+        2921
+      ]
+    ],
+    "evidence": [
+      "pa24-deep2-data-backup-secret-result.json"
+    ],
+    "probe": "pa24-deep2-data-backup-secret-probe.mjs",
+    "candidate": "backup-secrets",
+    "method": "公开 bind/secrets/backup create+verify；真实文件系统，假密钥",
+    "round": 2
+  },
+  {
+    "id": "V22",
+    "priority": "P2",
+    "round": 3,
+    "title": "联系人分页截断将同名歧义误判为唯一",
+    "outcome": "同名联系人位于第51条匹配记忆时，系统未澄清就选择第一页的人，执行发信和会议邀请。",
+    "trigger": "记忆中有两条 confirmed 的同名联系人记录，分别对应不同 open_id；另有49条匹配该姓名的项目背景，第二位联系人位于第51条。",
+    "cause": "两个联系人解析调用者都使用 query + limit:50，只在返回第一页内收集候选ID，忽略 MemoryStore.search 已返回的 matched 总数与 offset 分页信息。",
+    "proof": "公开 memoryTool apply写入资料→delegate→work。2条和50条匹配记录时，发信与邀请均明确拒绝且CLI调用为0；51条时两条路径均成功，真实CLI stub进程收到第一人的 --user-id / --attendee-ids。",
+    "limits": "真实 Runtime、MemoryStore、SQLite和CLI进程，平台网络使用仓库隔离stub，未向真人发送。没有证据确定主人本来想选哪一位；确证是存在歧义仍未经澄清选择了其中一位。显式 openId路径、正常小集合歧义检测仍存在。 task_assign 在源码中复用同一解析方法，本轮未另执行其平台分派路径。",
+    "contract": "F04日程会议实现研究第19行：一个名字多候选/零候选应整单拒绝且不创建事件。F08交办与跟进实现研究第14行：歧义澄清，绝不静默换人。SPEC第273行：外部动作在主人选定范围内执行。",
+    "deduplication": "与V10归档漏分页同属把展示切片当完整集合的模式，但它发生在独立的联系人唯一性决策，两个实现、业务后果与修复路径均不同；修复V10不会修复此项，故计为新增一项。发信和会议邀请共享同一根因，合并为V22，不算两项。",
+    "files": [
+      [
+        "runtime.ts",
+        2177
+      ],
+      [
+        "feishu-channels.ts",
+        264
+      ],
+      [
+        "memory.ts",
+        212
+      ]
+    ],
+    "evidence": [
+      "pa24-deep3-contacts-results.json"
+    ],
+    "probe": "pa24-deep3-contacts-probe.mjs",
+    "candidate": "contacts",
+    "recommendationStrength": "Strong",
+    "method": "公开 Runtime + 真实 MemoryStore/SQLite + 隔离 CLI 进程；2/50/51 条匹配记录对照"
+  },
+  {
+    "id": "V23",
+    "priority": "P2",
+    "round": 3,
+    "title": "监督暂停与告警落账断开，失败后无法自动补告警",
+    "outcome": "计划已 paused、原生任务已删除；告警落账失败后，同进程重试和重启仍为 0 条告警。",
+    "trigger": "原生 Schedule 已投递但超过宽限无业务完成；监督器停止计划成功，随后的主人通知 Outbox INSERT 出现暂时故障。",
+    "cause": "监督器先 plans.stop，再 notifyOwner；只扫描 active 计划。暂停完成后 schedule_id 和 lifecycle 都清空，没有待恢复的监督原因与告警意图。",
+    "proof": "公开 bind → delegate(reminders) → work(digest_enable) → superviseDigests(0)，真实 SQLite/PG SQL trigger 阻断 Outbox INSERT。移除 trigger 后重试、stop/new/bind 后重试，均 checked=0、alerts=0；新建无故障计划对照各生成唯一 pending 告警。",
+    "limits": "真实 Runtime 与双数据库；Schedule 使用符合宿主记录契约的受控 adapter，并未运行完整 Loader 或真实时钟投递。0 宽限是文档允许的公开测试参数。面板仍可查看 paused 并手工恢复；没有声称计划记录丢失。未执行断电或进程强杀。",
+    "contract": "F09-规划与定期回顾实现研究第19行要求无法归属投递经宽限后暂停并通知本人；SPEC 348–354 区分原生入队、业务完成与可处理的未确认状态。",
+    "deduplication": "与 V15 原稿回执、V16 Worker 结算均属于恢复承诺缺口，但持久状态、触发条件、消费者及修复路径独立；修复那两处不会使 paused 计划重新产生监督告警。暂停和漏告警合并为一项，不拆开计数。",
+    "files": [
+      [
+        "digest-service.ts",
+        641
+      ],
+      [
+        "digest-service.ts",
+        648
+      ],
+      [
+        "plan-lifecycle.ts",
+        74
+      ],
+      [
+        "plan-lifecycle.ts",
+        148
+      ],
+      [
+        "runtime.ts",
+        1343
+      ],
+      [
+        "runtime.ts",
+        2373
+      ]
+    ],
+    "evidence": [
+      "pa24-deep3-lifecycle-supervision-result.json"
+    ],
+    "probe": "pa24-deep3-lifecycle-supervision-probe.mjs",
+    "candidate": "supervision",
+    "recommendationStrength": "Strong",
+    "method": "公开 Runtime + 真实 SQLite/PG SQL trigger + 重试/重启 + 正常对照；Schedule adapter 受控"
+  }
+]

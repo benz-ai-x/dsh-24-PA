@@ -1,0 +1,67 @@
+{
+  "scenario": "Controlled real-engine statement failures via SQL triggers; exercise repository transactions and then retry through same interface.",
+  "results": [
+    {
+      "storage": "sqlite",
+      "tests": [
+        {
+          "name": "WorkItem result + Outbox atomic",
+          "statusAfterFault": "running",
+          "outboxesAfterFault": 0,
+          "statusAfterRetry": "completed",
+          "outboxesAfterRetry": 1
+        },
+        {
+          "name": "Review token + decision + note/version + Outbox atomic",
+          "tokenUsedAfterFault": false,
+          "decisionsAfterFault": 0,
+          "versionAfterFault": "pending_review",
+          "noteAfterFault": "collecting",
+          "tokenUsedAfterRetry": true,
+          "decisionsAfterRetry": 1,
+          "versionAfterRetry": "approved"
+        },
+        {
+          "name": "Reminder rule + occurrence + Outbox stop atomic",
+          "ruleAfterFault": "active",
+          "occurrenceAfterFault": "pending",
+          "outboxAfterFault": "pending",
+          "ruleAfterRetry": "stopped",
+          "occurrenceAfterRetry": "canceled",
+          "outboxAfterRetry": "expired"
+        }
+      ]
+    },
+    {
+      "storage": "postgres",
+      "tests": [
+        {
+          "name": "WorkItem result + Outbox atomic",
+          "statusAfterFault": "running",
+          "outboxesAfterFault": 0,
+          "statusAfterRetry": "completed",
+          "outboxesAfterRetry": 1
+        },
+        {
+          "name": "Review token + decision + note/version + Outbox atomic",
+          "tokenUsedAfterFault": false,
+          "decisionsAfterFault": 0,
+          "versionAfterFault": "pending_review",
+          "noteAfterFault": "collecting",
+          "tokenUsedAfterRetry": true,
+          "decisionsAfterRetry": 1,
+          "versionAfterRetry": "approved"
+        },
+        {
+          "name": "Reminder rule + occurrence + Outbox stop atomic",
+          "ruleAfterFault": "active",
+          "occurrenceAfterFault": "pending",
+          "outboxAfterFault": "pending",
+          "ruleAfterRetry": "stopped",
+          "occurrenceAfterRetry": "canceled",
+          "outboxAfterRetry": "expired"
+        }
+      ]
+    }
+  ]
+}

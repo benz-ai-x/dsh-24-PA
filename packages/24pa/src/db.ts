@@ -18,9 +18,14 @@ export interface BackupPart {
   id: string;
   name: string;
   bytes: Buffer;
-  /** Best-effort part: a write failure degrades the backup but does not
-   *  fail it (e.g. the SQLite WAL append when -wal vanished mid-backup). */
+  /** Legacy multipart metadata; current SQLite backups are self-contained. */
   optional?: boolean;
+}
+
+export interface WorkspaceLedgerIdentity {
+  workspaceId: string;
+  workspacePath: string;
+  ownerOpenId: string;
 }
 
 export interface PaDb extends PaQueryer {
@@ -28,13 +33,13 @@ export interface PaDb extends PaQueryer {
   /** SQLite only: absolute path of the ledger file (backup support). */
   readonly filePath?: string;
   check(): Promise<void>;
-  migrate(): Promise<number>;
+  /** Runtime admission supplies identity; ownership and migrations commit together. */
+  migrate(identity?: WorkspaceLedgerIdentity): Promise<number>;
   schemaVersion(): Promise<number>;
   /** Note numbering N-1, N-2… (PG sequence / SQLite counter table). */
   nextNoteSeq(): Promise<number>;
   withTransaction<T>(work: (client: PaQueryer) => Promise<T>): Promise<T>;
-  /** Ledger bytes for backup: SQLite checkpoints + file copy (WAL appended
-   *  when a truncate left frames behind), PostgreSQL runs pg_dump. */
+  /** Consistent ledger snapshot: SQLite native backup, PostgreSQL pg_dump. */
   backup(): Promise<BackupPart[]>;
   close(): Promise<void>;
 }
@@ -507,6 +512,17 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
     statements: [
       `alter table pa24.digest_occurrence add column if not exists time_context jsonb`,
       `alter table pa24.digest_plan add column if not exists schedule_generation text`,
+    ],
+  },
+  {
+    version: 17,
+    statements: [
+      `create table if not exists pa24.ledger_owner (
+        id integer primary key check (id = 1),
+        workspace_id text not null unique,
+        owner_open_id text not null,
+        created_at timestamptz not null default now()
+      )`,
     ],
   },
 ];

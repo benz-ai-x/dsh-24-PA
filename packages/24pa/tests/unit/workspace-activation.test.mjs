@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, rm, writeFile, readFile, realpath, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import { startPgCluster } from '../helpers/pg.mjs';
 let pg, root;
 const runtimes = [];
 beforeAll(async () => { root = await realpath(await mkdtemp(join(tmpdir(), 'pa24-workspace-activation-'))); pg = await startPgCluster(); });
+beforeEach(async () => { await pg.query('drop schema if exists pa24 cascade'); });
 afterEach(async () => { vi.restoreAllMocks(); for (const runtime of runtimes.splice(0)) await runtime.stop(); });
 afterAll(async () => { await pg?.stop(); await rm(root, { recursive: true, force: true }); });
 
@@ -45,7 +46,8 @@ describe('工作区激活：公开 bind/update/reload，真实文件与账本', 
     expect(rt.workspace.statePath).toBe(b);
     expect(rt.secretValue('feishuAppSecret')).toBe('new');
     expect((await rt.repos.workspaceState.get(b)).path).toBe(b);
-    const { rt: override } = runtime({ B_PG: pg.dsn });
+    await pg.query('create database pa24_override owner pa24_app');
+    const { rt: override } = runtime({ B_PG: pg.dsn.replace('/pa24_test', '/pa24_override') });
     const c = await workspace('c', { storage: 'postgres', pgDsnEnv: 'B_PG' }, { pgDsn: 'invalid-store-overridden' });
     await override.bind(c); expect(override.secretStatusSnapshot().pgDsn.source).toBe('env');
   });

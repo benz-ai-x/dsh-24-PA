@@ -1,0 +1,40 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:31374) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/unit/backup.test.mjs (13 tests | 3 failed | 10 skipped) 77ms
+   × workspace backup recovery coverage > schema 17 backup cannot report complete with missing workspace identity 30ms
+     → expected true to be false // Object.is equality
+   × workspace backup recovery coverage > schema 17 backup cannot report complete with damaged workspace identity 25ms
+     → expected true to be false // Object.is equality
+   × workspace backup recovery coverage > schema 17 backup cannot report complete with different workspace identity 21ms
+     → expected true to be false // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/backup.test.mjs > workspace backup recovery coverage > schema 17 backup cannot report complete with missing workspace identity
+ FAIL  tests/unit/backup.test.mjs > workspace backup recovery coverage > schema 17 backup cannot report complete with damaged workspace identity
+ FAIL  tests/unit/backup.test.mjs > workspace backup recovery coverage > schema 17 backup cannot report complete with different workspace identity
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tests/unit/backup.test.mjs:54:29
+     52|     else await writeFile(file, state === 'damaged' ? '{broken' : JSON.…
+     53|     const result = await create(f);
+     54|     expect(result.complete).toBe(false);
+       |                             ^
+     55|     expect(result.failures.join(' ')).toMatch(/身份/);
+     56|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 10 skipped (13)
+   Start at  10:46:00
+   Duration  215ms (transform 28ms, setup 0ms, collect 46ms, tests 77ms, environment 0ms, prepare 20ms)

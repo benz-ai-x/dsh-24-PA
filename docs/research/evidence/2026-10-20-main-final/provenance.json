@@ -1,0 +1,184 @@
+{
+  "pa24-knowledge-final-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-knowledge-final-results.json",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-knowledge-final-results.json"
+  ],
+  "pa24-minutes-recovery-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-minutes-recovery-results.json"
+  ],
+  "pa24-skill-tools-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-skill-tools-result.json"
+  ],
+  "pa24-backup-complete-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-backup-complete-result.json"
+  ],
+  "pa24-channels-final-probe.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-channels-final-probe.json",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-channels-final-probe.json",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-channels-final-probe.json"
+  ],
+  "digest-manual-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/digest-manual-result.json"
+  ],
+  "pa24-archive-caps-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-archive-caps-result.json"
+  ],
+  "pa24-deep2-data-workspace-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-data-workspace-result.json"
+  ],
+  "pa24-deep2-data-workspace-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-data-workspace-probe.mjs"
+  ],
+  "pa24-deep2-host-cross-workspace-read-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-host-cross-workspace-read-result.json"
+  ],
+  "pa24-deep2-host-cross-workspace-read.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-host-cross-workspace-read.mjs"
+  ],
+  "pa24-deep2-ui-knowledge-panel-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-ui-knowledge-panel-results.json"
+  ],
+  "pa24-deep2-ui-knowledge-panel-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-ui-knowledge-panel-probe.mjs"
+  ],
+  "pa24-deep2-ui-knowledge-sdk-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-ui-knowledge-sdk-results.json"
+  ],
+  "pa24-deep2-ui-knowledge-sdk-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-ui-knowledge-sdk-probe.mjs"
+  ],
+  "pa24-deep2-ui-knowledge-collection-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-ui-knowledge-collection-results.json"
+  ],
+  "pa24-deep2-ui-knowledge-collection-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-ui-knowledge-collection-probe.mjs"
+  ],
+  "pa24-deep2-host-result-retry-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-host-result-retry-result.json"
+  ],
+  "pa24-final-p0-runtime-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-runtime-result.json",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-runtime-result.json"
+  ],
+  "pa24-deep2-host-result-retry.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-host-result-retry.mjs"
+  ],
+  "pa24-final-p0-runtime-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-runtime-probe.mjs",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-runtime-probe.mjs"
+  ],
+  "pa24-deep2-planning-project-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-planning-project-results.json",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-planning-project-results.json"
+  ],
+  "pa24-deep2-planning-project-postgres-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-planning-project-postgres-results.json",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-planning-project-postgres-results.json"
+  ],
+  "pa24-deep2-planning-project-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-planning-project-probe.mjs",
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-planning-project-probe.mjs"
+  ],
+  "pa24-deep2-prep-source-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-prep-source-results.json"
+  ],
+  "pa24-deep2-prep-source-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-prep-source-probe.mjs"
+  ],
+  "pa24-deep2-data-date-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-data-date-result.json"
+  ],
+  "pa24-deep2-data-date-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-data-date-probe.mjs"
+  ],
+  "pa24-deep2-data-backup-secret-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-data-backup-secret-result.json"
+  ],
+  "pa24-deep2-data-backup-secret-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-data-backup-secret-probe.mjs"
+  ],
+  "pa24-deep3-contacts-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/pa24-deep3-contacts-results.json"
+  ],
+  "pa24-deep3-contacts-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/pa24-deep3-contacts-probe.mjs"
+  ],
+  "pa24-deep3-lifecycle-supervision-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/pa24-deep3-lifecycle-supervision-result.json"
+  ],
+  "pa24-deep3-lifecycle-supervision-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/pa24-deep3-lifecycle-supervision-probe.mjs"
+  ],
+  "digest-manual-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/digest-manual-probe.mjs"
+  ],
+  "pa24-skill-tools-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-skill-tools-probe.mjs"
+  ],
+  "pa24-knowledge-final-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-knowledge-final-probe.mjs"
+  ],
+  "pa24-backup-complete-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-backup-complete-probe.mjs"
+  ],
+  "pa24-minutes-recovery-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-minutes-recovery-probe.mjs"
+  ],
+  "pa24-archive-caps-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-archive-caps-probe.mjs"
+  ],
+  "pa24-channels-final-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/pa24-channels-final-probe.mjs"
+  ],
+  "severity-reassessment.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/severity-reassessment.json"
+  ],
+  "pa24-final-p0-runtime-host-log.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-runtime-host-log.json"
+  ],
+  "pa24-final-p0-runtime-model-log.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-runtime-model-log.json"
+  ],
+  "pa24-final-p0-runtime-review.md": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-runtime-review.md"
+  ],
+  "pa24-final-p0-migration-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-migration-probe.mjs"
+  ],
+  "pa24-final-p0-migration-results.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-migration-results.json"
+  ],
+  "pa24-final-p0-migration-probe.log": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/pa24-final-p0-migration-probe.log"
+  ],
+  "source-anchors.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/source-anchors.json"
+  ],
+  "prior-p0-validation.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/validation.json"
+  ],
+  "prior-first-round-validation.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/validation.json"
+  ],
+  "prior-second-round-validation.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/validation.json"
+  ],
+  "prior-third-round-validation.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/validation.json"
+  ],
+  "pa24-deep2-data-transactions-probe.mjs": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-data-transactions-probe.mjs"
+  ],
+  "pa24-deep2-data-transactions-result.json": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/pa24-deep2-data-transactions-result.json"
+  ],
+  "unit.log": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/unit.log"
+  ],
+  "e2e-sqlite.log": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/e2e-sqlite.log"
+  ],
+  "e2e-postgres.log": [
+    "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence/previous/prior/round1/e2e-postgres.log"
+  ]
+}

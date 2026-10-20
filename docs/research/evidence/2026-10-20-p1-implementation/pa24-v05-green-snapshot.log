@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/backup.test.mjs (6 tests | 5 skipped) 97ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+   Start at  10:11:09
+   Duration  228ms (transform 21ms, setup 0ms, collect 32ms, tests 97ms, environment 0ms, prepare 25ms)

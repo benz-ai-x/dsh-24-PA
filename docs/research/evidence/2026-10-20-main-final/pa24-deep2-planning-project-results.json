@@ -1,0 +1,297 @@
+{
+  "projectSubsetRetry": {
+    "first": {
+      "projectId": "prj-d961416511e80692",
+      "adopted": 1,
+      "failed": 1,
+      "results": [
+        {
+          "index": 0,
+          "ok": true,
+          "operationId": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:dfb2582974aa6f59cfcba97c1b369edb96f7c6dd6f44e04df50bf0e2b86285f6",
+          "guid": "tskstub-1",
+          "url": "https://example.feishu.cn/task/tskstub-1",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "message": "任务已创建（飞书为权威对象）。"
+        },
+        {
+          "index": 1,
+          "ok": false,
+          "error": "injected local projection failure after durable remote receipt"
+        }
+      ],
+      "message": "已采纳 1 项，1 项失败（见明细）；失败项可核对后重试。"
+    },
+    "retry": {
+      "projectId": "prj-d961416511e80692",
+      "adopted": 1,
+      "failed": 0,
+      "results": [
+        {
+          "index": 0,
+          "ok": true,
+          "operationId": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:ce247e12d0faf173da8a8184b0ff7098e92b8943ec0e65e18e113c0171b89364",
+          "guid": "tskstub-3",
+          "url": "https://example.feishu.cn/task/tskstub-3",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null,
+          "message": "任务已创建（飞书为权威对象）。"
+        }
+      ],
+      "message": "全部子任务已按本人采纳创建为真实飞书任务并关联项目。"
+    },
+    "before": [
+      {
+        "id": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:dfb2582974aa6f59cfcba97c1b369edb96f7c6dd6f44e04df50bf0e2b86285f6",
+        "work_item_id": "pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25",
+        "action": "task.create",
+        "params": {
+          "tasklistId": "list",
+          "summary": "子任务A",
+          "due": null
+        },
+        "status": "succeeded",
+        "attempt": 2,
+        "receipt": {
+          "guid": "tskstub-1",
+          "url": "https://example.feishu.cn/task/tskstub-1",
+          "summary": "子任务A"
+        },
+        "error": null,
+        "created_at": "2026-10-19T10:04:48.399Z",
+        "updated_at": "2026-10-19T10:04:49.180Z"
+      },
+      {
+        "id": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:fe62e1961b015d2d83a9945dcc7efccfe53765fc346ff1d38912d9cced64ad06",
+        "work_item_id": "pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25",
+        "action": "task.create",
+        "params": {
+          "tasklistId": "list",
+          "summary": "子任务B",
+          "due": null
+        },
+        "status": "failed",
+        "attempt": 2,
+        "receipt": {
+          "_externalResult": {
+            "data": {
+              "task": {
+                "guid": "tskstub-2",
+                "url": "https://example.feishu.cn/task/tskstub-2"
+              }
+            },
+            "raw": {
+              "ok": true,
+              "data": {
+                "task": {
+                  "guid": "tskstub-2",
+                  "url": "https://example.feishu.cn/task/tskstub-2"
+                }
+              }
+            }
+          }
+        },
+        "error": "injected local projection failure after durable remote receipt",
+        "created_at": "2026-10-19T10:04:49.181Z",
+        "updated_at": "2026-10-19T10:04:49.221Z"
+      }
+    ],
+    "after": [
+      {
+        "id": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:dfb2582974aa6f59cfcba97c1b369edb96f7c6dd6f44e04df50bf0e2b86285f6",
+        "work_item_id": "pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25",
+        "action": "task.create",
+        "params": {
+          "tasklistId": "list",
+          "summary": "子任务A",
+          "due": null
+        },
+        "status": "succeeded",
+        "attempt": 2,
+        "receipt": {
+          "guid": "tskstub-1",
+          "url": "https://example.feishu.cn/task/tskstub-1",
+          "summary": "子任务A"
+        },
+        "error": null,
+        "created_at": "2026-10-19T10:04:48.399Z",
+        "updated_at": "2026-10-19T10:04:49.180Z"
+      },
+      {
+        "id": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:fe62e1961b015d2d83a9945dcc7efccfe53765fc346ff1d38912d9cced64ad06",
+        "work_item_id": "pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25",
+        "action": "task.create",
+        "params": {
+          "tasklistId": "list",
+          "summary": "子任务B",
+          "due": null
+        },
+        "status": "failed",
+        "attempt": 2,
+        "receipt": {
+          "_externalResult": {
+            "data": {
+              "task": {
+                "guid": "tskstub-2",
+                "url": "https://example.feishu.cn/task/tskstub-2"
+              }
+            },
+            "raw": {
+              "ok": true,
+              "data": {
+                "task": {
+                  "guid": "tskstub-2",
+                  "url": "https://example.feishu.cn/task/tskstub-2"
+                }
+              }
+            }
+          }
+        },
+        "error": "injected local projection failure after durable remote receipt",
+        "created_at": "2026-10-19T10:04:49.181Z",
+        "updated_at": "2026-10-19T10:04:49.221Z"
+      },
+      {
+        "id": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:ce247e12d0faf173da8a8184b0ff7098e92b8943ec0e65e18e113c0171b89364",
+        "work_item_id": "pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25",
+        "action": "task.create",
+        "params": {
+          "tasklistId": "list",
+          "summary": "子任务B",
+          "due": null
+        },
+        "status": "succeeded",
+        "attempt": 2,
+        "receipt": {
+          "guid": "tskstub-3",
+          "url": "https://example.feishu.cn/task/tskstub-3",
+          "summary": "子任务B"
+        },
+        "error": null,
+        "created_at": "2026-10-19T10:04:49.221Z",
+        "updated_at": "2026-10-19T10:04:49.256Z"
+      }
+    ],
+    "remote": [
+      {
+        "guid": "tskstub-1",
+        "url": "https://example.feishu.cn/task/tskstub-1",
+        "summary": "[24PA] 子任务A",
+        "due": null,
+        "status": "open",
+        "idempotencyKey": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:dfb2582974aa6f59cfcba97c1b369edb96f7c6dd6f44e04df50bf0e2b86285f6"
+      },
+      {
+        "guid": "tskstub-2",
+        "url": "https://example.feishu.cn/task/tskstub-2",
+        "summary": "[24PA] 子任务B",
+        "due": null,
+        "status": "open",
+        "idempotencyKey": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:fe62e1961b015d2d83a9945dcc7efccfe53765fc346ff1d38912d9cced64ad06"
+      },
+      {
+        "guid": "tskstub-3",
+        "url": "https://example.feishu.cn/task/tskstub-3",
+        "summary": "[24PA] 子任务B",
+        "due": null,
+        "status": "open",
+        "idempotencyKey": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:ce247e12d0faf173da8a8184b0ff7098e92b8943ec0e65e18e113c0171b89364"
+      }
+    ],
+    "progress": {
+      "projectId": "prj-d961416511e80692",
+      "name": "深查项目",
+      "goal": "",
+      "total": 2,
+      "completed": 0,
+      "canceled": 0,
+      "remaining": [
+        {
+          "guid": "tskstub-1",
+          "summary": "子任务A",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null
+        },
+        {
+          "guid": "tskstub-3",
+          "summary": "子任务B",
+          "dueAt": null,
+          "plannedAt": null,
+          "estimateMinutes": null
+        }
+      ],
+      "next": {
+        "guid": "tskstub-1",
+        "summary": "子任务A",
+        "dueAt": null
+      },
+      "message": "剩余 2 项；下一步：子任务A"
+    }
+  },
+  "clearDue": {
+    "created": {
+      "operationId": "task.create:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:2671628f930b20886376f66154b9523d59526f02b38862c140844389c29ee97a",
+      "guid": "tskstub-4",
+      "url": "https://example.feishu.cn/task/tskstub-4",
+      "dueAt": "2026-11-01T00:00:00.000Z",
+      "plannedAt": null,
+      "estimateMinutes": null,
+      "message": "任务已创建（飞书为权威对象）。"
+    },
+    "clearResult": {
+      "operationId": "task.update:pa24-work-tasks-4a93285b-6a37-4be5-b174-dd5ab8adec25:0dd2fb0290985ba2682c85d2c16e8fab481a22eb607fa2ee4011af1d409656ea",
+      "guid": "tskstub-4",
+      "url": "https://example.feishu.cn/task/tskstub-4",
+      "summary": "清除截止核验",
+      "dueAt": "2026-11-01T00:00:00.000Z",
+      "message": "任务已按本人指令修改；截止与计划/估时分别记录。"
+    },
+    "readback": {
+      "guid": "tskstub-4",
+      "url": "https://example.feishu.cn/task/tskstub-4",
+      "summary": "清除截止核验",
+      "dueAt": "2026-11-01T00:00:00.000Z",
+      "plannedAt": null,
+      "estimateMinutes": null,
+      "status": "open",
+      "channel": "feishu",
+      "stale": false,
+      "message": "已按飞书最新状态刷新。"
+    },
+    "taskUpdateCalls": []
+  },
+  "preview": {
+    "date": "2026-10-20",
+    "fresh": true,
+    "busy": [
+      {
+        "summary": "整天会议",
+        "start": "2026-10-20T01:00:00.000Z",
+        "end": "2026-10-20T10:00:00.000Z"
+      }
+    ],
+    "bufferMinutesPerMeeting": 0,
+    "candidateBlocks": [
+      {
+        "task": "清除截止核验",
+        "suggestedStart": "2026-10-20T01:00:00.000Z",
+        "minutes": 60
+      },
+      {
+        "task": "子任务B",
+        "suggestedStart": "2026-10-20T02:00:00.000Z",
+        "minutes": 60
+      },
+      {
+        "task": "子任务A",
+        "suggestedStart": "2026-10-20T03:00:00.000Z",
+        "minutes": 60
+      }
+    ],
+    "message": "候选时间块仅为建议；用 plan_adopt 采纳选定项（写入前会重新同步复核）。"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "archiveCheck": {
+    "blocking": false,
+    "outboxPending": 0,
+    "message": "没有运行中事项或未确认发送；原生计划与外部提醒清单如下（空闲但有计划也需明确处置后再归档）。"
+  },
+  "trueUnknownCount": 1,
+  "archiveExecute": {
+    "rulesStopped": 50,
+    "failures": [],
+    "remainingReviewReminders": [
+      {
+        "id": "review-50",
+        "noteId": "N-50",
+        "kind": "once",
+        "remindAt": "2026-10-19T10:46:17.502Z"
+      }
+    ],
+    "message": "已停止 0 个运行中事项、处置 0 个原生计划、停止 50 条外部提醒；恢复后不会自动重建已删计划。"
+  },
+  "activeRemindersAfter": [
+    "review-50"
+  ]
+}

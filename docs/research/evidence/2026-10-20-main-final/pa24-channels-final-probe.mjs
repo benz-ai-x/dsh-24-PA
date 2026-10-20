@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import { chmod, appendFile, access } from 'node:fs/promises';
+import { fixture, join, readFile, writeFile, delay } from '/Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa/tests/helpers/runtime.mjs';
+import { FakeFeishuTransport } from '/Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa/lib/feishu.js';
+const probeResults = {};
+const record = (name, result) => { probeResults[name] = result; console.log(name, JSON.stringify(result)); };
+const f = await fixture({ cliTimeoutMs: 15000 });
+try {
+  const state = join(f.root, 'state.json'), bin = join(f.root, 'lark-cli'), stub = join(f.root,'stub-lark.mjs');
+  let source = await readFile('/Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa/tests/helpers/stub-lark-cli.mjs','utf8');
+  source = source.replace('const events = await readEvents();', `const events = await readEvents();\nif (args.includes('+agenda') && state.delayAgenda) { await writeFile(statePath + '.entered','yes'); for (;;) { try { await readFile(statePath + '.release'); break; } catch {} await new Promise(r => setTimeout(r, 10)); } }`);
+  await writeFile(stub, source); await writeFile(state,'{}');
+  await writeFile(bin, '#!/usr/bin/env node\nprocess.env.PA24_LARK_STUB_STATE=' + JSON.stringify(state) + ';\nawait import(' + JSON.stringify(stub) + ');\n'); await chmod(bin, 0o755); f.options.larkCliBin = bin;
+  const path = await f.workspace('probe',{mode:'feishu',ownerOpenId:'owner',calendarId:'cal',tasklistId:'list',folderToken:'folder',enabledWorkers:['tasks','calendar'],maxWorkers:8});
+  await f.rt.bind(path); f.rt.transport = new FakeFeishuTransport('probe');
+  const local = f.agents.get(await f.rt.openLocalSession());
+  const tasks = {id:(await f.rt.delegate({worker:'tasks',title:'tasks',instruction:'本人交办'},local)).workId};
+  const created = await f.rt.work({action:'task_create',summary:'重新打开后需核对'},tasks);
+  await f.rt.work({action:'task_complete',guid:created.guid},tasks);
+  const taskRecords = (await readFile(state+'.tasks.jsonl','utf8')).trim().split('\n').map(JSON.parse);
+  await appendFile(state+'.tasks.jsonl',JSON.stringify({...taskRecords.at(-1),status:'open'})+'\n');
+  const again = await f.rt.work({action:'task_complete',guid:created.guid},tasks);
+  const authoritative=(await readFile(state+'.tasks.jsonl','utf8')).trim().split('\n').map(JSON.parse).at(-1);
+  const projection=await f.rt.repos.tasks.byGuid(created.guid);
+  record('REOPEN_PROBE',{result:again,remoteStatus:authoritative.status,localStatus:projection.status});
+  assert.equal(authoritative.status,'open'); assert.equal(projection.status,'completed');
+  const calendar = {id:(await f.rt.delegate({worker:'calendar',title:'calendar',instruction:'本人交办'},local)).workId};
+  const start=new Date(Date.now()+3*86400000).toISOString(),end=new Date(Date.now()+3*86400000+3600000).toISOString();
+  const event=await f.rt.work({action:'calendar_create',summary:'旧会议',start,end},calendar);
+  await writeFile(state,JSON.stringify({delayAgenda:true}));
+  const observed = f.rt.work({action:'calendar_query',from:start,to:end},calendar);
+  let entered=false; for(let n=0;n<1000;n++){try{await access(state+'.entered');entered=true;break;}catch{}await delay(10);} assert(entered);
+  const canceled=await f.rt.work({action:'calendar_cancel',eventId:event.eventId},calendar);
+  const before=await f.rt.repos.calendar.findEvent(event.eventId);
+  await writeFile(state+'.release','go'); const result=await observed;
+  const after=await f.rt.repos.calendar.findEvent(event.eventId);
+  const remoteEvent=(await readFile(state+'.events.jsonl','utf8')).trim().split('\n').map(JSON.parse).at(-1);
+  record('CALENDAR_RACE',{cancel:canceled.message,projectionBeforeLateObservation:before.status,queryFresh:result.fresh,queryCount:result.events.length,projectionAfter:after.status,remoteStatus:remoteEvent.status});
+  assert.equal(before.status,'canceled');assert.equal(remoteEvent.status,'canceled');assert.equal(after.status,'active');assert.equal(result.fresh,true);
+
+  const recurrence={kind:'weekly',time:'09:00:00',weekdays:[1],timeZone:'Asia/Shanghai'};
+  const one=await f.rt.work({action:'task_repeat_create',title:'标题 A',...recurrence},tasks);
+  const two=await f.rt.work({action:'task_repeat_create',title:'标题 B',...recurrence},tasks);
+  await f.rt.work({action:'task_repeat_update',templateId:one.templateId,title:'标题 B'},tasks);
+  const same=await f.rt.repos.taskTemplates.list('active');
+  assert.equal(same.filter(t=>t.title==='标题 B').length,2);
+  const due=new Date(Date.now()-1000);
+  for(const tpl of same){const inst=(await f.rt.repos.taskTemplates.instancesOf(tpl.id)).find(row=>row.status==='pending');await f.rt.db.query('update pa24.task_template_instance set id = $2, due_at = $3 where id = $1',[inst.id,`${tpl.id}:${due.toISOString()}`,due]);await f.rt.repos.taskTemplates.update(tpl.id,{next_due_at:due});}
+  const generated=await f.rt.materializeTemplateInstances();
+  const repeatedTasks=(await f.rt.repos.tasks.all()).filter(t=>t.summary==='标题 B');
+  record('TEMPLATE_RENAME_DUPLICATE',{activeIdentical: same.length,generated,remoteTaskGuids:repeatedTasks.map(t=>t.task_guid)});
+  assert.equal(generated,2);assert.equal(repeatedTasks.length,2);
+  const repeated=repeatedTasks[0],beforeDue=repeated.due_at;
+  const refreshedTask=await f.rt.work({action:'task_get',guid:repeated.task_guid},tasks);
+  record('TEMPLATE_PHANTOM_DUE',{generatedProjectionDue:beforeDue.toISOString(),authoritativeDue:refreshedTask.dueAt});
+  await writeFile('/tmp/pa24-channels-final-probe.json',JSON.stringify({commit:'0ef85772a10f45e8e3b4c4d2c85d7249bf28e256',results:probeResults},null,2));
+} finally {await f.cleanup();}

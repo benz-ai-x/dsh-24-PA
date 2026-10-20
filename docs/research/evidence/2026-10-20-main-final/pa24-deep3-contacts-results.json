@@ -1,0 +1,121 @@
+{
+  "scenario": "Two same-name confirmed contacts; 49 matching background records hide the second contact beyond the resolver first page. Real public Runtime and memory writes, SQLite, isolated CLI stub, no platform network.",
+  "results": [
+    {
+      "fillerCount": 0,
+      "matchingRecords": 2,
+      "firstPageSize": 2,
+      "allContacts": [
+        "联系人 李雷：ou_person_one（产品组）",
+        "联系人 李雷：ou_person_two（财务组）"
+      ],
+      "send": {
+        "ok": false,
+        "error": "收件人无法唯一确定（李雷（记忆中有 2 位候选））；请先与本人澄清，未发送任何消息。"
+      },
+      "meeting": {
+        "ok": false,
+        "error": "以下参会人无法唯一确定，请先澄清后再邀请：李雷（记忆中有 2 位候选）。未发出任何邀请。"
+      },
+      "calls": []
+    },
+    {
+      "fillerCount": 48,
+      "matchingRecords": 50,
+      "firstPageSize": 50,
+      "allContacts": [
+        "联系人 李雷：ou_person_one（产品组）",
+        "联系人 李雷：ou_person_two（财务组）"
+      ],
+      "send": {
+        "ok": false,
+        "error": "收件人无法唯一确定（李雷（记忆中有 2 位候选））；请先与本人澄清，未发送任何消息。"
+      },
+      "meeting": {
+        "ok": false,
+        "error": "以下参会人无法唯一确定，请先澄清后再邀请：李雷（记忆中有 2 位候选）。未发出任何邀请。"
+      },
+      "calls": []
+    },
+    {
+      "fillerCount": 49,
+      "matchingRecords": 51,
+      "firstPageSize": 50,
+      "allContacts": [
+        "联系人 李雷：ou_person_one（产品组）",
+        "联系人 李雷：ou_person_two（财务组）"
+      ],
+      "send": {
+        "ok": true,
+        "result": {
+          "operationId": "out:pa24-work-tasks-1ffb4819-481f-44af-a852-a30e9180bf42:ca481a2da53573a9a5b4484e4b693ca05600a49eaf8621f4f432694852d2ecf1",
+          "messageId": "omstub-1",
+          "target": {
+            "name": "李雷",
+            "openId": "ou_person_one"
+          },
+          "message": "已按本人明确指令发送给 李雷（以平台回执为准）。"
+        }
+      },
+      "meeting": {
+        "ok": true,
+        "result": {
+          "operationId": "calendar.create:pa24-work-calendar-9b8c5f90-d4c7-4774-94fd-ac4fdd93d02c:b41e73c10648cef9a9874af7244e649cbfe57a9917c72e265d418fbb12db6183",
+          "eventId": "evtstub-1",
+          "url": "https://example.feishu.cn/calendar/event/evtstub-1",
+          "message": "已按本人明确指令创建会议并邀请 1 位参会人（李雷）；结果以平台回执为准。",
+          "attendees": [
+            {
+              "name": "李雷",
+              "openId": "ou_person_one"
+            }
+          ]
+        }
+      },
+      "calls": [
+        {
+          "at": "2026-10-20T01:15:45.969Z",
+          "args": [
+            "--profile",
+            "default",
+            "im",
+            "+messages-send",
+            "--as",
+            "user",
+            "--user-id",
+            "ou_person_one",
+            "--text",
+            "隔离测试问候",
+            "--idempotency-key",
+            "out:pa24-work-tasks-1ffb4819-481f-44af-a852-a30e9180bf42:ca481a2da53573a9a5b4484e4b693ca05600a49eaf8621f4f432694852d2ecf1",
+            "--json"
+          ],
+          "ok": true
+        },
+        {
+          "at": "2026-10-20T01:15:46.011Z",
+          "args": [
+            "--profile",
+            "default",
+            "calendar",
+            "+create",
+            "--as",
+            "user",
+            "--calendar-id",
+            "calendar",
+            "--summary",
+            "[24PA] 隔离测试会议",
+            "--start",
+            "2026-11-01T02:00:00.000Z",
+            "--end",
+            "2026-11-01T03:00:00.000Z",
+            "--attendee-ids",
+            "ou_person_one",
+            "--json"
+          ],
+          "ok": true
+        }
+      ]
+    }
+  ]
+}

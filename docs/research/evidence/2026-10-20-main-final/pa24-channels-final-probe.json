@@ -1,0 +1,36 @@
+{
+  "commit": "0ef85772a10f45e8e3b4c4d2c85d7249bf28e256",
+  "results": {
+    "REOPEN_PROBE": {
+      "result": {
+        "operationId": "task.complete:pa24-work-tasks-b9381b17-1ce0-4c30-bc5f-3daeb5e8a593:9125f817c760f4ec3c3503c2d7bb1c410ed240df4c303fc94833284b3b70a339",
+        "guid": "tskstub-1",
+        "status": "completed",
+        "reused": true,
+        "message": "此前已完成，未重复提交。"
+      },
+      "remoteStatus": "open",
+      "localStatus": "completed"
+    },
+    "CALENDAR_RACE": {
+      "cancel": "日程已取消（以平台回执为准）。",
+      "projectionBeforeLateObservation": "canceled",
+      "queryFresh": true,
+      "queryCount": 1,
+      "projectionAfter": "active",
+      "remoteStatus": "canceled"
+    },
+    "TEMPLATE_RENAME_DUPLICATE": {
+      "activeIdentical": 2,
+      "generated": 2,
+      "remoteTaskGuids": [
+        "tskstub-2",
+        "tskstub-3"
+      ]
+    },
+    "TEMPLATE_PHANTOM_DUE": {
+      "generatedProjectionDue": "2026-10-19T09:42:36.950Z",
+      "authoritativeDue": null
+    }
+  }
+}

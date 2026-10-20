@@ -1,0 +1,14 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:24902) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/workspace-activation.test.mjs (14 tests) 1312ms
+(node:24974) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/ledger-ownership.test.mjs (17 tests) 1593ms
+
+ Test Files  2 passed (2)
+      Tests  31 passed (31)
+   Start at  10:37:13
+   Duration  3.39s (transform 107ms, setup 0ms, collect 316ms, tests 2.90s, environment 0ms, prepare 37ms)

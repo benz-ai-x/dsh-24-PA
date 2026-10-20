@@ -1,0 +1,31 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:22132) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/unit/sqlite.test.mjs (29 tests | 1 failed | 28 skipped) 223ms
+   × rejects close inside a transaction even when external backup and close are already queued 223ms
+     → expected [Function] to throw error including '事务' but got 'close waited on its own transaction'
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/sqlite.test.mjs > rejects close inside a transaction even when external backup and close are already queued
+AssertionError: expected [Function] to throw error including '事务' but got 'close waited on its own transaction'
+
+Expected: "事务"
+Received: "close waited on its own transaction"
+
+ ❯ tests/unit/sqlite.test.mjs:249:23
+    247|     const rejected = expect(transaction).rejects.toThrow('事务');
+    248|     release.resolve();
+    249|     const [, parts] = await Promise.all([rejected, snapshot, closing]);
+       |                       ^
+    250|     await writeFile(join(root, 'restored.db'), parts[0].bytes);
+    251|     restored = new SqliteDb(join(root, 'restored.db'));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 28 skipped (29)
+   Start at  10:28:19
+   Duration  366ms (transform 34ms, setup 0ms, collect 51ms, tests 223ms, environment 0ms, prepare 20ms)

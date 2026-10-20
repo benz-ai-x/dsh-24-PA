@@ -1,0 +1,10 @@
+{
+  "commit": "c53c28780983bde4ca14a21dcfdfffa40a1b6cbb",
+  "node": "v26.4.0",
+  "version": 17,
+  "restoredVersion": 17,
+  "parts": [
+    "sqlite"
+  ],
+  "ownershipMatches": true
+}

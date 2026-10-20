@@ -1,0 +1,14 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f01.e2e.mjs (8 tests) 12144ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P02：/24pa 状态回复经持久 Outbox 回执；重复事件、他人与错应用不处理 3064ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P03+P14：飞书委托经 Lead 委派 memo Worker，保存真实文档并回传出处 1054ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P03：本地24私助会话发起同一备忘流程，结果回到本地会话且不进飞书 515ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P14：memo_find 经真实工具执行，找回带出处的备忘 512ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P02：提交后重启，工作区/会话/账本从持久状态恢复，重复事件不重投 3940ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  10:41:28
+   Duration  12.28s (transform 26ms, setup 0ms, collect 44ms, tests 12.14s, environment 0ms, prepare 24ms)

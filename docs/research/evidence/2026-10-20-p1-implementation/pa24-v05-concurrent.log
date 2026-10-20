@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/backup.test.mjs (10 tests | 9 skipped) 30105ms
+   ✓ workspace backup recovery coverage > concurrent external transactions leave a coherent two-table snapshot 30105ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 9 skipped (10)
+   Start at  10:18:07
+   Duration  30.23s (transform 20ms, setup 0ms, collect 32ms, tests 30.10s, environment 0ms, prepare 21ms)

@@ -3,6 +3,8 @@ import { mkdir, lstat, readdir, readFile, writeFile, realpath } from 'node:fs/pr
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { PaDb } from './db.js';
 import { sha256Hex } from './handwriting.js';
+import { readLedgerOwner } from './repo/ledger.js';
+import { parseWorkspaceIdentity } from './ledger-identity.js';
 
 type FileEntry = { path: string; bytes: number; sha256: string };
 type Collection = { id: string; root?: string; required: boolean; includes?: string[]; excludes?: string[] };
@@ -20,6 +22,8 @@ export class WorkspaceBackup {
 
   async create(targetDir: string, metadata: { credentialReferences: string[]; watermarks: unknown }) {
     if (!isAbsolute(targetDir)) throw new Error('需要绝对目标目录 targetDir。');
+    const schemaVersion = await this.db.schemaVersion();
+    const ledgerOwner = schemaVersion >= 17 ? await readLedgerOwner(this.db) : null;
     const collections: Collection[] = [
       { id: 'workspace', root: this.sources.workspace, required: true,
         includes: ['AGENTS.md', '.24pa', '.dsh/skills'], excludes: CREDENTIAL_PATHS },
@@ -80,10 +84,11 @@ export class WorkspaceBackup {
       coverage.push({ id, required, state: 'copied', files: files.length });
     }
     const manifest = {
-      formatVersion: 2, createdAt: new Date().toISOString(), storage: this.db.kind,
-      schemaVersion: await this.db.schemaVersion(), parts, coverage, ...metadata,
+      formatVersion: 3, createdAt: new Date().toISOString(), storage: this.db.kind,
+      schemaVersion, ledgerWorkspaceId: ledgerOwner?.workspace_id ?? null, parts, coverage, ...metadata,
       consistency: 'live-copy',
-      note: '在线文件快照；恢复前停止 Host，核对外部对象及旧 Outbox。凭据不包含在备份中。',
+      ledgerConsistency: 'snapshot',
+      note: '业务账本为一致快照，其余文件在线收集，不保证跨系统同一事务时点；恢复前停止 Host，核对外部对象及旧 Outbox。凭据不包含在备份中。',
     };
     await writeFile(join(dir, 'backup-manifest.json'), JSON.stringify(manifest, null, 2));
     const checked = await WorkspaceBackup.verify(dir);
@@ -98,8 +103,13 @@ export class WorkspaceBackup {
     const manifest = JSON.parse((await safeRead(dir, 'backup-manifest.json')).toString());
     const failures: string[] = [];
     const results: { id: string; ok: boolean; files?: number }[] = [];
-    if (manifest.formatVersion !== 2) failures.push('旧格式缺少集合覆盖证据，不能证明联合备份完整；请重新创建备份');
+    if (![2, 3].includes(manifest.formatVersion)) failures.push('不支持的格式或缺少集合覆盖证据，不能证明联合备份完整；请重新创建备份');
+    if (manifest.schemaVersion >= 17 && typeof manifest.ledgerWorkspaceId !== 'string') failures.push('缺少已登记的账本工作区身份');
     const parts = Array.isArray(manifest.parts) ? manifest.parts : [];
+    if (manifest.storage === 'sqlite' && (manifest.formatVersion !== 3 || manifest.ledgerConsistency !== 'snapshot'
+      || parts.some((part: FileEntry & { id: string }) => part.id === 'sqlite-wal' || part.path === 'pa24.db-wal'))) {
+      failures.push('SQLite 备份缺少独立一致快照证明；旧 DB/WAL 文件集合不能认证，请重新创建备份');
+    }
     const coverage: Coverage[] = Array.isArray(manifest.coverage) ? manifest.coverage : [];
     const ids = new Set<string>();
     for (const part of parts) {
@@ -125,6 +135,12 @@ export class WorkspaceBackup {
           }
           for (const path of listing.directories) await safePath(join(dir, id), path, true);
           if (id === 'workspace' && (!paths.has('AGENTS.md') || !listing.directories.includes('.24pa'))) throw new Error('缺少 AGENTS.md 或 .24pa 工作区集合');
+          if (id === 'workspace' && manifest.schemaVersion >= 17) {
+            const identityPath = '.24pa/ledger-identity.json';
+            if (!paths.has(identityPath)) throw new Error('缺少账本恢复所需的工作区身份文件');
+            const identity = parseWorkspaceIdentity((await safeRead(join(dir, id), identityPath)).toString());
+            if (identity !== manifest.ledgerWorkspaceId) throw new Error('备份工作区身份与账本归属不符');
+          }
           if (id === 'workspace' && CREDENTIAL_PATHS.some(path => paths.has(path))) throw new Error('工作区备份含凭据');
           if (coverage.find(c => c.id === id)?.files !== count) throw new Error('集合计数不符');
         }

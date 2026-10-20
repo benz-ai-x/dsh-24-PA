@@ -1,0 +1,26 @@
+{
+  "reviewedAt": "2026-10-20T09:38:04.567398+08:00",
+  "branch": "main",
+  "sha": "0ef85772a10f45e8e3b4c4d2c85d7249bf28e256",
+  "report": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804.html",
+  "evidence": "/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/architecture-review-20261020-093804-final-p0-evidence",
+  "confirmedP0": 0,
+  "totalP1": 5,
+  "totalP2": 18,
+  "totalFindings": 23,
+  "newIndependentFindings": 0,
+  "severityChanges": [
+    {
+      "id": "V16",
+      "from": "P2",
+      "to": "P1"
+    }
+  ],
+  "realLoaderDefaultCapacityProbe": "passed; failure reproduced and restart control successful",
+  "migrationRecoveryControls": 4,
+  "sourceUnchanged": true,
+  "remoteMainVerifiedUnchanged": true,
+  "fullSuite": "Not repeated; same-SHA first-round results retained",
+  "visualQA": "Not performed; previous browser refusal respected",
+  "staticValidation": "passed"
+}

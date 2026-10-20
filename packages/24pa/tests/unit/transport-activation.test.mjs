@@ -174,6 +174,9 @@ it('目标恢复使用原入口的本地回传意图；失败发生于激活前�
   const a = rt.workspace.statePath, b = await workspace('recovery-b');
   const file = join(b, 'AGENTS.md');
   await writeFile(file, (await readFile(file, 'utf8')).replace('"notifyChannel":"feishu"', '"notifyChannel":"wecom"'));
+  // Establish B through the public admission path before seeding interrupted
+  // input. Unowned historical data must now fail before recovery begins.
+  await rt.bind(b); await rt.bind(a);
   await mkdir(join(b, 'data'), { recursive: true });
   const db = new SqliteDb(join(b, 'data', 'pa24.db'));
   await db.migrate();

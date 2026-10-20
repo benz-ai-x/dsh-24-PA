@@ -1,0 +1,72 @@
+{
+  "manual": {
+    "planId": "plan",
+    "windowKey": "2026-10-19",
+    "agentTrack": true,
+    "skill": {
+      "name": "custom-brief",
+      "content": "按本次事实生成简报"
+    },
+    "facts": {
+      "period": {
+        "kind": "morning",
+        "timeZone": "Asia/Shanghai",
+        "source": "manual",
+        "anchorAt": "2026-10-19T09:42:51.574Z",
+        "from": "2026-10-18T16:00:00.000Z",
+        "to": "2026-10-19T16:00:00.000Z",
+        "localFrom": "2026-10-19",
+        "localTo": "2026-10-20",
+        "observedAt": "2026-10-19T09:42:51.580Z",
+        "late": false,
+        "snapshotNote": "任务、等待、项目与笔记反映查询时的当前投影，并非原发生时刻的完整历史快照。",
+        "completionTimeNote": "完成任务按投影最后同步时间筛选，不能作为精确完成时间。"
+      },
+      "calendar": {
+        "fresh": true,
+        "syncedAt": null,
+        "events": []
+      },
+      "tasksDue": [],
+      "tasksCompletedToday": [],
+      "waiting": [],
+      "reviewQueueCount": 0,
+      "reviewedNotes": [],
+      "projects": [],
+      "missing": []
+    },
+    "message": "agent 轨：请严格按上述任务指令与完成标准生成简报全文（纯文本），在本事项内调用 digest_deliver（planId、report）交付当前窗口；未达完成标准时在 report 开头如实说明并交付。"
+  },
+  "scheduled": {
+    "planId": "plan",
+    "windowKey": "2026-10-19",
+    "reused": true,
+    "status": "model_done",
+    "message": "本窗口（2026-10-19）简报已生成，不重复发布。"
+  },
+  "outbox": [
+    {
+      "key": "digest:plan:2026-10-19",
+      "text": "手动运行结果"
+    }
+  ],
+  "completedSources": [
+    {
+      "kind": "admission",
+      "sessionId": "access",
+      "turn": 1
+    },
+    {
+      "kind": "schedule",
+      "sessionId": "access",
+      "turn": 1,
+      "deliveries": [
+        {
+          "scheduleId": "sched",
+          "occurrenceAt": "2026-10-19T09:42:51.573Z",
+          "messageId": "schedule-worker-message"
+        }
+      ]
+    }
+  ]
+}

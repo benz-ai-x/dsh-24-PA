@@ -1,0 +1,18 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:19737) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:19737) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/backup.test.mjs (10 tests) 340ms
+(node:19739) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/unit/sqlite.test.mjs (28 tests) 54ms
+ ✓ tests/unit/pg-backup.test.mjs (1 test) 956ms
+   ✓ 真实 LATIN1 库备份可恢复原始文字，不能经 UTF-8 有损解码 956ms
+
+ Test Files  3 passed (3)
+      Tests  39 passed (39)
+   Start at  10:21:44
+   Duration  1.70s (transform 43ms, setup 0ms, collect 100ms, tests 1.35s, environment 0ms, prepare 57ms)
