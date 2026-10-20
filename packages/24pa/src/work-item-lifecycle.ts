@@ -139,6 +139,11 @@ export class WorkItemLifecycle {
     });
   }
 
+  private deferRetry(attempt: { failures: number; nextAt: number }): void {
+    attempt.failures += 1;
+    attempt.nextAt = Date.now() + Math.min(30_000, 400 * 2 ** Math.min(attempt.failures - 1, 7));
+  }
+
   /** Events are hints to read durable evidence. A failed hint remains queued;
    * the normal dispatcher retries it without model or external action calls. */
   async complete(id: string, checkpoint?: () => Promise<void>): Promise<void> {
@@ -150,8 +155,7 @@ export class WorkItemLifecycle {
     try { await checkpoint?.(); }
     catch (error) {
       const attempt = this.pending.get(id)!;
-      attempt.failures += 1;
-      attempt.nextAt = Date.now() + Math.min(30_000, 400 * 2 ** Math.min(attempt.failures - 1, 7));
+      this.deferRetry(attempt);
       this.deps.completion?.warn(`原回合持久化待确认，将自动重试：${(error as Error).message}`);
       return;
     }
@@ -210,8 +214,7 @@ export class WorkItemLifecycle {
           }
           consumed();
         } catch (error) {
-          attempt.failures += 1;
-          attempt.nextAt = Date.now() + Math.min(30_000, 400 * 2 ** Math.min(attempt.failures - 1, 7));
+          this.deferRetry(attempt);
           const message = `原回合结算暂未提交，将自动重试：${(error as Error).message}`;
           this.deps.completion!.warn(message);
           try {

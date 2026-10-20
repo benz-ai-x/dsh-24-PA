@@ -35,7 +35,15 @@ for (const backend of ['sqlite', 'postgres']) for (const channel of ['feishu', '
     f.rt.repos.operations.update = (id, patch) => { if (fail && patch.receipt?._externalResult) { fail = false; throw new Error('receipt storage unavailable'); } return update(id, patch); };
     const first = await adopt(child); expect(first).toMatchObject({ adopted: 0, unknown: 1, failed: 1 }); expect(first.results[1].skipped).toBe('unknown_conflict'); expect(await remote()).toHaveLength(1);
     const operationId = first.results[0].operationId; expect((await f.rt.repos.operations.get(operationId)).status).toBe('unknown');
+    const acceptedInputs = f.nativeInputs.size;
     await f.rt.stop(); f.rt = f.make(); await f.rt.bind(workspacePath); f.rt.transport = new FakeFeishuTransport('test'); local = f.agents.get(await f.rt.openLocalSession());
+    // This worker has no durable completed turn. Recovery must not replay its
+    // actions; an explicit owner decision resumes the original work instead.
+    expect((await f.rt.repos.workItems.get(child.id)).status).toBe('needs_reconciliation');
+    expect(f.nativeInputs.size).toBe(acceptedInputs);
+    await expect(adopt(child, [blocks[0]])).rejects.toThrow('不是运行中的 Worker');
+    await f.rt.control({ action: 'stop', workId: child.id }, local);
+    await f.rt.control({ action: 'continue', workId: child.id, instruction: '本人确认继续核对原操作，未知结果不能重发。' }, local);
     expect((await adopt(child, [blocks[0]])).results[0]).toMatchObject({ outcome: 'unknown', operationId });
     expect((await adopt(await worker(), [blocks[1]])).results[0].skipped).toBe('unknown_conflict');
     f.rt.config.timeZone = 'UTC'; expect((await adopt(child, [blocks[0]])).results[0].error).toContain('不能改投'); f.rt.config.timeZone = 'Asia/Shanghai';
