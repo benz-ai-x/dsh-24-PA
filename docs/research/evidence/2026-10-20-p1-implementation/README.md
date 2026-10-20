@@ -30,3 +30,11 @@ Standards 与 Spec 分别保存在 `pa24-group-b-*-review.md` 和 `pa24-group-b-
 - Spec：[初审](pa24-group-c-spec-review.md)、[复审](pa24-group-c-spec-rereview.md)，初审 1 项已清偿，最终 missing/partial、scope creep、wrong implementation 均 0。
 
 [P2 复核](p2-residual-assessment.json) 保留原 18 项待修；本轮修复不代表完整发布验收。未重新运行此前被安全检查中止的出站/知识审查专项；本次新实现的隔离回归也不替代真实账号及安装包验收 #46。
+
+## 合并后的 main 复验
+
+三组功能合并完成：[#210](https://github.com/benz-ai-x/dsh-24-PA/pull/210)、[#211](https://github.com/benz-ai-x/dsh-24-PA/pull/211)、[#223](https://github.com/benz-ai-x/dsh-24-PA/pull/223)。[最终 main 验收](final-main-validation.json) 固定 `7c3845e2ee99439ff1aa4ae5055de40bac9c2c70`；构建、预设再次通过，50 项公开入口/恢复回归及 SQLite/PG 各 3 项原生 Loader 通过。专项按名称筛选，68 项单测和每库 3 项 Loader 未重跑；完整套件以 C 组 783/87/87 为准，两个提交的 `packages/24pa` 树完全一致。
+
+V05 真实 WAL 换代后恢复、V11 不同主人 PG 拒绝、V16 同代补结算/释放两槽位、V03 原渠道重启及容器/配置切换、V01 初发/重发与旧审核卡均逐项有实际结果。18 项 P2 待修，#46 仍打开；没有把本轮 P1 修复等同于发布通过。
+
+C 组合并候选文档增量也单独确认：[Standards](pa24-group-c-standards-delivery.md)、[Spec](pa24-group-c-spec-delivery.md)。主工作区保护核对见 [记录](pa24-final-main-workspace-preservation.json)，已知的 Manticore 文档外部变化保留。
