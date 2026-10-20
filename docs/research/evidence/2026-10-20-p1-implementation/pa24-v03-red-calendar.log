@@ -1,0 +1,89 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/main-final-architecture/dsh-24-PA/packages/24pa
+
+(node:71439) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ tests/unit/candidate-recovery.test.mjs (12 tests | 6 failed) 12189ms
+   ✓ candidate recovery / sqlite > feishu:task preserves original receipt, target and owner after restart 1112ms
+   ✓ candidate recovery / sqlite > wecom:task preserves original receipt, target and owner after restart 1151ms
+   × candidate recovery / sqlite > feishu:calendar preserves original receipt, target and owner after restart 601ms
+     → expected { …(5) } to match object { executed: 1, failed: +0 }
+(3 matching properties omitted from actual)
+   × candidate recovery / sqlite > wecom:calendar preserves original receipt, target and owner after restart 1163ms
+     → expected { …(5) } to match object { executed: 1, failed: +0 }
+(3 matching properties omitted from actual)
+   ✓ candidate recovery / sqlite > feishu:task:container preserves original receipt, target and owner after restart 736ms
+   × candidate recovery / sqlite > feishu:calendar:container preserves original receipt, target and owner after restart 601ms
+     → expected { …(5) } to match object { executed: 1, failed: +0 }
+(3 matching properties omitted from actual)
+   ✓ candidate recovery / postgres > feishu:task preserves original receipt, target and owner after restart 1161ms
+   ✓ candidate recovery / postgres > wecom:task preserves original receipt, target and owner after restart 1241ms
+   × candidate recovery / postgres > feishu:calendar preserves original receipt, target and owner after restart 661ms
+     → expected { …(5) } to match object { executed: 1, failed: +0 }
+(3 matching properties omitted from actual)
+   × candidate recovery / postgres > wecom:calendar preserves original receipt, target and owner after restart 1148ms
+     → expected { …(5) } to match object { executed: 1, failed: +0 }
+(3 matching properties omitted from actual)
+   ✓ candidate recovery / postgres > feishu:task:container preserves original receipt, target and owner after restart 1232ms
+   × candidate recovery / postgres > feishu:calendar:container preserves original receipt, target and owner after restart 666ms
+     → expected { …(5) } to match object { executed: 1, failed: +0 }
+(3 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/candidate-recovery.test.mjs > candidate recovery / sqlite > feishu:calendar preserves original receipt, target and owner after restart
+ FAIL  tests/unit/candidate-recovery.test.mjs > candidate recovery / sqlite > wecom:calendar preserves original receipt, target and owner after restart
+ FAIL  tests/unit/candidate-recovery.test.mjs > candidate recovery / sqlite > feishu:calendar:container preserves original receipt, target and owner after restart
+AssertionError: expected { …(5) } to match object { executed: 1, failed: +0 }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "executed": 1,
+-   "failed": 0,
++   "executed": 0,
++   "failed": 1,
+  }
+
+ ❯ tests/unit/candidate-recovery.test.mjs:56:22
+     54|     expect(original.receipt._externalResult).toBeTruthy(); expect(awai…
+     55|     await restart(other); const next = await worker(), repaired = awai…
+     56|     expect(repaired).toMatchObject({ executed: 1, failed: 0 });
+       |                      ^
+     57|     const remote = (await journal(channel, kind))[0], externalId = rem…
+     58|     const projected = kind === 'task' ? await f.rt.repos.tasks.get(id)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  tests/unit/candidate-recovery.test.mjs > candidate recovery / postgres > feishu:calendar preserves original receipt, target and owner after restart
+ FAIL  tests/unit/candidate-recovery.test.mjs > candidate recovery / postgres > wecom:calendar preserves original receipt, target and owner after restart
+ FAIL  tests/unit/candidate-recovery.test.mjs > candidate recovery / postgres > feishu:calendar:container preserves original receipt, target and owner after restart
+AssertionError: expected { …(5) } to match object { executed: 1, failed: +0 }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "executed": 1,
+-   "failed": 0,
++   "executed": 0,
++   "failed": 1,
+  }
+
+ ❯ tests/unit/candidate-recovery.test.mjs:56:22
+     54|     expect(original.receipt._externalResult).toBeTruthy(); expect(awai…
+     55|     await restart(other); const next = await worker(), repaired = awai…
+     56|     expect(repaired).toMatchObject({ executed: 1, failed: 0 });
+       |                      ^
+     57|     const remote = (await journal(channel, kind))[0], externalId = rem…
+     58|     const projected = kind === 'task' ? await f.rt.repos.tasks.get(id)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ Test Files  1 failed (1)
+      Tests  6 failed | 6 passed (12)
+   Start at  11:34:26
+   Duration  12.55s (transform 128ms, setup 0ms, collect 263ms, tests 12.19s, environment 0ms, prepare 28ms)
