@@ -25,6 +25,23 @@ export interface ResolvedTaskSkill extends TaskSkill {
 }
 
 /** 宿主 ctx.skills 的最小结构面（dsh-skill 的 SkillRegistry 子集）。 */
+export interface SkillSummaryLike {
+  name: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+  provider?: string;
+  source?: string;
+  path?: string;
+  resourceBase?: unknown;
+  whenToUse?: string;
+  invocation?: { modelInvocable: boolean; userInvocable: boolean };
+}
+
+export interface SkillDefinitionLike extends Omit<SkillSummaryLike, 'description'> {
+  description?: string;
+  content: string;
+}
+
 export interface SkillRegistryLike {
   register(skill: {
     name: string;
@@ -34,8 +51,9 @@ export interface SkillRegistryLike {
     source?: string;
     metadata?: Record<string, unknown>;
   }): () => void;
-  list(options?: { cwd?: string }): Promise<readonly { name: string; description: string; metadata?: Record<string, unknown>; provider?: string; source?: string }[]>;
-  get(name: string, options?: { cwd?: string }): Promise<{ name: string; description?: string; content: string; metadata?: Record<string, unknown>; provider?: string; source?: string } | undefined>;
+  list(options?: { cwd?: string }): Promise<readonly SkillSummaryLike[]>;
+  snapshot?(options?: { cwd?: string }): Promise<{ skills: readonly SkillSummaryLike[]; complete: boolean }>;
+  get(name: string, options?: { cwd?: string }): Promise<SkillDefinitionLike | undefined>;
 }
 
 /** Worker persona skill（F42）：正文＝职责/完成标准/边界/输出要求四节；simple 变体＝workerModels.simplePersona 路由。

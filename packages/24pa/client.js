@@ -390,6 +390,7 @@ window.__ModuleLoader__.load({
         const CATEGORY_TABS = [['work', 'grid', 'blue'], ['knowledge', 'memory', 'violet'], ['setup', 'plug', 'green'], ['ops', 'shield', 'amber']];
         const CARD_HIDDEN_KEY = 'pa24.panelCards.hidden';
         const CATEGORY_MIGRATION = {
+          skills: 'work',
           work: 'work', activity: 'work', reminders: 'work', digest: 'work', review: 'knowledge', memory: 'knowledge',
           feishu: 'setup', wecom: 'setup', qwennote: 'setup', wiki: 'setup', workspace: 'setup', config: 'setup',
           healthcheck: 'ops', storage: 'ops', budget: 'ops',
@@ -824,8 +825,106 @@ window.__ModuleLoader__.load({
                 on && button('bot', L('发一条测试语音', 'Send a test voice'), () => rpc('action', { type: 'tts.test' }), { key: 'test', className: 'pa24-quiet' }))));
         }
 
+        function SkillsDetail({ binding }) {
+          const [catalog, setCatalog] = React.useState({ status: 'loading' });
+          const [selected, setSelected] = React.useState(null), [detail, setDetail] = React.useState({ status: 'idle' });
+          const [query, setQuery] = React.useState(''), [source, setSource] = React.useState('all'), [page, setPage] = React.useState(0);
+          const [tick, setTick] = React.useState(0), [downloading, setDownloading] = React.useState(false), [downloadError, setDownloadError] = React.useState('');
+          const alive = React.useRef(true);
+          const detailTitle = React.useRef(null);
+          React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+          React.useEffect(() => { if (detail.status === 'ready' && detail.id === selected) detailTitle.current?.focus(); }, [detail, selected]);
+          React.useEffect(() => {
+            const abort = new AbortController();
+            setCatalog({ status: 'loading' }); setSelected(null); setPage(0); setDownloadError('');
+            rpc('skills.catalog', { workspaceBinding: binding }, abort.signal).then(data => {
+              if (!abort.signal.aborted && data.workspaceBinding === binding) setCatalog({ status: 'ready', data });
+            }).catch(error => { if (!abort.signal.aborted) setCatalog({ status: 'error', error: error.message }); });
+            return () => abort.abort();
+          }, [binding, tick]);
+          React.useEffect(() => {
+            const abort = new AbortController();
+            setDownloadError('');
+            if (!selected) { setDetail({ status: 'idle' }); return () => abort.abort(); }
+            setDetail({ status: 'loading', id: selected });
+            rpc('skills.inspect', { id: selected, workspaceBinding: binding }, abort.signal).then(data => {
+              if (!abort.signal.aborted && data.workspaceBinding === binding) setDetail({ status: 'ready', id: selected, data });
+            }).catch(error => { if (!abort.signal.aborted) setDetail({ status: 'error', id: selected, error: error.message }); });
+            return () => abort.abort();
+          }, [selected, binding, tick]);
+          const typeLabel = type => ({ task: L('智能任务', 'Agent task'), template: L('确定性模板', 'Template'), persona: L('职责', 'Persona'), setup: L('接入向导', 'Setup guide') }[type] || L('待核验', 'Unverified'));
+          const sourceLabel = value => value === 'builtin' ? L('内置原件', 'Built-in original') : L('工作区', 'Workspace');
+          const data = detail.id === selected && detail.status === 'ready' ? detail.data : null;
+          const download = async () => {
+            if (!data) return;
+            setDownloading(true); setDownloadError('');
+            try {
+              const file = await rpc('skills.export', { id: data.id, fingerprint: data.fingerprint, workspaceBinding: binding });
+              if (!alive.current || file.workspaceBinding !== binding) return;
+              const url = URL.createObjectURL(new Blob([file.content], { type: 'text/markdown;charset=utf-8' }));
+              const link = document.createElement('a'); link.href = url; link.download = file.filename;
+              document.body.append(link); link.click(); link.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 0);
+            } catch (error) { if (alive.current) setDownloadError(error.message); }
+            finally { if (alive.current) setDownloading(false); }
+          };
+          const entries = catalog.data?.entries || [];
+          const matches = entries.filter(entry => (source === 'all' || entry.source === source) && (entry.name + ' ' + entry.description).toLowerCase().includes(query.trim().toLowerCase()));
+          const rows = matches.slice(page * 20, (page + 1) * 20);
+          return h('div', null,
+            sectionHead('code', null, L('查看内置原件与工作区 Skill。读取和下载不会执行 Skill。', 'Inspect built-in originals and workspace skills. Reading and downloading do not execute them.'),
+              h('button', { type: 'button', onClick: () => setTick(tick + 1), disabled: catalog.status === 'loading' }, icon('refresh'), L('刷新目录', 'Refresh catalog')), 'violet'),
+            h('p', { className: 'pa24-note' }, L('本次下载仅含指令 Markdown，不含 scripts、references、assets 或运行记录。完整包、编辑与运行入口将在后续交付。', 'Downloads contain instruction Markdown only, without scripts, references, assets or run history. Full packages, editing and running will follow.')),
+            catalog.status === 'loading' && h('p', { role: 'status' }, L('正在读取 Skill 目录…', 'Reading skill catalog…')),
+            catalog.status === 'error' && h('p', { role: 'alert', className: 'pa24-error' }, catalog.error),
+            catalog.status === 'ready' && !selected && h('section', { className: 'pa24-card' },
+              h('p', { className: 'pa24-meta' }, catalog.data.discovery === 'complete'
+                ? L('已读取当前目录。同名工作区文件只展示当前生效项；格式不正确或未被发现的文件不会出现在列表中。', 'Current catalog loaded. Only the active workspace entry for each name is shown; invalid or undiscovered files are not listed.')
+                : catalog.data.discovery === 'unavailable' ? L('工作区目录不可用，当前仅展示内置原件。', 'Workspace catalog unavailable; showing built-in originals only.')
+                : L('工作区发现不完整或完整性未知，不能据此判断工作区没有其他 Skill。', 'Workspace discovery is incomplete or unverified; other skills may exist.')),
+              catalog.data.discoveryError && h('p', { role: 'alert', className: 'pa24-error' }, catalog.data.discoveryError),
+              h('div', { className: 'pa24-row' },
+                h('label', null, L('搜索 Skill', 'Search skills'), h('input', { type: 'search', value: query, onChange: event => { setQuery(event.target.value); setPage(0); } })),
+                h('label', null, L('来源', 'Source'), h('select', { value: source, onChange: event => { setSource(event.target.value); setPage(0); } },
+                  h('option', { value: 'all' }, L('全部', 'All')), h('option', { value: 'builtin' }, sourceLabel('builtin')), h('option', { value: 'project-dsh' }, sourceLabel('project-dsh'))))),
+              h('p', { className: 'pa24-meta' }, L('当前可见 ' + entries.length + ' 项，匹配 ' + matches.length + ' 项', entries.length + ' visible, ' + matches.length + ' matching')),
+              !rows.length && h('p', { role: 'status' }, entries.length ? L('没有匹配项', 'No matches') : L('本次未返回目录项', 'No entries returned')),
+              rows.map(entry => h('div', { className: 'pa24-note', key: entry.id },
+                h('button', { type: 'button', onClick: () => setSelected(entry.id), 'aria-pressed': selected === entry.id, className: 'pa24-quiet' }, entry.name, ' · ', sourceLabel(entry.source)),
+                h('p', null, entry.description), h('p', { className: 'pa24-meta' }, typeLabel(entry.type), ' · ', entry.status === 'error' ? L('加载失败', 'Load failed') : L('定义已读取 · 运行未验证', 'Definition read · execution unverified')),
+                entry.error && h('p', { className: 'pa24-error' }, entry.error))),
+              matches.length > 20 && h('div', { className: 'pa24-row' },
+                h('button', { type: 'button', disabled: page === 0, onClick: () => setPage(page - 1) }, L('上一页', 'Previous')),
+                h('span', null, (page + 1) + ' / ' + Math.ceil(matches.length / 20)),
+                h('button', { type: 'button', disabled: (page + 1) * 20 >= matches.length, onClick: () => setPage(page + 1) }, L('下一页', 'Next')))),
+            selected && h('section', { className: 'pa24-card', 'aria-label': L('Skill 详情', 'Skill details') },
+              h('button', { type: 'button', onClick: () => setSelected(null), className: 'pa24-quiet' }, L('返回 Skill 目录', 'Back to skill catalog')),
+              detail.status === 'loading' && h('p', { role: 'status' }, L('正在读取详情…', 'Reading details…')),
+              detail.status === 'error' && h('p', { role: 'alert', className: 'pa24-error' }, detail.error),
+              data && h('div', null,
+                h('h3', { ref: detailTitle, tabIndex: -1 }, data.name), h('p', null, data.description),
+                fields([[L('来源', 'Source'), sourceLabel(data.source)], [L('类型', 'Type'), typeLabel(data.type)], [L('执行轨', 'Track'), data.track], [L('内容指纹（非版本号）', 'Content fingerprint (not a version)'), data.fingerprint]]),
+                h('h4', null, L('运行范围与限制', 'Execution scope and restrictions')),
+                data.restrictions.map((text, index) => h('p', { className: 'pa24-meta', key: index }, text)),
+                h('h4', null, L('关联计划', 'Linked plans')),
+                h('p', { className: 'pa24-meta' }, L('既有计划按名称绑定，执行时解析实际来源；同名原件与工作区项共享此关联提示。', 'Existing plans bind by name and resolve the source at execution. Same-name entries share these links.')),
+                data.plansError ? h('p', { role: 'alert', className: 'pa24-error' }, data.plansError) : data.plans.length
+                  ? data.plans.map(plan => h('p', { key: plan.id }, plan.kind + ' · ' + plan.id + ' · ' + plan.status)) : h('p', null, L('没有按此名称绑定的计划', 'No plans bound to this name')),
+                h('details', null, h('summary', null, L('声明与参数', 'Declared metadata')), h('pre', { className: 'pa24-json' }, JSON.stringify(data.metadata, null, 2))),
+                h('h4', null, L('指令正文', 'Instructions')), h('pre', { className: 'pa24-json' }, data.content),
+                h('button', { type: 'button', disabled: downloading, onClick: download }, icon('note'), downloading ? L('准备下载…', 'Preparing download…') : L('下载指令 Markdown', 'Download instruction Markdown')),
+                downloadError && h('p', { role: 'alert', className: 'pa24-error' }, downloadError))));
+        }
+
         // 卡片注册表：tier 为纯函数（角标聚合复用同一结果）；label 可覆盖状态词。
         const CARDS = [
+          {
+            id: 'skills', cat: 'work', tone: 'violet', icon: 'code', title: ['Skill 管理', 'Skill management'], sub: ['内置与工作区能力目录', 'Built-in and workspace capabilities'], action: ['查看 Skill', 'Browse skills'],
+            tier: () => 'unchecked',
+            label: () => L('目录与导出', 'Catalog & export'),
+            body: () => h('p', { className: 'pa24-meta' }, L('按来源查阅指令、运行限制和关联计划，下载所选指令。', 'Inspect instructions, execution restrictions and linked plans by source, then download selected instructions.')),
+            detail: helpers => h(SkillsDetail, { key: helpers.state.workspaceBinding, binding: helpers.state.workspaceBinding ?? null }),
+          },
           {
             id: 'work', cat: 'work', tone: 'blue', icon: 'grid', title: ['事项', 'Items'], sub: ['进行中的委派与等待', 'Delegations in flight and waiting'], action: ['查看事项', 'Open items'],
             tier: ({ state }) => (state.work || []).some(j => j.status === 'failed') ? 'warn' : 'ok',
@@ -1012,7 +1111,7 @@ window.__ModuleLoader__.load({
             detail: helpers => h(HealthBlock, { data: helpers.extra.health, title: L('模型与预算', 'Models & budget') }),
           },
         ];
-        const CARD_ORDER = ['work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];
+        const CARD_ORDER = ['skills', 'work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];
         CARDS.sort((a, b) => CARD_ORDER.indexOf(a.id) - CARD_ORDER.indexOf(b.id));
         const ACCESS_CARD_IDS = new Set(['feishu', 'wecom', 'qwennote', 'wiki']);
 
