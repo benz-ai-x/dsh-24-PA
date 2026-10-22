@@ -19,7 +19,7 @@ import { workspaceLedgerIdentity } from './ledger-identity.js';
 import { InboxLifecycle } from './inbox-lifecycle.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
-import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarSyncRow, type NewOutbox } from './repo.js';
+import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
@@ -29,7 +29,7 @@ import { writeSecretStore, secretStatus, resolveSecret, secretRefs, secretEnviro
 import { readWorkspaceConfiguration, writeWorkspaceConfiguration, type WorkspaceConfiguration } from './workspace-config.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
-import { WecomChannels, WECOM_CALENDAR_ID, type WecomDiagnostics } from './wecom-channels.js';
+import { WecomChannels, WECOM_CALENDAR_ID, wecomRepeatRule, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
 import { noteDerivedContent } from './note-derivation.js';
@@ -41,10 +41,18 @@ import { assertToolDeclaration, type ResolvedTaskSkill, SkillCatalog, DEFAULT_PE
 import { SkillManagement } from './skill-management.js';
 import { SkillPackages } from './skill-packages.js';
 import { SkillRuns } from './skill-runs.js';
+import { SourceRegistry, type SourceTarget } from './source-registry.js';
+import type { ObservedSourceItem } from './repo/source-projection.js';
+import { SourceAccess } from './source-access.js';
+import { SourceCalendarReader } from './source-calendar-reader.js';
+import { SourceCalendar } from './source-calendar.js';
+import { SourceCalendarWrites } from './source-calendar-writes.js';
+import { effectiveSources, sourceConfigurationFingerprint } from './source-config.js';
 import { skillContract, skillHash, readSkillFile } from './skill-package.js';
 import { skillRequirements } from './skill-requirements.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
 import { text, nowIso, isoDate, eventFingerprint, hash, platformMessageKey } from './util.js';
+import { localDay, localInstant } from './calendar-time.js';
 
 import { RoleRegistry, type WorkerRoleDefinition, type WorkerActionHandler } from './roles.js';
 import {
@@ -298,7 +306,94 @@ export class PaRuntime {
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
     memory: () => this.memory,
+    createCalendar: (item, args) => this.calendarWrite(item, 'create', args),
   });
+
+  private readonly sourceAccess = new SourceAccess({
+    config: () => this.config!,
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args),
+  });
+  readonly sourceRegistry = new SourceRegistry({
+    config: () => this.config!, repo: () => this.repos!.sources,
+    connectionHash: platform => hash(JSON.stringify(platform === 'feishu'
+      ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.options.larkCliBin, this.transportIdentity(this.config, this.secretStore)]
+      : [this.config!.mode, this.options.wecomCliBin])),
+    probe: source => {
+      if (this.config!.mode !== 'feishu') throw new Error('体验模式不核验真实平台来源；切换真实接入后由本人发起检查。');
+      return this.sourceAccess.check(source);
+    }, gate: (key, work) => this.gate(key, work),
+  });
+  private readonly sourceCalendarReader = new SourceCalendarReader({
+    timeZone: () => this.config!.timeZone,
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args),
+  });
+  readonly sourceCalendar = new SourceCalendar({
+    config: () => this.config!, registry: this.sourceRegistry, projection: () => this.repos!.sourceProjection,
+    read: (target, query) => this.sourceCalendarReader.read(target, query), gate: (key, work) => this.gate(key, work),
+    object: (target, eventId) => this.sourceCalendarReader.object(target, eventId),
+  });
+  readonly sourceCalendarWrites = new SourceCalendarWrites({
+    config: () => this.config!, registry: this.sourceRegistry, reader: this.sourceCalendarReader, repos: () => this.repos!, external: this.externalOperations,
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args), gate: (key, work) => this.gate(key, work),
+    mirror: async (target, observed) => {
+      const eventId = String(observed.locator.eventId), old = await this.repos!.calendar.findEvent(eventId);
+      const calendarId = target.platform === 'wecom' ? 'wecom' : target.resource.id;
+      const fingerprint = observed.active ? eventFingerprint({ event_id: eventId, summary: String(observed.body.summary), start_time: observed.startTime! }) : null;
+      await this.stopChangedMeetingPreps(eventId, fingerprint, target);
+      // Legacy links retain their original ownership. A colliding native ID
+      // remains available through the new object/location projection instead.
+      if (old && (old.channel !== target.platform || old.calendar_id !== calendarId)) return;
+      await this.repos!.calendar.upsertEvent({ event_id: eventId, calendar_id: calendarId, channel: target.platform,
+        summary: String(observed.body.summary ?? ''), start_time: observed.startTime!, end_time: observed.endTime!,
+        is_all_day: observed.body.allDay === true, timezone: String(observed.body.timezone ?? this.config!.timeZone),
+        status: observed.active ? 'active' : 'canceled', recurring: observed.body.recurring === true, attendees: null,
+        url: typeof observed.locator.url === 'string' ? observed.locator.url : null, raw: { sourceTarget: target, ...observed.locator } });
+      if (old && (!observed.active || old.summary !== observed.body.summary || old.start_time.getTime() !== observed.startTime!.getTime())) {
+        await this.notifySourceChanged('calendar', eventId, fingerprint);
+      }
+    },
+  });
+
+  async checkSource(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+      await this.sourceRegistry.check(String(input.sourceId ?? ''));
+      return this.sourceRegistry.list();
+    });
+  }
+
+  async sourcesSnapshot(): Promise<unknown> {
+    if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    return { ...await this.sourceRegistry.list(), configHash: sourceConfigurationFingerprint(effectiveSources(this.config)) };
+  }
+
+  private calendarPanelRange(input: Record<string, unknown>): Record<string, unknown> {
+    if (input.from !== undefined || input.to !== undefined) return input;
+    const zone = this.config!.timeZone, day = localDay(input.date ? String(input.date) : new Date(), zone);
+    const period = String(input.period ?? 'day');
+    if (!['day', 'morning', 'afternoon', 'evening'].includes(period)) throw new Error('日程时段筛选无效。');
+    const noon = localInstant(day.date, '12:00:00', zone), evening = localInstant(day.date, '18:00:00', zone);
+    return { ...input, from: (period === 'afternoon' ? noon : period === 'evening' ? evening : day.from).toISOString(),
+      to: (period === 'morning' ? noon : period === 'afternoon' ? evening : day.to).toISOString() };
+  }
+
+  async calendarSnapshot(input: Record<string, unknown> = {}): Promise<unknown> {
+    if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
+    return { ...await this.sourceCalendar.query(this.calendarPanelRange(input), false), workspaceBinding: this.workspaceBinding };
+  }
+
+  async verifyCalendar(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+      return { ...await this.sourceCalendar.query(this.calendarPanelRange(input), true), workspaceBinding: this.workspaceBinding };
+    });
+  }
 
   /** Reminder routing (round-3 arch-8): the F45 delegated-vs-ledger decision
    *  lives beside the ledger engine; the role table stays declarative. The
@@ -307,6 +402,7 @@ export class PaRuntime {
     config: () => this.config!,
     repos: () => this.repos!,
     calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
+    bindCalendar: args => this.sourceCalendarWrites.target(args),
     ledger: () => this.reminders!,
   });
 
@@ -330,6 +426,8 @@ export class PaRuntime {
     nativeSchedule: () => this.nativeSchedule(),
     planChangesAvailable: () => !this.closed && !this.workspaceChanging,
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
+    queryCalendar: args => this.sourceCalendar.all(args),
+    bindCalendar: args => this.sourceCalendarWrites.target(args),
     calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
     inspectNoteTrust: (noteId, versionId) => this.handwriting.inspectTrust(noteId, versionId),
     ownerNotification: (key, report) => this.ownerNotification(key, report),
@@ -618,11 +716,13 @@ export class PaRuntime {
       brief: WORKER_PROMPTS.calendar.brief,
       available: true,
       actions: {
+        calendar_sources: async () => this.sourceRegistry.list(),
         calendar_query: async args => this.calendarQuery(args),
         calendar_busy: async args => this.calendarBusy(args),
         calendar_create: async (args, item) => this.calendarWrite(item, 'create', args),
         calendar_update: async (args, item) => this.calendarWrite(item, 'update', args),
         calendar_cancel: async (args, item) => this.calendarWrite(item, 'cancel', args),
+        calendar_reminders: async (args, item) => this.sourceCalendarWrites.write(item, 'reminders', args),
         meeting_schedule: async (args, item) => this.meetingSchedule(item, args),
         plan_today: async args => this.digest.planToday(args),
         meeting_prep_enable: async args => this.meetingPrepEnable(args),
@@ -937,6 +1037,7 @@ export class PaRuntime {
     try {
       await repos.reminders.retireLegacy();
       await repos.waiting.retireLegacyNotifications();
+      await repos.sources.synchronize(effectiveSources(candidate.config));
       const saved = await repos.workspaceState.get(real);
       next = {
         workspace: { ...await this.ctx.workspaceRegistry.create(real, '24私助'), statePath: real },
@@ -1060,6 +1161,7 @@ export class PaRuntime {
     const connection = reconnect ? await this.prepareTransport(parsed.config, parsed.secrets) : null;
     try {
       await this.dbRef.migrate(await workspaceLedgerIdentity(this.workspace!.statePath, parsed.config.ownerOpenId));
+      await this.repos!.sources.synchronize(effectiveSources(parsed.config));
     } catch (error) {
       connection?.cancel();
       await connection?.transport?.close().catch(() => { });
@@ -1130,11 +1232,11 @@ export class PaRuntime {
    * 覆盖），先跑完整校验器再原子写回唯一 ```json 块（工作规则区逐字节不变），
    * 随后走与 reload 相同的装载路径。storage/version 不在表单白名单。
    */
-  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding): Promise<void> {
+  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding, expectedSourcesHash?: string): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
     return this.transition(async () => {
       this.assertWorkspaceBinding(expectedBinding);
-      await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets));
+      await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets), { expectedSourcesHash });
       try {
         await this.loadWorkspaceConfig();
       } catch (error) {
@@ -1299,10 +1401,23 @@ export class PaRuntime {
   }
 
   async openLocalSession(): Promise<string> {
-    return this.executions.run(async () => {
+    return this.executions.run(() => this.gate('local-session-open', async () => {
       if (!this.localSessionId) await this.establishSessions();
+      // The host may reuse a blank workspace conversation under another
+      // preset. Opening 24PA must recheck that live selection, preserve the
+      // other conversation and create a correctly scoped entry when needed.
+      const resolved = await this.ctx.sessionController.resolveAgent(this.localSessionId!);
+      if ('error' in resolved) throw resolved.error;
+      const preset = this.ctx.agentPresets?.composedPreset(resolved.agent.ctx as DshContext) ?? resolved.agent.session.header.agentPreset;
+      if (preset !== 'pa24') {
+        const created = await this.ctx.sessionController.create({ sessionId: `pa24-${hash(this.workspace!.statePath).slice(0, 12)}-local-${randomUUID().slice(0, 8)}`,
+          workspaceId: this.workspace!.id, agentPreset: 'pa24' });
+        await this.repos!.workspaceState.save(this.workspace!.statePath, { localSessionId: created.sessionId });
+        this.localSessionId = created.sessionId;
+        await this.ctx.sessionController.rename({ sessionId: created.sessionId, title: '24私助' });
+      }
       return this.localSessionId!;
-    });
+    }));
   }
 
   /** Tool construction may precede activation; this never authorizes business calls. */
@@ -2096,16 +2211,35 @@ export class PaRuntime {
   // ---- calendar (F04) -------------------------------------------------------
 
   private async calendarQuery(args: Record<string, unknown>): Promise<unknown> {
-    if (this.config!.calendarChannel === 'wecom') return this.wecomChannels.wecomCalendarQuery(args);
-    return this.feishu.calendarQuery(args);
+    return this.sourceCalendar.query(args);
   }
 
   private async calendarBusy(args: Record<string, unknown>): Promise<unknown> {
-    if (this.config!.calendarChannel === 'wecom') return this.wecomChannels.wecomCalendarBusy(args);
-    return this.feishu.calendarBusy(args);
+    const result = await this.sourceCalendar.all(args);
+    return { ...result, busy: result.events.filter(row => row.freeBusy !== 'free') };
   }
 
   private async calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationIdOverride?: string): Promise<unknown> {
+    let existing = operationIdOverride ? await this.repos!.operations.get(operationIdOverride) : null;
+    if (!operationIdOverride && kind === 'create' && args.summary && args.start && args.end) {
+      const prior = (await this.repos!.operations.calendarCreatesForWork(item.id)).filter(row => !row.params.sourceContract
+        && row.id.startsWith(`${row.action}:${item.id}:`) && row.params.summary === args.summary
+        && Date.parse(row.params.start) === Date.parse(String(args.start)) && Date.parse(row.params.end) === Date.parse(String(args.end)));
+      if (prior.length > 1) throw new Error('存在多个旧日程操作，请核对原回执，不能新建或猜测重试。');
+      if (prior[0]) {
+        const row = prior[0], channel = row.action === 'wecom_calendar.create' ? 'wecom' : 'feishu';
+        const calendarId = String(row.params.calendarId ?? 'wecom');
+        const start = new Date(String(args.start)).toISOString(), end = new Date(String(args.end)).toISOString();
+        const key = channel === 'wecom' ? `wecom\ncreate\n\n${args.summary}\n${start}\n${end}\n${args.timeZone ?? this.config!.timeZone}\n${JSON.stringify(wecomRepeatRule(args.rrule))}`
+          : `${calendarId}\ncreate\n\n${args.summary}\n${start}\n${end}\n${(Array.isArray(args.attendees) ? args.attendees : []).join(',')}\n${args.rrule ?? ''}\n${args.timeZone ?? ''}`;
+        if (row.id !== `${row.action}:${item.id}:${hash(key)}` || args.sourceId !== undefined || args.company !== undefined || args.project !== undefined
+          || (args.channel && args.channel !== channel) || (args.calendarId && args.calendarId !== calendarId)) throw new Error('原日程操作已存在，但请求与旧授权目标不一致，请先核对；不能改投。');
+        existing = row; operationIdOverride = row.id; args = { ...args, channel, calendarId };
+      }
+    }
+    if (!existing || existing.params.sourceContract === 1) return this.sourceCalendarWrites.write(item, kind, args, operationIdOverride);
+    // Pre-Manticore acknowledged operations retain their stored receipt
+    // format. They are never reconstructed from the new global defaults.
     if (kind === 'create' && operationIdOverride && isCandidateOperation(operationIdOverride)) {
       return this.gate(`candidate:${operationIdOverride}`, async () => {
         const original = await this.externalOperations.candidateCreation(operationIdOverride, 'calendar', args);
@@ -2116,8 +2250,8 @@ export class PaRuntime {
       });
     }
     const prior = kind === 'create' ? null : await this.repos!.calendar.findEvent(String(args.eventId ?? ''));
-    const channel = prior?.channel ?? args.channel ?? this.config!.calendarChannel;
-    const scoped = { ...args, calendarId: prior?.calendar_id ?? args.calendarId };
+    const channel = existing.action.startsWith('wecom_calendar.') ? 'wecom' : existing.action.startsWith('calendar.') ? 'feishu' : prior?.channel ?? args.channel ?? this.config!.calendarChannel;
+    const scoped = { ...args, calendarId: existing.params.calendarId ?? prior?.calendar_id ?? args.calendarId };
     if (channel === 'wecom') return this.wecomChannels.wecomCalendarWrite(item, kind, scoped, operationIdOverride);
     return this.feishu.calendarWrite(item, kind, scoped, operationIdOverride);
   }
@@ -2128,13 +2262,16 @@ export class PaRuntime {
    * clarified before anything is sent.
    */
   private async meetingSchedule(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    if (this.config!.calendarChannel === 'wecom') {
+    const target = await this.sourceCalendarWrites.target(args);
+    if (target.platform === 'wecom') {
       throw new Error('会议邀请（meeting_schedule）依赖飞书联系人解析，企微日程渠道不可用；可先用 calendar_create 建企微日程（不含邀请），邀请由本人在企微发起。');
     }
-    return this.feishu.meetingSchedule(item, args);
+    return this.feishu.meetingSchedule(item, { ...args, _sourceTarget: target });
   }
 
   private async syncCalendarWindow(calendarId: string, from: Date, to: Date, channel?: 'feishu' | 'wecom'): Promise<{ ok: boolean; error?: string }> {
+    try { await this.sourceCalendarWrites.target({ calendarId, ...(channel ? { channel } : {}) }, 'read'); }
+    catch (error) { return { ok: false, error: (error as Error).message }; }
     if ((channel ?? (calendarId === 'wecom' ? this.config!.calendarChannel : 'feishu')) === 'wecom') return this.wecomChannels.syncWecomCalendarWindow(from, to);
     return this.feishu.syncCalendarWindow(calendarId, from, to);
   }
@@ -2485,12 +2622,21 @@ export class PaRuntime {
       await this.repos.reminders.stopForSourceChange(rule.id, notifications.filter((row): row is NewOutbox => row !== null));
     }
     if (sourceType === 'calendar') {
-      // Prep packages bound to this meeting stop too (P26): no stale packages.
-      const preps = await this.repos!.digests.activeMeetingPreps(sourceId).catch(() => [] as Array<{ id: string; schedule_id: string | null; session_id: string }>);
-      for (const prep of preps) {
-        const stopped = await this.digest.plans.stop(prep.id, 'stopped');
-        if (stopped.warning) throw new Error(stopped.warning);
-      }
+      await this.stopChangedMeetingPreps(sourceId, currentFingerprint);
+    }
+  }
+
+  /** A bare native ID is sufficient only for legacy plans. New plans retain
+   * their actual identity and calendar so an unrelated copy cannot stop them. */
+  private async stopChangedMeetingPreps(eventId: string, fingerprint: string | null, target?: SourceTarget): Promise<void> {
+    const preps = await this.repos!.digests.activeMeetingPreps(eventId);
+    for (const prep of preps) {
+      const original = prep.schedule_spec?.sourceTarget as SourceTarget | undefined;
+      if (original ? !target || original.identityKey !== target.identityKey || original.platform !== target.platform
+        || original.resource.kind !== target.resource.kind || original.resource.id !== target.resource.id : !!target) continue;
+      if (prep.schedule_spec?.eventFingerprint === fingerprint) continue;
+      const stopped = await this.digest.plans.stop(prep.id, 'stopped');
+      if (stopped.warning) throw new Error(stopped.warning);
     }
   }
 
@@ -2543,6 +2689,13 @@ export class PaRuntime {
 
   // ---- meeting prep & minutes (F10) -------------------------------------------
 
+  private sourceEvent(target: SourceTarget, item: ObservedSourceItem): CalendarEventRow {
+    return { event_id: String(item.locator.eventId), calendar_id: target.platform === 'wecom' ? 'wecom' : target.resource.id, channel: target.platform,
+      summary: String(item.body.summary ?? ''), start_time: item.startTime!, end_time: item.endTime!, is_all_day: item.body.allDay === true,
+      timezone: String(item.body.timezone ?? this.config!.timeZone), status: item.active ? 'active' : 'canceled', recurring: item.body.recurring === true,
+      attendees: null, url: typeof item.locator.url === 'string' ? item.locator.url : null, raw: { sourceTarget: target, ...item.locator }, synced_at: new Date() };
+  }
+
   /** Bind a prep package to a meeting: a once digest firing at start-lead (P26). */
   private meetingPrepEnable(args: Record<string, unknown>): Promise<unknown> {
     return this.gate(`meeting-prep:${String(args.eventId ?? '')}`, () => this.enableMeetingPrep(args));
@@ -2551,8 +2704,16 @@ export class PaRuntime {
   private async enableMeetingPrep(args: Record<string, unknown>): Promise<unknown> {
     const schedule = this.nativeSchedule();
     if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务，无法安排会前准备。');
-    const eventId = String(args.eventId ?? '');
-    const event = await this.repos!.calendar.findEvent(eventId);
+    if (args.eventId && !args.sourceId && !args.objectId && !(await this.repos!.sourceProjection.calendarLocations(String(args.eventId))).length) {
+      const legacy = await this.repos!.calendar.findEvent(String(args.eventId));
+      if (legacy) {
+        const original = await this.sourceCalendarWrites.target({ calendarId: legacy.calendar_id, channel: legacy.channel }, 'read');
+        args = { ...args, sourceId: original.sourceId };
+      }
+    }
+    const resolved = await this.sourceCalendar.resolve(args);
+    const eventId = resolved.eventId;
+    const event = this.sourceEvent(resolved.target, resolved.item);
     if (!event || event.status === 'canceled') throw new Error('日程不存在或已取消；请先 calendar_query 同步并确认 event_id。');
     const leadMinutes = Number(args.leadMinutes ?? 15);
     if (!Number.isInteger(leadMinutes) || leadMinutes < 1 || leadMinutes > 24 * 60) throw new Error('提前量需为 1–1440 分钟。');
@@ -2564,10 +2725,11 @@ export class PaRuntime {
       tasks: args.scopeTasks === false ? false : true,
       minutes: args.scopeMinutes === false ? false : true,
     };
-    const id = `prep-${hash(JSON.stringify({ eventId, start: event.start_time.toISOString(), leadMinutes, scope })).slice(0, 24)}`;
-    const active = await this.repos!.digests.activeMeetingPreps(eventId);
+    const id = `prep-${hash(JSON.stringify({ eventId, identity: resolved.target.identityKey, source: resolved.target.sourceId, start: event.start_time.toISOString(), leadMinutes, scope })).slice(0, 24)}`;
+    const active = (await this.repos!.digests.activeMeetingPreps(eventId)).filter(plan => !plan.schedule_spec?.sourceTarget
+      || ((plan.schedule_spec.sourceTarget as SourceTarget).identityKey === resolved.target.identityKey && (plan.schedule_spec.sourceTarget as SourceTarget).sourceId === resolved.target.sourceId));
     if (active.some(plan => plan.id !== id)) throw new Error(`该会议已有进行中的会前准备（${active[0]!.id}）；如需调整请先停止原计划。`);
-    const spec = { at: fireAt.toISOString(), eventId, leadMinutes, eventStart: event.start_time.toISOString(), eventFingerprint: eventFingerprint(event), scope };
+    const spec = { at: fireAt.toISOString(), eventId: resolved.eventId, sourceTarget: resolved.target, leadMinutes, eventStart: event.start_time.toISOString(), eventFingerprint: eventFingerprint(event), scope };
     const existing = await this.repos!.digests.getPlan(id);
     if (!(existing?.status === 'active' && !existing.lifecycle)) await this.digest.plans.enable({
       id, kind: 'meeting_prep', title: `会前准备：${event.summary}`, session_id: this.accessSessionId!,
@@ -2590,21 +2752,31 @@ export class PaRuntime {
     if (!plan || plan.kind !== 'meeting_prep') throw new Error('会前准备计划不存在。');
     if (plan.status !== 'active') return { planId: plan.id, skipped: 'plan_stopped', message: `该准备计划已${plan.status === 'stopped' ? '停止' : '暂停'}（会议可能已变化）；如需准备请按最新安排重设。` };
     const eventId = String(plan.schedule_spec?.eventId ?? '');
-    let event = await this.repos!.calendar.findEvent(eventId);
+    const target = plan.schedule_spec?.sourceTarget as SourceTarget | undefined;
+    let event = target ? null : await this.repos!.calendar.findEvent(eventId);
+    if (target) {
+      try { event = this.sourceEvent(target, await this.sourceCalendar.inspect(target, eventId)); }
+      catch (error) { return { planId: plan.id, skipped: 'source_unknown', message: `暂不发送准备包：原日程核验失败（${(error as Error).message}）；请核对原来源。` }; }
+    }
     // A just-created meeting may have no prior list observation. Re-read the
     // owning calendar before building, without depending on today's preference.
-    if (event && event.status !== 'canceled') {
+    if (!target && event && event.status !== 'canceled') {
       const observed = await this.syncCalendarWindow(event.calendar_id, event.start_time, event.end_time, event.channel);
       if (!observed.ok) return { planId: plan.id, skipped: 'source_unknown', message: `暂不发送准备包：日历复查失败（${observed.error ?? '未知原因'}）；请稍后重试。` };
       event = await this.repos!.calendar.findEvent(eventId);
     }
     const expected = plan.schedule_spec?.eventFingerprint ?? (event ? eventFingerprint(event) : null);
     const checkSource = async () => {
-      const verdict = await this.sourceVerdict('calendar', eventId, expected);
+      if (target) {
+        try { event = this.sourceEvent(target, await this.sourceCalendar.inspect(target, eventId)); }
+        catch (error) { return { planId: plan.id, skipped: 'source_unknown', message: `暂不发送准备包：${(error as Error).message}。` }; }
+      }
+      const verdict = target ? { valid: !!event && event.status !== 'canceled' && eventFingerprint(event) === expected, unknown: false, reason: undefined }
+        : await this.sourceVerdict('calendar', eventId, expected);
       if (verdict.unknown) return { planId: plan.id, skipped: 'source_unknown', message: `暂不发送准备包：${verdict.reason}。` };
       // Legacy plans stored only the original start. Keep that condition in
       // addition to the shared freshness/fingerprint check.
-      const current = await this.repos!.calendar.findEvent(eventId);
+      const current = target ? event : await this.repos!.calendar.findEvent(eventId);
       const gone = !current || current.status === 'canceled';
       const moved = current && plan.schedule_spec?.eventStart && current.start_time.toISOString() !== plan.schedule_spec.eventStart;
       if (!verdict.valid || gone || moved) {
@@ -3096,27 +3268,27 @@ export class PaRuntime {
       // CLI presence + authorization verdict from the last access inspection
       // (on-demand only; no platform calls happen for this report).
       capabilities.push({ id: 'lark-cli', state: this.diagnostics ? (this.diagnostics.auth?.state === 'ok' ? 'ok' : this.diagnostics.auth?.state === 'error' ? 'error' : 'warn') : 'info', message: this.diagnostics ? `最近检查：${this.diagnostics.auth?.message ?? '未见授权结论'}${this.diagnostics.auth?.state === 'unverified' || this.diagnostics.auth?.state === 'error' ? '；授权失效请在服务器重新执行 lark-cli 授权后再检查' : ''}` : '尚未执行接入检查（用 pa24_connection check 发起只读检查）' });
-      // F38: calendar-sync 三态——「从未同步」（无状态行，首运行前的正常状态）
-      // 是 info，「读取失败」（查询异常）才是 error；两者此前坍缩成同一句
-      // 假红「不可读取」（8010/3080 常年误报）。catch 记 message 不吞。
-      const calendarChannel = config?.calendarChannel ?? 'feishu';
-      let calendarState: CalendarSyncRow | null = null;
+      // Inspect the same per-source observations as the calendar card. This
+      // report never probes platforms and cannot certify a live query.
+      let calendarState: Awaited<ReturnType<SourceCalendar['all']>> | null = null;
       let calendarError = '';
-      if (this.repos) {
+      if (this.repos && config) {
         try {
-          calendarState = await this.repos.calendar.getSync(calendarChannel === 'wecom' ? WECOM_CALENDAR_ID : this.config!.calendarId);
+          const day = localDay(new Date(), config.timeZone);
+          calendarState = await this.sourceCalendar.all({ from: day.from.toISOString(), to: day.to.toISOString() }, false);
         } catch (error) {
           calendarError = (error as Error).message;
         }
       }
       capabilities.push({
         id: 'calendar-sync',
-        state: calendarError ? 'error' : calendarState ? (calendarState.complete ? 'ok' : 'warn') : 'info',
+        state: calendarError ? 'error' : calendarState?.complete ? 'ok'
+          : calendarState?.sources.some(source => ['failed', 'partial'].includes(source.state)) ? 'warn' : 'info',
         message: calendarError
           ? `日历同步状态读取失败：${calendarError}`
-          : calendarState
-            ? (calendarState.complete ? `日历投影同步于 ${isoDate(calendarState.last_synced_at)}（渠道 ${calendarChannel}）` : `上次日历同步失败：${calendarState.last_error ?? '窗口未完成'}`)
-            : `尚未执行日历投影同步（渠道 ${calendarChannel}）——日程域首次运行后建立`,
+          : calendarState?.complete ? '已保存今日各启用日历的完整范围观察；时间见逐来源证据，需要当前状态时请核验日历'
+            : calendarState?.message ?? '尚未执行日历投影同步；请在日程卡核验已登记来源',
+        detail: calendarState ? { from: calendarState.from, to: calendarState.to, sources: calendarState.sources } : undefined,
       });
       // F16: wecom channel health mirrors the lark-cli pattern — verdict comes
       // from the last on-demand wecom_check; no platform calls happen here.

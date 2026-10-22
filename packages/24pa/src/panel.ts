@@ -36,6 +36,8 @@ export const PANEL_RPC = {
     skillsPreview: 'skills.preview',
     skillsRuns: 'skills.runs',
     skillsRun: 'skills.run',
+    sources: 'sources',
+    calendar: 'calendar',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -58,6 +60,8 @@ export const PANEL_RPC = {
     workList: 'work.list',
     skillChange: 'skill.change',
     skillRun: 'skill.run',
+    sourceCheck: 'source.check',
+    calendarVerify: 'calendar.verify',
     testInject: 'test.inject',
   },
 } as const;
@@ -93,6 +97,8 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.skillsPreview) return respond({ ok: true, value: await runtime.skillRuns.preview(payload) });
             if (endpoint === E.skillsRuns) return respond({ ok: true, value: await runtime.skillRuns.list(payload) });
             if (endpoint === E.skillsRun) return respond({ ok: true, value: await runtime.skillRuns.inspect(payload) });
+            if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
+            if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
             if (endpoint === E.memory) {
               if (!runtime.memory) throw new Error('尚未绑定工作区。');
@@ -173,6 +179,8 @@ function requiredBinding(payload: PanelAction): string {
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.skillChange]: (runtime, payload) => runtime.changeSkill(payload),
   [PANEL_RPC.actions.skillRun]: (runtime, payload) => runtime.runSkill(payload),
+  [PANEL_RPC.actions.sourceCheck]: (runtime, payload) => runtime.checkSource(payload),
+  [PANEL_RPC.actions.calendarVerify]: (runtime, payload) => runtime.verifyCalendar(payload),
   [PANEL_RPC.actions.workspaceBind]: async (runtime, payload) => {
     const path = String(payload.path ?? '');
     return runtime.bind(path, true).then(() => snapshot(runtime));
@@ -181,7 +189,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.workspaceConfigUpdate]: (runtime, payload) => {
     const config = payload.config as Record<string, unknown> | undefined;
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ConfigError('缺少配置补丁。');
-    return runtime.updateWorkspaceConfig(config, requiredBinding(payload)).then(() => snapshot(runtime));
+    return runtime.updateWorkspaceConfig(config, requiredBinding(payload), str(payload.expectedSourcesHash)).then(() => snapshot(runtime));
   },
   // F36: 密钥值进工作区密钥库（.24pa/secrets.json，0600），与 AGENTS.md 解耦。
   [PANEL_RPC.actions.workspaceSecretUpdate]: (runtime, payload) => {

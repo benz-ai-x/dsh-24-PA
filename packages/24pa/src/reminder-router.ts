@@ -9,12 +9,14 @@ import { text, hash } from './util.js';
 import type { PaConfig } from './config.js';
 import type { Repos, WorkItemRow } from './repo.js';
 import type { ReminderEngine } from './reminders.js';
+import type { SourceTarget } from './source-registry.js';
 
 export interface ReminderRouterDeps {
   config(): PaConfig;
   repos(): Repos;
   /** Channel-dispatching calendar write (routes wecom/feishu in the runtime). */
   calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationId?: string): Promise<unknown>;
+  bindCalendar?(args: Record<string, unknown>): Promise<SourceTarget>;
   /** Lazy: repos/engine bind at workspace load, after the router is built. */
   ledger(): ReminderEngine;
 }
@@ -31,7 +33,8 @@ export class ReminderRouter {
   }
 
   private intentId(item: WorkItemRow, args: Record<string, unknown>): string {
-    return `reminder.calendar:${item.id}:${hash(JSON.stringify({ kind: args.kind ?? 'once', text: text(args.text, 500), at: args.at ?? null, afterSeconds: args.afterSeconds ?? null, time: args.time ?? null, weekdays: Array.isArray(args.weekdays) ? [...new Set(args.weekdays)].sort() : null, timeZone: args.timeZone ?? null, source: args.source ?? null }))}`;
+    return `reminder.calendar:${item.id}:${hash(JSON.stringify({ kind: args.kind ?? 'once', text: text(args.text, 500), at: args.at ?? null, afterSeconds: args.afterSeconds ?? null, time: args.time ?? null, weekdays: Array.isArray(args.weekdays) ? [...new Set(args.weekdays)].sort() : null, timeZone: args.timeZone ?? null, source: args.source ?? null,
+      ...(args.sourceId !== undefined ? { sourceId: args.sourceId } : {}), ...(args.company !== undefined ? { company: args.company } : {}), ...(args.project !== undefined ? { project: args.project } : {}) }))}`;
   }
 
   async toCalendar(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
@@ -77,13 +80,14 @@ export class ReminderRouter {
       throw new ReminderError('时钟型日程化支持 once/daily/weekly；条件与来源跟进由智能任务 skill 承接。');
     }
     const end = new Date(start.getTime() + 15 * 60 * 1000);
-    const channel = this.deps.config().calendarChannel;
-    const calendarId = channel === 'wecom' ? 'wecom' : this.deps.config().calendarId;
+    const target = await this.deps.bindCalendar?.(args);
+    const channel = target?.platform ?? this.deps.config().calendarChannel;
+    const calendarId = target?.resource.id ?? (channel === 'wecom' ? 'wecom' : this.deps.config().calendarId);
     const { row } = await this.deps.repos().operations.begin({
       id: intentId, workItemId: item.id, action: 'reminder.calendar', params: {
         ruleId: `rmd-cal-${hash(intentId)}`, kind, summary, timeZone, originExpression,
         source: args.source ? text(args.source, 500) : null,
-        calendar: { channel, calendarId, summary: `提醒：${summary}`, start: start.toISOString(), end: end.toISOString(), timeZone, ...(rrule ? { rrule } : {}) },
+        calendar: { channel, calendarId, ...(target ? { sourceId: target.sourceId, _sourceTarget: target } : {}), summary: `提醒：${summary}`, start: start.toISOString(), end: end.toISOString(), timeZone, reminderMinutes: [0], ...(rrule ? { rrule } : {}) },
       },
     });
     return this.completeCalendarIntent(item, intentId, row.params);
@@ -99,7 +103,7 @@ export class ReminderRouter {
     if (!await this.deps.repos().reminders.getRule(ruleId)) {
       await this.deps.repos().reminders.insertRule({
         id: ruleId, kind, text: summary,
-        record: { type: 'calendar', channel: calendar.channel, calendar_id: calendar.calendarId, event_id: eventId, start: calendar.start, rrule: calendar.rrule ?? null, operation_id: created.operationId ?? null },
+        record: { type: 'calendar', channel: calendar.channel, calendar_id: calendar.calendarId, event_id: eventId, start: calendar.start, reminder_minutes: calendar.reminderMinutes ?? [5], rrule: calendar.rrule ?? null, operation_id: created.operationId ?? null, ...(calendar._sourceTarget ? { source_target: calendar._sourceTarget } : {}) },
         status: 'delegated', next_due_at: new Date(calendar.start), time_zone: timeZone,
         origin_expression: originExpression, source, work_item_id: item.id,
         link_source_type: null, link_source_id: null, link_fingerprint: null,
@@ -108,7 +112,8 @@ export class ReminderRouter {
     const result = {
       ruleId, eventId, calendarChannel: calendar.channel, start: calendar.start,
       ...(calendar.rrule ? { rrule: calendar.rrule } : {}),
-      message: `提醒已写入${calendar.channel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；由对应 App 原生日程提醒（提前 5 分钟），与24私助是否在线无关。稍后/改期可直接在 App 内操作，或告诉我来改日程；账本留有备份记录。`,
+      reminderAt: new Date(Date.parse(calendar.start) - (calendar.reminderMinutes?.[0] ?? 5) * 60000).toISOString(), timeZone,
+      message: `提醒已写入${calendar.channel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；由对应 App 原生提醒，首次提醒时间 ${new Date(Date.parse(calendar.start) - (calendar.reminderMinutes?.[0] ?? 5) * 60000).toISOString()}（时区 ${timeZone}），与24私助是否在线无关。后续以原日程设置为准；账本留有备份记录。`,
     };
     await this.deps.repos().operations.update(intentId, { status: 'succeeded', receipt: result });
     return result;
@@ -125,14 +130,15 @@ export class ReminderRouter {
   async cancel(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
     const rule = await this.deps.repos().reminders.getRule(ruleId);
     if (rule?.status === 'delegated') {
-      const record = rule.record as { event_id?: string | null; channel?: string; calendar_id?: string; rrule?: string | null };
+      const record = rule.record as { event_id?: string | null; channel?: string; calendar_id?: string; rrule?: string | null; source_target?: SourceTarget };
       if (!record?.event_id) throw new ReminderError('原提醒缺少事件标识，请先核对原事件，不能确认停止。');
       if (record.event_id) {
         const event = await this.deps.repos().calendar.findEvent(record.event_id);
         const channel = record.channel ?? event?.channel;
         const calendarId = record.calendar_id ?? event?.calendar_id;
         if (!channel || !calendarId) throw new ReminderError('原提醒的日历归属缺失，请先核对原事件。');
-        await this.deps.calendarWrite(item, 'cancel', { eventId: record.event_id, channel, calendarId, ...(record.rrule || event?.recurring ? { repeatScope: 'all' } : {}) }, `reminder.cancel:${rule.id}`);
+        await this.deps.calendarWrite(item, 'cancel', { eventId: record.event_id, channel, calendarId,
+          ...(record.source_target ? { sourceId: record.source_target.sourceId, _sourceTarget: record.source_target } : {}), ...(record.rrule || event?.recurring ? { repeatScope: 'all' } : {}) }, `reminder.cancel:${rule.id}`);
       }
       return this.deps.ledger().setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
     }

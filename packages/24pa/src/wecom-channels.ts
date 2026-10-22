@@ -556,7 +556,7 @@ export class WecomChannels {
 
 /** Deliberately bounded to the clock reminders we promise; never silently
  * flatten an unsupported recurrence into a one-off event. */
-function wecomRepeatRule(value: unknown): Record<string, unknown> | null {
+export function wecomRepeatRule(value: unknown): Record<string, unknown> | null {
   if (value == null || value === '') return null;
   if (value === 'FREQ=DAILY;INTERVAL=1') return { is_repeat: true, repeat_type: 'daily', repeat_interval: 1, repeat_until: '0' };
   const weekly = /^FREQ=WEEKLY;BYDAY=((?:MO|TU|WE|TH|FR|SA|SU)(?:,(?:MO|TU|WE|TH|FR|SA|SU))*)$/.exec(String(value));

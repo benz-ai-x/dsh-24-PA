@@ -18,6 +18,8 @@ it.each(['light', 'dark'])('%s 窄屏提醒 DOM 保留实际日历归属，首�
     if (req.endpoint === 'reminders' && failed) return { ok: true, json: async () => ({ ok: false, error: { message: '账本读取失败' } }) };
     const value = req.endpoint === 'snapshot' ? { workspace: { path: '/workspace', config: { ...DEFAULT_CONFIG, notifyChannel: 'feishu' } }, work: [], outbox: [], secrets: {}, readiness: { items: [] } }
       : req.endpoint === 'reminders' ? { rules: [{ ruleId: 'rmd-calendar', kind: 'daily', text: '检查预算', status: 'delegated', calendarChannel: 'wecom', eventId: 'wecom-event-1', firstStart: '2026-10-19T01:00:00Z', nextDueAt: null, timeZone: 'Asia/Shanghai', expression: 'daily 09:00:00' }], occurrences: [] }
+      : req.endpoint === 'calendar' ? { sources: [], conflicts: [], events: [], count: 0, total: null, fresh: false, message: '尚未核验', hasMore: false }
+      : req.endpoint === 'sources' ? { entries: [] }
       : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : {};
     return { ok: true, json: async () => ({ ok: true, value }) };
   }));
@@ -29,7 +31,7 @@ it.each(['light', 'dark'])('%s 窄屏提醒 DOM 保留实际日历归属，首�
   });
   container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container);
   await act(async () => root.render(React.createElement(Panel)));
-  const card = [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：提醒'));
+  const card = [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：日程'));
   expect(card).toBeTruthy(); card.focus(); expect(win.document.activeElement).toBe(card); await act(async () => card.click());
   expect(container.textContent).toContain('企微日历'); expect(container.textContent).toContain('wecom-event-1'); expect(container.textContent).toContain('日历 App 提醒');
   expect(container.textContent).toContain('首次安排'); expect(container.textContent).not.toContain('下次触发'); expect(container.textContent).not.toContain('投递出口：飞书');

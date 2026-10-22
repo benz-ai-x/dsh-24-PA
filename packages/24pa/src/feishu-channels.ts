@@ -24,6 +24,7 @@ export interface FeishuDeps extends SharedChannelDeps {
   stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;
   notifySourceChanged(sourceType: 'task' | 'calendar', sourceId: string, currentFingerprint: string | null): Promise<void>;
   memory(): MemoryStore | null;
+  createCalendar?(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown>;
 }
 
 // ---- remote-shape mappers (moved from runtime.ts; pure, Feishu-CLI shaped) ----
@@ -50,10 +51,10 @@ export function mapRemoteEvent(raw: any, defaultTimezone = 'Asia/Shanghai', endD
     end,
     isAllDay: dateOnly || raw?.is_all_day === true || raw?.allDay === true,
     timezone,
-    canceled: raw?.status === 'canceled' || raw?.canceled === true,
+    canceled: raw?.status === 'canceled' || raw?.status === 'cancelled' || raw?.canceled === true,
     recurring: !!(raw?.rrule ?? raw?.recurrence?.length),
     attendees: raw?.attendees ?? raw?.attendee_ids ?? null,
-    url: raw?.url ? String(raw.url) : raw?.meeting_url ? String(raw.meeting_url) : null,
+    url: raw?.app_link ? String(raw.app_link) : raw?.url ? String(raw.url) : raw?.meeting_url ? String(raw.meeting_url) : null,
   };
 }
 
@@ -275,7 +276,9 @@ export class FeishuChannels {
     if (unresolved.length > 0) {
       throw new Error(`以下参会人无法唯一确定，请先澄清后再邀请：${unresolved.join('；')}。未发出任何邀请。`);
     }
-    const result = (await this.calendarWrite(item, 'create', {
+    const create = this.deps.createCalendar ?? ((item: WorkItemRow, input: Record<string, unknown>) => this.calendarWrite(item, 'create', input));
+    const result = (await create(item, {
+      ...args,
       summary: title,
       start: start.toISOString(),
       end: end.toISOString(),
@@ -285,7 +288,9 @@ export class FeishuChannels {
     return {
       ...result,
       attendees: resolved,
-      message: `已按本人明确指令创建会议并邀请 ${resolved.length} 位参会人（${resolved.map(r => r.name).join('、')}）；结果以平台回执为准。`,
+      message: (result.invitation as { state?: string } | null)?.state && (result.invitation as { state: string }).state !== 'succeeded'
+        ? String(result.message)
+        : `已按本人明确指令创建会议并邀请 ${resolved.length} 位参会人（${resolved.map(r => r.name).join('、')}）；结果以平台回执为准。`,
     };
   }
 

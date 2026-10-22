@@ -25,6 +25,7 @@ const minimal = {
   skill_run: { skill: 'authorized' }, digest_build: { kind: 'morning' }, digest_deliver: { report: '简报' },
   calendar_query: { from: '2026-10-20T00:00:00+08:00', to: '2026-10-21T00:00:00+08:00' }, calendar_busy: { from: '2026-10-20T00:00:00+08:00', to: '2026-10-21T00:00:00+08:00' },
   calendar_create: { summary: '安排', start: '2026-10-20T09:00:00+08:00', end: '2026-10-20T10:00:00+08:00' }, calendar_update: { eventId: 'e1', summary: '新标题' }, calendar_cancel: { eventId: 'e1' },
+  calendar_sources: {}, calendar_reminders: { eventId: 'e1', reminderMinutes: [] },
   meeting_schedule: { title: '会议', start: '2026-10-20T09:00:00+08:00', end: '2026-10-20T10:00:00+08:00', attendees: [{ openId: 'ou_1' }], instruction: '邀请甲' },
   plan_today: { date: '2026-10-20' }, meeting_prep_enable: { eventId: 'e1' }, meeting_prep_build: { planId: 'p1' }, plan_preview: { date: '2026-10-20' }, plan_adopt: { blocks: [{ summary: '安排', start: '2026-10-20T09:00:00+08:00', end: '2026-10-20T10:00:00+08:00' }] }, overview_today: {},
   reminder_create: { kind: 'once', text: '提醒', afterSeconds: 60 }, reminder_list: {}, reminder_cancel: { ruleId: 'r1', reason: '取消' }, reminder_pause: { ruleId: 'r1' }, reminder_resume: { ruleId: 'r1' }, reminder_skip: { ruleId: 'r1' }, reminder_snooze: { ruleId: 'r1', seconds: 60 }, reminder_status: { occurrenceId: 'occ1' },

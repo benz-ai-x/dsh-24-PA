@@ -14,7 +14,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { for (const rt of runtimes) await rt.stop(); await rm(root, { recursive: true, force: true }); });
 async function runtime() {
-  let agent;
+  let agent = { session: { header: { cwd: path, agentPreset: 'pa24' } }, ctx: {} };
   const ctx = { get: () => null, skills: { register: () => () => {}, get: async name => name === 'chosen' ? structuredClone(definition) : undefined, list: async () => [definition] },
     workspaceRegistry: { create: async p => ({ id: p, path: p, title: '24私助' }) },
     sessionController: { create: async () => {}, rename: async () => {}, resolveAgent: async () => ({ agent }) },

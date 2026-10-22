@@ -15,6 +15,15 @@ const end = (turn, messageId, requestId, output = '结果', reason = { kind: 'co
 ];
 
 describe('公开 runtime 执行归属与恢复', () => {
+  it('本地空会话被切换预设后，面板并发打开仍只建立一个正确入口并保留原会话', async () => {
+    const f = await setup(); const original = await f.rt.openLocalSession();
+    f.agents.get(original).session.header.agentPreset = 'standard';
+    const opened = await Promise.all(Array.from({length: 4}, () => f.rt.openLocalSession()));
+    expect(new Set(opened).size).toBe(1); expect(opened[0]).not.toBe(original);
+    expect(f.agents.get(original).session.header.agentPreset).toBe('standard');
+    expect(f.agents.get(opened[0]).session.header.agentPreset).toBe('pa24');
+    expect((await f.rt.repos.workspaceState.get(f.a)).local_session_id).toBe(opened[0]);
+  });
   it('已停止的在途业务先把回执写回 A，切换 B 等它结算', async () => {
     const f = await setup(); const b = await f.workspace('b'); const entered = deferred(), resume = deferred();
     const local = f.agents.get(await f.rt.openLocalSession());

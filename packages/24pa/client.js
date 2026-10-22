@@ -132,6 +132,7 @@ window.__ModuleLoader__.load({
       .pa24-skills label.pa24-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;max-width:100%;font-size:13px}.pa24-skills label.pa24-field:has(input[type=checkbox]){flex-direction:row;align-items:flex-start}.pa24-skills label.pa24-field input:not([type=checkbox]),.pa24-skills label.pa24-field textarea,.pa24-skills label.pa24-field select{width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--pa-line);border-radius:8px;background:var(--pa-soft);color:var(--pa-ink);font:inherit}.pa24-skills label.pa24-field textarea{resize:vertical}.pa24-skills label.pa24-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px;margin:2px 0;padding:0}.pa24-skills fieldset{min-width:0;border:1px solid var(--pa-line);border-radius:10px;padding:12px}.pa24-skills legend{font-size:12px;overflow-wrap:anywhere}
       .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
+      .pa24-source-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}.pa24-source-fields label{display:flex;flex-direction:column;gap:5px;min-width:0}.pa24-sources input,.pa24-sources select{max-width:100%;box-sizing:border-box}.pa24-sources .pa24-check input{width:18px;flex:0 0 18px}.pa24-source-save{position:sticky;bottom:72px;background:var(--pa-surface);border-top:1px solid var(--pa-line);padding:12px 0;margin-top:16px;z-index:2}.pa24-source-save p{margin:6px 0 0}.pa24-sources .pa24-job{overflow-wrap:anywhere}
       .pa24-form-actions{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-top:16px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);box-shadow:0 -4px 14px color-mix(in srgb,var(--pa-ink) 9%,transparent)}
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
@@ -412,7 +413,7 @@ window.__ModuleLoader__.load({
         };
         const writeHiddenPrefs = prefs => { try { localStorage.setItem(CARD_HIDDEN_KEY, JSON.stringify(prefs)); } catch (e) { /* 无痕模式等场景静默降级为会话内记忆 */ } };
         // 面板级补充数据只在挂载、手动刷新和重绑工作区时读取；普通轮询只读快照。
-        const useExtra = (workspacePath, tick) => {
+        const useExtra = (workspacePath, tick, workspaceBinding) => {
           const [view, setView] = React.useState({ status: 'loading', data: null, errors: {} });
           React.useEffect(() => {
             const abort = new AbortController();
@@ -429,10 +430,11 @@ window.__ModuleLoader__.load({
               capture('health', rpc('health', {}, abort.signal)),
               capture('roles', rpc('roles', {}, abort.signal)),
               capture('reminders', rpc('reminders', {}, abort.signal)),
+              capture('calendar', rpc('calendar', { workspaceBinding }, abort.signal)),
               capture('digests', rpc('digests', {}, abort.signal)),
             ]).then(() => { if (!abort.signal.aborted) setView({ status: 'ready', data: out, errors }); });
             return () => abort.abort();
-          }, [workspacePath, tick]);
+          }, [workspacePath, tick, workspaceBinding]);
           return { ...(view.data || {}), _status: view.status, _errors: view.errors || {} };
         };
         const capLine = (label, value) => h('div', { className: 'pa24-cap-line' }, h('span', { className: 'pa24-muted' }, label), h('b', null, value));
@@ -674,6 +676,87 @@ window.__ModuleLoader__.load({
         // F19：tts 引擎是否启用（多卡判断收敛一处；none/未配置都按关闭）。
         const voiceOn = config => !!config?.tts?.engine && config.tts.engine !== 'none';
 
+        function CalendarDetail(helpers) {
+          const { state, config, tz, button, openRobot, openCard } = helpers;
+          const binding = state.workspaceBinding;
+          const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+          const [day, setDay] = React.useState(today), [period, setPeriod] = React.useState('day'), [source, setSource] = React.useState(''), [role, setRole] = React.useState('');
+          const [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0), [view, setView] = React.useState({ data: null, error: '', busy: false });
+          const [sources, setSources] = React.useState([]), [draft, setDraft] = React.useState(''), [note, setNote] = React.useState('');
+          const sequence = React.useRef(0), limit = 20;
+          const validateView = data => {
+            if (data.workspaceBinding !== binding) throw new Error(L('工作区已变化，请刷新后重试。', 'Workspace changed. Refresh and retry.'));
+            if (!Array.isArray(data.events) || !Array.isArray(data.sources) || !Array.isArray(data.conflicts)) throw new Error(L('日程响应不完整，请重新读取。', 'Incomplete calendar response. Retry reading.'));
+            return data;
+          };
+          const args = JSON.stringify({ date: day, period, ...(source ? { sourceId: source } : {}), ...(role ? { role } : {}), query, offset, limit, workspaceBinding: binding });
+          React.useEffect(() => {
+            const abort = new AbortController();
+            void rpc('sources', { workspaceBinding: binding }, abort.signal).then(result => { if (!abort.signal.aborted) setSources(result.entries.filter(row => row.domain === 'calendar')); }).catch(() => {});
+            return () => abort.abort();
+          }, [binding]);
+          React.useEffect(() => {
+            const abort = new AbortController(), epoch = ++sequence.current;
+            setView(v => ({ ...v, error: '', busy: true }));
+            void rpc('calendar', JSON.parse(args), abort.signal).then(data => {
+              if (!abort.signal.aborted && epoch === sequence.current) setView({ data: validateView(data), error: '', busy: false });
+            }).catch(error => { if (!abort.signal.aborted && epoch === sequence.current) setView(v => ({ ...v, error: error.message, busy: false })); });
+            return () => { abort.abort(); sequence.current++; };
+          }, [args]);
+          const verify = async () => {
+            const epoch = ++sequence.current;
+            setView(v => ({ ...v, error: '', busy: true }));
+            try {
+              const data = await rpc('action', { type: 'calendar.verify', ...JSON.parse(args) });
+              if (epoch === sequence.current) { setView({ data: validateView(data), error: '', busy: false }); await helpers.refresh(); }
+            } catch (error) { if (epoch === sequence.current) setView(v => ({ ...v, error: error.message, busy: false })); }
+          };
+          const change = setter => value => { setter(value); setOffset(0); };
+          const status = row => ({ complete: L('范围已核验', 'Range verified'), partial: L('部分结果', 'Partial'), failed: L('核验失败', 'Check failed'), disabled: L('已停用', 'Disabled'), unverified: L('待核验', 'Unverified') }[row.state] || row.state);
+          const select = (label, value, setter, choices) => h('label', { className: 'pa24-field' }, label, h('select', { value, disabled: view.busy, onChange: e => change(setter)(e.target.value) }, choices.map(([value, title]) => h('option', { key: value, value }, title))));
+          const prepare = (action, event, location) => {
+            const scope = location ? `来源：${location.sourceName}（sourceId=${location.sourceId}），原日程 ${event.summary}，${event.start} 至 ${event.end}，eventId=${location.locator.eventId}，objectId=${event.objectId}。` : `日期：${day}，时区：${tz}。${source ? `sourceId=${source}。` : ''}`;
+            setDraft(`请帮我${action}。${scope}${action === '改期' ? '新时间：请补充。' : action === '创建日程' ? '主题和起止时间：请补充。' : ''}${event?.recurring ? '这是重复日程，请先确认本次、以后或全系列范围。' : ''}`);
+            setNote('');
+          };
+          const data = view.data;
+          return h('section', { 'data-testid': 'calendar-detail' },
+            sectionHead('calendar', L('日程', 'Calendar'), L('汇总全部已登记日历。普通查看读取已保存结果；“核验日历”只读取原平台。', 'Aggregate registered calendars. Browsing reads saved observations; Verify calendars reads the platforms.'),
+              h('div', { className: 'pa24-row' }, button('refresh', view.busy ? L('读取中…', 'Reading…') : L('核验日历', 'Verify calendars'), verify, { disabled: view.busy }), button('plus', L('创建日程', 'Create event'), () => prepare('创建日程')), button('settings', L('配置日历来源', 'Configure sources'), () => openCard('config', 'pa24-sources'), { className: 'pa24-quiet' })), 'amber'),
+            h('div', { className: 'pa24-source-fields' },
+              h('label', { className: 'pa24-field' }, L('日期', 'Date'), h('input', { type: 'date', value: day, disabled: view.busy, onChange: e => change(setDay)(e.target.value) })),
+              select(L('时段', 'Period'), period, setPeriod, [['day', L('全天', 'Whole day')], ['morning', L('上午', 'Morning')], ['afternoon', L('下午', 'Afternoon')], ['evening', L('晚间', 'Evening')]]),
+              select(L('日历来源', 'Calendar source'), source, setSource, [['', L('全部已登记来源', 'All registered sources')], ...sources.map(row => [row.id, row.name])]),
+              select(L('参与范围', 'Role filter'), role, setRole, [['', L('按各来源默认', 'Source defaults')], ['all', L('全部授权可见', 'All authorized events')], ['involved', L('本人参与或组织', 'Participating or organizing')], ['organizer', L('本人组织', 'Organizing')], ['participant', L('本人参与', 'Participating')]]),
+              h('label', { className: 'pa24-field' }, L('搜索日程', 'Search events'), h('input', { value: query, onChange: e => change(setQuery)(e.target.value) }))),
+            view.error && h('div', { role: 'alert', className: 'pa24-error' }, view.error, button('refresh', L('重试核验', 'Retry verification'), verify, { disabled: view.busy })),
+            view.busy && h('p', { role: 'status', className: 'pa24-meta' }, L('正在读取，现有结果保留到新请求完成。', 'Reading; previous results stay visible until this request finishes.')),
+            data && h('div', null,
+              h('p', { className: data.fresh ? 'pa24-notice' : 'pa24-warning', role: 'status' }, data.message),
+              capKpi([[data.total === null ? L('未确认', 'Unconfirmed') : data.total, L('筛选后的完整总数', 'Complete filtered count')], [data.count, L('当前可展示', 'Currently available')], [data.conflicts.length, L('冲突', 'Conflicts')]]),
+              h('section', { className: 'pa24-card' }, h('h3', null, L('逐来源范围与核验时间', 'Scope and verification by source')),
+                data.sources.length === 0 ? h('p', null, L('尚未登记来源，不能据此判断没有日程。', 'No sources registered; this does not mean no events.')) : data.sources.map(row => h('div', { className: 'pa24-job', key: row.sourceId },
+                  h('div', { className: 'pa24-row pa24-between' }, h('strong', null, row.name), badge(status(row), row.state === 'complete' ? 'blue' : 'amber')),
+                  h('p', { className: 'pa24-meta' }, (row.platform === 'wecom' ? '企业微信' : '飞书') + ' · ' + L('筛选 ', 'Filter ') + ({ all: L('全部', 'All'), involved: L('本人参与或组织', 'Involved'), organizer: L('本人组织', 'Organizer'), participant: L('本人参与', 'Participant') }[row.filter] || row.filter) + ' · ' + L('核验 ', 'Checked ') + (row.checkedAt ? date(row.checkedAt, tz) : L('尚无记录', 'Never'))),
+                  row.lastCompleteAt && h('p', { className: 'pa24-meta' }, L('最近完整核验 ', 'Last complete check ') + date(row.lastCompleteAt, tz)),
+                  row.reason && h('p', { className: 'pa24-warning' }, row.reason), row.unknownRoles > 0 && h('p', { className: 'pa24-warning' }, L('参与关系未完整核实：', 'Incomplete role evidence: ') + row.unknownRoles)))),
+              data.events.length === 0 ? h('div', { className: 'pa24-card' }, h('p', null, data.fresh ? L('该范围没有符合筛选的日程。', 'No matching events in this verified range.') : L('当前没有可展示的结果，请先核验来源；不能认定全部空闲。', 'No displayable result yet. Verify sources before concluding availability.'))) :
+                data.events.map(event => h('article', { key: event.objectId, className: 'pa24-card' }, h('div', { className: 'pa24-row pa24-between' }, h('h3', null, event.summary || L('无标题', 'Untitled')), event.stale && badge(L('已保存观察', 'Saved observation'), 'amber')),
+                  h('p', null, date(event.start, tz) + ' — ' + date(event.end, tz) + ' · ' + (event.timezone || tz)),
+                  event.recurring && h('p', { className: 'pa24-meta' }, L('重复日程 · 变更前需明确影响范围', 'Recurring event · specify the change scope')),
+                  data.conflicts.some(pair => pair.a === event.objectId || pair.b === event.objectId) && h('p', { className: 'pa24-warning' }, L('与其他安排重叠，尚未调整。', 'Overlaps another event; no changes made.')),
+                  event.locations.map(location => h('div', { key: location.sourceId, className: 'pa24-job' }, h('p', { className: 'pa24-meta' }, location.sourceName + ' · ' + (location.roles.values.length ? location.roles.values.map(value => ({ organizer: '组织者', participant: '参与人', creator: '创建者' }[value] || value)).join('、') : L('无已确认的本人关系', 'No confirmed personal role'))),
+                    h('div', { className: 'pa24-row' }, /^https?:\/\//.test(location.locator.url || '') && h('a', { className: 'pa24-link-button', href: location.locator.url, target: '_blank', rel: 'noreferrer' }, icon('external'), L('打开原日程', 'Open original event')),
+                      button('chat', L('改期', 'Reschedule'), () => prepare('改期', event, location), { className: 'pa24-quiet' }),
+                      button('chat', L('取消日程', 'Cancel event'), () => prepare('取消日程，先核验原来源与影响范围', event, location), { className: 'pa24-quiet' }),
+                      button('chat', L('仅取消本人提醒', 'Remove my reminder only'), () => prepare('仅取消本人提醒，保留会议', event, location), { className: 'pa24-quiet' })))))),
+              h('div', { className: 'pa24-row' }, button('arrow', L('上一页', 'Previous'), () => setOffset(Math.max(0, offset - limit)), { disabled: view.busy || offset === 0 }), h('span', null, L('第 ', 'Page ') + (Math.floor(offset / limit) + 1) + L(' 页', '')), button('arrow', L('下一页', 'Next'), () => setOffset(offset + limit), { disabled: view.busy || !data.hasMore }))),
+            draft && h('section', { className: 'pa24-card' }, h('h3', null, L('带上下文继续对话', 'Continue with context')), h('p', { className: 'pa24-meta' }, L('补充需求后复制到对话，发送后由24私助核验办理。', 'Complete the request, copy it into chat, and send it for 24PA to verify and handle.')),
+              h('textarea', { 'aria-label': L('日程对话内容', 'Calendar chat draft'), rows: 5, value: draft, onChange: e => setDraft(e.target.value) }),
+              button('chat', L('复制并打开对话', 'Copy and open chat'), async () => { try { await navigator.clipboard.writeText(draft); } catch { setNote(L('无法自动复制，请手动复制上方内容后打开对话。', 'Copy the text manually, then open chat.')); return; } await openRobot(); setNote(L('已复制，请粘贴到对话并检查后发送。', 'Copied. Paste into chat, review, and send.')); }), button('chat', L('打开对话', 'Open chat'), openRobot, { className: 'pa24-quiet' }), note && h('p', { role: 'status' }, note)),
+            h('details', { className: 'pa24-card' }, h('summary', null, L('提醒备份与历史', 'Reminder backups and history')), h(ReminderDetail, helpers)));
+        }
+
         function ReminderDetail({ extra, config, tz, button, openRobot, refresh }) {
           const data = extra.reminders;
           const rules = data?.rules ?? [];
@@ -702,6 +785,7 @@ window.__ModuleLoader__.load({
               h('p', { className: 'pa24-meta' }, (rule.expression || rule.kind) + ' · ' + rule.timeZone),
               h('p', { className: 'pa24-meta' }, rule.calendarChannel ? (rule.calendarChannel === 'wecom' ? L('企微日历', 'WeCom Calendar') : L('飞书日历', 'Feishu Calendar')) + ' · ' + L('事件 ', 'Event ') + (rule.eventId || L('标识待核对', 'ID unconfirmed')) : L('历史账本记录', 'Legacy ledger record')),
               h('p', { className: 'pa24-meta' }, rule.firstStart ? L('首次安排 ', 'Original start ') + date(rule.firstStart, tz) + ' · ' + L('后续时间以日历 App 为准', 'Check the calendar app for future occurrences') : rule.nextDueAt ? L('下次触发 ', 'Next due ') + date(rule.nextDueAt, tz) : L('没有后续账本计时', 'No future ledger timer')),
+              rule.firstReminderAt && h('p', { className: 'pa24-meta' }, L('首次提醒时刻 ', 'Original reminder time ') + date(rule.firstReminderAt, tz) + ' · ' + L('原生编辑后以 App 为准', 'After native edits, check the app')),
               rule.stopReason && h('p', { className: 'pa24-meta' }, rule.stopReason),
               rule.nextOccurrence && h('p', { className: 'pa24-meta' }, L('待发送实例 ', 'Pending occurrence ') + date(rule.nextOccurrence.dueAt, tz))))),
             occurrences.length > 0 && h('section', { className: 'pa24-card' }, sectionHead('pulse', L('最近投递实例', 'Recent occurrences'), L('到期、稍后、跳过、发送和异常状态。', 'Due, snoozed, skipped, sent, and failed occurrences.')), occurrences.slice(0, 12).map(row => h('article', { key: row.id, className: 'pa24-job' },
@@ -1198,14 +1282,15 @@ window.__ModuleLoader__.load({
             detail: helpers => h(ActivityDetail, helpers),
           },
           {
-            id: 'reminders', cat: 'work', tone: 'amber', icon: 'clock', title: ['提醒', 'Reminders'], sub: ['日历 App 提醒 · 智能条件跟进', 'Calendar reminders · agent follow-ups'], action: ['管理提醒', 'Manage reminders'],
-            tier: ({ state }) => ((state.outbox || []).some(o => o.status === 'unknown') ? 'warn' : 'ok'),
-            body: ({ state, config, extra }) => {
-              const delegated = extra.reminders?.rules?.filter(row => row.status === 'delegated').length;
-              const rules = extra.reminders?.rules?.length;
-              return h('div', null, capLine(L('提醒规则', 'Reminder rules'), rules == null ? L('读取中…', 'Loading…') : rules + L(' 条', '')), capLine(L('日历 App 委托', 'Delegated to calendar apps'), delegated == null ? L('读取中…', 'Loading…') : delegated + L(' 条', '')));
+            id: 'reminders', cat: 'work', tone: 'amber', icon: 'calendar', title: ['日程', 'Calendar'], sub: ['今日安排 · 多日历与原生提醒', 'Today · calendars and native reminders'], action: ['查看日程', 'View calendar'],
+            tier: ({ extra }) => Array.isArray(extra.calendar?.sources) ? extra.calendar.complete ? 'ok' : 'warn' : 'unchecked',
+            body: ({ extra, tz }) => {
+              const data = Array.isArray(extra.calendar?.sources) ? extra.calendar : null;
+              return h('div', null, capLine(L('今日日程', 'Today’s events'), data ? data.total === null ? L('范围未完整核验', 'Coverage unverified') : data.total + L(' 项（已保存）', ' (saved)') : L('读取中…', 'Loading…')),
+                capLine(L('下一场', 'Next event'), data?.next ? data.next.summary + ' · ' + date(data.next.start, tz) : L('尚无已核验安排', 'No verified event')),
+                data && capLine(L('已知冲突', 'Known conflicts'), data.conflicts.length + L(' 处', '')));
             },
-            detail: helpers => h(ReminderDetail, helpers),
+            detail: helpers => h(CalendarDetail, { key: helpers.state.workspaceBinding, ...helpers }),
           },
           {
             id: 'review', cat: 'knowledge', tone: 'danger', icon: 'pen', title: ['手写审核', 'Handwriting review'], sub: ['待审文档与版本核验', 'Pending versions & verification'], action: ['打开审核', 'Open review'],
@@ -1389,6 +1474,106 @@ window.__ModuleLoader__.load({
         // F33/P60: 参数配置表单——七组配置（F36 增密钥组）。保存＝workspace.config-update
         // （服务端校验→AGENTS.md 唯一 json 块替换→重载）；失败保留输入并显示
         // 字段级错误。storage/version/密钥引用名不在表单（白名单在服务端强制）。
+        function SourceSettings({ helpers }) {
+          const binding = helpers.state.workspaceBinding;
+          const [data, setData] = React.useState(null), [draft, setDraft] = React.useState(null), [baseline, setBaseline] = React.useState(null);
+          const [busy, setBusy] = React.useState(false), [feedback, setFeedback] = React.useState(null), [failure, setFailure] = React.useState(null);
+          const epoch = React.useRef(0), currentBinding = React.useRef(binding); currentBinding.current = binding;
+          const load = async (adopt = false) => {
+            const request = ++epoch.current;
+            try {
+              const value = await rpc('sources', { workspaceBinding: binding });
+              if (request !== epoch.current || binding !== currentBinding.current) return;
+              setData(value); setFailure(null);
+              if (adopt) { setDraft(JSON.parse(JSON.stringify(value.config))); setBaseline({ config: JSON.stringify(value.config), hash: value.configHash }); }
+            } catch (error) { if (request === epoch.current && binding === currentBinding.current) setFailure(error.message || String(error)); }
+          };
+          React.useEffect(() => { load(true); return () => { epoch.current++; }; }, [binding]);
+          const dirty = !!draft && (JSON.stringify(draft) !== baseline?.config || data?.legacy);
+          const update = patch => { setDraft(value => ({ ...value, ...patch })); setFeedback(null); };
+          const edit = (id, patch) => { setDraft(value => ({ ...value, entries: value.entries.map(row => row.id === id ? { ...row, ...patch } : row) })); setFeedback(null); };
+          const input = (label, value, change, props = {}) => h('label', { className: 'pa24-field' }, label,
+            h('input', { value, onChange: event => change(event.target.value), ...props }));
+          const select = (label, value, change, options) => h('label', { className: 'pa24-field' }, label,
+            h('select', { value, onChange: event => change(event.target.value) }, options.map(([key, title]) => h('option', { key, value: key }, title))));
+          const platformLabel = value => value === 'wecom' ? L('企业微信', 'WeCom') : L('飞书', 'Feishu');
+          const domainLabel = value => value === 'calendar' ? L('日历', 'Calendar') : L('待办', 'Todo');
+          const capabilityLabel = value => ({ allowed: L('当前范围允许，实际结果看回执', 'Allowed in current scope; result needs receipt'), denied: L('无权', 'Denied'), adapter_unavailable: L('接入方式待完善', 'Adapter unavailable'), unknown: L('待核验', 'Unverified') })[value] || L('待核验', 'Unverified');
+          const add = domain => {
+            const id = 'source-' + crypto.randomUUID();
+            update({ entries: [...draft.entries, { id, domain, platform: 'feishu', name: '', purpose: 'personal', ownerId: helpers.config?.ownerOpenId || '', resourceKind: domain === 'calendar' ? 'calendar' : 'tasklist', resourceId: '', filter: domain === 'calendar' ? 'all' : 'responsible', access: 'readwrite', enabled: true }] });
+          };
+          const remove = id => update({ entries: draft.entries.filter(row => row.id !== id), mappings: draft.mappings.filter(row => row.sourceId !== id),
+            defaults: Object.fromEntries(Object.entries(draft.defaults).map(([kind, value]) => [kind, value === id ? null : value])) });
+          const run = async action => {
+            setBusy(true); setFeedback(null);
+            try { await action(); }
+            catch (error) { if (binding === currentBinding.current) setFeedback({ ok: false, message: error.message || String(error) }); }
+            finally { if (binding === currentBinding.current) setBusy(false); }
+          };
+          const check = id => run(async () => {
+            await rpc('action', { type: 'source.check', sourceId: id, workspaceBinding: binding });
+            await load(false);
+            if (binding === currentBinding.current) setFeedback({ ok: true, message: L('只读检查已结束，请查看该来源的身份、能力和核验时间。', 'Read-only check finished; inspect identity, capabilities and time below.') });
+          });
+          const save = () => run(async () => {
+            await rpc('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { sources: draft }, expectedSourcesHash: baseline.hash });
+            await load(true); await helpers.refresh().catch(() => {});
+            if (binding === currentBinding.current) setFeedback({ ok: true, message: L('来源已保存并重载；新登记或变更的范围需要只读检查。', 'Sources saved and reloaded; check new or changed scopes.') });
+          });
+          return h('section', { id: 'pa24-sources', className: 'pa24-card pa24-sources' },
+            sectionHead('calendar', L('日历与待办来源', 'Calendar & todo sources'), L('登记需要查询和使用的资源。默认来源仅用于创建；查询覆盖全部启用来源。', 'Register the resources you use. Defaults select creation targets; queries cover all enabled sources.')),
+            h('p', { className: 'pa24-helper' }, L('日历来源已用于查询和办理。待办来源目前可登记与检查；待办办理仍使用“待办渠道”和“任务清单”配置。', 'Calendar sources apply to queries and changes. Todo sources currently support registration and checks; todo operations still use the Todo channel and Task list settings.')),
+            failure && h('div', { role: 'alert', className: 'pa24-error' }, failure, h('button', { type: 'button', onClick: () => load(!draft) }, L('重试读取', 'Retry'))),
+            !draft && !failure && h('p', { role: 'status' }, L('正在读取来源…', 'Loading sources…')),
+            draft && h('fieldset', { disabled: busy, style: { border: 0, padding: 0, margin: 0, minWidth: 0 } },
+              data.legacy && h('p', { className: 'pa24-helper' }, L('已按原配置准备迁移候选。保存保留旧对象和关联，不创建远端日历或待办。身份与真实资源请逐项检查。', 'Migration candidates preserve existing objects and links without creating remote resources. Check identity and resources individually.')),
+              h('div', { className: 'pa24-actions' }, h('button', { type: 'button', onClick: () => add('calendar') }, L('添加日历来源', 'Add calendar')), h('button', { type: 'button', onClick: () => add('todo') }, L('添加待办来源', 'Add todo source'))),
+              draft.entries.length === 0 && h('p', { className: 'pa24-helper' }, L('尚未登记来源；保存空列表会移除原登记，不恢复旧默认。', 'No sources registered. Saving this empty list removes registrations and keeps defaults empty.')),
+              draft.entries.map(source => {
+                const saved = data.entries.find(row => row.id === source.id), evidence = saved?.evidence;
+                const unchanged = saved && JSON.stringify(Object.fromEntries(Object.keys(source).map(key => [key, saved[key]]))) === JSON.stringify(source);
+                return h('article', { key: source.id, className: 'pa24-job' },
+                  h('h3', null, domainLabel(source.domain), ' · ', source.name || L('新来源', 'New source')),
+                  h('div', { className: 'pa24-source-fields' },
+                    input(L('来源名称', 'Name'), source.name, name => edit(source.id, { name })),
+                    select(L('平台', 'Platform'), source.platform, platform => edit(source.id, { platform, ownerId: platform === 'feishu' ? helpers.config?.ownerOpenId || '' : '', resourceKind: platform === 'wecom' ? 'authorized_scope' : source.domain === 'calendar' ? 'calendar' : 'tasklist', resourceId: platform === 'wecom' ? 'authorized' : '' }), [['feishu', platformLabel('feishu')], ['wecom', platformLabel('wecom')]]),
+                    select(L('用途', 'Purpose'), source.purpose, purpose => edit(source.id, { purpose, filter: purpose !== 'personal' ? source.domain === 'calendar' ? 'involved' : 'responsible' : source.filter }), [['personal', L('个人', 'Personal')], ['company', L('公司', 'Company')], ['project', L('项目', 'Project')]]),
+                    select(L('使用范围', 'Access requested'), source.access, access => edit(source.id, { access }), [['read', L('只读', 'Read')], ['readwrite', L('读取与写入', 'Read & write')]]),
+                    input(L('授权本人标识', 'Authorized owner ID'), source.ownerId, ownerId => edit(source.id, { ownerId }), { placeholder: L('检查后核对实际身份', 'Verify with the access check') }),
+                    select(L('资源类型', 'Resource kind'), source.resourceKind, resourceKind => edit(source.id, { resourceKind, resourceId: resourceKind === 'authorized_scope' ? 'authorized' : '' }), [[source.domain === 'calendar' ? 'calendar' : 'tasklist', source.domain === 'calendar' ? L('具体日历', 'Calendar container') : L('具体待办清单', 'Task list')], ['authorized_scope', L('当前授权范围', 'Authorized scope')]]),
+                    input(L('资源标识', 'Resource ID'), source.resourceId, resourceId => edit(source.id, { resourceId }), { readOnly: source.resourceKind === 'authorized_scope' }),
+                    select(L('默认筛选', 'Default filter'), source.filter, filter => edit(source.id, { filter }), [['all', L('全部授权可见', 'All authorized items')], [source.domain === 'calendar' ? 'involved' : 'responsible', source.domain === 'calendar' ? L('本人参与或组织', 'Participating or organizing') : L('本人负责', 'Assigned to me')]])),
+                  source.platform === 'wecom' && h('p', { className: 'pa24-meta' }, L('授权范围不是独立日历容器。具体公司或项目日历须由相应接口验证；不能靠名称模拟。', 'An authorized scope is not a calendar container. Company/project calendars require matching API verification.')),
+                  h('div', { className: 'pa24-actions' },
+                    h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: source.enabled, onChange: event => edit(source.id, { enabled: event.target.checked }) }), L('启用来源', 'Enable source')),
+                    h('button', { type: 'button', disabled: !unchanged || !source.enabled, onClick: () => check(source.id) }, L('只读检查', 'Check access')),
+                    h('button', { type: 'button', onClick: () => remove(source.id) }, L('移除登记', 'Remove registration'))),
+                  !unchanged && h('p', { className: 'pa24-meta' }, L('有未保存修改；先保存来源再检查。', 'Save the source before checking changes.')),
+                  evidence && unchanged ? h('div', { className: evidence.state === 'failed' ? 'pa24-error' : 'pa24-helper' },
+                    h('p', null, evidence.message),
+                    fields([[L('实际身份', 'Verified identity'), evidence.identity ? evidence.identity.ownerId + ' · ' + evidence.identity.authority : L('未核验', 'Unverified')],
+                      [L('实际资源', 'Resolved resource'), evidence.resource?.id || L('待解析', 'Unresolved')], [L('读取', 'Read'), capabilityLabel(evidence.capabilities?.read)], [L('创建', 'Create'), capabilityLabel(evidence.capabilities?.create)], [L('核验时间', 'Checked at'), date(evidence.checkedAt, helpers.tz)]]))
+                    : h('p', { className: 'pa24-meta' }, L('待核验；登记本身不授予平台权限。', 'Unverified. Registration does not grant platform permissions.')));
+              }),
+              h('h3', null, L('默认创建与会议时长', 'Creation defaults & meeting duration')),
+              h('div', { className: 'pa24-source-fields' }, ...['calendar', 'todo'].map(domain => select(domainLabel(domain) + L('默认来源', ' default'), draft.defaults[domain] || '', value => update({ defaults: { ...draft.defaults, [domain]: value || null } }), [['', L('每次明确目标', 'Ask each time')], ...draft.entries.filter(row => row.domain === domain).map(row => [row.id, row.name || row.id])])),
+                input(L('默认会议时长（分钟，留空则补问）', 'Meeting duration (minutes; blank to ask)'), draft.meetingDurationMinutes ?? '', value => update({ meetingDurationMinutes: value === '' ? null : Number(value) }), { type: 'number', min: 1, max: 1440 })),
+              h('h3', null, L('公司／项目对应关系', 'Company / project mappings')),
+              draft.mappings.map((mapping, index) => h('div', { key: index, className: 'pa24-source-fields' },
+                select(L('领域', 'Domain'), mapping.domain, domain => update({ mappings: draft.mappings.map((row, i) => i === index ? { ...row, domain, sourceId: '' } : row) }), [['calendar', domainLabel('calendar')], ['todo', domainLabel('todo')]]),
+                select(L('对应类型', 'Mapping type'), mapping.kind, kind => update({ mappings: draft.mappings.map((row, i) => i === index ? { ...row, kind } : row) }), [['company', L('公司', 'Company')], ['project', L('项目', 'Project')]]),
+                input(L('公司或项目名称', 'Company or project name'), mapping.name, name => update({ mappings: draft.mappings.map((row, i) => i === index ? { ...row, name } : row) })),
+                select(L('写入来源', 'Write target'), mapping.sourceId, sourceId => update({ mappings: draft.mappings.map((row, i) => i === index ? { ...row, sourceId } : row) }), [['', L('请选择', 'Choose')], ...draft.entries.filter(row => row.domain === mapping.domain).map(row => [row.id, row.name || row.id])]),
+                h('button', { type: 'button', onClick: () => update({ mappings: draft.mappings.filter((_row, i) => i !== index) }) }, L('移除对应关系', 'Remove mapping')))),
+              h('button', { type: 'button', onClick: () => update({ mappings: [...draft.mappings, { domain: 'calendar', kind: 'project', name: '', sourceId: '' }] }) }, L('添加对应关系', 'Add mapping')),
+              h('p', { className: 'pa24-meta' }, L('明确来源优先于对应关系和默认值。移除登记保留远端对象与历史；未保存的修改不生效。', 'Explicit sources override mappings and defaults. Removing a registration preserves remote objects and history; unsaved edits do not apply.')),
+              h('div', { className: 'pa24-source-save' },
+                h('button', { type: 'button', className: 'pa24-primary', disabled: !dirty, onClick: save }, busy ? L('处理中…', 'Working…') : L('保存来源并重载', 'Save & reload sources')),
+                feedback && h('p', { role: feedback.ok ? 'status' : 'alert', className: feedback.ok ? 'pa24-helper' : 'pa24-error' }, feedback.message),
+                dirty && h('p', { className: 'pa24-meta' }, L('来源修改通过此按钮单独保存。', 'Save source changes with this button.')))));
+        }
+
         function ConfigFormDetail({ helpers }) {
           const { config, state } = helpers;
           // arch-4: the voice list rides the snapshot's configMeta (single
@@ -1565,6 +1750,7 @@ window.__ModuleLoader__.load({
           // 表单顶部，用户在表单中下部点保存时错误在视口外不可见（走查 S6）。
           return h('fieldset', { disabled: busy, style: { border: 0, padding: 0, margin: 0, minWidth: 0 } },
             sectionHead('code', null, L('保存＝校验→写回 AGENTS.md 配置块→重载生效；工作规则不受影响，校验失败保留原文。', 'Save = validate → rewrite the AGENTS.md config block → reload; prose rules untouched, file kept on validation failure.'), null, 'blue'),
+            h(SourceSettings, { key: state.workspaceBinding, helpers }),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('模式与身份', 'Mode & identity')),
               row(L('模式（mode）', 'Mode (mode)'), sel([['demo', L('体验模式', 'Demo')], ['feishu', L('飞书模式', 'Feishu')]], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('飞书应用凭据需在环境变量中就位（引用名见下方）。', 'Feishu app credentials must be present in env vars (see below).') : null),
@@ -1727,7 +1913,7 @@ window.__ModuleLoader__.load({
             return () => { live = false; clearInterval(timer); };
           }, []);
           const { busy, error, run, button } = usePanelActions();
-          const extra = useExtra(state ? (state.workspace ? state.workspace.path : '') : '', extraTick);
+          const extra = useExtra(state ? (state.workspace ? state.workspace.path : '') : '', extraTick, state?.workspaceBinding);
           const canLeave = () => !formDirty.current || window.confirm(L('有未保存修改，确定放弃吗？', 'Discard unsaved changes?'));
           const selectTab = id => {
             if (!canLeave()) return false;
