@@ -1,8 +1,11 @@
 import type { DshAgent, DshContext, DshSession, ContentBlock } from './host.js';
 import type { Repos, SkillRunRow, SkillRunSnapshot, SkillRunReview } from './repo.js';
 import type { SkillPackages } from './skill-packages.js';
+import type { SkillManagement } from './skill-management.js';
 import type { SkillDefinitionLike } from './skills.js';
-import { skillContract, skillHash, skillParameters, readSkillFile, parseSkillMarkdown } from './skill-package.js';
+import { skillContract, skillHash, skillParameters } from './skill-package.js';
+import { captureRunSkill, templateRunParameters } from './skill-selection.js';
+import type { TaskPlanConfiguration, TaskPlanAuthorization } from './task-plan.js';
 import { SkillRunHost, type RunInput, type RunToolCall, type RunToolResult } from './skill-run-host.js';
 import { consumedTurn } from './host-turn.js';
 import { SkillRunNative, uncertainTool } from './skill-run-native.js';
@@ -18,6 +21,7 @@ interface SkillRunsDeps {
   host: DshContext;
   context(): RunContext | null;
   packages: SkillPackages;
+  management?: SkillManagement;
   sourceSession(): Promise<string>;
   tools(mode: 'local' | 'business'): Promise<string[]>;
   permissionHash(): string;
@@ -73,7 +77,7 @@ export class SkillRuns {
   }
   async list(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding);
-    const skillId = typeof input.id === 'string' && input.id.startsWith('managed:') ? input.id.slice(8) : undefined;
+    const skillId = typeof input.id === 'string' ? input.id.startsWith('managed:') ? input.id.slice(8) : input.id : undefined;
     const offset = Math.max(0, Math.floor(Number(input.offset) || 0));
     return { ...await context.repos.skillRuns.list(skillId, offset, 20), workspaceBinding: context.binding };
   }
@@ -91,64 +95,70 @@ export class SkillRuns {
       execution: control ? runControlSummary(control.state) : null, attempts: control?.state.attempts ?? [],
       unresolvedOperations: await context.repos.skillRuns.unresolvedOperations(run.work_item_id), workspaceBinding: context.binding };
   }
-  private async prepare(input: Record<string, unknown>) {
+  private async prepare(input: Record<string, unknown>, options: { sourceSessionId?: string; background?: boolean } = {}) {
     const context = this.context(input.workspaceBinding);
     const previous = input.rerunId ? await context.repos.skillRuns.get(String(input.rerunId)) : null;
     if (input.rerunId && !previous) throw new Error('原运行不存在。');
-    const id = previous ? `managed:${previous.skill_id}` : input.id;
-    const entry = typeof id === 'string' && id.startsWith('managed:') ? await context.repos.skills.get(id.slice(8)) : null;
-    if (!entry) throw new Error('请先将文件或内置原件复制为个人 Skill，再预览运行。');
-    if (entry.status === 'disabled' || entry.status === 'deleted') throw new Error('Skill 已禁用或删除，不能开始新运行。');
-    if (!previous) await context.repos.skillRuns.checkNewWork(entry.id);
     if (previous && previous.workspace_path !== context.cwd) throw new Error('原工作区环境无法恢复，请核对原记录。');
-    const original = previous && input.configuration === 'original';
-    const versionId = original ? previous.version_id : previous ? entry.active_version : String(input.versionId ?? entry.active_version ?? entry.draft_version);
-    if (!versionId) throw new Error('此 Skill 尚未启用。');
-    const pkg = original ? previous.snapshot.package : await this.deps.packages.capture(id, versionId, context.binding);
-    const definition = original ? previous.snapshot.definition : parseSkillMarkdown(readSkillFile(pkg, 'SKILL.md').toString('utf8'));
+    const original = !!previous && input.configuration === 'original';
+    const selection = await captureRunSkill({ id: input.id, versionId: input.versionId, previous, original,
+      binding: context.binding, repos: context.repos, packages: this.deps.packages, management: this.deps.management });
+    const { pkg, definition, versionId } = selection;
+    if (!previous) await context.repos.skillRuns.checkNewWork(selection.runSkillId);
     const problems = await this.deps.packages.check(definition, pkg);
     if (problems.length) throw new Error(problems.join('\n'));
     if (['worker-persona', 'setup'].includes(String(definition.metadata?.kind)) || definition.name.startsWith('worker-persona-') || definition.name.endsWith('-setup-flow')) throw new Error('职责与接入向导不能作为普通任务运行；向导请通过本地对话办理。');
     const contract = skillContract(definition);
     const mode: 'local' | 'business' | 'template' | undefined = definition.metadata?.track === 'template' ? 'template' : contract?.mode;
     if (!mode) throw new Error('请补齐任务的参数、执行范围、预期结果与完成标准。');
+    if (options.background && mode === 'local') throw new Error('后台计划仅支持业务任务或确定性模板；本地编程 Skill 请从本地手工运行。');
     if (mode === 'template') this.deps.checkTemplate(definition);
-    const parameters = original ? previous.snapshot.parameters : contract ? skillParameters(contract, input.parameters ?? previous?.snapshot.parameters ?? {}) : {};
+    const parameters = original ? previous!.snapshot.parameters : contract ? skillParameters(contract, input.parameters ?? previous?.snapshot.parameters ?? {}) : templateRunParameters(input.parameters ?? previous?.snapshot.parameters ?? {});
     const tools = mode === 'template' ? [] : definition.metadata?.tools;
     if (!Array.isArray(tools) || tools.some(t => typeof t !== 'string')) throw new Error('请明确声明 metadata.tools；空数组表示不使用工具。');
     const available = mode === 'template' ? [] : await this.deps.tools(mode);
     const missing = tools.filter(tool => !available.includes(tool));
     if (missing.length) throw new Error(`当前身份不具备工具：${missing.join('、')}。`);
-    if (mode === 'business') this.deps.checkBusiness(entry.name, contract?.actions ?? []);
-    const sourceSessionId = previous?.source_session_id ?? await this.deps.sourceSession();
-    const snapshot: SkillRunSnapshot = { name: entry.display_name, definition: { ...definition, name: entry.name }, package: pkg, contract,
+    if (mode === 'business') this.deps.checkBusiness(selection.name, contract?.actions ?? []);
+    const sourceSessionId = previous?.source_session_id ?? options.sourceSessionId ?? await this.deps.sourceSession();
+    const snapshot: SkillRunSnapshot = { name: selection.displayName, definition: { ...definition, name: selection.name }, package: pkg, contract,
       parameters, tools: [...new Set(tools)], permissionHash: this.deps.permissionHash(),
-      executionLimitMs: original ? previous.snapshot.executionLimitMs ?? 900000 : initialRunControl(input.executionLimitMs === undefined ? 900000 : Number(input.executionLimitMs)).limitMs };
+      ...(selection.provider ? { provider: selection.provider } : {}),
+      executionLimitMs: original ? previous!.snapshot.executionLimitMs ?? 900000 : initialRunControl(input.executionLimitMs === undefined ? 900000 : Number(input.executionLimitMs)).limitMs };
     if (previous) {
       const instruction = typeof input.instruction === 'string' ? input.instruction.trim() : '';
       if (instruction.length > 4000) throw new Error('接续说明最多 4000 字符。');
       snapshot.continuation = { fromRunId: previous.id, instruction, runs: await context.repos.skillRuns.continuation(previous.id) };
     }
-    return { context, entry, versionId, mode, snapshot, sourceSessionId, previous, original: !!original };
+    return { context, selection, versionId, mode, snapshot, sourceSessionId, previous, original };
   }
   async preview(input: Record<string, unknown>) {
     const prepared = await this.prepare(input);
-    const { entry, versionId, mode, snapshot, sourceSessionId, context } = prepared;
-    return { entry, versionId, mode, name: snapshot.name, parameters: snapshot.parameters, tools: snapshot.tools, contract: snapshot.contract,
+    const { selection, versionId, mode, snapshot, sourceSessionId, context } = prepared;
+    return { entry: selection.entry, versionId, mode, name: snapshot.name, parameters: snapshot.parameters, tools: snapshot.tools, contract: snapshot.contract,
       files: snapshot.package.files.map(({ content: _content, ...file }) => file), sourceSessionId, continuation: snapshot.continuation, executionLimitMs: snapshot.executionLimitMs,
-      fingerprint: skillHash(JSON.stringify([entry.revision, versionId, snapshot, sourceSessionId])), workspaceBinding: context.binding,
+      fingerprint: skillHash(JSON.stringify([selection.revision, versionId, snapshot, sourceSessionId])), workspaceBinding: context.binding,
       message: mode === 'template' ? '此模板按确定性规则生成结果，不调用模型。' : '预览只检查配置，不执行任务。试运行与正式运行都会实际调用获准工具，可能修改文件或外部对象。结果默认保存在运行记录。' };
+  }
+  async preparePlan(configuration: TaskPlanConfiguration, sourceSessionId: string) {
+    const prepared = await this.prepare({ id: configuration.skillId, parameters: configuration.parameters,
+      executionLimitMs: configuration.executionLimitMs }, { background: true, sourceSessionId });
+    const { selection, snapshot, mode, context } = prepared;
+    const skill: TaskPlanAuthorization['skill'] = { id: selection.id, name: selection.name, versionId: selection.versionId,
+      packageHash: snapshot.package.hash, tools: snapshot.tools, contract: snapshot.contract, resources: snapshot.package.files.map(file => file.path) };
+    return { skill, snapshot, mode, skill_id: selection.runSkillId, version_id: selection.versionId,
+      expectedRevision: selection.revision, source_session_id: sourceSessionId, workspace_path: context.cwd };
   }
   async start(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), id = requestId(input.requestId), hash = skillHash(JSON.stringify(input));
     const repeated = await context.repos.skillRuns.repeated(id, hash);
     if (repeated) return { run: this.view(repeated), repeated: true, workspaceBinding: context.binding };
     const prepared = await this.prepare(input);
-    const fingerprint = skillHash(JSON.stringify([prepared.entry.revision, prepared.versionId, prepared.snapshot, prepared.sourceSessionId]));
+    const fingerprint = skillHash(JSON.stringify([prepared.selection.revision, prepared.versionId, prepared.snapshot, prepared.sourceSessionId]));
     if (input.confirm !== true || input.fingerprint !== fingerprint) throw new Error('内容、权限或参数已改变，请重新预览并确认本次真实执行。');
-    const run = await context.repos.skillRuns.admit({ request_id: id, request_hash: hash, skill_id: prepared.entry.id, version_id: prepared.versionId,
+    const run = await context.repos.skillRuns.admit({ request_id: id, request_hash: hash, skill_id: prepared.selection.runSkillId, version_id: prepared.versionId,
       source_session_id: prepared.sourceSessionId, workspace_path: context.cwd, mode: prepared.mode, trial: input.trial === true,
-      snapshot: prepared.snapshot, expectedRevision: prepared.entry.revision, workItemId: prepared.previous?.work_item_id, originalRerun: prepared.original });
+      snapshot: prepared.snapshot, expectedRevision: prepared.selection.revision, workItemId: prepared.previous?.work_item_id, originalRerun: prepared.original });
     // The host owns the model lifetime. A lease covers admission and each
     // tool intent/receipt, rather than holding configuration changes forever.
     const launched = await this.launch(run);

@@ -541,7 +541,7 @@ export class PaRuntime {
       packages: this.skillPackages,
     });
     this.skillRuns = new SkillRuns({
-      host: ctx, packages: this.skillPackages,
+      host: ctx, packages: this.skillPackages, management: this.skillManagement,
       context: () => this.workspace && this.workspaceBinding && this.repos
         ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repos: this.repos } : null,
       sourceSession: () => this.openLocalSession(),

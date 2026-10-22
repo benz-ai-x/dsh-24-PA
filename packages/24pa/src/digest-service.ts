@@ -194,6 +194,7 @@ export class DigestService {
   private async controlPlan(args: Record<string, unknown>): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(String(args.planId ?? ''));
     if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
+    if ('task_config' in plan && plan.task_config) throw new Error('此计划使用通用定时任务配置，请从定时任务管理入口操作。');
     const op = String(args.op ?? '');
     if (plan.kind === 'waiting_followup' && !['pause', 'stop'].includes(op)) throw new Error('等待检查点请用 waiting_control 管理，不能更换任务 skill 或执行规则。');
     const schedule = this.deps.nativeSchedule();

@@ -17,6 +17,7 @@ export interface SkillRunSnapshot {
   tools: string[];
   permissionHash: string;
   executionLimitMs?: number;
+  provider?: { id: string; fingerprint: string };
   continuation?: { fromRunId: string; instruction: string; runs: Array<{ id: string; status: string; result: string | null; calls: SkillRunCall[]; review: SkillRunReview['record'] | null }> };
 }
 export interface SkillRunRow {
@@ -41,6 +42,8 @@ export interface SkillRunReview {
     calls: Array<{ sessionId: string; callId: string; outcome: 'completed' | 'not_performed' | 'partial'; evidence: string }>;
     native: Array<{ kind: string; ownerId: string; nativeId: string; evidence: string }> };
 }
+export type SkillRunAdmission = Omit<SkillRunRow, 'id' | 'session_id' | 'work_item_id' | 'status' | 'progress' | 'result' | 'delivery_status' | 'recovery' | 'created_at' | 'updated_at'>
+  & { workItemId?: string; expectedRevision: number | null; originalRerun?: boolean };
 // jsonb key order differs from SQLite JSON; hashes describe content, not its
 // serialization order or backend-specific timestamp representation.
 const canonical = (value: any): any => value instanceof Date ? value.toISOString() : Array.isArray(value) ? value.map(canonical)
@@ -139,14 +142,16 @@ export class SkillRunRepo {
   async hasUnsettled(): Promise<boolean> {
     if ((await this.unfinished()).length) return true;
     const runs = (await this.db.query<SkillRunRow>('select * from pa24.skill_run')).rows;
-    for (const run of runs) {
-      const evidence = await this.evidence(run.id);
-      if (run.status === 'needs_reconciliation' || (!evidence.reviewed && (evidence.reviews.length
+    for (const run of runs) if (await this.isUnsettled(run, this.db)) return true;
+    return false;
+  }
+  async isUnsettled(run: SkillRunRow, tx: PaQueryer): Promise<boolean> {
+      const evidence = await this.evidence(run.id, tx);
+      return ['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(run.status) || await this.stopPending(run.id, tx)
+        || (!evidence.reviewed && !!(evidence.reviews.length
         || evidence.calls.some(call => ['running', 'unknown'].includes(call.status))
         || evidence.native.some(item => !item.end_data || item.end_data.producerReported === false)))
-        || (await this.unresolvedOperations(run.work_item_id)).length) return true;
-    }
-    return false;
+        || (await this.unresolvedOperations(run.work_item_id, tx)).length > 0;
   }
   async get(id: string): Promise<SkillRunRow | null> {
     return (await this.db.query<SkillRunRow>('select * from pa24.skill_run where id = $1', [id])).rows[0] ?? null;
@@ -187,8 +192,14 @@ export class SkillRunRepo {
       join pa24.skill_run_session s on o.target = s.parent_session_id and o.dedup_key like 'workitem:' || s.session_id || ':%'
       where s.run_id = $1 and o.channel = 'local'`, [id])).rows;
   }
-  async admit(input: Omit<SkillRunRow, 'id' | 'session_id' | 'work_item_id' | 'status' | 'progress' | 'result' | 'delivery_status' | 'recovery' | 'created_at' | 'updated_at'> & { workItemId?: string; expectedRevision: number; originalRerun?: boolean }): Promise<SkillRunRow> {
-    return this.db.withTransaction(async tx => {
+  async admit(input: SkillRunAdmission): Promise<SkillRunRow> {
+    return this.db.withTransaction(tx => this.admitOn(input, tx));
+  }
+  async admitOn(input: SkillRunAdmission, tx: PaQueryer): Promise<SkillRunRow> {
+      // Files have no managed entry to lock. A durable identity lock gives
+      // both providers the same cross-process admission serialization.
+      await tx.query('insert into pa24.skill_run_admission_guard (id) values ($1) on conflict (id) do nothing', [input.skill_id]);
+      await tx.query('select id from pa24.skill_run_admission_guard where id = $1 for update', [input.skill_id]);
       // Serialize all starts/edits of this skill, including cross-process starts.
       const entry = (await tx.query<SkillEntryRow>('select * from pa24.skill_entry where id = $1 for update', [input.skill_id])).rows[0];
       const prior = (await tx.query<SkillRunRow>('select * from pa24.skill_run where request_id = $1', [input.request_id])).rows[0];
@@ -196,10 +207,17 @@ export class SkillRunRepo {
         if (prior.request_hash !== input.request_hash) throw new Error('运行操作标识已用于不同输入。');
         return prior;
       }
-      if (!entry || entry.status === 'deleted' || entry.status === 'disabled' || entry.revision !== input.expectedRevision) throw new Error('Skill 状态或版本已改变，请重新预览。');
-      if (!input.trial && !input.originalRerun && (entry.status !== 'enabled' || entry.active_version !== input.version_id)) throw new Error('正式运行须选择当前启用版本。');
-      const version = (await tx.query<{ id: string }>('select id from pa24.skill_version where id = $1 and skill_id = $2', [input.version_id, input.skill_id])).rows[0];
-      if (!version) throw new Error('Skill 版本不存在。');
+      if (input.snapshot.provider) {
+        const alias = (await tx.query<SkillEntryRow>('select * from pa24.skill_entry where name = $1 for update', [input.snapshot.definition.name])).rows[0];
+        if (entry || alias || input.expectedRevision !== null || input.snapshot.provider.id !== input.skill_id
+          || !/^(builtin|project-dsh):/.test(input.skill_id) || input.version_id !== input.snapshot.package.hash) throw new Error('文件 Skill 来源或版本不符，不能绕过受管状态。');
+      } else {
+        if (!entry || entry.status === 'deleted' || entry.status === 'disabled' || entry.revision !== input.expectedRevision) throw new Error('Skill 状态或版本已改变，请重新预览。');
+        if (!input.trial && !input.originalRerun && (entry.status !== 'enabled' || entry.active_version !== input.version_id)) throw new Error('正式运行须选择当前启用版本。');
+        const version = (await tx.query<{ id: string }>('select id from pa24.skill_version where id = $1 and skill_id = $2', [input.version_id, input.skill_id])).rows[0];
+        if (!version) throw new Error('Skill 版本不存在。');
+      }
+      const name = entry?.name ?? input.snapshot.definition.name;
       const id = randomUUID(), sessionId = `pa24-skill-${id}`, workId = input.workItemId ?? `pa24-work-skill-${randomUUID()}`;
       if (input.workItemId) {
         const work = (await tx.query<WorkItemRow>('select * from pa24.work_item where id = $1 for update', [workId])).rows[0];
@@ -227,8 +245,8 @@ export class SkillRunRepo {
       }
       await tx.query(`update pa24.work_item set status = 'running', progress = 'Skill 运行已接纳', result = null,
         child_session_id = $2, skill = $3, skill_definition = $4, active_skill_run_id = $5, recovery_gen = recovery_gen + 1, updated_at = now() where id = $1`,
-      [workId, input.mode === 'business' ? sessionId : null, entry.name, JSON.stringify({
-        name: entry.name, description: input.snapshot.definition.description, source: 'pa24-managed', track: 'agent',
+      [workId, input.mode === 'business' ? sessionId : null, name, JSON.stringify({
+        name, description: input.snapshot.definition.description, source: input.snapshot.provider ? input.skill_id.split(':')[0] : 'pa24-managed', track: input.mode === 'template' ? 'template' : 'agent',
         metadata: input.snapshot.definition.metadata, content: input.snapshot.definition.content,
       }), id]);
       const run = (await tx.query<SkillRunRow>(`insert into pa24.skill_run
@@ -240,7 +258,6 @@ export class SkillRunRepo {
         [run.id, sessionId, input.mode === 'business' ? input.source_session_id : null, input.workspace_path]);
       await initializeRunControl(tx, run.id, input.snapshot.executionLimitMs);
       return run;
-    });
   }
   async transition(id: string, status: SkillRunStatus, progress: string, result?: string): Promise<SkillRunRow | null> {
     return this.db.withTransaction(async tx => {

@@ -699,4 +699,39 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `create index if not exists skill_run_resume_run_idx on pa24.skill_run_resume (run_id, created_at)`,
     ],
   },
+  {
+    version: 22,
+    statements: [
+      `alter table pa24.digest_plan add column if not exists task_config jsonb`,
+      `alter table pa24.digest_plan add column if not exists task_authorization jsonb`,
+      `alter table pa24.digest_plan add column if not exists owner_enabled boolean not null default false`,
+      `alter table pa24.digest_plan add column if not exists recycled_at timestamptz`,
+      `alter table pa24.digest_plan add column if not exists delete_when_idle boolean not null default false`,
+      `alter table pa24.digest_plan add column if not exists failure_count integer not null default 0`,
+      `alter table pa24.digest_plan add column if not exists last_success_hash text`,
+      `update pa24.digest_plan set owner_enabled = true where status = 'active'`,
+      `create table if not exists pa24.task_plan_block (
+        plan_id text not null references pa24.digest_plan (id), key text not null,
+        kind text not null, reason text not null, created_at timestamptz not null default now(),
+        primary key (plan_id, key)
+      )`,
+      `create table if not exists pa24.task_plan_change (
+        request_id text primary key, request_hash text not null, result jsonb,
+        created_at timestamptz not null default now()
+      )`,
+      `alter table pa24.skill_run add column if not exists plan_id text`,
+      `alter table pa24.skill_run add column if not exists trigger_kind text`,
+      `alter table pa24.skill_run add column if not exists triggered_at timestamptz`,
+      `create index if not exists skill_run_plan_idx on pa24.skill_run (plan_id, created_at)`,
+      `create table if not exists pa24.plan_trigger (
+        id text primary key, plan_id text not null references pa24.digest_plan (id),
+        generation text not null, occurrence text not null, source text not null,
+        status text not null, reason text, run_id text, snapshot jsonb not null,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+        unique (plan_id, generation, occurrence)
+      )`,
+      `create index if not exists plan_trigger_status_idx on pa24.plan_trigger (status, created_at)`,
+      `create table if not exists pa24.skill_run_admission_guard (id text primary key)`,
+    ],
+  },
 ];

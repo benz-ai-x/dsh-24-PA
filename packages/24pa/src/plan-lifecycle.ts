@@ -81,7 +81,11 @@ export class PlanLifecycle {
   async resume(id: string): Promise<DigestPlanRow> {
     return this.run(id, async ctx => {
       let plan = await this.required(ctx, id);
-      if (plan.lifecycle) plan = await this.settle(ctx, plan);
+      if (plan.lifecycle) {
+        const operation = plan.lifecycle.operation;
+        plan = await this.settle(ctx, plan);
+        if (operation === 'create' && plan.status === 'active') return plan;
+      }
       if (plan.status !== 'paused') throw new Error(`计划当前状态为 ${plan.status}，无法恢复。`);
       if (plan.schedule_id) throw new Error('原生计划尚未清理，请先暂停并核对。');
       const spec = freezePlanTiming(plan.schedule_spec);
@@ -94,6 +98,9 @@ export class PlanLifecycle {
     return this.run(id, async ctx => {
       let plan = await this.required(ctx, id);
       if (plan.lifecycle && plan.lifecycle.phase !== 'conflict') plan = await this.settle(ctx, plan);
+      if (plan.status === 'paused' && !plan.schedule_id && !plan.lifecycle) {
+        return ctx.repo.comparePlan(plan, { schedule_spec: freezePlanTiming(spec), kind });
+      }
       if (!plan.schedule_id) throw new Error('计划没有可调整的原生任务，请恢复或重新开启。');
       if (!ctx.native?.catalog || !ctx.native.update) throw new Error('当前 Host 缺少 Schedule catalog/update，不能安全调整。');
       const entry = (await ctx.native.catalog()).find(e => e.id === plan.schedule_id && e.sessionId === plan.session_id);
