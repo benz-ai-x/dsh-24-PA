@@ -15,7 +15,7 @@ for (const storage of ['sqlite', 'postgres']) describe(`candidate recovery / ${s
     f = await fixture({ cliTimeoutMs: 10000, env: cluster ? { PA24_PG_DSN: cluster.dsn } : {} });
     for (const [name, variable] of [['lark', 'PA24_LARK_STUB_STATE'], ['wecom', 'PA24_WECOM_STUB_STATE']]) {
       const state = join(f.root, name + '.json'), bin = join(f.root, name + '-cli');
-      await writeFile(state, '{}');
+      await writeFile(state, JSON.stringify({ ownerOpenId: 'owner' }));
       await writeFile(bin, '#!/usr/bin/env node\nprocess.env.' + variable + '=' + JSON.stringify(state) + ';\nawait import(' + JSON.stringify(resolve('tests/helpers/stub-' + name + '-cli.mjs')) + ');\n');
       await chmod(bin, 0o755); f.options[name + 'CliBin'] = bin;
     }

@@ -14,9 +14,10 @@ afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0)
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'pa24-transport-activation-')));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const sessions = new Map();
   const ctx = { skills: null, get: () => null,
     workspaceRegistry: { create: async path => ({ id: path, path, title: '24私助' }) },
-    sessionController: { create: async () => {}, rename: async () => {}, resolveAgent: async () => null },
+    sessionController: { create: async request => { sessions.set(request.sessionId, { id: request.sessionId, ctx: {}, session: { header: { cwd: request.workspaceId, agentPreset: request.agentPreset } } }); return { sessionId: request.sessionId }; }, rename: async () => {}, resolveAgent: async id => ({ agent: sessions.get(id) }) },
   };
   const rt = new PaRuntime(ctx, { stateDirectory: root, workspacePath: '', reminderTickMs: 60000,
     larkCliBin: 'lark-cli', wecomCliBin: 'wecom-cli', cliTimeoutMs: 1000,

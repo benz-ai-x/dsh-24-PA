@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { hash } from '../../lib/util.js';
+import { effectiveSources } from '../../lib/source-config.js';
 import { chmod } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fixture, join, readFile, writeFile, deferred } from '../helpers/runtime.mjs';
@@ -14,7 +15,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
     f = await fixture({ cliTimeoutMs: 10000 }); nativeCreates = 0; entries = []; nativeUnknown = false;
     for (const [name, variable] of [['lark', 'PA24_LARK_STUB_STATE'], ['wecom', 'PA24_WECOM_STUB_STATE']]) {
       const state = join(f.root, name + '.json'), bin = join(f.root, name + '-cli');
-      await writeFile(state, '{}');
+      await writeFile(state, JSON.stringify({ ownerOpenId: 'owner' }));
       await writeFile(bin, '#!/usr/bin/env node\nprocess.env.' + variable + '=' + JSON.stringify(state) + ';\nawait import(' + JSON.stringify(resolve('tests/helpers/stub-' + name + '-cli.mjs')) + ');\n'); await chmod(bin, 0o755);
       f.options[name + 'CliBin'] = bin;
     }
@@ -160,22 +161,35 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
   });
 
   it.each(['feishu', 'wecom'])('%s 三类日历提醒按原归属取消，周期明确 all', async channel => {
-    f.rt.config.calendarChannel = channel; const child = await worker('reminders');
+    f.rt.config.calendarChannel = channel;
+    const originalSources = effectiveSources(f.rt.config), other = effectiveSources({ ...f.rt.config, calendarChannel: channel === 'feishu' ? 'wecom' : 'feishu' }).entries[0];
+    f.rt.config.sources = { ...originalSources, entries: [...originalSources.entries, other] };
+    const child = await worker('reminders');
     for (const kind of ['once', 'daily', 'weekly']) {
       const request = { action: 'reminder_create', kind, text: `测试 ${kind}`, ...(kind === 'once' ? { afterSeconds: 300 } : { time: '09:00:00', ...(kind === 'weekly' ? { weekdays: [1, 3] } : {}) }) };
       const created = await f.rt.work(request, child);
       const listed = await f.rt.work({ action: 'reminder_list' }, child), row = listed.rules.find(row => row.ruleId === created.ruleId);
       expect(row).toMatchObject({ calendarChannel: channel, eventId: created.eventId, status: 'delegated', nextDueAt: null }); expect(row.firstStart).toBeTruthy();
       f.rt.config.calendarChannel = channel === 'feishu' ? 'wecom' : 'feishu';
-      await f.rt.work({ action: 'reminder_cancel', ruleId: created.ruleId, reason: '本人取消整条规则' }, child);
-      expect((await f.rt.repos.reminders.getRule(created.ruleId)).status).toBe('stopped');
-      expect(await f.rt.work(request, child)).toMatchObject({ ruleId: created.ruleId, status: 'stopped', reused: true });
+      f.rt.config.sources.defaults.calendar = other.id;
+      const canceled = await f.rt.work({ action: 'reminder_cancel', ruleId: created.ruleId, reason: '本人取消整条规则' }, child);
+      if (channel === 'wecom') {
+        // The fixed get endpoint omits canceled schedules. Absence alone is
+        // not a verified cancellation; retain the acceptance without replay.
+        expect(canceled).toMatchObject({ pendingCancellation: true, verification: { state: 'unverified' } });
+        expect((await f.rt.repos.reminders.getRule(created.ruleId)).status).toBe('delegated');
+        expect(await f.rt.work(request, child)).toMatchObject({ ruleId: created.ruleId, pendingCancellation: true });
+      } else {
+        expect((await f.rt.repos.reminders.getRule(created.ruleId)).status).toBe('stopped');
+        expect(await f.rt.work(request, child)).toMatchObject({ ruleId: created.ruleId, status: 'stopped', reused: true });
+      }
       f.rt.config.calendarChannel = channel;
+      f.rt.config.sources.defaults.calendar = originalSources.entries[0].id;
     }
     if (channel === 'wecom') {
       const calls = (await journal('wecom.json.calls.jsonl')).filter(row => row.args.includes('cancel'));
-      expect(calls).toHaveLength(3); expect(calls[0].args).not.toContain('--repeat-mod');
-      for (const row of calls.slice(1)) expect(JSON.parse(row.args[row.args.indexOf('--repeat-mod') + 1])).toEqual({ repeat_edit_type: 'all' });
+      expect(calls).toHaveLength(3); expect(JSON.parse(calls[0].args[calls[0].args.indexOf('--json') + 1]).repeat_mod).toBeUndefined();
+      for (const row of calls.slice(1)) expect(JSON.parse(row.args[row.args.indexOf('--json') + 1]).repeat_mod).toEqual({ repeat_edit_type: 'all' });
     }
   });
 

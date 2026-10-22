@@ -18,6 +18,8 @@ import { localDay } from './calendar-time.js';
 import { digestPeriod, type DigestPeriod } from './digest-period.js';
 import { captureDigestTrigger } from './digest-trigger.js';
 import { skillContract } from './skill-package.js';
+import type { SourceCalendar } from './source-calendar.js';
+import type { SourceTarget } from './source-registry.js';
 
 export interface DigestDeps extends ChannelContextDeps {
   startedAt(): string | null;
@@ -26,6 +28,8 @@ export interface DigestDeps extends ChannelContextDeps {
   nativeSchedule(): NativeScheduleService | null;
   planChangesAvailable?(): boolean;
   syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }>;
+  queryCalendar?(args: Record<string, unknown>): ReturnType<SourceCalendar['all']>;
+  bindCalendar?(args: Record<string, unknown>): Promise<SourceTarget>;
   calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationId?: string): Promise<unknown>;
   inspectNoteTrust(noteId: string, versionId: string): Promise<NoteTrustResult>;
   ownerNotification(dedupKey: string, report: string): Promise<NewOutbox | null>;
@@ -71,7 +75,7 @@ export function buildSpokenVariant(report: string): string {
 export type DigestFacts = {
     period?: DigestPeriod & { observedAt: string; late: boolean; snapshotNote: string; completionTimeNote: string };
     nextWeek?: { calendar: DigestFacts['calendar']; tasks: DigestFacts['tasksDue'] };
-    calendar: { fresh: boolean; syncedAt: string | null; events: { summary: string; start: string; end: string; allDay: boolean }[] };
+    calendar: { fresh: boolean; syncedAt: string | null; sources?: Awaited<ReturnType<SourceCalendar['all']>>['sources']; events: { summary: string; start: string; end: string; allDay: boolean; sources?: string[] }[] };
     tasksDue: { guid: string; summary: string; dueAt: string | null; plannedAt: string | null; estimateMinutes: number | null; overdue: boolean }[];
     tasksCompletedToday: { guid: string; summary: string }[];
     waiting: { id: string; title: string; checkpointAt: string | null }[];
@@ -265,15 +269,13 @@ export class DigestService {
 
   /** Gather planning facts once: calendar (with freshness), tasks, waiting, review queue, preferences. */
   private async planningFacts(now: Date, context = digestPeriod('morning', this.deps.config().timeZone, now, 'manual')): Promise<DigestFacts> {
-    const dayStart = new Date(context.from), dayEnd = new Date(context.to), calendarId = this.planning.calendarId();
+    const dayStart = new Date(context.from), dayEnd = new Date(context.to);
     const missing: string[] = [];
     const observe = async (from: Date, to: Date) => {
-      const sync = await this.deps.syncCalendarWindow(calendarId, from, to).catch(error => ({ ok: false, error: (error as Error).message }));
-      const events = await this.deps.repos().calendar.eventsIn(calendarId, from, to);
-      const state = await this.deps.repos().calendar.getSync(calendarId);
-      if (!sync.ok) missing.push(`日历同步失败（${from.toISOString()} 至 ${to.toISOString()}，${sync.error ?? '未知'}）：以下为投影，可能过期`);
-      return { fresh: sync.ok, syncedAt: isoDate(state?.last_synced_at ?? null), events: events.map(e => ({ summary: e.summary,
-        start: new Date(Math.max(e.start_time.getTime(), from.getTime())).toISOString(), end: new Date(Math.min(e.end_time.getTime(), to.getTime())).toISOString(), allDay: e.is_all_day })) };
+      const observation = await this.planning.observeRange(from, to);
+      if (!observation.sync.ok) missing.push(`日历同步失败或范围不完整（${from.toISOString()} 至 ${to.toISOString()}，${observation.sync.error ?? '未知'}）：以下为投影，可能过期`);
+      return { fresh: observation.sync.ok, syncedAt: observation.syncedAt, sources: observation.sources, events: observation.events.map(e => ({ summary: e.summary,
+        start: new Date(Math.max(e.start_time.getTime(), from.getTime())).toISOString(), end: new Date(Math.min(e.end_time.getTime(), to.getTime())).toISOString(), allDay: e.is_all_day, sources: e.sources })) };
     };
     const calendar = await observe(dayStart, dayEnd);
     const tasks = await this.deps.repos().tasks.all();
@@ -596,9 +598,9 @@ export class DigestService {
     lines.push('一、事实（来自实际对象）');
     if (facts.calendar.events.length) {
       lines.push(`· 日程 ${facts.calendar.events.length} 项（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}${facts.calendar.fresh ? '' : '，本次同步失败可能过期'}）：`);
-      for (const event of facts.calendar.events.slice(0, 8)) lines.push(`  - ${event.summary} ${event.start} → ${event.end}${event.allDay ? '（全天）' : ''}`);
+      for (const event of facts.calendar.events.slice(0, 8)) lines.push(`  - ${event.summary} ${event.start} → ${event.end}${event.allDay ? '（全天）' : ''}${event.sources?.length ? `（来源：${event.sources.join('、')}）` : ''}`);
     } else {
-      lines.push(`· ${periodLabel}无日程（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}${facts.calendar.fresh ? '' : '，本次同步失败可能过期'}）`);
+      lines.push(facts.calendar.fresh ? `· ${periodLabel}无日程（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}）` : `· ${periodLabel}暂无可展示日程，来源未完整核验，不能认定空闲（日历同步于 ${facts.calendar.syncedAt ?? '无记录'}）`);
     }
     if (facts.tasksDue.length) {
       lines.push(`· 待办 ${facts.tasksDue.length} 项（截止与计划时间分开记录）：`);

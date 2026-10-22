@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { agentsMdTemplate } from './prompts.js';
+import { validateSources, type SourceConfiguration } from './source-config.js';
 
 // AGENTS.md is the single editable authority for non-secret workspace config:
 // stable rules stay as prose, machine-checked settings live in exactly one
@@ -41,6 +42,8 @@ export interface PaConfig {
   wikiNodeToken: string;
   tasklistId: string;
   calendarId: string;
+  /** Null retains a local migration candidate; an explicit empty registry stays empty. */
+  sources: SourceConfiguration | null;
   /**
    * Per-domain operation channels (spec 1.6, F16): which backend executes
    * calendar / todo writes and where reminders are delivered. 'feishu' keeps
@@ -154,6 +157,7 @@ export const DEFAULT_CONFIG: PaConfig = {
   wikiNodeToken: '',
   tasklistId: '',
   calendarId: 'primary',
+  sources: null,
   calendarChannel: 'feishu',
   todoChannel: 'feishu',
   notifyChannel: 'feishu',
@@ -296,6 +300,8 @@ export function validateConfig(raw: unknown): PaConfig {
     throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${QWENNOTE_TOOL_WILDCARD} 或 ${QWENNOTE_TOOL_PREFIX}<工具名>。`);
   }
   const tts = validateTts(input.tts);
+  let sources: SourceConfiguration | null;
+  try { sources = validateSources(input.sources); } catch (error) { throw new ConfigError((error as Error).message); }
   const config: PaConfig = {
     version: 1,
     mode: input.mode,
@@ -306,6 +312,7 @@ export function validateConfig(raw: unknown): PaConfig {
     wikiNodeToken: (input.wikiNodeToken ?? '') as string,
     tasklistId: input.tasklistId as string,
     calendarId: input.calendarId as string,
+    sources,
     calendarChannel: (input.calendarChannel ?? 'feishu') as PaConfig['calendarChannel'],
     todoChannel: (input.todoChannel ?? 'feishu') as PaConfig['todoChannel'],
     notifyChannel: (input.notifyChannel ?? 'feishu') as PaConfig['notifyChannel'],
@@ -391,6 +398,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldDescriptor[] = [
   { name: 'wikiNodeToken', group: 'resources', label: '知识库节点（wikiNodeToken，可选）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.wikiNodeToken },
   { name: 'tasklistId', group: 'resources', label: '任务清单（tasklistId）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.tasklistId },
   { name: 'calendarId', group: 'resources', label: '本人日历（calendarId）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.calendarId },
+  { name: 'sources', group: 'resources', label: '日历与待办来源（sources）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.sources },
   { name: 'timeZone', group: 'runtime', label: '时区（timeZone）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.timeZone },
   { name: 'maxWorkers', group: 'runtime', label: '并行上限（maxWorkers）', kind: 'number', formAllowed: true, default: DEFAULT_CONFIG.maxWorkers },
   { name: 'enabledWorkers', group: 'runtime', label: '启用角色（enabledWorkers）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.enabledWorkers },

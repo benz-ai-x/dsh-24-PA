@@ -114,9 +114,9 @@ export class DigestRepo {
 
   /** Active meeting-prep plans bound to one calendar event (F28): the
    *  duplicate-start guard and the source-change cancel path share it. */
-  async activeMeetingPreps(eventId: string): Promise<Array<{ id: string; schedule_id: string | null; session_id: string }>> {
-    const result = await this.db.query<{ id: string; schedule_id: string | null; session_id: string }>(
-      `select id, schedule_id, session_id from pa24.digest_plan where kind = 'meeting_prep' and (status = 'active' or lifecycle is not null) and schedule_spec->>'eventId' = $1`,
+  async activeMeetingPreps(eventId: string): Promise<Array<Pick<DigestPlanRow, 'id' | 'schedule_id' | 'session_id' | 'schedule_spec'>>> {
+    const result = await this.db.query<Pick<DigestPlanRow, 'id' | 'schedule_id' | 'session_id' | 'schedule_spec'>>(
+      `select id, schedule_id, session_id, schedule_spec from pa24.digest_plan where kind = 'meeting_prep' and (status = 'active' or lifecycle is not null) and schedule_spec->>'eventId' = $1`,
       [eventId],
     );
     return result.rows;

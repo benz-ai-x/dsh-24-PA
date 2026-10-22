@@ -194,6 +194,10 @@ export class ReminderEngine {
         calendarChannel: rule.record?.type === 'calendar' ? rule.record.channel ?? null : null,
         eventId: rule.record?.event_id ?? null,
         firstStart: rule.record?.start ?? null,
+        firstReminderAt: rule.record?.verification ? rule.record.reminder_at ?? null : rule.record?.type === 'calendar' && Number.isFinite(Date.parse(rule.record.start))
+          ? new Date(Date.parse(rule.record.start) - (rule.record.reminder_minutes?.[0] ?? 5) * 60000).toISOString() : null,
+        verification: rule.record?.verification ?? null,
+        pendingCancellation: rule.status !== 'stopped' && rule.record?.cancel_requested === true,
         stopReason: rule.record?.stopReason ?? null,
         nextOccurrence: next ? { id: next.id, dueAt: new Date(next.due_at).toISOString(), status: next.status } : null,
       });

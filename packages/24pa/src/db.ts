@@ -647,4 +647,41 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `create index if not exists skill_run_review_run_idx on pa24.skill_run_review (run_id, created_at)`,
     ],
   },
+  {
+    version: 20,
+    statements: [
+      `create table if not exists pa24.source_registry_state (
+        id text primary key, config_hash text not null, revision integer not null default 0,
+        updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.source_registration (
+        id text primary key, revision integer not null default 1, scope_hash text not null,
+        registration jsonb not null, identity_key text, removed boolean not null default false,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.source_evidence (
+        source_id text primary key, registration_revision integer not null, scope_hash text not null,
+        connection_hash text not null, evidence jsonb not null, checked_at timestamptz not null
+      )`,
+      `create table if not exists pa24.source_object (
+        id text primary key, domain text not null, platform text not null, identity_key text not null,
+        native_id text not null, body jsonb not null, observed_at timestamptz not null, updated_at timestamptz not null default now(),
+        unique (domain, platform, identity_key, native_id)
+      )`,
+      `create table if not exists pa24.source_membership (
+        source_id text not null, locator_id text not null, object_id text not null references pa24.source_object (id),
+        registration_revision integer not null, scope_hash text not null, locator jsonb not null, body jsonb not null,
+        roles jsonb not null, capabilities jsonb not null, active boolean not null,
+        start_time timestamptz, end_time timestamptz, observed_at timestamptz not null,
+        primary key (source_id, locator_id)
+      )`,
+      `create index if not exists source_membership_object_idx on pa24.source_membership (object_id)`,
+      `create index if not exists source_membership_window_idx on pa24.source_membership (source_id, start_time, end_time)`,
+      `create table if not exists pa24.source_observation (
+        source_id text not null, query_key text not null, registration_revision integer not null, scope_hash text not null,
+        state text not null, query jsonb not null, reason text, observed_at timestamptz not null,
+        last_complete_at timestamptz, primary key (source_id, query_key)
+      )`,
+    ],
+  },
 ];

@@ -33,7 +33,7 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.runs', 'skills.run', 'skills.preview']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
@@ -90,7 +90,7 @@ describe('client.js 挂载面', () => {
     expect(client).toContain("'一键全量检查'");
     expect(client).toContain('helpers.run(helpers.runFullCheck)');
     // 快照轮询不变；卡片补充数据一次性读取并随手动刷新重取
-    expect(client).toContain('const useExtra = (workspacePath, tick)');
+    expect(client).toContain('const useExtra = (workspacePath, tick, workspaceBinding)');
     expect(client).toContain('setExtraTick');
     // 键盘 ←→/Home/End 四 tab 轮转
     expect(client).toContain('% CATEGORY_TABS.length');
@@ -115,7 +115,7 @@ describe('client.js 挂载面', () => {
     expect(client).not.toContain('.pa24-settings{');
     // 一屏一主按钮：页头对话＋工作/记忆/提醒/晨报空态 CTA＋工作区卡绑定＋全量健康检查；
     // 未开放的知识库不再提供误导性的主 CTA。
-    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(9); // F33 表单保存按钮
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(10); // 参数与来源分别保存
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
     // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留

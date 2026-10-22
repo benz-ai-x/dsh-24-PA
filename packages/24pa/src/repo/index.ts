@@ -14,6 +14,8 @@ import { MessageRouteRepo, MessageRouteRow } from './route.js';
 import { BindingRepo, BindingRow, WorkspaceStateRepo, WorkspaceStateRow } from './state.js';
 import { SkillRepo } from './skill.js';
 import { SkillRunRepo } from './skill-run.js';
+import { SourceRepo } from './source.js';
+import { SourceProjectionRepo } from './source-projection.js';
 import { DataChannel, ProjectRepo, ProjectRow, TaskRepo, TaskRow } from './task.js';
 import { ActionOperationRepo, ActionOperationRow, OperationStatus, WorkItemRepo, WorkItemRow, WorkItemStatus } from './work.js';
 
@@ -40,6 +42,8 @@ export interface Repos {
   maintenance: MaintenanceRepo;
   skills: SkillRepo;
   skillRuns: SkillRunRepo;
+  sources: SourceRepo;
+  sourceProjection: SourceProjectionRepo;
 }
 
 export function createRepos(db: PaDb): Repos {
@@ -66,6 +70,8 @@ export function createRepos(db: PaDb): Repos {
     maintenance: new MaintenanceRepo(db),
     skills: new SkillRepo(db),
     skillRuns: new SkillRunRepo(db),
+    sources: new SourceRepo(db),
+    sourceProjection: new SourceProjectionRepo(db),
   };
 }
 export * from './calendar.js';
@@ -83,3 +89,5 @@ export * from './task.js';
 export * from './work.js';
 export * from './skill.js';
 export * from './skill-run.js';
+export * from './source.js';
+export * from './source-projection.js';

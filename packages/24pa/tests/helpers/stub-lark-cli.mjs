@@ -93,7 +93,45 @@ if (plain[0] === 'auth' && plain[1] === 'status') {
     await writeState({ ...state, failNext: null });
     fail(state.failNext.error ?? 'auth status injected failure');
   }
-  ok({ verified: true, identities: { user: { openId: state.ownerOpenId ?? 'ou_test_owner', userName: '测试主人', tokenStatus: 'valid' } } });
+  ok({ appId: state.appId ?? 'cli-test-app', verified: true, identities: { user: { openId: state.ownerOpenId ?? 'ou_test_owner', userName: '测试主人', tokenStatus: 'valid' } } });
+}
+if (plain[0] === 'calendar' && plain[1] === 'calendars') {
+  if (plain[2] === 'primary') ok({ calendars: [{ user_id: state.ownerOpenId ?? 'ou_test_owner', calendar: { calendar_id: state.primaryCalendarId ?? 'primary-calendar' } }] });
+  if (plain[2] === 'get') ok({ calendar_id: argOf('--calendar-id'), role: state.calendarRole ?? 'owner', is_deleted: false, is_third_party: false });
+}
+const nativeEvent = event => ({ event_id: event.event_id, summary: event.summary, start_time: { timestamp: String(Date.parse(event.start) / 1000), timezone: event.timezone ?? 'Asia/Shanghai' },
+  end_time: { timestamp: String(Date.parse(event.end) / 1000), timezone: event.timezone ?? 'Asia/Shanghai' }, status: event.status === 'canceled' ? 'cancelled' : 'confirmed',
+  organizer_calendar_id: event.calendar_id ?? argOf('--calendar-id'), event_organizer: { user_id: event.organizer ?? state.ownerOpenId ?? 'ou_test_owner' },
+  app_link: event.url, reminders: event.reminders ?? [{ minutes: 5 }], recurrence: event.rrule ?? '', attendees: event.attendees ?? [] });
+if (plain[0] === 'calendar' && plain[1] === 'events' && plain[2] === 'instance_view') {
+  if (state.calendarFailures?.includes(argOf('--calendar-id'))) fail('该日历读取失败');
+  if (state.failNext?.command === 'calendar.agenda') { await writeState({ ...state, failNext: null }); fail('agenda injected failure'); }
+  if (state.instancesOverride) ok({ items: state.instancesOverride });
+  const from = Number(argOf('--start-time')) * 1000, to = Number(argOf('--end-time')) * 1000;
+  ok({ items: events.filter(row => (!row.calendar_id || row.calendar_id === argOf('--calendar-id')) && Date.parse(row.start) < to && Date.parse(row.end) > from).map(nativeEvent) });
+}
+if (plain[0] === 'calendar' && plain[1] === 'events' && plain[2] === 'get') {
+  const event = events.find(row => row.event_id === argOf('--event-id') && (!row.calendar_id || row.calendar_id === argOf('--calendar-id')));
+  if (!event) fail('日程不存在');
+  ok({ event: nativeEvent(event) });
+}
+if (plain[0] === 'calendar' && plain[1] === 'event.attendees') {
+  const event = events.find(row => row.event_id === argOf('--event-id'));
+  if (!event) fail('日程不存在');
+  if (plain[2] === 'list') ok({ items: (event.attendees ?? []).map(row => ({ ...row, type: 'user', user_id: row.user_id ?? row.open_id, attendee_id: row.attendee_id ?? row.user_id ?? row.open_id, rsvp_status: 'accept' })), has_more: false });
+  if (plain[2] === 'create') {
+    const attendees = JSON.parse(argOf('--data')).attendees.map(row => ({ ...row, attendee_id: row.user_id, rsvp_status: 'needs_action' }));
+    await appendFile(eventsPath, JSON.stringify({ ...event, attendees: [...(event.attendees ?? []), ...attendees] }) + '\n'); ok({ attendees });
+  }
+}
+if (plain[0] === 'calendar' && plain[1] === 'events' && ['patch', 'delete'].includes(plain[2])) {
+  const event = events.find(row => row.event_id === argOf('--event-id') && (!row.calendar_id || row.calendar_id === argOf('--calendar-id')));
+  if (!event) fail('日程不存在');
+  const patch = plain[2] === 'delete' ? {} : JSON.parse(argOf('--data'));
+  const next = { ...event, summary: patch.summary ?? event.summary, start: patch.start_time ? new Date(Number(patch.start_time.timestamp) * 1000).toISOString() : event.start,
+    end: patch.end_time ? new Date(Number(patch.end_time.timestamp) * 1000).toISOString() : event.end,
+    reminders: patch.reminders ?? event.reminders, status: plain[2] === 'delete' ? 'canceled' : event.status };
+  await appendFile(eventsPath, JSON.stringify(next) + '\n'); ok(plain[2] === 'delete' ? {} : { event: nativeEvent(next) });
 }
 if (plain[0] === 'docs' && plain[1] === '+create') {
   if (state.failNext?.command === 'docs.create') {
@@ -239,8 +277,8 @@ if (plain[0] === 'calendar' && plain[1] === 'events' && plain[2] === 'create') {
     await writeState({ ...state, failNext: null }); console.log('receipt unavailable'); process.exit(0);
   }
   const body = JSON.parse(argOf('--data'));
-  const event_id = `evtstub-${events.length + 1}`;
-  const record = { event_id, summary: body.summary, start: new Date(Number(body.start_time.timestamp) * 1000).toISOString(), end: new Date(Number(body.end_time.timestamp) * 1000).toISOString(), status: 'active', all_day: false, rrule: body.recurrence ?? null, timezone: body.start_time.timezone, reminders: body.reminders, url: `https://example.feishu.cn/calendar/event/${event_id}`, attendees: [] };
+  const event_id = `evtstub-${events.length + 1}_0`;
+  const record = { event_id, calendar_id: argOf('--calendar-id'), summary: body.summary, start: new Date(Number(body.start_time.timestamp) * 1000).toISOString(), end: new Date(Number(body.end_time.timestamp) * 1000).toISOString(), status: 'active', all_day: false, rrule: body.recurrence ?? null, timezone: body.start_time.timezone, reminders: body.reminders, url: `https://example.feishu.cn/calendar/event/${event_id}`, attendees: [] };
   await appendFile(eventsPath, JSON.stringify(record) + '\n');
   ok({ event: { event_id, url: record.url, summary: record.summary } });
 }

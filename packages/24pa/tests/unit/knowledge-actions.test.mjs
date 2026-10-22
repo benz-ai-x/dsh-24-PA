@@ -14,7 +14,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     f = await fixture(); nativeCreates = 0; entries = []; nativeUnknown = false;
     for (const [name, variable] of [['lark', 'PA24_LARK_STUB_STATE'], ['wecom', 'PA24_WECOM_STUB_STATE']]) {
       const state = join(f.root, name + '.json'), bin = join(f.root, name + '-cli');
-      await writeFile(state, '{}');
+      await writeFile(state, JSON.stringify({ ownerOpenId: 'owner' }));
       await writeFile(bin, '#!/usr/bin/env node\nprocess.env.' + variable + '=' + JSON.stringify(state) + ';\nawait import(' + JSON.stringify(resolve('tests/helpers/stub-' + name + '-cli.mjs')) + ');\n'); await chmod(bin, 0o755);
       f.options[name + 'CliBin'] = bin;
     }
@@ -155,6 +155,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   it('同会议并发同参数复用，异参数拒绝；创建未知跨重启恢复仍唯一', async () => {
     const child = await worker('calendar'), start = new Date(Date.now() + 86400000), end = new Date(start.getTime() + 3600000);
     await f.rt.repos.calendar.upsertEvent({ event_id: 'event', calendar_id: 'calendar', channel: 'feishu', summary: '评审会', start_time: start, end_time: end, is_all_day: false, timezone: 'Asia/Shanghai', status: 'active', recurring: false, attendees: null, url: null, raw: {} });
+    await writeFile(join(f.root, 'lark.json.events.jsonl'), JSON.stringify({ event_id: 'event', calendar_id: 'calendar', summary: '评审会', start: start.toISOString(), end: end.toISOString(), status: 'active' }) + '\n');
     const args = { action: 'meeting_prep_enable', eventId: 'event', leadMinutes: 15 };
     nativeUnknown = true;
     await expect(f.rt.work(args, child)).rejects.toThrow('native receipt lost');
@@ -167,11 +168,27 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     expect(new Set(results.map(r => r.planId)).size).toBe(1); expect(nativeCreates).toBe(1);
     await expect(f.rt.work({ ...args, scopeMemo: false }, restartedChild)).rejects.toThrow(/已有进行中/);
     const event2 = { ...await f.rt.repos.calendar.findEvent('event'), event_id: 'event-2' }; await f.rt.repos.calendar.upsertEvent(event2);
+    await writeFile(join(f.root, 'lark.json.events.jsonl'), JSON.stringify({ event_id: 'event-2', calendar_id: 'calendar', summary: '评审会', start: start.toISOString(), end: end.toISOString(), status: 'active' }) + '\n', { flag: 'a' });
     const another = await worker('calendar');
     const competing = await Promise.allSettled([f.rt.work({ ...args, eventId: 'event-2' }, restartedChild), f.rt.work({ ...args, eventId: 'event-2', leadMinutes: 30 }, another)]);
     expect(competing.filter(row => row.status === 'fulfilled')).toHaveLength(1);
     expect(competing.find(row => row.status === 'rejected').reason.message).toContain('已有进行中');
     expect(nativeCreates).toBe(2);
+  });
+
+  it('会前准备按原身份与日历匹配，原生 ID 碰撞和未变化的回读不会误停其他计划', async () => {
+    const original = { identityKey: 'feishu:owner', platform: 'feishu', resource: { kind: 'calendar', id: 'calendar' } };
+    for (const [id, target] of [['original', original], ['other-calendar', { ...original, resource: { kind: 'calendar', id: 'project' } }], ['other-owner', { ...original, identityKey: 'feishu:other' }], ['other-platform', { ...original, platform: 'wecom' }]]) {
+      await f.rt.repos.digests.insertPlan({ id, kind: 'meeting_prep', title: id, schedule_id: null, session_id: f.rt.accessSessionId,
+        schedule_spec: { eventId: 'same-native', eventFingerprint: 'unchanged', sourceTarget: target }, status: 'active', last_window: null, voice: false, skill: 'meeting-prep' });
+    }
+    await f.rt.stopChangedMeetingPreps('same-native', 'changed');
+    expect((await f.rt.repos.digests.listPlans('active'))).toHaveLength(4);
+    await f.rt.stopChangedMeetingPreps('same-native', 'unchanged', original);
+    expect((await f.rt.repos.digests.listPlans('active'))).toHaveLength(4);
+    await f.rt.stopChangedMeetingPreps('same-native', 'changed', original);
+    expect((await f.rt.repos.digests.getPlan('original')).status).toBe('stopped');
+    expect((await f.rt.repos.digests.listPlans('active')).map(row => row.id).sort()).toEqual(['other-calendar', 'other-owner', 'other-platform']);
   });
 
   it.each(['feishu', 'wecom'])('纪要生成重试/旧身份兼容及 %s 两类行动保留真实授权', async channel => {

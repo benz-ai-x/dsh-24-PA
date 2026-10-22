@@ -18,7 +18,7 @@ for (const backend of ['sqlite', 'postgres']) for (const channel of ['feishu', '
     f = await fixture({ cliTimeoutMs: 10000 });
     for (const [name, variable] of [['lark', 'PA24_LARK_STUB_STATE'], ['wecom', 'PA24_WECOM_STUB_STATE']]) {
       const state = join(f.root, name + '.json'), bin = join(f.root, name + '-cli');
-      await writeFile(state, '{}'); await writeFile(bin, '#!/usr/bin/env node\nprocess.env.' + variable + '=' + JSON.stringify(state) + ';\nawait import(' + JSON.stringify(resolve('tests/helpers/stub-' + name + '-cli.mjs')) + ');\n'); await chmod(bin, 0o755); f.options[name + 'CliBin'] = bin;
+      await writeFile(state, JSON.stringify({ ownerOpenId: 'owner' })); await writeFile(bin, '#!/usr/bin/env node\nprocess.env.' + variable + '=' + JSON.stringify(state) + ';\nawait import(' + JSON.stringify(resolve('tests/helpers/stub-' + name + '-cli.mjs')) + ');\n'); await chmod(bin, 0o755); f.options[name + 'CliBin'] = bin;
     }
     if (backend === 'postgres') { cluster = await startPgCluster(); f.options.env.PA24_E_TEST_DSN = cluster.dsn; }
     workspacePath = await f.workspace('a', { mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list', calendarId: 'cal', calendarChannel: channel, maxWorkers: 8, enabledWorkers: ['calendar'], ...(backend === 'postgres' ? { storage: 'postgres', pgDsnEnv: 'PA24_E_TEST_DSN' } : {}) });
@@ -28,7 +28,7 @@ for (const backend of ['sqlite', 'postgres']) for (const channel of ['feishu', '
   const worker = async () => ({ id: (await f.rt.delegate({ worker: 'calendar', title: '采纳选定时间块', instruction: '本人明确采纳所选时间块' }, local)).workId });
   const adopt = (child, selected = blocks) => f.rt.work({ action: 'plan_adopt', blocks: selected }, child);
   const remote = async () => (await readFile(join(f.root, stubName + '.json.' + (channel === 'feishu' ? 'events' : 'schedules') + '.jsonl'), 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(JSON.parse);
-  const fault = command => writeFile(join(f.root, stubName + '.json'), JSON.stringify({ failNext: { command } }));
+  const fault = command => writeFile(join(f.root, stubName + '.json'), JSON.stringify({ ownerOpenId: 'owner', failNext: { command } }));
 
   it('远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办', async () => {
     const child = await worker(), update = f.rt.repos.operations.update.bind(f.rt.repos.operations); let fail = true;

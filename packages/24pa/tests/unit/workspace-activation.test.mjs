@@ -22,10 +22,11 @@ async function workspace(name, patch = {}, secrets = {}) {
   return path;
 }
 function runtime(env = {}) {
+  const sessions = new Map();
   const ctx = {
     skills: null, get: () => null,
     workspaceRegistry: { list: () => [], create: async path => ({ id: path, path, title: '24私助' }) },
-    sessionController: { create: vi.fn(async () => {}), rename: async () => {}, resolveAgent: async () => null },
+    sessionController: { create: vi.fn(async request => { sessions.set(request.sessionId, { id: request.sessionId, ctx: {}, session: { header: { cwd: request.workspaceId, agentPreset: request.agentPreset } } }); return { sessionId: request.sessionId }; }), rename: async () => {}, resolveAgent: async id => ({ agent: sessions.get(id) }) },
   };
   const rt = new PaRuntime(ctx, { stateDirectory: root, workspacePath: '', env, reminderTickMs: 60000, larkCliBin: 'lark-cli', wecomCliBin: 'wecom-cli', cliTimeoutMs: 1000 });
   runtimes.push(rt); return { rt, ctx };

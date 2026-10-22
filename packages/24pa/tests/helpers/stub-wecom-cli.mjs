@@ -171,14 +171,7 @@ if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'list') 
   const end = argOf('--end-time');
   const list = [...schedules.values()]
     .filter(s => !s.canceled)
-    .filter(s => !begin || !end || (s.begin_time >= begin && s.end_time <= end))
-    .map(s => ({
-      schedule_id: s.schedule_id,
-      subject: s.subject,
-      begin_time: s.begin_time,
-      end_time: s.end_time,
-      attendees: s.attendees ?? [],
-    }));
+    .filter(s => !begin || !end || (s.begin_time < end && s.end_time > begin));
   ok({ schedule_list: list, schedule_list_count: list.length });
 }
 
@@ -193,15 +186,27 @@ if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'create'
   const begin = argOf('--begin-time');
   const end = argOf('--end-time');
   const schedule_id = `schstub-${schedules.size + 1}`;
-  await appendFile(schedulesPath, JSON.stringify({ schedule_id, subject, begin_time: begin, end_time: end, attendees: [] }) + '\n').catch(() => {});
+  await appendFile(schedulesPath, JSON.stringify({ schedule_id, subject, begin_time: begin, end_time: end, attendees: [], timezone: JSON.parse(argOf('--timezone') ?? '{}'), reminders: JSON.parse(argOf('--reminders') ?? '{}'), repeat_rule: JSON.parse(argOf('--repeat-rule') ?? 'null') }) + '\n').catch(() => {});
   ok({ schedule_id });
 }
 
+if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'get') {
+  const ids = JSON.parse(argOf('--schedule-ids'));
+  const list = [...schedules.values()].filter(row => ids.includes(row.schedule_id) && !row.canceled);
+  ok({ schedule_list: list, schedule_list_count: list.length });
+}
+if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'update') {
+  const body = JSON.parse(argOf('--json')), original = schedules.get(body.schedule_id);
+  if (!original) failErrorBody(90460, '日程不存在');
+  await appendFile(schedulesPath, JSON.stringify({ ...original, ...body }) + '\n'); ok({});
+}
+
 if (plain[0] === 'calendar' && plain[1] === 'schedules' && plain[2] === 'cancel') {
-  const schedule_id = argOf('--schedule-id');
+  const body = argOf('--json') ? JSON.parse(argOf('--json')) : {};
+  const schedule_id = body.schedule_id ?? argOf('--schedule-id');
   const schedule = schedules.get(schedule_id);
   if (!schedule) failErrorBody(90460, `日程不存在: ${schedule_id}`);
-  if (schedule.repeat_rule?.is_repeat && JSON.parse(argOf('--repeat-mod') ?? '{}').repeat_edit_type !== 'all') failErrorBody(40001, '周期整条取消需要 repeat_mod all');
+  if (schedule.repeat_rule?.is_repeat && (body.repeat_mod ?? JSON.parse(argOf('--repeat-mod') ?? '{}')).repeat_edit_type !== 'all') failErrorBody(40001, '周期整条取消需要 repeat_mod all');
   await appendFile(schedulesPath, JSON.stringify({ ...schedule, canceled: true }) + '\n').catch(() => {});
   ok({});
 }

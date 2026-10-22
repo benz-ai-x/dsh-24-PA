@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG, CONFIG_FIELDS } from '../../lib/config.js';
 import { readWorkspaceConfiguration, writeWorkspaceConfiguration } from '../../lib/workspace-config.js';
+import { effectiveSources, sourceConfigurationFingerprint } from '../../lib/source-config.js';
 
 let React, createRoot, act, win, root, container, saved, requests, failSave, workspacePath, pendingSave, binding, pollSnapshots;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
@@ -48,14 +49,18 @@ beforeEach(async () => {
       if (failSave) return { ok: true, json: async () => ({ ok: false, error: { message: '校验失败：maxWorkers' } }) };
       // The server boundary reads its own latest file, including simulated
       // concurrent chat edits; exercise the real merge/validation path.
+      let saveFailure;
       pendingSave = (async () => {
         await writeFile(join(workspacePath, 'AGENTS.md'), '# Rules\n\n```json\n' + JSON.stringify(saved) + '\n```\n');
-        await writeWorkspaceConfiguration(workspacePath, req.payload.config, async () => {});
+        await writeWorkspaceConfiguration(workspacePath, req.payload.config, async () => {}, { expectedSourcesHash: req.payload.expectedSourcesHash });
         saved = (await readWorkspaceConfiguration(workspacePath)).config;
-      })();
+      })().catch(error => { saveFailure = error; });
       await pendingSave;
+      if (saveFailure) return { ok: true, json: async () => ({ ok: false, error: { message: saveFailure.message } }) };
     }
-    const value = req.endpoint === 'snapshot' || req.endpoint === 'action' ? snapshot() : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : req.endpoint === 'digests' ? { plans: [], skills: [] } : {};
+    const sources = effectiveSources(saved);
+    const value = req.endpoint === 'sources' ? { config: sources, configHash: sourceConfigurationFingerprint(sources), legacy: saved.sources === null, entries: sources.entries, removed: [] }
+      : req.endpoint === 'snapshot' || req.endpoint === 'action' ? snapshot() : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : req.endpoint === 'digests' ? { plans: [], skills: [] } : {};
     return { ok: true, json: async () => ({ ok: true, value }) };
   }));
   let mod, Panel;
@@ -75,6 +80,51 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); await rm(workspacePath, { recursive: true, force: true }); vi.restoreAllMocks(); });
 
 describe('工作区参数编辑：真实 React DOM 用户操作', () => {
+  it('首次改旧日历默认会物化来源，保留原来源并把新默认写回配置源', async () => {
+    const before = effectiveSources(saved).entries[0];
+    await change(field('calendarId'), 'new-calendar'); await click(button('保存并重载'));
+    expect(saved.sources.entries.find(row => row.id === before.id)).toEqual(before);
+    const next = saved.sources.entries.find(row => row.id === saved.sources.defaults.calendar);
+    expect(next.resourceId).toBe('new-calendar'); expect(next.id).not.toBe(before.id);
+    expect(requests.filter(req => req.payload.type === 'source.check')).toHaveLength(0);
+  });
+  it('来源浏览只读；旧配置一次保存后物化且不重复迁移', async () => {
+    expect(container.querySelector('.pa24-sources').textContent).toContain('迁移候选');
+    expect(requests.filter(row => row.payload.type === 'source.check')).toHaveLength(0);
+    await click(button('保存来源并重载'));
+    expect(saved.sources.entries).toHaveLength(2);
+    expect(saved.sources.defaults.calendar).toBe('legacy-calendar-feishu');
+    expect(button('保存来源并重载').disabled).toBe(true);
+    expect(container.querySelector('.pa24-sources').textContent).not.toContain('迁移候选');
+  });
+  it('新增项目日历默认按本人参与筛选，保存后进入同一配置源', async () => {
+    await click(button('添加日历来源'));
+    const article = [...container.querySelectorAll('.pa24-sources article')].at(-1);
+    const control = name => [...article.querySelectorAll('label')].find(row => row.textContent.startsWith(name)).control;
+    await change(control('来源名称'), '项目日历');
+    await change(control('用途'), 'project');
+    await change(control('资源标识'), 'project-calendar');
+    expect(control('默认筛选').value).toBe('involved');
+    expect([...article.querySelectorAll('button')].find(row => row.textContent === '只读检查').disabled).toBe(true);
+    await click(button('保存来源并重载'));
+    expect(saved.sources.entries.at(-1)).toMatchObject({ name: '项目日历', purpose: 'project', filter: 'involved', resourceId: 'project-calendar' });
+    expect((await readWorkspaceConfiguration(workspacePath)).config.sources).toEqual(saved.sources);
+  });
+  it('来源发生并发修改时拒绝覆盖，保留当前草稿和磁盘另一方的修改', async () => {
+    const article = container.querySelector('.pa24-sources article');
+    await change([...article.querySelectorAll('label')].find(row => row.textContent.startsWith('来源名称')).control, '我的草稿');
+    saved.sources = effectiveSources(saved); saved.sources.entries[0].name = '其他会话修改';
+    await click(button('保存来源并重载'));
+    expect(container.querySelector('.pa24-sources [role=alert]').textContent).toContain('来源配置已变更');
+    expect(saved.sources.entries[0].name).toBe('其他会话修改');
+    expect([...article.querySelectorAll('input')][0].value).toBe('我的草稿');
+  });
+  it('移除全部登记同时清空默认目标，保存后不自动复活旧来源', async () => {
+    await click(button('移除登记')); await click(button('移除登记'));
+    await click(button('保存来源并重载'));
+    expect(saved.sources).toMatchObject({ entries: [], defaults: { calendar: null, todo: null }, mappings: [] });
+    expect(container.querySelector('.pa24-sources').textContent).toContain('尚未登记来源');
+  });
   it('外部修改另一个字段后，仅提交用户修改字段并采用保存后的规范化基线', async () => {
     await change(field('larkProfile'), '  personal  ');
     saved = { ...saved, maxWorkers: 5 };

@@ -81,7 +81,7 @@ export class ExternalOperations {
       throw unknownError((error as Error).message);
     }
     try {
-      await this.repo().update(id, { status: 'running', receipt: { ...row.receipt, [RESULT_KEY]: result ?? null } });
+      await this.repo().update(id, { status: 'running', receipt: { ...row.receipt, [RESULT_KEY]: result ?? null, _externalAcceptedAt: new Date().toISOString() } });
     } catch (error) {
       throw unknownError(`远端已返回，但回执保存失败；请先核对远端，不要重试：${(error as Error).message}`);
     }
