@@ -4,6 +4,7 @@ const string = { type: 'string' };
 
 export const workToolProperties = {
   action: string,
+  resourcePath: string,
   taskId: string,
   guid: string,
   title: string,

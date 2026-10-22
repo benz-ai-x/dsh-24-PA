@@ -3,6 +3,10 @@ import { SkillCatalog } from '../../lib/skills.js';
 import { SkillManagement } from '../../lib/skill-management.js';
 import { registerPanel } from '../../lib/panel.js';
 import { WorkspaceExecution } from '../../lib/workspace-execution.js';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { parseSkillMarkdown } from '../../lib/skill-package.js';
 
 const personal = (name = 'digest-morning') => ({ name, description: '个人说明\n第二行', content: '工作区正文 <script>never()</script>', source: 'project-dsh', provider: 'filesystem', path: '/workspace/.dsh/skills/' + name + '.md', metadata: { track: 'agent', tools: ['pa24_memory'], params: { query: 'A: B' } }, invocation: { modelInvocable: false, userInvocable: true } });
 function setup(options = {}) {
@@ -19,6 +23,21 @@ function setup(options = {}) {
 }
 
 describe('Skill 管理读取与导出', () => {
+  it('采纳核对实际包与已查看定义，原生发现缓存未刷新也不能复制改动后的正文', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pa24-adopt-'));
+    try {
+      const dir = join(root, '.dsh/skills/example'); await mkdir(dir, { recursive: true });
+      const path = join(dir, 'SKILL.md'), text = '---\nname: example\ndescription: 示例\n---\n原始正文';
+      await writeFile(path, text);
+      const { manager } = setup({ cwd: root, definition: { ...parseSkillMarkdown(text), source: 'project-dsh', provider: 'filesystem', path } });
+      const row = (await manager.list('workspace-a')).entries.find(row => row.source === 'project-dsh');
+      const detail = await manager.inspect(row.id, 'workspace-a');
+      expect((await manager.capture(row.id, detail.fingerprint, 'workspace-a')).files).toHaveLength(1);
+      await writeFile(path, text.replace('原始正文', '新的未审查行为'));
+      await expect(manager.capture(row.id, detail.fingerprint, 'workspace-a')).rejects.toThrow(/源文件.*不一致/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it('内置原件、同名工作区定义、persona、向导分开；只读取本工作区', async () => {
     const { manager, registry } = setup();
     const result = await manager.list('workspace-a');

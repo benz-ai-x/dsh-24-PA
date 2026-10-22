@@ -11,12 +11,13 @@ import type { ChannelContextDeps } from './channel-deps.js';
 import type { WorkItemRow, NewOutbox, DigestPlanRow, DigestOccurrenceRow } from './repo.js';
 import type { NoteTrustResult } from './note-trust.js';
 import { PlanLifecycle } from './plan-lifecycle.js';
-import type { ResolvedTaskSkill } from './skills.js';
+import type { ResolvedTaskSkill, SkillDefinitionLike } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
 import { localDay } from './calendar-time.js';
 import { digestPeriod, type DigestPeriod } from './digest-period.js';
 import { captureDigestTrigger } from './digest-trigger.js';
+import { skillContract } from './skill-package.js';
 
 export interface DigestDeps extends ChannelContextDeps {
   startedAt(): string | null;
@@ -345,15 +346,16 @@ export class DigestService {
    */
   async digestBuild(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const planId = String(args.planId ?? '');
-    const plan = await this.deps.repos().digests.getPlan(planId);
+    let plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
     const boundRun = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
     if (boundRun && this.wasDelivered(boundRun)) return this.completedDelivery(item, plan, boundRun);
     if (plan.kind === 'meeting_prep') throw new Error('会前准备计划请用 meeting_prep_build 生成准备包。');
-    if (plan.status !== 'active') throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
+    if (plan.status !== 'active' && !(plan.status === 'paused' && boundRun?.plan_snapshot)) throw new Error(`计划 ${planId} 当前状态为 ${plan.status}，不生成简报。`);
+    if (boundRun?.plan_snapshot) plan = { ...plan, ...boundRun.plan_snapshot };
     const originalReport = boundRun && this.savedReport(boundRun);
     if (originalReport) return this.restoreSavedReport(item, plan, boundRun!, originalReport);
-    const boundSkill = await this.boundSkillOrThrow(plan);
+    let boundSkill = boundRun?.skill_snapshot ? boundRun.skill_snapshot.definition : await this.boundSkillOrThrow(plan);
     if (boundRun && !boundRun.time_context && !this.savedReport(boundRun)) throw new Error('历史运行缺少已固定的事实区间，原记录保留待核对；请明确重新运行，不能按当前计划猜测。');
     let timeContext = boundRun?.time_context ?? undefined;
     let requestedWindow = boundRun?.window_key;
@@ -368,7 +370,8 @@ export class DigestService {
       }
       let occurrenceAt: Date;
       if (source.kind === 'schedule') {
-        const delivery = source.deliveries.find(row => row.scheduleId === plan.schedule_id);
+        const scheduleId = plan.schedule_id;
+        const delivery = source.deliveries.find(row => row.scheduleId === scheduleId);
         if (source.sessionId !== plan.session_id || !delivery || !Number.isFinite(Date.parse(delivery.occurrenceAt))) {
           throw new Error('本事项的宿主触发无法匹配当前计划（计划可能已调整），请按当前计划重新委派，不能猜测窗口。');
         }
@@ -384,7 +387,9 @@ export class DigestService {
       requestedWindow ??= this.digestWindowKey(plan.kind, timeZone, occurrenceAt);
       timeContext = digestPeriod(boundSkill?.kind ?? plan.kind, timeZone, occurrenceAt, source.kind === 'schedule' ? 'schedule' : 'manual');
     }
-    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey: requestedWindow, workItemId: item.id, timeContext });
+    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey: requestedWindow, workItemId: item.id, timeContext, skill: boundSkill, planRevision: plan.revision });
+    if (row.plan_snapshot) plan = { ...plan, ...row.plan_snapshot };
+    if (row.skill_snapshot) boundSkill = row.skill_snapshot.definition;
     const windowKey = row.window_key;
     if (!created && this.wasDelivered(row)) {
       return { planId, windowKey, reused: true, status: row.status, message: `本窗口（${windowKey}）简报已生成，不重复发布。` };
@@ -419,9 +424,11 @@ export class DigestService {
   private async requireSkill(skill: string): Promise<ResolvedTaskSkill> {
     try {
       const resolved = await this.deps.skillCatalog().resolve(skill, ['pa24_work', 'pa24_memory']);
+      if (skillContract(resolved)?.mode === 'local') throw new Error('本地 Skill 不能用于后台计划；请创建范围明确的业务副本。');
       if (resolved.track === 'template' && !['morning', 'evening', 'weekly'].includes(resolved.kind ?? '')) {
         throw new Error(`简报不支持此模板种类：${resolved.kind ?? '未声明'}。`);
       }
+      if (resolved.track === 'template') this.checkTemplate(resolved);
       return resolved;
     }
     catch (error) { throw new Error(`任务 skill 不存在或不可执行：${skill}；${(error as Error).message}`); }
@@ -429,6 +436,21 @@ export class DigestService {
 
   private async boundSkillOrThrow(plan: DigestPlanRow): Promise<ResolvedTaskSkill | null> {
     return plan.skill ? this.requireSkill(plan.skill) : null;
+  }
+
+  /** Manual template runs save their result directly; they neither enable a
+   * plan nor send a local prompt that would accidentally invoke a model. */
+  async manualTemplate(def: SkillDefinitionLike, parameters: Record<string, unknown>): Promise<string> {
+    this.checkTemplate(def);
+    const kind = String(def.metadata?.kind ?? '');
+    const now = new Date(), period = digestPeriod(kind, this.deps.config().timeZone, now, 'manual');
+    return this.renderDigest({ kind, title: typeof parameters.title === 'string' ? parameters.title : def.description ?? '手工简报' }, period.localFrom, await this.planningFacts(now, period));
+  }
+
+  checkTemplate(def: SkillDefinitionLike): void {
+    const kind = String(def.metadata?.kind ?? '');
+    const original = this.deps.skillCatalog().builtinAll().find(skill => skill.metadata?.kind === kind && skill.metadata?.track === 'template');
+    if (!['morning', 'evening', 'weekly'].includes(kind) || !original || original.content !== def.content) throw new Error('此模板需要专用业务上下文，或正文已改变；请转换为有完成标准的智能副本后运行。');
   }
 
   /**
@@ -505,14 +527,15 @@ export class DigestService {
 
   async digestDeliver(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const planId = String(args.planId ?? '');
-    const plan = await this.deps.repos().digests.getPlan(planId);
+    let plan = await this.deps.repos().digests.getPlan(planId);
     if (!plan) throw new Error(`计划 ${planId} 不存在。`);
     const report = String(args.report ?? '').trim();
     if (!report) throw new Error('digest_deliver 需要携带 report（简报全文）。');
     const pending = await this.deps.repos().digests.runForWorkItem(plan.id, item.id);
     if (pending && this.wasDelivered(pending)) return this.completedDelivery(item, plan, pending);
-    if (plan.status !== 'active') throw new Error(`计划 ${planId} 已暂停或停止，本次结果未发布。`);
-    const bound = await this.boundSkillOrThrow(plan);
+    if (plan.status !== 'active' && !(plan.status === 'paused' && pending?.plan_snapshot)) throw new Error(`计划 ${planId} 已暂停或停止，本次结果未发布。`);
+    if (pending?.plan_snapshot) plan = { ...plan, ...pending.plan_snapshot };
+    const bound = pending?.skill_snapshot ? pending.skill_snapshot.definition : await this.boundSkillOrThrow(plan);
     if (bound?.track !== 'agent') {
       throw new Error(`计划 ${planId} 未绑定 agent 轨任务 skill（当前 ${plan.skill || '未绑定'}）；digest_deliver 仅用于 agent 轨交付。`);
     }
@@ -549,7 +572,7 @@ export class DigestService {
     if (bound?.track === 'agent') {
       throw new Error(`计划绑定 agent 轨 skill ${plan.skill}；「立即运行一次」经对话发起（委派 digest Worker），面板直跑仅支持模板轨。`);
     }
-    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey, timeContext: digestPeriod(bound?.kind ?? plan.kind, plan.schedule_spec?.daily?.time_zone ?? plan.schedule_spec?.weekly?.time_zone ?? plan.schedule_spec?.time_zone ?? this.deps.config().timeZone, admittedAt, 'manual') });
+    const { created, row } = await this.deps.repos().digests.claimRun({ planId: plan.id, windowKey, skill: bound, planRevision: plan.revision, timeContext: digestPeriod(bound?.kind ?? plan.kind, plan.schedule_spec?.daily?.time_zone ?? plan.schedule_spec?.weekly?.time_zone ?? plan.schedule_spec?.time_zone ?? this.deps.config().timeZone, admittedAt, 'manual') });
     if (!created && this.wasDelivered(row)) {
       return { planId, windowKey, reused: true, message: '本次手动运行已生成过，不重复发布。' };
     }

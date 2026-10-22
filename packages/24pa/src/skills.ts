@@ -43,6 +43,11 @@ export interface SkillDefinitionLike extends Omit<SkillSummaryLike, 'description
 }
 
 export interface SkillRegistryLike {
+  registerProvider?(factory: (control: { signal: AbortSignal; invalidate(): void }) => {
+    name: string;
+    list(options: { cwd?: string; signal?: AbortSignal }): Promise<readonly (SkillSummaryLike & { rank: number; locator: unknown })[]>;
+    get(candidate: SkillSummaryLike & { locator: unknown }, options: { cwd?: string; signal?: AbortSignal }): Promise<SkillDefinitionLike | undefined>;
+  }): () => void;
   register(skill: {
     name: string;
     description: string;
@@ -331,6 +336,7 @@ export class SkillCatalog {
     private readonly cwd: () => string | null = () => null,
     /** F43：随包指南读取器（接入向导 skill 的正文来源；缺省不注册向导 skill）。 */
     private readonly readGuide: (file: 'feishu-setup.md' | 'wecom-setup.md') => string | null = () => null,
+    private readonly managed?: (name: string) => Promise<SkillDefinitionLike | undefined>,
   ) {}
 
   /** 全量内置件（任务件＋向导件；向导件仅在指南可读时出现）。 */
@@ -383,12 +389,13 @@ export class SkillCatalog {
 
   /** Execution observes one complete winning definition, never a directory summary. */
   async resolve(name: string, allowedTools?: readonly string[]): Promise<ResolvedTaskSkill> {
-    const def = this.registry
+    const managed = await this.managed?.(name);
+    const def = managed ?? (this.registry
       ? await this.registry.get(name, { cwd: this.cwd() ?? undefined })
-      : this.builtinAll().find(s => s.name === name);
+      : this.builtinAll().find(s => s.name === name));
     if (!def || def.name !== name) throw new Error(`任务 skill ${name} 不在目录中或正文加载失败。`);
     const entry = this.toTaskSkill({ ...def, description: def.description ?? name });
-    if (name.startsWith('worker-persona-') || name.endsWith('-setup-flow') || !['builtin', 'project-dsh'].includes(entry.source)) {
+    if (name.startsWith('worker-persona-') || name.endsWith('-setup-flow') || ['worker-persona', 'setup'].includes(String(def.metadata?.kind)) || !['builtin', 'project-dsh', 'pa24-managed'].includes(entry.source) || (entry.source === 'pa24-managed' && !managed)) {
       throw new Error(`任务 skill ${name} 不在目录中（只允许内置＋工作区 .dsh/skills 来源）。`);
     }
     if (def.metadata?.track !== undefined && !['agent', 'template'].includes(String(def.metadata.track))) throw new Error(`任务 skill ${name} 执行轨无效。`);

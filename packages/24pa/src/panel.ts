@@ -31,6 +31,11 @@ export const PANEL_RPC = {
     skillsCatalog: 'skills.catalog',
     skillsInspect: 'skills.inspect',
     skillsExport: 'skills.export',
+    skillsPackage: 'skills.package',
+    skillsVersion: 'skills.version',
+    skillsPreview: 'skills.preview',
+    skillsRuns: 'skills.runs',
+    skillsRun: 'skills.run',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -51,6 +56,8 @@ export const PANEL_RPC = {
     robotOpen: 'robot.open',
     roleRegister: 'role.register',
     workList: 'work.list',
+    skillChange: 'skill.change',
+    skillRun: 'skill.run',
     testInject: 'test.inject',
   },
 } as const;
@@ -78,7 +85,14 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           return await runtime.inspectWorkspace(async () => {
             if (endpoint === E.skillsCatalog) return respond({ ok: true, value: await runtime.skillManagement.list(payload.workspaceBinding) });
             if (endpoint === E.skillsInspect) return respond({ ok: true, value: await runtime.skillManagement.inspect(payload.id, payload.workspaceBinding) });
-            if (endpoint === E.skillsExport) return respond({ ok: true, value: await runtime.skillManagement.exportMarkdown(payload.id, payload.fingerprint, payload.workspaceBinding) });
+            if (endpoint === E.skillsExport) return respond({ ok: true, value: await runtime.skillManagement.exportMarkdown(payload.id, payload.fingerprint, payload.workspaceBinding, typeof payload.versionId === 'string' ? payload.versionId : undefined) });
+            if (endpoint === E.skillsPackage) return respond({ ok: true, value: typeof payload.id === 'string' && payload.id.startsWith('managed:')
+              ? await runtime.skillPackages.download(payload.id, String(payload.versionId ?? ''), payload.workspaceBinding)
+              : await runtime.skillManagement.downloadPackage(payload.id, payload.fingerprint, payload.workspaceBinding) });
+            if (endpoint === E.skillsVersion) return respond({ ok: true, value: await runtime.skillPackages.inspect(payload.id, payload.workspaceBinding, String(payload.versionId ?? '')) });
+            if (endpoint === E.skillsPreview) return respond({ ok: true, value: await runtime.skillRuns.preview(payload) });
+            if (endpoint === E.skillsRuns) return respond({ ok: true, value: await runtime.skillRuns.list(payload) });
+            if (endpoint === E.skillsRun) return respond({ ok: true, value: await runtime.skillRuns.inspect(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
             if (endpoint === E.memory) {
               if (!runtime.memory) throw new Error('尚未绑定工作区。');
@@ -157,6 +171,8 @@ function requiredBinding(payload: PanelAction): string {
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
+  [PANEL_RPC.actions.skillChange]: (runtime, payload) => runtime.changeSkill(payload),
+  [PANEL_RPC.actions.skillRun]: (runtime, payload) => runtime.runSkill(payload),
   [PANEL_RPC.actions.workspaceBind]: async (runtime, payload) => {
     const path = String(payload.path ?? '');
     return runtime.bind(path, true).then(() => snapshot(runtime));

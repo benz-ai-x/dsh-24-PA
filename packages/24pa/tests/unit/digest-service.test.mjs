@@ -127,7 +127,7 @@ describe('F40：计划绑定任务 skill', () => {
     repos: () => ({ digests: { getPlan: async () => null, insertPlan: async row => ({ ...row }), comparePlan: async (row, patch) => ({ ...row, ...patch }) } }),
   });
 
-  it('digest_enable：默认映射内置 skill；点名不存在拒绝；agent 轨拒绝（挂载目录）', async () => {
+  it('digest_enable：默认映射内置 skill；agent 轨可绑定；自定义正文不能冒充确定性模板', async () => {
     const service = new DigestService(enableDeps(fallback));
     const ok = await service.digestEnable({ kind: 'morning', time: '08:00:00' });
     expect(ok.skill).toBe('digest-morning');
@@ -135,8 +135,7 @@ describe('F40：计划绑定任务 skill', () => {
     const mountedService = new DigestService(enableDeps(mounted));
     const custom = await mountedService.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'standup-prep' });
     expect(custom.skill).toBe('standup-prep'); // F41：agent 轨可绑定
-    const quiet = await mountedService.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'quiet-report' });
-    expect(quiet.skill).toBe('quiet-report');
+    await expect(mountedService.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'quiet-report' })).rejects.toThrow(/智能副本/);
   });
 
   it('digest_control op=skill：合法名落行，非法名拒绝', async () => {

@@ -238,14 +238,14 @@ export class WorkItemLifecycle {
    * not consume capacity forever. */
   async recover(): Promise<void> {
     if (this.deps.completion) {
-      for (const item of await this.deps.repo().list(['running'], 10000)) {
+      for (const item of await this.deps.repo().list(['running'], 10000, true)) {
         if (item.execution_id) this.pending.set(item.id, { failures: 0, nextAt: 0, recovering: true, revision: 0 });
       }
       await this.retryCompletions();
     }
     return this.gate(async () => {
       const repo = this.deps.repo();
-      for (const item of await repo.list(['running'], 10000)) {
+      for (const item of await repo.list(['running'], 10000, true)) {
         if (item.execution_id) continue; // Same-generation settlement owns these; never resend the input.
         if (item.id.startsWith('pa24-work-notes-')) {
           await repo.update(item.id, { status: 'failed', progress: '重启中断了候选刷新；请重新发起。' });

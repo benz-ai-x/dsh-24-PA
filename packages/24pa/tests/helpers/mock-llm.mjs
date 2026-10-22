@@ -21,7 +21,7 @@ const readJson = async (path, fallback) => {
   }
 };
 
-export async function startMockLlm({ scriptPath, logPath }) {
+export async function startMockLlm({ scriptPath, logPath, recordInputs = false }) {
   const requests = [];
   const server = createServer(async (req, res) => {
     if (req.method !== 'POST' || !req.url.endsWith('/messages')) {
@@ -48,12 +48,22 @@ export async function startMockLlm({ scriptPath, logPath }) {
       .map(b => b.text)
       .join('\n')
       .slice(-2000);
-    requests.push({ at: new Date().toISOString(), model: body.model, tools, toolResults, images, lastUserText });
+    requests.push({ at: new Date().toISOString(), model: body.model, tools, toolResults, images, lastUserText,
+      ...(recordInputs ? { inputs: (body.messages ?? []).filter(message => message.role === 'user') } : {}) });
     await writeFile(logPath, JSON.stringify(requests, null, 2)).catch(() => {});
 
     const script = await readJson(scriptPath, {});
     let step;
-    if (script.mode === 'dispatch') {
+    if (script.mode === 'native-run') {
+      const last = (body.messages ?? []).at(-1);
+      const continuation = last?.role === 'user' && (last.content ?? []).some(block => block.type === 'tool_result');
+      const notice = lastUserText.includes('Background subagent') || lastUserText.includes('Background job');
+      const child = (body.messages ?? []).filter(message => message.role === 'user')
+        .some(message => (message.content ?? []).some(block => block.type === 'text' && block.text.includes('[NATIVE_CHILD]')));
+      step = child ? continuation ? { text: 'CHILD_RESULT：子任务实际结束。' } : script.childStep
+        : notice ? { text: 'ROOT_RESULT：已汇总子任务及作业。' }
+        : continuation ? { text: 'ROOT_WAIT：等待子任务结果。' } : script.rootStep;
+    } else if (script.mode === 'dispatch') {
       // Classify by the LAST message only: a request whose last message
       // carries tool_result blocks continues an in-flight turn; native
       // settlement notices ("Background subagent ... finished") and the

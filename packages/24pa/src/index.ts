@@ -39,6 +39,8 @@ export function apply(ctx: DshContext, config: any) {
     reviewReminderTickMs: config.reviewReminderTickMs,
   });
   ctx.reflect.provide('pa24', runtime);
+  ctx.effect(() => runtime.skillPackages.register());
+  ctx.on('agent/created', ({ agent }) => runtime.skillRuns.attach(agent));
   ctx.on('session/event', (session, event) => runtime.onSessionEvent(session, event));
   registerPanel(ctx, runtime);
   ctx.effect(() => {

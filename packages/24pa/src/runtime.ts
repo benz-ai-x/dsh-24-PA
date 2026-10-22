@@ -39,6 +39,10 @@ import { TaskTemplates } from './task-templates.js';
 import { TaskLifecycle } from './task-lifecycle.js';
 import { assertToolDeclaration, type ResolvedTaskSkill, SkillCatalog, DEFAULT_PENDING_REMIND_TEMPLATE } from './skills.js';
 import { SkillManagement } from './skill-management.js';
+import { SkillPackages } from './skill-packages.js';
+import { SkillRuns } from './skill-runs.js';
+import { skillContract, skillHash, readSkillFile } from './skill-package.js';
+import { skillRequirements } from './skill-requirements.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
 import { text, nowIso, isoDate, eventFingerprint, hash, platformMessageKey } from './util.js';
 
@@ -309,6 +313,8 @@ export class PaRuntime {
   /** F40（spec 2.11）：任务 skill 目录——构造器里接宿主 registry 并注册内置件。 */
   private readonly skillCatalog: SkillCatalog;
   readonly skillManagement: SkillManagement;
+  readonly skillPackages: SkillPackages;
+  readonly skillRuns: SkillRuns;
 
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  delivery; F19 voice + F40/F41 skill tracks extend here. The runtime
@@ -381,6 +387,38 @@ export class PaRuntime {
   constructor(ctx: DshContext, options: RuntimeOptions) {
     this.ctx = ctx;
     this.options = options;
+    this.skillPackages = new SkillPackages({
+      context: () => this.workspace && this.workspaceBinding && this.repos?.skills
+        ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repo: this.repos.skills } : null,
+      registry: hostSkillRegistry(ctx),
+      plans: () => this.repos ? this.repos.digests.listPlans() : Promise.resolve([]),
+      pausePlan: async id => {
+        const plan = await this.repos!.digests.getPlan(id);
+        if (plan && (plan.status === 'active' || plan.lifecycle)) {
+          const result = await this.digest.plans.stop(id, 'paused');
+          if (result.warning) throw new Error(result.warning);
+        }
+      },
+      check: async (def, pkg) => {
+        const problems: string[] = [];
+        try {
+          const contract = skillContract(def);
+          problems.push(...await skillRequirements(def, pkg));
+          if (def.metadata?.track === 'template') this.digest.checkTemplate(def);
+          if (def.metadata?.track !== undefined && !['agent', 'template'].includes(String(def.metadata.track))) problems.push('执行轨须为 agent 或 template。');
+          if (def.metadata?.track !== 'template' && !['worker-persona', 'setup'].includes(String(def.metadata?.kind)) && !contract) problems.push('启用任务前请填写参数、预期结果和完成标准（metadata.pa24）。');
+          if (contract?.mode === 'business') assertToolDeclaration(def.metadata, ['pa24_work', 'pa24_memory'], def.name);
+          if (contract?.mode === 'local') {
+            const sessionId = await this.openLocalSession();
+            const resolved = await this.ctx.sessionController.resolveAgent(sessionId);
+            if ('error' in resolved) throw resolved.error;
+            const tools = resolved.agent.ctx?.tools.schemas?.(resolved.agent).map(tool => tool.name) ?? [];
+            assertToolDeclaration(def.metadata, tools, def.name);
+          }
+        } catch (error) { problems.push((error as Error).message); }
+        return problems;
+      },
+    });
     this.skillCatalog = new SkillCatalog(hostSkillRegistry(ctx), () => this.workspace?.statePath ?? null, file => {
       try {
         // F43：随包指南单一来源；读失败＝不注册该向导 skill（安全降级）。
@@ -388,7 +426,7 @@ export class PaRuntime {
       } catch {
         return null;
       }
-    });
+    }, name => this.skillPackages.resolveName(name));
     this.skillCatalog.registerBuiltins();
     this.skillManagement = new SkillManagement({
       registry: hostSkillRegistry(ctx),
@@ -400,10 +438,59 @@ export class PaRuntime {
         allowed: this.config?.extraBusinessSkills ?? [],
       }),
       plans: () => this.repos ? this.repos.digests.listPlans() : Promise.resolve([]),
+      packages: this.skillPackages,
+    });
+    this.skillRuns = new SkillRuns({
+      host: ctx, packages: this.skillPackages,
+      context: () => this.workspace && this.workspaceBinding && this.repos
+        ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repos: this.repos } : null,
+      sourceSession: () => this.openLocalSession(),
+      tools: async mode => {
+        if (mode === 'business') return ['pa24_work', 'pa24_memory'];
+        const resolved = await ctx.sessionController.resolveAgent(await this.openLocalSession());
+        if ('error' in resolved) throw resolved.error;
+        return resolved.agent.ctx?.tools.schemas?.(resolved.agent).map(tool => tool.name) ?? [];
+      },
+      permissionHash: () => skillHash(JSON.stringify(this.config ? [this.config.ownerOpenId, this.config.mode, this.config.larkProfile,
+        this.config.extraLocalTools, this.config.enabledWorkers, this.config.extraBusinessSkills, this.config.calendarChannel, this.config.todoChannel] : null)),
+      checkBusiness: (name, actions) => {
+        if (!this.config?.enabledWorkers.includes('skill') || !this.config.extraBusinessSkills.includes(name)) throw new Error('此 Skill 的业务 Worker 或工作区放行范围尚未启用。');
+        for (const action of actions) this.skillBusinessAction(action);
+      },
+      startBusiness: async (run, content) => {
+        const item = await this.repos!.workItems.get(run.work_item_id);
+        if (!item || item.child_session_id !== run.session_id) throw new Error('运行与助理交办的真实子会话关联不符。');
+        const executing = await this.repos!.workItems.beginExecution(item, run.workspace_path, 'start');
+        this.trackWorkItem(executing);
+        await this.startWorker(executing, content);
+      },
+      template: (def, parameters) => this.digest.manualTemplate(def, parameters),
+      checkTemplate: def => this.digest.checkTemplate(def),
+      lease: work => this.executions.run(work), detached: work => this.executions.detached(work),
     });
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
     this.builtInRoles = this.roles.list();
+  }
+
+  async changeSkill(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      const copied = typeof input.copyFrom === 'string' && input.copyFrom.startsWith('managed:')
+        ? () => this.skillPackages.capture(input.copyFrom, String(input.versionId ?? ''), input.workspaceBinding)
+        : input.copyFrom ? () => this.skillManagement.capture(input.copyFrom, input.fingerprint, input.workspaceBinding) : undefined;
+      return this.skillPackages.change(input, copied);
+    });
+  }
+
+  async runSkill(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run<unknown>(() => input.op === 'stop' ? this.skillRuns.stop(input) : input.op === 'review' ? this.skillRuns.review(input) : this.skillRuns.start(input));
+  }
+
+  private skillBusinessAction(action: string): WorkerActionHandler {
+    if (['skill_run', 'skill_resource'].includes(action)) throw new Error('内部资源读取不作为额外业务动作授权。');
+    const matches = this.roles.list().filter(role => role.id !== 'skill' && role.available && this.config?.enabledWorkers.includes(role.id) && Object.hasOwn(role.actions, action));
+    if (matches.length !== 1) throw new Error(`业务动作未获准或执行职责不唯一：${action}`);
+    return matches[0]!.actions[action]!;
   }
 
   /** Built-in, auditable action implementations a registered role may bind (P44). */
@@ -793,6 +880,7 @@ export class PaRuntime {
     if (!this.repos) return;
     await this.outboxDelivery.recover();
     await this.workLifecycle.recover();
+    await this.skillRuns.recover();
   }
 
   /** After a restart, re-attach the in-memory role map from the durable ledger. */
@@ -811,6 +899,7 @@ export class PaRuntime {
         await this.restoreActiveWork();
         await this.reconcileAfterRestart();
         await this.digest.recoverPlans();
+        await this.skillPackages.reconcilePlans();
       }
     });
   }
@@ -892,6 +981,7 @@ export class PaRuntime {
     this.repos = repos;
     this.workspace = next.workspace;
     this.workspaceBinding = randomUUID();
+    this.skillPackages.refresh();
     this.accessSessionId = next.accessSessionId;
     this.localSessionId = next.localSessionId;
     this.applyWorkspaceConfiguration(candidate);
@@ -1313,6 +1403,7 @@ export class PaRuntime {
     },
   });
   private trackWorkItem(item: WorkItemRow): void {
+    if (item.execution_mode === 'skill' && !item.child_session_id) return;
     if (this.workItemByChild.size > 500) {
       for (const [id, row] of this.workItemByChild) {
         if (['completed', 'failed', 'stopped'].includes(row.status)) this.workItemByChild.delete(id);
@@ -1477,7 +1568,10 @@ export class PaRuntime {
     this.executions.detached(() => this.inboxLifecycle.dispatch());
     const binding = this.workspaceBinding;
     void this.executions.afterTransition(async () => {
-      if (binding === this.workspaceBinding && !this.closed) await this.workLifecycle.retryCompletions();
+      if (binding === this.workspaceBinding && !this.closed) {
+        await this.workLifecycle.retryCompletions();
+        await this.skillRuns.poll();
+      }
     }).catch(() => { /* Shutdown/transition refuses new leases; native evidence remains recoverable. */ });
   }
 
@@ -1631,6 +1725,7 @@ export class PaRuntime {
   private async onTurnEnd(session: DshSession, event: { data: Record<string, any> }): Promise<void> {
     if (!this.repos || !this.config) return;
     this.usage.modelRequests += 1;
+    if (await this.skillRuns.onSession(session)) return;
     if (session.id === this.accessSessionId) await this.ctx.sessions.flush(session).catch(() => { });
     const turn = event.data.turn;
     const consumed = consumedTurn(session, turn);
@@ -1762,7 +1857,7 @@ export class PaRuntime {
     return definition;
   }
 
-  private async startWorker(item: WorkItemRow): Promise<void> {
+  private async startWorker(item: WorkItemRow, runPrompt?: ContentBlock[]): Promise<void> {
     if (!this.repos || !this.config) throw new Error('工作区尚未就绪。');
     const selected = await this.selectedWorkSkill(item);
     const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
@@ -1823,6 +1918,7 @@ export class PaRuntime {
         prompt = (await attachments.admitPromptContent(prompt)) as ContentBlock[];
       }
     }
+    if (runPrompt) prompt = runPrompt;
     prompt.push(workExecutionContent(item));
     // dsh 0.2.1-alpha.2 renames startContinuable to startActivation and
     // requires an explicit delivery; 'parent' keeps the continuable
@@ -1831,7 +1927,7 @@ export class PaRuntime {
     const startSpec: Omit<ContinuableStartSpec, 'delivery'> = {
       provider: 'spawn',
       label: `${roleDef.name} · ${item.title}`,
-      childId: item.id,
+      childId: item.child_session_id ?? item.id,
       signal: this.lifetime.signal,
       request: {
         parent: parent.agent,
@@ -1870,6 +1966,12 @@ export class PaRuntime {
         const { instruction, result_ref, ...view } = item;
         return view;
       }
+      if (item.execution_mode === 'skill') {
+        const run = await repos.skillRuns.latestForWork(id);
+        if (!run) throw new Error('此 Skill 交办缺少运行记录，请先核对。');
+        if (args.action === 'stop') return this.skillRuns.stop({ runId: run.id, workspaceBinding: this.workspaceBinding });
+        if (args.action === 'continue') throw new Error('请在 Skill 运行详情核对原结果，再选择原快照或当前配置预览接续；不能以普通 Worker 重开此交办。');
+      }
       if (args.action === 'stop') {
         if (item.status !== 'stopped') await this.workLifecycle.stop(id);
         await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '本人要求停止事项，补充输入不再续办。');
@@ -1888,9 +1990,23 @@ export class PaRuntime {
       // The child session id is the work item id; consult the durable ledger
       // for the live status instead of a cached snapshot.
       if (!this.repos) throw new Error('业务账本未就绪。');
-      const item = await this.repos.workItems.get(agent.id);
-      if (!item || item.status !== 'running') {
+      const ownedRun = await this.repos.skillRuns.bySession(agent.id);
+      const run = ownedRun?.session_id === agent.id ? ownedRun : null;
+      const item = await this.repos.workItems.get(run?.work_item_id ?? agent.id);
+      if (!item || item.status !== 'running' || (run && (run.mode !== 'business' || run.status !== 'running' || item.child_session_id !== agent.id))) {
         throw new Error('此会话不是运行中的 Worker，或事项已停止。');
+      }
+      if (run) {
+        const action = String(args.action ?? '');
+        if (action === 'skill_resource') {
+          const path = String(args.resourcePath ?? '');
+          const bytes = readSkillFile(run.snapshot.package, path);
+          if (bytes.length > 65536 || bytes.includes(0)) throw new Error('后台静态资源读取只支持不超过 64 KiB 的文本文件。');
+          return { path, versionId: run.version_id, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+        }
+        if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
+        if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
+        return this.skillBusinessAction(action)(args, item, this);
       }
       const role = this.roles.get(item.role);
       const handler = role?.actions[String(args.action ?? '')];
