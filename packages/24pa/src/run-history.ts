@@ -10,6 +10,16 @@ const statuses: Record<HistoryKind, string[]> = {
   work: ['accepted', 'queued', 'running', 'waiting_input', 'completed', 'failed', 'stopped', 'needs_reconciliation'],
   events: ['skipped', 'rejected', 'expired'], legacy: ['delivering', 'model_done', 'sent', 'unconfirmed'],
 };
+function diagnosticFrame(line: string): string | null {
+  // Parse the complete location, including spaces and eval frames. An
+  // unrecognised frame is omitted instead of copying a possibly private path.
+  const match = /^\s+at (?:(.*?) \()?(.+):(\d+):(\d+)\)?$/.exec(line);
+  if (!match) return null;
+  const label = match[1] && /^[\w$.[\] <>]+$/.test(match[1]) ? match[1] : '';
+  const filename = match[2]!.split(/[\\/]/).at(-1)!.replace(/[?#].*$/, '');
+  if (!/^[\w.-]+$/.test(filename)) return null;
+  return `    at ${label ? label + ' (' : ''}[路径]/${filename}:${match[3]}:${match[4]}${label ? ')' : ''}`;
+}
 function date(value: unknown, timeZone: string): Date {
   if (typeof value !== 'string' || !value.trim()) throw new Error('请填写自定义时间范围。');
   try {
@@ -110,8 +120,7 @@ export class RunHistory {
   async capture(runId: string, phase: string, error: unknown): Promise<void> {
     const context = this.deps.context();
     if (!context) return;
-    const frames = error instanceof Error ? (error.stack ?? '').split('\n').filter(line => /^\s+at /.test(line)).slice(0, 20)
-      .map(line => line.replace(/(?:file:\/\/)?(?:[A-Za-z]:[\\/]|\/)(?:[^()\n\s:]+[\\/])*([^\\/()\n\s:]+)(?=:\d+(?::\d+)?)/g, '[路径]/$1').slice(0, 500)) : [];
+    const frames = error instanceof Error ? (error.stack ?? '').split('\n').map(diagnosticFrame).filter(Boolean).slice(0, 20) : [];
     const name = error instanceof Error && ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'AbortError'].includes(error.name) ? error.name : 'Error';
     await context.repos.runDiagnostics.append(runId, phase, JSON.parse(this.redact({ name, frames })));
   }

@@ -93,7 +93,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     const context = { binding: 'binding', timeZone: 'UTC', repos, diagnosticRetentionDays: 90 };
     history = new RunHistory({ context: () => context });
     const failure = new TypeError('含私密输入的错误消息');
-    failure.stack = 'TypeError: 含私密输入的错误消息\n    at execute (file:///Users/alice/private/project/src/runner.ts:12:8)\n    at next (C:\\private\\runner.js:8:2)';
+    failure.stack = 'TypeError: 含私密输入的错误消息\n    at execute (file:///Users/alice/private/My Project/src/runner.ts:12:8)\n    at next (C:\\private\\My Project\\runner.js:8:2)\n    at eval (private/path/without-position)';
     await history.capture('r1', 'native-observe', failure); await history.capture('r1', 'native-observe', failure);
     let rows = await repos.runDiagnostics.list('r1', 90);
     expect(rows).toHaveLength(1);
