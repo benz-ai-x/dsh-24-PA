@@ -41,6 +41,10 @@ const ROLE_TOOLS: Record<string, string[]> = {
   worker: ['pa24_work', 'pa24_memory'],
 };
 
+/** Native local Skill subtasks get only explicitly declared standard coding
+ * tools. This does not grant any pa24 maintenance or business role. */
+export const skillDelegationTools = (declared: readonly string[]): string[] => declared.filter(name => STANDARD_CODING_TOOLS.includes(name));
+
 /** Live-mount signals one agent creation sees; both are cheap host-plane probes. */
 export interface ExtraToolSignals {
   /** Names in the host-plane (global) tool view — where profile-level MCP tools mount. */

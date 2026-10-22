@@ -201,14 +201,14 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     expect((await repos.digests.workSource(admitted.id)).kind).toBe('admission');
   });
 
-  it('暂停后拒绝交付，并发重复交付只入队一次', async () => {
+  it('暂停阻止新运行，在途快照继续交付，并发重复交付只入队一次', async () => {
     await plan(); await digest.digestBuild(await item('work'), { planId: 'plan' });
     await digest.digestControl({ planId: 'plan', op: 'pause' });
-    await expect(digest.digestDeliver(await item('work'), { planId: 'plan', report: '暂停结果' })).rejects.toThrow('暂停');
+    await expect(digest.digestBuild(await item('new-work'), { planId: 'plan' })).rejects.toThrow(/paused|暂停/);
     expect(await outbox()).toHaveLength(0);
-    await digest.digestControl({ planId: 'plan', op: 'resume' });
     await Promise.all([1, 2].map(async () => digest.digestDeliver(await item('work'), { planId: 'plan', report: '结果' })));
     expect(await outbox()).toHaveLength(1);
+    expect((await repos.digests.getPlan('plan')).status).toBe('paused');
   });
 
   it('旧完成但未入队的数据补交保存的正文，事务提交前再次检查暂停', async () => {

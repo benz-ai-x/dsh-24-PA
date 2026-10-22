@@ -33,14 +33,17 @@
     "@js-temporal/polyfill": "0.5.1",
     "@larksuiteoapi/node-sdk": "1.74.0",
     "pg": "8.23.1",
+    "saxes": "6.0.0",
     "sharp": "0.35.3",
-    "saxes": "6.0.0"
+    "yaml": "2.9.0",
+    "yauzl": "3.4.0",
+    "yazl": "3.3.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh": "0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2 || 0.2.1-alpha.3 || 0.2.1-alpha.4 || 0.2.1-alpha.5 || 0.2.1-rc.1 || 0.2.1-rc.2",
     "@deepseek-ai/cordis": "4.0.5-alpha.1",
-    "@deepseek-ai/schemastery": "3.18.5-alpha.1",
-    "@deepseek-ai/dsh-schedule": "0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2 || 0.2.1-alpha.3 || 0.2.1-alpha.4 || 0.2.1-alpha.5 || 0.2.1-rc.1 || 0.2.1-rc.2"
+    "@deepseek-ai/dsh": "0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2 || 0.2.1-alpha.3 || 0.2.1-alpha.4 || 0.2.1-alpha.5 || 0.2.1-rc.1 || 0.2.1-rc.2",
+    "@deepseek-ai/dsh-schedule": "0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2 || 0.2.1-alpha.3 || 0.2.1-alpha.4 || 0.2.1-alpha.5 || 0.2.1-rc.1 || 0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh": {
@@ -60,12 +63,13 @@
     "@deepseek-ai/dsh-web-app": "0.2.1-alpha.2",
     "@types/node": "^22.10.0",
     "@types/pg": "8.11.10",
+    "@types/yauzl": "3.4.0",
+    "@types/yazl": "3.3.1",
     "happy-dom": "20.8.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "typescript": "^5.7.0",
-    "vitest": "^2.1.0",
-    "yaml": "2.9.0"
+    "vitest": "^2.1.0"
   },
   "dsh": {
     "bundle": {

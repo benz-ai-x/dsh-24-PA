@@ -13,8 +13,11 @@ const harness = resolve(pkgDir, '../../../deepseek-harness');
 const linkDir = resolve(pkgDir, 'node_modules/@deepseek-ai');
 
 const targets = [
+  ['cordis', resolve(harness, 'vendor/cordis'), 'lib/index.js'],
   ['schemastery', resolve(harness, 'vendor/schemastery'), 'lib/types/index.d.ts'],
   ['dsh-schedule', resolve(harness, 'packages/schedule/schedule'), 'lib/types/index.d.ts'],
+  ['dsh-tools', resolve(harness, 'packages/core/tools'), 'lib/index.js'],
+  ['dsh-system-prompt', resolve(harness, 'packages/core/system-prompt'), 'lib/index.js'],
 ];
 
 await mkdir(linkDir, { recursive: true });

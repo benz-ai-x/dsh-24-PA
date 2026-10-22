@@ -532,4 +532,119 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `alter table pa24.work_item add column if not exists execution_scope jsonb`,
     ],
   },
+  {
+    version: 19,
+    statements: [
+      `create table if not exists pa24.skill_entry (
+        id text primary key,
+        name text not null unique,
+        display_name text not null,
+        source text not null,
+        status text not null default 'draft',
+        revision integer not null default 0,
+        draft_version text not null,
+        active_version text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.skill_version (
+        id text primary key,
+        skill_id text not null,
+        package_data jsonb not null,
+        definition jsonb,
+        validation_error text,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists skill_version_entry_idx on pa24.skill_version (skill_id, created_at)`,
+      `create table if not exists pa24.skill_change (
+        id text primary key,
+        request_hash text not null,
+        result jsonb,
+        created_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.skill_plan_block (
+        plan_id text primary key,
+        skill_id text not null,
+        reason text not null,
+        created_at timestamptz not null default now()
+      )`,
+      `alter table pa24.digest_occurrence add column if not exists skill_snapshot jsonb`,
+      `alter table pa24.digest_occurrence add column if not exists plan_snapshot jsonb`,
+      `alter table pa24.work_item add column if not exists execution_mode text not null default 'worker'`,
+      `alter table pa24.work_item add column if not exists active_skill_run_id text`,
+      `create table if not exists pa24.skill_run (
+        id text primary key,
+        request_id text not null unique,
+        request_hash text not null,
+        work_item_id text not null,
+        skill_id text not null,
+        version_id text not null,
+        source_session_id text not null,
+        session_id text not null unique,
+        workspace_path text not null,
+        mode text not null,
+        trial boolean not null default false,
+        snapshot jsonb not null,
+        status text not null default 'pending',
+        progress text,
+        result text,
+        delivery_status text not null default 'not_requested',
+        recovery jsonb,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists skill_run_work_idx on pa24.skill_run (work_item_id, created_at)`,
+      `create index if not exists skill_run_skill_idx on pa24.skill_run (skill_id, created_at)`,
+      `create table if not exists pa24.skill_run_call (
+        run_id text not null,
+        call_id text not null,
+        session_id text not null,
+        root_call_id text,
+        tool text not null,
+        arguments jsonb not null,
+        status text not null,
+        result jsonb,
+        final_result jsonb,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        primary key (run_id, session_id, call_id)
+      )`,
+      `create table if not exists pa24.skill_run_input (
+        run_id text not null,
+        message_id text not null,
+        session_id text,
+        message jsonb not null,
+        accepted boolean not null,
+        created_at timestamptz not null default now(),
+        primary key (run_id, message_id)
+      )`,
+      `create table if not exists pa24.skill_run_session (
+        session_id text primary key,
+        run_id text not null,
+        parent_session_id text,
+        workspace_path text not null,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists skill_run_session_run_idx on pa24.skill_run_session (run_id)`,
+      `create table if not exists pa24.skill_run_native (
+        run_id text not null,
+        kind text not null,
+        owner_id text not null,
+        native_id text not null,
+        start_data jsonb,
+        end_data jsonb,
+        created_at timestamptz not null default now(),
+        primary key (run_id, kind, owner_id, native_id)
+      )`,
+      `create table if not exists pa24.skill_run_review (
+        request_id text primary key,
+        request_hash text not null,
+        run_id text not null,
+        evidence_hash text not null,
+        record jsonb not null,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists skill_run_review_run_idx on pa24.skill_run_review (run_id, created_at)`,
+    ],
+  },
 ];

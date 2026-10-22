@@ -54,24 +54,24 @@ describe('Skill 管理面板的用户操作', () => {
     expect(container.textContent).toContain('内置正文');
     expect(win.document.activeElement.textContent).toBe('my-skill');
     await click(button('返回 Skill 目录'));
-    await click(button('my-skill · 工作区'));
+    await click(button('my-skill · 工作区文件'));
     expect(container.textContent).toContain('真实指令');
     expect(container.querySelector('script')).toBeNull();
     expect(win.ran).toBeUndefined();
     await click(button('下载指令 Markdown'));
     expect(await savedBlob.text()).toContain('真实指令');
     expect(requests.some(req => req.endpoint === 'action')).toBe(false);
-    expect(container.textContent).toContain('不含 scripts、references、assets');
+    expect(container.textContent).toContain('不附带工作区配置、计划参数或运行历史');
+    expect(button('下载完整 ZIP 包')).toBeTruthy();
   });
 
   it('查看后修改会报冲突，不触发下载', async () => {
-    await click(button('my-skill · 工作区'));
+    await click(button('my-skill · 工作区文件'));
     definition = { ...definition, content: '新版本' };
     await click(button('下载指令 Markdown'));
     expect(container.textContent).toContain('请刷新详情后再下载');
     expect(savedBlob).toBeNull();
     await click(button('刷新目录'));
-    await click(button('my-skill · 工作区'));
     expect(container.textContent).toContain('新版本');
   });
 

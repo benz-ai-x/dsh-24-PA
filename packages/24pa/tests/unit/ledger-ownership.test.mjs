@@ -9,6 +9,7 @@ import { execFile, fork } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { WorkspaceBackup } from '../../lib/backup.js';
+import { MIGRATIONS } from '../../lib/db.js';
 
 let pg;
 const cleanups = [];
@@ -38,6 +39,10 @@ async function legacyLedger(storage, path, { paths = [path], owners = ['owner-a'
   await db.query('drop table pa24.ledger_owner');
   await db.query('alter table pa24.work_item drop column execution_id');
   await db.query('alter table pa24.work_item drop column execution_scope');
+  await db.query('alter table pa24.work_item drop column execution_mode');
+  await db.query('alter table pa24.work_item drop column active_skill_run_id');
+  await db.query('alter table pa24.digest_occurrence drop column skill_snapshot');
+  await db.query('alter table pa24.digest_occurrence drop column plan_snapshot');
   await db.query('delete from pa24.schema_migrations where version >= 17');
   const repos = createRepos(db);
   for (const path of paths) await repos.workspaceState.save(path, {});
@@ -100,7 +105,7 @@ describe.each(['sqlite', 'postgres'])('%s 历史账本与身份恢复', storage 
       : { owners: ['owner-b'] };
     const db = await legacyLedger(storage, a, options);
     try {
-      if (scenario === 'empty') { await f.rt.bind(a); expect(await db.schemaVersion()).toBe(18); }
+      if (scenario === 'empty') { await f.rt.bind(a); expect(await db.schemaVersion()).toBe(MIGRATIONS.at(-1).version); }
       else {
         const paths = (await db.query('select * from pa24.workspace_state')).rows;
         await expect(f.rt.bind(a)).rejects.toThrow(/历史账本归属/);

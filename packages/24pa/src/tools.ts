@@ -24,6 +24,13 @@ export function apply(ctx: DshContext) {
   });
   ctx.effect(() => () => access.dispose());
   ctx.on('agent/created', async ({ agent }) => {
+    const delegated = await runtime.skillRuns.codingTools(agent);
+    if (delegated) {
+      await agent.ctx!.plugin({ name: 'pa24-skill-delegate-tools', inject: ['tools'], apply(child: DshContext) {
+        child.tools.restrict({ allow: delegated });
+      } }).await();
+      return;
+    }
     const role = runtime.roleForToolMount(agent);
     await access.attach(role, runtime.configFor(agent)?.extraLocalTools ?? [], async (allow, signal) => {
       await agent.ctx!.plugin({

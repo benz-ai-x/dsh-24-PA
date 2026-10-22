@@ -28,6 +28,8 @@ export type WorkItemStatus =
 export const UNSETTLED_WORK_STATUSES = ['accepted', 'queued', 'running', 'waiting_input', 'needs_reconciliation'] as const;
 
 export interface WorkItemRow {
+  execution_mode?: 'worker' | 'skill';
+  active_skill_run_id?: string | null;
   id: string;
   title: string;
   role: string;
@@ -55,7 +57,7 @@ export class WorkItemRepo {
   async claimNext(): Promise<WorkItemRow | null> {
     const result = await this.db.query<WorkItemRow>(
       `update pa24.work_item set status = 'running', progress = 'Worker 正在处理', updated_at = now()
-       where id = (select id from pa24.work_item where status in ('queued', 'accepted') order by created_at, id limit 1)
+       where id = (select id from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted') order by created_at, id limit 1)
        and status in ('queued', 'accepted') returning *`,
     );
     return result.rows[0] ?? null;
@@ -133,15 +135,15 @@ export class WorkItemRepo {
     return result.rows[0] ?? null;
   }
 
-  async list(statuses?: readonly WorkItemStatus[], limit = 100): Promise<WorkItemRow[]> {
+  async list(statuses?: readonly WorkItemStatus[], limit = 100, workersOnly = false): Promise<WorkItemRow[]> {
     if (statuses && statuses.length > 0) {
       const result = await this.db.query<WorkItemRow>(
-        `select * from pa24.work_item where status = any($1) order by created_at desc limit $2`,
+        `select * from pa24.work_item where status = any($1) ${workersOnly ? "and execution_mode = 'worker'" : ''} order by created_at desc limit $2`,
         [statuses, limit],
       );
       return result.rows;
     }
-    const result = await this.db.query<WorkItemRow>('select * from pa24.work_item order by created_at desc limit $1', [limit]);
+    const result = await this.db.query<WorkItemRow>(`select * from pa24.work_item ${workersOnly ? "where execution_mode = 'worker'" : ''} order by created_at desc limit $1`, [limit]);
     return result.rows;
   }
 

@@ -5,6 +5,9 @@ import { enqueueOutbox, type NewOutbox } from './outbox.js';
 import type { PlanIntent } from '../plan-lifecycle.js';
 import type { DigestPeriod } from '../digest-period.js';
 import type { DigestTriggerSource } from '../digest-trigger.js';
+import { lockPlanSkill } from './skill.js';
+import type { ResolvedTaskSkill } from '../skills.js';
+import type { SkillPackage } from '../skill-package.js';
 
 export interface DigestPlanRow {
   id: string;
@@ -31,6 +34,8 @@ export interface DigestOccurrenceRow {
   plan_id: string;
   window_key: string;
   time_context?: DigestPeriod | null;
+  skill_snapshot?: { definition: ResolvedTaskSkill | null; package?: SkillPackage; versionId?: string } | null;
+  plan_snapshot?: Pick<DigestPlanRow, 'kind' | 'title' | 'voice' | 'skill' | 'schedule_spec' | 'session_id'> | null;
   status: 'delivering' | 'model_done' | 'sent' | 'unconfirmed' | string;
   report: any;
   outbox_key: string | null;
@@ -52,12 +57,15 @@ export class DigestRepo {
   constructor(private readonly db: PaDb) {}
 
   async insertPlan(row: Omit<DigestPlanRow, 'created_at' | 'updated_at'>): Promise<DigestPlanRow> {
-    const result = await this.db.query<DigestPlanRow>(
+    return this.db.withTransaction(async tx => {
+    await lockPlanSkill(tx, row.skill, row.id);
+    const result = await tx.query<DigestPlanRow>(
       `insert into pa24.digest_plan (id, kind, title, schedule_id, session_id, schedule_spec, status, last_window, voice, skill, lifecycle)
        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
       [row.id, row.kind, row.title, row.schedule_id, row.session_id, JSON.stringify(row.schedule_spec), row.status, row.last_window, row.voice, row.skill, row.lifecycle ? JSON.stringify(row.lifecycle) : null],
     );
     return result.rows[0]!;
+    });
   }
 
   async getPlan(id: string): Promise<DigestPlanRow | null> {
@@ -66,20 +74,35 @@ export class DigestRepo {
   }
 
   async updatePlan(id: string, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'last_window' | 'title' | 'voice' | 'skill' | 'kind' | 'lifecycle' | 'session_id'>>): Promise<DigestPlanRow | null> {
+    return this.db.withTransaction(async tx => {
+    const before = (await tx.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1', [id])).rows[0];
+    if (!before) return null;
+    if (patch.skill !== undefined || patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') {
+      await lockPlanSkill(tx, patch.skill ?? before.skill, id, patch.skill !== undefined);
+    }
     const sets = ['updated_at = now()', 'revision = revision + 1'];
     const values: unknown[] = [id];
     digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle']);
-    const result = await this.db.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 returning *`, values);
+    // Compare the observed row as well: a concurrent rebind cannot slip past
+    // validation of the previous Skill.
+    values.push(before.revision ?? 0);
+    const result = await tx.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 and revision = $${values.length} returning *`, values);
+    if (!result.rows[0]) throw new Error('计划状态已变化，请刷新后重试。');
+    if (patch.skill !== undefined) await tx.query('delete from pa24.skill_plan_block where plan_id = $1', [id]);
     return result.rows[0] ?? null;
+    });
   }
 
   async comparePlan(plan: DigestPlanRow, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'kind' | 'lifecycle' | 'schedule_generation'>>): Promise<DigestPlanRow> {
+    return this.db.withTransaction(async tx => {
+    if (patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') await lockPlanSkill(tx, plan.skill, plan.id);
     const sets = ['updated_at = now()', 'revision = revision + 1'];
     const values: unknown[] = [plan.id, plan.revision ?? 0];
     digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle']);
-    const result = await this.db.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 and revision = $2 returning *`, values);
+    const result = await tx.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 and revision = $2 returning *`, values);
     if (!result.rows[0]) throw new Error('计划状态已变化，请读取当前状态后重试。');
     return result.rows[0];
+    });
   }
 
   async listPlans(status?: string): Promise<DigestPlanRow[]> {
@@ -100,12 +123,12 @@ export class DigestRepo {
   }
 
   /** One unique window; only claimRun may attach it to an active plan. */
-  private async claimOn(client: PaQueryer, row: { planId: string; windowKey: string; timeContext?: DigestPeriod }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
+  private async claimOn(client: PaQueryer, row: { planId: string; windowKey: string; timeContext?: DigestPeriod; skillSnapshot: DigestOccurrenceRow['skill_snapshot']; planSnapshot: DigestOccurrenceRow['plan_snapshot'] }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
     const id = `${row.planId}:${row.windowKey}`;
     const result = await client.query<DigestOccurrenceRow>(
-      `insert into pa24.digest_occurrence (id, plan_id, window_key, status, delivered_at, time_context)
-       values ($1,$2,$3,'delivering', now(),$4) on conflict (plan_id, window_key) do nothing returning *`,
-      [id, row.planId, row.windowKey, row.timeContext ? JSON.stringify(row.timeContext) : null],
+      `insert into pa24.digest_occurrence (id, plan_id, window_key, status, delivered_at, time_context, skill_snapshot, plan_snapshot)
+       values ($1,$2,$3,'delivering', now(),$4,$5,$6) on conflict (plan_id, window_key) do nothing returning *`,
+      [id, row.planId, row.windowKey, row.timeContext ? JSON.stringify(row.timeContext) : null, JSON.stringify(row.skillSnapshot), JSON.stringify(row.planSnapshot)],
     );
     if ((result.rowCount ?? 0) > 0) return { created: true, row: result.rows[0]! };
     const existing = await client.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where plan_id = $1 and window_key = $2', [row.planId, row.windowKey]);
@@ -113,10 +136,8 @@ export class DigestRepo {
   }
 
   /** The durable identity of one WorkItem's run survives midnight and retries. */
-  async claimRun(input: { planId: string; windowKey: string; workItemId?: string; timeContext?: DigestPeriod }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
+  async claimRun(input: { planId: string; windowKey: string; workItemId?: string; timeContext?: DigestPeriod; skill?: ResolvedTaskSkill | null; planRevision?: number }): Promise<{ created: boolean; row: DigestOccurrenceRow }> {
     return this.db.withTransaction(async client => {
-      const plan = (await client.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1 for update', [input.planId])).rows[0];
-      if (!plan || plan.status !== 'active') throw new Error(`计划 ${input.planId} 当前未开启，不能开始运行。`);
       if (input.workItemId) {
         const binding = (await client.query<{ occurrence_id: string | null }>('select occurrence_id from pa24.digest_work_binding where work_item_id = $1 for update', [input.workItemId])).rows[0];
         if (binding?.occurrence_id) {
@@ -125,7 +146,17 @@ export class DigestRepo {
           return { created: false, row: this.requireTimeContext(row, input.timeContext) };
         }
       }
-      const claimed = await this.claimOn(client, input);
+      const observed = (await client.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1', [input.planId])).rows[0];
+      if (!observed) throw new Error('计划不存在。');
+      const version = await lockPlanSkill(client, observed.skill, observed.id);
+      const plan = (await client.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1 for update', [input.planId])).rows[0];
+      if (!plan || plan.status !== 'active') throw new Error(`计划 ${input.planId} 当前未开启，不能开始运行。`);
+      if (plan.skill !== observed.skill || (input.planRevision !== undefined && plan.revision !== input.planRevision)) throw new Error('计划配置已变化，请重新读取后运行。');
+      if (version && (input.skill?.metadata.pa24Identity as { versionId?: string } | undefined)?.versionId !== version.id) throw new Error('Skill 已更新，请重新读取后运行，不能混用新旧版本。');
+      const skillSnapshot: DigestOccurrenceRow['skill_snapshot'] = input.skill === undefined ? null : { definition: input.skill,
+        ...(version ? { package: version.package_data, versionId: version.id } : {}) };
+      const { kind, title, voice, skill, schedule_spec, session_id } = plan;
+      const claimed = await this.claimOn(client, { ...input, skillSnapshot, planSnapshot: input.skill === undefined ? null : { kind, title, voice, skill, schedule_spec, session_id } });
       if (input.workItemId) {
         const binding = await client.query(`insert into pa24.digest_work_binding as binding (work_item_id, occurrence_id) values ($1, $2)
           on conflict (work_item_id) do update set occurrence_id = excluded.occurrence_id
@@ -173,9 +204,9 @@ export class DigestRepo {
   async completeRun(input: { planId: string; occurrenceId: string; report: string; notifications: NewOutbox[] }): Promise<{ reused: boolean; row: DigestOccurrenceRow }> {
     return this.db.withTransaction(async client => {
       const plan = (await client.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1 for update', [input.planId])).rows[0];
-      if (!plan || plan.status !== 'active') throw new Error(`计划 ${input.planId} 已暂停或停止，本次结果未发布。`);
       const row = (await client.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where id = $1 for update', [input.occurrenceId])).rows[0];
       if (!row || row.plan_id !== input.planId) throw new Error('运行窗口不存在或不属于该计划。');
+      if (!plan || (plan.status !== 'active' && !(plan.status === 'paused' && row.plan_snapshot))) throw new Error(`计划 ${input.planId} 已暂停或停止，且无可核验的在途快照，本次结果未发布。`);
       if ((row.status === 'model_done' || row.status === 'sent') && (row.outbox_key || input.notifications.length === 0)) {
         return { reused: true, row };
       }

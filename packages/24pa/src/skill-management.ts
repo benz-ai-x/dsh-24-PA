@@ -1,12 +1,16 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { assertToolDeclaration } from './skills.js';
 import type { SkillDefinitionLike, SkillRegistryLike, SkillSummaryLike } from './skills.js';
+import { captureSkillDirectory, importSkillPackage, exportSkillPackage, parseSkillMarkdown, readSkillFile, type SkillPackage } from './skill-package.js';
+import type { SkillPackages } from './skill-packages.js';
 
 interface SkillManagementDeps {
   registry: SkillRegistryLike | null;
   builtins: () => readonly SkillDefinitionLike[];
   context: () => { cwd: string | null; binding: string | null; enabled: boolean; allowed: readonly string[] };
   plans: () => Promise<readonly { id: string; kind: string; status: string; skill: string }[]>;
+  packages?: SkillPackages;
 }
 
 type SelectionSource = 'builtin' | 'project-dsh';
@@ -75,10 +79,12 @@ export class SkillManagement {
         discoveryError = message(error);
       }
     }
-    return { entries, discovery, discoveryError, workspaceBinding: context.binding, observedAt: new Date().toISOString() };
+    const managed = context.cwd && this.deps.packages ? await this.deps.packages.list(expectedBinding) : [];
+    return { entries: [...entries, ...managed], discovery, discoveryError, workspaceBinding: context.binding, observedAt: new Date().toISOString() };
   }
 
   async inspect(id: unknown, expectedBinding: unknown) {
+    if (typeof id === 'string' && id.startsWith('managed:') && this.deps.packages) return this.deps.packages.inspect(id, expectedBinding);
     const context = this.context(expectedBinding);
     const { definition: _definition, ...view } = await this.read(id, context);
     let plans: readonly { id: string; kind: string; status: string }[] | null = null;
@@ -88,7 +94,12 @@ export class SkillManagement {
     return { ...view, plans, plansError, workspaceBinding: context.binding };
   }
 
-  async exportMarkdown(id: unknown, fingerprint: unknown, expectedBinding: unknown) {
+  async exportMarkdown(id: unknown, fingerprint: unknown, expectedBinding: unknown, versionId?: string) {
+    if (typeof id === 'string' && id.startsWith('managed:') && this.deps.packages) {
+      const view = await this.deps.packages.inspect(id, expectedBinding, versionId);
+      if (view.fingerprint !== fingerprint) throw new Error('Skill 已变更，请刷新详情后下载。');
+      return { filename: `${view.internalName}.md`, content: view.markdown, fingerprint, workspaceBinding: expectedBinding };
+    }
     const context = this.context(expectedBinding);
     const view = await this.read(id, context);
     if (typeof fingerprint !== 'string' || fingerprint !== view.fingerprint) throw new Error('Skill 内容或来源已变更，请刷新详情后再下载。');
@@ -102,6 +113,34 @@ export class SkillManagement {
       metadata: view.metadata,
     };
     return { filename: `${view.name}.md`, content: `---\n${JSON.stringify(frontmatter, null, 2)}\n---\n\n${view.content}\n`, fingerprint: view.fingerprint, workspaceBinding: context.binding };
+  }
+
+  async capture(id: unknown, fingerprint: unknown, expectedBinding: unknown): Promise<SkillPackage> {
+    const ctx = this.context(expectedBinding);
+    const view = await this.read(id, ctx);
+    if (fingerprint !== view.fingerprint) throw new Error('Skill 已变更，请刷新后再采纳。');
+    if (view.source === 'project-dsh') {
+      if (!ctx.cwd || !view.definition.path) throw new Error('文件来源没有可核验的包路径。');
+      const pkg = await captureSkillDirectory(ctx.cwd, view.definition.path);
+      // Discovery may retain a cached definition after a file edit. Compare
+      // actual captured bytes with the inspected definition, not two reads
+      // from the same registry cache.
+      const captured = parseSkillMarkdown(readSkillFile(pkg, 'SKILL.md').toString('utf8'));
+      const content = (def: SkillDefinitionLike) => ({ name: def.name, description: def.description?.trim(),
+        content: def.content.trim(), whenToUse: def.whenToUse?.trim(), metadata: def.metadata ?? {},
+        invocation: def.invocation ?? { modelInvocable: true, userInvocable: true } });
+      if (!isDeepStrictEqual(content(captured), content(view.definition))) throw new Error('源文件与刚才查看的定义不一致，请刷新目录后重新采纳。');
+      const after = await this.read(id, ctx);
+      if (after.fingerprint !== fingerprint) throw new Error('源文件在采纳时已变化，请刷新后重试。');
+      return pkg;
+    }
+    const exported = await this.exportMarkdown(id, fingerprint, expectedBinding);
+    return importSkillPackage(exported.filename, Buffer.from(exported.content));
+  }
+
+  async downloadPackage(id: unknown, fingerprint: unknown, expectedBinding: unknown) {
+    const pkg = await this.capture(id, fingerprint, expectedBinding);
+    return { filename: `${String(id).split(':')[1]}.zip`, base64: (await exportSkillPackage(pkg)).toString('base64'), workspaceBinding: expectedBinding };
   }
 
   private async read(id: unknown, context: ReturnType<SkillManagement['context']>): Promise<SkillView> {

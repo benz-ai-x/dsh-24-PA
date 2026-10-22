@@ -12,6 +12,8 @@ import { OutreachRepo, OutreachRow, TaskTemplateInstanceRow, TaskTemplateRepo, T
 import { ReminderOccurrenceRow, ReminderRepo, ReminderRuleRow } from './reminder.js';
 import { MessageRouteRepo, MessageRouteRow } from './route.js';
 import { BindingRepo, BindingRow, WorkspaceStateRepo, WorkspaceStateRow } from './state.js';
+import { SkillRepo } from './skill.js';
+import { SkillRunRepo } from './skill-run.js';
 import { DataChannel, ProjectRepo, ProjectRow, TaskRepo, TaskRow } from './task.js';
 import { ActionOperationRepo, ActionOperationRow, OperationStatus, WorkItemRepo, WorkItemRow, WorkItemStatus } from './work.js';
 
@@ -36,6 +38,8 @@ export interface Repos {
   digests: DigestRepo;
   minutes: MinutesRepo;
   maintenance: MaintenanceRepo;
+  skills: SkillRepo;
+  skillRuns: SkillRunRepo;
 }
 
 export function createRepos(db: PaDb): Repos {
@@ -60,6 +64,8 @@ export function createRepos(db: PaDb): Repos {
     digests: new DigestRepo(db),
     minutes: new MinutesRepo(db),
     maintenance: new MaintenanceRepo(db),
+    skills: new SkillRepo(db),
+    skillRuns: new SkillRunRepo(db),
   };
 }
 export * from './calendar.js';
@@ -75,3 +81,5 @@ export * from './route.js';
 export * from './state.js';
 export * from './task.js';
 export * from './work.js';
+export * from './skill.js';
+export * from './skill-run.js';
