@@ -1313,7 +1313,7 @@ export class PaRuntime {
     for (const status of UNSETTLED_WORK_STATUSES) {
       count += await this.repos.workItems.countByStatus(status);
     }
-    return count > 0;
+    return count > 0 || await this.repos.skillRuns.hasUnsettled();
   }
 
   private async activateTransport(connection: Awaited<ReturnType<PaRuntime['prepareTransport']>>): Promise<void> {

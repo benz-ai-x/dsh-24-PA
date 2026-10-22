@@ -4,7 +4,7 @@ import type { SkillPackages } from './skill-packages.js';
 import type { SkillDefinitionLike } from './skills.js';
 import { skillContract, skillHash, skillParameters, readSkillFile, parseSkillMarkdown } from './skill-package.js';
 import { SkillRunHost, type RunInput, type RunToolCall, type RunToolResult } from './skill-run-host.js';
-import { consumedTurn } from './host-turn.js';
+import { canceledInputIds, consumedTurn } from './host-turn.js';
 import { SkillRunNative, uncertainTool } from './skill-run-native.js';
 import { skillDelegationTools } from './local-tool-access.js';
 import { skillRequirements } from './skill-requirements.js';
@@ -305,6 +305,12 @@ export class SkillRuns {
   }
   private async dispatchResumes(run: SkillRunRow): Promise<boolean> {
     if (this.resuming.has(run.id)) return true;
+    this.resuming.add(run.id);
+    try { return await this.resumeInputs(run); }
+    finally { this.resuming.delete(run.id); }
+  }
+  private async resumeInputs(run: SkillRunRow): Promise<boolean> {
+    if (await this.stopCanceledInput(run)) return true;
     const context = this.context(), controls = context.repos.runControls;
     const resumes = await controls.resumes(run.id), pending = resumes.filter(row => row.status !== 'submitted');
     const originals = await this.pendingInputs(run);
@@ -317,38 +323,53 @@ export class SkillRuns {
     if ((await context.repos.skillRuns.calls(run.id)).some(call => ['running', 'unknown'].includes(call.status)) || (await context.repos.skillRuns.unresolvedOperations(run.work_item_id)).length) {
       await this.block(run, '原运行仍有未决动作，不能用补充绕过核对。'); return true;
     }
-    this.resuming.add(run.id);
-    try {
-      if (originals.length) {
-        const original = originals[0]!;
-        await context.repos.skillRuns.input(run.id, original, true, run.session_id);
-        if (!await controls.claimRecovery(run.id, original)) return true;
-        const active = this.active.get(run.id); if (active) active.allowed = true;
-        try { await this.deps.detached(() => this.host.resumePending(run, original)); }
-        catch (error) { await this.block(run, `恢复原输入未完成：${errorText(error)}`); }
+    if (originals.length) {
+      const original = originals[0]!;
+      await context.repos.skillRuns.input(run.id, original, true, run.session_id);
+      if (!await controls.claimRecovery(run.id, original)) return true;
+      const active = this.active.get(run.id); if (active) active.allowed = true;
+      try { await this.deps.detached(() => this.host.resumePending(run, original)); }
+      catch (error) { await this.block(run, `恢复原输入未完成：${errorText(error)}`); }
+      return true;
+    }
+    for (const row of pending) {
+      if (row.status !== 'prepared') {
+        const history = await this.host.history(run);
+        const messages = history?.ownEvents().filter(event => event.type === 'agent/inbox/spliced').flatMap(event => event.data.inserted ?? []) ?? [];
+        let found = false;
+        for (const message of messages) if (await this.ownsResume(run, run.session_id, message, row.request_id)) found = true;
+        if (!found) { await controls.unknown(row.request_id); await this.block(run, '补充输入的原生接纳结果待核对，不重复提交。'); }
         return true;
       }
-      for (const row of pending) {
-        if (row.status !== 'prepared') {
-          const history = await this.host.history(run);
-          const messages = history?.ownEvents().filter(event => event.type === 'agent/inbox/spliced').flatMap(event => event.data.inserted ?? []) ?? [];
-          let found = false;
-          for (const message of messages) if (await this.ownsResume(run, run.session_id, message, row.request_id)) found = true;
-          if (!found) { await controls.unknown(row.request_id); await this.block(run, '补充输入的原生接纳结果待核对，不重复提交。'); }
-          return true;
-        }
-        if (!await controls.claimResume(row.request_id)) return true;
-        const active = this.active.get(run.id); if (active) active.allowed = true;
-        try {
-          const nativeId = await this.deps.detached(() => this.host.submitResume(run, row.request_id, row.message.content));
-          if (!await controls.submitted(row.request_id, nativeId)) throw new Error('同一补充出现多个原生输入，须核对。');
-        } catch (error) {
-          await controls.unknown(row.request_id);
-          await this.block(run, `补充提交结果待核对：${errorText(error)}`);
-          return true;
-        }
+      if (!await controls.claimResume(row.request_id)) return true;
+      const active = this.active.get(run.id); if (active) active.allowed = true;
+      try {
+        const nativeId = await this.deps.detached(() => this.host.submitResume(run, row.request_id, row.message.content));
+        if (!await controls.submitted(row.request_id, nativeId)) throw new Error('同一补充出现多个原生输入，须核对。');
+      } catch (error) {
+        await controls.unknown(row.request_id);
+        await this.block(run, `补充提交结果待核对：${errorText(error)}`);
+        return true;
       }
-    } finally { this.resuming.delete(run.id); }
+    }
+    return true;
+  }
+  private async stopCanceledInput(run: SkillRunRow): Promise<boolean> {
+    if (run.mode === 'template') return false;
+    const history = await this.host.history(run);
+    if (!history) return false;
+    const parent = history.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
+    if (history.id !== run.session_id || history.header.cwd !== run.workspace_path || (run.mode === 'business' ? parentId !== run.source_session_id : !!parentId)) return false;
+    const canceled = canceledInputIds(history, message => this.host.recoveryInputId(run, message));
+    if (!canceled.size) return false;
+    const repo = this.context().repos.skillRuns, inputs = await repo.inputs(run.id);
+    const admissions = history.ownEvents().filter(event => event.type === 'agent/inbox/spliced').flatMap(event => event.data.inserted ?? []) as RunInput[];
+    let owned = inputs.some(input => input.accepted && input.session_id === run.session_id && canceled.has(input.message_id));
+    for (const message of admissions) if (canceled.has(message.id) && (this.host.ownsInput(run, message) || await this.ownsResume(run, run.session_id, message))) {
+      await repo.input(run.id, message, true, run.session_id); owned = true;
+    }
+    if (!owned) return false;
+    await this.stop({ runId: run.id });
     return true;
   }
   /** Inbox claim proves receipt, user/message proves adoption. An authorization
@@ -463,6 +484,7 @@ export class SkillRuns {
     if (!fresh || !['pending', 'running', 'waiting', 'stopping'].includes(fresh.status)) return;
     try { await this.native.flush(run.id); }
     catch (error) { return this.block(run, errorText(error)); }
+    if (await this.stopCanceledInput(run)) return;
     const calls = await repo.calls(run.id);
     if (calls.some(call => call.status === 'unknown' || (recovering && call.status === 'running'))) return this.block(run, '工具结果待核对；停止或重启不抹除已经发生的动作。');
     let observation;

@@ -101,7 +101,9 @@ export class SkillRunRepo {
     for (const run of runs) {
       const evidence = await this.evidence(run.id, tx);
       if (['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(run.status)
-        || (!evidence.reviewed && (evidence.reviews.length || evidence.calls.some(call => ['running', 'unknown'].includes(call.status))))) throw new Error('原交办仍在执行或结果待核对，不能新开运行绕过。');
+        || await this.stopPending(run.id, tx)
+        || (!evidence.reviewed && (evidence.reviews.length || evidence.calls.some(call => ['running', 'unknown'].includes(call.status))
+          || evidence.native.some(item => !item.end_data || item.end_data.producerReported === false)))) throw new Error('原交办仍在执行或结果待核对，不能新开运行绕过。');
       context.push({ id: run.id, status: run.status, result: run.result, calls: evidence.calls,
         review: evidence.reviews.find(review => review.evidence_hash === evidence.fingerprint)?.record ?? null });
     }
@@ -112,9 +114,28 @@ export class SkillRunRepo {
     const runs = (await tx.query<SkillRunRow>('select * from pa24.skill_run where skill_id = $1', [skillId])).rows;
     for (const run of runs) {
       const evidence = await this.evidence(run.id, tx);
-      if (run.status === 'needs_reconciliation' || (!evidence.reviewed && (evidence.reviews.length || evidence.calls.some(call => call.status === 'unknown')))
+      const ended = ['completed', 'failed', 'stopped', 'timed_out'].includes(run.status);
+      if (run.status === 'needs_reconciliation' || await this.stopPending(run.id, tx)
+        || (!evidence.reviewed && (evidence.reviews.length || evidence.calls.some(call => call.status === 'unknown')
+          || (ended && (evidence.calls.some(call => call.status === 'running') || evidence.native.some(item => !item.end_data || item.end_data.producerReported === false)))))
         || (await this.unresolvedOperations(run.work_item_id, tx)).length) throw new Error(`本 Skill 的运行 ${run.id} 仍有结果待核对，请先处理原记录，不能通过全新运行绕过。`);
     }
+  }
+  private async stopPending(id: string, tx: PaQueryer): Promise<boolean> {
+    const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1', [id])).rows[0];
+    return !!control?.state.stop && control.state.stop.settledAt === null;
+  }
+  async hasUnsettled(): Promise<boolean> {
+    if ((await this.unfinished()).length) return true;
+    const runs = (await this.db.query<SkillRunRow>('select * from pa24.skill_run')).rows;
+    for (const run of runs) {
+      const evidence = await this.evidence(run.id);
+      if (run.status === 'needs_reconciliation' || (!evidence.reviewed && (evidence.reviews.length
+        || evidence.calls.some(call => ['running', 'unknown'].includes(call.status))
+        || evidence.native.some(item => !item.end_data || item.end_data.producerReported === false)))
+        || (await this.unresolvedOperations(run.work_item_id)).length) return true;
+    }
+    return false;
   }
   async get(id: string): Promise<SkillRunRow | null> {
     return (await this.db.query<SkillRunRow>('select * from pa24.skill_run where id = $1', [id])).rows[0] ?? null;

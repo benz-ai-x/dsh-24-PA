@@ -135,6 +135,25 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     await repos.runControls.change(run.id, state => { state.stop.settledAt = Date.now(); });
     expect((await repos.skillRuns.unfinished()).some(row => row.id === run.id)).toBe(false);
   });
+  it.each(['user', 'parent', 'queued'])('原生明确取消未采用输入（%s）后，轮询和重启不自动提交', async kind => {
+    const message = { id: randomUUID(), source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原任务' }] };
+    const events = [{ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } }];
+    if (kind !== 'queued') events.push({ type: 'turn/start', data: { turn: 1 } });
+    events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], ...(kind === 'queued' ? { outcome: 'canceled' } : {}) } });
+    if (kind !== 'queued') events.push({ type: 'turn/end', data: { turn: 1, reason: { kind: 'aborted', reason: { kind } } } });
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => events };
+    const runs = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'binding', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: work => work(), control: work => work(), detached: work => work(), template: async () => '' });
+    let stops = 0, resumes = 0;
+    runs.host.history = async () => session; runs.host.descendants = async () => [];
+    runs.host.ownedJobs = () => []; runs.host.stop = async () => { stops++; };
+    runs.host.resumePending = async () => { resumes++; };
+    try {
+      await runs.poll(); await runs.poll(); await runs.recover();
+      expect((await repos.skillRuns.get(run.id)).status).toBe('stopped');
+      expect(stops).toBe(1); expect(resumes).toBe(0);
+    } finally { runs.dispose(); }
+  });
   it('模型请求边界发现时限耗尽，会请求实际停止且不等待自己的回合结束', async () => {
     await repos.runControls.change(run.id, state => Object.assign(state, initialRunControl(1000, Date.now() - 2000)));
     let beforeModel, stops = 0;

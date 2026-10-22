@@ -111,6 +111,20 @@ it.each(['local', 'business'])('%s 首条输入在模型前阻断，重新检查
   expect(requestsFor(run)).toHaveLength(1);
 }, 600000);
 
+it('在原生会话取消已接纳但未采用的本地输入，重启也不自动复活', async () => {
+  await writeBarrier({ kind: 'start' });
+  const run = await start({ tools: [], steps: [{ text: 'MUST_NOT_RUN_AFTER_CANCEL' }] });
+  await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.entered);
+  try { expect(await host.remote('session/cancel', { request: { sessionId: run.session_id } })).toMatchObject({ accepted: true }); }
+  finally { await writeBarrier({}); }
+  const stopped = await until(() => detail(run.id), value => value.run.status === 'stopped');
+  expect(stopped.inputs.some(input => input.adopted === true)).toBe(false);
+  expect(requestsFor(run)).toHaveLength(0);
+  await restart();
+  expect((await detail(run.id)).run.status).toBe('stopped');
+  expect(requestsFor(run)).toHaveLength(0);
+}, 600000);
+
 it.each(['local', 'business'])('真实宿主 %s：等待并重启后在原运行继续，补充双击只消费一次', async mode => {
   const before = llm.requests.length;
   const run = await start({ mode, steps: [waitStep, { text: 'RESUMED_RESULT：主题已收到，沿原记录完成。' }] });
