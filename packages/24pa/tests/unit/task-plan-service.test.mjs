@@ -111,6 +111,12 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     row = (await service.change(command('pause', row))).plan;
     expect(await list()).toMatchObject({ nextTimes: [], timingError: null });
   });
+  it('高优先级来源遮蔽的公司条件不能成为后续动作的授权依据', async () => {
+    config.sources.mappings = [{ domain: 'calendar', kind: 'company', name: 'Beta', sourceId: 'B' }];
+    const row = await enable(await create({ selectors: { calendar: { sourceId: 'A', company: 'Beta' } } }));
+    expect(row.task_authorization.targets[0].target.sourceId).toBe('A');
+    await expect(access.action(row.task_authorization, 'calendar_create', { company: 'Beta' })).rejects.toThrow(/超出/);
+  });
   it('复制不继承授权；投递主人变化不能自动改投；多个阻断分别保留', async () => {
     let row = await enable(await create());
     const copy = (await service.change(command('copy', row))).plan;
@@ -163,7 +169,9 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
   it('动作始终核验固定目标，移除后拒绝；模型不能另选 B', async () => {
     const row = await enable(await create()), authorization = row.task_authorization;
     config.sources.defaults.calendar = 'B';
+    config.sources.entries.find(source => source.id === 'A').name = 'Alpha Calendar';
     expect((await access.action(authorization, 'calendar_create', { summary: '会议' }))._sourceTarget.resource.id).toBe('cal-A');
+    expect((await access.action(authorization, 'calendar_create', { sourceId: 'Alpha Calendar' })).sourceId).toBe('A');
     await expect(access.action(authorization, 'calendar_create', { sourceId: 'B' })).rejects.toThrow(/超出/);
     config.sources.mappings = [{ domain: 'calendar', kind: 'company', name: 'Beta', sourceId: 'B' },
       { domain: 'calendar', kind: 'project', name: 'Beta-project', sourceId: 'B' },

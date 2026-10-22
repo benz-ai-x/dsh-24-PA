@@ -65,9 +65,12 @@ export class TaskPlanAccess {
     const binding = authorization.targets.find(row => row.target.domain === write.domain && row.capability === write.capability);
     if (!binding) throw new Error('本计划缺少已确认的业务目标。');
     await this.deps.sources.verify(binding.target, binding.capability);
-    this.deps.sources.assertSelection(binding.target, args, authorization.selectors?.[write.domain]);
+    const selected = authorization.selectors?.[write.domain] ?? {};
+    const basis = binding.target.selectedBy === 'explicit' ? { sourceId: selected.sourceId }
+      : binding.target.selectedBy === 'mapping' ? { company: selected.company, project: selected.project } : {};
+    this.deps.sources.assertSelection(binding.target, args, basis);
     const { sourceId: _source, company: _company, project: _project, channel: _channel, calendarId: _calendar, _sourceTarget: _target, ...values } = args;
-    if ((args.sourceId && args.sourceId !== binding.target.sourceId) || (args.channel && args.channel !== binding.target.platform)
+    if ((args.channel && args.channel !== binding.target.platform)
       || (args.calendarId && args.calendarId !== binding.target.resource.id)) throw new Error('本次动作要求的目标超出计划固定授权，请先明确重配计划。');
     return { ...values, sourceId: binding.target.sourceId, channel: binding.target.platform, _sourceTarget: binding.target };
   }
