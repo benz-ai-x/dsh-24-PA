@@ -8,6 +8,9 @@ import { consumedTurn } from './host-turn.js';
 import { SkillRunNative, uncertainTool } from './skill-run-native.js';
 import { skillDelegationTools } from './local-tool-access.js';
 import { skillRequirements } from './skill-requirements.js';
+import { SkillRunClock } from './skill-run-clock.js';
+import { initialRunControl, beginRunAttempt, blockRun, clearRunBlock, runControlSummary, type RunBlockKind } from './run-control.js';
+import { isDeepStrictEqual } from 'node:util';
 
 interface RunContext { binding: string; cwd: string; repos: Repos }
 interface SkillRunsDeps {
@@ -35,10 +38,16 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
 export class SkillRuns {
   private readonly host: SkillRunHost;
   private readonly native: SkillRunNative;
+  private readonly clock: SkillRunClock;
   private readonly active = new Map<string, { run: SkillRunRow; binding: string; allowed: boolean }>();
   private readonly settling = new Map<string, Promise<void>>();
+  private readonly resuming = new Set<string>();
   private recovering = false;
-  constructor(private readonly deps: SkillRunsDeps) { this.host = new SkillRunHost(deps.host); this.native = new SkillRunNative(this.host); }
+  constructor(private readonly deps: SkillRunsDeps) {
+    this.host = new SkillRunHost(deps.host); this.native = new SkillRunNative(this.host);
+    this.clock = new SkillRunClock(id => this.deps.lease(() => this.expire(id)));
+  }
+  dispose(): void { this.clock.dispose(); }
   private context(binding?: unknown): RunContext {
     const context = this.deps.context();
     if (!context || (binding !== undefined && context.binding !== binding)) throw new Error('运行所属工作区已切换或尚未就绪。');
@@ -66,7 +75,9 @@ export class SkillRuns {
   async inspect(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), run = await context.repos.skillRuns.get(String(input.runId));
     if (!run) throw new Error('运行记录不存在。');
+    const control = await context.repos.runControls.get(run.id);
     return { run: this.view(run), ...await context.repos.skillRuns.evidence(run.id),
+      execution: control ? runControlSummary(control.state) : null, attempts: control?.state.attempts ?? [],
       unresolvedOperations: await context.repos.skillRuns.unresolvedOperations(run.work_item_id), workspaceBinding: context.binding };
   }
   private async prepare(input: Record<string, unknown>) {
@@ -100,7 +111,8 @@ export class SkillRuns {
     if (mode === 'business') this.deps.checkBusiness(entry.name, contract?.actions ?? []);
     const sourceSessionId = previous?.source_session_id ?? await this.deps.sourceSession();
     const snapshot: SkillRunSnapshot = { name: entry.display_name, definition: { ...definition, name: entry.name }, package: pkg, contract,
-      parameters, tools: [...new Set(tools)], permissionHash: this.deps.permissionHash() };
+      parameters, tools: [...new Set(tools)], permissionHash: this.deps.permissionHash(),
+      executionLimitMs: original ? previous.snapshot.executionLimitMs ?? 900000 : initialRunControl(input.executionLimitMs === undefined ? 900000 : Number(input.executionLimitMs)).limitMs };
     if (previous) {
       const instruction = typeof input.instruction === 'string' ? input.instruction.trim() : '';
       if (instruction.length > 4000) throw new Error('接续说明最多 4000 字符。');
@@ -112,7 +124,7 @@ export class SkillRuns {
     const prepared = await this.prepare(input);
     const { entry, versionId, mode, snapshot, sourceSessionId, context } = prepared;
     return { entry, versionId, mode, name: snapshot.name, parameters: snapshot.parameters, tools: snapshot.tools, contract: snapshot.contract,
-      files: snapshot.package.files.map(({ content: _content, ...file }) => file), sourceSessionId, continuation: snapshot.continuation,
+      files: snapshot.package.files.map(({ content: _content, ...file }) => file), sourceSessionId, continuation: snapshot.continuation, executionLimitMs: snapshot.executionLimitMs,
       fingerprint: skillHash(JSON.stringify([entry.revision, versionId, snapshot, sourceSessionId])), workspaceBinding: context.binding,
       message: mode === 'template' ? '此模板按确定性规则生成结果，不调用模型。' : '预览只检查配置，不执行任务。试运行与正式运行都会实际调用获准工具，可能修改文件或外部对象。结果默认保存在运行记录。' };
   }
@@ -175,20 +187,164 @@ export class SkillRuns {
     await this.host.mount(agent, run, {
       allowed: () => owner.allowed && this.deps.context()?.binding === owner.binding && this.deps.permissionHash() === run.snapshot.permissionHash,
       authorize: () => this.authorize(run, owner.binding),
-      ownsInput: message => this.native.ownsInput(repo, run, agent.id, message),
+      beforeModel: async session => {
+        const clock = await this.clock.observe(context.repos.runControls, run.id, [session], id => id === session.id || this.clockLive(id));
+        if (clock && clock.executionMs >= clock.limitMs) {
+          owner.allowed = false;
+          await repo.transition(run.id, 'timed_out', '累计执行达到时限；已发生动作保留');
+          throw new Error('累计执行时限已用尽。');
+        }
+        if (clock?.attempts.length && clock.attempts.at(-1)!.endedAt !== null) await context.repos.runControls.change(run.id, state => beginRunAttempt(state));
+      },
+      ownsInput: async message => await this.ownsResume(run, agent.id, message) || this.native.ownsInput(repo, run, agent.id, message),
       input: (message, accepted) => repo.input(run.id, message, accepted, agent.id),
-      block: reason => this.block(run, reason),
+      block: async reason => {
+        const control = await context.repos.runControls.get(run.id);
+        if (control && !control.state.terminal && (control.state.blocks.length || (await repo.get(run.id))?.status === 'waiting')) await repo.transition(run.id, 'waiting', control.state.blocks.map(block => block.reason).join('；') || '补充已保存，等待原步骤结束后继续');
+        else await this.block(run, reason);
+      },
       execute: (call, next) => this.deps.lease(() => this.execute(run, owner.binding, call, next)),
       final: (call, result) => this.native.final(repo, run, call, result),
       activation: (phase, info) => this.native.activation(repo, run, agent.id, phase, info),
     }, descendant, delegatedWork ? ['pa24_work', 'pa24_memory'] : run.snapshot.tools);
   }
+  private clockLive(id: string): boolean {
+    return this.host.busy(id) || this.host.ownedJobs(id).some(job => ['running', 'stopping'].includes(job.status));
+  }
+  private async expire(id: string): Promise<void> {
+    const context = this.context(), run = await context.repos.skillRuns.get(id);
+    if (!run || !['running', 'waiting'].includes(run.status)) return;
+    const histories: DshSession[] = [];
+    for (const row of await context.repos.skillRuns.sessions(id)) {
+      const history = await this.host.history(run, row.session_id); if (history) histories.push(history);
+    }
+    const control = await this.clock.observe(context.repos.runControls, id, histories, owner => this.clockLive(owner));
+    if (!control || control.executionMs < control.limitMs) return;
+    const active = this.active.get(id); if (active) active.allowed = false;
+    await context.repos.skillRuns.transition(id, 'timed_out', '累计执行达到时限；已发生动作和未决回执保留');
+    this.clock.disarm(id);
+    await this.deps.detached(() => this.host.stop(run));
+    const stopped = await this.native.observe(context.repos.skillRuns, run);
+    await this.clock.observe(context.repos.runControls, id, stopped.histories, () => false);
+  }
+  async waitForInput(run: SkillRunRow, reason: unknown): Promise<unknown> {
+    if (typeof reason !== 'string' || !reason.trim() || reason.length > 4000) throw new Error('请说明需主人补充的信息（1–4000 字符）。');
+    const context = this.context();
+    await context.repos.runControls.change(run.id, state => blockRun(state, { key: 'input', kind: 'input', reason: reason.trim() }));
+    await context.repos.skillRuns.transition(run.id, 'waiting', reason.trim());
+    return { runId: run.id, status: 'waiting', reason: reason.trim(), message: '已保存原运行，等待主人补充后沿本记录继续。' };
+  }
+  private async ownsResume(run: SkillRunRow, sessionId: string, message: RunInput, request?: string): Promise<boolean> {
+    if (sessionId !== run.session_id) return false;
+    const context = this.context();
+    for (const row of await context.repos.runControls.resumes(run.id)) {
+      if (row.status === 'prepared' || (request && row.request_id !== request)) continue;
+      const sourceMatches = run.mode === 'local' ? message.source?.kind === 'user' && message.source.rpcId === row.request_id
+        : message.source?.kind === 'agent-message' && message.source.senderSessionId === run.source_session_id;
+      const expected = run.mode === 'business' ? [{ type: 'text', text: `Agent ${run.source_session_id} sent a message: ` }, ...row.message.content] : row.message.content;
+      if (sourceMatches && isDeepStrictEqual(message.content, expected)) return context.repos.runControls.submitted(row.request_id, message.id);
+    }
+    return false;
+  }
+  async resume(input: Record<string, unknown>) {
+    const context = this.context(input.workspaceBinding), run = await context.repos.skillRuns.get(String(input.runId));
+    if (!run) throw new Error('原运行不存在。');
+    const id = requestId(input.requestId), hash = skillHash(JSON.stringify(input));
+    const prior = (await context.repos.runControls.resumes(run.id)).find(row => row.request_id === id);
+    if (prior) {
+      if (prior.request_hash !== hash) throw new Error('补充操作标识已用于其他内容。');
+      return this.inspect(input);
+    }
+    const recheck = input.op === 'recheck';
+    if (input.confirm !== true || (!recheck && (typeof input.instruction !== 'string' || !input.instruction.trim() || input.instruction.length > 4000))) throw new Error('请明确提交需补充的信息（1–4000 字符）。');
+    if (run.status !== 'waiting') throw new Error('只有等待中的原运行可以补充；已结束的运行请显式接续。');
+    if (recheck) {
+      await this.refreshBlocks(run);
+      if ((await context.repos.runControls.get(run.id))?.state.blocks.length) return this.inspect(input);
+      if ((await context.repos.runControls.resumes(run.id)).some(row => row.status !== 'submitted')) { await this.dispatchResumes(run); return this.inspect(input); }
+    }
+    const content = [{ type: 'text', text: `[24PA resume: ${id}]\n${recheck ? '主人已要求重新检查，原阻断已解除。' : `主人补充：${String(input.instruction).trim()}`}\n沿原运行继续剩余工作，不重做已有成功回执的步骤；原有权限和累计执行时限保持。` }];
+    await context.repos.runControls.prepareResume({ runId: run.id, requestId: id, hash, message: { content }, change: state => {
+      if (!recheck) {
+        if (!state.blocks.some(block => block.key === 'input' && block.kind === 'input')) throw new Error('此运行没有待补充的信息；其他阻断请通过对应入口处理。');
+        clearRunBlock(state, 'input');
+      }
+    } });
+    await this.dispatchResumes(run);
+    return this.inspect(input);
+  }
+  private async dispatchResumes(run: SkillRunRow): Promise<boolean> {
+    if (this.resuming.has(run.id)) return true;
+    const context = this.context(), controls = context.repos.runControls;
+    const resumes = await controls.resumes(run.id), pending = resumes.filter(row => row.status !== 'submitted');
+    if (!pending.length) return false;
+    const current = await context.repos.skillRuns.get(run.id), control = await controls.get(run.id);
+    if (!current || !['running', 'waiting'].includes(current.status) || !control || control.state.terminal) return false;
+    await this.refreshBlocks(run);
+    if ((await controls.get(run.id))?.state.blocks.length || this.clockLive(run.session_id)) return true;
+    await this.native.flush(run.id);
+    if ((await context.repos.skillRuns.calls(run.id)).some(call => ['running', 'unknown'].includes(call.status)) || (await context.repos.skillRuns.unresolvedOperations(run.work_item_id)).length) {
+      await this.block(run, '原运行仍有未决动作，不能用补充绕过核对。'); return true;
+    }
+    this.resuming.add(run.id);
+    try {
+      for (const row of pending) {
+        if (row.status !== 'prepared') {
+          const history = await this.host.history(run);
+          const messages = history?.ownEvents().filter(event => event.type === 'agent/inbox/spliced').flatMap(event => event.data.inserted ?? []) ?? [];
+          let found = false;
+          for (const message of messages) if (await this.ownsResume(run, run.session_id, message, row.request_id)) found = true;
+          if (!found) { await controls.unknown(row.request_id); await this.block(run, '补充输入的原生接纳结果待核对，不重复提交。'); }
+          return true;
+        }
+        if (!await controls.claimResume(row.request_id)) return true;
+        const active = this.active.get(run.id); if (active) active.allowed = true;
+        try {
+          const nativeId = await this.deps.detached(() => this.host.submitResume(run, row.request_id, row.message.content));
+          if (!await controls.submitted(row.request_id, nativeId)) throw new Error('同一补充出现多个原生输入，须核对。');
+        } catch (error) {
+          await controls.unknown(row.request_id);
+          await this.block(run, `补充提交结果待核对：${errorText(error)}`);
+          return true;
+        }
+      }
+    } finally { this.resuming.delete(run.id); }
+    return true;
+  }
+  private async waitForBlock(run: SkillRunRow, key: string, kind: RunBlockKind, reason: string): Promise<void> {
+    const context = this.context();
+    await context.repos.runControls.change(run.id, state => blockRun(state, { key, kind, reason }));
+    await context.repos.skillRuns.transition(run.id, 'waiting', reason);
+  }
+  private async refreshBlocks(run: SkillRunRow): Promise<void> {
+    const issues: Array<{ key: string; kind: RunBlockKind; reason: string }> = [];
+    if (this.deps.permissionHash() !== run.snapshot.permissionHash) issues.push({ key: 'current-authorization', kind: 'authorization', reason: '身份或授权配置与原运行不同；恢复原范围后可重新检查。' });
+    const missing = await skillRequirements(run.snapshot.definition, run.snapshot.package);
+    if (missing.length) issues.push({ key: 'current-dependencies', kind: 'dependency', reason: missing.join('；') });
+    if (run.mode === 'business') try { this.deps.checkBusiness(run.snapshot.definition.name, run.snapshot.contract?.actions ?? []); }
+    catch (error) { issues.push({ key: 'current-business', kind: 'authorization', reason: errorText(error) }); }
+    const context = this.context();
+    const control = await context.repos.runControls.change(run.id, state => {
+      if (state.terminal) return;
+      for (const key of ['current-authorization', 'current-dependencies', 'current-business']) {
+        const issue = issues.find(item => item.key === key);
+        if (issue) blockRun(state, issue); else clearRunBlock(state, key);
+      }
+    });
+    if (control.state.blocks.length && !control.state.terminal) await context.repos.skillRuns.transition(run.id, 'waiting', control.state.blocks.map(block => block.reason).join('；'));
+  }
   private async authorize(run: SkillRunRow, binding: string): Promise<void> {
     const context = this.context(binding), current = await context.repos.skillRuns.get(run.id);
-    if (this.active.get(run.id)?.allowed === false || current?.status !== 'running' || this.deps.permissionHash() !== run.snapshot.permissionHash) throw new Error('运行已停止或当前身份／授权发生变化，需核对后接续。');
+    const control = await context.repos.runControls.get(run.id);
+    if (control?.state.blocks.length && !control.state.terminal) throw new Error(control.state.blocks.map(block => block.reason).join('；'));
+    if (this.active.get(run.id)?.allowed === false || current?.status !== 'running') throw new Error('运行已停止或等待处理，不能继续执行。');
+    if (this.deps.permissionHash() !== run.snapshot.permissionHash) {
+      await this.waitForBlock(run, 'current-authorization', 'authorization', '身份或授权配置与原运行不同；恢复原范围后可重新检查。');
+      throw new Error('当前身份或授权发生变化，等待处理。');
+    }
     const missing = await skillRequirements(run.snapshot.definition, run.snapshot.package);
     if (missing.length) {
-      await this.block(run, missing.join('\n'));
+      await this.waitForBlock(run, 'current-dependencies', 'dependency', missing.join('\n'));
       throw new Error(missing.join('\n'));
     }
     for (const prior of run.snapshot.continuation?.runs ?? []) {
@@ -198,7 +354,8 @@ export class SkillRuns {
         throw new Error('原运行有新的未决结果。');
       }
     }
-    if (run.mode === 'business') this.deps.checkBusiness(run.snapshot.definition.name, run.snapshot.contract?.actions ?? []);
+    if (run.mode === 'business') try { this.deps.checkBusiness(run.snapshot.definition.name, run.snapshot.contract?.actions ?? []); }
+    catch (error) { await this.waitForBlock(run, 'current-business', 'authorization', errorText(error)); throw error; }
   }
   private async execute(run: SkillRunRow, binding: string, call: RunToolCall, next: () => Promise<RunToolResult>) {
     const context = this.context(binding), repo = context.repos.skillRuns;
@@ -220,6 +377,7 @@ export class SkillRuns {
   }
   private async block(run: SkillRunRow, reason: string): Promise<void> {
     const state = this.active.get(run.id); if (state) state.allowed = false;
+    this.clock.disarm(run.id);
     await this.context().repos.skillRuns.transition(run.id, 'needs_reconciliation', reason);
   }
   async onSession(session: DshSession): Promise<boolean> {
@@ -241,7 +399,7 @@ export class SkillRuns {
   private async settle(run: SkillRunRow, recovering: boolean): Promise<void> {
     const context = this.context(), repo = context.repos.skillRuns;
     const fresh = await repo.get(run.id);
-    if (!fresh || !['pending', 'running', 'stopping'].includes(fresh.status)) return;
+    if (!fresh || !['pending', 'running', 'waiting', 'stopping'].includes(fresh.status)) return;
     try { await this.native.flush(run.id); }
     catch (error) { return this.block(run, errorText(error)); }
     const calls = await repo.calls(run.id);
@@ -250,6 +408,12 @@ export class SkillRuns {
     try { observation = await this.native.observe(repo, run, recovering); }
     catch (error) { return this.block(run, errorText(error)); }
     const history = observation.root;
+    let control;
+    try { control = await this.clock.observe(context.repos.runControls, run.id, observation.histories, id => !recovering && this.clockLive(id)); }
+    catch (error) { return this.block(run, `执行计时依据待核对：${errorText(error)}`); }
+    if (control && control.executionMs >= control.limitMs) { await this.expire(run.id); return; }
+    if (await this.dispatchResumes(run)) return;
+    if ((await repo.get(run.id))?.status === 'waiting') return;
     if (!history) {
       if (recovering && fresh.status === 'pending') { await this.launch(run); return; }
       if (recovering) await this.block(run, '没有可核验的原运行历史，请先核对实际结果。');
@@ -264,6 +428,8 @@ export class SkillRuns {
     }
     const accepted = new Set((await repo.inputs(run.id)).filter(input => input.accepted && input.session_id === run.session_id).map(input => input.message_id));
     const ends = events.filter(event => event.type === 'turn/end' && [...consumedTurn(history, event.data.turn).messageIds].some(id => accepted.has(id)));
+    const consumed = new Set(ends.flatMap(event => [...consumedTurn(history, event.data.turn).messageIds]));
+    if ((await context.repos.runControls.resumes(run.id)).some(row => row.status === 'submitted' && (!row.native_message_id || !consumed.has(row.native_message_id)))) return;
     if (original.size > 1) return this.block(run, '原输入不唯一，需要核对。');
     if (!ends.length) {
       if (recovering && fresh.status === 'running') {
@@ -288,6 +454,7 @@ export class SkillRuns {
     const reason = status === 'completed' ? '执行回合已完成，结果已保存；业务完成以结果和动作回执为准，未请求投递'
       : status === 'stopped' ? '已停止；已发生的动作及未知结果保留' : `执行未完成：${terminal.data.reason?.error?.message ?? kind}`;
     const state = this.active.get(run.id); if (state) state.allowed = false;
+    this.clock.disarm(run.id);
     await repo.transition(run.id, status, reason, output);
   }
   async recover(): Promise<void> {
@@ -303,12 +470,14 @@ export class SkillRuns {
   async stop(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), run = await context.repos.skillRuns.get(String(input.runId));
     if (!run) throw new Error('运行不存在。');
-    if (!['pending', 'running', 'stopping', 'needs_reconciliation'].includes(run.status)) return this.view(run);
+    if (!['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(run.status)) return this.view(run);
+    this.clock.disarm(run.id);
     await context.repos.skillRuns.transition(run.id, 'stopping', '已阻止新的工具调用，正在停止原会话');
     const state = this.active.get(run.id); if (state) state.allowed = false;
     try {
       await this.deps.detached(() => this.host.stop(run));
       const observation = await this.native.observe(context.repos.skillRuns, run);
+      await this.clock.observe(context.repos.runControls, run.id, observation.histories, () => false);
       if (observation.pending) throw new Error('原生子任务或作业尚未确认结束。');
     } catch (error) { await this.block(run, `停止后的结果待核对：${errorText(error)}`); }
     const calls = await context.repos.skillRuns.calls(run.id);

@@ -104,6 +104,11 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false }
       await writeFile(scriptPath, JSON.stringify(script, null, 2)).catch(() => {});
     }
     const turn = requests.length;
+    if (step.httpError) {
+      res.writeHead(step.httpError.status, { 'content-type': 'application/json', 'retry-after': '0.01' });
+      res.end(JSON.stringify({ error: { type: step.httpError.type, message: step.httpError.message ?? '隔离模型暂时拒绝请求' } }));
+      return;
+    }
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
     const send = payload => res.write(`event: ${payload.type}\ndata: ${JSON.stringify(payload)}\n\n`);
     send({ type: 'message_start', message: { id: `msg_mock_${turn}`, type: 'message', role: 'assistant', model: body.model ?? 'mock', content: [], stop_reason: null, usage: { input_tokens: 10, output_tokens: 1 } } });

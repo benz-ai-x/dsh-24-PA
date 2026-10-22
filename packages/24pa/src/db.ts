@@ -684,4 +684,19 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 21,
+    statements: [
+      `create table if not exists pa24.skill_run_control (
+        run_id text primary key, revision integer not null default 0,
+        state jsonb not null, updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.skill_run_resume (
+        request_id text primary key, run_id text not null, request_hash text not null,
+        message jsonb not null, status text not null, native_message_id text,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists skill_run_resume_run_idx on pa24.skill_run_resume (run_id, created_at)`,
+    ],
+  },
 ];

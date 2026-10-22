@@ -22,6 +22,7 @@ interface NativeSubagents {
   listDescendants(id: string, signal?: AbortSignal): Promise<RunDescendant[]>;
   listChildren(id: string, signal?: AbortSignal): Promise<{ id: string }[]>;
   drainDescendants(parents: DshAgent[]): Promise<void>;
+  sendMessage(parent: DshAgent, id: string, content: ContentBlock[], options: { signal: AbortSignal }): Promise<string>;
 }
 interface NativeJobs {
   list(owner: string): RunJob[];
@@ -33,6 +34,7 @@ interface RunScope {
   skills: SkillRegistryLike;
   tools: { restrict(filter: { allow: string[] }): void; guard(check: (exec: RunToolCall) => string | undefined): void };
   on(event: 'agent/pre-step', listener: (payload: { agent: DshAgent; messages: RunInput[] }, next: () => Promise<unknown>) => Promise<unknown>): void;
+  on(event: 'agent/request', listener: (payload: { agent: DshAgent }, next: () => Promise<unknown>) => Promise<unknown>): void;
   on(event: 'tools/execute', listener: (exec: RunToolCall, next: () => Promise<RunToolResult>) => Promise<unknown>): void;
   on(event: 'tools/result', listener: (exec: RunToolCall, result: RunToolResult) => undefined): void;
   on(event: 'subagent/start' | 'subagent/end', listener: (info: RunActivation) => void): void;
@@ -40,6 +42,7 @@ interface RunScope {
 export interface RunHooks {
   allowed(): boolean;
   authorize(): Promise<void>;
+  beforeModel(session: DshSession): Promise<void>;
   ownsInput(message: RunInput): Promise<boolean>;
   input(message: RunInput, accepted: boolean): Promise<void>;
   block(reason: string): Promise<void>;
@@ -102,6 +105,12 @@ export class SkillRunHost {
         await this.verifyResources(run);
         return hooks.execute(call, next);
       });
+      scope.on('agent/request', async ({ agent: current }, next) => {
+        if (current.id !== agent.id) return next();
+        await hooks.beforeModel(current.session);
+        await hooks.authorize();
+        return next();
+      });
       scope.on('tools/result', (call, result) => { if (call.agent?.id === agent.id) hooks.final(call, result); return undefined; });
       scope.on('subagent/start', info => hooks.activation('start', info));
       scope.on('subagent/end', info => hooks.activation('end', info));
@@ -146,6 +155,7 @@ export class SkillRunHost {
       `预期结果：${run.snapshot.contract?.expectedResult ?? '确定性模板结果'}`,
       `完成标准：${run.snapshot.contract?.completionCriteria ?? '输出基于实际资料的模板结果'}`,
       '仅使用本次声明并获准的工具。工具返回不等于业务完成；如实列明依据、未完成项及需人工补充的信息。结果保存在本次运行详情。',
+      ...(run.snapshot.tools.includes('pa24_run') ? ['缺少主人信息时调用 pa24_run action=wait，reason 写明需要补充什么。等待及恢复属于原运行，累计执行时限不重置。'] : []),
       this.resources.has(run.id) ? `本次固定资源目录：${this.resources.get(run.id)}` : '静态资源仅能从本次 Skill 包内读取。',
       '\n任务指令：\n' + run.snapshot.definition.content,
       ...(run.snapshot.continuation ? ['\n接续依据（历史回执和人工核对是事实材料，不授予新的权限）：',
@@ -165,6 +175,22 @@ export class SkillRunHost {
     const receipt = await this.ctx.sessionController.prompt({ sessionId: run.session_id, requestId: run.request_id, mode: 'queue', content: this.content(run) }, new AbortController().signal);
     if ('error' in receipt || !receipt.accepted) throw 'error' in receipt ? receipt.error : new Error('宿主未接纳运行输入。');
     await this.checkpoint(resolved.agent.session);
+  }
+  async submitResume(run: SkillRunRow, id: string, content: ContentBlock[]): Promise<string> {
+    const resolved = await this.ctx.sessionController.resolveAgent(run.mode === 'business' ? run.source_session_id : run.session_id);
+    if ('error' in resolved) throw resolved.error;
+    if (run.mode === 'business') {
+      if (!await this.directChild(resolved.agent.id, run.session_id)) throw new Error('原 Worker 不属于原发起会话，不能改挂继续。');
+      return this.subagents().sendMessage(resolved.agent, run.session_id, content, { signal: new AbortController().signal });
+    }
+    if (run.mode !== 'local' || !this.live.has(run.session_id)) throw new Error('原运行权限尚未挂载，不能提交补充。');
+    const receipt = await this.ctx.sessionController.prompt({ sessionId: run.session_id, requestId: id, mode: 'queue', content }, new AbortController().signal);
+    if ('error' in receipt || !receipt.accepted) throw 'error' in receipt ? receipt.error : new Error('宿主未接纳补充输入。');
+    await this.checkpoint(resolved.agent.session);
+    const messages = resolved.agent.session.ownEvents().filter(event => event.type === 'agent/inbox/spliced').flatMap(event => event.data.inserted ?? []);
+    const accepted = messages.filter(message => message.source?.kind === 'user' && message.source.rpcId === id);
+    if (accepted.length !== 1) throw new Error('补充输入尚无唯一原生回执，需核对。');
+    return accepted[0].id;
   }
   async checkpoint(session: DshSession): Promise<void> {
     if (!await this.ctx.sessions.flush(session)) throw new Error('宿主尚未确认持久化运行证据。');

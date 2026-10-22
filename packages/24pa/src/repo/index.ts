@@ -14,6 +14,7 @@ import { MessageRouteRepo, MessageRouteRow } from './route.js';
 import { BindingRepo, BindingRow, WorkspaceStateRepo, WorkspaceStateRow } from './state.js';
 import { SkillRepo } from './skill.js';
 import { SkillRunRepo } from './skill-run.js';
+import { RunControlRepo } from './run-control.js';
 import { SourceRepo } from './source.js';
 import { SourceProjectionRepo } from './source-projection.js';
 import { DataChannel, ProjectRepo, ProjectRow, TaskRepo, TaskRow } from './task.js';
@@ -42,6 +43,7 @@ export interface Repos {
   maintenance: MaintenanceRepo;
   skills: SkillRepo;
   skillRuns: SkillRunRepo;
+  runControls: RunControlRepo;
   sources: SourceRepo;
   sourceProjection: SourceProjectionRepo;
 }
@@ -70,6 +72,7 @@ export function createRepos(db: PaDb): Repos {
     maintenance: new MaintenanceRepo(db),
     skills: new SkillRepo(db),
     skillRuns: new SkillRunRepo(db),
+    runControls: new RunControlRepo(db),
     sources: new SourceRepo(db),
     sourceProjection: new SourceProjectionRepo(db),
   };

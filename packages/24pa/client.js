@@ -963,6 +963,7 @@ window.__ModuleLoader__.load({
           const [history, setHistory] = React.useState(null), [selected, setSelected] = React.useState(null), [detail, setDetail] = React.useState(null);
           const [offset, setOffset] = React.useState(0), [refresh, setRefresh] = React.useState(0), [approved, setApproved] = React.useState(false);
           const [instruction, setInstruction] = React.useState('');
+          const [resumeInput, setResumeInput] = React.useState(''), [limitMinutes, setLimitMinutes] = React.useState('15');
           const request = React.useRef(null), alive = React.useRef(true);
           React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
           React.useEffect(() => {
@@ -981,12 +982,12 @@ window.__ModuleLoader__.load({
             return () => { abort.abort(); clearInterval(timer); };
           }, [data.id, binding, selected, offset, refresh]);
           const fields = data.metadata?.pa24?.parameters || {};
-          const status = value => ({ pending: '等待接纳', running: '执行中', stopping: '正在停止', stopped: '已停止', completed: '执行已结束', failed: '执行失败', needs_reconciliation: '结果待核对' }[value] || value);
+          const status = value => ({ pending: '等待接纳', running: '执行中', waiting: '等待处理', timed_out: '累计执行超时', stopping: '正在停止', stopped: '已停止', completed: '执行已结束', failed: '执行失败', needs_reconciliation: '结果待核对' }[value] || value);
           const prepare = async selection => {
             setBusy(true); setError(''); setPreview(null); setApproved(false); request.current = null;
             const next = selection ? { ...selection, instruction } : null; setTarget(next);
             try {
-              const result = await rpc('skills.preview', { id: data.id, versionId: data.versionId, ...(!next ? { parameters: values } : {}), ...(next || {}), workspaceBinding: binding });
+              const result = await rpc('skills.preview', { id: data.id, versionId: data.versionId, executionLimitMs: Math.round(Number(limitMinutes) * 60000), ...(!next ? { parameters: values } : {}), ...(next || {}), workspaceBinding: binding });
               if (alive.current && result.workspaceBinding === binding) setPreview(result);
             } catch (failure) { if (alive.current) setError(failure.message); }
             finally { if (alive.current) setBusy(false); }
@@ -994,7 +995,7 @@ window.__ModuleLoader__.load({
           const run = async trial => {
             if (!preview) return;
             const payload = { type: 'skill.run', id: data.id, versionId: preview.versionId, parameters: preview.parameters, ...(target || {}),
-              fingerprint: preview.fingerprint, confirm: true, trial, workspaceBinding: binding };
+              executionLimitMs: preview.executionLimitMs, fingerprint: preview.fingerprint, confirm: true, trial, workspaceBinding: binding };
             const key = JSON.stringify(payload);
             if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
             setBusy(true); setError('');
@@ -1009,6 +1010,17 @@ window.__ModuleLoader__.load({
             setBusy(true); setError('');
             try { await rpc('action', { type: 'skill.run', op: 'stop', runId, workspaceBinding: binding }); if (alive.current) setRefresh(n => n + 1); }
             catch (failure) { if (alive.current) setError(failure.message); }
+            finally { if (alive.current) setBusy(false); }
+          };
+          const resume = async recheck => {
+            const payload = { type: 'skill.run', op: recheck ? 'recheck' : 'resume', runId: detail.run.id, workspaceBinding: binding, instruction: resumeInput, confirm: true };
+            const key = JSON.stringify(payload);
+            if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
+            setBusy(true); setError('');
+            try {
+              const result = await rpc('action', { ...payload, requestId: request.current.id });
+              if (alive.current) { setDetail(result); setResumeInput(''); setRefresh(n => n + 1); }
+            } catch (failure) { if (alive.current) setError(failure.message); }
             finally { if (alive.current) setBusy(false); }
           };
           const downloadResult = () => {
@@ -1028,10 +1040,13 @@ window.__ModuleLoader__.load({
               h('input', { type: field.type === 'boolean' ? 'checkbox' : ['number', 'integer'].includes(field.type) ? 'number' : 'text',
                 ...(field.type === 'boolean' ? { checked: values[name] ?? field.default ?? false } : { value: values[name] ?? field.default ?? '', step: field.type === 'integer' ? 1 : 'any' }),
                 onChange: event => changeValue(name, field, field.type === 'boolean' ? event.target.checked : event.target.value) }))),
+            h('label', { className: 'pa24-field' }, L('累计执行时限（分钟，等待不计入）', 'Active execution limit (minutes; waits excluded)'),
+              h('input', { type: 'number', min: 1 / 60, max: 1440, step: 'any', value: limitMinutes, onChange: event => { setLimitMinutes(event.target.value); setPreview(null); setApproved(false); } })),
             h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry.status) || ['persona', 'setup'].includes(data.type), onClick: () => prepare(null) }, L('预览本次运行', 'Preview run')),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error),
             preview && h('div', { className: 'pa24-note' },
               h('p', null, preview.message), h('p', null, L('版本：', 'Version: ') + preview.versionId),
+              h('p', null, L('累计执行时限：', 'Active execution limit: ') + (preview.executionLimitMs ?? 900000) / 60000 + L(' 分钟', ' minutes')),
               h('p', null, L('工具：', 'Tools: ') + (preview.tools.join('、') || L('无', 'None'))),
               preview.contract && h('p', null, L('完成标准：', 'Completion criteria: ') + preview.contract.completionCriteria),
               preview.continuation && h('div', { className: 'pa24-note' },
@@ -1057,23 +1072,37 @@ window.__ModuleLoader__.load({
             selected && !detail && h('p', { role: 'status' }, L('正在读取运行详情…', 'Reading run…')),
             detail && h('div', { className: 'pa24-note' },
               h('h4', null, status(detail.run.status)), h('p', null, detail.run.progress),
+              detail.execution ? h('div', { className: 'pa24-note' },
+                h('p', null, L('累计执行 ', 'Active execution ') + (detail.execution.executionMs / 1000).toFixed(1) + L(' 秒 · 剩余 ', ' s · Remaining ') + (detail.execution.remainingMs / 1000).toFixed(1) + L(' 秒', ' s')),
+                h('p', { className: 'pa24-meta' }, L('排队 ', 'Queued ') + (detail.execution.queuedMs / 1000).toFixed(1) + L(' 秒 · 等待 ', ' s · Waiting ') + (detail.execution.waitingMs / 1000).toFixed(1) + L(' 秒', ' s')),
+                detail.execution.blocks.map(block => h('p', { key: block.key }, block.reason)))
+                : h('p', { className: 'pa24-meta' }, L('历史记录没有累计执行计时资料。', 'Active execution timing is unavailable for this legacy record.')),
+              detail.run.status === 'waiting' && h('div', { className: 'pa24-note' },
+                h('p', null, L('补充和放行沿原运行继续，不重置时限。其他阻断须分别处理。', 'Resume this run without resetting its time limit. Resolve each remaining blocker separately.')),
+                detail.execution?.blocks.some(block => block.kind === 'input') && h('label', { className: 'pa24-field' }, L('补充给本次运行的信息', 'Information for this run'),
+                  h('textarea', { value: resumeInput, rows: 3, maxLength: 4000, onChange: event => setResumeInput(event.target.value) })),
+                h('div', { className: 'pa24-row' },
+                  detail.execution?.blocks.some(block => block.kind === 'input') && h('button', { type: 'button', disabled: busy || !resumeInput.trim(), onClick: () => resume(false) }, L('补充并继续原运行', 'Submit and resume')),
+                  h('button', { type: 'button', disabled: busy, onClick: () => resume(true) }, L('重新检查并继续原运行', 'Recheck and resume')))),
               h('p', { className: 'pa24-meta' }, L('助理交办：', 'Work item: ') + detail.run.work_item_id),
               h('p', { className: 'pa24-meta' }, L('版本：', 'Version: ') + detail.run.version_id),
               h('p', { className: 'pa24-meta' }, L('结果投递：未请求；生成的结果保存在本记录。', 'Delivery: not requested; generated results are saved here.')),
               detail.run.result && h('pre', { className: 'pa24-json' }, detail.run.result),
-              ['completed', 'failed', 'stopped'].includes(detail.run.status) && h('label', { className: 'pa24-field' }, L('接续补充说明（可选）', 'Continuation instructions (optional)'),
+              ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('label', { className: 'pa24-field' }, L('接续补充说明（可选）', 'Continuation instructions (optional)'),
                 h('textarea', { value: instruction, maxLength: 4000, rows: 2, onChange: event => { setInstruction(event.target.value); setPreview(null); setApproved(false); } })),
               h('div', { className: 'pa24-row' },
                 detail.run.mode !== 'template' && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession(detail.run.mode === 'business' ? { childSessionId: detail.run.session_id, parentSessionId: detail.run.source_session_id, mode: 'continuable' } : detail.run.session_id) }, L('查看原执行会话', 'Open execution session')),
                 detail.run.result && h('button', { type: 'button', onClick: downloadResult }, L('下载结果', 'Download result')),
-                ['pending', 'running', 'stopping', 'needs_reconciliation'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy, onClick: () => stop(detail.run.id) }, L('停止本次运行', 'Stop run')),
-                ['completed', 'failed', 'stopped'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'original' }) }, L('用原快照重跑 · 先预览', 'Rerun snapshot · preview')),
-                ['completed', 'failed', 'stopped'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'current' }) }, L('用当前配置重跑 · 先预览', 'Rerun current · preview'))),
+                ['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy, onClick: () => stop(detail.run.id) }, L('停止本次运行', 'Stop run')),
+                ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'original' }) }, L('用原快照重跑 · 先预览', 'Rerun snapshot · preview')),
+                ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'current' }) }, L('用当前配置重跑 · 先预览', 'Rerun current · preview'))),
+              detail.attempts?.length > 0 && h('details', null, h('summary', null, L('执行尝试（含自动重试）', 'Execution attempts (including retries)')),
+                detail.attempts.map(attempt => h('p', { key: attempt.number }, L('第 ', 'Attempt ') + attempt.number + L(' 次', '') + ' · ' + new Date(attempt.startedAt).toLocaleString() + (attempt.error ? ' · ' + attempt.error : '')))),
               h('details', null, h('summary', null, L('实际工具调用与回执', 'Actual tool calls and receipts')), h('pre', { className: 'pa24-json' }, JSON.stringify(detail.calls, null, 2))),
               detail.reviews?.length > 0 && h('details', null, h('summary', null, L('人工核对记录', 'Human verification history')),
                 !detail.reviewed && h('p', { role: 'alert' }, L('核对后收到新证据，需要重新核对后才能接续。', 'New evidence arrived after verification; review it before continuing.')),
                 h('pre', { className: 'pa24-json' }, JSON.stringify(detail.reviews, null, 2))),
-              (detail.run.status === 'needs_reconciliation' || (detail.reviews?.length > 0 && !detail.reviewed)) && h(SkillRunReview, { key: detail.run.id + ':' + detail.fingerprint, detail, binding,
+              (detail.run.status === 'needs_reconciliation' || (['failed', 'stopped', 'timed_out'].includes(detail.run.status) && !detail.reviewed && detail.calls.some(call => ['running', 'unknown'].includes(call.status))) || (detail.reviews?.length > 0 && !detail.reviewed)) && h(SkillRunReview, { key: detail.run.id + ':' + detail.fingerprint, detail, binding,
                 onSaved: result => { setDetail(result); setRefresh(n => n + 1); } }),
               detail.native?.length > 0 && h('details', null, h('summary', null, L('子任务与后台作业', 'Subtasks and background jobs')),
                 detail.native.map(item => h('div', { key: item.kind + ':' + item.owner_id + ':' + item.native_id, className: 'pa24-note' },

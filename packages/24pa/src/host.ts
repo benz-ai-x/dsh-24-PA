@@ -22,6 +22,7 @@ export interface SessionHeader {
 
 export interface SessionEvent {
   type: string;
+  time?: number;
   data: Record<string, any>;
 }
 

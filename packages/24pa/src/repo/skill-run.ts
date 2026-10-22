@@ -4,8 +4,10 @@ import type { SkillDefinitionLike } from '../skills.js';
 import type { SkillContract, SkillPackage } from '../skill-package.js';
 import type { SkillEntryRow } from './skill.js';
 import type { WorkItemRow } from './work.js';
+import { initializeRunControl, type RunControlRow } from './run-control.js';
+import { finishRunControl } from '../run-control.js';
 
-export type SkillRunStatus = 'pending' | 'running' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'needs_reconciliation';
+export type SkillRunStatus = 'pending' | 'running' | 'waiting' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'timed_out' | 'needs_reconciliation';
 export interface SkillRunSnapshot {
   name: string;
   definition: SkillDefinitionLike;
@@ -14,6 +16,7 @@ export interface SkillRunSnapshot {
   parameters: Record<string, unknown>;
   tools: string[];
   permissionHash: string;
+  executionLimitMs?: number;
   continuation?: { fromRunId: string; instruction: string; runs: Array<{ id: string; status: string; result: string | null; calls: SkillRunCall[]; review: SkillRunReview['record'] | null }> };
 }
 export interface SkillRunRow {
@@ -66,7 +69,7 @@ export class SkillRunRepo {
         if (prior.request_hash !== input.requestHash || prior.run_id !== input.runId) throw new Error('核对操作标识已用于其他内容。');
         return prior;
       }
-      if (!['needs_reconciliation', 'stopped', 'failed'].includes(run.status)) throw new Error('请先停止原运行，再保存核对结论。');
+      if (!['needs_reconciliation', 'stopped', 'failed', 'timed_out'].includes(run.status)) throw new Error('请先停止原运行，再保存核对结论。');
       const evidence = await this.evidence(run.id, tx);
       if (evidence.fingerprint !== input.fingerprint) throw new Error('运行证据已有新回执，请刷新后重新核对。');
       const unknown = evidence.calls.filter(call => ['running', 'unknown'].includes(call.status));
@@ -76,8 +79,9 @@ export class SkillRunRepo {
       if ((await this.unresolvedOperations(run.work_item_id, tx)).length) throw new Error('关联平台动作仍待核对；请先修复原对象回执，不能用运行核对绕过。');
       const saved = (await tx.query<SkillRunReview>(`insert into pa24.skill_run_review (request_id, request_hash, run_id, evidence_hash, record)
         values ($1,$2,$3,$4,$5) returning *`, [input.requestId, input.requestHash, run.id, input.fingerprint, JSON.stringify(input.record)])).rows[0]!;
-      await tx.query("update pa24.skill_run set status = 'stopped', progress = '人工核对已留档；本次运行结束，接续须另行预览确认', updated_at = now() where id = $1", [run.id]);
-      await tx.query("update pa24.work_item set status = 'stopped', progress = '人工核对已留档，等待显式接续', updated_at = now() where id = $1 and active_skill_run_id = $2", [run.work_item_id, run.id]);
+      const status = run.status === 'needs_reconciliation' ? 'stopped' : run.status;
+      await tx.query("update pa24.skill_run set status = $2, progress = '人工核对已留档；本次运行结束，接续须另行预览确认', updated_at = now() where id = $1", [run.id, status]);
+      await tx.query("update pa24.work_item set status = $3, progress = '人工核对已留档，等待显式接续', updated_at = now() where id = $1 and active_skill_run_id = $2", [run.work_item_id, run.id, status === 'timed_out' ? 'failed' : status]);
       return saved;
     });
   }
@@ -88,7 +92,7 @@ export class SkillRunRepo {
     const context = [];
     for (const run of runs) {
       const evidence = await this.evidence(run.id, tx);
-      if (['pending', 'running', 'stopping', 'needs_reconciliation'].includes(run.status)
+      if (['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(run.status)
         || (!evidence.reviewed && (evidence.reviews.length || evidence.calls.some(call => ['running', 'unknown'].includes(call.status))))) throw new Error('原交办仍在执行或结果待核对，不能新开运行绕过。');
       context.push({ id: run.id, status: run.status, result: run.result, calls: evidence.calls,
         review: evidence.reviews.find(review => review.evidence_hash === evidence.fingerprint)?.record ?? null });
@@ -128,7 +132,7 @@ export class SkillRunRepo {
     return { rows, total: Number(count.count) };
   }
   async unfinished(): Promise<SkillRunRow[]> {
-    return (await this.db.query<SkillRunRow>("select * from pa24.skill_run where status in ('pending', 'running', 'stopping') order by created_at, id")).rows;
+    return (await this.db.query<SkillRunRow>("select * from pa24.skill_run where status in ('pending', 'running', 'waiting', 'stopping') order by created_at, id")).rows;
   }
   async unresolvedOperations(workId: string, tx: PaQueryer = this.db): Promise<unknown[]> {
     return (await tx.query(`select * from pa24.action_operation where
@@ -158,7 +162,7 @@ export class SkillRunRepo {
       if (input.workItemId) {
         const work = (await tx.query<WorkItemRow>('select * from pa24.work_item where id = $1 for update', [workId])).rows[0];
         if (!work || work.execution_mode !== 'skill' || work.parent_session_id !== input.source_session_id) throw new Error('原助理交办归属不符。');
-        const unresolved = await tx.query("select id from pa24.skill_run where work_item_id = $1 and status in ('pending', 'running', 'stopping', 'needs_reconciliation')", [workId]);
+        const unresolved = await tx.query("select id from pa24.skill_run where work_item_id = $1 and status in ('pending', 'running', 'waiting', 'stopping', 'needs_reconciliation')", [workId]);
         if (input.snapshot.continuation) {
           const chain = await this.continuation(input.snapshot.continuation.fromRunId, tx);
           if (evidenceHash(chain) !== evidenceHash(input.snapshot.continuation.runs)) throw new Error('接续依据已有变化，请重新预览。');
@@ -192,18 +196,26 @@ export class SkillRunRepo {
         input.workspace_path, input.mode, input.trial, JSON.stringify(input.snapshot)])).rows[0]!;
       await tx.query('insert into pa24.skill_run_session (run_id, session_id, parent_session_id, workspace_path) values ($1,$2,$3,$4)',
         [run.id, sessionId, input.mode === 'business' ? input.source_session_id : null, input.workspace_path]);
+      await initializeRunControl(tx, run.id, input.snapshot.executionLimitMs);
       return run;
     });
   }
   async transition(id: string, status: SkillRunStatus, progress: string, result?: string): Promise<SkillRunRow | null> {
     return this.db.withTransaction(async tx => {
       const row = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [id])).rows[0];
-      if (!row || ['completed', 'failed', 'stopped', 'needs_reconciliation'].includes(row.status)) return row ?? null;
-      if (row.status === 'stopping' && !['stopped', 'needs_reconciliation'].includes(status)) return row;
+      if (!row || ['completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'].includes(row.status)) return row ?? null;
+      if (row.status === 'stopping' && !['stopped', 'timed_out', 'needs_reconciliation'].includes(status)) return row;
       const next = (await tx.query<SkillRunRow>('update pa24.skill_run set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 returning *',
         [id, status, progress, result ?? row.result])).rows[0]!;
       await tx.query('update pa24.work_item set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 and active_skill_run_id = $5',
-        [row.work_item_id, status === 'pending' || status === 'stopping' ? 'running' : status, progress, next.result, id]);
+        [row.work_item_id, status === 'pending' || status === 'stopping' ? 'running' : status === 'waiting' ? 'waiting_input' : status === 'timed_out' ? 'failed' : status, progress, next.result, id]);
+      if (['completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'].includes(status)) {
+        const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];
+        if (control) {
+          finishRunControl(control.state, status as NonNullable<RunControlRow['state']['terminal']>['status']);
+          await tx.query('update pa24.skill_run_control set state = $2, revision = revision + 1, updated_at = now() where run_id = $1', [id, JSON.stringify(control.state)]);
+        }
+      }
       return next;
     });
   }

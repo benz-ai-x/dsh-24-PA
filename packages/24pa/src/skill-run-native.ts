@@ -93,18 +93,20 @@ export class SkillRunNative {
     }
   }
 
-  async observe(repo: SkillRunRepo, run: SkillRunRow, recovering = false): Promise<{ pending: boolean; root: DshSession | null }> {
+  async observe(repo: SkillRunRepo, run: SkillRunRow, recovering = false): Promise<{ pending: boolean; root: DshSession | null; histories: DshSession[] }> {
     await this.flush(run.id);
     const root = await this.host.history(run);
-    if (!root) return { pending: false, root: null };
+    if (!root) return { pending: false, root: null, histories: [] };
     const descendants = await this.host.descendants(run);
     const diagnostic = descendants.find(row => row.kind === 'diagnostic');
     if (diagnostic) throw new Error(`子任务 ${diagnostic.id} 的原生记录不可核验：${diagnostic.reason}`);
     const sessions = await repo.sessions(run.id);
     let pending = false;
+    const histories: DshSession[] = [];
     for (const row of sessions) {
       const session = row.session_id === run.session_id ? root : await this.host.history(run, row.session_id);
       if (!session) throw new Error(`原生会话 ${row.session_id} 的历史缺失。`);
+      histories.push(session);
       const parent = session.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
       if (session.id !== row.session_id || session.header.cwd !== row.workspace_path || (parentId ?? null) !== row.parent_session_id
         || (row.session_id !== run.session_id && session.header.origin !== 'subagent')) throw new Error('原生运行会话的身份或归属不符。');
@@ -171,6 +173,6 @@ export class SkillRunNative {
     if ([...this.activations.values()].some(item => item.run.id === run.id)) {
       if (recovering || !pending) throw new Error('子任务生命周期与原生目录尚未对应，需核对原执行。');
     }
-    return { pending: pending || this.host.busy(run.session_id), root };
+    return { pending: pending || this.host.busy(run.session_id), root, histories };
   }
 }

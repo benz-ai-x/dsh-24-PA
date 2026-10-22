@@ -116,6 +116,14 @@ export function apply(ctx: DshContext) {
   );
 
   register(
+    'pa24_run',
+    '受管 Skill 缺少主人信息时，使用 wait 保存需要补充的 reason，暂停原运行的新动作。主人补充后沿同一运行继续；不能用于增加业务授权。',
+    { action: { type: 'string', enum: ['wait'] }, reason: string },
+    ['action', 'reason'],
+    (args, exec) => runtime.runControl(args, exec.agent!),
+  );
+
+  register(
     'pa24_work',
     'Worker 按本人明确委托执行业务动作（按角色可用：memo_save/memo_find、task_*、calendar_*、meeting_schedule、reminder_*、note_submit）。动作是否可用由运行时按角色绑定校验，未绑定会被拒绝。',
     workToolProperties,

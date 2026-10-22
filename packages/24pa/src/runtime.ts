@@ -506,8 +506,9 @@ export class PaRuntime {
           if (def.metadata?.track === 'template') this.digest.checkTemplate(def);
           if (def.metadata?.track !== undefined && !['agent', 'template'].includes(String(def.metadata.track))) problems.push('执行轨须为 agent 或 template。');
           if (def.metadata?.track !== 'template' && !['worker-persona', 'setup'].includes(String(def.metadata?.kind)) && !contract) problems.push('启用任务前请填写参数、预期结果和完成标准（metadata.pa24）。');
-          if (contract?.mode === 'business') assertToolDeclaration(def.metadata, ['pa24_work', 'pa24_memory'], def.name);
+          if (contract?.mode === 'business') assertToolDeclaration(def.metadata, ['pa24_work', 'pa24_memory', 'pa24_run'], def.name);
           if (contract?.mode === 'local') {
+            if (Array.isArray(def.metadata?.tools) && def.metadata.tools.includes('ask_user_question')) problems.push('受管 Skill 的等待请声明并使用 pa24_run，不使用临时的 ask_user_question；这样补充、重启和计时始终归原运行。');
             const sessionId = await this.openLocalSession();
             const resolved = await this.ctx.sessionController.resolveAgent(sessionId);
             if ('error' in resolved) throw resolved.error;
@@ -545,7 +546,7 @@ export class PaRuntime {
         ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repos: this.repos } : null,
       sourceSession: () => this.openLocalSession(),
       tools: async mode => {
-        if (mode === 'business') return ['pa24_work', 'pa24_memory'];
+        if (mode === 'business') return ['pa24_work', 'pa24_memory', 'pa24_run'];
         const resolved = await ctx.sessionController.resolveAgent(await this.openLocalSession());
         if ('error' in resolved) throw resolved.error;
         return resolved.agent.ctx?.tools.schemas?.(resolved.agent).map(tool => tool.name) ?? [];
@@ -582,11 +583,11 @@ export class PaRuntime {
   }
 
   async runSkill(input: Record<string, unknown>): Promise<unknown> {
-    return this.executions.run<unknown>(() => input.op === 'stop' ? this.skillRuns.stop(input) : input.op === 'review' ? this.skillRuns.review(input) : this.skillRuns.start(input));
+    return this.executions.run<unknown>(() => input.op === 'stop' ? this.skillRuns.stop(input) : ['resume', 'recheck'].includes(String(input.op)) ? this.skillRuns.resume(input) : input.op === 'review' ? this.skillRuns.review(input) : this.skillRuns.start(input));
   }
 
   private skillBusinessAction(action: string): WorkerActionHandler {
-    if (['skill_run', 'skill_resource'].includes(action)) throw new Error('内部资源读取不作为额外业务动作授权。');
+    if (['skill_run', 'skill_resource', 'skill_wait'].includes(action)) throw new Error('运行控制与资源读取不作为额外业务动作授权。');
     const matches = this.roles.list().filter(role => role.id !== 'skill' && role.available && this.config?.enabledWorkers.includes(role.id) && Object.hasOwn(role.actions, action));
     if (matches.length !== 1) throw new Error(`业务动作未获准或执行职责不唯一：${action}`);
     return matches[0]!.actions[action]!;
@@ -920,6 +921,7 @@ export class PaRuntime {
   async stop(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.skillRuns.dispose();
     this.executions.stopAccepting();
     this.lifetime.abort();
     if (this.dispatchTimer) clearInterval(this.dispatchTimer);
@@ -951,6 +953,7 @@ export class PaRuntime {
   /** Release every acquired resource; safe to call again after a late start(). */
   private async cleanup(): Promise<void> {
     await this.executions.close();
+    this.skillRuns.dispose();
     await this.inboxLifecycle.stop();
     await this.workLifecycle.idle();
     await this.digest.pause();
@@ -1969,7 +1972,7 @@ export class PaRuntime {
     if (!this.config.enabledWorkers.includes('skill')) throw new Error('任务 skill Worker 已撤销启用。');
     const definition = item.skill_definition;
     if (!definition || definition.name !== item.skill || definition.track !== 'agent' || !definition.content?.trim()) throw new Error('事项缺少已校验的任务 skill 定义，请重新委派。');
-    assertToolDeclaration(definition.metadata, ['pa24_work', 'pa24_memory'], item.skill);
+    assertToolDeclaration(definition.metadata, ['pa24_work', 'pa24_memory', ...(item.execution_mode === 'skill' ? ['pa24_run'] : [])], item.skill);
     return definition;
   }
 
@@ -2052,7 +2055,7 @@ export class PaRuntime {
         // send_message arrives as an adjacent-agent scoped tool and is
         // unaffected by global restrict(); the child can still report to
         // its parent through the native continuation channel.
-        toolFilter: { allow: ['pa24_work', 'pa24_memory', ...(roleDef.tools ?? [])] },
+        toolFilter: { allow: ['pa24_work', 'pa24_memory', ...(item.execution_mode === 'skill' ? ['pa24_run'] : []), ...(roleDef.tools ?? [])] },
         maxDepth: 1,
         ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } } : {}),
       },
@@ -2101,6 +2104,14 @@ export class PaRuntime {
     });
   }
 
+  async runControl(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
+    return this.executions.run(async () => {
+      const run = await this.repos?.skillRuns.bySession(agent.id);
+      if (!run || run.session_id !== agent.id || run.status !== 'running' || args.action !== 'wait') throw new Error('此操作只用于当前受管 Skill 运行等待主人补充。');
+      return this.skillRuns.waitForInput(run, args.reason);
+    });
+  }
+
   async work(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
       // The child session id is the work item id; consult the durable ledger
@@ -2108,6 +2119,7 @@ export class PaRuntime {
       if (!this.repos) throw new Error('业务账本未就绪。');
       const ownedRun = await this.repos.skillRuns.bySession(agent.id);
       const run = ownedRun?.session_id === agent.id ? ownedRun : null;
+      if (run?.status === 'running' && args.action === 'skill_wait') return this.skillRuns.waitForInput(run, args.reason);
       const item = await this.repos.workItems.get(run?.work_item_id ?? agent.id);
       if (!item || item.status !== 'running' || (run && (run.mode !== 'business' || run.status !== 'running' || item.child_session_id !== agent.id))) {
         throw new Error('此会话不是运行中的 Worker，或事项已停止。');

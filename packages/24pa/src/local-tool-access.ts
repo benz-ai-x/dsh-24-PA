@@ -35,10 +35,10 @@ const ROLE_TOOLS: Record<string, string[]> = {
   // already uses. Config writes stay local-only (ADR-0001) via pa24_workspace.
   'feishu-access': ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_connection'],
   'local-robot': [
-    'pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_workspace', 'pa24_connection',
+    'pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_workspace', 'pa24_connection', 'pa24_run',
     ...STANDARD_CODING_TOOLS,
   ],
-  worker: ['pa24_work', 'pa24_memory'],
+  worker: ['pa24_work', 'pa24_memory', 'pa24_run'],
 };
 
 /** Native local Skill subtasks get only explicitly declared standard coding
