@@ -41,6 +41,12 @@ export const PANEL_RPC = {
     planDraft: 'plans.draft',
     planPreview: 'plans.preview',
     planRunPreview: 'plans.run-preview',
+    planMigrationPreview: 'plans.migration-preview',
+    runHistory: 'runs',
+    runSummary: 'runs.summary',
+    runExport: 'runs.export',
+    runDiagnostics: 'runs.diagnostics',
+    workInspect: 'work.inspect',
     sources: 'sources',
     calendar: 'calendar',
   },
@@ -108,6 +114,12 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.plan) return respond({ ok: true, value: await runtime.taskPlans.inspect(payload) });
             if (endpoint === E.planDraft) return respond({ ok: true, value: await runtime.taskPlans.draft(payload) });
             if (endpoint === E.planPreview) return respond({ ok: true, value: await runtime.taskPlans.preview(payload) });
+            if (endpoint === E.planMigrationPreview) return respond({ ok: true, value: await runtime.taskPlans.migrationPreview(payload) });
+            if (endpoint === E.runHistory) return respond({ ok: true, value: await runtime.runHistory.list(payload) });
+            if (endpoint === E.runSummary) return respond({ ok: true, value: await runtime.runHistory.summary(payload) });
+            if (endpoint === E.runExport) return respond({ ok: true, value: await runtime.runHistory.export(payload) });
+            if (endpoint === E.runDiagnostics) return respond({ ok: true, value: await runtime.runHistory.diagnostics(payload) });
+            if (endpoint === E.workInspect) return respond({ ok: true, value: await runtime.runHistory.work(payload) });
             if (endpoint === E.planRunPreview) return respond({ ok: true, value: await runtime.planEngine.previewRun(payload) });
             if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
             if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });

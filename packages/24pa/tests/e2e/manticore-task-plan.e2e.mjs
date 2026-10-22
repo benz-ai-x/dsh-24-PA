@@ -24,7 +24,7 @@ beforeAll(async () => {
   const storage = process.env.PA24_E2E_STORAGE === 'postgres' ? 'postgres' : 'sqlite';
   if (storage === 'postgres') cluster = await startPgCluster();
   await writeFile(join(workspace, 'AGENTS.md'), '# 隔离计划验证\n\n```json\n' + JSON.stringify({ ...DEFAULT_CONFIG, storage,
-    maxWorkers: 1, enabledWorkers: [...new Set([...DEFAULT_CONFIG.enabledWorkers, 'skill'])], extraBusinessSkills: [] }) + '\n```\n');
+    maxWorkers: 1, enabledWorkers: [...new Set([...DEFAULT_CONFIG.enabledWorkers, 'skill', 'reminders', 'digest'])], extraBusinessSkills: [] }) + '\n```\n');
   scriptPath = join(root, 'script.json'); await writeFile(scriptPath, JSON.stringify({ steps: [] }));
   llm = await startMockLlm({ scriptPath, logPath: join(root, 'requests.json'), recordInputs: true });
   env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', PA24_TEST_RUN_BARRIER: barrierPath, DEEPSEEK_API_KEY: 'test-key',
@@ -69,6 +69,28 @@ const business = async (tools = [], actions = []) => {
   return id;
 };
 const requestsFor = run => llm.requests.filter(request => (request.inputs ?? []).some(message => (message.content ?? []).some(part => part.type === 'text' && part.text === `[24PA skill run: ${run.id}]`)));
+
+it('公开旧计划迁移沿用原生调度，重启后只生成一份模板结果', async () => {
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker: 'reminders', title: '迁移原简报计划', instruction: '开启一次原简报' },
+    leadReply: '已登记。', workerAction: { action: 'digest_enable', kind: 'once', afterSeconds: 12 }, workerReply: '已保存原计划。' }));
+  const snapshot = await host.api('snapshot');
+  await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId,
+    mode: 'queue', content: [{ type: 'text', text: '开启一次原简报以验证迁移。' }], clientTimeZone: 'Asia/Shanghai' } });
+  await host.waitUntil(value => value.work.some(work => work.title === '迁移原简报计划' && work.status === 'completed'), { timeoutMs: 15000, label: '原简报计划建立' });
+  const row = (await host.api('plans', { workspaceBinding: binding })).rows.find(row => !row.task_config && row.kind === 'once');
+  expect(row?.schedule_id).toBeTruthy(); expect(row.schedule_generation).toBeTruthy();
+  const before = llm.requests.length;
+  const preview = await host.api('plans.migration-preview', { id: row.id, skillId: 'builtin:digest-morning', workspaceBinding: binding });
+  const migrated = await change('migrate', row, { skillId: 'builtin:digest-morning', confirm: true, fingerprint: preview.fingerprint });
+  expect(migrated.plan).toMatchObject({ id: row.id, schedule_id: row.schedule_id, schedule_generation: row.schedule_generation, owner_enabled: true, schedule_spec: row.schedule_spec });
+  const hostRoot = host.root; await host.stop({ keepRoot: true }); host = await bootHost({ env, root: hostRoot });
+  binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
+  const fired = await until(() => inspect(row.id), value => value.triggers.rows.some(trigger => trigger.run_id));
+  const result = await until(() => detail(fired.triggers.rows[0].run_id), value => value.run.status === 'completed');
+  expect(result.run.result).toContain(row.title); expect(result.run.mode).toBe('template');
+  expect((await inspect(row.id)).triggers.total).toBe(1); expect(llm.requests).toHaveLength(before);
+  expect((await inspect(row.id)).migration.original.schedule_id).toBe(row.schedule_id);
+}, 60000);
 
 it('真实原生时钟触发模板，读取列表不执行，结果保存且零模型请求', async () => {
   const before = llm.requests.length, at = new Date(Date.now() + 4000).toISOString();

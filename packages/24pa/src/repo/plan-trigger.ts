@@ -45,6 +45,7 @@ export class PlanTriggerRepo {
       if (plan.revision !== input.plan.revision || plan.session_id !== input.sessionId || plan.recycled_at || plan.delete_when_idle
         || !plan.task_authorization || (await plans.blocks(plan.id, tx)).length) { status = 'rejected'; reason = '计划配置、授权或阻断已改变。'; }
       else if (input.source === 'schedule' && (!plan.owner_enabled || plan.status !== 'active' || plan.schedule_id !== input.scheduleId || plan.schedule_generation !== input.generation)) { status = 'rejected'; reason = '计划已暂停或原生触发属于旧代次。'; }
+      else if (input.source === 'schedule' && await plans.legacyTriggerHandled(plan.id, input.scheduleId, input.triggeredAt, tx)) { status = 'skipped'; reason = '此触发窗口已有旧简报发生记录，迁移后不重复执行或投递。'; }
       else if (input.source === 'schedule' && Date.now() - input.triggeredAt.getTime() > plan.task_config.missedTtlMs) { status = 'expired'; reason = '已超过本次触发的补执行有效期。'; }
       else if (input.skipReason) { status = 'skipped'; reason = input.skipReason; }
       else if ((await plans.activeRuns(plan.id, tx)).length) { status = 'skipped'; reason = '本计划仍有运行或待核对动作，本次重叠触发跳过。'; }

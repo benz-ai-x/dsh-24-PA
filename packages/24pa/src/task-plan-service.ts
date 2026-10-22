@@ -6,8 +6,9 @@ import type { PlanLifecycle } from './plan-lifecycle.js';
 import { taskPlanDraft } from './task-plan.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { previewPlanTimes } from './plan-time.js';
+import { TaskPlanMigration, type PlanMigrationContext } from './task-plan-migration.js';
 
-interface PlanContext { binding: string; timeZone: string; sessionId: string; repos: Repos }
+interface PlanContext extends PlanMigrationContext { sessionId: string; repos: Repos }
 interface TaskPlanServiceDeps {
   context(): PlanContext | null;
   skills: SkillRuns;
@@ -35,7 +36,8 @@ export function taskPlanForm(row: TaskPlanRow): Record<string, unknown> {
 /** Owner choices use durable receipts, while native mutation/recovery stays in
  * PlanLifecycle. Browsing does not authorize, run, or repair a plan. */
 export class TaskPlanService {
-  constructor(private readonly deps: TaskPlanServiceDeps) {}
+  private readonly migration: TaskPlanMigration;
+  constructor(private readonly deps: TaskPlanServiceDeps) { this.migration = new TaskPlanMigration(deps); }
   private context(binding: unknown): PlanContext {
     const context = this.deps.context();
     if (!context || context.binding !== binding) throw new Error('工作区已切换或尚未就绪，请刷新定时任务。');
@@ -62,6 +64,8 @@ export class TaskPlanService {
   async inspect(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);
     return { plan: row, form: row.task_config ? taskPlanForm(row) : null, blocks: await context.repos.taskPlans.blocks(row.id),
+      migration: await context.repos.taskPlans.migration(row.id),
+      legacyHistory: await context.repos.digests.occurrencesOf(row.id),
       triggers: await context.repos.planTriggers.list(row.id, Math.max(0, Math.floor(Number(input.offset) || 0))),
       activeRuns: await context.repos.taskPlans.activeRuns(row.id), workspaceBinding: context.binding };
   }
@@ -97,6 +101,10 @@ export class TaskPlanService {
     const context = this.context(input.workspaceBinding);
     return { ...taskPlanDraft(input, context.timeZone), workspaceBinding: context.binding };
   }
+  async migrationPreview(input: Record<string, unknown>) {
+    const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);
+    return this.migration.preview(context, row, input);
+  }
   async change(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding);
     if (typeof input.requestId !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(input.requestId)) throw new Error('缺少有效的计划操作标识。');
@@ -116,6 +124,10 @@ export class TaskPlanService {
         result = await repo.save({ ...identity(), ...(op === 'save' && row ? { id: row.id, expectedRevision: row.revision } : {}),
           title: draft.title, kind: draft.kind, skill: 'internalName' in skill ? skill.internalName : skill.name,
           sessionId: context.sessionId, scheduleSpec: draft.scheduleSpec, configuration: draft.configuration });
+      } else if (op === 'migrate' && row) {
+        const check = await this.migration.preview(context, row, input);
+        if (input.confirm !== true || input.fingerprint !== check.fingerprint) throw new Error('原配置、来源或授权已改变，请重新预览迁移。');
+        result = await repo.migrate({ ...selected(row, 'done'), configuration: check.configuration, authorization: check.authorization });
       } else if (op === 'enable' && row) {
         let authorized = await repo.repeated(identity('authorization'));
         if (!authorized) {

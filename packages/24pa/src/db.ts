@@ -764,4 +764,13 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `alter table pa24.skill_run add column if not exists stop_reason text`,
     ],
   },
+  {
+    version: 25,
+    statements: [
+      `create table if not exists pa24.task_plan_migration (
+        plan_id text primary key, original jsonb not null, time_zone text not null,
+        request_id text not null, migrated_at timestamptz not null default now()
+      )`,
+    ],
+  },
 ];

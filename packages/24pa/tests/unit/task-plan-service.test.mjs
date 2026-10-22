@@ -11,6 +11,7 @@ import { PlanLifecycle } from '../../lib/plan-lifecycle.js';
 import { TaskPlanService, taskPlanForm } from '../../lib/task-plan-service.js';
 import { TaskPlanAccess } from '../../lib/task-plan-access.js';
 import { TaskPlanEngine } from '../../lib/task-plan-engine.js';
+import { digestWindowKey, digestPeriod } from '../../lib/digest-period.js';
 import { PaRuntime } from '../../lib/runtime.js';
 import { SourceRegistry, unknownCapabilities } from '../../lib/source-registry.js';
 import { createDailyScheduleRecord, createEveryScheduleRecord, createAtScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
@@ -58,7 +59,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
       delete: async ({ id }) => { nativeRows = nativeRows.filter(row => row.id !== id); return { deleted: true }; },
     };
     plans = new PlanLifecycle({ repo: () => repos.digests, native: () => native });
-    service = new TaskPlanService({ context: () => ({ binding: 'binding', timeZone: 'Asia/Shanghai', sessionId: 'fixed-access', repos }),
+    service = new TaskPlanService({ context: () => ({ binding: 'binding', timeZone: 'Asia/Shanghai', sessionId: 'fixed-access', deliveryChannel: 'feishu', repos }),
       management: manager, skills: runs, access, lifecycle: plans, gate });
     engineDeps = { context: () => ({ binding: 'binding', cwd: '/workspace', sessionId: 'fixed-access', repos }), skills: runs, access, permissionHash: () => 'fixed-plan-permission' };
     engine = new TaskPlanEngine(engineDeps);
@@ -73,6 +74,68 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     schedule_id: row.schedule_id, occurrence_at: at, reminder_prompt: nativeRows.find(item => item.id === row.schedule_id)?.prompt, ...extra,
   });
   const message = (...reminders) => ({ id: randomUUID(), source: { kind: 'schedule' }, content: [{ type: 'text', text: `[SCHEDULE REMINDER BATCH]\n原生计划\nreminders_json: ${JSON.stringify(reminders)}` }] });
+  const legacy = () => plans.enable({ id: `legacy-${randomUUID()}`, kind: 'morning', title: '原晨报', skill: entry.name, voice: true,
+    session_id: 'fixed-access', schedule_spec: { daily: { time: '08:30:00', time_zone: 'Asia/Tokyo' } }, last_window: null });
+  const oldClaim = async (row, at) => {
+    const version = await repos.skills.version(entry.active_version);
+    return repos.digests.claimRun({ planId: row.id, windowKey: digestWindowKey(row.kind, 'Asia/Tokyo', at),
+      timeContext: digestPeriod(row.kind, 'Asia/Tokyo', at, 'schedule'), skill: { ...version.definition,
+        metadata: { ...version.definition.metadata, pa24Identity: { versionId: version.id } } } });
+  };
+  it('迁移保留原身份、时间、语音和成功结果；旧触发重放不再执行，最新未消费触发正常准入', async () => {
+    let row = await legacy(); const at = new Date(Date.now() - 7200000);
+    const original = await oldClaim(row, at);
+    await repos.digests.completeRun({ planId: row.id, occurrenceId: original.row.id, report: '历史完整结果', notifications: [] });
+    row = await repos.taskPlans.get(row.id); const beforeNative = structuredClone(nativeRows);
+    const preview = await service.migrationPreview({ id: row.id, workspaceBinding: 'binding' });
+    expect(preview.configuration).toMatchObject({ timeZone: 'Asia/Tokyo', delivery: { channel: 'feishu', voice: true } });
+    const input = command('migrate', row, { confirm: true, fingerprint: preview.fingerprint });
+    const one = await service.change(input), two = await service.change(input);
+    expect(two.repeated).toBe(true); expect(one.plan.id).toBe(row.id); expect(nativeRows).toEqual(beforeNative); expect(creates).toBe(1);
+    expect(one.plan).toMatchObject({ status: 'active', owner_enabled: true, schedule_id: row.schedule_id, schedule_generation: row.schedule_generation, skill: entry.name, voice: true });
+    expect((await service.inspect({ id: row.id, workspaceBinding: 'binding' })).legacyHistory[0].report).toBe('历史完整结果');
+    expect((await repos.taskPlans.migration(row.id)).original.schedule_spec).toEqual(row.schedule_spec);
+    await engine.consume([message(reminder(row, at.toISOString()))], 'fixed-access');
+    const [handled] = (await repos.planTriggers.list(row.id)).rows;
+    expect(handled).toMatchObject({ status: 'skipped', run_id: null }); expect(handled.reason).toContain('旧简报');
+    expect(await repos.taskPlans.blocks(row.id)).toEqual([]);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+    await engine.consume([message(reminder(row, new Date(Date.now()).toISOString()))], 'fixed-access');
+    expect((await repos.planTriggers.list(row.id)).rows.filter(trigger => trigger.run_id)).toHaveLength(1);
+    await expect(oldClaim(row, new Date())).rejects.toThrow(/通用运行准入|计划已升级/);
+    await expect(repos.digests.recordWorkSource('late-old-work', { kind: 'schedule', sessionId: row.session_id, turn: 1,
+      deliveries: [{ scheduleId: row.schedule_id, generation: row.schedule_generation, occurrenceAt: at.toISOString(), messageId: 'old' }] })).rejects.toThrow(/不重复委派/);
+  });
+  it('迁移暂停计划保持暂停且不创建调度，身份或版本改变使旧确认失效', async () => {
+    let row = await legacy(); await plans.stop(row.id, 'paused'); row = await repos.taskPlans.get(row.id);
+    const preview = await service.migrationPreview({ id: row.id, workspaceBinding: 'binding' });
+    const input = command('migrate', row, { confirm: true, fingerprint: preview.fingerprint });
+    owner = 'changed-owner'; await expect(service.change(input)).rejects.toThrow(/重新预览迁移/);
+    expect((await repos.taskPlans.get(row.id)).task_config).toBeNull(); expect(await repos.taskPlans.migration(row.id)).toBeNull();
+    owner = 'owner-a'; const result = await service.change(input);
+    expect(result.plan).toMatchObject({ status: 'paused', owner_enabled: false, schedule_id: null, session_id: 'fixed-access' });
+    expect(nativeRows).toEqual([]); expect(creates).toBe(1);
+  });
+  it('旧窗口未结束时不迁移；缺失原生代次或会话不符时保留原记录待核对', async () => {
+    const row = await legacy(); await oldClaim(row, new Date());
+    await expect(service.migrationPreview({ id: row.id, workspaceBinding: 'binding' })).rejects.toThrow(/未结束或待核对/);
+    expect((await repos.taskPlans.get(row.id)).task_config).toBeNull();
+    const other = await legacy();
+    await repos.digests.comparePlan(other, { schedule_generation: null });
+    await expect(service.migrationPreview({ id: other.id, workspaceBinding: 'binding' })).rejects.toThrow(/尚未核验/);
+    expect(creates).toBe(2);
+  });
+  it('迁移与旧窗口认领竞争只有一条路径获准，不遗漏迁移前刚创建的发生记录', async () => {
+    const row = await legacy(), preview = await service.migrationPreview({ id: row.id, workspaceBinding: 'binding' });
+    const outcomes = await Promise.allSettled([
+      repos.taskPlans.migrate({ ...identity(), id: row.id, expectedRevision: row.revision, configuration: preview.configuration, authorization: preview.authorization }),
+      oldClaim(row, new Date()),
+    ]);
+    expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    const current = await repos.taskPlans.get(row.id), history = await repos.digests.occurrencesOf(row.id);
+    expect(current.task_config ? history.length === 0 : history.length === 1).toBe(true);
+    expect(nativeRows).toHaveLength(1); expect(creates).toBe(1);
+  });
   it('预览和列表不创建计划；重复确认启用只创建一份原生计划', async () => {
     const row = await create(), preview = await service.preview({ id: row.id, workspaceBinding: 'binding' });
     expect(creates).toBe(0); expect((await service.list({ workspaceBinding: 'binding' })).rows.some(item => item.id === row.id)).toBe(true);

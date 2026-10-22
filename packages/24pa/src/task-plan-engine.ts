@@ -25,6 +25,7 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
 export class TaskPlanEngine {
   private recovered: { binding: string; session: string; length: number } | null = null;
   constructor(private readonly deps: PlanEngineDeps) {}
+  invalidateRecovery(): void { this.recovered = null; }
   private context(binding?: unknown): PlanEngineContext {
     const context = this.deps.context();
     if (!context || (binding !== undefined && binding !== context.binding)) throw new Error('工作区已切换或尚未就绪。');

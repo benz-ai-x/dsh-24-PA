@@ -4,6 +4,8 @@ import type { TaskPlanAuthorization, TaskPlanBlock, TaskPlanConfiguration } from
 import type { DigestPlanRow } from './digest.js';
 import { lockPlanSkill, type SkillEntryRow } from './skill.js';
 import { SkillRunRepo, type SkillRunRow } from './skill-run.js';
+import { digestWindowKey } from '../digest-period.js';
+import { taskPlanFingerprint } from '../task-plan-access.js';
 
 export interface TaskPlanRow extends DigestPlanRow {
   revision: number;
@@ -17,6 +19,9 @@ export interface TaskPlanRow extends DigestPlanRow {
 }
 interface ChangeIdentity { requestId: string; requestHash: string }
 interface PlanSelection extends ChangeIdentity { id: string; expectedRevision: number }
+export interface TaskPlanMigrationRow {
+  plan_id: string; original: DigestPlanRow; time_zone: string; request_id: string; migrated_at: Date;
+}
 const restored = (row: TaskPlanRow): TaskPlanRow => ({ ...row, created_at: new Date(row.created_at), updated_at: new Date(row.updated_at), recycled_at: row.recycled_at ? new Date(row.recycled_at) : null });
 
 /** Legacy controls and native lifecycle recovery share the new plan gates. */
@@ -80,6 +85,46 @@ export class TaskPlanRepo {
       }
       return row;
     });
+  }
+  async migration(id: string, tx: PaQueryer = this.db): Promise<TaskPlanMigrationRow | null> {
+    return (await tx.query<TaskPlanMigrationRow>('select * from pa24.task_plan_migration where plan_id = $1', [id])).rows[0] ?? null;
+  }
+  async assertMigratable(row: TaskPlanRow, tx: PaQueryer = this.db): Promise<void> {
+    if (row.task_config || row.recycled_at || row.delete_when_idle) throw new Error('计划已升级或进入删除流程，请刷新。');
+    if (!['morning', 'evening', 'weekly', 'once'].includes(row.kind)) throw new Error('此计划依赖专用业务上下文，请沿原会前准备或等待跟进入口管理；原计划与历史保留。');
+    if (row.lifecycle || (row.status === 'active' && (!row.schedule_id || !row.schedule_generation))
+      || (row.status !== 'active' && row.schedule_id)) throw new Error('原生调度关联尚未核验或变更未结算，请先核对原计划。');
+    const pending = await tx.query("select id from pa24.digest_occurrence where plan_id = $1 and status not in ('model_done', 'sent') limit 1", [row.id]);
+    const work = await tx.query(`select id from pa24.work_item where parent_session_id = $1 and role = 'digest'
+      and status not in ('completed', 'failed', 'stopped') limit 1`, [row.session_id]);
+    if (pending.rowCount || work.rowCount) throw new Error('原简报仍有未结束或待核对工作，请先处理，迁移不会另建运行。');
+  }
+  /** Adopt the original identity without creating or altering native timing. */
+  async migrate(input: PlanSelection & { configuration: TaskPlanConfiguration; authorization: TaskPlanAuthorization }): Promise<TaskPlanRow> {
+    return this.change(input, async tx => {
+      const observed = await this.get(input.id, tx);
+      if (!observed) throw new Error('定时任务不存在。');
+      const version = await lockPlanSkill(tx, observed.skill, observed.id);
+      const row = await this.selected(input, tx), auth = input.authorization;
+      await this.assertMigratable(row, tx);
+      if (row.skill !== observed.skill || auth.skill.name !== row.skill || auth.skill.id !== input.configuration.skillId
+        || (version && (version.id !== auth.skill.versionId || auth.skill.id !== `managed:${version.skill_id}`))) throw new Error('原 Skill 或版本已变化，请重新核验迁移。');
+      const previous = (await tx.query<{ report: unknown }>(`select report from pa24.digest_occurrence where plan_id = $1
+        and status in ('model_done', 'sent') order by coalesce(completed_at, updated_at) desc, id desc limit 1`, [row.id])).rows[0];
+      const report = typeof previous?.report === 'string' ? previous.report : (previous?.report as { report?: unknown } | null)?.report;
+      await tx.query('insert into pa24.task_plan_migration (plan_id, original, time_zone, request_id) values ($1,$2,$3,$4)',
+        [row.id, JSON.stringify(row), input.configuration.timeZone, input.requestId]);
+      return (await tx.query<TaskPlanRow>(`update pa24.digest_plan set task_config = $2, task_authorization = $3,
+        owner_enabled = $4, last_success_hash = $5, revision = revision + 1, updated_at = now() where id = $1 returning *`,
+      [row.id, JSON.stringify(input.configuration), JSON.stringify(auth), row.status === 'active', typeof report === 'string' ? taskPlanFingerprint(report) : null])).rows[0]!;
+    });
+  }
+  /** Old date/week windows are evidence of prior execution, never new Runs. */
+  async legacyTriggerHandled(id: string, scheduleId: string | undefined, at: Date, tx: PaQueryer = this.db): Promise<boolean> {
+    const migration = await this.migration(id, tx);
+    if (!migration || migration.original.schedule_id !== scheduleId || at.getTime() > new Date(migration.migrated_at).getTime()) return false;
+    const window = digestWindowKey(migration.original.kind, migration.time_zone, at);
+    return !!(await tx.query('select id from pa24.digest_occurrence where plan_id = $1 and window_key = $2', [id, window])).rowCount;
   }
   /** Captures only the already checked scope. A draft or copy cannot enable
    * itself by carrying an authorization object from another plan. */

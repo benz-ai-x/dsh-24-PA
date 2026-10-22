@@ -40,6 +40,7 @@ import { DigestService } from './digest-service.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
 import { noteDerivedContent } from './note-derivation.js';
 import { OutboxDelivery, DeliveryHeld, checkDeliveryHold } from './outbox-delivery.js';
+import { RunHistory } from './run-history.js';
 import { WaitingFollowups } from './waiting-followups.js';
 import { TaskTemplates } from './task-templates.js';
 import { TaskLifecycle } from './task-lifecycle.js';
@@ -439,6 +440,7 @@ export class PaRuntime {
   readonly skillPackages: SkillPackages;
   readonly skillRuns: SkillRuns;
   readonly taskPlans: TaskPlanService;
+  readonly runHistory: RunHistory;
   readonly planEngine: TaskPlanEngine;
   private readonly planResults: PlanResults;
 
@@ -610,12 +612,15 @@ export class PaRuntime {
       lease: work => this.executions.run(work), control: work => this.executions.control(work), detached: work => this.executions.detached(work),
     });
     const planContext = () => this.workspace && this.workspaceBinding && this.repos && this.config && this.accessSessionId
-      ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, sessionId: this.accessSessionId, timeZone: this.config.timeZone, repos: this.repos } : null;
+      ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, sessionId: this.accessSessionId, timeZone: this.config.timeZone, repos: this.repos,
+        deliveryChannel: this.config.notifyChannel === 'wecom' ? 'wecom' as const : this.config.ownerOpenId ? 'feishu' as const : 'none' as const } : null;
     this.taskPlans = new TaskPlanService({ context: planContext, skills: this.skillRuns, management: this.skillManagement,
       lifecycle: this.digest.plans, access: this.taskPlanAccess, gate: (key, work) => this.gate(key, work) });
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });
     this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess, silence: this.silencePolicy, binding: () => this.workspaceBinding });
+    this.runHistory = new RunHistory({ context: planContext, skills: this.skillRuns,
+      secretValues: () => Object.entries(this.secretEnv()).filter(([key, value]) => /SECRET|TOKEN|PASSWORD|API_KEY|DSN/i.test(key) && typeof value === 'string').map(([, value]) => value!) });
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
     this.builtInRoles = this.roles.list();
@@ -661,7 +666,11 @@ export class PaRuntime {
     return this.executions.run<unknown>(() => ['resume', 'recheck'].includes(String(input.op)) ? this.skillRuns.resume(input) : input.op === 'review' ? this.skillRuns.review(input) : this.skillRuns.start(input));
   }
   async changeTaskPlan(input: Record<string, unknown>): Promise<unknown> {
-    return this.executions.run<unknown>(() => input.op === 'run' ? this.planEngine.runNow(input) : this.taskPlans.change(input));
+    return this.executions.run<unknown>(async () => {
+      const result = input.op === 'run' ? await this.planEngine.runNow(input) : await this.taskPlans.change(input);
+      if (input.op === 'migrate') this.planEngine.invalidateRecovery();
+      return result;
+    });
   }
   async changePlanDelivery(input: Record<string, unknown>): Promise<unknown> {
     return this.executions.run(() => this.planResults.change(input));

@@ -16,7 +16,7 @@ import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
 import { localDay } from './calendar-time.js';
 import { checkExecution } from './execution-cancellation.js';
-import { digestPeriod, type DigestPeriod } from './digest-period.js';
+import { digestPeriod, digestWindowKey, type DigestPeriod } from './digest-period.js';
 import { captureDigestTrigger } from './digest-trigger.js';
 import { skillContract } from './skill-package.js';
 import type { SourceCalendar } from './source-calendar.js';
@@ -93,13 +93,7 @@ export class DigestService {
 
   /** Local-date window key for a plan kind (morning/evening share the date, weekly uses ISO week). */
   digestWindowKey(kind: string, timeZone: string, now = new Date()): string {
-    const day = localDay(now, timeZone);
-    if (kind !== 'weekly') return day.date;
-    const date = new Date(`${day.date}T00:00:00Z`);
-    date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-    const jan1 = Date.UTC(date.getUTCFullYear(), 0, 1);
-    const week = Math.ceil(((date.getTime() - jan1) / 86400000 + 1) / 7);
-    return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+    return digestWindowKey(kind, timeZone, now);
   }
 
   /**
