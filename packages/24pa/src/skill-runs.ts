@@ -329,7 +329,7 @@ export class SkillRuns {
       if (!await controls.claimRecovery(run.id, original)) return true;
       const active = this.active.get(run.id); if (active) active.allowed = true;
       try { await this.deps.detached(() => this.host.resumePending(run, original)); }
-      catch (error) { await this.block(run, `恢复原输入未完成：${errorText(error)}`); }
+      catch (error) { if (!await this.stopCanceledInput(run)) await this.block(run, `恢复原输入未完成：${errorText(error)}`); }
       return true;
     }
     for (const row of pending) {
@@ -575,7 +575,8 @@ export class SkillRuns {
     const prior = (await repo.evidence(run.id)).reviews.find(review => review.request_id === id);
     if (prior) {
       if (prior.request_hash !== hash) throw new Error('核对操作标识已用于其他内容。');
-      return this.inspect(input);
+      const stop = (await context.repos.runControls.get(run.id))?.state.stop;
+      if (!stop || stop.settledAt !== null) return this.inspect(input);
     }
     if (input.confirm !== true || typeof input.fingerprint !== 'string') throw new Error('请核对实际动作及停止状态后明确确认。');
     const nonempty = (value: unknown, name: string, max = 4000): string => {
@@ -601,7 +602,7 @@ export class SkillRuns {
     await this.deps.detached(() => this.host.stop(run));
     await this.native.flush(run.id);
     await this.host.assertStopped(run, (await repo.sessions(run.id)).map(session => session.session_id));
-    await repo.review({ runId: run.id, requestId: id, requestHash: hash, fingerprint: input.fingerprint, record });
+    await repo.review({ runId: run.id, requestId: id, requestHash: hash, fingerprint: input.fingerprint, record, stopConfirmed: true });
     return this.inspect(input);
   }
 }

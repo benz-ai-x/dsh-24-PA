@@ -14,6 +14,8 @@ import { SkillRunTemplates } from '../../lib/skill-run-template.js';
 import { SkillRuns } from '../../lib/skill-runs.js';
 import { WorkspaceExecution } from '../../lib/workspace-execution.js';
 import { runCliProcess } from '../../lib/cli-gateway.js';
+import { SkillRunHost } from '../../lib/skill-run-host.js';
+import { canceledInputIds } from '../../lib/host-turn.js';
 
 describe('运行累计执行与等待时间', () => {
   it('并行子步骤计活跃墙钟一次；重复观测不重复计时，重启离线不填入开放区间', () => {
@@ -152,6 +154,49 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
       await runs.poll(); await runs.poll(); await runs.recover();
       expect((await repos.skillRuns.get(run.id)).status).toBe('stopped');
       expect(stops).toBe(1); expect(resumes).toBe(0);
+    } finally { runs.dispose(); }
+  });
+  it('SQL 认领后的取消在实际恢复前再次核验，迟到重新入队不能抹去取消', async () => {
+    const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原任务' }] };
+    const events = [{ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } }];
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => events };
+    let followed = 0;
+    const agent = { id: run.session_id, session, inbox: { nextTurn: [message], nextStep: [], remove() {} },
+      runMaintenance: async work => {
+        events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } });
+        return work(new AbortController().signal);
+      }, followup: () => { followed++; } };
+    const host = new SkillRunHost({ sessionController: { resolveAgent: async () => ({ agent }) } });
+    host.live.set(run.session_id, agent);
+    await expect(host.resumePending(run, message)).rejects.toThrow(/取消/);
+    expect(followed).toBe(0);
+    events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } });
+    expect(canceledInputIds(session).has(message.id)).toBe(true);
+  });
+  it('真实停止校验和人工证据同批成功后结清停止；核对失败不能解锁', async () => {
+    await repos.skillRuns.nativeReceipt(run.id, 'job', run.session_id, 'unconfirmed-job', 'start', { id: 'unconfirmed-job' });
+    await repos.skillRuns.nativeReceipt(run.id, 'job', run.session_id, 'unconfirmed-job', 'end', { producerReported: false });
+    await repos.runControls.change(run.id, state => { state.stop = { requestedAt: Date.now(), settledAt: null, error: '缺少可靠生产者回执' }; });
+    await repos.skillRuns.transition(run.id, 'timed_out', '超时');
+    const runs = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'binding', repos }), packages: {}, sourceSession: async () => 'source',
+      permissionHash: () => 'allowed', lease: work => work(), control: work => work(), detached: work => work(), template: async () => '' });
+    let ended = false;
+    runs.host.stop = async () => {}; runs.host.history = async () => null;
+    runs.host.assertStopped = async () => { if (!ended) throw new Error('仍在执行'); };
+    const command = { runId: run.id, requestId: randomUUID(), workspaceBinding: 'binding', fingerprint: (await repos.skillRuns.evidence(run.id)).fingerprint,
+      confirm: true, summary: '检查实际执行已结束', completed: '第一部分', remaining: '第二部分', calls: [],
+      native: [{ kind: 'job', ownerId: run.session_id, nativeId: 'unconfirmed-job', evidence: '已检查原工作目录结果与执行进程，确认结束' }] };
+    try {
+      await expect(runs.review(command)).rejects.toThrow(/仍在执行/);
+      expect((await repos.runControls.get(run.id)).state.stop.settledAt).toBeNull();
+      ended = true; await runs.review(command); await runs.review(command);
+      expect((await repos.runControls.get(run.id)).state.stop).toMatchObject({ reviewRequestId: command.requestId, error: null });
+      expect((await repos.runControls.get(run.id)).state.stop.settledAt).not.toBeNull();
+      expect((await repos.skillRuns.get(run.id)).status).toBe('timed_out');
+      expect((await repos.skillRuns.native(run.id))[0].end_data.producerReported).toBe(false);
+      expect(await repos.skillRuns.continuation(run.id)).toHaveLength(1);
+      await repos.skillRuns.checkNewWork(run.skill_id);
+      expect((await repos.skillRuns.unfinished()).some(row => row.id === run.id)).toBe(false);
     } finally { runs.dispose(); }
   });
   it('模型请求边界发现时限耗尽，会请求实际停止且不等待自己的回合结束', async () => {

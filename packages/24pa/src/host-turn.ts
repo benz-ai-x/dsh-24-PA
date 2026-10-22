@@ -16,10 +16,8 @@ export function canceledInputIds(session: DshSession, recoveryInputId: (message:
       if (outcome !== 'canceled' && turn !== undefined) for (const message of removed) {
         const id = recoveryInputId(message); if (id) recovering.add(id);
       }
-      if (outcome === 'canceled' && !inserted.length) for (const message of removed) if (!recovering.has(message.id)) canceled.add(message.id);
-      for (const message of inserted) canceled.delete(message.id);
+      if (outcome === 'canceled' && !inserted.length) for (const message of removed) if (!recovering.has(message.id)) canceled.add(recoveryInputId(message) ?? message.id);
     }
-    if (event.type === 'user/message') canceled.delete(event.data.id);
     if (event.type === 'turn/end') {
       const reason = event.data.reason;
       if (reason?.kind === 'aborted' && ['user', 'parent', 'legacy'].includes(reason.reason?.kind)) {

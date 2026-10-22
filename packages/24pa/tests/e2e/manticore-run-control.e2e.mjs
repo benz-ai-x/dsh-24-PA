@@ -125,6 +125,27 @@ it('在原生会话取消已接纳但未采用的本地输入，重启也不自�
   expect(requestsFor(run)).toHaveLength(0);
 }, 600000);
 
+it.each(['local', 'business'])('%s SQL 恢复已认领、原生采用前取消，不执行也不清除取消证据', async mode => {
+  await writeBarrier({ kind: 'start' });
+  const run = await start({ mode, tools: [], steps: [{ text: 'MUST_NOT_EXECUTE_RECOVERY_AFTER_CANCEL' }] });
+  await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.entered);
+  const original = (await host.api('snapshot')).workspace.config.extraBusinessSkills;
+  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: [...original, 'recovery-cancel-test'] } });
+  await writeBarrier({});
+  await until(() => detail(run.id), value => value.run.status === 'waiting');
+  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: original } });
+  await writeBarrier({ kind: 'recover' });
+  try {
+    await host.api('action', { type: 'skill.run', op: 'recheck', runId: run.id, requestId: randomUUID(), workspaceBinding: binding, confirm: true });
+    const held = await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.entered);
+    await writeBarrier({ ...held, interrupt: true });
+    await until(() => detail(run.id), value => value.run.status === 'stopped');
+    expect(requestsFor(run)).toHaveLength(0);
+    await restart();
+    expect((await detail(run.id)).run.status).toBe('stopped'); expect(requestsFor(run)).toHaveLength(0);
+  } finally { await writeBarrier({}); }
+}, 600000);
+
 it.each(['local', 'business'])('真实宿主 %s：等待并重启后在原运行继续，补充双击只消费一次', async mode => {
   const before = llm.requests.length;
   const run = await start({ mode, steps: [waitStep, { text: 'RESUMED_RESULT：主题已收到，沿原记录完成。' }] });

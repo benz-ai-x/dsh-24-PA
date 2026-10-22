@@ -68,13 +68,17 @@ export class SkillRunRepo {
     const hash = evidenceHash({ calls, native, inputs, sessions });
     return { calls, native, inputs, sessions, reviews, fingerprint: hash, reviewed: reviews.some(review => review.evidence_hash === hash) };
   }
-  async review(input: { runId: string; requestId: string; requestHash: string; fingerprint: string; record: SkillRunReview['record'] }): Promise<SkillRunReview> {
+  async review(input: { runId: string; requestId: string; requestHash: string; fingerprint: string; record: SkillRunReview['record']; stopConfirmed?: boolean }): Promise<SkillRunReview> {
     return this.db.withTransaction(async tx => {
       const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [input.runId])).rows[0];
       if (!run) throw new Error('运行记录不存在。');
       const prior = (await tx.query<SkillRunReview>('select * from pa24.skill_run_review where request_id = $1', [input.requestId])).rows[0];
       if (prior) {
         if (prior.request_hash !== input.requestHash || prior.run_id !== input.runId) throw new Error('核对操作标识已用于其他内容。');
+        if (input.stopConfirmed) {
+          if ((await this.evidence(run.id, tx)).fingerprint !== prior.evidence_hash) throw new Error('运行证据已有新回执，请刷新后重新核对。');
+          await this.confirmReviewedStop(run.id, prior.request_id, tx);
+        }
         return prior;
       }
       if (!['needs_reconciliation', 'stopped', 'failed', 'timed_out'].includes(run.status)) throw new Error('请先停止原运行，再保存核对结论。');
@@ -87,11 +91,18 @@ export class SkillRunRepo {
       if ((await this.unresolvedOperations(run.work_item_id, tx)).length) throw new Error('关联平台动作仍待核对；请先修复原对象回执，不能用运行核对绕过。');
       const saved = (await tx.query<SkillRunReview>(`insert into pa24.skill_run_review (request_id, request_hash, run_id, evidence_hash, record)
         values ($1,$2,$3,$4,$5) returning *`, [input.requestId, input.requestHash, run.id, input.fingerprint, JSON.stringify(input.record)])).rows[0]!;
+      if (input.stopConfirmed) await this.confirmReviewedStop(run.id, saved.request_id, tx);
       const status = run.status === 'needs_reconciliation' ? 'stopped' : run.status;
       await tx.query("update pa24.skill_run set status = $2, progress = '人工核对已留档；本次运行结束，接续须另行预览确认', updated_at = now() where id = $1", [run.id, status]);
       await tx.query("update pa24.work_item set status = $3, progress = '人工核对已留档，等待显式接续', updated_at = now() where id = $1 and active_skill_run_id = $2", [run.work_item_id, run.id, status === 'timed_out' ? 'failed' : status]);
       return saved;
     });
+  }
+  private async confirmReviewedStop(id: string, reviewId: string, tx: PaQueryer): Promise<void> {
+    const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];
+    if (!control?.state.stop || control.state.stop.settledAt !== null) return;
+    control.state.stop = { ...control.state.stop, settledAt: Date.now(), error: null, reviewRequestId: reviewId };
+    await tx.query('update pa24.skill_run_control set state = $2, revision = revision + 1, updated_at = now() where run_id = $1', [id, JSON.stringify(control.state)]);
   }
   async continuation(id: string, tx: PaQueryer = this.db) {
     const selected = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1', [id])).rows[0];

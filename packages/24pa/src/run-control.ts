@@ -15,7 +15,7 @@ export interface RunControl {
   waits: Array<{ start: number; end: number | null }>;
   attempts: RunAttempt[];
   failures: RunFailure[];
-  stop?: { requestedAt: number; settledAt: number | null; error: string | null };
+  stop?: { requestedAt: number; settledAt: number | null; error: string | null; reviewRequestId?: string };
   terminal: { status: 'completed' | 'failed' | 'stopped' | 'timed_out' | 'needs_reconciliation'; at: number } | null;
 }
 

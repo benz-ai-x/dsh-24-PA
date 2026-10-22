@@ -6,11 +6,13 @@ import type { SkillRegistryLike } from './skills.js';
 import type { SkillRunRow } from './repo/skill-run.js';
 import { readSkillFile, skillHash, validateSkillPackage } from './skill-package.js';
 import { isDeepStrictEqual } from 'node:util';
+import { randomUUID } from 'node:crypto';
+import { canceledInputIds } from './host-turn.js';
 
 export interface RunInput { id: string; content: ContentBlock[]; source?: { kind?: string; rpcId?: string; name?: string; senderSessionId?: string }; [key: string]: unknown }
 interface RunAgent extends DshAgent {
   inbox: { nextTurn: RunInput[]; nextStep: RunInput[]; remove(id: string): boolean };
-  runMaintenance<T>(work: () => Promise<T>): Promise<T>;
+  runMaintenance<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T>;
   followup(message: RunInput): void;
 }
 export interface RunToolCall { callId: string; rootCallId?: string; agent?: DshAgent; name: string; arguments: Record<string, unknown>; signal: AbortSignal }
@@ -84,10 +86,12 @@ export class SkillRunHost {
       // protocol machinery, not an inherited business/coding capability;
       // restrict() already proves it is visible on this exact child scope.
       const nativeResult = (name: string) => descendant && name === 'structured_output';
+      const canceled = () => !descendant && canceledInputIds(agent.session, message => this.recoveryInputId(run, message)).size > 0;
       scope.tools.guard(exec => exec.agent?.id !== agent.id ? undefined
-        : !hooks.allowed() ? 'Skill 运行已停止、授权变化或结果待核对。' : !tools.includes(exec.name) && !nativeResult(exec.name) ? '工具未在本次 Skill 授权范围内。' : undefined);
+        : !hooks.allowed() || canceled() ? 'Skill 运行已停止、授权变化或结果待核对。' : !tools.includes(exec.name) && !nativeResult(exec.name) ? '工具未在本次 Skill 授权范围内。' : undefined);
       scope.on('agent/pre-step', async ({ agent: current, messages }, next) => {
         if (current.id !== agent.id) return next();
+        if (canceled()) return { kind: 'reject' };
         const replacements = new Map<string, RunInput | null>();
         const adopted = new Set(agent.session.ownEvents().filter(event => event.type === 'user/message').map(event => event.data.id));
         for (const message of messages) {
@@ -118,18 +122,21 @@ export class SkillRunHost {
           await this.verifyResources(run);
         } catch (error) { await hooks.block((error as Error).message); return { kind: 'reject' }; }
         const decision = await next() as { kind: 'reject' } | { kind: 'enter'; messages: RunInput[] };
+        if (canceled()) return { kind: 'reject' };
         return decision.kind === 'enter' && replacements.size ? { ...decision, messages: replace(decision.messages) } : decision;
       });
       scope.on('tools/execute', async (call, next) => {
         if (call.agent?.id !== agent.id) return next();
         await hooks.authorize();
         await this.verifyResources(run);
+        if (canceled()) throw new Error('原输入已取消，未执行新的工具动作。');
         return hooks.execute(call, next);
       });
       scope.on('agent/request', async ({ agent: current }, next) => {
         if (current.id !== agent.id) return next();
         await hooks.beforeModel(current.session);
         await hooks.authorize();
+        if (canceled()) throw new Error('原输入已取消，未开始新的模型请求。');
         return next();
       });
       scope.on('tools/result', (call, result) => { if (call.agent?.id === agent.id) hooks.final(call, result); return undefined; });
@@ -262,9 +269,12 @@ export class SkillRunHost {
   }
   executing(id: string): boolean { return this.live.get(id)?.status === 'running'; }
   recoveryInputId(run: SkillRunRow, message: RunInput): string | null {
-    if (run.mode !== 'business' || message.source?.kind !== 'agent-message' || message.source.senderSessionId !== run.source_session_id
-      || message.content.length !== 2 || message.content[0]?.text !== `Agent ${run.source_session_id} sent a message: `) return null;
-    return typeof message.content[1]?.text === 'string' ? /^\[24PA recover input: ([^\]\r\n]+)\]$/.exec(message.content[1].text)?.[1] ?? null : null;
+    const text = run.mode === 'local' ? message.content[0]?.text : message.content[1]?.text;
+    const id = typeof text === 'string' ? /^\[24PA recover input: ([^\]\r\n]+)\]$/.exec(text)?.[1] : null;
+    if (!id) return null;
+    if (run.mode === 'local') return message.source?.kind === 'user' && message.source.rpcId === `pa24-recovery:${run.id}:${id}` && message.content.length === 1 ? id : null;
+    return run.mode === 'business' && message.source?.kind === 'agent-message' && message.source.senderSessionId === run.source_session_id
+      && message.content.length === 2 && message.content[0]?.text === `Agent ${run.source_session_id} sent a message: ` ? id : null;
   }
   resident(id: string): boolean { return !!this.ctx.sessions.get?.(id); }
   attached(id: string): boolean { return this.live.has(id); }
@@ -294,7 +304,7 @@ export class SkillRunHost {
     const results = await Promise.allSettled([drain, ...stopping, root?.whenIdle?.()]);
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
-    if (root) await this.checkpoint(root.session);
+    if (root && !await this.history(run)) throw new Error('停止后的原生历史尚不可读取，请继续核对。');
     if (owners.some(owner => this.ownedJobs(owner).some(job => ['running', 'stopping'].includes(job.status)))) throw new Error('原生作业尚未确认结束，请继续核对。');
   }
   async resumePending(run: SkillRunRow, message: RunInput): Promise<void> {
@@ -312,13 +322,21 @@ export class SkillRunHost {
     if ('error' in resolved) throw resolved.error;
     const agent = this.live.get(run.session_id);
     if (!agent?.runMaintenance || !agent.inbox) throw new Error('原运行作用域或输入恢复接口不可用。');
-    await agent.runMaintenance(async () => {
+    await agent.runMaintenance(async signal => {
       if (agent.session.ownEvents().some(e => e.type === 'user/message' && e.data.id === message.id)) return;
+      signal.throwIfAborted();
+      if (canceledInputIds(agent.session, item => this.recoveryInputId(run, item)).size) throw new Error('原输入已取消，不能重新排队。');
       const pending = [...agent.inbox.nextTurn, ...agent.inbox.nextStep];
       if (pending.some(item => item.id === message.id && !isDeepStrictEqual(item, message))) throw new Error('原输入身份对应不同内容，需人工核对。');
-      if (pending.some(item => item.id === message.id) && !agent.inbox.remove(message.id)) throw new Error('原输入队列已变化。');
-      agent.followup(message);
+      // Wake without deleting/reinserting the original: a user's queue
+      // cancellation remains durable even when it races SQL recovery claim.
+      const wake: RunInput = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: `pa24-recovery:${run.id}:${message.id}` }, content: [{ type: 'text', text: recoverMarker(message.id) }] };
+      agent.followup(wake);
       await this.checkpoint(agent.session);
+      if (signal.aborted) {
+        agent.inbox.remove(wake.id); agent.inbox.remove(message.id);
+        await this.checkpoint(agent.session); signal.throwIfAborted();
+      }
     });
   }
 }
