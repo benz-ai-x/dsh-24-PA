@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createAtScheduleRecord, createDailyScheduleRecord, createWeeklyScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
+import { freezePlanTiming, planTimingRequest, planTimingChange, samePlanTiming } from './plan-time.js';
 import type { DigestRepo, DigestPlanRow } from './repo.js';
 import type { NativeScheduleService } from './host.js';
 import { digestWakePrompt } from './prompts.js';
@@ -48,7 +48,7 @@ export class PlanLifecycle {
       }
       if (plan?.status === 'active' && plan.kind === 'once') return plan;
       if (plan && plan.status !== 'stopped') throw new Error(`计划已存在（${plan.id}）；请使用计划控制。`);
-      const spec = fixedSpec(input.schedule_spec);
+      const spec = freezePlanTiming(input.schedule_spec);
       const intent = this.intent('create', input, spec);
       if (plan) {
         plan = (await ctx.repo.updatePlan(plan.id, { ...input, schedule_id: null, schedule_spec: spec, status: 'paused', lifecycle: intent }))!;
@@ -84,7 +84,7 @@ export class PlanLifecycle {
       if (plan.lifecycle) plan = await this.settle(ctx, plan);
       if (plan.status !== 'paused') throw new Error(`计划当前状态为 ${plan.status}，无法恢复。`);
       if (plan.schedule_id) throw new Error('原生计划尚未清理，请先暂停并核对。');
-      const spec = fixedSpec(plan.schedule_spec);
+      const spec = freezePlanTiming(plan.schedule_spec);
       plan = await ctx.repo.comparePlan(plan, { lifecycle: this.intent('create', plan, spec), schedule_spec: spec });
       return this.settle(ctx, plan);
     });
@@ -99,7 +99,7 @@ export class PlanLifecycle {
       const entry = (await ctx.native.catalog()).find(e => e.id === plan.schedule_id && e.sessionId === plan.session_id);
       if (!entry || entry.status !== 'active') throw new Error('原生计划已结束或不存在，请重新设置。');
       const { sessionId: _session, status: _status, lastDelivery: _delivery, ...expected } = entry;
-      const intent = this.intent('update', { ...plan, kind }, fixedSpec(spec));
+      const intent = this.intent('update', { ...plan, kind }, freezePlanTiming(spec));
       intent.expected = expected;
       plan = await ctx.repo.comparePlan(plan, { status: 'paused', lifecycle: intent });
       return this.settle(ctx, plan);
@@ -135,7 +135,7 @@ export class PlanLifecycle {
   private intent(operation: PlanIntent['operation'], plan: Pick<NewPlan, 'id' | 'title' | 'kind'>, spec: Record<string, unknown>): PlanIntent {
     const id = randomUUID();
     return { id, operation, phase: 'pending', spec, kind: plan.kind, targetStatus: 'active', request: {
-      ...(operation === 'delete' ? {} : timing(spec)), title: `[24PA] ${plan.title}`.slice(0, 120), prompt: `${digestWakePrompt(plan.id, plan.title)}\n24PA计划操作：${id}`,
+      ...(operation === 'delete' ? {} : planTimingRequest(spec)), title: `[24PA] ${plan.title}`.slice(0, 120), prompt: `${digestWakePrompt(plan.id, plan.title)}\n24PA计划操作：${id}`,
     } };
   }
   private async settle(ctx: Context, initial: DigestPlanRow): Promise<DigestPlanRow> {
@@ -159,7 +159,7 @@ export class PlanLifecycle {
         const matches = (await native.catalog()).filter(entry => entry.sessionId === plan.session_id && entry.prompt === intent.request.prompt && (intent.operation !== 'update' || entry.id === plan.schedule_id));
         if (matches.length !== 1) throw new Error(matches.length > 1 ? '原生计划存在多个匹配，结果有歧义，请核对。' : '原生计划结果未知，尚未查到唯一回执；请核对，不自动重建。');
         record = matches[0];
-        if (intent.targetStatus === 'active' && !matchesTiming(record!, intent.spec)) {
+        if (intent.targetStatus === 'active' && !samePlanTiming(record!, intent.spec)) {
           plan = await ctx.repo.comparePlan(plan, { schedule_id: String(record!.id), lifecycle: { ...intent, phase: 'conflict', error: '原生计划规则已变化，与待恢复目标不一致；请核对后再次明确调整或停止。' } });
           throw new Error(plan.lifecycle!.error);
         }
@@ -170,7 +170,7 @@ export class PlanLifecycle {
           record = await native.create(plan.session_id, intent.request);
         } else {
           if (!native.update) throw new Error('当前 Host 缺少 Schedule update，不能安全调整。');
-          const result = await native.update({ sessionId: plan.session_id, id: plan.schedule_id!, expected: intent.expected!, change: timingChange(intent.spec), title: String(intent.request.title), prompt: String(intent.request.prompt) });
+          const result = await native.update({ sessionId: plan.session_id, id: plan.schedule_id!, expected: intent.expected!, change: planTimingChange(intent.spec), title: String(intent.request.title), prompt: String(intent.request.prompt) });
           if (!result.record) {
             plan = await ctx.repo.comparePlan(plan, { lifecycle: { ...intent, phase: 'conflict', error: `原生计划调整未完成：${result.code ?? '回执不完整'}；请核对。` } });
             throw new Error(plan.lifecycle!.error);
@@ -190,36 +190,4 @@ export class PlanLifecycle {
       throw error;
     }
   }
-}
-
-function timing(spec: Record<string, any>): Record<string, unknown> {
-  for (const name of ['at', 'daily', 'weekly']) if (spec[name] != null) return { [name]: spec[name] };
-  throw new Error('计划缺少有效的时间规则。');
-}
-function timingChange(spec: Record<string, any>): Record<string, unknown> {
-  const selector = timing(spec), kind = Object.keys(selector)[0]!;
-  return { kind, ...selector };
-}
-/** Validate before persistence/host calls, and freeze relative time once. */
-function fixedSpec(spec: Record<string, any>): Record<string, unknown> {
-  const normalized = { ...spec };
-  if (normalized.after_seconds != null) { normalized.at = new Date(Date.now() + Number(normalized.after_seconds) * 1000).toISOString(); delete normalized.after_seconds; }
-  const now = Date.now(), id = ScheduleId('validation');
-  if (normalized.at != null) createAtScheduleRecord(id, 'plan', normalized.at, now, 'plan');
-  else if (normalized.daily) createDailyScheduleRecord(id, 'plan', normalized.daily, now, 'plan');
-  else if (normalized.weekly) createWeeklyScheduleRecord(id, 'plan', normalized.weekly, now, 'plan');
-  else throw new Error('计划缺少有效的时间规则。');
-  return normalized;
-}
-
-/** Match the rule, not the next occurrence of a recurring task. The host may
- * advance scheduledAt while a receipt is lost, or the owner may edit timing. */
-function matchesTiming(record: Record<string, any>, spec: Record<string, any>): boolean {
-  const zone = (value: string) => new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone;
-  if (spec.at) return record.kind === 'at' && Date.parse(record.scheduledAt) === Date.parse(spec.at);
-  const id = ScheduleId('recovery');
-  const target = spec.daily ? createDailyScheduleRecord(id, 'plan', spec.daily, Date.now(), 'plan')
-    : createWeeklyScheduleRecord(id, 'plan', spec.weekly, Date.now(), 'plan');
-  if (record.kind !== target.kind || record.time !== target.time || !record.timeZone || zone(record.timeZone) !== zone(target.timeZone)) return false;
-  return target.kind !== 'weekly' || JSON.stringify(record.weekdays) === JSON.stringify(target.weekdays);
 }

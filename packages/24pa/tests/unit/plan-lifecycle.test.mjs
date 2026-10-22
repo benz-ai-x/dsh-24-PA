@@ -7,7 +7,7 @@ import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { DigestService } from '../../lib/digest-service.js';
 import { SkillCatalog } from '../../lib/skills.js';
-import { createAtScheduleRecord, createDailyScheduleRecord, createWeeklyScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
+import { createAtScheduleRecord, createDailyScheduleRecord, createWeeklyScheduleRecord, createEveryScheduleRecord, createCronScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
 import { hash } from '../../lib/util.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 
@@ -25,7 +25,11 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期计划配置恢复
     native = {
       create: async (sessionId, request) => {
         const id = ScheduleId(`schedule-${++creates}`);
-        const record = request.daily ? createDailyScheduleRecord(id, request.prompt, request.daily, Date.now(), request.title) : request.weekly ? createWeeklyScheduleRecord(id, request.prompt, request.weekly, Date.now(), request.title) : createAtScheduleRecord(id, request.prompt, request.at, Date.now(), request.title);
+        const record = request.daily ? createDailyScheduleRecord(id, request.prompt, request.daily, Date.now(), request.title)
+          : request.weekly ? createWeeklyScheduleRecord(id, request.prompt, request.weekly, Date.now(), request.title)
+          : request.every_seconds ? createEveryScheduleRecord(id, request.prompt, request.every_seconds, Date.now(), request.title)
+          : request.cron ? createCronScheduleRecord(id, request.prompt, request.cron, Date.now(), request.title)
+          : createAtScheduleRecord(id, request.prompt, request.at, Date.now(), request.title);
         entries.push({ ...record, sessionId, status: 'active' }); return record;
       },
       catalog: async () => structuredClone(entries),
@@ -43,6 +47,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期计划配置恢复
     rebuild();
   });
   const enable = () => service.digestEnable({ kind: 'morning', time: '08:00:00' });
+
+  it.each([{ every_seconds: 120 }, { cron: { expression: '0 9 31 * *', time_zone: 'Asia/Shanghai' } }])('通用规则 %j 回执丢失后恢复原原生身份', async spec => {
+    const create = native.create;
+    native.create = async (...args) => { await create(...args); throw new Error('reply lost'); };
+    await expect(service.plans.enable({ id: 'general-plan', kind: 'skill', title: '通用计划', session_id: 'access', schedule_spec: spec,
+      last_window: null, voice: false, skill: 'digest-morning' })).rejects.toThrow('reply lost');
+    rebuild(); native.create = create; await service.recoverPlans();
+    const plan = await repos.digests.getPlan('general-plan');
+    expect(plan.status).toBe('active'); expect(plan.schedule_id).toBe('schedule-1'); expect(creates).toBe(1);
+  });
 
   it('本地首次持久化失败不能留下无账本原生计划', async () => {
     repos.digests.insertPlan = async () => { throw new Error('ledger offline'); };
