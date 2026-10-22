@@ -5,7 +5,7 @@ import type { PaDb } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
 import { randomUUID } from 'node:crypto';
 import { readLedgerOwner } from './ledger.js';
-import { hasExecutionCapacity } from './execution-capacity.js';
+import { executionCapacity, hasExecutionCapacity } from './execution-capacity.js';
 
 export interface WorkExecutionScope {
   workspaceId: string;
@@ -57,15 +57,19 @@ export class WorkItemRepo {
 
   async claimNext(limit = 2): Promise<WorkItemRow | null> {
     return this.db.withTransaction(async tx => {
-    // Read before taking a row lock; every competing dispatcher then passes
-    // the same capacity gate and the final update still claims once.
-    const candidate = (await tx.query<WorkItemRow>("select * from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted') order by created_at, id limit 1")).rows[0];
-    if (!candidate || !await hasExecutionCapacity(tx, limit, { parentSessionId: candidate.parent_session_id })) return null;
-    const result = await tx.query<WorkItemRow>(
-      `update pa24.work_item set status = 'running', progress = 'Worker 正在处理', updated_at = now()
-       where id = $1 and status in ('queued', 'accepted') returning *`, [candidate.id],
-    );
-    return result.rows[0] ?? null;
+      const available = await executionCapacity(tx, limit);
+      const candidates = (await tx.query<WorkItemRow>("select * from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted') order by created_at, id")).rows;
+      // A queued standalone worker must not hide a child that can use its
+      // active parent's existing slot: that parent may be awaiting the child.
+      for (const candidate of candidates) {
+        if (!available({ parentSessionId: candidate.parent_session_id })) continue;
+        const result = await tx.query<WorkItemRow>(
+          `update pa24.work_item set status = 'running', progress = 'Worker 正在处理', updated_at = now()
+           where id = $1 and status in ('queued', 'accepted') returning *`, [candidate.id],
+        );
+        if (result.rows[0]) return result.rows[0];
+      }
+      return null;
     });
   }
 

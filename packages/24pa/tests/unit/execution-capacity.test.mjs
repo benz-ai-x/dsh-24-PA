@@ -6,6 +6,7 @@ import { createRepos } from '../../lib/repo.js';
 import { makeSkillPackage, parseSkillMarkdown } from '../../lib/skill-package.js';
 import { recordRunStep } from '../../lib/run-control.js';
 import { SkillRuns } from '../../lib/skill-runs.js';
+import { WorkspaceExecution } from '../../lib/workspace-execution.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 
 for (const backend of ['sqlite', 'postgres']) describe(`共享执行容量 (${backend})`, () => {
@@ -66,11 +67,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`共享执行容量 (${ba
     await repos.skillRuns.transition(run.id, 'completed', 'done');
     expect(await repos.workItems.update('old', { status: 'running' }, 1)).toMatchObject({ status: 'running' });
   });
-  it('Run 的子交办沿用所属执行名额，不把同一运行重复计数', async () => {
+  it('Run 的子交办沿用所属执行名额，不被队首独立 Worker 阻塞', async () => {
     const run = await admit(); await repos.skillRuns.claimLaunch(run.id, 'start', 1);
+    await worker('blocked-work');
     await worker('child-work', 'queued', run.session_id);
     expect(await repos.workItems.claimNext(1)).toMatchObject({ id: 'child-work', status: 'running' });
+    expect((await repos.workItems.get('blocked-work')).status).toBe('queued');
     const another = await admit(); expect(await repos.skillRuns.claimLaunch(another.id, 'start', 1)).toBe(false);
+    await repos.workItems.update('child-work', { status: 'completed' });
+    await repos.skillRuns.transition(run.id, 'completed', 'done');
+    expect(await repos.workItems.claimNext(1)).toMatchObject({ id: 'blocked-work', status: 'running' });
   });
   it('超时后仍在结束的作业继续占位，明确结束才释放', async () => {
     const one = await admit(), two = await admit(); await repos.skillRuns.claimLaunch(one.id, 'start', 1);
@@ -84,8 +90,28 @@ for (const backend of ['sqlite', 'postgres']) describe(`共享执行容量 (${ba
     const run = await admit(); await db.query("update pa24.skill_run set mode = 'template' where id = $1", [run.id]);
     let calls = 0;
     const engine = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'fixed', repos }), packages: {}, permissionHash: () => 'same', maxWorkers: () => 1,
-      template: async () => { calls++; return '确定性结果'; }, control: work => work(), detached: work => work() });
-    try { await engine.poll(); expect(calls).toBe(1); expect(await repos.skillRuns.get(run.id)).toMatchObject({ status: 'completed', result: '确定性结果' }); }
+      template: async () => { calls++; return '确定性结果'; }, lease: work => work(), control: work => work(), detached: work => work() });
+    try { await engine.poll(); await until(async () => (await repos.skillRuns.get(run.id)).status === 'completed'); expect(calls).toBe(1); expect(await repos.skillRuns.get(run.id)).toMatchObject({ status: 'completed', result: '确定性结果' }); }
     finally { engine.dispose(); }
+  });
+  const until = async check => { const end = Date.now() + 3000; while (Date.now() < end) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('未达到预期状态'); };
+  it('后台慢模板不阻止后续轮询，独立租约仍让配置变更等待读取结束', async () => {
+    const one = await admit(); await db.query("update pa24.skill_run set mode = 'template' where id = $1", [one.id]);
+    const execution = new WorkspaceExecution(); let release, entered = false, changed = false;
+    const barrier = new Promise(resolve => { release = resolve; });
+    const engine = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'fixed', repos }), packages: {}, permissionHash: () => 'same', maxWorkers: () => 2,
+      template: async (_def, _params, run) => { if (run.id === one.id) { entered = true; await barrier; } return '结果'; },
+      lease: work => execution.run(work), control: work => execution.control(work), detached: work => execution.detached(work) });
+    try {
+      await execution.run(() => engine.poll()); await until(() => entered);
+      const two = await admit(); await db.query("update pa24.skill_run set mode = 'template' where id = $1", [two.id]);
+      await execution.run(() => engine.poll());
+      await until(async () => (await repos.skillRuns.get(two.id)).status === 'completed');
+      expect((await repos.skillRuns.get(one.id)).status).toBe('running');
+      const transition = execution.transition(async () => { changed = true; });
+      await new Promise(resolve => setTimeout(resolve, 10)); expect(changed).toBe(false);
+      release(); await transition; expect(changed).toBe(true);
+      expect((await repos.skillRuns.get(one.id)).status).toBe('completed');
+    } finally { release(); engine.dispose(); await execution.close(); }
   });
 });

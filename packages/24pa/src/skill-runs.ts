@@ -207,7 +207,7 @@ export class SkillRuns {
     await this.launch(admission.run);
     return { run: this.view((await context.repos.skillRuns.get(admission.run.id))!), repeated: admission.repeated, workspaceBinding: context.binding };
   }
-  private async launch(run: SkillRunRow): Promise<boolean> {
+  private async launch(run: SkillRunRow, background = false): Promise<boolean> {
     const context = this.context(), repo = context.repos.skillRuns;
     if (run.snapshot.plan) {
       try { await this.verifyPlan(run); }
@@ -219,7 +219,15 @@ export class SkillRuns {
     if (!await repo.claimLaunch(run.id, run.mode === 'template' ? '正在生成确定性结果' : '正在提交原生运行', this.deps.maxWorkers?.() ?? 2)) return false;
     try {
       if (run.mode === 'template') {
-        await this.templates.start(run, context.repos);
+        if (background) {
+          // Keep the old workspace leased until reads/receipts settle without
+          // holding the dispatcher. Other runs still claim the shared limit.
+          const execution = this.deps.detached(() => this.deps.lease(async () => {
+            try { await this.templates.start(run, context.repos); }
+            catch (error) { await this.block(run, `模板运行待核对：${errorText(error)}`); }
+          }));
+          void execution.catch(error => this.deps.control(() => repo.transition(run.id, 'failed', `模板尚未接纳：${errorText(error)}`))).catch(() => {});
+        } else await this.templates.start(run, context.repos);
       } else if (run.mode === 'local') await this.deps.detached(() => this.host.createLocal(run));
       else await this.deps.detached(() => this.deps.startBusiness(run, this.host.content(run)));
     } catch (error) {
@@ -552,7 +560,10 @@ export class SkillRuns {
     const fresh = await repo.get(run.id);
     if (fresh?.status === 'timed_out') { await this.expire(run.id); return; }
     if (!fresh || !['pending', 'running', 'waiting', 'stopping'].includes(fresh.status)) return;
-    if (fresh.status === 'pending') { await this.launch(fresh); return; }
+    if (fresh.status === 'pending') { await this.launch(fresh, true); return; }
+    // A live template owns its completion and cumulative clock. It has no
+    // native Session to reconcile while the independent read is in flight.
+    if (fresh.mode === 'template' && !recovering) return;
     try { await this.native.flush(run.id); }
     catch (error) { return this.block(run, errorText(error)); }
     if (await this.stopCanceledInput(run)) return;
