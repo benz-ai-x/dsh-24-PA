@@ -3,7 +3,7 @@ import type { Repos } from './repo.js';
 import type { SkillRuns } from './skill-runs.js';
 import type { HistoryFilter, HistoryKind } from './repo/run-history.js';
 
-interface HistoryContext { binding: string; timeZone: string; repos: Repos }
+interface HistoryContext { binding: string; timeZone: string; repos: Repos; diagnosticRetentionDays?: number }
 const kinds: HistoryKind[] = ['runs', 'work', 'events', 'legacy'];
 const statuses: Record<HistoryKind, string[]> = {
   runs: ['pending', 'running', 'waiting', 'stopping', 'completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'],
@@ -24,7 +24,9 @@ export function historyFilter(input: Record<string, unknown>, timeZone: string, 
   const range = input.range ?? '7';
   if (!['7', '30', 'custom', 'all'].includes(String(range))) throw new Error('请选择近 7 天、30 天、自定义或全部历史。');
   const from = range === 'custom' ? date(input.from, timeZone) : range === 'all' ? null : new Date(now.getTime() - Number(range) * 86400000);
-  const to = range === 'custom' ? date(input.to, timeZone) : range === 'all' ? null : now;
+  // Rolling windows have no upper bound: database timestamps can carry
+  // sub-millisecond precision beyond the browser/server clock's current ms.
+  const to = range === 'custom' ? date(input.to, timeZone) : null;
   if (from && to && from > to) throw new Error('开始时间不能晚于结束时间。');
   const text = (key: string, limit = 200) => {
     const value = input[key]; if (value === undefined || value === '') return undefined;
@@ -48,6 +50,7 @@ export function historyFilter(input: Record<string, unknown>, timeZone: string, 
 /** Exports include only business summaries or an explicit diagnostic allowlist.
  * Package bytes, credentials, raw model requests and full host paths stay out. */
 export class RunHistory {
+  private cleaned: { binding: string; days: number; at: number } | null = null;
   constructor(private readonly deps: { context(): HistoryContext | null; skills: SkillRuns; secretValues?(): string[] }) {}
   private context(binding: unknown): HistoryContext {
     const context = this.deps.context();
@@ -69,9 +72,15 @@ export class RunHistory {
     return { work, runs, workspaceBinding: context.binding };
   }
   private redact(value: unknown): string {
-    let text = JSON.stringify(value, (key, value) => /secret|password|credential|access.?token|refresh.?token|api.?key|authorization/i.test(key) ? '[已脱敏]' : value, 2);
-    for (const secret of this.deps.secretValues?.() ?? []) if (secret.length >= 4) text = text.replaceAll(secret, '[已脱敏]');
-    return text.replace(/Bearer\s+[A-Za-z0-9_.~+/=-]+/gi, 'Bearer [已脱敏]');
+    const secrets = (this.deps.secretValues?.() ?? []).filter(Boolean).sort((a, b) => b.length - a.length);
+    // Redact original strings before JSON escaping quotes/newlines. Short
+    // configured secrets still count; privacy takes precedence over wording.
+    return JSON.stringify(value, (key, item) => {
+      if (/secret|password|credential|access.?token|refresh.?token|api.?key|authorization/i.test(key)) return '[已脱敏]';
+      if (typeof item !== 'string') return item;
+      for (const secret of secrets) item = item.replaceAll(secret, '[已脱敏]');
+      return item.replace(/Bearer\s+[A-Za-z0-9_.~+/=-]+/gi, 'Bearer [已脱敏]');
+    }, 2);
   }
   async export(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), filter = historyFilter(input, context.timeZone);
@@ -82,6 +91,7 @@ export class RunHistory {
   }
   async diagnostics(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), detail = await this.deps.skills.inspect(input);
+    const retentionDays = context.diagnosticRetentionDays ?? 90;
     const data = { runId: detail.run.id, status: detail.run.status, deliveryStatus: detail.run.delivery_status, mode: detail.run.mode,
       skillId: detail.run.skill_id, versionId: detail.run.version_id, packageHash: detail.run.packageHash,
       createdAt: detail.run.created_at, updatedAt: detail.run.updated_at,
@@ -91,9 +101,26 @@ export class RunHistory {
       attempts: detail.attempts.map(attempt => ({ number: attempt.number, startedAt: attempt.startedAt, endedAt: attempt.endedAt, retry: attempt.retry })),
       calls: detail.calls.map(call => ({ tool: call.tool, status: call.status })),
       native: detail.native.map(row => ({ kind: row.kind, ended: !!row.end_data, status: row.end_data?.status ?? null })),
+      retentionDays, traces: await context.repos.runDiagnostics.list(detail.run.id, retentionDays),
       notices: detail.deliveries.map(notice => ({ kind: notice.kind, status: notice.deliveryStatus,
         components: notice.deliveries.map(delivery => ({ component: delivery.component, status: delivery.outbox.status, attempts: delivery.outbox.attempts })) })) };
     return { filename: `24pa-diagnostic-${detail.run.id}.json`, content: this.redact(data), workspaceBinding: context.binding,
       message: '此预览排除输入、结果正文、工具参数、投递对象、工作区路径及凭据；确认内容后可下载。' };
+  }
+  async capture(runId: string, phase: string, error: unknown): Promise<void> {
+    const context = this.deps.context();
+    if (!context) return;
+    const frames = error instanceof Error ? (error.stack ?? '').split('\n').filter(line => /^\s+at /.test(line)).slice(0, 20)
+      .map(line => line.replace(/(?:file:\/\/)?(?:[A-Za-z]:[\\/]|\/)(?:[^()\n\s:]+[\\/])*([^\\/()\n\s:]+)(?=:\d+(?::\d+)?)/g, '[路径]/$1').slice(0, 500)) : [];
+    const name = error instanceof Error && ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'AbortError'].includes(error.name) ? error.name : 'Error';
+    await context.repos.runDiagnostics.append(runId, phase, JSON.parse(this.redact({ name, frames })));
+  }
+  /** Called by the workspace dispatcher, never by a browsing endpoint. */
+  async pruneDiagnostics(now = Date.now()): Promise<void> {
+    const context = this.deps.context(); if (!context) return;
+    const days = context.diagnosticRetentionDays ?? 90;
+    if (this.cleaned?.binding === context.binding && this.cleaned.days === days && now - this.cleaned.at < 3600000) return;
+    await context.repos.runDiagnostics.prune(days, new Date(now));
+    this.cleaned = { binding: context.binding, days, at: now };
   }
 }

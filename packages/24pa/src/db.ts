@@ -773,4 +773,15 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 26,
+    statements: [
+      `create table if not exists pa24.run_diagnostic (
+        id text primary key, run_id text not null, phase text not null, detail jsonb not null,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists run_diagnostic_created_idx on pa24.run_diagnostic (created_at)`,
+      `create index if not exists run_diagnostic_run_idx on pa24.run_diagnostic (run_id, created_at)`,
+    ],
+  },
 ];

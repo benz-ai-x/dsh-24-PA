@@ -4,6 +4,8 @@ import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { RunHistory, historyFilter } from '../../lib/run-history.js';
 import { startPgCluster } from '../helpers/pg.mjs';
+import { fixture } from '../helpers/runtime.mjs';
+import { writeSecretStore } from '../../lib/secrets.js';
 
 for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${backend})`, () => {
   let db, cluster, repos, history, now;
@@ -13,7 +15,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
   });
   afterAll(async () => { await db?.close(); await cluster?.stop(); });
   beforeEach(async () => {
-    for (const table of ['skill_run', 'work_item', 'plan_trigger', 'digest_plan', 'digest_occurrence', 'outbox', 'task_plan_delivery']) await db.query(`delete from pa24.${table}`);
+    for (const table of ['skill_run', 'work_item', 'plan_trigger', 'task_plan_block', 'digest_plan', 'digest_occurrence', 'outbox', 'task_plan_delivery', 'run_diagnostic']) await db.query(`delete from pa24.${table}`);
     now = new Date();
     for (let i = 0; i < 32; i++) {
       const at = new Date(now.getTime() - (i >= 30 ? 10 * 86400000 : (i + 1) * 1000)), status = [1, 30].includes(i) ? 'failed' : i === 0 ? 'running' : 'completed';
@@ -51,6 +53,31 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     await expect(list({ offset: Infinity })).rejects.toThrow(/页码/);
     await expect(list({ kind: 'work', deliveryStatus: 'failed' })).rejects.toThrow(/不支持/);
     await expect(list({ workspaceBinding: 'stale' })).rejects.toThrow(/工作区/);
+    await db.query('update pa24.skill_run set snapshot = $2 where id = $1', ['r29', JSON.stringify({ name: '能力', plan: { title: '可见的计划标题' } })]);
+    expect((await list({ query: '可见的计划标题' })).rows.map(row => row.id)).toEqual(['r29']);
+  });
+  it('暂停取消的未启动排队只计未执行，原始记录仍可核对', async () => {
+    await db.query("insert into pa24.digest_plan (id, kind, title, session_id, schedule_spec) values ('plan-a','task','排队计划','parent','{}')");
+    await db.query("update pa24.skill_run set status = 'pending' where id = 'r0'");
+    await db.query("insert into pa24.plan_trigger (id, plan_id, run_id, generation, occurrence, source, status, snapshot) values ('queued','plan-a','r0','g','occ','schedule','queued','{}')");
+    await repos.skillRuns.rejectPendingPlanRun('r0', '主人暂停，未启动');
+    expect((await list({ range: 'all' })).total).toBe(31);
+    expect((await list({ kind: 'events' })).rows[0]).toMatchObject({ run_id: 'r0', status: 'skipped' });
+    expect(await history.summary({ workspaceBinding: 'binding' })).toMatchObject({ runs24: 29, unexecuted24: 1 });
+    expect((await repos.skillRuns.get('r0')).status).toBe('stopped');
+  });
+  it('已投递处理通知的旧权限阻断与过期单次触发跨日保留，修复后才移出待处理范围', async () => {
+    await db.query("insert into pa24.digest_plan (id, kind, title, session_id, schedule_spec) values ('plan-a','once','待处理计划','parent','{}')");
+    await db.query("insert into pa24.task_plan_block (plan_id, key, kind, reason) values ('plan-a','preflight','authorization','授权失效')");
+    await db.query("update pa24.skill_run set status = 'stopped', stop_reason = 'blocked', delivery_status = 'sent' where id = 'r0'");
+    const old = new Date(now.getTime() - 10 * 86400000);
+    await db.query("insert into pa24.plan_trigger (id, plan_id, run_id, generation, occurrence, source, status, snapshot, created_at) values ('blocked','plan-a','r0','g','occ','schedule','skipped','{}',$1)", [old]);
+    await db.query("insert into pa24.plan_trigger (id, plan_id, generation, occurrence, source, status, snapshot, created_at) values ('expired','plan-a','g','older','schedule','expired','{}',$1)", [old]);
+    expect((await list({ kind: 'events' })).total).toBe(2);
+    expect(await history.summary({ workspaceBinding: 'binding' })).toMatchObject({ unresolved_events: 2, unexecuted24: 0 });
+    await db.query("delete from pa24.task_plan_block where plan_id = 'plan-a'");
+    expect((await list({ kind: 'events' })).total).toBe(0);
+    expect((await list({ kind: 'events', range: 'all' })).total).toBe(2);
   });
   it('摘要分别计算运行、执行失败、实际投递失败、交办与未执行事件', async () => {
     await db.query("insert into pa24.digest_plan (id, kind, title, session_id, schedule_spec) values ('plan-a','task','统计计划','parent','{}')");
@@ -61,6 +88,29 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     expect((await list({ kind: 'events' })).rows[0]).toMatchObject({ id: 't', status: 'skipped', summary: '重叠' });
     const detail = await history.work({ workId: 'w2', workspaceBinding: 'binding' });
     expect(detail.work.status).toBe('waiting_input'); expect(detail.runs.total).toBe(1); expect(detail.runs.rows[0].id).toBe('r2');
+  });
+  it('详细诊断按配置期限清理；不删除快照、结果和回执，查看本身不清理', async () => {
+    const context = { binding: 'binding', timeZone: 'UTC', repos, diagnosticRetentionDays: 90 };
+    history = new RunHistory({ context: () => context });
+    const failure = new TypeError('含私密输入的错误消息');
+    failure.stack = 'TypeError: 含私密输入的错误消息\n    at execute (file:///Users/alice/private/project/src/runner.ts:12:8)\n    at next (C:\\private\\runner.js:8:2)';
+    await history.capture('r1', 'native-observe', failure); await history.capture('r1', 'native-observe', failure);
+    let rows = await repos.runDiagnostics.list('r1', 90);
+    expect(rows).toHaveLength(1);
+    expect(JSON.stringify(rows)).not.toMatch(/alice|private|私密输入/);
+    expect(rows[0].detail.frames).toEqual(['    at execute ([路径]/runner.ts:12:8)', '    at next ([路径]/runner.js:8:2)']);
+    await db.query('update pa24.run_diagnostic set created_at = $1', [new Date(now.getTime() - 91 * 86400000)]);
+    expect(await repos.runDiagnostics.list('r1', 90)).toHaveLength(0);
+    expect((await db.query('select * from pa24.run_diagnostic')).rows).toHaveLength(1);
+    await history.pruneDiagnostics();
+    expect((await db.query('select * from pa24.run_diagnostic')).rows).toHaveLength(0);
+    expect((await repos.skillRuns.get('r1')).result).toBe('结果 1');
+    expect((await repos.workItems.get('w1')).instruction).toBe('保留的请求');
+    await history.capture('r1', 'native-observe', failure);
+    await db.query('update pa24.run_diagnostic set created_at = $1', [new Date(now.getTime() - 8 * 86400000)]);
+    context.diagnosticRetentionDays = 7;
+    await history.pruneDiagnostics();
+    expect((await db.query('select * from pa24.run_diagnostic')).rows).toHaveLength(0);
   });
   it('导出覆盖全部筛选结果并脱敏，旧简报保持独立档案，不伪造新运行', async () => {
     const exported = await history.export({ range: 'all', workspaceBinding: 'binding' });
@@ -80,8 +130,20 @@ it('自定义时间按工作区时区解释，夏令时歧义要求明确偏移'
   expect(() => historyFilter({ range: 'custom', from: '2026-10-24T00:00', to: '2026-10-23T00:00' }, 'Asia/Shanghai')).toThrow(/开始时间/);
 });
 
+it('真实运行时按实际凭据引用与密钥库脱敏，包含引号、反斜杠和换行的值不会逃逸', async () => {
+  const secrets = ['quote-"value', 'line-one\nline-two', 'slash-\\value', 'tts-key-123456'];
+  const f = await fixture({ env: { AUTH_VALUE: secrets[0], DB_VALUE: secrets[1], APP_VALUE: secrets[2] } });
+  try {
+    const path = await f.workspace('export', { appSecretEnv: 'AUTH_VALUE', pgDsnEnv: 'DB_VALUE', appIdEnv: 'APP_VALUE' });
+    await writeSecretStore(path, { volcTtsKey: secrets[3] }); await f.rt.bind(path);
+    await f.rt.db.query("insert into pa24.digest_occurrence (id, plan_id, window_key, report) values ('legacy','plan','window',$1)", [JSON.stringify(secrets.join(' | '))]);
+    const result = await f.rt.runHistory.export({ workspaceBinding: f.rt.workspaceBinding, kind: 'legacy', range: 'all' });
+    expect(JSON.parse(result.content).rows[0].report).toBe(secrets.map(() => '[已脱敏]').join(' | '));
+  } finally { await f.cleanup(); }
+});
+
 it('诊断预览只导出允许的状态与计时，不带原输入、调用参数、回执正文或接收者', async () => {
-  const history = new RunHistory({ context: () => ({ binding: 'b', timeZone: 'UTC' }), skills: { inspect: async () => ({
+  const history = new RunHistory({ context: () => ({ binding: 'b', timeZone: 'UTC', repos: { runDiagnostics: { list: async () => [] } } }), skills: { inspect: async () => ({
     run: { id: 'run', status: 'completed', delivery_status: 'sent', mode: 'business', skill_id: 's', version_id: 'v',
       parameters: { private: 'original-input' }, result: 'private-result', workspace_path: '/private/workspace' },
     execution: { executionMs: 300, limitMs: 1000, remainingMs: 700, blocks: [{ kind: 'input', reason: 'private-question' }] },

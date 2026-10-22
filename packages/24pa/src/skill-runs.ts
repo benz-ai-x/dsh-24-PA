@@ -36,6 +36,7 @@ interface SkillRunsDeps {
   lease<T>(work: () => Promise<T>): Promise<T>;
   control<T>(work: () => Promise<T>): Promise<T>;
   detached<T>(work: () => T): T;
+  diagnostic?(runId: string, phase: string, error: unknown): Promise<void>;
 }
 const requestId = (id: unknown): string => {
   if (typeof id !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(id)) throw new Error('缺少有效的运行操作标识。');
@@ -58,9 +59,13 @@ export class SkillRuns {
   constructor(private readonly deps: SkillRunsDeps) {
     this.host = new SkillRunHost(deps.host); this.native = new SkillRunNative(this.host);
     this.clock = new SkillRunClock(id => this.deps.control(() => this.expire(id)));
-    this.templates = new SkillRunTemplates(deps.template, work => deps.control(work));
+    this.templates = new SkillRunTemplates(deps.template, work => deps.control(work), (id, phase, error) => this.diagnostic(id, phase, error));
   }
   dispose(): void { this.clock.dispose(); this.templates.dispose(); }
+  private async diagnostic(id: string, phase: string, error: unknown): Promise<void> {
+    // Technical logging must not replace the actual execution receipt.
+    await this.deps.diagnostic?.(id, phase, error).catch(() => {});
+  }
   private context(binding?: unknown): RunContext {
     const context = this.deps.context();
     if (!context || (binding !== undefined && context.binding !== binding)) throw new Error('运行所属工作区已切换或尚未就绪。');
@@ -232,6 +237,7 @@ export class SkillRuns {
       } else if (run.mode === 'local') await this.deps.detached(() => this.host.createLocal(run));
       else await this.deps.detached(() => this.deps.startBusiness(run, this.host.content(run)));
     } catch (error) {
+      await this.diagnostic(run.id, 'launch', error);
       const native = await this.host.history(run).catch(() => undefined);
       await this.block(run, `启动未完成：${errorText(error)}${native ? '；请核对原会话，不重复提交。' : ''}`);
     }
@@ -321,6 +327,7 @@ export class SkillRuns {
         if (stopped.pending) throw new Error('原生子任务或作业尚未确认结束。');
         await context.repos.runControls.change(id, state => { if (state.stop) { state.stop.settledAt = Date.now(); state.stop.error = null; } });
       } catch (error) {
+        await this.diagnostic(run.id, 'timeout-stop', error);
         await context.repos.runControls.change(id, state => { if (state.stop) state.stop.error = `超时后停止待核对：${errorText(error)}`; });
       }
     }).finally(() => this.stopping.delete(id));
@@ -417,6 +424,7 @@ export class SkillRuns {
         const nativeId = await this.deps.detached(() => this.host.submitResume(run, row.request_id, row.message.content));
         if (!await controls.submitted(row.request_id, nativeId)) throw new Error('同一补充出现多个原生输入，须核对。');
       } catch (error) {
+        await this.diagnostic(run.id, 'resume', error);
         await controls.unknown(row.request_id);
         await this.block(run, `补充提交结果待核对：${errorText(error)}`);
         return true;
@@ -530,6 +538,7 @@ export class SkillRuns {
       if (unknown) await this.block(run, '工具执行中断，已发生的动作和结果需要核对；未将取消视为撤销。');
       return result;
     } catch (error) {
+      await this.diagnostic(run.id, 'tool-receipt', error);
       await repo.finishCall(run.id, call.callId, { error: errorText(error) }, 'unknown', call.agent?.id).catch(() => {});
       await this.block(run, `工具执行或保存回执未确认：${errorText(error)}`);
       throw error;
@@ -566,17 +575,17 @@ export class SkillRuns {
     // native Session to reconcile while the independent read is in flight.
     if (fresh.mode === 'template' && !recovering) return;
     try { await this.native.flush(run.id); }
-    catch (error) { return this.block(run, errorText(error)); }
+    catch (error) { await this.diagnostic(run.id, 'native-flush', error); return this.block(run, errorText(error)); }
     if (await this.stopCanceledInput(run)) return;
     const calls = await repo.calls(run.id);
     if (calls.some(call => call.status === 'unknown' || (recovering && call.status === 'running'))) return this.block(run, '工具结果待核对；停止或重启不抹除已经发生的动作。');
     let observation;
     try { observation = await this.native.observe(repo, run, recovering); }
-    catch (error) { return this.block(run, errorText(error)); }
+    catch (error) { await this.diagnostic(run.id, 'native-observe', error); return this.block(run, errorText(error)); }
     const history = observation.root;
     let control;
     try { control = await this.clock.observe(context.repos.runControls, run.id, observation.histories, id => !recovering && this.clockLive(id)); }
-    catch (error) { return this.block(run, `执行计时依据待核对：${errorText(error)}`); }
+    catch (error) { await this.diagnostic(run.id, 'execution-clock', error); return this.block(run, `执行计时依据待核对：${errorText(error)}`); }
     if (control && control.executionMs >= control.limitMs) { await this.expire(run.id); return; }
     if (await this.dispatchResumes(run)) return;
     if ((await repo.get(run.id))?.status === 'waiting') return;

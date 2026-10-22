@@ -8,7 +8,8 @@ import { beginRunAttempt, checkpointRunTime, recordRunStep } from './run-control
 export class SkillRunTemplates {
   private readonly active = new Map<string, { abort: AbortController; done: Promise<void> }>();
   constructor(private readonly generate: (def: SkillDefinitionLike, parameters: Record<string, unknown>, run: SkillRunRow) => Promise<string>,
-    private readonly control: <T>(work: () => Promise<T>) => Promise<T>) {}
+    private readonly control: <T>(work: () => Promise<T>) => Promise<T>,
+    private readonly diagnostic?: (runId: string, phase: string, error: unknown) => Promise<void>) {}
 
   start(run: SkillRunRow, repos: Repos): Promise<void> {
     const abort = new AbortController();
@@ -48,6 +49,7 @@ export class SkillRunTemplates {
       if (Date.now() - started + initial.state.executionMs >= initial.state.limitMs) expired = true;
       if (!expired && !abort.signal.aborted) await repos.skillRuns.transition(run.id, 'completed', '模板已生成并保存；未调用模型', result);
     } catch (error) {
+      await this.diagnostic?.(run.id, 'template', error);
       if (!abort.signal.aborted) await repos.skillRuns.transition(run.id, 'failed', `模板执行失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {
       clearTimeout(timer);

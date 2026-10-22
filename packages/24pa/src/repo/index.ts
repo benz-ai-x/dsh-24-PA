@@ -19,6 +19,7 @@ import { TaskPlanRepo } from './task-plan.js';
 import { PlanTriggerRepo } from './plan-trigger.js';
 import { PlanResultRepo } from './plan-result.js';
 import { RunHistoryRepo } from './run-history.js';
+import { RunDiagnosticRepo } from './run-diagnostic.js';
 import { SourceRepo } from './source.js';
 import { SourceProjectionRepo } from './source-projection.js';
 import { DataChannel, ProjectRepo, ProjectRow, TaskRepo, TaskRow } from './task.js';
@@ -52,6 +53,7 @@ export interface Repos {
   planTriggers: PlanTriggerRepo;
   planResults: PlanResultRepo;
   runHistory: RunHistoryRepo;
+  runDiagnostics: RunDiagnosticRepo;
   sources: SourceRepo;
   sourceProjection: SourceProjectionRepo;
 }
@@ -85,6 +87,7 @@ export function createRepos(db: PaDb): Repos {
     planTriggers: new PlanTriggerRepo(db),
     planResults: new PlanResultRepo(db),
     runHistory: new RunHistoryRepo(db),
+    runDiagnostics: new RunDiagnosticRepo(db),
     sources: new SourceRepo(db),
     sourceProjection: new SourceProjectionRepo(db),
   };

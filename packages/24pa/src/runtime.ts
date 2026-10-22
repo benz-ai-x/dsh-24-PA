@@ -610,9 +610,11 @@ export class PaRuntime {
       template: (def, parameters, run) => this.digest.manualTemplate(def, parameters, run?.snapshot.plan),
       checkTemplate: def => this.digest.checkTemplate(def),
       lease: work => this.executions.run(work), control: work => this.executions.control(work), detached: work => this.executions.detached(work),
+      diagnostic: (id, phase, error) => this.runHistory.capture(id, phase, error),
     });
     const planContext = () => this.workspace && this.workspaceBinding && this.repos && this.config && this.accessSessionId
       ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, sessionId: this.accessSessionId, timeZone: this.config.timeZone, repos: this.repos,
+        diagnosticRetentionDays: this.config.diagnosticRetentionDays,
         deliveryChannel: this.config.notifyChannel === 'wecom' ? 'wecom' as const : this.config.ownerOpenId ? 'feishu' as const : 'none' as const } : null;
     this.taskPlans = new TaskPlanService({ context: planContext, skills: this.skillRuns, management: this.skillManagement,
       lifecycle: this.digest.plans, access: this.taskPlanAccess, gate: (key, work) => this.gate(key, work) });
@@ -620,7 +622,10 @@ export class PaRuntime {
       permissionHash: authorization => this.skillPermissionHash(authorization) });
     this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess, silence: this.silencePolicy, binding: () => this.workspaceBinding });
     this.runHistory = new RunHistory({ context: planContext, skills: this.skillRuns,
-      secretValues: () => Object.entries(this.secretEnv()).filter(([key, value]) => /SECRET|TOKEN|PASSWORD|API_KEY|DSN/i.test(key) && typeof value === 'string').map(([, value]) => value!) });
+      secretValues: () => [
+        ...SECRET_KEYS.map(key => resolveSecret(secretRefs(this.config)[key], this.env, this.secretStore, key)),
+        ...Object.entries(this.secretEnv()).filter(([key, value]) => /SECRET|TOKEN|PASSWORD|API_KEY|DSN/i.test(key) && typeof value === 'string').map(([, value]) => value!),
+      ] });
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
     this.builtInRoles = this.roles.list();
@@ -1786,6 +1791,7 @@ export class PaRuntime {
         await this.skillRuns.poll();
         await this.planResults.reconcile();
         await this.taskPlans.reconcile();
+        await this.runHistory.pruneDiagnostics();
       }
     }).catch(() => { /* Shutdown/transition refuses new leases; native evidence remains recoverable. */ }).finally(() => { this.pollingRuns = false; });
   }

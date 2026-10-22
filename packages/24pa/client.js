@@ -1629,6 +1629,7 @@ window.__ModuleLoader__.load({
             tasklistId: config?.tasklistId ?? '',
             calendarId: config?.calendarId ?? 'primary',
             maxWorkers: config?.maxWorkers ?? 2,
+            diagnosticRetentionDays: config?.diagnosticRetentionDays ?? 90,
             enabledWorkers: [...(config?.enabledWorkers ?? ['memo'])],
             workerModels: JSON.parse(JSON.stringify(config?.workerModels ?? {})),
             extraKnown: KNOWN_EXTRA.filter(x => (config?.extraLocalTools ?? []).includes(x)),
@@ -1689,7 +1690,7 @@ window.__ModuleLoader__.load({
                 mode: form.mode, larkProfile: form.larkProfile.trim(), ownerOpenId: form.ownerOpenId.trim(), timeZone: form.timeZone.trim(),
                 calendarChannel: form.calendarChannel, todoChannel: form.todoChannel, notifyChannel: form.notifyChannel,
                 folderToken: form.folderToken.trim(), wikiNodeToken: form.wikiNodeToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
-                maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra, extraBusinessSkills: skills,
+                maxWorkers: Number(form.maxWorkers), diagnosticRetentionDays: Number(form.diagnosticRetentionDays), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra, extraBusinessSkills: skills,
                 appIdEnv: form.appIdEnv.trim(), appSecretEnv: form.appSecretEnv.trim(), pgDsnEnv: form.pgDsnEnv.trim(),
                 tts: form.tts,
               };
@@ -1811,6 +1812,7 @@ window.__ModuleLoader__.load({
             h('section', { className: 'pa24-card' },
               h('h2', null, L('运行参数', 'Runtime')),
               row(L('并发数（maxWorkers）', 'Parallelism (maxWorkers)'), h('input', { type: 'number', min: 1, max: 8, step: 1, value: form.maxWorkers, onChange: e => set('maxWorkers', e.target.value) }), L('1–8 的整数。', 'An integer from 1 to 8.')),
+              row(L('详细诊断保留天数（diagnosticRetentionDays）', 'Diagnostic retention (days)'), h('input', { type: 'number', min: 1, max: 3650, step: 1, value: form.diagnosticRetentionDays, onChange: e => set('diagnosticRetentionDays', e.target.value) }), L('默认 90 天；仅清理技术诊断，运行快照、结果和动作回执长期保留。', 'Default: 90 days. Snapshots, results and action receipts remain.')),
               row(L('启用的 Worker（enabledWorkers）', 'Enabled workers (enabledWorkers)'), h('div', { style: { minWidth: 0 } }, WORKER_IDS.map(r =>
                 h('label', { key: r, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.enabledWorkers.includes(r), onChange: e => toggleIn('enabledWorkers')(r, e.target.checked) }), roleName(r) + '（' + r + '）')))),
               row(L('模型路由（workerModels）', 'Model routes (workerModels)'), h('div', { style: { minWidth: 0 } },
