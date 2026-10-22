@@ -172,9 +172,17 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
       expect(row).toMatchObject({ calendarChannel: channel, eventId: created.eventId, status: 'delegated', nextDueAt: null }); expect(row.firstStart).toBeTruthy();
       f.rt.config.calendarChannel = channel === 'feishu' ? 'wecom' : 'feishu';
       f.rt.config.sources.defaults.calendar = other.id;
-      await f.rt.work({ action: 'reminder_cancel', ruleId: created.ruleId, reason: '本人取消整条规则' }, child);
-      expect((await f.rt.repos.reminders.getRule(created.ruleId)).status).toBe('stopped');
-      expect(await f.rt.work(request, child)).toMatchObject({ ruleId: created.ruleId, status: 'stopped', reused: true });
+      const canceled = await f.rt.work({ action: 'reminder_cancel', ruleId: created.ruleId, reason: '本人取消整条规则' }, child);
+      if (channel === 'wecom') {
+        // The fixed get endpoint omits canceled schedules. Absence alone is
+        // not a verified cancellation; retain the acceptance without replay.
+        expect(canceled).toMatchObject({ pendingCancellation: true, verification: { state: 'unverified' } });
+        expect((await f.rt.repos.reminders.getRule(created.ruleId)).status).toBe('delegated');
+        expect(await f.rt.work(request, child)).toMatchObject({ ruleId: created.ruleId, pendingCancellation: true });
+      } else {
+        expect((await f.rt.repos.reminders.getRule(created.ruleId)).status).toBe('stopped');
+        expect(await f.rt.work(request, child)).toMatchObject({ ruleId: created.ruleId, status: 'stopped', reused: true });
+      }
       f.rt.config.calendarChannel = channel;
       f.rt.config.sources.defaults.calendar = originalSources.entries[0].id;
     }

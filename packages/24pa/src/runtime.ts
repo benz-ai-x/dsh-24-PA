@@ -3187,7 +3187,8 @@ export class PaRuntime {
       if (stopRules) {
         for (const rule of await this.repos.reminders.rulesForArchive()) {
           try {
-            await this.reminderRouter.cancel({ id: rule.work_item_id ?? 'pa24-system-archive' } as WorkItemRow, rule.id, '本人选择归档时停止整条提醒规则');
+            const canceled = await this.reminderRouter.cancel({ id: rule.work_item_id ?? 'pa24-system-archive' } as WorkItemRow, rule.id, '本人选择归档时停止整条提醒规则') as { status?: string; message?: string };
+            if (canceled.status !== 'stopped') throw new Error(canceled.message ?? '原日历提醒停止状态尚待核验。');
             rulesStopped += 1;
           } catch (error) {
             failures.push(`提醒 ${rule.id} 停止失败：${(error as Error).message}`);

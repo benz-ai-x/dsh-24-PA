@@ -11,6 +11,33 @@ import type { Repos, WorkItemRow } from './repo.js';
 import type { ReminderEngine } from './reminders.js';
 import type { SourceTarget } from './source-registry.js';
 
+interface CalendarReceipt {
+  eventId?: string;
+  event_id?: string;
+  operationId?: string;
+  platformAccepted?: boolean;
+  verification?: {
+    state: 'verified' | 'conflict' | 'unverified';
+    start?: string;
+    active?: boolean;
+    reminders?: { minutes: number }[] | { is_remind?: boolean; reminder_time?: number[] } | null;
+    differences?: string[];
+    message?: string;
+  };
+}
+
+function reminderReadback(receipt: CalendarReceipt) {
+  const verification = receipt.verification ?? { state: 'unverified' as const, message: '原平台对象尚未回读核验。' };
+  const observed = verification.state !== 'unverified';
+  const raw = verification.reminders;
+  const minutes = !observed ? null : Array.isArray(raw) ? raw.map(row => row.minutes)
+    : raw?.is_remind === false ? [] : raw?.reminder_time?.map(seconds => -seconds / 60) ?? null;
+  const start = observed && Number.isFinite(Date.parse(verification.start ?? '')) ? verification.start! : null;
+  const reminderAt = start && minutes?.length && verification.active !== false
+    ? new Date(Date.parse(start) - Math.max(...minutes) * 60000).toISOString() : null;
+  return { verification, start, minutes, reminderAt };
+}
+
 export interface ReminderRouterDeps {
   config(): PaConfig;
   repos(): Repos;
@@ -97,23 +124,32 @@ export class ReminderRouter {
     const { ruleId, kind, summary, timeZone, originExpression, source, calendar } = intent;
     const prior = await this.deps.repos().reminders.getRule(ruleId);
     if (prior?.status === 'stopped') return { ruleId, status: 'stopped', reused: true, eventId: prior.record.event_id, calendarChannel: prior.record.channel, message: '原提醒已取消；重复创建请求保留停止状态，需要再次提醒时请明确建立新的事项。' };
-    const created = await this.deps.calendarWrite(item, 'create', calendar, `${intentId}:write`) as { eventId?: string; event_id?: string; operationId?: string };
+    if (prior?.record.cancel_requested) return this.cancel(item, ruleId, prior.record.cancel_reason);
+    const created = await this.deps.calendarWrite(item, 'create', calendar, `${intentId}:write`) as CalendarReceipt;
     const eventId = created.eventId ?? created.event_id;
     if (!eventId) throw new ReminderError('日程回执缺少事件标识；备份尚未完成，请先核对原操作。');
+    const actual = reminderReadback(created);
+    const record = { type: 'calendar', channel: calendar.channel, calendar_id: calendar.calendarId, event_id: eventId,
+      requested_start: calendar.start, requested_reminder_minutes: calendar.reminderMinutes ?? [5],
+      start: actual.start, reminder_minutes: actual.minutes, reminder_at: actual.reminderAt, verification: actual.verification,
+      rrule: calendar.rrule ?? null, operation_id: created.operationId ?? null,
+      ...(calendar._sourceTarget ? { source_target: calendar._sourceTarget } : {}) };
     if (!await this.deps.repos().reminders.getRule(ruleId)) {
       await this.deps.repos().reminders.insertRule({
         id: ruleId, kind, text: summary,
-        record: { type: 'calendar', channel: calendar.channel, calendar_id: calendar.calendarId, event_id: eventId, start: calendar.start, reminder_minutes: calendar.reminderMinutes ?? [5], rrule: calendar.rrule ?? null, operation_id: created.operationId ?? null, ...(calendar._sourceTarget ? { source_target: calendar._sourceTarget } : {}) },
-        status: 'delegated', next_due_at: new Date(calendar.start), time_zone: timeZone,
+        record, status: 'delegated', next_due_at: null, time_zone: timeZone,
         origin_expression: originExpression, source, work_item_id: item.id,
         link_source_type: null, link_source_id: null, link_fingerprint: null,
       }).catch(async error => { if (!await this.deps.repos().reminders.getRule(ruleId)) throw error; });
-    }
+    } else await this.deps.repos().reminders.updateRule(ruleId, { record });
     const result = {
-      ruleId, eventId, calendarChannel: calendar.channel, start: calendar.start,
+      ruleId, eventId, status: 'delegated', calendarChannel: calendar.channel, start: actual.start, requestedStart: calendar.start,
+      platformAccepted: created.platformAccepted ?? true, verification: actual.verification,
       ...(calendar.rrule ? { rrule: calendar.rrule } : {}),
-      reminderAt: new Date(Date.parse(calendar.start) - (calendar.reminderMinutes?.[0] ?? 5) * 60000).toISOString(), timeZone,
-      message: `提醒已写入${calendar.channel === 'wecom' ? '企微' : '飞书'}日历（${originExpression}）；由对应 App 原生提醒，首次提醒时间 ${new Date(Date.parse(calendar.start) - (calendar.reminderMinutes?.[0] ?? 5) * 60000).toISOString()}（时区 ${timeZone}），与24私助是否在线无关。后续以原日程设置为准；账本留有备份记录。`,
+      reminderAt: actual.reminderAt, reminderMinutes: actual.minutes, timeZone,
+      message: actual.verification.state === 'verified' && actual.reminderAt
+        ? `已回读核验${calendar.channel === 'wecom' ? '企微' : '飞书'}日历提醒（${originExpression}）；首次提醒时间 ${actual.reminderAt}（时区 ${timeZone}），由对应 App 原生提醒，与24私助是否在线无关。后续以原日程设置为准；账本留有备份记录。`
+        : `平台已接收提醒创建；${actual.verification.message ?? actual.verification.differences?.join('；') ?? '提醒设置尚待核验'}。${actual.reminderAt ? `当前回读的首次提醒时间 ${actual.reminderAt}（时区 ${timeZone}）。` : '尚未确认有效提醒时间。'}请核对原日程设置，不要重复创建。`,
     };
     await this.deps.repos().operations.update(intentId, { status: 'succeeded', receipt: result });
     return result;
@@ -137,8 +173,18 @@ export class ReminderRouter {
         const channel = record.channel ?? event?.channel;
         const calendarId = record.calendar_id ?? event?.calendar_id;
         if (!channel || !calendarId) throw new ReminderError('原提醒的日历归属缺失，请先核对原事件。');
-        await this.deps.calendarWrite(item, 'cancel', { eventId: record.event_id, channel, calendarId,
+        const canceled = await this.deps.calendarWrite(item, 'cancel', { eventId: record.event_id, channel, calendarId,
           ...(record.source_target ? { sourceId: record.source_target.sourceId, _sourceTarget: record.source_target } : {}), ...(record.rrule || event?.recurring ? { repeatScope: 'all' } : {}) }, `reminder.cancel:${rule.id}`);
+        const actual = reminderReadback(canceled as CalendarReceipt);
+        await this.deps.repos().reminders.updateRule(ruleId, { record: { ...rule.record, cancel_requested: true,
+          cancel_reason: reason || '本人取消', verification: actual.verification, start: actual.start, reminder_minutes: actual.minutes, reminder_at: actual.reminderAt } });
+        if (actual.verification.state !== 'verified' || actual.verification.active !== false) {
+          return { ruleId, status: 'delegated', pendingCancellation: true, platformAccepted: (canceled as CalendarReceipt).platformAccepted ?? true,
+            verification: actual.verification, reminderAt: actual.reminderAt,
+            message: `平台已接收取消请求，尚未确认原提醒已停止：${actual.verification.message ?? actual.verification.differences?.join('；') ?? '待回读核验'}。请核对原日程；再次查询沿用原取消操作，不会重复删除。` };
+        }
+        const stopped = await this.deps.ledger().setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
+        return { ...(stopped as Record<string, unknown>), verification: actual.verification, platformAccepted: (canceled as CalendarReceipt).platformAccepted ?? true, reminderAt: null };
       }
       return this.deps.ledger().setStatus(ruleId, 'stopped', reason || '取消（日历事件同步删除）');
     }

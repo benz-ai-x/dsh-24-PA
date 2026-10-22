@@ -63,83 +63,150 @@ export class SourceCalendarWrites {
   async write(item: WorkItemRow, kind: CalendarMutation, args: Record<string, unknown>, override?: string): Promise<unknown> {
     const request = Object.fromEntries(requestFields.filter(key => args[key] !== undefined).map(key => [key, args[key]]));
     const requestHash = hash(JSON.stringify(canonical(request)));
-    const id = override ?? `source-calendar:${kind}:${item.id}:${requestHash}`;
-    return this.deps.gate(`source-calendar-write:${id}`, async () => {
-      const previous = await this.deps.repos().operations.get(id);
+    let id = override ?? `source-calendar:${kind}:${item.id}:${requestHash}`;
+    return this.deps.gate(`source-calendar-intent:${override ?? item.id}`, async () => {
+      let previous = await this.deps.repos().operations.get(id);
+      if (!previous && !override) {
+        const equivalent = (await this.deps.repos().operations.calendarWritesForWork(item.id))
+          .filter(row => row.params.kind === kind && this.sameIntent(args, row.params));
+        if (equivalent.length > 1) throw unknown('已有多个等价日程操作，请先核对原回执，未发起新操作。');
+        previous = equivalent[0] ?? null;
+        if (previous) id = previous.id;
+      }
       let params: Record<string, any>;
       if (previous) {
         if (isCandidateOperation(id)) await this.deps.external.candidateCreation(id, 'calendar', args);
         if (previous.params.sourceContract !== 1 || !previous.params.sourceTarget || previous.params.kind !== kind
-          || (!isCandidateOperation(id) && previous.params.requestHash !== requestHash)) throw unknown('原日程操作的参数或来源不一致，需先核对；不会改投当前默认来源。');
+          || (!isCandidateOperation(id) && previous.params.requestHash !== requestHash && !this.sameIntent(args, previous.params))) throw unknown('原日程操作的参数或来源不一致，需先核对；不会改投当前默认来源。');
         params = previous.params;
       } else {
         params = await this.prepare(kind, args);
         params = { ...params, sourceContract: 1, requestHash, request, ...(args._authorization as Record<string, unknown> ?? {}) };
       }
       const target = params.sourceTarget as SourceTarget;
-      const action = `${target.platform === 'wecom' ? 'wecom_calendar' : 'calendar'}.${kind}`;
-      if (previous && previous.action !== action) throw unknown('原操作的渠道或动作与冻结来源不符。');
-      const acknowledged = previous?.receipt && (previous.status === 'succeeded' || Object.hasOwn(previous.receipt, '_externalResult'));
-      if (!acknowledged) {
-        // Never create a new target after removal, identity changes, or an
-        // unknown first attempt. Read-only verification cannot authorize replay.
-        if (previous && ['running', 'unknown'].includes(previous.status)) throw unknown('原操作结果待核对，不能重复提交；请核验原日程后恢复。');
-        await this.deps.registry.verify(target, kind === 'create' ? 'create' : 'read');
-        if (kind !== 'create') await this.checkObject(kind, target, params);
-      }
-      const staged = await this.deps.external.stageWithId(id, item, action, params);
-      let receipt: Record<string, any>;
-      try {
-        if (!staged.created && staged.row.status === 'succeeded') receipt = staged.row.receipt!;
-        else {
-          const response = await this.deps.external.perform(id, () => this.invoke(id, kind, target, params));
-          const data = response.data, event = data?.event ?? data;
-          const eventId = kind === 'create' ? target.platform === 'feishu' ? event?.event_id : data?.schedule_id : params.eventId;
-          if (typeof eventId !== 'string' || !eventId) throw unknown('平台未返回真实日程标识；请核对原目标，不要重复创建。');
-          receipt = { eventId, sourceId: target.sourceId, sourceName: params.sourceName, sourceTarget: target, calendarId: target.resource.id, channel: target.platform,
-            kind, effect: kind === 'reminders' ? 'personal_reminder' : params.effect ?? 'whole_event', repeatScope: params.repeatScope ?? null,
-            start: params.start ?? null, end: params.end ?? null, timeZone: params.timeZone, defaultsUsed: params.defaultsUsed ?? [],
-            url: event?.app_link ?? event?.url ?? null, platformAccepted: true };
-          // perform() has already saved the raw acceptance. Local repair is
-          // mandatory and uses that receipt under its original target even
-          // when the source is subsequently removed; it never calls create.
-          const observed = this.receiptItem(target, params, eventId, event);
-          await this.deps.repos().sourceProjection.recordReceipt(id, target, observed);
-          await this.deps.mirror?.(target, observed);
-          await this.deps.repos().operations.update(id, { status: 'succeeded', receipt });
-        }
-      } catch (error) { await this.deps.external.fail(id, error); throw error; }
-      const result = { operationId: id, reused: !!previous, ...receipt };
-      let verification: Record<string, unknown>;
-      try {
-        // A recovered acknowledged operation may finish locally even after a
-        // source change, but must not read the old object under a new identity.
-        await this.deps.registry.verify(target, 'read');
-        const observed = await this.deps.reader.object(target, receipt.eventId);
-        await this.deps.repos().sourceProjection.observe(target, { state: 'partial', reason: '此记录只核验了单个对象，完整范围需查询日历',
-          query: { from: observed.startTime!.toISOString(), to: observed.endTime!.toISOString() }, observedAt: new Date(), items: [observed] });
-        await this.deps.mirror?.(target, observed);
-        const differences: string[] = [];
-        if (kind === 'cancel' && observed.active) differences.push('平台读取仍为有效日程');
-        if (kind !== 'cancel' && !observed.active) differences.push('平台读取为已取消');
-        if (params.summary !== undefined && observed.body.summary !== params.summary) differences.push('主题与本次请求不一致');
-        // Both fixed adapters submit second-precision timestamps.
-        if (params.start && Math.floor(Date.parse(String(observed.body.start)) / 1000) !== Math.floor(Date.parse(params.start) / 1000)) differences.push('开始时间与本次请求不一致');
-        if (params.end && Math.floor(Date.parse(String(observed.body.end)) / 1000) !== Math.floor(Date.parse(params.end) / 1000)) differences.push('结束时间与本次请求不一致');
-        if (kind === 'reminders' || kind === 'create') {
-          const reminders = target.platform === 'feishu' ? observed.locator.reminders as { minutes: number }[] | null
-            : (observed.locator.reminders as { is_remind?: boolean; reminder_time?: number[] } | null)?.is_remind === false ? []
-              : (observed.locator.reminders as { reminder_time?: number[] } | null)?.reminder_time?.map(seconds => ({ minutes: -seconds / 60 }));
-          if (!Array.isArray(reminders) || JSON.stringify(reminders.map(row => row.minutes).sort((a, b) => a - b)) !== JSON.stringify([...params.reminderMinutes].sort((a, b) => a - b))) differences.push('本人提醒设置与请求不一致或尚未返回');
-        }
-        verification = { state: differences.length ? 'conflict' : 'verified', differences, objectId: sourceObjectId(target, observed.nativeId),
-          summary: observed.body.summary, start: observed.body.start, end: observed.body.end, active: observed.active, reminders: observed.locator.reminders,
-          message: differences.length ? `平台已接收操作，回读差异：${differences.join('；')}` : '已读取原平台对象并核对本次变更' };
-      } catch (error) { verification = { state: 'unverified', message: `平台已接收操作，后续读取尚未核验：${(error as Error).message}` }; }
-      const invitation = kind === 'create' && params.attendees?.length ? await this.invite(item, id, target, receipt.eventId, params.attendees) : null;
-      return { ...result, verification, invitation,
-        message: `${target.platform === 'feishu' ? '飞书' : '企微'}已接收${kind === 'create' ? '创建' : kind === 'cancel' ? '取消' : kind === 'reminders' ? '本人提醒设置' : '修改'}，来源：${params.sourceName ?? target.sourceId}（${target.sourceId}）。${(params.defaultsUsed ?? []).join('；')}${invitation && invitation.state !== 'succeeded' ? ' 日程已创建，邀请尚未全部确认，请沿原操作接续。' : ''}` };
+      // Registration aliases and separate WorkItems may refer to the same
+      // native calendar. Hold its lock through read-before-write, acceptance,
+      // and readback; the calendar scope also covers series/instance overlap.
+      return this.deps.gate(`source-calendar-resource:${JSON.stringify([target.platform, target.identityKey, target.resource.id])}`,
+        () => this.writeFrozen(item, kind, id, params, previous));
     });
+  }
+
+  /** Compare semantic requests against their saved defaults, before probing a
+   * current destination. Equivalent spelling cannot turn an unknown attempt
+   * into a new operation, and changing defaults cannot move an old intent. */
+  private sameIntent(args: Record<string, unknown>, saved: Record<string, any>): boolean {
+    if (saved.sourceContract !== 1 || !saved.sourceTarget || !saved.request) return false;
+    const target = saved.sourceTarget as SourceTarget, old = saved.request;
+    const sources = effectiveSources(this.deps.config());
+    if (args.channel !== undefined && args.channel !== target.platform) return false;
+    if (args.calendarId !== undefined && args.calendarId !== target.resource.id && args.calendarId !== old.calendarId) return false;
+    if (args._sourceTarget && JSON.stringify(canonical(args._sourceTarget)) !== JSON.stringify(canonical(target))) return false;
+    if (args.sourceId !== undefined) {
+      if (args.sourceId !== target.sourceId) {
+        try { if (selectSource(sources, 'calendar', { sourceId: String(args.sourceId) }, false).source.id !== target.sourceId) return false; }
+        catch { return false; }
+      }
+    } else if (args.company !== undefined || args.project !== undefined) {
+      if (args.company !== old.company || args.project !== old.project || old.sourceId !== undefined) {
+        try { if (selectSource(sources, 'calendar', { company: args.company as string | undefined, project: args.project as string | undefined }, false).source.id !== target.sourceId) return false; }
+        catch { return false; }
+      }
+    } else if ((old.sourceId !== undefined || old.company !== undefined || old.project !== undefined) && sources.defaults.calendar !== target.sourceId) return false;
+    if (saved.kind !== 'create') {
+      if (args.eventId !== undefined && args.eventId !== saved.eventId) return false;
+      if (args.objectId !== undefined && args.objectId !== old.objectId
+        && (!saved.before?.nativeId || args.objectId !== sourceObjectId(target, saved.before.nativeId))) return false;
+      if (args.eventId === undefined && args.objectId === undefined) return false;
+    }
+    try {
+      const instant = (value: unknown) => value === undefined || value === null ? null : Math.floor(absoluteInstant(value).getTime() / 1000);
+      const start = instant(args.start);
+      let end = instant(args.end);
+      if (saved.kind === 'create' && end === null && start !== null) {
+        const duration = args.durationMinutes === undefined ? (Date.parse(saved.end) - Date.parse(saved.start)) / 60000 : Number(args.durationMinutes);
+        if (!Number.isInteger(duration) || duration < 1 || duration > 1440) return false;
+        end = start + duration * 60;
+      }
+      const incoming = { summary: saved.kind === 'create' ? text(args.summary ?? args.title ?? '会议', 500) : args.summary === undefined ? null : text(args.summary, 500),
+        start, end, timeZone: String(args.timeZone ?? saved.timeZone),
+        attendees: [...new Set(args.attendees as string[] ?? [])].sort(),
+        reminderMinutes: [...(args.reminderMinutes as number[] ?? (saved.kind === 'reminders' ? [] : [5]))].sort((a, b) => a - b),
+        rrule: args.rrule ? String(args.rrule) : null, repeatScope: args.repeatScope ?? null, instanceStart: instant(args.instanceStart),
+        effect: saved.kind === 'reminders' ? 'personal_reminder' : args.effect ?? 'whole_event', authorization: args._authorization ?? null };
+      const original = { summary: saved.summary ?? null, start: instant(saved.start), end: instant(saved.end), timeZone: saved.timeZone,
+        attendees: [...saved.attendees].sort(), reminderMinutes: [...saved.reminderMinutes].sort((a, b) => a - b),
+        rrule: saved.rrule ?? null, repeatScope: saved.repeatScope ?? null, instanceStart: instant(saved.instanceStart), effect: saved.effect,
+        authorization: old._authorization ?? null };
+      return JSON.stringify(canonical(incoming)) === JSON.stringify(canonical(original));
+    } catch { return false; }
+  }
+
+  private async writeFrozen(item: WorkItemRow, kind: CalendarMutation, id: string, params: Record<string, any>, previous: ActionOperationRow | null): Promise<unknown> {
+    const target = params.sourceTarget as SourceTarget;
+    const action = `${target.platform === 'wecom' ? 'wecom_calendar' : 'calendar'}.${kind}`;
+    if (previous && previous.action !== action) throw unknown('原操作的渠道或动作与冻结来源不符。');
+    const acknowledged = previous?.receipt && (previous.status === 'succeeded' || Object.hasOwn(previous.receipt, '_externalResult'));
+    if (!acknowledged) {
+      // Never create a new target after removal, identity changes, or an
+      // unknown first attempt. Read-only verification cannot authorize replay.
+      if (previous && ['running', 'unknown'].includes(previous.status)) throw unknown('原操作结果待核对，不能重复提交；请核验原日程后恢复。');
+      await this.deps.registry.verify(target, kind === 'create' ? 'create' : 'read');
+      if (kind !== 'create') await this.checkObject(kind, target, params);
+    }
+    const staged = await this.deps.external.stageWithId(id, item, action, params);
+    let receipt: Record<string, any>;
+    try {
+      if (!staged.created && staged.row.status === 'succeeded') receipt = staged.row.receipt!;
+      else {
+        const response = await this.deps.external.perform(id, () => this.invoke(id, kind, target, params));
+        const data = response.data, event = data?.event ?? data;
+        const eventId = kind === 'create' ? target.platform === 'feishu' ? event?.event_id : data?.schedule_id : params.eventId;
+        if (typeof eventId !== 'string' || !eventId) throw unknown('平台未返回真实日程标识；请核对原目标，不要重复创建。');
+        receipt = { eventId, sourceId: target.sourceId, sourceName: params.sourceName, sourceTarget: target, calendarId: target.resource.id, channel: target.platform,
+          kind, effect: kind === 'reminders' ? 'personal_reminder' : params.effect ?? 'whole_event', repeatScope: params.repeatScope ?? null,
+          start: params.start ?? null, end: params.end ?? null, timeZone: params.timeZone, defaultsUsed: params.defaultsUsed ?? [],
+          url: event?.app_link ?? event?.url ?? null, platformAccepted: true,
+          acceptedAt: (await this.deps.repos().operations.get(id))?.receipt?._externalAcceptedAt ?? null };
+        // perform() has already saved the raw acceptance. Local repair is
+        // mandatory and uses that receipt under its original target even
+        // when the source is subsequently removed; it never calls create.
+        const observed = this.receiptItem(target, params, eventId, event);
+        await this.deps.repos().sourceProjection.recordReceipt(id, target, observed);
+        await this.deps.mirror?.(target, observed);
+        await this.deps.repos().operations.update(id, { status: 'succeeded', receipt });
+      }
+    } catch (error) { await this.deps.external.fail(id, error); throw error; }
+    const result = { operationId: id, reused: !!previous, ...receipt };
+    let verification: Record<string, unknown>;
+    try {
+      // A recovered acknowledged operation may finish locally even after a
+      // source change, but must not read the old object under a new identity.
+      await this.deps.registry.verify(target, 'read');
+      const observed = await this.deps.reader.object(target, receipt.eventId);
+      await this.deps.repos().sourceProjection.observe(target, { state: 'partial', reason: '此记录只核验了单个对象，完整范围需查询日历',
+        query: { from: observed.startTime!.toISOString(), to: observed.endTime!.toISOString() }, observedAt: new Date(), items: [observed] });
+      await this.deps.mirror?.(target, observed);
+      const differences: string[] = [];
+      if (kind === 'cancel' && observed.active) differences.push('平台读取仍为有效日程');
+      if (kind !== 'cancel' && !observed.active) differences.push('平台读取为已取消');
+      if (params.summary !== undefined && observed.body.summary !== params.summary) differences.push('主题与本次请求不一致');
+      // Both fixed adapters submit second-precision timestamps.
+      if (params.start && Math.floor(Date.parse(String(observed.body.start)) / 1000) !== Math.floor(Date.parse(params.start) / 1000)) differences.push('开始时间与本次请求不一致');
+      if (params.end && Math.floor(Date.parse(String(observed.body.end)) / 1000) !== Math.floor(Date.parse(params.end) / 1000)) differences.push('结束时间与本次请求不一致');
+      if (kind === 'reminders' || kind === 'create') {
+        const reminders = target.platform === 'feishu' ? observed.locator.reminders as { minutes: number }[] | null
+          : (observed.locator.reminders as { is_remind?: boolean; reminder_time?: number[] } | null)?.is_remind === false ? []
+            : (observed.locator.reminders as { reminder_time?: number[] } | null)?.reminder_time?.map(seconds => ({ minutes: -seconds / 60 }));
+        if (!Array.isArray(reminders) || JSON.stringify(reminders.map(row => row.minutes).sort((a, b) => a - b)) !== JSON.stringify([...params.reminderMinutes].sort((a, b) => a - b))) differences.push('本人提醒设置与请求不一致或尚未返回');
+      }
+      verification = { state: differences.length ? 'conflict' : 'verified', differences, objectId: sourceObjectId(target, observed.nativeId),
+        summary: observed.body.summary, start: observed.body.start, end: observed.body.end, active: observed.active, reminders: observed.locator.reminders,
+        message: differences.length ? `平台已接收操作，回读差异：${differences.join('；')}` : '已读取原平台对象并核对本次变更' };
+    } catch (error) { verification = { state: 'unverified', message: `平台已接收操作，后续读取尚未核验：${(error as Error).message}` }; }
+    const invitation = kind === 'create' && params.attendees?.length ? await this.invite(item, id, target, receipt.eventId, params.attendees) : null;
+    return { ...result, verification, invitation,
+      message: `${target.platform === 'feishu' ? '飞书' : '企微'}已接收${kind === 'create' ? '创建' : kind === 'cancel' ? '取消' : kind === 'reminders' ? '本人提醒设置' : '修改'}，来源：${params.sourceName ?? target.sourceId}（${target.sourceId}）。${(params.defaultsUsed ?? []).join('；')}${invitation && invitation.state !== 'succeeded' ? ' 日程已创建，邀请尚未全部确认，请沿原操作接续。' : ''}` };
   }
 
   private receiptItem(target: SourceTarget, params: Record<string, any>, eventId: string, raw: any): ObservedSourceItem {
@@ -169,11 +236,13 @@ export class SourceCalendarWrites {
       target = await this.target(args, 'read');
     } else {
       const locations = args.objectId ? await this.deps.repos().sourceProjection.locations(String(args.objectId)) : eventId ? await this.deps.repos().sourceProjection.calendarLocations(eventId) : [];
+      if (args.objectId && eventId && !locations.some(row => row.locator.eventId === eventId)) throw new Error('objectId 与 eventId 指向不同日程，请核对原对象；未执行变更。');
       const sources = effectiveSources(config);
       const registered = await this.deps.registry.list();
       const selected = args.sourceId !== undefined ? selectSource(sources, 'calendar', { sourceId: String(args.sourceId) }).source.id : null;
       const valid = locations.filter(row => row.active && registered.entries.some(source => source.id === row.source_id && source.revision === row.registration_revision && sourceScopeFingerprint(source) === row.scope_hash)
-        && (!selected || row.source_id === selected) && (!args.channel || row.platform === args.channel) && (!args.calendarId || row.locator.calendarId === args.calendarId));
+        && (!selected || row.source_id === selected) && (!eventId || row.locator.eventId === eventId)
+        && (!args.channel || row.platform === args.channel) && (!args.calendarId || row.locator.calendarId === args.calendarId));
       const destinations = new Set(valid.map(row => JSON.stringify([row.platform, row.identity_key, row.locator.calendarId, row.locator.eventId])));
       if (destinations.size > 1) throw new Error('该对象有多个操作来源或不同影响，请明确 sourceId 和取消／退出／仅提醒的范围；不会择可写来源执行。');
       if (valid[0]) { target = await this.target({ sourceId: valid[0].source_id }, 'read'); eventId = String(valid[0].locator.eventId); }

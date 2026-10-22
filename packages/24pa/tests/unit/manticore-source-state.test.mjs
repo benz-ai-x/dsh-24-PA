@@ -12,6 +12,7 @@ import { sourceObjectId } from '../../lib/repo/source-projection.js';
 import { SourceCalendar } from '../../lib/source-calendar.js';
 import { SourceCalendarWrites } from '../../lib/source-calendar-writes.js';
 import { ExternalOperations } from '../../lib/external-operations.js';
+import { ReminderRouter } from '../../lib/reminder-router.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 
 const entry = (id, patch = {}) => ({ id, domain: 'calendar', platform: 'feishu', name: id, purpose: 'personal', ownerId: 'ou_owner', resourceKind: 'calendar', resourceId: id, filter: 'all', access: 'readwrite', enabled: true, ...patch });
@@ -63,7 +64,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore 来源、身�
   });
   afterAll(async () => { await db?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true }); });
   beforeEach(async () => {
-    for (const table of ['source_observation', 'source_membership', 'source_object', 'source_evidence', 'source_registration', 'source_registry_state', 'action_operation', 'work_item']) await db.query(`delete from pa24.${table}`);
+    for (const table of ['source_observation', 'source_membership', 'source_object', 'source_evidence', 'source_registration', 'source_registry_state', 'reminder_rule', 'action_operation', 'work_item']) await db.query(`delete from pa24.${table}`);
     current = { ...DEFAULT_CONFIG, sources: config() }; connection = 'connection-1'; calls = 0; probe = async source => proof(source);
     service = new SourceRegistry({ repo: () => repos.sources, config: () => current, connectionHash: () => connection, probe: source => { calls++; return probe(source); }, gate: (_key, run) => run() });
   });
@@ -249,7 +250,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore 来源、身�
         capabilities: { update: 'allowed', cancel: 'allowed', reminders: 'allowed', effect: 'whole_event' }, active });
     };
     const writer = new SourceCalendarWrites({ config: () => current, registry: service, reader: { object }, repos: () => repos, external: new ExternalOperations(() => repos.operations),
-      lark: invoke, wecom: options.wecom ?? invoke, gate: (_k, run) => run(), mirror: options.mirror });
+      lark: invoke, wecom: options.wecom ?? invoke, gate: options.gate ?? ((_k, run) => run()), mirror: options.mirror });
     return { writer, item, writes };
   }
   it('占位使用明确来源和预设时长，不猜参会人；换默认后同一请求不重复写入', async () => {
@@ -306,6 +307,91 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore 来源、身�
     current.sources.defaults.calendar = 'b'; await service.synchronize();
     await expect(writer.write(item, 'create', { start, end, summary: '第二次明确请求' })).rejects.toThrow('明确拒绝');
     expect(writes.at(-1)).toContain('a');
+  });
+  it('等价时间、默认值和来源名称重试沿原未知操作；切换默认不能移动原意图', async () => {
+    current.sources.meetingDurationMinutes = 60; current.sources.entries[0].name = '个人日历';
+    const { writer, item, writes } = await writerFixture({ invoke: async () => { throw Object.assign(Error('超时'), { outcome: 'unknown' }); } });
+    await expect(writer.write(item, 'create', { start })).rejects.toThrow('超时');
+    current.sources.defaults.calendar = 'b'; current.sources.meetingDurationMinutes = 30;
+    await expect(writer.write(item, 'create', { start: '2026-10-23T09:00:00+08:00', end, summary: '会议', sourceId: '个人日历' })).rejects.toThrow(/待核对/);
+    await expect(writer.write(item, 'create', { start: '2026-10-23T09:00:00+08:00', durationMinutes: 60, title: '会议', sourceId: 'a' })).rejects.toThrow(/待核对/);
+    expect(writes).toHaveLength(1); expect(await repos.operations.calendarCreatesForWork(item.id)).toHaveLength(1);
+  });
+  it('不同交办与登记别名对同一原生日历串行；第二次写前读取第一项变更', async () => {
+    current.sources.entries[1].resourceId = 'a';
+    const gates = new Map(); const gate = (key, run) => { const result = (gates.get(key) ?? Promise.resolve()).then(run, run); gates.set(key, result.catch(() => {})); return result; };
+    let inFlight = 0, maximum = 0, summary = '原会议'; const reads = [];
+    const { writer, item } = await writerFixture({ gate, invoke: async args => {
+      maximum = Math.max(maximum, ++inFlight); await new Promise(resolve => setTimeout(resolve, 10));
+      const data = JSON.parse(args[args.indexOf('--data') + 1]); summary = data.summary; inFlight--;
+      return { data: { event: { event_id: 'same_0', ...data } } };
+    }, object: async target => {
+      reads.push(summary);
+      return event(JSON.stringify([target.resource.id, 'same_0']), { locator: { eventId: 'same_0', calendarId: target.resource.id },
+        body: { summary, start, end }, capabilities: { update: 'allowed', effect: 'whole_event' } });
+    } });
+    const other = await repos.workItems.insert({ ...item, id: 'work-2' });
+    await Promise.all([writer.write(item, 'update', { sourceId: 'a', eventId: 'same_0', summary: '第一项' }), writer.write(other, 'update', { sourceId: 'b', eventId: 'same_0', summary: '第二项' })]);
+    expect(maximum).toBe(1); expect(reads).toHaveLength(4); expect(reads[0]).toBe('原会议');
+    expect(reads[1]).toBe(reads[2]); expect(new Set([reads[1], reads[3]])).toEqual(new Set(['第一项', '第二项']));
+  });
+  it('objectId 和 eventId 指向不同对象时拒绝取消，不覆盖任一标识', async () => {
+    const { writer, item, writes } = await writerFixture();
+    const created = await writer.write(item, 'create', { summary: '原会议', start, end });
+    await expect(writer.write(item, 'cancel', { sourceId: 'a', objectId: created.verification.objectId, eventId: 'different_0' })).rejects.toThrow(/指向不同日程/);
+    expect(writes).toHaveLength(1);
+  });
+  it('失败后较晚成功的取消刷新投影，回读离线使旧完整窗口待核验', async () => {
+    let accepted = false, reject = true;
+    const { writer, item } = await writerFixture({ invoke: async () => {
+      if (reject) throw Object.assign(Error('明确拒绝'), { outcome: 'failed' }); accepted = true; return { data: {} };
+    }, object: async target => {
+      if (accepted) throw Error('回读离线');
+      return event(JSON.stringify([target.resource.id, 'cancel_0']), { locator: { eventId: 'cancel_0', calendarId: target.resource.id }, body: { summary: '原会议', start, end }, capabilities: { cancel: 'allowed' } });
+    } });
+    const args = { sourceId: 'a', eventId: 'cancel_0' };
+    await expect(writer.write(item, 'cancel', args)).rejects.toThrow('明确拒绝');
+    const target = await service.bind('calendar', { sourceId: 'a' }, 'read');
+    await repos.sourceProjection.observe(target, observation([event(JSON.stringify(['a', 'cancel_0']), { locator: { eventId: 'cancel_0', calendarId: 'a' }, body: { summary: '原会议', start, end } })]));
+    await new Promise(resolve => setTimeout(resolve, 5)); reject = false;
+    const result = await writer.write(item, 'cancel', args); expect(result.verification.state).toBe('unverified');
+    const cached = await repos.sourceProjection.cached(target, window);
+    expect(cached.items).toHaveLength(0); expect(cached.observation.state).toBe('partial');
+  });
+  it('成功回执迟到补账不覆盖接受之后的原生编辑及完整观察', async () => {
+    let fail = true;
+    const { writer, item, writes } = await writerFixture({ mirror: async () => { if (fail) throw Error('本地故障'); }, object: async () => { throw Error('离线'); } });
+    const args = { start, end, summary: '原会议' };
+    await expect(writer.write(item, 'create', args)).rejects.toThrow('本地故障');
+    const target = await service.bind('calendar', { sourceId: 'a' }, 'read');
+    await new Promise(resolve => setTimeout(resolve, 5));
+    await repos.sourceProjection.observe(target, observation([event(JSON.stringify(['a', 'created_0']), { locator: { eventId: 'created_0', calendarId: 'a' }, body: { summary: '原生新主题', start, end } })]));
+    fail = false; await writer.write(item, 'create', args);
+    const cached = await repos.sourceProjection.cached(target, window);
+    expect(cached.items[0].body.summary).toBe('原生新主题'); expect(cached.observation.state).toBe('complete'); expect(writes).toHaveLength(1);
+  });
+  it('独立提醒展示实际回读，空提醒冲突不报有效时刻；取消未核验不报停止', async () => {
+    let active = true, reminders = [], offline = false;
+    const { writer, item, writes } = await writerFixture({ object: async target => {
+      if (offline) throw Error('回读离线');
+      return event(JSON.stringify([target.resource.id, 'created_0']), { locator: { eventId: 'created_0', calendarId: target.resource.id, reminders },
+        body: { summary: '提醒：喝水', start, end: '2026-10-23T01:15:00.000Z' }, active, capabilities: { cancel: 'allowed' } });
+    } });
+    const router = new ReminderRouter({ config: () => current, repos: () => repos, bindCalendar: args => writer.target(args),
+      calendarWrite: (...args) => writer.write(...args), ledger: () => ({ setStatus: (id, status) => repos.reminders.updateRule(id, { status }) }) });
+    const args = { kind: 'once', at: start, text: '喝水' };
+    const created = await router.route(item, args);
+    expect(created.verification.state).toBe('conflict'); expect(created.reminderAt).toBeNull(); expect(created.message).toContain('尚未确认有效提醒时间');
+    expect((await repos.reminders.getRule(created.ruleId)).record.reminder_minutes).toEqual([]);
+    reminders = [{ minutes: 0 }]; const checked = await router.route(item, args);
+    expect(checked.verification.state).toBe('verified'); expect(checked.reminderAt).toBe(start);
+    const canceled = await router.cancel(item, created.ruleId, '本人取消');
+    expect(canceled.pendingCancellation).toBe(true); expect(canceled.verification.state).toBe('conflict');
+    expect((await repos.reminders.getRule(created.ruleId)).status).toBe('delegated');
+    offline = true; expect((await router.cancel(item, created.ruleId, '本人取消')).verification.state).toBe('unverified');
+    active = false; offline = false; await router.cancel(item, created.ruleId, '本人取消');
+    expect((await repos.reminders.getRule(created.ruleId)).status).toBe('stopped');
+    expect(writes.filter(args => args[2] === 'create')).toHaveLength(1); expect(writes.filter(args => args[2] === 'delete')).toHaveLength(1);
   });
   it('只取消本人提醒发送 reminders 空数组，不删会议；重复范围不明不写入', async () => {
     const { writer, item, writes } = await writerFixture({ recurring: true });

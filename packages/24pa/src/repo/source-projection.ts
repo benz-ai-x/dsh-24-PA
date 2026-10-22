@@ -89,7 +89,14 @@ export class SourceProjectionRepo {
       if (!eventId || item.locator.eventId !== eventId) throw new Error('补写对象与持久平台回执的标识不符。');
       const source = (await tx.query<SourceRegistrationRow>('select * from pa24.source_registration where id = $1', [target.sourceId])).rows[0];
       const current = source && !source.removed && source.revision === target.registrationRevision && source.scope_hash === target.scopeHash && source.identity_key === target.identityKey;
-      await this.upsert(tx, target, { ...item, active: item.active && !!current }, operation.created_at);
+      // Acceptance may follow an earlier failed attempt and a later full read.
+      // Its durable timestamp survives local repair; repair time itself must
+      // never overwrite a newer native observation.
+      const acceptedAt = new Date(operation.receipt._externalAcceptedAt ?? operation.receipt.acceptedAt ?? operation.created_at);
+      await this.upsert(tx, target, { ...item, active: item.active && !!current }, acceptedAt);
+      await tx.query(`update pa24.source_observation set state = 'partial', reason = $4, observed_at = $5
+        where source_id = $1 and registration_revision = $2 and scope_hash = $3 and observed_at <= $5`,
+        [target.sourceId, target.registrationRevision, target.scopeHash, '平台已接收日程变更，需重新查询核验范围', acceptedAt]);
     });
   }
 
