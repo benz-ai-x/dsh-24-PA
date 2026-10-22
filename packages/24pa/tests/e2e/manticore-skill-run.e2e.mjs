@@ -52,7 +52,9 @@ it('真实 Loader：保存、发布、独立本地运行、相同请求不重跑
   const preview = await host.api('skills.preview', base);
   expect(preview.tools).toEqual([]); expect(llm.requests).toHaveLength(0);
   const command = { type: 'skill.run', ...base, requestId: randomUUID(), fingerprint: preview.fingerprint, confirm: true };
-  const started = await host.api('action', command);
+  const [started, duplicate] = await Promise.all([host.api('action', command), host.api('action', command)]);
+  expect(duplicate.run.id).toBe(started.run.id);
+  expect([started.repeated, duplicate.repeated].sort()).toEqual([false, true]);
   expect(started.run.status, JSON.stringify(started)).not.toBe('needs_reconciliation');
   let detail;
   const deadline = Date.now() + 30000;

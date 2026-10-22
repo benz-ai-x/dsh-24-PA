@@ -9,6 +9,7 @@ import { createRepos } from '../../lib/repo.js';
 import { makeSkillPackage, parseSkillMarkdown, skillContract } from '../../lib/skill-package.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { SkillPackages } from '../../lib/skill-packages.js';
+import { SkillRuns } from '../../lib/skill-runs.js';
 
 const markdown = body => '---\n' + JSON.stringify({ name: 'example', description: '可核验任务', metadata: { track: 'agent', tools: [], pa24: {
   schemaVersion: 1, mode: 'business', parameters: {}, expectedResult: '生成摘要', completionCriteria: '标注事实来源',
@@ -182,6 +183,63 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     expect((await repos.skillRuns.evidence(run.id)).reviewed).toBe(false);
     await expect(repos.skillRuns.admit({ ...input, request_id: randomUUID(), workItemId: run.work_item_id })).rejects.toThrow(/核对/);
     await expect(repos.skillRuns.review({ ...review, requestId: randomUUID() })).rejects.toThrow(/新回执/);
+  });
+
+  it('并发重试同一运行请求只启动一次，两个调用均返回同一记录', async () => {
+    const source = '---\n' + JSON.stringify({ name: 'template', description: '确定性模板', metadata: { track: 'template', tools: [] } }) + '\n---\n模板正文';
+    const entry = await publish(await change({ op: 'save', displayName: '模板验证', version: {
+      package_data: makeSkillPackage([{ path: 'SKILL.md', bytes: Buffer.from(source) }]), definition: parseSkillMarkdown(source), validation_error: null,
+    } }));
+    const packages = new SkillPackages({ context: () => ({ cwd: '/workspace', binding: 'binding', repo: repos.skills }), registry: null, plans: async () => [], pausePlan: async () => {}, check: async () => [] });
+    let executions = 0;
+    const runs = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'binding', repos }), packages,
+      sourceSession: async () => 'source', tools: async () => [], permissionHash: () => 'permission', checkBusiness() {}, startBusiness: async () => {}, checkTemplate() {},
+      template: async () => { executions++; await new Promise(resolve => setTimeout(resolve, 100)); return '仅执行一次'; }, lease: work => work(), detached: work => work() });
+    const base = { id: 'managed:' + entry.id, workspaceBinding: 'binding' }, preview = await runs.preview(base);
+    const command = { ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint };
+    const results = await Promise.all([runs.start(command), runs.start(command)]);
+    expect(executions).toBe(1);
+    expect(results[0].run.id).toBe(results[1].run.id);
+    expect(results.map(result => result.repeated).sort()).toEqual([false, true]);
+    expect((await repos.skillRuns.list(entry.id)).total).toBe(1);
+  });
+
+  it('旧运行收到迟到证据并重新核对，不停止正在接续的交办', async () => {
+    const entry = await publish(await create()), input = await admission(entry), original = await repos.skillRuns.admit(input);
+    await repos.skillRuns.transition(original.id, 'running', '原执行');
+    await repos.skillRuns.beginCall(original.id, 'write', 'bash', {});
+    await repos.skillRuns.finishCall(original.id, 'write', { error: 'uncertain' }, 'unknown');
+    await repos.skillRuns.transition(original.id, 'needs_reconciliation', '待核对');
+    const record = { actor: 'source', summary: '已检查实际结果', completed: '部分完成', remaining: '补齐未完成部分',
+      calls: [{ sessionId: original.session_id, callId: 'write', outcome: 'partial', evidence: '已查看原文件' }], native: [] };
+    const review = async () => repos.skillRuns.review({ runId: original.id, requestId: randomUUID(), requestHash: randomUUID(), fingerprint: (await repos.skillRuns.evidence(original.id)).fingerprint, record });
+    await review();
+    const next = await repos.skillRuns.admit({ ...input, request_id: randomUUID(), workItemId: original.work_item_id });
+    await repos.skillRuns.claimLaunch(next.id, '接续正在执行');
+    await repos.skillRuns.finalCall(original.id, { callId: 'write', sessionId: original.session_id, name: 'bash', arguments: {} }, { error: 'late' }, true);
+    await review();
+    expect((await repos.skillRuns.get(next.id)).status).toBe('running');
+    expect(await repos.workItems.get(original.work_item_id)).toMatchObject({ status: 'running', progress: '接续正在执行', active_skill_run_id: next.id });
+    expect((await repos.skillRuns.latestForWork(original.work_item_id)).id).toBe(next.id);
+    await repos.skillRuns.transition(next.id, 'completed', '接续完成', '新结果');
+    expect(await repos.workItems.get(original.work_item_id)).toMatchObject({ status: 'completed', result: '新结果' });
+    expect((await repos.skillRuns.evidence(original.id)).reviews).toHaveLength(2);
+  });
+
+  it('删除只关闭新操作，历史目录、版本导出和原运行管理仍可访问', async () => {
+    const entry = await publish(await create()), input = await admission(entry), run = await repos.skillRuns.admit(input);
+    await repos.skillRuns.claimLaunch(run.id, '执行中');
+    await change({ op: 'delete', id: entry.id, expectedRevision: entry.revision });
+    const packages = new SkillPackages({ context: () => ({ cwd: '/workspace', binding: 'binding', repo: repos.skills }), registry: null, plans: async () => [], pausePlan: async () => {}, check: async () => [] });
+    const id = 'managed:' + entry.id;
+    expect((await packages.list('binding')).find(row => row.id === id).managedStatus).toBe('deleted');
+    expect((await packages.inspect(id, 'binding')).entry.status).toBe('deleted');
+    expect((await packages.download(id, entry.active_version, 'binding')).base64).toBeTruthy();
+    await expect(packages.capture(id, entry.active_version, 'binding')).rejects.toThrow(/删除/);
+    await expect(repos.skillRuns.admit({ ...input, request_id: randomUUID() })).rejects.toThrow(/状态/);
+    await repos.skillRuns.transition(run.id, 'stopping', '手工停止');
+    await repos.skillRuns.transition(run.id, 'stopped', '已停止');
+    expect((await repos.skillRuns.list(entry.id)).rows[0].status).toBe('stopped');
   });
 
   it('父子会话可以有相同工具 ID；最终回执不覆盖派发证据，缺失意图的拒绝也留档', async () => {

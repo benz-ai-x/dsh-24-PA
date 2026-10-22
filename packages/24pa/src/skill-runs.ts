@@ -128,12 +128,12 @@ export class SkillRuns {
       snapshot: prepared.snapshot, expectedRevision: prepared.entry.revision, workItemId: prepared.previous?.work_item_id, originalRerun: prepared.original });
     // The host owns the model lifetime. A lease covers admission and each
     // tool intent/receipt, rather than holding configuration changes forever.
-    await this.launch(run);
-    return { run: this.view((await context.repos.skillRuns.get(run.id))!), repeated: false, workspaceBinding: context.binding };
+    const launched = await this.launch(run);
+    return { run: this.view((await context.repos.skillRuns.get(run.id))!), repeated: !launched, workspaceBinding: context.binding };
   }
-  private async launch(run: SkillRunRow): Promise<void> {
+  private async launch(run: SkillRunRow): Promise<boolean> {
     const context = this.context(), repo = context.repos.skillRuns;
-    await repo.transition(run.id, 'running', run.mode === 'template' ? '正在生成确定性结果' : '正在提交原生运行');
+    if (!await repo.claimLaunch(run.id, run.mode === 'template' ? '正在生成确定性结果' : '正在提交原生运行')) return false;
     try {
       if (run.mode === 'template') {
         const result = await this.deps.template(run.snapshot.definition, run.snapshot.parameters);
@@ -144,6 +144,7 @@ export class SkillRuns {
       const native = await this.host.history(run).catch(() => undefined);
       await this.block(run, `启动未完成：${errorText(error)}${native ? '；请核对原会话，不重复提交。' : ''}`);
     }
+    return true;
   }
   async attach(agent: DshAgent): Promise<void> {
     const context = this.deps.context();

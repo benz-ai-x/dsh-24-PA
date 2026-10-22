@@ -65,8 +65,8 @@ export class SkillRepo {
     return restoreEntry(row.result);
   }
 
-  async list(): Promise<SkillEntryRow[]> {
-    return (await this.db.query<SkillEntryRow>("select * from pa24.skill_entry where status <> 'deleted' order by created_at, id")).rows;
+  async list(includeDeleted = false): Promise<SkillEntryRow[]> {
+    return (await this.db.query<SkillEntryRow>(`select * from pa24.skill_entry ${includeDeleted ? '' : "where status <> 'deleted'"} order by created_at, id`)).rows;
   }
   async get(id: string): Promise<SkillEntryRow | null> {
     return (await this.db.query<SkillEntryRow>('select * from pa24.skill_entry where id = $1', [id])).rows[0] ?? null;

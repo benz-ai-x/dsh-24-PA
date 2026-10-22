@@ -571,6 +571,7 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `alter table pa24.digest_occurrence add column if not exists skill_snapshot jsonb`,
       `alter table pa24.digest_occurrence add column if not exists plan_snapshot jsonb`,
       `alter table pa24.work_item add column if not exists execution_mode text not null default 'worker'`,
+      `alter table pa24.work_item add column if not exists active_skill_run_id text`,
       `create table if not exists pa24.skill_run (
         id text primary key,
         request_id text not null unique,

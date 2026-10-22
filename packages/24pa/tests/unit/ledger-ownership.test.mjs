@@ -40,6 +40,7 @@ async function legacyLedger(storage, path, { paths = [path], owners = ['owner-a'
   await db.query('alter table pa24.work_item drop column execution_id');
   await db.query('alter table pa24.work_item drop column execution_scope');
   await db.query('alter table pa24.work_item drop column execution_mode');
+  await db.query('alter table pa24.work_item drop column active_skill_run_id');
   await db.query('alter table pa24.digest_occurrence drop column skill_snapshot');
   await db.query('alter table pa24.digest_occurrence drop column plan_snapshot');
   await db.query('delete from pa24.schema_migrations where version >= 17');

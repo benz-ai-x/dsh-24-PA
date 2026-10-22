@@ -29,6 +29,7 @@ export const UNSETTLED_WORK_STATUSES = ['accepted', 'queued', 'running', 'waitin
 
 export interface WorkItemRow {
   execution_mode?: 'worker' | 'skill';
+  active_skill_run_id?: string | null;
   id: string;
   title: string;
   role: string;

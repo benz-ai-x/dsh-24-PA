@@ -77,7 +77,7 @@ export class SkillRunRepo {
       const saved = (await tx.query<SkillRunReview>(`insert into pa24.skill_run_review (request_id, request_hash, run_id, evidence_hash, record)
         values ($1,$2,$3,$4,$5) returning *`, [input.requestId, input.requestHash, run.id, input.fingerprint, JSON.stringify(input.record)])).rows[0]!;
       await tx.query("update pa24.skill_run set status = 'stopped', progress = '人工核对已留档；本次运行结束，接续须另行预览确认', updated_at = now() where id = $1", [run.id]);
-      await tx.query("update pa24.work_item set status = 'stopped', progress = '人工核对已留档，等待显式接续', updated_at = now() where id = $1", [run.work_item_id]);
+      await tx.query("update pa24.work_item set status = 'stopped', progress = '人工核对已留档，等待显式接续', updated_at = now() where id = $1 and active_skill_run_id = $2", [run.work_item_id, run.id]);
       return saved;
     });
   }
@@ -111,7 +111,7 @@ export class SkillRunRepo {
     return (await this.db.query<SkillRunRow>('select r.* from pa24.skill_run r join pa24.skill_run_session s on r.id = s.run_id where s.session_id = $1', [id])).rows[0] ?? null;
   }
   async latestForWork(id: string): Promise<SkillRunRow | null> {
-    return (await this.db.query<SkillRunRow>('select * from pa24.skill_run where work_item_id = $1 order by created_at desc, id desc limit 1', [id])).rows[0] ?? null;
+    return (await this.db.query<SkillRunRow>('select r.* from pa24.skill_run r join pa24.work_item w on w.active_skill_run_id = r.id where w.id = $1', [id])).rows[0] ?? null;
   }
   async repeated(requestId: string, hash: string): Promise<SkillRunRow | null> {
     const row = (await this.db.query<SkillRunRow>('select * from pa24.skill_run where request_id = $1', [requestId])).rows[0];
@@ -180,11 +180,11 @@ export class SkillRunRepo {
           values ($1, $2, 'skill', $3, 'local', $4, $5, 'running', 'skill')`, [workId, input.snapshot.name, input.snapshot.definition.content, input.source_session_id, `local:${input.source_session_id}`]);
       }
       await tx.query(`update pa24.work_item set status = 'running', progress = 'Skill 运行已接纳', result = null,
-        child_session_id = $2, skill = $3, skill_definition = $4, recovery_gen = recovery_gen + 1, updated_at = now() where id = $1`,
+        child_session_id = $2, skill = $3, skill_definition = $4, active_skill_run_id = $5, recovery_gen = recovery_gen + 1, updated_at = now() where id = $1`,
       [workId, input.mode === 'business' ? sessionId : null, entry.name, JSON.stringify({
         name: entry.name, description: input.snapshot.definition.description, source: 'pa24-managed', track: 'agent',
         metadata: input.snapshot.definition.metadata, content: input.snapshot.definition.content,
-      })]);
+      }), id]);
       const run = (await tx.query<SkillRunRow>(`insert into pa24.skill_run
         (id, request_id, request_hash, work_item_id, skill_id, version_id, source_session_id, session_id, workspace_path, mode, trial, snapshot)
         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
@@ -202,9 +202,17 @@ export class SkillRunRepo {
       if (row.status === 'stopping' && !['stopped', 'needs_reconciliation'].includes(status)) return row;
       const next = (await tx.query<SkillRunRow>('update pa24.skill_run set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 returning *',
         [id, status, progress, result ?? row.result])).rows[0]!;
-      await tx.query('update pa24.work_item set status = $2, progress = $3, result = $4, updated_at = now() where id = $1',
-        [row.work_item_id, status === 'pending' || status === 'stopping' ? 'running' : status, progress, next.result]);
+      await tx.query('update pa24.work_item set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 and active_skill_run_id = $5',
+        [row.work_item_id, status === 'pending' || status === 'stopping' ? 'running' : status, progress, next.result, id]);
       return next;
+    });
+  }
+  async claimLaunch(id: string, progress: string): Promise<boolean> {
+    return this.db.withTransaction(async tx => {
+      const run = (await tx.query<SkillRunRow>("update pa24.skill_run set status = 'running', progress = $2, updated_at = now() where id = $1 and status = 'pending' returning *", [id, progress])).rows[0];
+      if (!run) return false;
+      await tx.query('update pa24.work_item set progress = $2, updated_at = now() where id = $1 and active_skill_run_id = $3', [run.work_item_id, progress, id]);
+      return true;
     });
   }
   async calls(id: string): Promise<SkillRunCall[]> {

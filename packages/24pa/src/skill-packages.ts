@@ -88,7 +88,7 @@ export class SkillPackages {
 
   async list(binding: unknown) {
     const ctx = this.context(binding);
-    return Promise.all((await ctx.repo.list()).map(async entry => {
+    return Promise.all((await ctx.repo.list(true)).map(async entry => {
       const base = { id: `managed:${entry.id}`, name: entry.display_name, internalName: entry.name, source: 'managed' as const, managedStatus: entry.status };
       try {
         const version = await this.version(ctx, entry, entry.draft_version);
@@ -106,7 +106,7 @@ export class SkillPackages {
 
   async inspect(id: unknown, binding: unknown, versionId?: string) {
     const ctx = this.context(binding), entry = await ctx.repo.get(selectedId(id));
-    if (!entry || entry.status === 'deleted') throw new Error('Skill 已删除或不存在。');
+    if (!entry) throw new Error('Skill 不存在。');
     const version = await this.version(ctx, entry, versionId ?? entry.draft_version);
     const restrictions = version.definition ? await this.deps.check(version.definition, version.package_data) : [version.validation_error ?? 'Skill 尚未通过校验。'];
     let plans = null, plansError: string | null = null;
@@ -122,7 +122,7 @@ export class SkillPackages {
 
   async download(id: unknown, versionId: string, binding: unknown) {
     const ctx = this.context(binding), entry = await ctx.repo.get(selectedId(id));
-    if (!entry || entry.status === 'deleted') throw new Error('Skill 已删除或不存在。');
+    if (!entry) throw new Error('Skill 不存在。');
     const version = await this.version(ctx, entry, versionId);
     return { filename: `${entry.name}.zip`, base64: (await exportSkillPackage(version.package_data)).toString('base64'), workspaceBinding: binding };
   }

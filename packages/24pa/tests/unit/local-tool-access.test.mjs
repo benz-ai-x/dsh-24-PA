@@ -6,7 +6,7 @@ afterEach(() => vi.useRealTimers());
 function plugin({ role = 'local-robot', businessRole = role, extras = ['mcp__qwennote__*'] } = {}) {
   let mounted = [], created;
   const disposals = [], allowed = [], records = [];
-  const runtime = { roleFor: () => businessRole, roleForToolMount: () => role, configFor: () => ({ extraLocalTools: extras }), providerAvailable: () => false, noteExtraToolResolution: r => records.push(r), workspaceRulesSection: () => '' };
+  const runtime = { skillRuns: { codingTools: async () => null }, roleFor: () => businessRole, roleForToolMount: () => role, configFor: () => ({ extraLocalTools: extras }), providerAvailable: () => false, noteExtraToolResolution: r => records.push(r), workspaceRulesSection: () => '' };
   const ctx = {
     get: () => runtime,
     effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') disposals.push(cleanup); },
