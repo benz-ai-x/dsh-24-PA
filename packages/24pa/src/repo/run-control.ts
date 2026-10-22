@@ -66,6 +66,17 @@ export class RunControlRepo {
       where request_id = $1 and status in ('calling','submitted','unknown') and (native_message_id is null or native_message_id = $2) returning request_id`, [id, nativeId]);
     return !!updated.rowCount;
   }
+  async claimRecovery(id: string, message: Record<string, unknown>): Promise<boolean> {
+    return this.db.withTransaction(async tx => {
+      const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [id])).rows[0];
+      if (!run || !['running', 'waiting'].includes(run.status)) return false;
+      const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];
+      if (!control || !canExecuteRun(control.state)) return false;
+      await tx.query("update pa24.skill_run set status = 'running', recovery = $2, progress = '原输入已保存，等待执行采用', updated_at = now() where id = $1", [id, JSON.stringify({ message })]);
+      await tx.query("update pa24.work_item set status = 'running', progress = '原输入已保存，等待执行采用', updated_at = now() where id = $1 and active_skill_run_id = $2", [run.work_item_id, id]);
+      return true;
+    });
+  }
   async unknown(id: string): Promise<void> {
     await this.db.query("update pa24.skill_run_resume set status = 'unknown' where request_id = $1 and status = 'calling'", [id]);
   }

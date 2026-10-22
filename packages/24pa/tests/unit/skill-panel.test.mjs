@@ -4,7 +4,7 @@ import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { SkillManagement } from '../../lib/skill-management.js';
 
-let React, createRoot, act, win, root, container, binding, definition, manager, requests, poll, delayedInspect, savedBlob;
+let React, createRoot, act, win, root, container, binding, definition, manager, requests, poll, delayedInspect, savedBlob, runReply;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 beforeAll(async () => {
   win = new Window({ url: 'http://localhost/' });
@@ -15,7 +15,7 @@ beforeAll(async () => {
 const button = text => [...container.querySelectorAll('button')].find(node => node.textContent === text);
 const click = async node => { expect(node).toBeTruthy(); await act(async () => node.click()); };
 beforeEach(async () => {
-  binding = 'a'; delayedInspect = null; savedBlob = null; requests = []; win.localStorage.clear();
+  binding = 'a'; delayedInspect = null; savedBlob = null; runReply = null; requests = []; win.localStorage.clear();
   definition = { name: 'my-skill', description: '个人能力', source: 'project-dsh', provider: 'filesystem', path: '/workspace/.dsh/skills/my-skill.md', content: '<script>window.ran = true</script>\n真实指令', metadata: { track: 'agent' } };
   manager = new SkillManagement({ builtins: () => [{ name: 'my-skill', description: '内置能力', content: '内置正文', metadata: { track: 'template' } }], registry: { snapshot: async () => ({ skills: [definition], complete: true }), get: async () => definition }, context: () => ({ binding, cwd: '/workspace', enabled: false, allowed: [] }), plans: async () => [] });
   const interval = globalThis.setInterval;
@@ -32,6 +32,7 @@ beforeEach(async () => {
       else if (req.endpoint === 'skills.catalog') value = await manager.list(p.workspaceBinding);
       else if (req.endpoint === 'skills.inspect') value = delayedInspect ? await delayedInspect : await manager.inspect(p.id, p.workspaceBinding);
       else if (req.endpoint === 'skills.export') value = await manager.exportMarkdown(p.id, p.fingerprint, p.workspaceBinding);
+      else if (runReply && ['skills.run', 'skills.runs', 'action'].includes(req.endpoint)) value = await runReply(req);
       else if (req.endpoint === 'health') value = { capabilities: [] };
       else if (req.endpoint === 'memory') value = { items: [], total: 0, matched: 0 };
       else value = {};
@@ -85,5 +86,24 @@ describe('Skill 管理面板的用户操作', () => {
     await act(async () => { resolve({ ...old, content: '旧工作区迟到正文' }); });
     expect(container.textContent).not.toContain('旧工作区迟到正文');
     expect(requests.some(req => req.endpoint === 'skills.catalog' && req.payload.workspaceBinding === 'b')).toBe(true);
+  });
+  it('补充 A 的回包迟到时，不覆盖已经切换到 B 的运行详情', async () => {
+    const base = await manager.inspect('builtin:my-skill', binding);
+    vi.spyOn(manager, 'inspect').mockResolvedValue({ ...base, entry: { status: 'enabled', revision: 1, active_version: 'v1', draft_version: 'v1' },
+      versionId: 'v1', versions: [{ id: 'v1' }], files: [] });
+    const records = ['run-a-0001', 'run-b-0002'].map((id, index) => ({ run: { id, status: index ? 'completed' : 'waiting', progress: index ? 'B 的执行结果' : 'A 等待补充', mode: 'local', work_item_id: id, version_id: 'v1' },
+      workspaceBinding: binding, calls: [], native: [], reviews: [], execution: { executionMs: 0, remainingMs: 900000, queuedMs: 0, waitingMs: 0, blocks: [] } }));
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    runReply = req => req.endpoint === 'skills.runs' ? { workspaceBinding: binding, total: 2, rows: records.map(row => row.run) }
+      : req.endpoint === 'action' ? held : records.find(row => row.run.id === req.payload.runId);
+    await click(button('my-skill · 内置原件'));
+    await click([...container.querySelectorAll('button')].find(node => node.textContent.startsWith('run-a-00')));
+    await click(button('重新检查并继续原运行'));
+    await click([...container.querySelectorAll('button')].find(node => node.textContent.startsWith('run-b-00')));
+    expect(container.textContent).toContain('B 的执行结果');
+    await act(async () => release(records[0]));
+    expect(container.textContent).toContain('B 的执行结果');
+    expect(container.textContent).not.toContain('A 等待补充');
   });
 });

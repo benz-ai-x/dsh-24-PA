@@ -54,7 +54,11 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false }
 
     const script = await readJson(scriptPath, {});
     let step;
-    if (script.mode === 'native-run') {
+    if (script.onlySkillRuns && !(body.messages ?? []).some(message => (message.content ?? []).some(part => part.type === 'text' && /^\[24PA skill run: [^\]]+\]$/.test(part.text)))) {
+      // The real manager may notify a parent independently of the owned Run.
+      // Parent acknowledgement must not consume that Run's scripted sequence.
+      step = { text: '已收到原生运行通知。' };
+    } else if (script.mode === 'native-run') {
       const last = (body.messages ?? []).at(-1);
       const continuation = last?.role === 'user' && (last.content ?? []).some(block => block.type === 'tool_result');
       const notice = /background (subagent|job)/i.test(lastUserText);

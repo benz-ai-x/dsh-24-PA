@@ -46,6 +46,14 @@ export interface SkillRunReview {
 const canonical = (value: any): any => value instanceof Date ? value.toISOString() : Array.isArray(value) ? value.map(canonical)
   : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 const evidenceHash = (value: unknown) => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+// Native descriptors can contain NUL separators (agent-instructions scope).
+// PostgreSQL jsonb cannot store those string values. A versioned envelope
+// preserves their exact JSON on both backends; legacy object rows still read.
+const decodeInput = (row: SkillRunInput): SkillRunInput => {
+  const stored = row.message as unknown as { encoding?: string; jsonBase64?: string; id?: string };
+  return !stored.id && stored.encoding === 'native-input-json-base64-v1' && typeof stored.jsonBase64 === 'string'
+    ? { ...row, message: JSON.parse(Buffer.from(stored.jsonBase64, 'base64').toString('utf8')) } : row;
+};
 
 /** One durable run admission owns its WorkItem, input and tool intents.
  * A retry key is not a new run, and a new run cannot bypass an unresolved one. */
@@ -54,7 +62,7 @@ export class SkillRunRepo {
   async evidence(id: string, tx: PaQueryer = this.db) {
     const calls = (await tx.query<SkillRunCall>('select * from pa24.skill_run_call where run_id = $1 order by session_id, call_id', [id])).rows;
     const native = (await tx.query<SkillRunNative>('select * from pa24.skill_run_native where run_id = $1 order by kind, owner_id, native_id', [id])).rows;
-    const inputs = (await tx.query<SkillRunInput>('select * from pa24.skill_run_input where run_id = $1 order by message_id', [id])).rows;
+    const inputs = (await tx.query<SkillRunInput>('select * from pa24.skill_run_input where run_id = $1 order by message_id', [id])).rows.map(decodeInput);
     const sessions = (await tx.query<SkillRunSession>('select * from pa24.skill_run_session where run_id = $1 order by session_id', [id])).rows;
     const reviews = (await tx.query<SkillRunReview>('select * from pa24.skill_run_review where run_id = $1 order by created_at desc, request_id desc', [id])).rows;
     const hash = evidenceHash({ calls, native, inputs, sessions });
@@ -132,7 +140,9 @@ export class SkillRunRepo {
     return { rows, total: Number(count.count) };
   }
   async unfinished(): Promise<SkillRunRow[]> {
-    return (await this.db.query<SkillRunRow>("select * from pa24.skill_run where status in ('pending', 'running', 'waiting', 'stopping') order by created_at, id")).rows;
+    return (await this.db.query<SkillRunRow>(`select r.* from pa24.skill_run r where r.status in ('pending', 'running', 'waiting', 'stopping')
+      or (r.status = 'timed_out' and exists (select 1 from pa24.skill_run_control c where c.run_id = r.id
+        and c.state->'stop' is not null and c.state->'stop'->>'settledAt' is null)) order by r.created_at, r.id`)).rows;
   }
   async unresolvedOperations(workId: string, tx: PaQueryer = this.db): Promise<unknown[]> {
     return (await tx.query(`select * from pa24.action_operation where
@@ -253,11 +263,12 @@ export class SkillRunRepo {
       [id, call.callId, call.sessionId, call.rootCallId ?? call.callId, call.name, JSON.stringify(call.arguments), unknown ? 'unknown' : 'failed', JSON.stringify(result), unknown]);
   }
   async input(id: string, message: { id: string }, accepted: boolean, sessionId?: string): Promise<void> {
+    const stored = { encoding: 'native-input-json-base64-v1', jsonBase64: Buffer.from(JSON.stringify(message), 'utf8').toString('base64') };
     await this.db.query(`insert into pa24.skill_run_input (run_id, message_id, message, accepted, session_id) values ($1, $2, $3, $4, $5)
-      on conflict (run_id, message_id) do nothing`, [id, message.id, JSON.stringify(message), accepted, sessionId ?? null]);
+      on conflict (run_id, message_id) do nothing`, [id, message.id, JSON.stringify(stored), accepted, sessionId ?? null]);
   }
   async inputs(id: string): Promise<SkillRunInput[]> {
-    return (await this.db.query<SkillRunInput>('select * from pa24.skill_run_input where run_id = $1 order by created_at, message_id', [id])).rows;
+    return (await this.db.query<SkillRunInput>('select * from pa24.skill_run_input where run_id = $1 order by created_at, message_id', [id])).rows.map(decodeInput);
   }
   async sessions(id: string): Promise<SkillRunSession[]> {
     return (await this.db.query<SkillRunSession>('select * from pa24.skill_run_session where run_id = $1 order by created_at, session_id', [id])).rows;

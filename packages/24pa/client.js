@@ -965,6 +965,7 @@ window.__ModuleLoader__.load({
           const [instruction, setInstruction] = React.useState('');
           const [resumeInput, setResumeInput] = React.useState(''), [limitMinutes, setLimitMinutes] = React.useState('15');
           const request = React.useRef(null), alive = React.useRef(true);
+          const selectedRun = React.useRef(selected); selectedRun.current = selected;
           React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
           React.useEffect(() => {
             const abort = new AbortController();
@@ -1019,8 +1020,8 @@ window.__ModuleLoader__.load({
             setBusy(true); setError('');
             try {
               const result = await rpc('action', { ...payload, requestId: request.current.id });
-              if (alive.current) { setDetail(result); setResumeInput(''); setRefresh(n => n + 1); }
-            } catch (failure) { if (alive.current) setError(failure.message); }
+              if (alive.current && selectedRun.current === payload.runId && result.workspaceBinding === binding) { setDetail(result); setResumeInput(''); setRefresh(n => n + 1); }
+            } catch (failure) { if (alive.current && selectedRun.current === payload.runId) setError(failure.message); }
             finally { if (alive.current) setBusy(false); }
           };
           const downloadResult = () => {
@@ -1075,7 +1076,9 @@ window.__ModuleLoader__.load({
               detail.execution ? h('div', { className: 'pa24-note' },
                 h('p', null, L('累计执行 ', 'Active execution ') + (detail.execution.executionMs / 1000).toFixed(1) + L(' 秒 · 剩余 ', ' s · Remaining ') + (detail.execution.remainingMs / 1000).toFixed(1) + L(' 秒', ' s')),
                 h('p', { className: 'pa24-meta' }, L('排队 ', 'Queued ') + (detail.execution.queuedMs / 1000).toFixed(1) + L(' 秒 · 等待 ', ' s · Waiting ') + (detail.execution.waitingMs / 1000).toFixed(1) + L(' 秒', ' s')),
-                detail.execution.blocks.map(block => h('p', { key: block.key }, block.reason)))
+                detail.execution.blocks.map(block => h('p', { key: block.key }, block.reason)),
+                detail.execution.stop && h('p', { role: detail.execution.stop.error ? 'alert' : 'status' }, detail.execution.stop.error || (detail.execution.stop.settledAt
+                  ? L('原生执行已确认停止。', 'Native execution has stopped.') : L('已请求停止，正在等待实际执行回执。', 'Stop requested; waiting for native receipts.'))))
                 : h('p', { className: 'pa24-meta' }, L('历史记录没有累计执行计时资料。', 'Active execution timing is unavailable for this legacy record.')),
               detail.run.status === 'waiting' && h('div', { className: 'pa24-note' },
                 h('p', null, L('补充和放行沿原运行继续，不重置时限。其他阻断须分别处理。', 'Resume this run without resetting its time limit. Resolve each remaining blocker separately.')),
@@ -1099,6 +1102,9 @@ window.__ModuleLoader__.load({
               detail.attempts?.length > 0 && h('details', null, h('summary', null, L('执行尝试（含自动重试）', 'Execution attempts (including retries)')),
                 detail.attempts.map(attempt => h('p', { key: attempt.number }, L('第 ', 'Attempt ') + attempt.number + L(' 次', '') + ' · ' + new Date(attempt.startedAt).toLocaleString() + (attempt.error ? ' · ' + attempt.error : '')))),
               h('details', null, h('summary', null, L('实际工具调用与回执', 'Actual tool calls and receipts')), h('pre', { className: 'pa24-json' }, JSON.stringify(detail.calls, null, 2))),
+              detail.inputs?.length > 0 && h('details', null, h('summary', null, L('输入接纳与采用', 'Input receipt and adoption')),
+                detail.inputs.map(input => h('p', { key: input.message_id }, input.message_id + ' · ' + (!input.accepted ? L('归属未确认', 'Ownership not confirmed')
+                  : input.adopted === true ? L('已采用', 'Adopted') : input.adopted === false ? L('已接纳，尚未采用', 'Accepted, not adopted') : L('采用状态暂不可核验', 'Adoption could not be verified'))))),
               detail.reviews?.length > 0 && h('details', null, h('summary', null, L('人工核对记录', 'Human verification history')),
                 !detail.reviewed && h('p', { role: 'alert' }, L('核对后收到新证据，需要重新核对后才能接续。', 'New evidence arrived after verification; review it before continuing.')),
                 h('pre', { className: 'pa24-json' }, JSON.stringify(detail.reviews, null, 2))),

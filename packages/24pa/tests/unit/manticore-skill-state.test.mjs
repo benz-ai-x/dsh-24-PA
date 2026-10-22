@@ -194,7 +194,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     let executions = 0;
     const runs = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'binding', repos }), packages,
       sourceSession: async () => 'source', tools: async () => [], permissionHash: () => 'permission', checkBusiness() {}, startBusiness: async () => {}, checkTemplate() {},
-      template: async () => { executions++; await new Promise(resolve => setTimeout(resolve, 100)); return '仅执行一次'; }, lease: work => work(), detached: work => work() });
+      template: async () => { executions++; await new Promise(resolve => setTimeout(resolve, 100)); return '仅执行一次'; }, lease: work => work(), control: work => work(), detached: work => work() });
     const base = { id: 'managed:' + entry.id, workspaceBinding: 'binding' }, preview = await runs.preview(base);
     const command = { ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint };
     const results = await Promise.all([runs.start(command), runs.start(command)]);

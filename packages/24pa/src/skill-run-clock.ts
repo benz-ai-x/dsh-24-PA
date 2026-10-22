@@ -19,6 +19,7 @@ export class SkillRunClock {
       const failures: RunFailure[] = [];
       for (const session of observed.values()) {
         const open = new Set<string>();
+        const lastTurn = session.ownEvents().findLast(event => event.type === 'turn/start')?.data.turn;
         for (const [index, event] of session.ownEvents().entries()) {
           if (event.type === 'assistant/attempt') {
             const finish = event.data.stream?.findLast((record: any) => record.type === 'chunk' && record.chunk?.type === 'finish')?.chunk.reason;
@@ -29,7 +30,7 @@ export class SkillRunClock {
           const job = event.type.startsWith('job/');
           const key = `${session.id}:${job ? 'job:' + event.data.jobId : event.data.turn + ':' + event.data.step}`;
           const phase = ['step/start', 'job/registered'].includes(event.type) ? 'start' : 'end';
-          if (phase === 'start') open.add(key); else open.delete(key);
+          if (phase === 'start' && (job || event.data.turn === lastTurn)) open.add(key); else open.delete(key);
           recordRunStep(state, key, phase, event.time);
         }
         if (live(session.id)) liveKeys.push(...open);

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile, readFile, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -8,18 +8,27 @@ import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 
-let root, workspace, scriptPath, host, llm, cluster, binding, env;
+let root, workspace, scriptPath, host, llm, cluster, binding, env, barrierPath, previousExtras;
+const writeBarrier = async value => { const temporary = barrierPath + '.' + randomUUID(); await writeFile(temporary, JSON.stringify(value)); await rename(temporary, barrierPath); };
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'pa24-run-wait-')); workspace = join(root, 'workspace'); await mkdir(workspace);
+  const fixture = join(root, 'barrier-plugin'); await mkdir(fixture);
+  await writeFile(join(fixture, 'package.json'), JSON.stringify({ name: 'pa24-test-run-control-barrier', version: '0.0.0', type: 'module', exports: { '.': './index.mjs' }, dsh: { bundle: { patch: './cordis.patch.yml' } } }));
+  await writeFile(join(fixture, 'cordis.patch.yml'), '- insert:\n    - id: pa24-test-run-control-barrier\n      name: pa24-test-run-control-barrier\n');
+  await writeFile(join(fixture, 'index.mjs'), await readFile(new URL('../helpers/run-control-barrier.mjs', import.meta.url)));
+  barrierPath = join(root, 'barrier.json'); await writeBarrier({});
+  previousExtras = process.env.PA24_E2E_EXTRA_PLUGINS;
+  process.env.PA24_E2E_EXTRA_PLUGINS = [previousExtras, fixture].filter(Boolean).join(',');
   const storage = process.env.PA24_E2E_STORAGE === 'postgres' ? 'postgres' : 'sqlite';
   if (storage === 'postgres') cluster = await startPgCluster();
   await writeFile(join(workspace, 'AGENTS.md'), '# 隔离运行控制验证\n\n```json\n' + JSON.stringify({ ...DEFAULT_CONFIG, storage, enabledWorkers: [...new Set([...DEFAULT_CONFIG.enabledWorkers, 'skill'])], extraBusinessSkills: ['wait-business'] }) + '\n```\n');
   scriptPath = join(root, 'script.json'); await writeFile(scriptPath, JSON.stringify({ steps: [] }));
   llm = await startMockLlm({ scriptPath, logPath: join(root, 'requests.json'), recordInputs: true });
-  env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, ...(cluster ? { PA24_PG_DSN: cluster.dsn } : {}) };
+  env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', PA24_TEST_RUN_BARRIER: barrierPath, DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, ...(cluster ? { PA24_PG_DSN: cluster.dsn } : {}) };
   host = await bootHost({ env }); binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
 }, 600000);
-afterAll(async () => { await host?.stop(); await llm?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true }); });
+afterAll(async () => { await host?.stop(); await llm?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true });
+  if (previousExtras === undefined) delete process.env.PA24_E2E_EXTRA_PLUGINS; else process.env.PA24_E2E_EXTRA_PLUGINS = previousExtras; });
 const detail = runId => host.api('skills.run', { runId, workspaceBinding: binding });
 const until = async (read, check) => {
   const deadline = Date.now() + 20000;
@@ -27,7 +36,7 @@ const until = async (read, check) => {
   throw new Error('运行控制等待超时：' + JSON.stringify(await read()));
 };
 const start = async ({ mode = 'local', tools = ['pa24_run'], executionLimitMs = 900000, steps }) => {
-  await writeFile(scriptPath, JSON.stringify({ steps }));
+  await writeFile(scriptPath, JSON.stringify({ steps, onlySkillRuns: true }));
   const markdown = '---\n' + JSON.stringify({ name: mode === 'business' ? 'wait-business' : 'wait-local-' + randomUUID(), description: '等待与执行时限验证', metadata: { track: 'agent', tools, pa24: { schemaVersion: 1, mode, parameters: {}, actions: [], expectedResult: '沿原记录完成', completionCriteria: '不重复已完成步骤' } } }) + '\n---\n\n按工具和原会话回执执行。';
   const created = await host.api('action', { type: 'skill.change', op: 'save', requestId: randomUUID(), workspaceBinding: binding, displayName: '等待恢复验证', markdown });
   const id = 'managed:' + created.entry.id;
@@ -39,13 +48,75 @@ const start = async ({ mode = 'local', tools = ['pa24_run'], executionLimitMs = 
 };
 const waitStep = { tool: { name: 'pa24_run', input: { action: 'wait', reason: '请补充会议主题' } } };
 const resumeCommand = run => ({ type: 'skill.run', op: 'resume', runId: run.id, requestId: randomUUID(), workspaceBinding: binding, instruction: '会议主题：项目验收', confirm: true });
+const requestsFor = run => llm.requests.filter(request => (request.inputs ?? []).some(message => (message.content ?? []).some(part => part.type === 'text' && part.text === `[24PA skill run: ${run.id}]`)));
+const restart = async (crash = false) => {
+  const hostRoot = host.root;
+  if (crash) { host.child.kill('SIGKILL'); await new Promise(resolve => host.child.once('exit', resolve)); }
+  await host.stop({ keepRoot: true }); await writeBarrier({}); host = await bootHost({ env, root: hostRoot });
+  binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
+};
+
+it.each(['local', 'business'])('%s 补充已被接纳但尚未采用时崩溃，重启采用原消息一次', async mode => {
+  const before = llm.requests.length;
+  const run = await start({ mode, steps: [waitStep, { text: 'ADOPTED_ORIGINAL：项目验收已处理。' }] });
+  await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
+  await writeBarrier({ kind: 'resume' });
+  await host.api('action', resumeCommand(run));
+  const parked = await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.entered);
+  expect(requestsFor(run)).toHaveLength(1);
+  const originalId = parked.messages.find(message => message.content.some(part => part.text?.includes('[24PA resume:'))).id;
+  await restart(true);
+  const done = await until(() => detail(run.id), value => !['running', 'pending', 'waiting'].includes(value.run.status));
+  expect(done.run.status, JSON.stringify(done)).toBe('completed');
+  expect(done.run.session_id).toBe(run.session_id); expect(done.run.result).toContain('ADOPTED_ORIGINAL');
+  expect(requestsFor(run)).toHaveLength(2);
+  expect(done.inputs.filter(input => JSON.stringify(input.message).includes('[24PA resume:'))).toMatchObject([{ message_id: originalId, accepted: true }]);
+  expect(done.inputs.find(input => input.message_id === originalId)?.adopted).toBe(true);
+  expect(JSON.stringify(requestsFor(run).at(-1))).toContain('会议主题：项目验收');
+}, 600000);
+
+it.each(['local', 'business'])('%s 补充提交后、采用前权限阻断，修复后保留原补充', async mode => {
+  const run = await start({ mode, steps: [waitStep, { text: 'PERMISSION_RESTORED：项目验收已处理。' }] });
+  await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
+  const original = (await host.api('snapshot')).workspace.config.extraBusinessSkills;
+  await writeBarrier({ kind: 'resume' });
+  await host.api('action', resumeCommand(run));
+  const parked = await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.entered);
+  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: [...original, 'changed-after-acceptance'] } });
+  await writeBarrier({});
+  await until(() => detail(run.id), value => value.run.status === 'waiting' && value.execution.blocks.some(block => block.kind === 'authorization'));
+  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: original } });
+  await host.api('action', { type: 'skill.run', op: 'recheck', runId: run.id, requestId: randomUUID(), workspaceBinding: binding, confirm: true });
+  const done = await until(() => detail(run.id), value => !['running', 'waiting'].includes(value.run.status));
+  expect(done.run.status, JSON.stringify(done)).toBe('completed');
+  expect(done.inputs.filter(input => JSON.stringify(input.message).includes('[24PA resume:'))).toHaveLength(1);
+  expect(done.inputs.some(input => input.message_id === parked.messages.find(message => message.content.some(part => part.text?.includes('[24PA resume:'))).id)).toBe(true);
+  expect(JSON.stringify(requestsFor(run).at(-1))).toContain('会议主题：项目验收');
+}, 600000);
+
+it.each(['local', 'business'])('%s 首条输入在模型前阻断，重新检查采用原请求而非空泛接续', async mode => {
+  await writeBarrier({ kind: 'start' });
+  const run = await start({ mode, tools: [], steps: [{ text: 'FIRST_INPUT_RECOVERED：原请求已完成。' }] });
+  const parked = await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.entered);
+  const original = (await host.api('snapshot')).workspace.config.extraBusinessSkills;
+  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: [...original, 'initial-input-block'] } });
+  await writeBarrier({});
+  await until(() => detail(run.id), value => value.run.status === 'waiting');
+  expect(requestsFor(run)).toHaveLength(0);
+  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: original } });
+  await host.api('action', { type: 'skill.run', op: 'recheck', runId: run.id, requestId: randomUUID(), workspaceBinding: binding, confirm: true });
+  const done = await until(() => detail(run.id), value => !['running', 'waiting'].includes(value.run.status));
+  expect(done.run.status, JSON.stringify(done)).toBe('completed'); expect(done.run.result).toContain('FIRST_INPUT_RECOVERED');
+  expect(done.inputs.find(input => input.message_id === parked.messages.find(message => message.content.some(part => part.text === `[24PA skill run: ${run.id}]`)).id)?.adopted).toBe(true);
+  expect(requestsFor(run)).toHaveLength(1);
+}, 600000);
 
 it.each(['local', 'business'])('真实宿主 %s：等待并重启后在原运行继续，补充双击只消费一次', async mode => {
   const before = llm.requests.length;
   const run = await start({ mode, steps: [waitStep, { text: 'RESUMED_RESULT：主题已收到，沿原记录完成。' }] });
   const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
   expect(waiting.execution.blocks).toMatchObject([{ kind: 'input', reason: '请补充会议主题' }]);
-  expect(llm.requests.length - before).toBe(1);
+  expect(requestsFor(run)).toHaveLength(1);
   const hostRoot = host.root; await host.stop({ keepRoot: true }); host = await bootHost({ env, root: hostRoot });
   binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
   const restored = await detail(run.id);
@@ -60,8 +131,8 @@ it.each(['local', 'business'])('真实宿主 %s：等待并重启后在原运行
   expect(done.execution.executionMs).toBeGreaterThanOrEqual(waiting.execution.executionMs);
   expect(done.execution.waitingMs).toBeGreaterThan(0);
   expect(done.inputs.filter(input => JSON.stringify(input.message).includes('[24PA resume:') && input.accepted)).toHaveLength(1);
-  expect(llm.requests.length - before).toBe(2);
-  await host.api('action', command); expect(llm.requests.length - before).toBe(2);
+  expect(requestsFor(run)).toHaveLength(2);
+  await host.api('action', command); expect(requestsFor(run)).toHaveLength(2);
 }, 600000);
 
 it('等待期间停止，迟到补充不能复活原运行', async () => {
@@ -69,9 +140,9 @@ it('等待期间停止，迟到补充不能复活原运行', async () => {
   await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
   await host.api('action', { type: 'skill.run', op: 'stop', runId: run.id, workspaceBinding: binding });
   expect((await detail(run.id)).run.status).toBe('stopped');
-  const before = llm.requests.length;
+  const before = requestsFor(run).length;
   await expect(host.api('action', resumeCommand(run))).rejects.toThrow(/等待|结束/);
-  expect((await detail(run.id)).run.status).toBe('stopped'); expect(llm.requests.length).toBe(before);
+  expect((await detail(run.id)).run.status).toBe('stopped'); expect(requestsFor(run)).toHaveLength(before);
 }, 60000);
 
 it('补充信息不会清除授权阻断；修复并重新检查才采用已保存输入', async () => {
@@ -79,16 +150,16 @@ it('补充信息不会清除授权阻断；修复并重新检查才采用已保�
   await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
   const original = (await host.api('snapshot')).workspace.config.extraBusinessSkills;
   await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: [...original, 'another-scope'] } });
-  const before = llm.requests.length;
+  const before = requestsFor(run).length;
   const held = await host.api('action', resumeCommand(run));
   expect(held.run.status).toBe('waiting'); expect(held.execution.blocks.map(block => block.kind)).toEqual(['authorization']);
-  expect(llm.requests.length).toBe(before);
+  expect(requestsFor(run)).toHaveLength(before);
   await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: original } });
   await host.api('action', { type: 'skill.run', op: 'recheck', runId: run.id, requestId: randomUUID(), workspaceBinding: binding, confirm: true });
   const done = await until(() => detail(run.id), value => value.run.status !== 'running' && value.run.status !== 'waiting');
   expect(done.run.status, JSON.stringify(done)).toBe('completed'); expect(done.run.result).toContain('RECHECK_RESULT');
   expect(done.inputs.filter(input => JSON.stringify(input.message).includes('[24PA resume:') && input.accepted)).toHaveLength(1);
-  expect(llm.requests.length - before).toBe(1);
+  expect(requestsFor(run).length - before).toBe(1);
 }, 60000);
 
 it('暂时拒绝最多自动重试三次，全部尝试归原运行；下一次模型请求被阻止', async () => {
@@ -97,7 +168,7 @@ it('暂时拒绝最多自动重试三次，全部尝试归原运行；下一次�
   const run = await start({ tools: [], steps: [rejected, rejected, rejected, rejected, { text: '不得第五次执行' }] });
   const ended = await until(() => detail(run.id), value => !['running', 'pending'].includes(value.run.status));
   expect(ended.run.status, JSON.stringify(ended)).toBe('failed');
-  expect(llm.requests.length - before).toBe(4); expect(ended.attempts).toHaveLength(4);
+  expect(requestsFor(run)).toHaveLength(4); expect(ended.attempts).toHaveLength(4);
   expect(ended.attempts.every(attempt => attempt.endedAt !== null)).toBe(true);
   expect(ended.execution.executionMs).toBeGreaterThan(0);
 }, 60000);
@@ -125,4 +196,20 @@ it('累计执行时限会停止正在执行的工具；已完成动作与未知�
     calls: timedOut.calls.filter(call => ['running', 'unknown'].includes(call.status)).map(call => ({ sessionId: call.session_id, callId: call.call_id, outcome: 'partial', evidence: '实际文件只包含 before-timeout' })),
     native: timedOut.native.filter(item => !item.end_data || item.end_data.producerReported === false).map(item => ({ kind: item.kind, ownerId: item.owner_id, nativeId: item.native_id, evidence: '宿主已停止此作业，文件只有 before-timeout' })) });
   expect(reviewed.reviewed).toBe(true); expect(reviewed.run.status).toBe('timed_out');
+}, 60000);
+
+it('配置变更等待长工具时，累计时限仍终止实际执行并保存回执', async () => {
+  const started = Date.now();
+  const run = await start({ tools: ['bash'], executionLimitMs: 1000, steps: [
+    { tool: { name: 'bash', input: { description: '验证配置与超时并发', command: "printf 'before\\n' >> config-timeout.txt; sleep 6; printf 'after\\n' >> config-timeout.txt", workdir: workspace, timeoutMs: 10000 } } },
+    { text: '不应继续' },
+  ] });
+  await until(() => detail(run.id), value => value.calls.some(call => call.status === 'running'));
+  const old = (await host.api('snapshot')).workspace.config.maxWorkers;
+  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { maxWorkers: old === 2 ? 3 : 2 } });
+  const ended = await until(() => detail(run.id), value => value.run.status === 'timed_out' && value.execution.stop?.settledAt);
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(await readFile(join(workspace, 'config-timeout.txt'), 'utf8')).toBe('before\n');
+  expect(ended.execution.executionMs).toBeGreaterThanOrEqual(1000);
+  expect(ended.calls.some(call => call.status === 'unknown')).toBe(true);
 }, 60000);

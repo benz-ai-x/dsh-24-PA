@@ -1,5 +1,16 @@
 import type { DshSession } from './host.js';
 
+/** A claimed inbox item can be rejected before it reaches the model history. */
+export function turnHasModelInput(session: DshSession, turn: number): boolean {
+  let open: number | undefined;
+  for (const event of session.ownEvents()) {
+    if (event.type === 'turn/start') open = event.data.turn;
+    if (open === turn && (event.type === 'user/message' || event.type === 'assistant/attempt' || event.type === 'assistant/message')) return true;
+    if (event.type === 'turn/end') open = undefined;
+  }
+  return false;
+}
+
 /** The installed host records queue acceptance separately from consumption.
  * Replay its splices so even a pre-step rejection is tied to the input it took;
  * user/message is additional evidence for injected/steered model-visible input. */

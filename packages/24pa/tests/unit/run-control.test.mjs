@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -10,6 +10,10 @@ import { RunControlRepo } from '../../lib/repo/run-control.js';
 import { makeSkillPackage, parseSkillMarkdown } from '../../lib/skill-package.js';
 import { initialRunControl, recordRunStep, checkpointRunTime, blockRun, clearRunBlock, beginRunAttempt, failRunAttempt, runControlSummary, canExecuteRun } from '../../lib/run-control.js';
 import { startPgCluster } from '../helpers/pg.mjs';
+import { SkillRunTemplates } from '../../lib/skill-run-template.js';
+import { SkillRuns } from '../../lib/skill-runs.js';
+import { WorkspaceExecution } from '../../lib/workspace-execution.js';
+import { runCliProcess } from '../../lib/cli-gateway.js';
 
 describe('运行累计执行与等待时间', () => {
   it('并行子步骤计活跃墙钟一次；重复观测不重复计时，重启离线不填入开放区间', () => {
@@ -95,6 +99,15 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     const state = (await repos.runControls.get(run.id)).state;
     expect(state.blocks.map(row => row.key)).toEqual(['budget']); expect(canExecuteRun(state)).toBe(false);
   });
+  it('原生规则更新中的 NUL 分隔符无损保存；旧输入仍可读取', async () => {
+    const message = { id: randomUUID(), content: [{ type: 'text', text: '原生上下文\u0000\ud800' }], source: { kind: 'agent-instructions', changes: [{ scope: '.\u0000AGENTS.md' }] } };
+    await repos.skillRuns.input(run.id, message, true, run.session_id);
+    expect((await repos.skillRuns.inputs(run.id))[0].message).toEqual(message);
+    expect((await repos.skillRuns.evidence(run.id)).inputs[0].message).toEqual(message);
+    const legacy = { id: randomUUID(), content: [{ type: 'text', text: '原输入' }], source: { kind: 'user' } };
+    await db.query('insert into pa24.skill_run_input (run_id, message_id, message, accepted, session_id) values ($1,$2,$3,$4,$5)', [run.id, legacy.id, JSON.stringify(legacy), true, run.session_id]);
+    expect((await repos.skillRuns.inputs(run.id)).find(row => row.message_id === legacy.id).message).toEqual(legacy);
+  });
   it('恢复输入先持久化且同请求只生成一份；相同标识不能更改输入', async () => {
     await repos.runControls.change(run.id, state => blockRun(state, { key: 'input', kind: 'input', reason: '缺信息' }, 1000));
     await repos.skillRuns.transition(run.id, 'waiting', '缺信息');
@@ -114,5 +127,57 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     expect((await repos.skillRuns.get(run.id)).status).toBe('timed_out');
     await expect(repos.runControls.change(run.id, state => clearRunBlock(state, 'budget', 902000))).rejects.toThrow(/结束/);
     await expect(repos.runControls.prepareResume({ runId: run.id, requestId: randomUUID(), hash: 'late', message: {}, change: () => {} })).rejects.toThrow(/结束/);
+  });
+  it('超时终态仍恢复未完成停止；停止回执落盘后不再轮询', async () => {
+    await repos.runControls.change(run.id, state => { state.stop = { requestedAt: Date.now(), settledAt: null, error: '正在核对' }; });
+    await repos.skillRuns.transition(run.id, 'timed_out', '已请求超时停止');
+    expect((await repos.skillRuns.unfinished()).some(row => row.id === run.id)).toBe(true);
+    await repos.runControls.change(run.id, state => { state.stop.settledAt = Date.now(); });
+    expect((await repos.skillRuns.unfinished()).some(row => row.id === run.id)).toBe(false);
+  });
+  it('模型请求边界发现时限耗尽，会请求实际停止且不等待自己的回合结束', async () => {
+    await repos.runControls.change(run.id, state => Object.assign(state, initialRunControl(1000, Date.now() - 2000)));
+    let beforeModel, stops = 0;
+    const runs = new SkillRuns({ host: { get: () => undefined }, context: () => ({ cwd: '/workspace', binding: 'binding', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: work => work(), control: work => work(), detached: work => work(), template: async () => '' });
+    runs.host.mount = async (_agent, _run, hooks) => { beforeModel = hooks.beforeModel; };
+    runs.host.history = async () => null;
+    runs.host.stop = async () => { stops++; };
+    runs.native.observe = async () => ({ pending: false, root: null, histories: [] });
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
+      { type: 'turn/start', time: Date.now() - 1500, data: { turn: 1 } },
+      { type: 'step/start', time: 1, data: { turn: 1, step: 1 } },
+    ] };
+    // Keep the event identity/timestamp stable across clock observations.
+    const events = session.ownEvents(); session.ownEvents = () => events;
+    events[1].time = events[0].time;
+    try {
+      await runs.attach({ id: run.session_id, session });
+      await expect(beforeModel(session)).rejects.toThrow(/时限/);
+      for (let i = 0; i < 50 && !(await repos.runControls.get(run.id)).state.stop?.settledAt; i++) await new Promise(resolve => setTimeout(resolve, 10));
+      expect(stops).toBe(1); expect((await repos.skillRuns.get(run.id)).status).toBe('timed_out');
+      expect((await repos.runControls.get(run.id)).state.stop.settledAt).not.toBeNull();
+    } finally { runs.dispose(); }
+  });
+  it('模板受累计时限约束；配置等待期间取消实际 CLI，保存执行时间', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pa24-template-limit-')), output = join(dir, 'result.txt');
+    const executions = new WorkspaceExecution(); let entered; const started = new Promise(resolve => { entered = resolve; });
+    const templates = new SkillRunTemplates(async () => {
+      entered();
+      await runCliProcess({ bin: process.execPath, argv: ['-e', "require('node:fs').writeFileSync(process.argv[1], 'before'); setTimeout(() => require('node:fs').appendFileSync(process.argv[1], '-after'), 5000);", output], timeoutMs: 20000, fail: kind => new Error(kind) });
+      return '不得超时后完成';
+    }, work => executions.control(work));
+    try {
+      await repos.runControls.change(run.id, state => Object.assign(state, initialRunControl(1000)));
+      const generating = executions.run(() => templates.start({ ...run, mode: 'template' }, repos));
+      await started;
+      const changing = executions.transition(async () => {});
+      await Promise.all([generating, changing]);
+      expect((await repos.skillRuns.get(run.id)).status).toBe('timed_out');
+      expect(await readFile(output, 'utf8')).toBe('before');
+      const control = (await repos.runControls.get(run.id)).state;
+      expect(control.executionMs).toBeGreaterThanOrEqual(1000); expect(control.executionMs).toBeLessThan(4000);
+      expect(control.attempts).toHaveLength(1); expect(control.attempts[0].endedAt).not.toBeNull();
+    } finally { templates.dispose(); await executions.close(); await rm(dir, { recursive: true, force: true }); }
   });
 });

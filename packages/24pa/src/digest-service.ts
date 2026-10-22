@@ -15,6 +15,7 @@ import type { ResolvedTaskSkill, SkillDefinitionLike } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
 import { localDay } from './calendar-time.js';
+import { checkExecution } from './execution-cancellation.js';
 import { digestPeriod, type DigestPeriod } from './digest-period.js';
 import { captureDigestTrigger } from './digest-trigger.js';
 import { skillContract } from './skill-package.js';
@@ -269,16 +270,20 @@ export class DigestService {
 
   /** Gather planning facts once: calendar (with freshness), tasks, waiting, review queue, preferences. */
   private async planningFacts(now: Date, context = digestPeriod('morning', this.deps.config().timeZone, now, 'manual')): Promise<DigestFacts> {
+    checkExecution();
     const dayStart = new Date(context.from), dayEnd = new Date(context.to);
     const missing: string[] = [];
     const observe = async (from: Date, to: Date) => {
+      checkExecution();
       const observation = await this.planning.observeRange(from, to);
+      checkExecution();
       if (!observation.sync.ok) missing.push(`日历同步失败或范围不完整（${from.toISOString()} 至 ${to.toISOString()}，${observation.sync.error ?? '未知'}）：以下为投影，可能过期`);
       return { fresh: observation.sync.ok, syncedAt: observation.syncedAt, sources: observation.sources, events: observation.events.map(e => ({ summary: e.summary,
         start: new Date(Math.max(e.start_time.getTime(), from.getTime())).toISOString(), end: new Date(Math.min(e.end_time.getTime(), to.getTime())).toISOString(), allDay: e.is_all_day, sources: e.sources })) };
     };
     const calendar = await observe(dayStart, dayEnd);
     const tasks = await this.deps.repos().tasks.all();
+    checkExecution();
     const mapTask = (t: typeof tasks[number]) => ({ guid: t.task_guid, summary: t.summary, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes,
       overdue: !!(t.due_at && new Date(t.due_at).getTime() < new Date(context.anchorAt).getTime()) });
     const todayTasks = tasks.filter(t => t.status === 'open' && ((t.due_at && t.due_at < dayEnd) || (t.planned_at && t.planned_at >= dayStart && t.planned_at < dayEnd)));
@@ -290,11 +295,14 @@ export class DigestService {
         ((t.due_at && t.due_at >= dayEnd && t.due_at < nextEnd) || (t.planned_at && t.planned_at >= dayEnd && t.planned_at < nextEnd))).map(mapTask) };
     }
     const waiting = await this.deps.repos().waiting.list('waiting');
+    checkExecution();
     const reviewQueueCount = await this.deps.reviewQueueCount().catch(() => -1);
+    checkExecution();
     const reviewedNotes: { noteId: string; version: number; summary: string; docUrl: string | null; reviewedAt: string | null }[] = [];
     try {
       const recent = await this.deps.repos().notes.recentApproved(5);
       for (const row of recent) {
+        checkExecution();
         if (reviewedNotes.length >= 3) break;
         const derived = noteDerivedContent(row);
         if (derived.derivedStatus === 'needs_rebuild') { missing.push(`笔记 ${row.note_id} v${row.version} 摘要/候选尚未重建或缺少同源证明，未引用旧派生资料`); continue; }
@@ -302,6 +310,7 @@ export class DigestService {
         // so an externally edited note stops being presented as confirmed (P35).
         try {
           const trust = await this.deps.inspectNoteTrust(row.note_id, row.id);
+          checkExecution();
           if (trust.currentValidity === 'unknown') throw new Error(trust.reason ?? '核验结果未知');
           if (trust.currentValidity !== 'matches') continue;
         } catch (error) {
@@ -320,14 +329,17 @@ export class DigestService {
       missing.push('已审笔记列表读取失败；概览未包含该部分，不按零处理');
     }
     const projects: { id: string; name: string; completed: number; total: number }[] = [];
+    checkExecution();
     try {
       for (const project of await this.deps.repos().projects.listIdNames()) {
+        checkExecution();
         try {
           const projectTasks = await this.deps.repos().projects.tasksOf(project.id);
           projects.push({ id: project.id, name: project.name, completed: projectTasks.filter(task => task.status === 'completed').length, total: projectTasks.length });
         } catch { missing.push(`项目「${project.name}」任务读取失败，未按零处理`); }
       }
     } catch { missing.push('项目列表读取失败，概览未包含该部分，不按零处理'); }
+    checkExecution();
     return {
       period: { ...context, observedAt: now.toISOString(), late: now >= dayEnd, snapshotNote: '任务、等待、项目与笔记反映查询时的当前投影，并非原发生时刻的完整历史快照。', completionTimeNote: '完成任务按投影最后同步时间筛选，不能作为精确完成时间。' },
       calendar, nextWeek,

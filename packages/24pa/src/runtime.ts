@@ -566,7 +566,7 @@ export class PaRuntime {
       },
       template: (def, parameters) => this.digest.manualTemplate(def, parameters),
       checkTemplate: def => this.digest.checkTemplate(def),
-      lease: work => this.executions.run(work), detached: work => this.executions.detached(work),
+      lease: work => this.executions.run(work), control: work => this.executions.control(work), detached: work => this.executions.detached(work),
     });
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
@@ -583,7 +583,8 @@ export class PaRuntime {
   }
 
   async runSkill(input: Record<string, unknown>): Promise<unknown> {
-    return this.executions.run<unknown>(() => input.op === 'stop' ? this.skillRuns.stop(input) : ['resume', 'recheck'].includes(String(input.op)) ? this.skillRuns.resume(input) : input.op === 'review' ? this.skillRuns.review(input) : this.skillRuns.start(input));
+    if (input.op === 'stop') return this.executions.control(() => this.skillRuns.stop(input));
+    return this.executions.run<unknown>(() => ['resume', 'recheck'].includes(String(input.op)) ? this.skillRuns.resume(input) : input.op === 'review' ? this.skillRuns.review(input) : this.skillRuns.start(input));
   }
 
   private skillBusinessAction(action: string): WorkerActionHandler {

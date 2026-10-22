@@ -15,6 +15,7 @@ export interface RunControl {
   waits: Array<{ start: number; end: number | null }>;
   attempts: RunAttempt[];
   failures: RunFailure[];
+  stop?: { requestedAt: number; settledAt: number | null; error: string | null };
   terminal: { status: 'completed' | 'failed' | 'stopped' | 'timed_out' | 'needs_reconciliation'; at: number } | null;
 }
 
@@ -132,5 +133,5 @@ export function runControlSummary(state: RunControl, now = Date.now()) {
   const blockedBeforeStart = waits.map(wait => ({ start: Math.max(state.queuedAt, wait.start), end: Math.min(queueEnd, wait.end) })).filter(item => item.end > item.start);
   return { limitMs: state.limitMs, executionMs: state.executionMs, remainingMs: Math.max(0, state.limitMs - state.executionMs),
     queuedMs: Math.max(0, queueEnd - state.queuedAt - intervalMs(blockedBeforeStart)), waitingMs: Math.max(0, intervalMs(waits) - intervalMs(overlaps)),
-    blocks: state.blocks, attempt: state.attempts.length, terminal: state.terminal };
+    blocks: state.blocks, attempt: state.attempts.length, terminal: state.terminal, stop: state.stop ?? null };
 }
