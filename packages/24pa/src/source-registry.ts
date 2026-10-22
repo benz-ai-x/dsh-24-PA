@@ -106,6 +106,18 @@ export class SourceRegistry {
       registrationRevision: row.revision, scopeHash: row.scope_hash, connectionHash: connection, selectedBy: reason, checkedAt: proof.checkedAt };
   }
 
+  /** Explicit routing conditions cannot silently replace a frozen target. */
+  assertSelection(target: SourceTarget, selector: SourceSelector, authorized: SourceSelector = {}): void {
+    const config = effectiveSources(this.deps.config());
+    for (const key of ['sourceId', 'company', 'project'] as const) {
+      if (selector[key] === undefined || selector[key] === authorized[key]) continue;
+      // Check each explicit condition, even if another field already names
+      // the fixed source. Conflicting conditions must not disappear silently.
+      const selected = selectSource(config, target.domain, { [key]: selector[key] });
+      if (selected.source.id !== target.sourceId) throw new SourceError('本次动作要求的目标超出计划固定授权，请先明确重配计划。');
+    }
+  }
+
   /** Current registration and actual permissions may only narrow an existing authorization. */
   async verify(target: SourceTarget, capability: SourceCapability): Promise<SourceEvidence> {
     const source = effectiveSources(this.deps.config()).entries.find(row => row.id === target.sourceId);

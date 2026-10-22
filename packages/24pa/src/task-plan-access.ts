@@ -33,6 +33,7 @@ export class TaskPlanAccess {
         || (skill.contract?.actions ?? []).some(action => !old.contract?.actions?.includes(action))
         || skill.resources.some(resource => !old.resources.includes(resource))) throw new Error('Skill 新版本增加了工具、业务动作或资源范围，请显式重新配置并确认。');
       if (config.delivery.channel !== (previous.delivery?.channel ?? 'none')) throw new Error('投递方式已改变，请显式重新配置授权。');
+      if (taskPlanFingerprint(config.selectors) !== taskPlanFingerprint(previous.selectors ?? {})) throw new Error('业务目标选择已改变，请显式重新配置授权。');
       await this.verify(previous);
       return { ...previous, skill, checkedAt: new Date().toISOString() };
     }
@@ -44,7 +45,7 @@ export class TaskPlanAccess {
       if (sameDomain && (sameDomain.identityKey !== target.identityKey || sameDomain.resource.id !== target.resource.id || sameDomain.registrationRevision !== target.registrationRevision)) throw new Error('目标核验过程中身份或资源改变，请重新预览。');
       targets.push({ target, capability: write.capability });
     }
-    return { checkedAt: new Date().toISOString(), skill, targets,
+    return { checkedAt: new Date().toISOString(), selectors: structuredClone(config.selectors), skill, targets,
       delivery: config.delivery.channel === 'none' ? null : await this.deps.owner(config.delivery.channel) };
   }
   async verify(authorization: TaskPlanAuthorization): Promise<void> {
@@ -64,6 +65,7 @@ export class TaskPlanAccess {
     const binding = authorization.targets.find(row => row.target.domain === write.domain && row.capability === write.capability);
     if (!binding) throw new Error('本计划缺少已确认的业务目标。');
     await this.deps.sources.verify(binding.target, binding.capability);
+    this.deps.sources.assertSelection(binding.target, args, authorization.selectors?.[write.domain]);
     const { sourceId: _source, company: _company, project: _project, channel: _channel, calendarId: _calendar, _sourceTarget: _target, ...values } = args;
     if ((args.sourceId && args.sourceId !== binding.target.sourceId) || (args.channel && args.channel !== binding.target.platform)
       || (args.calendarId && args.calendarId !== binding.target.resource.id)) throw new Error('本次动作要求的目标超出计划固定授权，请先明确重配计划。');

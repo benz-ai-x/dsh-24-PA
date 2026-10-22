@@ -62,14 +62,20 @@ export function samePlanTiming(record: Record<string, any>, spec: Record<string,
 }
 
 export function previewPlanTimes(spec: Record<string, unknown>, now = Date.now(), count = 5): { spec: Record<string, unknown>; times: string[] } {
-  if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error('预览次数须为 1–20。');
   const frozen = freezePlanTiming(spec, now);
-  let record = build(frozen, now);
+  return { spec: frozen, times: nativePlanTimes(build(frozen, now), count) };
+}
+
+/** Preserve the native anchor, particularly for interval schedules. */
+export function nativePlanTimes(initial: ScheduleRecord, count = 5): string[] {
+  if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error('预览次数须为 1–20。');
+  let record = initial;
+  if (!Number.isFinite(Date.parse(record.scheduledAt))) throw new Error('原生计划缺少有效的下次运行时间。');
   const times = [record.scheduledAt];
   while (times.length < count && isRecurringScheduleRecord(record)) {
     const next = resolveRecurringOccurrence(record, Date.parse(record.scheduledAt)).nextScheduledAt;
     if (!next) break;
     times.push(next); record = { ...record, scheduledAt: next };
   }
-  return { spec: frozen, times };
+  return times;
 }

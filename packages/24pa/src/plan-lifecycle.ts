@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { freezePlanTiming, planTimingRequest, planTimingChange, samePlanTiming } from './plan-time.js';
+import { freezePlanTiming, planTimingRequest, planTimingChange, samePlanTiming, nativePlanTimes } from './plan-time.js';
+import type { ScheduleRecord } from '@deepseek-ai/dsh-schedule';
 import type { DigestRepo, DigestPlanRow } from './repo.js';
 import type { NativeScheduleService } from './host.js';
 import { digestWakePrompt } from './prompts.js';
@@ -24,6 +25,30 @@ export class PlanLifecycle {
   private paused = false;
   private readonly pending = new Map<string, Promise<unknown>>();
   constructor(private readonly deps: { repo(): DigestRepo; native(): NativeScheduleService | null; available?(): boolean }) {}
+
+  async nextTimes(plans: DigestPlanRow[]): Promise<Map<string, { nextTimes: string[]; timingError: string | null }>> {
+    const result = new Map<string, { nextTimes: string[]; timingError: string | null }>();
+    const active = plans.filter(plan => plan.status === 'active');
+    if (!active.length) return result;
+    let catalog;
+    try {
+      const native = this.deps.native();
+      if (!native?.catalog) throw new Error('当前 Host 无法读取原生计划目录。');
+      catalog = await native.catalog();
+    } catch (error) {
+      for (const plan of active) result.set(plan.id, { nextTimes: [], timingError: (error as Error).message });
+      return result;
+    }
+    for (const plan of active) {
+      try {
+        const record = catalog.find(row => row.id === plan.schedule_id && row.sessionId === plan.session_id);
+        if (!record || (plan.schedule_generation && !record.prompt.endsWith(`\n24PA计划操作：${plan.schedule_generation}`))
+          || !samePlanTiming(record, plan.schedule_spec)) throw new Error('原生计划记录缺失或与当前计划不符，请检查调度状态。');
+        result.set(plan.id, { nextTimes: record.status === 'active' ? nativePlanTimes(record as unknown as ScheduleRecord) : [], timingError: null });
+      } catch (error) { result.set(plan.id, { nextTimes: [], timingError: (error as Error).message }); }
+    }
+    return result;
+  }
 
   async pause(): Promise<void> { this.paused = true; await Promise.allSettled([...this.pending.values()]); }
   resumeAdmission(): void { this.paused = false; }

@@ -69,7 +69,7 @@ export class TaskPlanRepo {
         if (row.recycled_at || row.delete_when_idle) throw new Error('计划已进入删除流程，请先还原。');
         if (row.status === 'active' || row.schedule_id || row.lifecycle) throw new Error('请先确认原生计划暂停，再保存新的计划配置。');
         row = (await tx.query<TaskPlanRow>(`update pa24.digest_plan set title = $2, kind = $3, skill = $4, schedule_spec = $5,
-          task_config = $6, task_authorization = null, owner_enabled = false, status = 'paused', voice = $7,
+          task_config = $6, owner_enabled = false, status = 'paused', voice = $7,
           revision = revision + 1, updated_at = now() where id = $1 returning *`,
         [row.id, input.title, input.kind, input.skill, JSON.stringify(input.scheduleSpec), JSON.stringify(input.configuration), input.configuration.delivery.voice])).rows[0]!;
       } else {

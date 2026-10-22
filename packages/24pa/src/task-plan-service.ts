@@ -52,11 +52,10 @@ export class TaskPlanService {
     if (input.state && !states.includes(String(input.state))) throw new Error('计划状态筛选无效。');
     const result = await context.repos.taskPlans.list({ query: String(input.query ?? ''), skillId: input.skillId ? String(input.skillId) : undefined,
       state: input.state as 'enabled' | 'paused' | 'blocked' | 'recycled' | undefined, offset: Number(input.offset) || 0, limit: 20 });
+    const [timings, skillBlocks] = await Promise.all([this.deps.lifecycle.nextTimes(result.rows), context.repos.skills.planBlocks()]);
     const rows = await Promise.all(result.rows.map(async row => {
-      let nextTimes: string[] = [], timingError: string | null = null;
-      try { if (row.status === 'active') nextTimes = previewPlanTimes(row.schedule_spec).times; } catch (error) { timingError = (error as Error).message; }
-      return { ...row, nextTimes, timingError, blocks: await context.repos.taskPlans.blocks(row.id),
-        skillBlock: (await context.repos.skills.planBlocks()).find(block => block.plan_id === row.id) ?? null };
+      return { ...row, ...(timings.get(row.id) ?? { nextTimes: [], timingError: null }), blocks: await context.repos.taskPlans.blocks(row.id),
+        skillBlock: skillBlocks.find(block => block.plan_id === row.id) ?? null };
     }));
     return { ...result, rows, workspaceBinding: context.binding };
   }

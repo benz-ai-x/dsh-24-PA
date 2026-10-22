@@ -17,6 +17,7 @@ export interface TaskPlanConfiguration {
 }
 export interface TaskPlanAuthorization {
   checkedAt: string;
+  selectors?: TaskPlanConfiguration['selectors'];
   skill: { id: string; name: string; versionId: string; packageHash: string; tools: string[]; contract: SkillContract | null; resources: string[] };
   targets: Array<{ target: SourceTarget; capability: SourceCapability }>;
   delivery: { channel: 'feishu' | 'wecom'; target: string; identityKey: string; connectionHash: string } | null;
