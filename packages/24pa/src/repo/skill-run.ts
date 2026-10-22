@@ -34,6 +34,7 @@ export interface SkillRunRow {
   delivery_status: PlanDeliveryStatus; recovery: { message: unknown } | null;
   created_at: Date; updated_at: Date;
   plan_id?: string | null; trigger_kind?: string | null; triggered_at?: Date | null;
+  stop_reason?: 'owner' | 'blocked' | null;
 }
 export interface SkillRunCall {
   run_id: string; call_id: string; tool: string; arguments: Record<string, unknown>;
@@ -298,12 +299,12 @@ export class SkillRunRepo {
   async rejectPendingPlanRun(id: string, reason: string): Promise<void> {
     await this.db.withTransaction(async tx => {
       const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1', [id])).rows[0];
-      if (run?.plan_id) await this.cancelQueuedPlan(run.plan_id, reason, tx, run.id);
+      if (run?.plan_id) await this.cancelQueuedPlan(run.plan_id, reason, tx, run.id, 'blocked');
     });
   }
-  async cancelQueuedPlan(id: string, reason: string, tx: PaQueryer, runId?: string): Promise<void> {
-    const runs = (await tx.query<SkillRunRow>(`update pa24.skill_run set status = 'stopped', progress = $2, updated_at = now() where plan_id = $1 and status = 'pending'
-      ${runId ? 'and id = $3' : ''} returning *`, runId ? [id, reason, runId] : [id, reason])).rows;
+  async cancelQueuedPlan(id: string, reason: string, tx: PaQueryer, runId?: string, cause: 'owner' | 'blocked' = 'owner'): Promise<void> {
+    const runs = (await tx.query<SkillRunRow>(`update pa24.skill_run set status = 'stopped', progress = $2, stop_reason = $3, updated_at = now() where plan_id = $1 and status = 'pending'
+      ${runId ? 'and id = $4' : ''} returning *`, runId ? [id, reason, cause, runId] : [id, reason, cause])).rows;
     for (const run of runs) {
       await tx.query("update pa24.work_item set status = 'stopped', progress = $2, updated_at = now() where id = $1 and active_skill_run_id = $3", [run.work_item_id, reason, run.id]);
       const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [run.id])).rows[0];
@@ -325,7 +326,7 @@ export class SkillRunRepo {
           || (await tx.query('select plan_id from pa24.skill_plan_block where plan_id = $1', [selected.plan_id])).rowCount;
         if (!plan || plan.recycled_at || plan.delete_when_idle || blocked || (selected.trigger_kind === 'schedule'
           && (!plan.owner_enabled || plan.status !== 'active' || plan.schedule_generation !== selected.snapshot.plan?.generation))) {
-          await this.cancelQueuedPlan(selected.plan_id, '计划已暂停、删除或阻断，未启动的排队运行已停止。', tx);
+          await this.cancelQueuedPlan(selected.plan_id, '计划已暂停、删除或阻断，未启动的排队运行已停止。', tx, undefined, blocked ? 'blocked' : 'owner');
           return false;
         }
       }

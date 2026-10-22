@@ -8,7 +8,7 @@ import { buildSpokenVariant } from '../spoken-result.js';
 
 export type PlanDeliveryStatus = 'not_requested' | 'suppressed' | 'pending' | 'sent' | 'partial' | 'failed' | 'unknown' | 'expired';
 export interface PlanNotice {
-  id: string; run_id: string; plan_id: string; kind: 'result' | 'failure' | 'attention' | 'stopped';
+  id: string; run_id: string; plan_id: string; kind: 'result' | 'failure' | 'attention' | 'stopped' | 'blocked';
   status: 'not_requested' | 'suppressed' | 'queued'; reason: string | null;
   destination: TaskPlanAuthorization['delivery']; created_at: Date;
 }
@@ -81,7 +81,8 @@ export class PlanResultRepo {
           await tx.query("update pa24.digest_plan set status = 'paused', revision = revision + 1, updated_at = now() where id = $1", [id]);
         }
         await this.notice(tx, run, 'failure', undefined, stopped ? '计划已因连续失败暂停；主人启停选择保留。' : undefined);
-      } else await this.notice(tx, run, 'stopped', '主人已停止运行，不计入连续失败。');
+      } else if (run.stop_reason === 'blocked') await this.notice(tx, run, 'blocked', undefined, '本次未启动，须修复原计划的权限或依赖；不计入连续失败。');
+      else await this.notice(tx, run, 'stopped', '主人已停止运行，不计入连续失败。');
       await this.refresh(run.id, tx);
     }
   }
@@ -135,6 +136,7 @@ export class PlanResultRepo {
   }
   async repair(input: { requestId: string; requestHash: string; runId: string; outboxId: number; fingerprint: string;
     op: 'retry' | 'review'; outcome?: 'sent' | 'not_sent'; evidence?: string; messageId?: string }): Promise<void> {
+    if (input.op !== 'retry' && input.op !== 'review') throw new Error('投递操作无效。');
     await this.db.withTransaction(async tx => {
       // Lock the immutable intent first, then its mutable delivery receipt.
       const linked = (await tx.query<PlanDelivery>('select * from pa24.task_plan_delivery where outbox_id = $1 for update', [input.outboxId])).rows[0];

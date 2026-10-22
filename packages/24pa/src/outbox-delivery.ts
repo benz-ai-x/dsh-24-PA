@@ -6,6 +6,10 @@ export interface DeliveryAdapter {
   send(row: OutboxRow): Promise<{ messageId: string }>;
 }
 export interface DeliveryHold { status: 'pending' | 'failed' | 'expired'; error: string; retryInMs?: number }
+/** Preparation completed, but no platform request has been dispatched. */
+export class DeliveryHeld extends Error {
+  constructor(readonly hold: DeliveryHold) { super(hold.error); }
+}
 
 /** Owns durable delivery through platform confirmation and local reply routing.
  * A recorded message id is never sent again, even when route storage fails. */
@@ -69,6 +73,7 @@ export class OutboxDelivery {
         messageId = (await adapter.send(row)).messageId;
         if (!messageId) throw Object.assign(new Error('平台未返回消息回执；请先核对。'), { outcome: 'unknown' });
       } catch (error) {
+        if (error instanceof DeliveryHeld) { await repo.mark(row.id, { ...error.hold, releaseAttempt: true }); return; }
         const unknown = (error as { outcome?: string })?.outcome !== 'failed';
         await repo.mark(row.id, { status: unknown ? 'unknown' : row.attempts >= 3 ? 'failed' : 'pending', error: (error as Error).message, ...(!unknown && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
         return;

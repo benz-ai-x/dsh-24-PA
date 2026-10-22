@@ -758,4 +758,10 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 24,
+    statements: [
+      `alter table pa24.skill_run add column if not exists stop_reason text`,
+    ],
+  },
 ];

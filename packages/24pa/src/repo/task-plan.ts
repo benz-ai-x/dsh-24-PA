@@ -119,7 +119,7 @@ export class TaskPlanRepo {
       await tx.query(`insert into pa24.task_plan_block (plan_id, key, kind, reason) values ($1,$2,$3,$4)
         on conflict (plan_id, key) do update set kind = excluded.kind, reason = excluded.reason`, [id, block.key, block.kind, block.reason]);
       await tx.query("update pa24.digest_plan set status = 'paused', revision = revision + 1, updated_at = now() where id = $1", [id]);
-      await new SkillRunRepo(this.db).cancelQueuedPlan(id, `计划阻断：${block.reason}`, tx);
+      await new SkillRunRepo(this.db).cancelQueuedPlan(id, `计划阻断：${block.reason}`, tx, undefined, 'blocked');
     });
   }
   async clearBlock(id: string, key: string): Promise<void> {
