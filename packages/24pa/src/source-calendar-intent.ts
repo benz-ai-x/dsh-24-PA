@@ -17,6 +17,9 @@ export function sameCalendarTarget(args: Record<string, unknown>, target: Source
     try { return selectSource(sources, 'calendar', { sourceId: String(args.sourceId) }, false).source.id === target.sourceId; }
     catch { return false; }
   }
+  // Like target(), an explicit native calendar outranks mappings and defaults.
+  // Its frozen actual/declared ID has already been checked above.
+  if (args.calendarId !== undefined) return true;
   if (args.company !== undefined || args.project !== undefined) {
     if (args.company === old.company && args.project === old.project && old.sourceId === undefined) return true;
     try { return selectSource(sources, 'calendar', { company: args.company as string | undefined, project: args.project as string | undefined }, false).source.id === target.sourceId; }

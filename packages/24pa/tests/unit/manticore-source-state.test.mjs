@@ -326,6 +326,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore 来源、身�
     await expect(writer.write(item, 'create', { start, end, calendarId: 'real-primary' })).rejects.toThrow(/待核对/);
     expect(writes).toHaveLength(1); expect(await repos.operations.calendarCreatesForWork(item.id)).toHaveLength(1);
   });
+  it.each(['primary', 'real-primary'])('显式来源未知后以原日历 %s 重试，不受当前默认或映射影响', async calendarId => {
+    current.sources.entries[0].resourceId = 'primary';
+    const { writer, item, writes } = await writerFixture({ invoke: async () => { throw Object.assign(Error('超时'), { outcome: 'unknown' }); } });
+    await expect(writer.write(item, 'create', { start, end, sourceId: 'a' })).rejects.toThrow('超时');
+    current.sources.defaults.calendar = 'b';
+    await expect(writer.write(item, 'create', { start, end, calendarId })).rejects.toThrow(/待核对/);
+    await expect(writer.write(item, 'create', { start, end, calendarId, company: '公司' })).rejects.toThrow(/待核对/);
+    await expect(writer.write(item, 'create', { start, end, calendarId, sourceId: 'b' })).rejects.toThrow(/日历标识与登记来源不符/);
+    expect(writes).toHaveLength(1); expect(await repos.operations.calendarCreatesForWork(item.id)).toHaveLength(1);
+  });
   it('提醒父意图对等价时间和来源名称统一防重，保留原规则和写入操作', async () => {
     current.sources.entries[0].name = '个人日历';
     let fail = true;
