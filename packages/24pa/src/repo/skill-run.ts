@@ -9,6 +9,7 @@ import { finishRunControl } from '../run-control.js';
 import type { TaskPlanAuthorization, TaskPlanConfiguration } from '../task-plan.js';
 import type { TaskPlanRow } from './task-plan.js';
 import { hasExecutionCapacity } from './execution-capacity.js';
+import type { PlanDeliveryStatus } from './plan-result.js';
 
 export type SkillRunStatus = 'pending' | 'running' | 'waiting' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'timed_out' | 'needs_reconciliation';
 export interface SkillRunSnapshot {
@@ -30,7 +31,7 @@ export interface SkillRunRow {
   skill_id: string; version_id: string; source_session_id: string; session_id: string;
   workspace_path: string; mode: 'local' | 'business' | 'template'; trial: boolean;
   snapshot: SkillRunSnapshot; status: SkillRunStatus; progress: string | null; result: string | null;
-  delivery_status: 'not_requested'; recovery: { message: unknown } | null;
+  delivery_status: PlanDeliveryStatus; recovery: { message: unknown } | null;
   created_at: Date; updated_at: Date;
   plan_id?: string | null; trigger_kind?: string | null; triggered_at?: Date | null;
 }

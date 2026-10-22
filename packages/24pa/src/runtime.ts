@@ -4,6 +4,7 @@ import { consumedTurn } from './host-turn.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { TaskPlanService } from './task-plan-service.js';
 import { TaskPlanEngine } from './task-plan-engine.js';
+import { PlanResults } from './plan-results.js';
 import type { TaskPlanAuthorization } from './task-plan.js';
 import type { RunInput } from './skill-run-host.js';
 import { randomUUID, createHash } from 'node:crypto';
@@ -199,6 +200,8 @@ export class PaRuntime {
     repo: () => this.repos!.outbox,
     routes: () => this.repos!.messageRoutes,
     sent: () => { this.lastSentAt = nowIso(); },
+    beforeSend: row => this.planResults.beforeSend(row),
+    updated: row => this.planResults.updated(row),
     adapters: {
       local: {
         available: () => !this.closed && !!this.config,
@@ -434,6 +437,7 @@ export class PaRuntime {
   readonly skillRuns: SkillRuns;
   readonly taskPlans: TaskPlanService;
   readonly planEngine: TaskPlanEngine;
+  private readonly planResults: PlanResults;
 
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  delivery; F19 voice + F40/F41 skill tracks extend here. The runtime
@@ -608,6 +612,7 @@ export class PaRuntime {
       lifecycle: this.digest.plans, access: this.taskPlanAccess, gate: (key, work) => this.gate(key, work) });
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });
+    this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess, silence: this.silencePolicy, binding: () => this.workspaceBinding });
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
     this.builtInRoles = this.roles.list();
@@ -654,6 +659,9 @@ export class PaRuntime {
   }
   async changeTaskPlan(input: Record<string, unknown>): Promise<unknown> {
     return this.executions.run<unknown>(() => input.op === 'run' ? this.planEngine.runNow(input) : this.taskPlans.change(input));
+  }
+  async changePlanDelivery(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(() => this.planResults.change(input));
   }
 
   private skillBusinessAction(action: string): WorkerActionHandler {
@@ -1764,6 +1772,7 @@ export class PaRuntime {
         const session = this.accessSessionId ? this.ctx.sessions.get?.(this.accessSessionId) : undefined;
         if (session) await this.planEngine.recover(session).catch(error => console.warn(`[pa24] 定时触发恢复待核对：${(error as Error).message}`));
         await this.skillRuns.poll();
+        await this.planResults.reconcile();
         await this.taskPlans.reconcile();
       }
     }).catch(() => { /* Shutdown/transition refuses new leases; native evidence remains recoverable. */ }).finally(() => { this.pollingRuns = false; });

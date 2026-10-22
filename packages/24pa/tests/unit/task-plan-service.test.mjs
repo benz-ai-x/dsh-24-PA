@@ -171,6 +171,17 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     expect((await repos.taskPlans.blocks(row.id)).map(item => item.key)).toEqual(['manual']);
     expect((await repos.taskPlans.get(row.id)).owner_enabled).toBe(false);
   });
+  it('明确修复连续失败只解除该阻断，保留其他阻断和主人的暂停选择', async () => {
+    let row = await enable(await create()); row = (await service.change(command('pause', row))).plan;
+    await repos.taskPlans.block(row.id, { key: 'failures', kind: 'failures', reason: '连续失败' });
+    await repos.taskPlans.block(row.id, { key: 'manual', kind: 'manual', reason: '另需核对' });
+    await db.query('update pa24.digest_plan set failure_count = 3 where id = $1', [row.id]); row = await repos.taskPlans.get(row.id);
+    const preview = await service.preview({ id: row.id, workspaceBinding: 'binding' });
+    const input = command('repair', row, { key: 'failures', confirm: true, fingerprint: preview.fingerprint });
+    await service.change(input); await service.change(input);
+    expect(await repos.taskPlans.get(row.id)).toMatchObject({ owner_enabled: false, status: 'paused', failure_count: 0, schedule_id: null });
+    expect((await repos.taskPlans.blocks(row.id)).map(block => block.key)).toEqual(['manual']); expect(creates).toBe(1);
+  });
   it('原生创建回执未知时重试认领原 ID；旧启用请求不复活后续暂停', async () => {
     let row = await create(); const preview = await service.preview({ id: row.id, workspaceBinding: 'binding' });
     const input = command('enable', row, { confirm: true, fingerprint: preview.fingerprint }), createNative = native.create;

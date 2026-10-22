@@ -52,9 +52,12 @@ export class TaskPlanAccess {
   async verify(authorization: TaskPlanAuthorization): Promise<void> {
     for (const action of authorization.skill.contract?.actions ?? []) this.checkAction(action);
     for (const row of authorization.targets) await this.deps.sources.verify(row.target, row.capability);
-    if (authorization.delivery) {
-      const current = await this.deps.owner(authorization.delivery.channel);
-      if (taskPlanFingerprint(current) !== taskPlanFingerprint(authorization.delivery)) throw new Error('原投递身份、主人或接入已改变；请核对原目标，不能改投新默认。');
+    await this.verifyDelivery(authorization.delivery);
+  }
+  async verifyDelivery(delivery: TaskPlanAuthorization['delivery']): Promise<void> {
+    if (delivery) {
+      const current = await this.deps.owner(delivery.channel);
+      if (taskPlanFingerprint(current) !== taskPlanFingerprint(delivery)) throw new Error('原投递身份、主人或接入已改变；请核对原目标，不能改投新默认。');
     }
   }
   async action(authorization: TaskPlanAuthorization, action: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {

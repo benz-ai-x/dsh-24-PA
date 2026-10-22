@@ -129,6 +129,16 @@ export class TaskPlanRepo {
       if (result.rowCount) await tx.query('update pa24.digest_plan set revision = revision + 1, updated_at = now() where id = $1', [id]);
     });
   }
+  async repairBlock(input: PlanSelection & { key: string }): Promise<TaskPlanRow> {
+    return this.change(input, async tx => {
+      const row = await this.selected(input, tx);
+      if (!['failures', 'expired-once'].includes(input.key)) throw new Error('此阻断须通过对应的权限或依赖修复入口处理。');
+      if (row.recycled_at || row.delete_when_idle) throw new Error('请先还原计划。');
+      await tx.query('delete from pa24.task_plan_block where plan_id = $1 and key = $2', [row.id, input.key]);
+      return (await tx.query<TaskPlanRow>(`update pa24.digest_plan set failure_count = case when $2 then 0 else failure_count end,
+        revision = revision + 1, updated_at = now() where id = $1 returning *`, [row.id, input.key === 'failures'])).rows[0]!;
+    });
+  }
   async activeRuns(id: string, tx: PaQueryer = this.db): Promise<Array<{ id: string; status: string }>> {
     const rows = (await tx.query<SkillRunRow>('select * from pa24.skill_run where plan_id = $1', [id])).rows;
     const runs = new SkillRunRepo(this.db), unsettled = [];

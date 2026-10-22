@@ -3,6 +3,7 @@ import { SkillRunRepo, type SkillRunAdmission, type SkillRunRow } from './skill-
 import { TaskPlanRepo, type TaskPlanRow } from './task-plan.js';
 import { lockPlanSkill } from './skill.js';
 import { taskPlanFingerprint } from '../task-plan-access.js';
+import { PlanResultRepo } from './plan-result.js';
 
 export interface PlanTriggerRow {
   id: string; plan_id: string; generation: string; occurrence: string; source: 'schedule' | 'manual';
@@ -31,6 +32,7 @@ export class PlanTriggerRepo {
       await runs.lockAdmission(skillId, tx);
       let rejected = input.rejection;
       try { await lockPlanSkill(tx, input.plan.skill, input.plan.id); } catch (error) { rejected ??= (error as Error).message; }
+      await new PlanResultRepo(this.db).settlePlan(input.plan.id, tx);
       const plan = (await tx.query<TaskPlanRow>('select * from pa24.digest_plan where id = $1 for update', [input.plan.id])).rows[0];
       if (!plan?.task_config) throw new Error('计划已不存在或尚未使用通用配置。');
       const id = planTriggerId(plan.id, input.generation, input.occurrence);

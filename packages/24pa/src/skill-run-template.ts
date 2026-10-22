@@ -46,7 +46,7 @@ export class SkillRunTemplates {
       const result = await withExecutionSignal(abort.signal, () => this.generate(run.snapshot.definition, run.snapshot.parameters, run));
       await repos.runControls.change(run.id, state => recordRunStep(state, key, 'end', Date.now()));
       if (Date.now() - started + initial.state.executionMs >= initial.state.limitMs) expired = true;
-      if (!expired && !abort.signal.aborted) await repos.skillRuns.transition(run.id, 'completed', '模板已生成；未调用模型，未请求投递', result);
+      if (!expired && !abort.signal.aborted) await repos.skillRuns.transition(run.id, 'completed', '模板已生成并保存；未调用模型', result);
     } catch (error) {
       if (!abort.signal.aborted) await repos.skillRuns.transition(run.id, 'failed', `模板执行失败：${error instanceof Error ? error.message : String(error)}`);
     } finally {

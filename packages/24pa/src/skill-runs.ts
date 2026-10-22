@@ -98,6 +98,7 @@ export class SkillRuns {
     return { run: this.view(run), ...evidence, inputs: evidence.inputs.map(input => ({ ...input,
       adopted: input.session_id && adoption.get(input.session_id) ? adoption.get(input.session_id)!.has(input.message_id) : null })),
       execution: control ? runControlSummary(control.state) : null, attempts: control?.state.attempts ?? [],
+      deliveries: run.plan_id ? await context.repos.planResults.inspect(run.id) : [],
       unresolvedOperations: await context.repos.skillRuns.unresolvedOperations(run.work_item_id), workspaceBinding: context.binding };
   }
   private async prepare(input: Record<string, unknown>, options: { sourceSessionId?: string; background?: boolean } = {}) {

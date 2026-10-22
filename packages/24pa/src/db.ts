@@ -734,4 +734,28 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `create table if not exists pa24.skill_run_admission_guard (id text primary key)`,
     ],
   },
+  {
+    version: 23,
+    statements: [
+      `create table if not exists pa24.task_plan_run_outcome (
+        run_id text primary key, plan_id text not null, status text not null,
+        result_hash text, created_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.task_plan_notice (
+        id text primary key, run_id text not null, plan_id text not null, kind text not null,
+        status text not null, reason text, destination jsonb,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists task_plan_notice_run_idx on pa24.task_plan_notice (run_id, created_at)`,
+      `create table if not exists pa24.task_plan_delivery (
+        outbox_id bigint primary key, notice_id text not null, run_id text not null,
+        component text not null, expires_at timestamptz, override_quiet boolean not null default false
+      )`,
+      `create index if not exists task_plan_delivery_run_idx on pa24.task_plan_delivery (run_id)`,
+      `create table if not exists pa24.task_plan_delivery_change (
+        request_id text primary key, request_hash text not null, outbox_id bigint not null,
+        record jsonb not null, created_at timestamptz not null default now()
+      )`,
+    ],
+  },
 ];

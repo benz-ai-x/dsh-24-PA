@@ -152,6 +152,10 @@ export class TaskPlanService {
           await repo.finishDelete(row.id);
         }
         result = await repo.remember(identity(), await this.required(context, row.id));
+      } else if (op === 'repair' && row) {
+        const check = await this.preflight(context, row, false);
+        if (input.confirm !== true || input.fingerprint !== check.fingerprint) throw new Error('请重新核验配置与权限，再确认解除此项阻断。');
+        result = await repo.repairBlock({ ...selected(row, 'done'), key: String(input.key) });
       } else if (op === 'restore' && row) result = await repo.restore(selected(row, 'done'));
       else throw new Error('未知计划操作或缺少计划。');
       return { plan: result, repeated: false, workspaceBinding: context.binding };

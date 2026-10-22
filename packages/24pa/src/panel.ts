@@ -66,6 +66,7 @@ export const PANEL_RPC = {
     skillChange: 'skill.change',
     skillRun: 'skill.run',
     planChange: 'plan.change',
+    planDelivery: 'plan.delivery',
     sourceCheck: 'source.check',
     calendarVerify: 'calendar.verify',
     testInject: 'test.inject',
@@ -217,6 +218,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
     return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : DIGEST_UNCONFIRMED_GRACE_MS);
   },
   [PANEL_RPC.actions.planChange]: (runtime, payload) => runtime.changeTaskPlan(payload),
+  [PANEL_RPC.actions.planDelivery]: (runtime, payload) => runtime.changePlanDelivery(payload),
   [PANEL_RPC.actions.digestReschedule]: (runtime, payload) => runtime.digestReschedule(payload as Record<string, unknown>),
   [PANEL_RPC.actions.digestSetSkill]: (runtime, payload) => runtime.digestSetSkill(payload as Record<string, unknown>),
   [PANEL_RPC.actions.digestSetVoice]: (runtime, payload) => runtime.digestSetVoice(payload as Record<string, unknown>),
