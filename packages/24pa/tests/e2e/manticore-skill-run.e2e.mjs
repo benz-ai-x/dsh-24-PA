@@ -283,3 +283,53 @@ it('本地 Skill 通过原生业务交办执行，Worker 保留业务门禁并�
   const child = (await host.api('snapshot')).work.find(item => item.id === call.session_id);
   expect(child).toMatchObject({ status: 'completed', parent_session_id: detail.run.session_id, execution_mode: 'worker' });
 }, 60_000);
+
+it.each([false, true])('原生 workflow（后台=%s）的并行子任务和返回值归属同一运行', async background => {
+  const started = await start({ mode: 'native-run',
+    rootStep: { tool: { name: 'workflow', input: { meta: { name: 'skill-workflow-check', description: '隔离并行执行验收' },
+      script: "return await Promise.all([agent('[NATIVE_CHILD] 返回固定结果 A'), agent('[NATIVE_CHILD] 返回固定结果 B')]);", run_in_background: background } } },
+    childStep: { text: 'WORKFLOW_CHILD：已完成本分支。' },
+  }, ['workflow']);
+  const detail = await until(() => runDetail(started.run.id), value => !['running', 'pending'].includes(value.run.status));
+  expect(detail.run.status, JSON.stringify(detail)).toBe('completed');
+  expect(detail.sessions).toHaveLength(3);
+  expect(detail.native.filter(row => row.kind === 'activation')).toHaveLength(2);
+  expect(detail.native.filter(row => row.kind === 'activation').every(row => row.end_data?.stopReason === 'completed')).toBe(true);
+  const call = detail.calls.find(call => call.tool === 'workflow');
+  expect(call, JSON.stringify(detail)).toMatchObject({ status: 'returned' });
+  if (background) expect(detail.native.find(row => row.kind === 'job').end_data.status).toBe('completed');
+  else expect(JSON.stringify(call.result)).toContain('WORKFLOW_CHILD');
+}, 60_000);
+
+it.each([true, false])('原生 ralph（有效报告=%s）保存子任务与实际成功／失败回执', async valid => {
+  const report = JSON.stringify({ status: 'complete', summary: '隔离验证结束', evidence: ['原生子任务正常结束'], nextSteps: [], blocker: '' });
+  const started = await start({ mode: 'native-run',
+    rootStep: { tool: { name: 'ralph', input: { objective: '[NATIVE_CHILD] 明确请求一次隔离 Ralph 验证，仅报告结果，不调用外部工具。', maxRounds: 1 } } },
+    childStep: valid ? { tool: { name: 'structured_output', input: JSON.parse(report) } } : { text: 'not-a-valid-structured-report' },
+  }, ['ralph']);
+  const detail = await until(() => runDetail(started.run.id), value => !['running', 'pending'].includes(value.run.status));
+  expect(detail.run.status, JSON.stringify(detail)).toBe('completed');
+  expect(detail.sessions.length).toBeGreaterThan(1);
+  const call = detail.calls.find(call => call.tool === 'ralph');
+  expect(call, JSON.stringify(detail)).toMatchObject({ status: valid ? 'returned' : 'failed' });
+  expect(detail.native.filter(row => row.kind === 'activation').every(row => row.end_data)).toBe(true);
+}, 60_000);
+
+it('宿主硬中断后未决后台作业保留原记录、阻止新运行且不自动重投', async () => {
+  const started = await start([
+    { tool: { name: 'bash', input: { description: '重启核对验证', command: "printf 'started\\n' >> restart-job.txt; sleep 3", workdir: workspace, run_in_background: true } } },
+    { text: '作业等待完成。' },
+  ], ['bash']);
+  await until(() => runDetail(started.run.id), value => value.native.some(item => item.kind === 'job' && !item.end_data));
+  const before = llm.requests.length, hostRoot = host.root;
+  const exited = new Promise(resolve => host.child.once('exit', resolve));
+  host.child.kill('SIGKILL'); await exited; await host.stop({ keepRoot: true });
+  host = await bootHost({ env: bootEnv, root: hostRoot });
+  binding = (await host.waitUntil(snapshot => !!snapshot.workspaceBinding && !!snapshot.workspace?.localSessionId)).workspaceBinding;
+  const detail = await until(() => runDetail(started.run.id), value => value.run.status === 'needs_reconciliation');
+  expect(detail.native.some(item => item.kind === 'job' && !item.end_data)).toBe(true);
+  expect((await host.api('snapshot')).work.find(item => item.id === detail.run.work_item_id).status).toBe('needs_reconciliation');
+  await expect(host.api('skills.preview', { id: started.id, parameters: { subject: '不应重投' }, workspaceBinding: binding })).rejects.toThrow(/核对/);
+  expect(llm.requests).toHaveLength(before);
+  expect(await readFile(join(workspace, 'restart-job.txt'), 'utf8')).toBe('started\n');
+}, 600_000);

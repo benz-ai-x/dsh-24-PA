@@ -1,0 +1,64 @@
+全量单元回归
+ ✓ tests/unit/handwriting-pipeline.test.mjs (3 tests) 2ms
+ ✓ tests/unit/wecom-setup.test.mjs (1 test) 1ms
+
+ Test Files  55 passed (55)
+      Tests  841 passed (841)
+   Start at  00:06:51
+   Duration  626.41s (transform 335ms, setup 0ms, collect 3.39s, tests 618.48s, environment 3ms, prepare 957ms)
+
+
+SQLite 原生运行19项
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/manticore-skill-run.e2e.mjs (19 tests) 13463ms
+   ✓ 真实 Loader：保存、发布、独立本地运行、相同请求不重跑、重启回读原结果 1284ms
+   ✓ 真实工具回执落账；禁用 Skill 阻止新运行，不截断已开始的版本 1189ms
+   ✓ 专用运行混入其他用户输入会保留输入并停止新模型步骤 1181ms
+   ✓ 后台作业继续归属原运行，结束通知推动第二回合再结算 2135ms
+   ✓ 主会话结束后等待原生子任务的实际工具完成，并记下子任务回执 2241ms
+   ✓ 本地 Skill 通过原生业务交办执行，Worker 保留业务门禁并结算自己的交办 1051ms
+   ✓ 宿主硬中断后未决后台作业保留原记录、阻止新运行且不自动重投 1154ms
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Start at  00:18:25
+   Duration  13.61s (transform 26ms, setup 0ms, collect 44ms, tests 13.46s, environment 0ms, prepare 20ms)
+
+
+
+PostgreSQL 原生运行19项
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/manticore-skill-run.e2e.mjs (19 tests) 14243ms
+   ✓ 真实 Loader：保存、发布、独立本地运行、相同请求不重跑、重启回读原结果 1293ms
+   ✓ 真实工具回执落账；禁用 Skill 阻止新运行，不截断已开始的版本 1178ms
+   ✓ 专用运行混入其他用户输入会保留输入并停止新模型步骤 1152ms
+   ✓ 后台作业继续归属原运行，结束通知推动第二回合再结算 2149ms
+   ✓ 主会话结束后等待原生子任务的实际工具完成，并记下子任务回执 2274ms
+   ✓ 本地 Skill 通过原生业务交办执行，Worker 保留业务门禁并结算自己的交办 913ms
+   ✓ 宿主硬中断后未决后台作业保留原记录、阻止新运行且不自动重投 1177ms
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Start at  00:19:31
+   Duration  14.38s (transform 26ms, setup 0ms, collect 38ms, tests 14.24s, environment 0ms, prepare 20ms)
+
+
+
+客户端相关回归
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/client.test.mjs (14 tests) 11ms
+ ✓ tests/unit/skill-panel.test.mjs (3 tests) 84ms
+ ✓ tests/unit/local-tool-access.test.mjs (7 tests) 4ms
+
+ Test Files  3 passed (3)
+      Tests  24 passed (24)
+   Start at  00:21:37
+   Duration  492ms (transform 34ms, setup 0ms, collect 131ms, tests 99ms, environment 0ms, prepare 55ms)
+
+

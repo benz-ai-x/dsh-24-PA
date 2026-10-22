@@ -75,8 +75,12 @@ export class SkillRunHost {
       scope.skills.registerProvider(() => ({ name: 'pa24-run', list: async () => [{ ...def, description: def.description ?? run.snapshot.name, rank: -100, locator: run.id }],
         get: async summary => summary.name === def.name && summary.locator === run.id ? def : undefined }));
       scope.tools.restrict({ allow: tools });
+      // The native structured child owns this result channel. It is scoped
+      // protocol machinery, not an inherited business/coding capability;
+      // restrict() already proves it is visible on this exact child scope.
+      const nativeResult = (name: string) => descendant && name === 'structured_output';
       scope.tools.guard(exec => exec.agent?.id !== agent.id ? undefined
-        : !hooks.allowed() ? 'Skill 运行已停止、授权变化或结果待核对。' : !tools.includes(exec.name) ? '工具未在本次 Skill 授权范围内。' : undefined);
+        : !hooks.allowed() ? 'Skill 运行已停止、授权变化或结果待核对。' : !tools.includes(exec.name) && !nativeResult(exec.name) ? '工具未在本次 Skill 授权范围内。' : undefined);
       scope.on('agent/pre-step', async ({ agent: current, messages }, next) => {
         if (current.id !== agent.id) return next();
         let foreign = false;

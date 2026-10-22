@@ -57,7 +57,7 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false }
     if (script.mode === 'native-run') {
       const last = (body.messages ?? []).at(-1);
       const continuation = last?.role === 'user' && (last.content ?? []).some(block => block.type === 'tool_result');
-      const notice = lastUserText.includes('Background subagent') || lastUserText.includes('Background job');
+      const notice = /background (subagent|job)/i.test(lastUserText);
       const child = (body.messages ?? []).filter(message => message.role === 'user')
         .some(message => (message.content ?? []).some(block => block.type === 'text' && block.text.includes('[NATIVE_CHILD]')));
       step = child ? continuation ? { text: 'CHILD_RESULT：子任务实际结束。' } : script.childStep
