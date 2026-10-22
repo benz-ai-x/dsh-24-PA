@@ -60,12 +60,40 @@ const recoverMarker = (id: string) => `[24PA recover input: ${id}]`;
 export class SkillRunHost {
   private readonly live = new Map<string, RunAgent>();
   private readonly resources = new Map<string, string>();
+  private readonly resumeInputs = new Map<string, Map<string, ContentBlock[]>>();
   constructor(private readonly ctx: DshContext) {}
 
   ownsInput(run: SkillRunRow, message: RunInput): boolean {
     if (message.source?.kind !== 'user') return false;
     if (run.mode === 'local') return message.source.rpcId === run.request_id;
     return message.content.some(block => block.type === 'text' && block.text === runMarker(run));
+  }
+
+  rememberResume(runId: string, requestId: string, content: ContentBlock[]): void {
+    const requests = this.resumeInputs.get(runId) ?? new Map<string, ContentBlock[]>();
+    requests.set(requestId, content); this.resumeInputs.set(runId, requests);
+  }
+
+  canceledInputs(run: SkillRunRow, session: DshSession): Set<string> {
+    const canceled = canceledInputIds(session, message => this.recoveryInputId(run, message));
+    const owned = new Set<string>();
+    for (const event of session.ownEvents()) {
+      const messages: RunInput[] = event.type === 'agent/inbox/spliced' ? event.data.inserted ?? [] : event.type === 'user/message' ? [event.data] : [];
+      for (const message of messages) {
+        const recovered = this.recoveryInputId(run, message);
+        if (recovered) owned.add(recovered);
+        if (this.ownsInput(run, message)) owned.add(message.id);
+        for (const [requestId, content] of this.resumeInputs.get(run.id) ?? []) {
+          const sourceMatches = run.mode === 'local' ? message.source?.kind === 'user' && message.source.rpcId === requestId
+            : message.source?.kind === 'agent-message' && message.source.senderSessionId === run.source_session_id;
+          const expected = run.mode === 'local' ? content : [{ type: 'text', text: `Agent ${run.source_session_id} sent a message: ` }, ...content];
+          if (sourceMatches && isDeepStrictEqual(message.content, expected)) owned.add(message.id);
+        }
+      }
+    }
+    // Native context refresh also uses inbox.remove/canceled. It has no
+    // authority to cancel an owner's task, even if accepted into its history.
+    return new Set([...canceled].filter(id => owned.has(id)));
   }
 
   async mount(agent: DshAgent, run: SkillRunRow, hooks: RunHooks, descendant = false, tools = run.snapshot.tools): Promise<void> {
@@ -86,7 +114,7 @@ export class SkillRunHost {
       // protocol machinery, not an inherited business/coding capability;
       // restrict() already proves it is visible on this exact child scope.
       const nativeResult = (name: string) => descendant && name === 'structured_output';
-      const canceled = () => !descendant && canceledInputIds(agent.session, message => this.recoveryInputId(run, message)).size > 0;
+      const canceled = () => !descendant && this.canceledInputs(run, agent.session).size > 0;
       scope.tools.guard(exec => exec.agent?.id !== agent.id ? undefined
         : !hooks.allowed() || canceled() ? 'Skill 运行已停止、授权变化或结果待核对。' : !tools.includes(exec.name) && !nativeResult(exec.name) ? '工具未在本次 Skill 授权范围内。' : undefined);
       scope.on('agent/pre-step', async ({ agent: current, messages }, next) => {
@@ -205,6 +233,7 @@ export class SkillRunHost {
     await this.checkpoint(resolved.agent.session);
   }
   async submitResume(run: SkillRunRow, id: string, content: ContentBlock[]): Promise<string> {
+    this.rememberResume(run.id, id, content);
     const resolved = await this.ctx.sessionController.resolveAgent(run.mode === 'business' ? run.source_session_id : run.session_id);
     if ('error' in resolved) throw resolved.error;
     if (run.mode === 'business') {
@@ -325,7 +354,7 @@ export class SkillRunHost {
     await agent.runMaintenance(async signal => {
       if (agent.session.ownEvents().some(e => e.type === 'user/message' && e.data.id === message.id)) return;
       signal.throwIfAborted();
-      if (canceledInputIds(agent.session, item => this.recoveryInputId(run, item)).size) throw new Error('原输入已取消，不能重新排队。');
+      if (this.canceledInputs(run, agent.session).size) throw new Error('原输入已取消，不能重新排队。');
       const pending = [...agent.inbox.nextTurn, ...agent.inbox.nextStep];
       if (pending.some(item => item.id === message.id && !isDeepStrictEqual(item, message))) throw new Error('原输入身份对应不同内容，需人工核对。');
       // Wake without deleting/reinserting the original: a user's queue

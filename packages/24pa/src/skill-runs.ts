@@ -4,7 +4,7 @@ import type { SkillPackages } from './skill-packages.js';
 import type { SkillDefinitionLike } from './skills.js';
 import { skillContract, skillHash, skillParameters, readSkillFile, parseSkillMarkdown } from './skill-package.js';
 import { SkillRunHost, type RunInput, type RunToolCall, type RunToolResult } from './skill-run-host.js';
-import { canceledInputIds, consumedTurn } from './host-turn.js';
+import { consumedTurn } from './host-turn.js';
 import { SkillRunNative, uncertainTool } from './skill-run-native.js';
 import { skillDelegationTools } from './local-tool-access.js';
 import { skillRequirements } from './skill-requirements.js';
@@ -191,6 +191,7 @@ export class SkillRuns {
       if (unknown) { state.allowed = false; await this.block(run, '上次工具执行缺少确定回执，须先核对实际结果。'); }
     }
     const owner = state;
+    for (const resume of await context.repos.runControls.resumes(run.id)) if (resume.status !== 'prepared') this.host.rememberResume(run.id, resume.request_id, resume.message.content);
     // pa24_delegate already admitted a separate business WorkItem with its
     // own role/action gates. Observing that Worker must preserve those gates.
     const delegatedWork = descendant ? await context.repos.workItems.get(agent.id) : null;
@@ -360,7 +361,8 @@ export class SkillRuns {
     if (!history) return false;
     const parent = history.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
     if (history.id !== run.session_id || history.header.cwd !== run.workspace_path || (run.mode === 'business' ? parentId !== run.source_session_id : !!parentId)) return false;
-    const canceled = canceledInputIds(history, message => this.host.recoveryInputId(run, message));
+    for (const resume of await this.context().repos.runControls.resumes(run.id)) if (resume.status !== 'prepared') this.host.rememberResume(run.id, resume.request_id, resume.message.content);
+    const canceled = this.host.canceledInputs(run, history);
     if (!canceled.size) return false;
     const repo = this.context().repos.skillRuns, inputs = await repo.inputs(run.id);
     const admissions = history.ownEvents().filter(event => event.type === 'agent/inbox/spliced').flatMap(event => event.data.inserted ?? []) as RunInput[];

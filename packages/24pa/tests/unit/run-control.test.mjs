@@ -173,6 +173,43 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } });
     expect(canceledInputIds(session).has(message.id)).toBe(true);
   });
+  it('上下文去重和外来输入移除不取消运行；只识别原输入与登记补充', async () => {
+    const context = { id: 'context', content: [{ type: 'text', text: 'AGENTS.md' }], source: { kind: 'agent-instructions' } };
+    const foreign = { id: 'foreign', content: [{ type: 'text', text: '无关输入' }], source: { kind: 'user', rpcId: 'not-owned' } };
+    const original = { id: 'original', content: [{ type: 'text', text: '原任务' }], source: { kind: 'user', rpcId: run.request_id } };
+    const events = [], remove = message => events.push(
+      { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } },
+      { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } });
+    remove(context); remove(foreign);
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => events };
+    let follows = 0;
+    const agent = { id: run.session_id, session, inbox: { nextTurn: [original], nextStep: [], remove() {} },
+      runMaintenance: work => work(new AbortController().signal), followup: () => { follows++; } };
+    const native = new SkillRunHost({ sessionController: { resolveAgent: async () => ({ agent }) }, sessions: { flush: async () => true } });
+    native.live.set(run.session_id, agent);
+    const listeners = new Map(); let guard, models = 0;
+    agent.ctx = { plugin: plugin => ({ await: async () => plugin.apply({
+      skills: { registerProvider() {} }, tools: { restrict() {}, guard: check => { guard = check; } }, on: (event, listener) => listeners.set(event, listener),
+    }) }) };
+    native.materialize = async () => '/workspace'; native.verifyResources = async () => {};
+    await native.mount(agent, run, { allowed: () => true, authorize: async () => {}, beforeModel: async () => {},
+      ownsInput: async () => true, input: async () => {}, block: async () => {}, execute: (_call, next) => next(), final() {}, activation() {} });
+    expect(native.canceledInputs(run, session).size).toBe(0);
+    expect(guard({ agent, name: 'example' })).toContain('授权范围'); // not falsely stopped
+    expect(await listeners.get('agent/pre-step')({ agent, messages: [original] }, async () => ({ kind: 'enter', messages: [original] }))).toMatchObject({ kind: 'enter' });
+    await listeners.get('agent/request')({ agent }, async () => { models++; }); expect(models).toBe(1);
+    await native.resumePending(run, original); expect(follows).toBe(1);
+    const runs = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'binding', repos }), packages: {}, template: async () => '' });
+    runs.host.history = async () => session;
+    await repos.skillRuns.input(run.id, context, true, run.session_id);
+    try { expect(await runs.stopCanceledInput(run)).toBe(false); } finally { runs.dispose(); }
+    const supplement = { id: 'supplement', content: [{ type: 'text', text: '主人补充' }], source: { kind: 'user', rpcId: 'resume-request' } };
+    native.rememberResume(run.id, 'resume-request', supplement.content); remove(supplement);
+    expect([...native.canceledInputs(run, session)]).toEqual(['supplement']);
+    remove(original); expect(native.canceledInputs(run, session).has(original.id)).toBe(true);
+    expect(await listeners.get('agent/pre-step')({ agent, messages: [original] }, async () => ({ kind: 'enter' }))).toMatchObject({ kind: 'reject' });
+    expect(guard({ agent, name: 'example' })).toContain('停止');
+  });
   it('真实停止校验和人工证据同批成功后结清停止；核对失败不能解锁', async () => {
     await repos.skillRuns.nativeReceipt(run.id, 'job', run.session_id, 'unconfirmed-job', 'start', { id: 'unconfirmed-job' });
     await repos.skillRuns.nativeReceipt(run.id, 'job', run.session_id, 'unconfirmed-job', 'end', { producerReported: false });
