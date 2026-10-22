@@ -10,6 +10,8 @@ import type { PaConfig } from './config.js';
 import type { Repos, WorkItemRow } from './repo.js';
 import type { ReminderEngine } from './reminders.js';
 import type { SourceTarget } from './source-registry.js';
+import { sameCalendarTarget } from './source-calendar-intent.js';
+import { effectiveSources } from './source-config.js';
 
 interface CalendarReceipt {
   eventId?: string;
@@ -44,19 +46,29 @@ export interface ReminderRouterDeps {
   /** Channel-dispatching calendar write (routes wecom/feishu in the runtime). */
   calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationId?: string): Promise<unknown>;
   bindCalendar?(args: Record<string, unknown>): Promise<SourceTarget>;
+  gate?<T>(key: string, work: () => Promise<T>): Promise<T>;
   /** Lazy: repos/engine bind at workspace load, after the router is built. */
   ledger(): ReminderEngine;
 }
 
 export class ReminderRouter {
+  private readonly pending = new Map<string, Promise<unknown>>();
   constructor(private readonly deps: ReminderRouterDeps) {}
+
+  private gate<T>(key: string, work: () => Promise<T>): Promise<T> {
+    if (this.deps.gate) return this.deps.gate(key, work);
+    const next = (this.pending.get(key) ?? Promise.resolve()).then(work, work);
+    this.pending.set(key, next);
+    void next.finally(() => { if (this.pending.get(key) === next) this.pending.delete(key); }).catch(() => {});
+    return next;
+  }
 
   /** No public route may start the retired F05 timer. */
   async route(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     if (args.__forceLedger || args.linkTaskGuid || args.linkEventId || !['once', 'daily', 'weekly'].includes(String(args.kind ?? 'once'))) {
       throw new ReminderError('旧账本提醒引擎已退役；时钟提醒支持 once/daily/weekly，条件或来源跟进请使用智能任务 skill（等待回复可用 waiting_create）。');
     }
-    return this.toCalendar(item, args);
+    return this.gate(`calendar-reminder-intent:${item.id}`, () => this.toCalendar(item, args));
   }
 
   private intentId(item: WorkItemRow, args: Record<string, unknown>): string {
@@ -68,6 +80,9 @@ export class ReminderRouter {
     const intentId = this.intentId(item, args);
     const existing = await this.deps.repos().operations.get(intentId);
     if (existing) return this.completeCalendarIntent(item, intentId, existing.params);
+    const equivalent = (await this.deps.repos().operations.calendarRemindersForWork(item.id)).filter(row => this.sameReminder(args, row.params));
+    if (equivalent.length > 1) throw new ReminderError('已有多个等价提醒意图，请先核对原回执；没有新建提醒。');
+    if (equivalent[0]) return this.completeCalendarIntent(item, equivalent[0].id, equivalent[0].params);
     const summary = text(args.text, 500);
     if (!summary) throw new ReminderError('提醒内容不能为空。');
     const kind = String(args.kind ?? 'once');
@@ -113,6 +128,7 @@ export class ReminderRouter {
     const { row } = await this.deps.repos().operations.begin({
       id: intentId, workItemId: item.id, action: 'reminder.calendar', params: {
         ruleId: `rmd-cal-${hash(intentId)}`, kind, summary, timeZone, originExpression,
+        request: args, registeredResourceId: target ? effectiveSources(this.deps.config()).entries.find(row => row.id === target.sourceId)?.resourceId : undefined,
         source: args.source ? text(args.source, 500) : null,
         calendar: { channel, calendarId, ...(target ? { sourceId: target.sourceId, _sourceTarget: target } : {}), summary: `提醒：${summary}`, start: start.toISOString(), end: end.toISOString(), timeZone, reminderMinutes: [0], ...(rrule ? { rrule } : {}) },
       },
@@ -120,11 +136,28 @@ export class ReminderRouter {
     return this.completeCalendarIntent(item, intentId, row.params);
   }
 
+  private sameReminder(args: Record<string, unknown>, intent: any): boolean {
+    const kind = String(args.kind ?? 'once'), zone = String(args.timeZone ?? intent.timeZone);
+    if (kind !== intent.kind || text(args.text, 500) !== intent.summary || zone !== intent.timeZone) return false;
+    const target = intent.calendar?._sourceTarget as SourceTarget | undefined;
+    if (!target || !sameCalendarTarget(args, target, intent, this.deps.config())) return false;
+    if (kind === 'once') return args.at ? Date.parse(String(args.at)) === Date.parse(intent.calendar.start)
+      : intent.originExpression === `after ${Number(args.afterSeconds)}s`;
+    if (kind === 'daily') return intent.originExpression === `daily ${args.time} ${zone}`;
+    if (kind === 'weekly') return Array.isArray(args.weekdays)
+      && intent.originExpression === `weekly ${args.time} ${[...new Set(args.weekdays)].sort().join(',')} ${zone}`;
+    return false;
+  }
+
   private async completeCalendarIntent(item: WorkItemRow, intentId: string, intent: any): Promise<unknown> {
+    return this.gate(`calendar-reminder:${intent.ruleId}`, () => this.completeOriginalIntent(item, intentId, intent));
+  }
+
+  private async completeOriginalIntent(item: WorkItemRow, intentId: string, intent: any): Promise<unknown> {
     const { ruleId, kind, summary, timeZone, originExpression, source, calendar } = intent;
     const prior = await this.deps.repos().reminders.getRule(ruleId);
     if (prior?.status === 'stopped') return { ruleId, status: 'stopped', reused: true, eventId: prior.record.event_id, calendarChannel: prior.record.channel, message: '原提醒已取消；重复创建请求保留停止状态，需要再次提醒时请明确建立新的事项。' };
-    if (prior?.record.cancel_requested) return this.cancel(item, ruleId, prior.record.cancel_reason);
+    if (prior?.record.cancel_requested) return this.cancelRule(item, ruleId, prior.record.cancel_reason);
     const created = await this.deps.calendarWrite(item, 'create', calendar, `${intentId}:write`) as CalendarReceipt;
     const eventId = created.eventId ?? created.event_id;
     if (!eventId) throw new ReminderError('日程回执缺少事件标识；备份尚未完成，请先核对原操作。');
@@ -164,6 +197,10 @@ export class ReminderRouter {
   }
 
   async cancel(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
+    return this.gate(`calendar-reminder:${ruleId}`, () => this.cancelRule(item, ruleId, reason));
+  }
+
+  private async cancelRule(item: WorkItemRow, ruleId: string, reason: string): Promise<unknown> {
     const rule = await this.deps.repos().reminders.getRule(ruleId);
     if (rule?.status === 'delegated') {
       const record = rule.record as { event_id?: string | null; channel?: string; calendar_id?: string; rrule?: string | null; source_target?: SourceTarget };

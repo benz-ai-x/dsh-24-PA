@@ -244,6 +244,10 @@ export class ActionOperationRepo {
         'wecom_calendar.create', 'wecom_calendar.update', 'wecom_calendar.cancel', 'wecom_calendar.reminders')`, [workItemId])).rows;
   }
 
+  async calendarRemindersForWork(workItemId: string): Promise<ActionOperationRow[]> {
+    return (await this.db.query<ActionOperationRow>("select * from pa24.action_operation where work_item_id = $1 and action = 'reminder.calendar'", [workItemId])).rows;
+  }
+
   async confirmedCalendarCreates(eventId: string): Promise<ActionOperationRow[]> {
     return (await this.db.query<ActionOperationRow>(`select * from pa24.action_operation where status = 'succeeded'
       and action in ('calendar.create', 'wecom_calendar.create') and receipt->>'eventId' = $1`, [eventId])).rows;

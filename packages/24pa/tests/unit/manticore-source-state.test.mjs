@@ -317,6 +317,28 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore 来源、身�
     await expect(writer.write(item, 'create', { start: '2026-10-23T09:00:00+08:00', durationMinutes: 60, title: '会议', sourceId: 'a' })).rejects.toThrow(/待核对/);
     expect(writes).toHaveLength(1); expect(await repos.operations.calendarCreatesForWork(item.id)).toHaveLength(1);
   });
+  it('登记 primary 别名与实际日历 ID 不产生第二个未知创建', async () => {
+    current.sources.entries[0].resourceId = 'primary';
+    const { writer, item, writes } = await writerFixture({ invoke: async () => { throw Object.assign(Error('超时'), { outcome: 'unknown' }); } });
+    await expect(writer.write(item, 'create', { start, end })).rejects.toThrow('超时');
+    current.sources.defaults.calendar = 'b';
+    await expect(writer.write(item, 'create', { start, end, sourceId: 'a', calendarId: 'primary' })).rejects.toThrow(/待核对/);
+    await expect(writer.write(item, 'create', { start, end, calendarId: 'real-primary' })).rejects.toThrow(/待核对/);
+    expect(writes).toHaveLength(1); expect(await repos.operations.calendarCreatesForWork(item.id)).toHaveLength(1);
+  });
+  it('提醒父意图对等价时间和来源名称统一防重，保留原规则和写入操作', async () => {
+    current.sources.entries[0].name = '个人日历';
+    let fail = true;
+    const { writer, item, writes } = await writerFixture({ invoke: async () => {
+      if (fail) throw Object.assign(Error('超时'), { outcome: 'unknown' }); return { data: { event: { event_id: 'created_0' } } };
+    } });
+    const router = () => new ReminderRouter({ config: () => current, repos: () => repos, bindCalendar: args => writer.target(args), calendarWrite: (...args) => writer.write(...args), ledger: () => ({}) });
+    await expect(router().route(item, { text: '喝水', at: '2026-10-23T09:00:00+08:00' })).rejects.toThrow('超时');
+    current.sources.defaults.calendar = 'b'; fail = false;
+    await expect(router().route(item, { text: '喝水', at: start, sourceId: '个人日历' })).rejects.toThrow(/待核对/);
+    await expect(router().route(item, { text: '喝水', at: start, sourceId: 'a' })).rejects.toThrow(/待核对/);
+    expect(writes).toHaveLength(1); expect(await repos.operations.calendarRemindersForWork(item.id)).toHaveLength(1);
+  });
   it('不同交办与登记别名对同一原生日历串行；第二次写前读取第一项变更', async () => {
     current.sources.entries[1].resourceId = 'a';
     const gates = new Map(); const gate = (key, run) => { const result = (gates.get(key) ?? Promise.resolve()).then(run, run); gates.set(key, result.catch(() => {})); return result; };

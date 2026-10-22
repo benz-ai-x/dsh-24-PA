@@ -10,6 +10,7 @@ import { hash, text } from './util.js';
 import { wecomWallTime } from './wecom.js';
 import { wecomRepeatRule } from './wecom-channels.js';
 import { mapRemoteEvent } from './feishu-channels.js';
+import { sameCalendarTarget } from './source-calendar-intent.js';
 
 export type CalendarMutation = 'create' | 'update' | 'cancel' | 'reminders';
 interface SourceCalendarWritesDeps {
@@ -98,21 +99,7 @@ export class SourceCalendarWrites {
   private sameIntent(args: Record<string, unknown>, saved: Record<string, any>): boolean {
     if (saved.sourceContract !== 1 || !saved.sourceTarget || !saved.request) return false;
     const target = saved.sourceTarget as SourceTarget, old = saved.request;
-    const sources = effectiveSources(this.deps.config());
-    if (args.channel !== undefined && args.channel !== target.platform) return false;
-    if (args.calendarId !== undefined && args.calendarId !== target.resource.id && args.calendarId !== old.calendarId) return false;
-    if (args._sourceTarget && JSON.stringify(canonical(args._sourceTarget)) !== JSON.stringify(canonical(target))) return false;
-    if (args.sourceId !== undefined) {
-      if (args.sourceId !== target.sourceId) {
-        try { if (selectSource(sources, 'calendar', { sourceId: String(args.sourceId) }, false).source.id !== target.sourceId) return false; }
-        catch { return false; }
-      }
-    } else if (args.company !== undefined || args.project !== undefined) {
-      if (args.company !== old.company || args.project !== old.project || old.sourceId !== undefined) {
-        try { if (selectSource(sources, 'calendar', { company: args.company as string | undefined, project: args.project as string | undefined }, false).source.id !== target.sourceId) return false; }
-        catch { return false; }
-      }
-    } else if ((old.sourceId !== undefined || old.company !== undefined || old.project !== undefined) && sources.defaults.calendar !== target.sourceId) return false;
+    if (!sameCalendarTarget(args, target, saved, this.deps.config())) return false;
     if (saved.kind !== 'create') {
       if (args.eventId !== undefined && args.eventId !== saved.eventId) return false;
       if (args.objectId !== undefined && args.objectId !== old.objectId
@@ -278,7 +265,7 @@ export class SourceCalendarWrites {
     const reminderMinutes = args.reminderMinutes === undefined ? kind === 'reminders' ? null : [5] : args.reminderMinutes;
     if (!Array.isArray(reminderMinutes) || reminderMinutes.some(value => !Number.isInteger(value) || value < 0 || value > 20160)) throw new Error('提醒提前量须为分钟数组；清除本人提醒传空数组。');
     if (args.rrule && kind !== 'create') throw new Error('修改重复规则须在原平台核验，不能将普通改期扩展到整个系列。');
-    return { sourceTarget: target, sourceName: source.name, channel: target.platform, calendarId: target.resource.id, receiptFormat: `${target.platform}-calendar-v1`, kind,
+    return { sourceTarget: target, sourceName: source.name, registeredResourceId: source.resourceId, channel: target.platform, calendarId: target.resource.id, receiptFormat: `${target.platform}-calendar-v1`, kind,
       eventId, summary, start: start?.toISOString(), end: end?.toISOString(), timeZone, defaultsUsed, attendees: [...new Set(attendees)],
       rrule: args.rrule ? String(args.rrule) : null, repeatScope: args.repeatScope ?? null,
       instanceStart: args.instanceStart === undefined ? null : absoluteInstant(args.instanceStart).toISOString(),

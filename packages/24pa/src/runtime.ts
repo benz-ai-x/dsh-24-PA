@@ -403,6 +403,7 @@ export class PaRuntime {
     repos: () => this.repos!,
     calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
     bindCalendar: args => this.sourceCalendarWrites.target(args),
+    gate: (key, work) => this.gate(key, work),
     ledger: () => this.reminders!,
   });
 
