@@ -60,5 +60,3 @@ PostgreSQL 原生运行19项
       Tests  24 passed (24)
    Start at  00:21:37
    Duration  492ms (transform 34ms, setup 0ms, collect 131ms, tests 99ms, environment 0ms, prepare 55ms)
-
-
