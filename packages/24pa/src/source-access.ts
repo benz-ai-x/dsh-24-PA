@@ -12,6 +12,22 @@ interface SourceAccessDeps {
 /** Read-only, versioned adapter evidence. Resource roles never replace object-level checks. */
 export class SourceAccess {
   constructor(private readonly deps: SourceAccessDeps) {}
+  async identity(platform: 'feishu' | 'wecom'): Promise<SourceIdentity> {
+    if (platform === 'feishu') {
+      const { data: auth } = await this.deps.lark(['auth', 'status', '--verify']);
+      const user = auth?.identities?.user;
+      if (auth?.verified !== true || user?.tokenStatus !== 'valid' || !user?.openId || user.openId !== this.deps.config().ownerOpenId
+        || typeof auth?.appId !== 'string' || !auth.appId) throw new Error('固定飞书 profile 的应用、有效用户令牌与主人身份尚未核验一致。');
+      return { platform, ownerId: user.openId, authority: `app:${auth.appId}` };
+    }
+    const response = await this.deps.wecom(['identity', 'whoami']);
+    const raw = response.raw as { extra_identity_context?: unknown };
+    const context = String(raw?.extra_identity_context ?? response.data?.extra_identity_context ?? '').replace(/\s+/g, ' ');
+    const bot = /机器人身份：\s*名字：.+?\s*ID：([A-Za-z0-9_-]+)/.exec(context);
+    const person = /授权真人用户身份：\s*名字：.+?\s*ID：([A-Za-z0-9_-]+)/.exec(context);
+    if (!bot || !person) throw new Error('企微机器人和授权真人身份未核验一致，请重新检查接入。');
+    return { platform, ownerId: person[1]!, authority: `bot:${bot[1]}` };
+  }
   async check(source: SourceRegistration): Promise<SourceEvidence> {
     const result: SourceEvidence = { checkedAt: new Date().toISOString(), state: 'pending', identity: null, resource: null, capabilities: unknownCapabilities(), message: '尚未核验' };
     if (!source.resourceId) return { ...result, message: '请先补齐资源标识。' };
@@ -19,11 +35,8 @@ export class SourceAccess {
   }
 
   private async feishu(source: SourceRegistration, result: SourceEvidence): Promise<SourceEvidence> {
-    const { data: auth } = await this.deps.lark(['auth', 'status', '--verify']);
-    const user = auth?.identities?.user;
-    if (auth?.verified !== true || user?.tokenStatus !== 'valid' || !user?.openId || user.openId !== this.deps.config().ownerOpenId
-      || (source.ownerId && source.ownerId !== user.openId) || typeof auth?.appId !== 'string' || !auth.appId) throw new Error('固定飞书 profile 的应用、有效用户令牌与主人身份尚未核验一致。');
-    const identity: SourceIdentity = { platform: 'feishu', ownerId: user.openId, authority: `app:${auth.appId}` };
+    const identity = await this.identity('feishu');
+    if (source.ownerId && source.ownerId !== identity.ownerId) throw new Error('固定飞书 profile 与来源的主人身份尚未核验一致。');
     if (source.resourceKind === 'calendar') {
       let resourceId = source.resourceId;
       if (resourceId === 'primary') {
@@ -59,13 +72,8 @@ export class SourceAccess {
     if (source.resourceKind !== 'authorized_scope' || source.resourceId !== 'authorized') return { ...result,
       capabilities: Object.fromEntries(Object.keys(result.capabilities).map(key => [key, 'adapter_unavailable'])) as SourceEvidence['capabilities'],
       message: '当前固定版本企微 CLI 未暴露指定日历／清单容器的参数；需核验对应接口和授权，不能将此容器伪装为授权范围。' };
-    const response = await this.deps.wecom(['identity', 'whoami']);
-    const raw = response.raw as { extra_identity_context?: unknown };
-    const context = String(raw?.extra_identity_context ?? response.data?.extra_identity_context ?? '').replace(/\s+/g, ' ');
-    const bot = /机器人身份：\s*名字：.+?\s*ID：([A-Za-z0-9_-]+)/.exec(context);
-    const person = /授权真人用户身份：\s*名字：.+?\s*ID：([A-Za-z0-9_-]+)/.exec(context);
-    if (!bot || !person || (source.ownerId && source.ownerId !== person[1])) throw new Error('企微机器人和授权真人身份未核验一致，请重新检查接入。');
-    const identity: SourceIdentity = { platform: 'wecom', ownerId: person[1]!, authority: `bot:${bot[1]}` };
+    const identity = await this.identity('wecom');
+    if (source.ownerId && source.ownerId !== identity.ownerId) throw new Error('企微机器人和授权真人身份未核验一致，请重新检查接入。');
     const now = new Date(), end = new Date(now.getTime() + 60_000), zone = this.deps.config().timeZone;
     await this.deps.wecom(source.domain === 'calendar'
       ? ['calendar', 'schedules', 'list', '--begin-time', wecomWallTime(now, zone), '--end-time', wecomWallTime(end, zone)]

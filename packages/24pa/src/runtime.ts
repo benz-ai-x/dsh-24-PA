@@ -1,6 +1,11 @@
 import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
+import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
+import { TaskPlanService } from './task-plan-service.js';
+import { TaskPlanEngine } from './task-plan-engine.js';
+import type { TaskPlanAuthorization } from './task-plan.js';
+import type { RunInput } from './skill-run-host.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { WorkspaceBackup } from './backup.js';
 import { readFileSync } from 'node:fs';
@@ -182,6 +187,7 @@ export class PaRuntime {
   private checking: Promise<AccessDiagnostics> | null = null;
 
   private dispatchTimer: NodeJS.Timeout | null = null;
+  private pollingRuns = false;
   private outboxTimer: NodeJS.Timeout | null = null;
   private wecomAuthTimer: NodeJS.Timeout | null = null;
   private noteVerifyTimer: NodeJS.Timeout | null = null;
@@ -316,14 +322,28 @@ export class PaRuntime {
   });
   readonly sourceRegistry = new SourceRegistry({
     config: () => this.config!, repo: () => this.repos!.sources,
-    connectionHash: platform => hash(JSON.stringify(platform === 'feishu'
-      ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.options.larkCliBin, this.transportIdentity(this.config, this.secretStore)]
-      : [this.config!.mode, this.options.wecomCliBin])),
+    connectionHash: platform => this.sourceConnectionHash(platform),
     probe: source => {
       if (this.config!.mode !== 'feishu') throw new Error('体验模式不核验真实平台来源；切换真实接入后由本人发起检查。');
       return this.sourceAccess.check(source);
     }, gate: (key, work) => this.gate(key, work),
   });
+  private sourceConnectionHash(platform: 'feishu' | 'wecom'): string {
+    return hash(JSON.stringify(platform === 'feishu'
+      ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.options.larkCliBin, this.transportIdentity(this.config, this.secretStore)]
+      : [this.config!.mode, this.options.wecomCliBin]));
+  }
+  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry,
+    checkAction: action => {
+      // M04 replaces the legacy task adapter with registered-source writes.
+      // Until that adapter consumes the fixed target, do not authorize a plan
+      // that could silently route to the current global default.
+      if (['task_create', 'task_update', 'task_complete', 'task_cancel'].includes(action)) throw new Error('定时待办写入尚未接入固定来源，当前不能启用含此动作的计划。');
+    }, owner: async channel => {
+    if (this.config?.mode !== 'feishu') throw new Error('体验模式不能绑定真实主人投递身份。');
+    const identity = await this.sourceAccess.identity(channel);
+    return { channel, target: identity.ownerId, identityKey: hash(JSON.stringify(identity)), connectionHash: this.sourceConnectionHash(channel) };
+  } });
   private readonly sourceCalendarReader = new SourceCalendarReader({
     timeZone: () => this.config!.timeZone,
     lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
@@ -412,6 +432,8 @@ export class PaRuntime {
   readonly skillManagement: SkillManagement;
   readonly skillPackages: SkillPackages;
   readonly skillRuns: SkillRuns;
+  readonly taskPlans: TaskPlanService;
+  readonly planEngine: TaskPlanEngine;
 
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  delivery; F19 voice + F40/F41 skill tracks extend here. The runtime
@@ -542,6 +564,7 @@ export class PaRuntime {
     });
     this.skillRuns = new SkillRuns({
       host: ctx, packages: this.skillPackages, management: this.skillManagement,
+      maxWorkers: () => this.config?.maxWorkers ?? 2,
       context: () => this.workspace && this.workspaceBinding && this.repos
         ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repos: this.repos } : null,
       sourceSession: () => this.openLocalSession(),
@@ -551,8 +574,19 @@ export class PaRuntime {
         if ('error' in resolved) throw resolved.error;
         return resolved.agent.ctx?.tools.schemas?.(resolved.agent).map(tool => tool.name) ?? [];
       },
-      permissionHash: () => skillHash(JSON.stringify(this.config ? [this.config.ownerOpenId, this.config.mode, this.config.larkProfile,
-        this.config.extraLocalTools, this.config.enabledWorkers, this.config.extraBusinessSkills, this.config.calendarChannel, this.config.todoChannel] : null)),
+      permissionHash: authorization => this.skillPermissionHash(authorization),
+      authorizePlan: (configuration, skill, previous) => this.taskPlanAccess.authorize(configuration, skill, previous),
+      verifyPlan: async run => {
+        try { await this.taskPlanAccess.verify(run.snapshot.plan!.authorization); }
+        catch (error) {
+          const plan = await this.repos!.taskPlans.get(run.snapshot.plan!.id);
+          const old = planAuthorizationScope(run.snapshot.plan!.authorization), current = plan?.task_authorization && planAuthorizationScope(plan.task_authorization);
+          if (plan && current && taskPlanFingerprint([current.targets, current.delivery]) === taskPlanFingerprint([old.targets, old.delivery])) {
+            await this.repos!.taskPlans.block(plan.id, { key: 'preflight', kind: 'authorization', reason: (error as Error).message }, plan.revision);
+          }
+          throw error;
+        }
+      },
       checkBusiness: (name, actions) => {
         if (!this.config?.enabledWorkers.includes('skill') || !this.config.extraBusinessSkills.includes(name)) throw new Error('此 Skill 的业务 Worker 或工作区放行范围尚未启用。');
         for (const action of actions) this.skillBusinessAction(action);
@@ -562,15 +596,47 @@ export class PaRuntime {
         if (!item || item.child_session_id !== run.session_id) throw new Error('运行与助理交办的真实子会话关联不符。');
         const executing = await this.repos!.workItems.beginExecution(item, run.workspace_path, 'start');
         this.trackWorkItem(executing);
-        await this.startWorker(executing, content);
+        await this.startWorker(executing, content, run.snapshot.plan ? 'caller' : 'parent');
       },
-      template: (def, parameters) => this.digest.manualTemplate(def, parameters),
+      template: (def, parameters, run) => this.digest.manualTemplate(def, parameters, run?.snapshot.plan),
       checkTemplate: def => this.digest.checkTemplate(def),
       lease: work => this.executions.run(work), control: work => this.executions.control(work), detached: work => this.executions.detached(work),
     });
+    const planContext = () => this.workspace && this.workspaceBinding && this.repos && this.config && this.accessSessionId
+      ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, sessionId: this.accessSessionId, timeZone: this.config.timeZone, repos: this.repos } : null;
+    this.taskPlans = new TaskPlanService({ context: planContext, skills: this.skillRuns, management: this.skillManagement,
+      lifecycle: this.digest.plans, access: this.taskPlanAccess, gate: (key, work) => this.gate(key, work) });
+    this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
+      permissionHash: authorization => this.skillPermissionHash(authorization) });
     this.env = options.env ?? process.env;
     this.registerBuiltInRoles();
     this.builtInRoles = this.roles.list();
+  }
+
+  private skillPermissionHash(authorization?: TaskPlanAuthorization): string {
+    return skillHash(JSON.stringify(this.config ? [this.config.ownerOpenId, this.config.mode, this.config.larkProfile,
+      authorization ? [] : this.config.extraLocalTools, this.config.enabledWorkers, this.config.extraBusinessSkills,
+      ...(authorization ? [] : [this.config.calendarChannel, this.config.todoChannel])] : null));
+  }
+
+  async planStep(agent: DshAgent, messages: RunInput[], next: () => Promise<{ kind: 'reject' } | { kind: 'enter'; messages: RunInput[] }>) {
+    if (agent.id !== this.accessSessionId) return next();
+    try {
+      return await this.executions.run(async () => {
+        const replacements = await this.planEngine.consume(messages, agent.id);
+        if (!replacements.size) return next();
+        const filter = (values: RunInput[]) => values.flatMap(message => {
+          const replacement = replacements.has(message.id) ? replacements.get(message.id) : message;
+          return replacement ? [replacement] : [];
+        });
+        if (!filter(messages).some(message => message.source?.kind !== 'agent-instructions')) return { kind: 'reject' as const };
+        const decision = await next();
+        return decision.kind === 'enter' ? { ...decision, messages: filter(decision.messages) } : decision;
+      });
+    } catch (error) {
+      console.warn(`[pa24] 定时输入尚未完成准入，将从原生记录核对：${(error as Error).message}`);
+      return { kind: 'reject' as const };
+    }
   }
 
   async changeSkill(input: Record<string, unknown>): Promise<unknown> {
@@ -585,6 +651,9 @@ export class PaRuntime {
   async runSkill(input: Record<string, unknown>): Promise<unknown> {
     if (input.op === 'stop') return this.executions.control(() => this.skillRuns.stop(input));
     return this.executions.run<unknown>(() => ['resume', 'recheck'].includes(String(input.op)) ? this.skillRuns.resume(input) : input.op === 'review' ? this.skillRuns.review(input) : this.skillRuns.start(input));
+  }
+  async changeTaskPlan(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run<unknown>(() => input.op === 'run' ? this.planEngine.runNow(input) : this.taskPlans.change(input));
   }
 
   private skillBusinessAction(action: string): WorkerActionHandler {
@@ -1686,13 +1755,18 @@ export class PaRuntime {
 
   private kickDispatcher(): void {
     this.executions.detached(() => this.inboxLifecycle.dispatch());
+    if (this.pollingRuns) return;
+    this.pollingRuns = true;
     const binding = this.workspaceBinding;
     void this.executions.afterTransition(async () => {
       if (binding === this.workspaceBinding && !this.closed) {
         await this.workLifecycle.retryCompletions();
+        const session = this.accessSessionId ? this.ctx.sessions.get?.(this.accessSessionId) : undefined;
+        if (session) await this.planEngine.recover(session).catch(error => console.warn(`[pa24] 定时触发恢复待核对：${(error as Error).message}`));
         await this.skillRuns.poll();
+        await this.taskPlans.reconcile();
       }
-    }).catch(() => { /* Shutdown/transition refuses new leases; native evidence remains recoverable. */ });
+    }).catch(() => { /* Shutdown/transition refuses new leases; native evidence remains recoverable. */ }).finally(() => { this.pollingRuns = false; });
   }
 
   private async processInbox(row: { event_id: string; kind: string; payload: any }): Promise<void> {
@@ -1977,7 +2051,7 @@ export class PaRuntime {
     return definition;
   }
 
-  private async startWorker(item: WorkItemRow, runPrompt?: ContentBlock[]): Promise<void> {
+  private async startWorker(item: WorkItemRow, runPrompt?: ContentBlock[], delivery: 'parent' | 'caller' = 'parent'): Promise<void> {
     if (!this.repos || !this.config) throw new Error('工作区尚未就绪。');
     const selected = await this.selectedWorkSkill(item);
     const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
@@ -2064,7 +2138,8 @@ export class PaRuntime {
     const subagents = this.ctx.subagents;
     this.workerParents.add(item.parent_session_id);
     let activation: any;
-    if (typeof subagents.startActivation === 'function') activation = await this.executions.detached(() => subagents.startActivation!({ ...startSpec, delivery: 'parent' }));
+    if (typeof subagents.startActivation === 'function') activation = await this.executions.detached(() => subagents.startActivation!({ ...startSpec, delivery }));
+    else if (delivery === 'caller') throw new Error('计划运行需要宿主提供 startActivation 及独立结果通道。');
     else if (typeof subagents.startContinuable === 'function') activation = await this.executions.detached(() => subagents.startContinuable!(startSpec));
     else throw new Error('宿主未提供 subagents 启动接口（startActivation/startContinuable 均缺失），请核对 dsh 版本兼容声明。');
     void activation?.result?.catch(() => { });
@@ -2135,7 +2210,8 @@ export class PaRuntime {
         }
         if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
         if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
-        return this.skillBusinessAction(action)(args, item, this);
+        const authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
+        return this.skillBusinessAction(action)(authorized, item, this);
       }
       const role = this.roles.get(item.role);
       const handler = role?.actions[String(args.action ?? '')];

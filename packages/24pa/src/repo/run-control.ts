@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { PaDb, PaQueryer } from '../db.js';
 import { initialRunControl, canExecuteRun, type RunControl } from '../run-control.js';
 import type { SkillRunRow } from './skill-run.js';
+import { hasExecutionCapacity } from './execution-capacity.js';
 
 export interface RunControlRow { run_id: string; revision: number; state: RunControl; updated_at: Date }
 export interface RunResumeRow { request_id: string; run_id: string; request_hash: string; message: Record<string, any>; status: 'prepared' | 'calling' | 'submitted' | 'unknown'; native_message_id: string | null; created_at: Date }
@@ -46,10 +47,11 @@ export class RunControlRepo {
   async resumes(id: string): Promise<RunResumeRow[]> {
     return (await this.db.query<RunResumeRow>('select * from pa24.skill_run_resume where run_id = $1 order by created_at, request_id', [id])).rows;
   }
-  async claimResume(id: string): Promise<boolean> {
+  async claimResume(id: string, limit = 2): Promise<boolean> {
     return this.db.withTransaction(async tx => {
       const candidate = (await tx.query<RunResumeRow>('select * from pa24.skill_run_resume where request_id = $1', [id])).rows[0];
       if (!candidate) return false;
+      if (!await hasExecutionCapacity(tx, limit, { runId: candidate.run_id })) return false;
       const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [candidate.run_id])).rows[0];
       if (!run || !['running', 'waiting'].includes(run.status)) return false;
       const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [run.id])).rows[0];
@@ -66,8 +68,9 @@ export class RunControlRepo {
       where request_id = $1 and status in ('calling','submitted','unknown') and (native_message_id is null or native_message_id = $2) returning request_id`, [id, nativeId]);
     return !!updated.rowCount;
   }
-  async claimRecovery(id: string, message: Record<string, unknown>): Promise<boolean> {
+  async claimRecovery(id: string, message: Record<string, unknown>, limit = 2): Promise<boolean> {
     return this.db.withTransaction(async tx => {
+      if (!await hasExecutionCapacity(tx, limit, { runId: id })) return false;
       const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [id])).rows[0];
       if (!run || !['running', 'waiting'].includes(run.status)) return false;
       const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];

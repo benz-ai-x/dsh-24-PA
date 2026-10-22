@@ -206,7 +206,8 @@ export class SkillRunHost {
   }
   content(run: SkillRunRow): ContentBlock[] {
     return [{ type: 'text', text: runMarker(run) }, { type: 'text', text: [
-      `执行一次${run.trial ? '试运行（会真实执行获准动作）' : '手工运行'}：${run.snapshot.name}`,
+      `执行一次${run.trial ? '试运行（会真实执行获准动作）' : run.snapshot.plan ? '计划运行' : '手工运行'}：${run.snapshot.name}`,
+      ...(run.snapshot.plan ? [`计划：${run.snapshot.plan.title}；触发时间：${run.snapshot.plan.triggeredAt}；时区：${run.snapshot.plan.configuration.timeZone}。业务目标固定于本次授权，不能自行改选来源。`] : []),
       `固定版本：${run.version_id}；参数：${JSON.stringify(run.snapshot.parameters)}`,
       `预期结果：${run.snapshot.contract?.expectedResult ?? '确定性模板结果'}`,
       `完成标准：${run.snapshot.contract?.completionCriteria ?? '输出基于实际资料的模板结果'}`,

@@ -127,7 +127,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     const [one, two] = await Promise.all([repos.skillRuns.admit(input), repos.skillRuns.admit(input)]);
     expect(one.id).toBe(two.id);
     expect((await repos.skillRuns.list()).total).toBe(1);
-    expect(await repos.workItems.get(one.work_item_id)).toMatchObject({ execution_mode: 'skill', child_session_id: null, status: 'running' });
+    expect(await repos.workItems.get(one.work_item_id)).toMatchObject({ execution_mode: 'skill', child_session_id: null, status: 'queued' });
     await change({ op: 'save', id: entry.id, expectedRevision: entry.revision, version: version('替换版本') });
     expect((await repos.skillRuns.get(one.id)).snapshot.package).toEqual(input.snapshot.package);
     await expect(repos.skillRuns.repeated(input.request_id, 'other-input')).rejects.toThrow(/不同/);

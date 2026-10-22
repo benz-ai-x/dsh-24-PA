@@ -6,6 +6,9 @@ import type { SkillEntryRow } from './skill.js';
 import type { WorkItemRow } from './work.js';
 import { initializeRunControl, type RunControlRow } from './run-control.js';
 import { finishRunControl } from '../run-control.js';
+import type { TaskPlanAuthorization, TaskPlanConfiguration } from '../task-plan.js';
+import type { TaskPlanRow } from './task-plan.js';
+import { hasExecutionCapacity } from './execution-capacity.js';
 
 export type SkillRunStatus = 'pending' | 'running' | 'waiting' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'timed_out' | 'needs_reconciliation';
 export interface SkillRunSnapshot {
@@ -18,6 +21,8 @@ export interface SkillRunSnapshot {
   permissionHash: string;
   executionLimitMs?: number;
   provider?: { id: string; fingerprint: string };
+  plan?: { id: string; title: string; generation: string; triggeredAt: string; source: 'schedule' | 'manual';
+    configuration: TaskPlanConfiguration; authorization: TaskPlanAuthorization };
   continuation?: { fromRunId: string; instruction: string; runs: Array<{ id: string; status: string; result: string | null; calls: SkillRunCall[]; review: SkillRunReview['record'] | null }> };
 }
 export interface SkillRunRow {
@@ -27,6 +32,7 @@ export interface SkillRunRow {
   snapshot: SkillRunSnapshot; status: SkillRunStatus; progress: string | null; result: string | null;
   delivery_status: 'not_requested'; recovery: { message: unknown } | null;
   created_at: Date; updated_at: Date;
+  plan_id?: string | null; trigger_kind?: string | null; triggered_at?: Date | null;
 }
 export interface SkillRunCall {
   run_id: string; call_id: string; tool: string; arguments: Record<string, unknown>;
@@ -193,13 +199,19 @@ export class SkillRunRepo {
       where s.run_id = $1 and o.channel = 'local'`, [id])).rows;
   }
   async admit(input: SkillRunAdmission): Promise<SkillRunRow> {
-    return this.db.withTransaction(tx => this.admitOn(input, tx));
+    return (await this.admitResult(input)).run;
+  }
+  async admitResult(input: SkillRunAdmission): Promise<{ run: SkillRunRow; repeated: boolean }> {
+    return this.db.withTransaction(async tx => {
+      await this.lockAdmission(input.skill_id, tx);
+      const repeated = !!(await tx.query('select id from pa24.skill_run where request_id = $1', [input.request_id])).rowCount;
+      return { run: await this.admitOn(input, tx), repeated };
+    });
   }
   async admitOn(input: SkillRunAdmission, tx: PaQueryer): Promise<SkillRunRow> {
       // Files have no managed entry to lock. A durable identity lock gives
       // both providers the same cross-process admission serialization.
-      await tx.query('insert into pa24.skill_run_admission_guard (id) values ($1) on conflict (id) do nothing', [input.skill_id]);
-      await tx.query('select id from pa24.skill_run_admission_guard where id = $1 for update', [input.skill_id]);
+      await this.lockAdmission(input.skill_id, tx);
       // Serialize all starts/edits of this skill, including cross-process starts.
       const entry = (await tx.query<SkillEntryRow>('select * from pa24.skill_entry where id = $1 for update', [input.skill_id])).rows[0];
       const prior = (await tx.query<SkillRunRow>('select * from pa24.skill_run where request_id = $1', [input.request_id])).rows[0];
@@ -241,23 +253,27 @@ export class SkillRunRepo {
       } else {
         await this.checkNewWork(input.skill_id, tx);
         await tx.query(`insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, delivery, status, execution_mode)
-          values ($1, $2, 'skill', $3, 'local', $4, $5, 'running', 'skill')`, [workId, input.snapshot.name, input.snapshot.definition.content, input.source_session_id, `local:${input.source_session_id}`]);
+          values ($1, $2, 'skill', $3, 'local', $4, $5, 'queued', 'skill')`, [workId, input.snapshot.name, input.snapshot.definition.content, input.source_session_id, `local:${input.source_session_id}`]);
       }
-      await tx.query(`update pa24.work_item set status = 'running', progress = 'Skill 运行已接纳', result = null,
+      await tx.query(`update pa24.work_item set status = 'queued', progress = 'Skill 运行已接纳，等待执行名额', result = null,
         child_session_id = $2, skill = $3, skill_definition = $4, active_skill_run_id = $5, recovery_gen = recovery_gen + 1, updated_at = now() where id = $1`,
       [workId, input.mode === 'business' ? sessionId : null, name, JSON.stringify({
         name, description: input.snapshot.definition.description, source: input.snapshot.provider ? input.skill_id.split(':')[0] : 'pa24-managed', track: input.mode === 'template' ? 'template' : 'agent',
         metadata: input.snapshot.definition.metadata, content: input.snapshot.definition.content,
       }), id]);
       const run = (await tx.query<SkillRunRow>(`insert into pa24.skill_run
-        (id, request_id, request_hash, work_item_id, skill_id, version_id, source_session_id, session_id, workspace_path, mode, trial, snapshot)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+        (id, request_id, request_hash, work_item_id, skill_id, version_id, source_session_id, session_id, workspace_path, mode, trial, snapshot, plan_id, trigger_kind, triggered_at)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning *`,
       [id, input.request_id, input.request_hash, workId, input.skill_id, input.version_id, input.source_session_id, sessionId,
-        input.workspace_path, input.mode, input.trial, JSON.stringify(input.snapshot)])).rows[0]!;
+        input.workspace_path, input.mode, input.trial, JSON.stringify(input.snapshot), input.plan_id ?? null, input.trigger_kind ?? null, input.triggered_at ?? null])).rows[0]!;
       await tx.query('insert into pa24.skill_run_session (run_id, session_id, parent_session_id, workspace_path) values ($1,$2,$3,$4)',
         [run.id, sessionId, input.mode === 'business' ? input.source_session_id : null, input.workspace_path]);
       await initializeRunControl(tx, run.id, input.snapshot.executionLimitMs);
       return run;
+  }
+  async lockAdmission(skillId: string, tx: PaQueryer): Promise<void> {
+    await tx.query('insert into pa24.skill_run_admission_guard (id) values ($1) on conflict (id) do nothing', [skillId]);
+    await tx.query('select id from pa24.skill_run_admission_guard where id = $1 for update', [skillId]);
   }
   async transition(id: string, status: SkillRunStatus, progress: string, result?: string): Promise<SkillRunRow | null> {
     return this.db.withTransaction(async tx => {
@@ -267,7 +283,7 @@ export class SkillRunRepo {
       const next = (await tx.query<SkillRunRow>('update pa24.skill_run set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 returning *',
         [id, status, progress, result ?? row.result])).rows[0]!;
       await tx.query('update pa24.work_item set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 and active_skill_run_id = $5',
-        [row.work_item_id, status === 'pending' || status === 'stopping' ? 'running' : status === 'waiting' ? 'waiting_input' : status === 'timed_out' ? 'failed' : status, progress, next.result, id]);
+        [row.work_item_id, status === 'pending' ? 'queued' : status === 'stopping' ? 'running' : status === 'waiting' ? 'waiting_input' : status === 'timed_out' ? 'failed' : status, progress, next.result, id]);
       if (['completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'].includes(status)) {
         const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];
         if (control) {
@@ -278,11 +294,45 @@ export class SkillRunRepo {
       return next;
     });
   }
-  async claimLaunch(id: string, progress: string): Promise<boolean> {
+  async rejectPendingPlanRun(id: string, reason: string): Promise<void> {
+    await this.db.withTransaction(async tx => {
+      const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1', [id])).rows[0];
+      if (run?.plan_id) await this.cancelQueuedPlan(run.plan_id, reason, tx, run.id);
+    });
+  }
+  async cancelQueuedPlan(id: string, reason: string, tx: PaQueryer, runId?: string): Promise<void> {
+    const runs = (await tx.query<SkillRunRow>(`update pa24.skill_run set status = 'stopped', progress = $2, updated_at = now() where plan_id = $1 and status = 'pending'
+      ${runId ? 'and id = $3' : ''} returning *`, runId ? [id, reason, runId] : [id, reason])).rows;
+    for (const run of runs) {
+      await tx.query("update pa24.work_item set status = 'stopped', progress = $2, updated_at = now() where id = $1 and active_skill_run_id = $3", [run.work_item_id, reason, run.id]);
+      const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [run.id])).rows[0];
+      if (control) {
+        finishRunControl(control.state, 'stopped');
+        await tx.query('update pa24.skill_run_control set state = $2, revision = revision + 1, updated_at = now() where run_id = $1', [run.id, JSON.stringify(control.state)]);
+      }
+      await tx.query("update pa24.plan_trigger set status = 'skipped', reason = $2, updated_at = now() where run_id = $1 and status = 'queued'", [run.id, reason]);
+    }
+  }
+  async claimLaunch(id: string, progress: string, limit = 2): Promise<boolean> {
     return this.db.withTransaction(async tx => {
+      const capacity = await hasExecutionCapacity(tx, limit, { runId: id });
+      const selected = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1', [id])).rows[0];
+      if (!selected || selected.status !== 'pending') return false;
+      if (selected.plan_id) {
+        const plan = (await tx.query<TaskPlanRow>('select * from pa24.digest_plan where id = $1 for update', [selected.plan_id])).rows[0];
+        const blocked = (await tx.query('select key from pa24.task_plan_block where plan_id = $1', [selected.plan_id])).rowCount
+          || (await tx.query('select plan_id from pa24.skill_plan_block where plan_id = $1', [selected.plan_id])).rowCount;
+        if (!plan || plan.recycled_at || plan.delete_when_idle || blocked || (selected.trigger_kind === 'schedule'
+          && (!plan.owner_enabled || plan.status !== 'active' || plan.schedule_generation !== selected.snapshot.plan?.generation))) {
+          await this.cancelQueuedPlan(selected.plan_id, '计划已暂停、删除或阻断，未启动的排队运行已停止。', tx);
+          return false;
+        }
+      }
+      if (!capacity) return false;
       const run = (await tx.query<SkillRunRow>("update pa24.skill_run set status = 'running', progress = $2, updated_at = now() where id = $1 and status = 'pending' returning *", [id, progress])).rows[0];
       if (!run) return false;
-      await tx.query('update pa24.work_item set progress = $2, updated_at = now() where id = $1 and active_skill_run_id = $3', [run.work_item_id, progress, id]);
+      await tx.query("update pa24.work_item set status = 'running', progress = $2, updated_at = now() where id = $1 and active_skill_run_id = $3", [run.work_item_id, progress, id]);
+      await tx.query("update pa24.plan_trigger set status = 'started', updated_at = now() where run_id = $1 and status = 'queued'", [id]);
       return true;
     });
   }

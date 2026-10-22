@@ -36,6 +36,11 @@ export const PANEL_RPC = {
     skillsPreview: 'skills.preview',
     skillsRuns: 'skills.runs',
     skillsRun: 'skills.run',
+    plans: 'plans',
+    plan: 'plans.inspect',
+    planDraft: 'plans.draft',
+    planPreview: 'plans.preview',
+    planRunPreview: 'plans.run-preview',
     sources: 'sources',
     calendar: 'calendar',
   },
@@ -60,6 +65,7 @@ export const PANEL_RPC = {
     workList: 'work.list',
     skillChange: 'skill.change',
     skillRun: 'skill.run',
+    planChange: 'plan.change',
     sourceCheck: 'source.check',
     calendarVerify: 'calendar.verify',
     testInject: 'test.inject',
@@ -97,6 +103,11 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.skillsPreview) return respond({ ok: true, value: await runtime.skillRuns.preview(payload) });
             if (endpoint === E.skillsRuns) return respond({ ok: true, value: await runtime.skillRuns.list(payload) });
             if (endpoint === E.skillsRun) return respond({ ok: true, value: await runtime.skillRuns.inspect(payload) });
+            if (endpoint === E.plans) return respond({ ok: true, value: await runtime.taskPlans.list(payload) });
+            if (endpoint === E.plan) return respond({ ok: true, value: await runtime.taskPlans.inspect(payload) });
+            if (endpoint === E.planDraft) return respond({ ok: true, value: await runtime.taskPlans.draft(payload) });
+            if (endpoint === E.planPreview) return respond({ ok: true, value: await runtime.taskPlans.preview(payload) });
+            if (endpoint === E.planRunPreview) return respond({ ok: true, value: await runtime.planEngine.previewRun(payload) });
             if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
             if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
@@ -205,6 +216,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
     const graceMs = Number(payload.graceMs);
     return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : DIGEST_UNCONFIRMED_GRACE_MS);
   },
+  [PANEL_RPC.actions.planChange]: (runtime, payload) => runtime.changeTaskPlan(payload),
   [PANEL_RPC.actions.digestReschedule]: (runtime, payload) => runtime.digestReschedule(payload as Record<string, unknown>),
   [PANEL_RPC.actions.digestSetSkill]: (runtime, payload) => runtime.digestSetSkill(payload as Record<string, unknown>),
   [PANEL_RPC.actions.digestSetVoice]: (runtime, payload) => runtime.digestSetVoice(payload as Record<string, unknown>),

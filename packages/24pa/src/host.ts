@@ -147,6 +147,8 @@ export interface ConnectionFetchRoute {
 export type Disposer = () => void | Promise<void>;
 
 export interface DshContext {
+  on(event: 'agent/pre-step', listener: (data: { agent: DshAgent; messages: import('./skill-run-host.js').RunInput[] },
+    next: () => Promise<{ kind: 'reject' } | { kind: 'enter'; messages: import('./skill-run-host.js').RunInput[] }>) => Promise<{ kind: 'reject' } | { kind: 'enter'; messages: import('./skill-run-host.js').RunInput[] }>): () => void;
   on(event: 'session/event', listener: (session: DshSession, event: SessionEvent) => void): () => void;
   on(event: 'agent/created', listener: (data: { agent: DshAgent }) => void | Promise<void>): () => void;
   effect(factory: () => Disposer | void | Promise<void>): void;

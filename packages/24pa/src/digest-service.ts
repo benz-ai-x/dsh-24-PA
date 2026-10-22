@@ -455,10 +455,10 @@ export class DigestService {
 
   /** Manual template runs save their result directly; they neither enable a
    * plan nor send a local prompt that would accidentally invoke a model. */
-  async manualTemplate(def: SkillDefinitionLike, parameters: Record<string, unknown>): Promise<string> {
+  async manualTemplate(def: SkillDefinitionLike, parameters: Record<string, unknown>, plan?: import('./repo/skill-run.js').SkillRunSnapshot['plan']): Promise<string> {
     this.checkTemplate(def);
     const kind = String(def.metadata?.kind ?? '');
-    const now = new Date(), period = digestPeriod(kind, this.deps.config().timeZone, now, 'manual');
+    const now = new Date(), period = digestPeriod(kind, plan?.configuration.timeZone ?? this.deps.config().timeZone, plan ? new Date(plan.triggeredAt) : now, plan?.source ?? 'manual');
     return this.renderDigest({ kind, title: typeof parameters.title === 'string' ? parameters.title : def.description ?? '手工简报' }, period.localFrom, await this.planningFacts(now, period));
   }
 

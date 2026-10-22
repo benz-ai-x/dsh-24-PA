@@ -5,6 +5,7 @@ import type { PaDb } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
 import { randomUUID } from 'node:crypto';
 import { readLedgerOwner } from './ledger.js';
+import { hasExecutionCapacity } from './execution-capacity.js';
 
 export interface WorkExecutionScope {
   workspaceId: string;
@@ -54,13 +55,18 @@ export interface WorkItemRow {
 export class WorkItemRepo {
   constructor(private readonly db: PaDb) {}
 
-  async claimNext(): Promise<WorkItemRow | null> {
-    const result = await this.db.query<WorkItemRow>(
+  async claimNext(limit = 2): Promise<WorkItemRow | null> {
+    return this.db.withTransaction(async tx => {
+    // Read before taking a row lock; every competing dispatcher then passes
+    // the same capacity gate and the final update still claims once.
+    const candidate = (await tx.query<WorkItemRow>("select * from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted') order by created_at, id limit 1")).rows[0];
+    if (!candidate || !await hasExecutionCapacity(tx, limit, { parentSessionId: candidate.parent_session_id })) return null;
+    const result = await tx.query<WorkItemRow>(
       `update pa24.work_item set status = 'running', progress = 'Worker 正在处理', updated_at = now()
-       where id = (select id from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted') order by created_at, id limit 1)
-       and status in ('queued', 'accepted') returning *`,
+       where id = $1 and status in ('queued', 'accepted') returning *`, [candidate.id],
     );
     return result.rows[0] ?? null;
+    });
   }
 
   /** Commit the input identity before native admission, so a later DB outage
@@ -117,7 +123,7 @@ export class WorkItemRepo {
     return result.rows[0]!;
   }
 
-  async update(id: string, patch: Partial<Pick<WorkItemRow, 'status' | 'progress' | 'result' | 'result_ref' | 'child_session_id'>>): Promise<WorkItemRow | null> {
+  async update(id: string, patch: Partial<Pick<WorkItemRow, 'status' | 'progress' | 'result' | 'result_ref' | 'child_session_id'>>, limit?: number): Promise<WorkItemRow | null> {
     const sets: string[] = ['updated_at = now()'];
     const values: unknown[] = [id];
     let n = 2;
@@ -126,8 +132,14 @@ export class WorkItemRepo {
       values.push(value === undefined ? null : key === 'result_ref' ? JSON.stringify(value) : value);
       n += 1;
     }
-    const result = await this.db.query<WorkItemRow>(`update pa24.work_item set ${sets.join(', ')} where id = $1 returning *`, values);
-    return result.rows[0] ?? null;
+    return this.db.withTransaction(async tx => {
+      if (limit !== undefined && patch.status === 'running') {
+        const item = (await tx.query<WorkItemRow>('select * from pa24.work_item where id = $1', [id])).rows[0];
+        if (!await hasExecutionCapacity(tx, limit, { workId: id, parentSessionId: item?.parent_session_id })) throw new Error('全局执行并发已满，请稍后继续。');
+      }
+      const result = await tx.query<WorkItemRow>(`update pa24.work_item set ${sets.join(', ')} where id = $1 returning *`, values);
+      return result.rows[0] ?? null;
+    });
   }
 
   async get(id: string): Promise<WorkItemRow | null> {

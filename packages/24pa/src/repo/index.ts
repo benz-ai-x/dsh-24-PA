@@ -16,6 +16,7 @@ import { SkillRepo } from './skill.js';
 import { SkillRunRepo } from './skill-run.js';
 import { RunControlRepo } from './run-control.js';
 import { TaskPlanRepo } from './task-plan.js';
+import { PlanTriggerRepo } from './plan-trigger.js';
 import { SourceRepo } from './source.js';
 import { SourceProjectionRepo } from './source-projection.js';
 import { DataChannel, ProjectRepo, ProjectRow, TaskRepo, TaskRow } from './task.js';
@@ -46,6 +47,7 @@ export interface Repos {
   skillRuns: SkillRunRepo;
   runControls: RunControlRepo;
   taskPlans: TaskPlanRepo;
+  planTriggers: PlanTriggerRepo;
   sources: SourceRepo;
   sourceProjection: SourceProjectionRepo;
 }
@@ -76,6 +78,7 @@ export function createRepos(db: PaDb): Repos {
     skillRuns: new SkillRunRepo(db),
     runControls: new RunControlRepo(db),
     taskPlans: new TaskPlanRepo(db),
+    planTriggers: new PlanTriggerRepo(db),
     sources: new SourceRepo(db),
     sourceProjection: new SourceProjectionRepo(db),
   };

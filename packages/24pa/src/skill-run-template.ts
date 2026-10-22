@@ -7,7 +7,7 @@ import { beginRunAttempt, checkpointRunTime, recordRunStep } from './run-control
  * events. Cancellation remains active until its outstanding reads have ended. */
 export class SkillRunTemplates {
   private readonly active = new Map<string, { abort: AbortController; done: Promise<void> }>();
-  constructor(private readonly generate: (def: SkillDefinitionLike, parameters: Record<string, unknown>) => Promise<string>,
+  constructor(private readonly generate: (def: SkillDefinitionLike, parameters: Record<string, unknown>, run: SkillRunRow) => Promise<string>,
     private readonly control: <T>(work: () => Promise<T>) => Promise<T>) {}
 
   start(run: SkillRunRow, repos: Repos): Promise<void> {
@@ -43,7 +43,7 @@ export class SkillRunTemplates {
       void timeoutWrite.catch(() => {}); // Joined below, never a lost receipt.
     }, Math.max(0, initial.state.limitMs - initial.state.executionMs));
     try {
-      const result = await withExecutionSignal(abort.signal, () => this.generate(run.snapshot.definition, run.snapshot.parameters));
+      const result = await withExecutionSignal(abort.signal, () => this.generate(run.snapshot.definition, run.snapshot.parameters, run));
       await repos.runControls.change(run.id, state => recordRunStep(state, key, 'end', Date.now()));
       if (Date.now() - started + initial.state.executionMs >= initial.state.limitMs) expired = true;
       if (!expired && !abort.signal.aborted) await repos.skillRuns.transition(run.id, 'completed', '模板已生成；未调用模型，未请求投递', result);

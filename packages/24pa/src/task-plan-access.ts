@@ -23,9 +23,10 @@ export class TaskPlanAccess {
   constructor(private readonly deps: {
     sources: SourceRegistry;
     owner(channel: 'feishu' | 'wecom'): Promise<NonNullable<TaskPlanAuthorization['delivery']>>;
+    checkAction?(action: string): void;
   }) {}
   async authorize(config: TaskPlanConfiguration, skill: TaskPlanAuthorization['skill'], previous: TaskPlanAuthorization | null): Promise<TaskPlanAuthorization> {
-    for (const action of skill.contract?.actions ?? []) if (!writes[action] && !reads.has(action)) throw new Error(`后台动作 ${action} 尚无可核验的固定授权目标；请改为已支持的业务动作后启用。`);
+    for (const action of skill.contract?.actions ?? []) this.checkAction(action);
     if (previous) {
       const old = previous.skill;
       if (old.id !== skill.id || skill.contract?.mode !== old.contract?.mode
@@ -49,6 +50,7 @@ export class TaskPlanAccess {
       delivery: config.delivery.channel === 'none' ? null : await this.deps.owner(config.delivery.channel) };
   }
   async verify(authorization: TaskPlanAuthorization): Promise<void> {
+    for (const action of authorization.skill.contract?.actions ?? []) this.checkAction(action);
     for (const row of authorization.targets) await this.deps.sources.verify(row.target, row.capability);
     if (authorization.delivery) {
       const current = await this.deps.owner(authorization.delivery.channel);
@@ -56,6 +58,7 @@ export class TaskPlanAccess {
     }
   }
   async action(authorization: TaskPlanAuthorization, action: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    this.checkAction(action);
     if (!authorization.skill.contract?.actions?.includes(action)) throw new Error('此操作不在本计划授权范围内。');
     const write = writes[action];
     if (!write) {
@@ -73,5 +76,9 @@ export class TaskPlanAccess {
     if ((args.channel && args.channel !== binding.target.platform)
       || (args.calendarId && args.calendarId !== binding.target.resource.id)) throw new Error('本次动作要求的目标超出计划固定授权，请先明确重配计划。');
     return { ...values, sourceId: binding.target.sourceId, channel: binding.target.platform, _sourceTarget: binding.target };
+  }
+  private checkAction(action: string): void {
+    if (!writes[action] && !reads.has(action)) throw new Error(`后台动作 ${action} 尚无可核验的固定授权目标；请改为已支持的业务动作后启用。`);
+    this.deps.checkAction?.(action);
   }
 }

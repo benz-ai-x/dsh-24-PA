@@ -43,8 +43,8 @@ export class WorkItemLifecycle {
   private async fillSlots() {
     if (!this.deps.available()) return;
     const repo = this.deps.repo();
-    while (this.deps.available() && await repo.countByStatus('running') < this.deps.maxWorkers()) {
-      const item = await repo.claimNext();
+    while (this.deps.available()) {
+      const item = await repo.claimNext(this.deps.maxWorkers());
       if (!item) break;
       this.deps.track(item);
       try {
@@ -69,12 +69,11 @@ export class WorkItemLifecycle {
       if (supplement && item.status === 'stopped') throw new Error('事项已停止，不因引用复活。');
       if (['accepted', 'queued'].includes(item.status)) throw new Error('事项尚在排队，请启动后再补充。');
       if (!supplement && item.status === 'running') throw new Error('事项正在运行或排队中。');
-      if (item.status !== 'running' && await repo.countByStatus('running') >= this.deps.maxWorkers()) throw new Error('Worker 并发已满，请稍后继续。');
       if (item.status !== 'running') {
         await this.deps.quiesce?.(item);
         await repo.setRecoveryGen(id, (item.recovery_gen ?? 0) + 1);
       }
-      let running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待 Worker 处理' : '继续处理' });
+      let running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待 Worker 处理' : '继续处理' }, this.deps.maxWorkers());
       this.deps.track(running!);
       let acceptedMessageId: string | void;
       try {

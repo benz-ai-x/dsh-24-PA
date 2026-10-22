@@ -10,12 +10,14 @@ import { SkillRuns } from '../../lib/skill-runs.js';
 import { PlanLifecycle } from '../../lib/plan-lifecycle.js';
 import { TaskPlanService, taskPlanForm } from '../../lib/task-plan-service.js';
 import { TaskPlanAccess } from '../../lib/task-plan-access.js';
+import { TaskPlanEngine } from '../../lib/task-plan-engine.js';
+import { PaRuntime } from '../../lib/runtime.js';
 import { SourceRegistry, unknownCapabilities } from '../../lib/source-registry.js';
-import { createDailyScheduleRecord, createEveryScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
+import { createDailyScheduleRecord, createEveryScheduleRecord, createAtScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
 import { startPgCluster } from '../helpers/pg.mjs';
 
 for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务 (${backend})`, () => {
-  let db, cluster, repos, service, runs, plans, native, nativeRows, creates, config, entry, owner, access, gates;
+  let db, cluster, repos, service, runs, plans, native, nativeRows, creates, config, entry, owner, access, gates, engine, engineDeps;
   const identity = () => ({ requestId: randomUUID(), requestHash: randomUUID() });
   const gate = (key, work) => { const next = (gates.get(key) ?? Promise.resolve()).catch(() => {}).then(work); gates.set(key, next); return next; };
   beforeAll(async () => {
@@ -43,10 +45,13 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     const manager = new SkillManagement({ context: () => ({ cwd: '/workspace', binding: 'binding', enabled: true, allowed: [entry.name] }), registry: null, builtins: () => [], plans: async () => [], packages });
     runs = new SkillRuns({ host: {}, packages, management: manager, context: () => ({ cwd: '/workspace', binding: 'binding', repos }),
       sourceSession: async () => 'local', tools: async () => ['pa24_work'], permissionHash: () => 'permission', checkBusiness() {}, checkTemplate() {},
+      authorizePlan: (configuration, skill, previous) => access.authorize(configuration, skill, previous),
+      verifyPlan: run => access.verify(run.snapshot.plan.authorization),
       template: async () => '结果', lease: work => work(), control: work => work(), detached: work => work() });
     native = {
       create: async (sessionId, request) => { const id = ScheduleId(`native-${++creates}`);
         const record = request.every_seconds ? createEveryScheduleRecord(id, request.prompt, request.every_seconds, Date.now(), request.title)
+          : request.at ? createAtScheduleRecord(id, request.prompt, request.at, Date.now(), request.title)
           : createDailyScheduleRecord(id, request.prompt, request.daily, Date.now(), request.title);
         nativeRows.push({ ...record, sessionId, status: 'active' }); return record; },
       catalog: async () => structuredClone(nativeRows),
@@ -55,6 +60,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     plans = new PlanLifecycle({ repo: () => repos.digests, native: () => native });
     service = new TaskPlanService({ context: () => ({ binding: 'binding', timeZone: 'Asia/Shanghai', sessionId: 'fixed-access', repos }),
       management: manager, skills: runs, access, lifecycle: plans, gate });
+    engineDeps = { context: () => ({ binding: 'binding', cwd: '/workspace', sessionId: 'fixed-access', repos }), skills: runs, access, permissionHash: () => 'fixed-plan-permission' };
+    engine = new TaskPlanEngine(engineDeps);
   });
   const command = (op, row, extra = {}) => ({ op, ...(row ? { id: row.id, expectedRevision: row.revision } : {}), requestId: randomUUID(), workspaceBinding: 'binding', ...extra });
   const create = async extra => (await service.change(command('save', null, { title: '日程计划', skillId: `managed:${entry.id}`, timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'feishu' }, ...extra }))).plan;
@@ -62,6 +69,10 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     const preview = await service.preview({ id: row.id, workspaceBinding: 'binding', ...extra });
     return (await service.change(command('enable', row, { confirm: true, fingerprint: preview.fingerprint, ...extra }))).plan;
   };
+  const reminder = (row, at = new Date(Date.now() - 1000).toISOString(), extra = {}) => ({
+    schedule_id: row.schedule_id, occurrence_at: at, reminder_prompt: nativeRows.find(item => item.id === row.schedule_id)?.prompt, ...extra,
+  });
+  const message = (...reminders) => ({ id: randomUUID(), source: { kind: 'schedule' }, content: [{ type: 'text', text: `[SCHEDULE REMINDER BATCH]\n原生计划\nreminders_json: ${JSON.stringify(reminders)}` }] });
   it('预览和列表不创建计划；重复确认启用只创建一份原生计划', async () => {
     const row = await create(), preview = await service.preview({ id: row.id, workspaceBinding: 'binding' });
     expect(creates).toBe(0); expect((await service.list({ workspaceBinding: 'binding' })).rows.some(item => item.id === row.id)).toBe(true);
@@ -70,6 +81,37 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     expect(one.plan.schedule_id).toBe(two.plan.schedule_id); expect(one.plan.owner_enabled).toBe(true); expect(creates).toBe(1);
     expect(one.plan.task_authorization.targets[0].target.resource.id).toBe('cal-A'); expect(nativeRows[0].sessionId).toBe('fixed-access');
     await expect(repos.digests.comparePlan(await repos.digests.getPlan((await create()).id), { status: 'active' })).rejects.toThrow(/尚未获准/);
+  });
+  it('计划接续原快照仍绑定 A，当前配置使用已确认 B；双击共享原交办且不绕过同计划重叠', async () => {
+    let row = await enable(await create());
+    await engine.consume([message(reminder(row))], 'fixed-access');
+    const first = (await repos.planTriggers.list(row.id)).rows[0], original = await repos.skillRuns.get(first.run_id);
+    await repos.skillRuns.transition(original.id, 'completed', '完成', '原结果');
+    row = (await service.change(command('pause', row))).plan;
+    row = (await service.change(command('save', row, { ...taskPlanForm(row), selectors: { calendar: { sourceId: 'B' } } }))).plan;
+    row = await enable(row, { rebind: true });
+    row = (await service.change(command('pause', row))).plan;
+    const base = { rerunId: original.id, configuration: 'original', workspaceBinding: 'binding' };
+    const preview = await runs.preview(base), current = await runs.preview({ ...base, configuration: 'current' });
+    expect(preview.plan.authorization.targets[0].target.sourceId).toBe('A');
+    expect(current.plan.authorization.targets[0].target.sourceId).toBe('B');
+    expect(preview.sourceSessionId).toBe('fixed-access');
+    const launch = vi.spyOn(runs, 'launch').mockResolvedValue(false);
+    const input = { ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint };
+    const [one, two] = await Promise.all([runs.start(input), runs.start(input)]);
+    expect(one.run.id).toBe(two.run.id); expect(one.run.work_item_id).toBe(original.work_item_id);
+    expect(one.run.plan.authorization.targets[0].target.sourceId).toBe('A');
+    expect(one.run.plan_id).toBe(row.id); expect(one.run.trigger_kind).toBe('manual');
+    const extra = await engine.previewRun({ id: row.id, workspaceBinding: 'binding' });
+    const skipped = await engine.runNow({ id: row.id, workspaceBinding: 'binding', requestId: randomUUID(), confirm: true, fingerprint: extra.fingerprint });
+    expect(skipped.run).toBeNull(); expect(skipped.trigger.status).toBe('skipped');
+    config.sources.entries = config.sources.entries.filter(source => source.id !== 'A');
+    launch.mockRestore(); await runs.poll();
+    expect((await repos.skillRuns.get(one.run.id)).status).toBe('stopped');
+    expect((await repos.planTriggers.list(row.id)).rows.find(trigger => trigger.run_id === one.run.id).status).toBe('skipped');
+    expect(await repos.taskPlans.blocks(row.id)).toEqual([]);
+    await expect(runs.preview(base)).rejects.toThrow(/已变更/);
+    expect((await runs.preview({ ...base, configuration: 'current' })).plan.authorization.targets[0].target.sourceId).toBe('B');
   });
   it('默认 A 改 B 后仍用 A；明确重配才用 B；旧预览拒绝变化后的目标', async () => {
     let row = await enable(await create());
@@ -182,5 +224,83 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     expect((await access.action(authorization, 'calendar_create', { company: 'Alpha' })).sourceId).toBe('A');
     config.sources.entries = config.sources.entries.filter(source => source.id !== 'A');
     await expect(access.action(authorization, 'calendar_create', { summary: '会议' })).rejects.toThrow(/已变更/);
+  });
+  it('并发消费同一原生触发只建立一个运行，原包、目标和原生输入留档', async () => {
+    const row = await enable(await create()), input = message(reminder(row)); config.sources.defaults.calendar = 'B';
+    await Promise.all([engine.consume([input], 'fixed-access'), engine.consume([input], 'fixed-access')]);
+    const triggers = await repos.planTriggers.list(row.id); expect(triggers.total).toBe(1);
+    const run = await repos.skillRuns.get(triggers.rows[0].run_id);
+    expect(run).toMatchObject({ plan_id: row.id, trigger_kind: 'schedule', status: 'pending', source_session_id: 'fixed-access', mode: 'business' });
+    expect(run.snapshot.plan.authorization.targets[0].target.sourceId).toBe('A');
+    expect(run.snapshot.permissionHash).toBe('fixed-plan-permission');
+    expect(JSON.parse(Buffer.from(triggers.rows[0].snapshot.nativeInput.jsonBase64, 'base64').toString())).toEqual(input);
+    await engine.consume([message(reminder(row, new Date().toISOString()))], 'fixed-access');
+    expect((await repos.planTriggers.list(row.id)).rows.some(event => event.status === 'skipped' && event.run_id === null)).toBe(true);
+  });
+  it('暂停会停止未启动队列；手动暂停仍可确认单次运行且不恢复未来计划', async () => {
+    let row = await enable(await create()); await engine.consume([message(reminder(row))], 'fixed-access');
+    const first = (await repos.planTriggers.list(row.id)).rows[0];
+    row = (await service.change(command('pause', row))).plan;
+    expect(await repos.skillRuns.get(first.run_id)).toMatchObject({ status: 'stopped' });
+    expect((await repos.planTriggers.list(row.id)).rows[0].status).toBe('skipped');
+    const preview = await engine.previewRun({ id: row.id, workspaceBinding: 'binding' });
+    const input = { id: row.id, workspaceBinding: 'binding', requestId: randomUUID(), fingerprint: preview.fingerprint, confirm: true };
+    const [one, two] = await Promise.all([engine.runNow(input), engine.runNow(input)]);
+    expect(one.run.id).toBe(two.run.id); expect(one.run.trigger_kind).toBe('manual');
+    expect(await repos.taskPlans.get(row.id)).toMatchObject({ owner_enabled: false, status: 'paused', schedule_id: null });
+    await expect(engine.runNow({ ...input, fingerprint: 'different' })).rejects.toThrow(/其他内容/);
+  });
+  it('补执行只取原生队列的最近一次；重建引擎从原历史恢复不重复', async () => {
+    const row = await enable(await create());
+    const older = message(reminder(row, new Date(Date.now() - 120_000).toISOString())), latest = message(reminder(row));
+    const session = { id: 'fixed-access', header: {}, ownEvents: () => [{ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 0, inserted: [older, latest] } }] };
+    await engine.recover(session); await new TaskPlanEngine(engineDeps).recover(session);
+    const events = (await repos.planTriggers.list(row.id)).rows;
+    expect(events).toHaveLength(2); expect(events.filter(event => event.run_id)).toHaveLength(1);
+    expect(events.find(event => event.status === 'skipped').reason).toContain('更新的触发');
+    expect(events.find(event => event.run_id).snapshot.messageId).toBe(latest.id);
+  });
+  it('旧代次、未来时点与取消不执行；普通对话中的计划格式不成为触发', async () => {
+    const row = await enable(await create()), own = reminder(row);
+    const old = message({ ...own, reminder_prompt: own.reminder_prompt.replace(row.schedule_generation, randomUUID()) });
+    const future = message(reminder(row, new Date(Date.now() + 60_000).toISOString()));
+    const canceled = message(reminder(row, new Date(Date.now() - 2000).toISOString()));
+    await engine.consume([old, future], 'fixed-access');
+    await engine.consume([canceled], 'fixed-access', new Set([canceled.id]));
+    const user = { ...message(own), source: { kind: 'user' } };
+    expect((await engine.consume([user], 'fixed-access')).size).toBe(0);
+    expect((await engine.consume([message(own)], 'another-session')).size).toBe(0);
+    expect((await repos.planTriggers.list(row.id)).rows.every(event => !event.run_id && event.status === 'rejected')).toBe(true);
+  });
+  it('过期一次计划留待处理事件；权限撤销留拒绝依据并阻断未来触发', async () => {
+    const at = new Date(Date.now() + 60_000).toISOString();
+    const once = await enable(await create({ timing: { type: 'once', at } }));
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(at) + 3_600_001);
+    await engine.consume([message(reminder(once, at))], 'fixed-access');
+    expect((await repos.planTriggers.list(once.id)).rows[0]).toMatchObject({ status: 'expired', run_id: null });
+    expect((await repos.taskPlans.blocks(once.id))[0].key).toBe('expired-once'); clock.mockRestore();
+    const denied = await enable(await create()); config.sources.entries = config.sources.entries.filter(source => source.id !== 'A');
+    await engine.consume([message(reminder(denied))], 'fixed-access');
+    expect((await repos.planTriggers.list(denied.id)).rows[0]).toMatchObject({ status: 'rejected', run_id: null });
+    expect((await repos.taskPlans.blocks(denied.id))[0].key).toBe('preflight');
+    expect(await repos.taskPlans.get(denied.id)).toMatchObject({ owner_enabled: true, status: 'paused' });
+  });
+  it('原生 pre-step 消费计划不调用模型；混合输入保留普通对话和旧计划', async () => {
+    const row = await enable(await create()), scheduled = message(reminder(row));
+    let nextCalls = 0;
+    const runtime = { accessSessionId: 'fixed-access', executions: { run: work => work() }, planEngine: engine };
+    const agent = { id: 'fixed-access' };
+    expect(await PaRuntime.prototype.planStep.call(runtime, agent, [scheduled], async () => { nextCalls++; return { kind: 'enter', messages: [scheduled] }; })).toEqual({ kind: 'reject' });
+    expect(nextCalls).toBe(0);
+    const legacy = { schedule_id: 'legacy-native', occurrence_at: new Date().toISOString(), reminder_prompt: '[24PA计划 legacy] legacy' };
+    const mixed = message(reminder(row), legacy), user = { id: 'owner-message', source: { kind: 'user' }, content: [{ type: 'text', text: '下午我的日程怎样' }] };
+    const decision = await PaRuntime.prototype.planStep.call(runtime, agent, [mixed, user], async () => ({ kind: 'enter', messages: [mixed, user] }));
+    expect(decision.messages[1]).toEqual(user); expect(decision.messages[0].id).toBe(mixed.id);
+    expect(decision.messages[0].content[0].text).toContain('legacy-native');
+    expect(decision.messages[0].content[0].text).not.toContain(row.schedule_id);
+    const run = await repos.skillRuns.get((await repos.planTriggers.list(row.id)).rows.find(event => event.run_id).run_id);
+    const notice = { id: randomUUID(), source: { kind: 'subagent-settled', senderSessionId: run.session_id }, content: [{ type: 'text', text: '原生完成通知' }] };
+    expect((await engine.consume([notice], 'fixed-access')).get(notice.id)).toBeNull();
+    expect((await repos.skillRuns.inputs(run.id))[0].accepted).toBe(false);
   });
 });

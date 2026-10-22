@@ -62,7 +62,21 @@ export class TaskPlanService {
   async inspect(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);
     return { plan: row, form: row.task_config ? taskPlanForm(row) : null, blocks: await context.repos.taskPlans.blocks(row.id),
+      triggers: await context.repos.planTriggers.list(row.id, Math.max(0, Math.floor(Number(input.offset) || 0))),
       activeRuns: await context.repos.taskPlans.activeRuns(row.id), workspaceBinding: context.binding };
+  }
+  async reconcile(): Promise<void> {
+    const context = this.deps.context(); if (!context) return;
+    const skillBlocks = await context.repos.skills.planBlocks();
+    for (const base of await context.repos.digests.listPlans()) {
+      const row = base as TaskPlanRow;
+      if (!row.task_config) continue;
+      const blocked = skillBlocks.some(block => block.plan_id === row.id) || (await context.repos.taskPlans.blocks(row.id)).length > 0;
+      if ((!row.owner_enabled || row.delete_when_idle || blocked) && (row.schedule_id || row.lifecycle)) {
+        await this.deps.lifecycle.stop(row.id, 'paused', row.revision);
+      }
+      if (row.delete_when_idle) await context.repos.taskPlans.finishDelete(row.id);
+    }
   }
   private async preflight(context: PlanContext, row: TaskPlanRow, rebind: boolean) {
     if (!row.task_config || row.recycled_at || row.delete_when_idle) throw new Error('计划未完成配置或已进入删除流程。');

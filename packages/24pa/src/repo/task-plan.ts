@@ -104,6 +104,7 @@ export class TaskPlanRepo {
       const row = await this.selected(input, tx);
       if (row.recycled_at || row.delete_when_idle) throw new Error('计划已进入删除流程。');
       if (input.enabled && (!row.task_authorization || row.task_authorization.skill.id !== row.task_config?.skillId || row.skill !== observed.skill || (await this.blocks(row.id, tx)).length)) throw new Error('计划仍有未解决的阻断，须重新核验授权后启用。');
+      if (!input.enabled) await new SkillRunRepo(this.db).cancelQueuedPlan(row.id, '主人暂停计划，未启动的排队运行已停止。', tx);
       return (await tx.query<TaskPlanRow>(`update pa24.digest_plan set owner_enabled = $2,
         status = case when $2 then status else 'paused' end, revision = revision + 1, updated_at = now() where id = $1 returning *`, [row.id, input.enabled])).rows[0]!;
     });
@@ -111,13 +112,14 @@ export class TaskPlanRepo {
   async blocks(id: string, tx: PaQueryer = this.db): Promise<TaskPlanBlock[]> {
     return (await tx.query<TaskPlanBlock>('select * from pa24.task_plan_block where plan_id = $1 order by key', [id])).rows;
   }
-  async block(id: string, block: Pick<TaskPlanBlock, 'key' | 'kind' | 'reason'>): Promise<void> {
+  async block(id: string, block: Pick<TaskPlanBlock, 'key' | 'kind' | 'reason'>, expectedRevision?: number): Promise<void> {
     await this.db.withTransaction(async tx => {
       const row = (await tx.query<TaskPlanRow>('select * from pa24.digest_plan where id = $1 for update', [id])).rows[0];
-      if (!row || row.recycled_at) return;
+      if (!row || row.recycled_at || (expectedRevision !== undefined && row.revision !== expectedRevision)) return;
       await tx.query(`insert into pa24.task_plan_block (plan_id, key, kind, reason) values ($1,$2,$3,$4)
         on conflict (plan_id, key) do update set kind = excluded.kind, reason = excluded.reason`, [id, block.key, block.kind, block.reason]);
       await tx.query("update pa24.digest_plan set status = 'paused', revision = revision + 1, updated_at = now() where id = $1", [id]);
+      await new SkillRunRepo(this.db).cancelQueuedPlan(id, `计划阻断：${block.reason}`, tx);
     });
   }
   async clearBlock(id: string, key: string): Promise<void> {
@@ -137,6 +139,7 @@ export class TaskPlanRepo {
     return this.change(input, async tx => {
       const row = await this.selected(input, tx);
       if (row.recycled_at) return row;
+      await new SkillRunRepo(this.db).cancelQueuedPlan(row.id, '计划进入删除流程，未启动的排队运行已停止。', tx);
       return (await tx.query<TaskPlanRow>(`update pa24.digest_plan set owner_enabled = false, status = 'paused', delete_when_idle = true,
         revision = revision + 1, updated_at = now() where id = $1 returning *`, [row.id])).rows[0]!;
     });

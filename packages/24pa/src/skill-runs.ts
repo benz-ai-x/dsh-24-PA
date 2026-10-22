@@ -15,6 +15,7 @@ import { SkillRunClock } from './skill-run-clock.js';
 import { SkillRunTemplates } from './skill-run-template.js';
 import { initialRunControl, beginRunAttempt, blockRun, clearRunBlock, runControlSummary, type RunBlockKind } from './run-control.js';
 import { isDeepStrictEqual } from 'node:util';
+import { planTriggerId } from './repo/plan-trigger.js';
 
 interface RunContext { binding: string; cwd: string; repos: Repos }
 interface SkillRunsDeps {
@@ -24,10 +25,13 @@ interface SkillRunsDeps {
   management?: SkillManagement;
   sourceSession(): Promise<string>;
   tools(mode: 'local' | 'business'): Promise<string[]>;
-  permissionHash(): string;
+  permissionHash(authorization?: TaskPlanAuthorization): string;
+  verifyPlan?(run: SkillRunRow): Promise<void>;
+  authorizePlan?(configuration: TaskPlanConfiguration, skill: TaskPlanAuthorization['skill'], previous: TaskPlanAuthorization): Promise<TaskPlanAuthorization>;
+  maxWorkers?(): number;
   checkBusiness(name: string, actions: string[]): void;
   startBusiness(run: SkillRunRow, content: ContentBlock[]): Promise<void>;
-  template(def: SkillDefinitionLike, parameters: Record<string, unknown>): Promise<string>;
+  template(def: SkillDefinitionLike, parameters: Record<string, unknown>, run?: SkillRunRow): Promise<string>;
   checkTemplate(def: SkillDefinitionLike): void;
   lease<T>(work: () => Promise<T>): Promise<T>;
   control<T>(work: () => Promise<T>): Promise<T>;
@@ -73,6 +77,7 @@ export class SkillRuns {
   private view(run: SkillRunRow) {
     const { snapshot, ...row } = run;
     return { ...row, name: snapshot.name, parameters: snapshot.parameters, tools: snapshot.tools, contract: snapshot.contract,
+      plan: snapshot.plan,
       packageHash: snapshot.package.hash, files: snapshot.package.files.map(({ content: _content, ...file }) => file) };
   }
   async list(input: Record<string, unknown>) {
@@ -101,7 +106,15 @@ export class SkillRuns {
     if (input.rerunId && !previous) throw new Error('原运行不存在。');
     if (previous && previous.workspace_path !== context.cwd) throw new Error('原工作区环境无法恢复，请核对原记录。');
     const original = !!previous && input.configuration === 'original';
-    const selection = await captureRunSkill({ id: input.id, versionId: input.versionId, previous, original,
+    const plan = previous?.snapshot.plan ? await context.repos.taskPlans.get(previous.snapshot.plan.id) : null;
+    if (previous?.snapshot.plan && (!plan?.task_config || !plan.task_authorization || plan.recycled_at || plan.delete_when_idle
+      || (await context.repos.taskPlans.blocks(plan.id)).length || (await context.repos.skills.planBlocks()).some(block => block.plan_id === plan.id))) {
+      throw new Error('原计划已删除或仍有阻断，请先还原并核验计划后接续。');
+    }
+    const planConfiguration = plan ? original ? previous!.snapshot.plan!.configuration : plan.task_config! : null;
+    const planAuthorization = plan ? original ? previous!.snapshot.plan!.authorization : plan.task_authorization! : null;
+    const selection = await captureRunSkill({ id: planConfiguration?.skillId ?? input.id, versionId: plan ? undefined : input.versionId,
+      previous: plan && !original ? null : previous, original,
       binding: context.binding, repos: context.repos, packages: this.deps.packages, management: this.deps.management });
     const { pkg, definition, versionId } = selection;
     if (!previous) await context.repos.skillRuns.checkNewWork(selection.runSkillId);
@@ -111,9 +124,10 @@ export class SkillRuns {
     const contract = skillContract(definition);
     const mode: 'local' | 'business' | 'template' | undefined = definition.metadata?.track === 'template' ? 'template' : contract?.mode;
     if (!mode) throw new Error('请补齐任务的参数、执行范围、预期结果与完成标准。');
-    if (options.background && mode === 'local') throw new Error('后台计划仅支持业务任务或确定性模板；本地编程 Skill 请从本地手工运行。');
+    if ((options.background || plan) && mode === 'local') throw new Error('后台计划仅支持业务任务或确定性模板；本地编程 Skill 请从本地手工运行。');
     if (mode === 'template') this.deps.checkTemplate(definition);
-    const parameters = original ? previous!.snapshot.parameters : contract ? skillParameters(contract, input.parameters ?? previous?.snapshot.parameters ?? {}) : templateRunParameters(input.parameters ?? previous?.snapshot.parameters ?? {});
+    const rawParameters = planConfiguration?.parameters ?? input.parameters ?? previous?.snapshot.parameters ?? {};
+    const parameters = original ? previous!.snapshot.parameters : contract ? skillParameters(contract, rawParameters) : templateRunParameters(rawParameters);
     const tools = mode === 'template' ? [] : definition.metadata?.tools;
     if (!Array.isArray(tools) || tools.some(t => typeof t !== 'string')) throw new Error('请明确声明 metadata.tools；空数组表示不使用工具。');
     const available = mode === 'template' ? [] : await this.deps.tools(mode);
@@ -124,49 +138,85 @@ export class SkillRuns {
     const snapshot: SkillRunSnapshot = { name: selection.displayName, definition: { ...definition, name: selection.name }, package: pkg, contract,
       parameters, tools: [...new Set(tools)], permissionHash: this.deps.permissionHash(),
       ...(selection.provider ? { provider: selection.provider } : {}),
-      executionLimitMs: original ? previous!.snapshot.executionLimitMs ?? 900000 : initialRunControl(input.executionLimitMs === undefined ? 900000 : Number(input.executionLimitMs)).limitMs };
+      executionLimitMs: original ? previous!.snapshot.executionLimitMs ?? 900000 : initialRunControl(planConfiguration?.executionLimitMs ?? (input.executionLimitMs === undefined ? 900000 : Number(input.executionLimitMs))).limitMs };
+    if (plan && planConfiguration && planAuthorization) {
+      if (!this.deps.authorizePlan) throw new Error('计划授权核验尚未就绪，不能改用普通运行绕过。');
+      const authorization = await this.deps.authorizePlan(planConfiguration, this.planSkill(selection, snapshot), planAuthorization);
+      snapshot.permissionHash = this.deps.permissionHash(authorization);
+      snapshot.plan = { ...previous!.snapshot.plan!, title: original ? previous!.snapshot.plan!.title : plan.title, source: 'manual',
+        configuration: structuredClone(planConfiguration), authorization: { ...authorization, checkedAt: planAuthorization.checkedAt } };
+    }
     if (previous) {
       const instruction = typeof input.instruction === 'string' ? input.instruction.trim() : '';
       if (instruction.length > 4000) throw new Error('接续说明最多 4000 字符。');
       snapshot.continuation = { fromRunId: previous.id, instruction, runs: await context.repos.skillRuns.continuation(previous.id) };
     }
-    return { context, selection, versionId, mode, snapshot, sourceSessionId, previous, original };
+    return { context, selection, versionId, mode, snapshot, sourceSessionId, previous, original, plan };
+  }
+  private planSkill(selection: Awaited<ReturnType<typeof captureRunSkill>>, snapshot: SkillRunSnapshot): TaskPlanAuthorization['skill'] {
+    return { id: selection.id, name: selection.name, versionId: selection.versionId, packageHash: snapshot.package.hash,
+      tools: snapshot.tools, contract: snapshot.contract, resources: snapshot.package.files.map(file => file.path) };
   }
   async preview(input: Record<string, unknown>) {
     const prepared = await this.prepare(input);
     const { selection, versionId, mode, snapshot, sourceSessionId, context } = prepared;
     return { entry: selection.entry, versionId, mode, name: snapshot.name, parameters: snapshot.parameters, tools: snapshot.tools, contract: snapshot.contract,
       files: snapshot.package.files.map(({ content: _content, ...file }) => file), sourceSessionId, continuation: snapshot.continuation, executionLimitMs: snapshot.executionLimitMs,
-      fingerprint: skillHash(JSON.stringify([selection.revision, versionId, snapshot, sourceSessionId])), workspaceBinding: context.binding,
-      message: mode === 'template' ? '此模板按确定性规则生成结果，不调用模型。' : '预览只检查配置，不执行任务。试运行与正式运行都会实际调用获准工具，可能修改文件或外部对象。结果默认保存在运行记录。' };
+      plan: snapshot.plan,
+      fingerprint: skillHash(JSON.stringify([selection.revision, versionId, snapshot, sourceSessionId, prepared.plan?.revision ?? null])), workspaceBinding: context.binding,
+      message: (snapshot.plan ? '计划接续保留原触发时间范围，固定目标、投递和当前权限仍按计划核验。' : '')
+        + (mode === 'template' ? '此模板按确定性规则生成结果，不调用模型。' : '预览只检查配置，不执行任务。试运行与正式运行都会实际调用获准工具，可能修改文件或外部对象。结果默认保存在运行记录。') };
   }
   async preparePlan(configuration: TaskPlanConfiguration, sourceSessionId: string) {
     const prepared = await this.prepare({ id: configuration.skillId, parameters: configuration.parameters,
       executionLimitMs: configuration.executionLimitMs }, { background: true, sourceSessionId });
     const { selection, snapshot, mode, context } = prepared;
-    const skill: TaskPlanAuthorization['skill'] = { id: selection.id, name: selection.name, versionId: selection.versionId,
-      packageHash: snapshot.package.hash, tools: snapshot.tools, contract: snapshot.contract, resources: snapshot.package.files.map(file => file.path) };
+    const skill = this.planSkill(selection, snapshot);
     return { skill, snapshot, mode, skill_id: selection.runSkillId, version_id: selection.versionId,
       expectedRevision: selection.revision, source_session_id: sourceSessionId, workspace_path: context.cwd };
   }
   async start(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), id = requestId(input.requestId), hash = skillHash(JSON.stringify(input));
+    const priorRun = input.rerunId ? await context.repos.skillRuns.get(String(input.rerunId)) : null;
+    if (priorRun?.snapshot.plan) {
+      const trigger = await context.repos.planTriggers.get(planTriggerId(priorRun.snapshot.plan.id, `manual:${id}`, id));
+      if (trigger) {
+        if (trigger.snapshot.requestHash !== hash) throw new Error('运行操作标识已用于不同输入。');
+        if (!trigger.run_id) throw new Error(trigger.reason ?? '本次计划接续未获准。');
+        return { run: this.view((await context.repos.skillRuns.get(trigger.run_id))!), repeated: true, workspaceBinding: context.binding };
+      }
+    }
     const repeated = await context.repos.skillRuns.repeated(id, hash);
     if (repeated) return { run: this.view(repeated), repeated: true, workspaceBinding: context.binding };
     const prepared = await this.prepare(input);
-    const fingerprint = skillHash(JSON.stringify([prepared.selection.revision, prepared.versionId, prepared.snapshot, prepared.sourceSessionId]));
+    const fingerprint = skillHash(JSON.stringify([prepared.selection.revision, prepared.versionId, prepared.snapshot, prepared.sourceSessionId, prepared.plan?.revision ?? null]));
     if (input.confirm !== true || input.fingerprint !== fingerprint) throw new Error('内容、权限或参数已改变，请重新预览并确认本次真实执行。');
-    const run = await context.repos.skillRuns.admit({ request_id: id, request_hash: hash, skill_id: prepared.selection.runSkillId, version_id: prepared.versionId,
+    const inputRun = { request_id: id, request_hash: hash, skill_id: prepared.selection.runSkillId, version_id: prepared.versionId,
       source_session_id: prepared.sourceSessionId, workspace_path: context.cwd, mode: prepared.mode, trial: input.trial === true,
-      snapshot: prepared.snapshot, expectedRevision: prepared.selection.revision, workItemId: prepared.previous?.work_item_id, originalRerun: prepared.original });
+      snapshot: prepared.snapshot, expectedRevision: prepared.selection.revision, workItemId: prepared.previous?.work_item_id, originalRerun: prepared.original };
+    let admission;
+    if (prepared.plan) {
+      inputRun.snapshot.plan!.generation = `manual:${id}`;
+      const result = await context.repos.planTriggers.admit({ plan: prepared.plan, source: 'manual', generation: `manual:${id}`, occurrence: id,
+        sessionId: prepared.sourceSessionId, triggeredAt: new Date(), requestHash: hash, admission: inputRun });
+      if (!result.run) throw new Error(result.trigger.reason ?? '计划接续未获准。');
+      admission = { run: result.run, repeated: result.repeated };
+    } else admission = await context.repos.skillRuns.admitResult(inputRun);
     // The host owns the model lifetime. A lease covers admission and each
     // tool intent/receipt, rather than holding configuration changes forever.
-    const launched = await this.launch(run);
-    return { run: this.view((await context.repos.skillRuns.get(run.id))!), repeated: !launched, workspaceBinding: context.binding };
+    await this.launch(admission.run);
+    return { run: this.view((await context.repos.skillRuns.get(admission.run.id))!), repeated: admission.repeated, workspaceBinding: context.binding };
   }
   private async launch(run: SkillRunRow): Promise<boolean> {
     const context = this.context(), repo = context.repos.skillRuns;
-    if (!await repo.claimLaunch(run.id, run.mode === 'template' ? '正在生成确定性结果' : '正在提交原生运行')) return false;
+    if (run.snapshot.plan) {
+      try { await this.verifyPlan(run); }
+      catch (error) {
+        await repo.rejectPendingPlanRun(run.id, `启动前原计划目标核验失败：${errorText(error)}`);
+        return false;
+      }
+    }
+    if (!await repo.claimLaunch(run.id, run.mode === 'template' ? '正在生成确定性结果' : '正在提交原生运行', this.deps.maxWorkers?.() ?? 2)) return false;
     try {
       if (run.mode === 'template') {
         await this.templates.start(run, context.repos);
@@ -206,7 +256,7 @@ export class SkillRuns {
     // own role/action gates. Observing that Worker must preserve those gates.
     const delegatedWork = descendant ? await context.repos.workItems.get(agent.id) : null;
     await this.host.mount(agent, run, {
-      allowed: () => owner.allowed && this.deps.context()?.binding === owner.binding && this.deps.permissionHash() === run.snapshot.permissionHash,
+      allowed: () => owner.allowed && this.deps.context()?.binding === owner.binding && this.deps.permissionHash(run.snapshot.plan?.authorization) === run.snapshot.permissionHash,
       authorize: () => this.authorize(run, owner.binding),
       beforeModel: async session => {
         const clock = await this.clock.observe(context.repos.runControls, run.id, [session], id => id === session.id || this.clockLive(id));
@@ -337,7 +387,7 @@ export class SkillRuns {
     if (originals.length) {
       const original = originals[0]!;
       await context.repos.skillRuns.input(run.id, original, true, run.session_id);
-      if (!await controls.claimRecovery(run.id, original)) return true;
+      if (!await controls.claimRecovery(run.id, original, this.deps.maxWorkers?.() ?? 2)) return true;
       const active = this.active.get(run.id); if (active) active.allowed = true;
       try { await this.deps.detached(() => this.host.resumePending(run, original)); }
       catch (error) { if (!await this.stopCanceledInput(run)) await this.block(run, `恢复原输入未完成：${errorText(error)}`); }
@@ -352,7 +402,7 @@ export class SkillRuns {
         if (!found) { await controls.unknown(row.request_id); await this.block(run, '补充输入的原生接纳结果待核对，不重复提交。'); }
         return true;
       }
-      if (!await controls.claimResume(row.request_id)) return true;
+      if (!await controls.claimResume(row.request_id, this.deps.maxWorkers?.() ?? 2)) return true;
       const active = this.active.get(run.id); if (active) active.allowed = true;
       try {
         const nativeId = await this.deps.detached(() => this.host.submitResume(run, row.request_id, row.message.content));
@@ -411,7 +461,8 @@ export class SkillRuns {
   }
   private async refreshBlocks(run: SkillRunRow): Promise<void> {
     const issues: Array<{ key: string; kind: RunBlockKind; reason: string }> = [];
-    if (this.deps.permissionHash() !== run.snapshot.permissionHash) issues.push({ key: 'current-authorization', kind: 'authorization', reason: '身份或授权配置与原运行不同；恢复原范围后可重新检查。' });
+    if (this.deps.permissionHash(run.snapshot.plan?.authorization) !== run.snapshot.permissionHash) issues.push({ key: 'current-authorization', kind: 'authorization', reason: '身份或授权配置与原运行不同；恢复原范围后可重新检查。' });
+    try { await this.verifyPlan(run); } catch (error) { issues.push({ key: 'current-plan', kind: 'authorization', reason: errorText(error) }); }
     const missing = await skillRequirements(run.snapshot.definition, run.snapshot.package);
     if (missing.length) issues.push({ key: 'current-dependencies', kind: 'dependency', reason: missing.join('；') });
     if (run.mode === 'business') try { this.deps.checkBusiness(run.snapshot.definition.name, run.snapshot.contract?.actions ?? []); }
@@ -419,7 +470,7 @@ export class SkillRuns {
     const context = this.context();
     const control = await context.repos.runControls.change(run.id, state => {
       if (state.terminal) return;
-      for (const key of ['current-authorization', 'current-dependencies', 'current-business']) {
+      for (const key of ['current-authorization', 'current-dependencies', 'current-business', 'current-plan']) {
         const issue = issues.find(item => item.key === key);
         if (issue) blockRun(state, issue); else clearRunBlock(state, key);
       }
@@ -431,10 +482,12 @@ export class SkillRuns {
     const control = await context.repos.runControls.get(run.id);
     if (control?.state.blocks.length && !control.state.terminal) throw new Error(control.state.blocks.map(block => block.reason).join('；'));
     if (this.active.get(run.id)?.allowed === false || current?.status !== 'running') throw new Error('运行已停止或等待处理，不能继续执行。');
-    if (this.deps.permissionHash() !== run.snapshot.permissionHash) {
+    if (this.deps.permissionHash(run.snapshot.plan?.authorization) !== run.snapshot.permissionHash) {
       await this.waitForBlock(run, 'current-authorization', 'authorization', '身份或授权配置与原运行不同；恢复原范围后可重新检查。');
       throw new Error('当前身份或授权发生变化，等待处理。');
     }
+    try { await this.verifyPlan(run); }
+    catch (error) { await this.waitForBlock(run, 'current-plan', 'authorization', errorText(error)); throw error; }
     const missing = await skillRequirements(run.snapshot.definition, run.snapshot.package);
     if (missing.length) {
       await this.waitForBlock(run, 'current-dependencies', 'dependency', missing.join('\n'));
@@ -449,6 +502,11 @@ export class SkillRuns {
     }
     if (run.mode === 'business') try { this.deps.checkBusiness(run.snapshot.definition.name, run.snapshot.contract?.actions ?? []); }
     catch (error) { await this.waitForBlock(run, 'current-business', 'authorization', errorText(error)); throw error; }
+  }
+  private async verifyPlan(run: SkillRunRow): Promise<void> {
+    if (!run.snapshot.plan) return;
+    if (!this.deps.verifyPlan) throw new Error('当前运行环境缺少计划授权核验。');
+    await this.deps.verifyPlan(run);
   }
   private async execute(run: SkillRunRow, binding: string, call: RunToolCall, next: () => Promise<RunToolResult>) {
     const context = this.context(binding), repo = context.repos.skillRuns;
@@ -494,6 +552,7 @@ export class SkillRuns {
     const fresh = await repo.get(run.id);
     if (fresh?.status === 'timed_out') { await this.expire(run.id); return; }
     if (!fresh || !['pending', 'running', 'waiting', 'stopping'].includes(fresh.status)) return;
+    if (fresh.status === 'pending') { await this.launch(fresh); return; }
     try { await this.native.flush(run.id); }
     catch (error) { return this.block(run, errorText(error)); }
     if (await this.stopCanceledInput(run)) return;
@@ -510,7 +569,6 @@ export class SkillRuns {
     if (await this.dispatchResumes(run)) return;
     if ((await repo.get(run.id))?.status === 'waiting') return;
     if (!history) {
-      if (recovering && fresh.status === 'pending') { await this.launch(run); return; }
       if (recovering) await this.block(run, '没有可核验的原运行历史，请先核对实际结果。');
       return;
     }
