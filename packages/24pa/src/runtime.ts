@@ -39,7 +39,7 @@ import { WecomChannels, WECOM_CALENDAR_ID, wecomRepeatRule, type WecomDiagnostic
 import { DigestService } from './digest-service.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
 import { noteDerivedContent } from './note-derivation.js';
-import { OutboxDelivery, DeliveryHeld } from './outbox-delivery.js';
+import { OutboxDelivery, DeliveryHeld, checkDeliveryHold } from './outbox-delivery.js';
 import { WaitingFollowups } from './waiting-followups.js';
 import { TaskTemplates } from './task-templates.js';
 import { TaskLifecycle } from './task-lifecycle.js';
@@ -235,7 +235,7 @@ export class PaRuntime {
             if (!synth) throw Object.assign(new Error('TTS 引擎未配置（tts.engine=none），语音行无法投递。'), { outcome: 'failed' });
             const ogg = await synth(String(row.content?.text ?? '')).catch(error => { throw Object.assign(new Error(`语音合成失败：${(error as Error).message}`), { outcome: 'failed' }); });
             return sendLarkAudioMessage(cliOptions(this.config!, this.options.larkCliBin, 120_000), row.target, ogg, row.dedup_key, async () => {
-              const hold = await this.planResults.beforeSend(row);
+              const hold = await checkDeliveryHold(() => this.planResults.beforeSend(row));
               if (hold) throw new DeliveryHeld(hold);
             });
           }

@@ -6,7 +6,7 @@ import { createRepos } from '../../lib/repo.js';
 import { makeSkillPackage, parseSkillMarkdown } from '../../lib/skill-package.js';
 import { taskPlanDraft } from '../../lib/task-plan.js';
 import { PlanResults } from '../../lib/plan-results.js';
-import { OutboxDelivery, DeliveryHeld } from '../../lib/outbox-delivery.js';
+import { OutboxDelivery, DeliveryHeld, checkDeliveryHold } from '../../lib/outbox-delivery.js';
 import { sendLarkAudioMessage } from '../../lib/lark.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 
@@ -67,12 +67,25 @@ for (const backend of ['sqlite', 'postgres']) describe(`投递评审边界 (${ba
     await dispatcher(async row => {
       clock.mockReturnValue(expiry + 1);
       return sendLarkAudioMessage({ bin: '/missing/never-dispatch-expired-audio', profile: 'test', timeoutMs: 100 }, 'owner', Buffer.from('ogg'), row.dedup_key, async () => {
-        const hold = await results.beforeSend(row); if (hold) throw new DeliveryHeld(hold);
+        const hold = await checkDeliveryHold(() => results.beforeSend(row)); if (hold) throw new DeliveryHeld(hold);
       });
     }).drain();
     const [notice] = await notices(); expect(notice.deliveryStatus).toBe('partial');
     expect(notice.deliveries.find(row => row.component === 'audio').outbox).toMatchObject({ status: 'expired', attempts: 0 });
     expect(await repos.skillRuns.get(run.id)).toMatchObject({ status: 'completed', result: '完整结果' });
+  });
+  it('语音派发前读取暂错仍是未发送，保留待重试且不要求核对平台', async () => {
+    await saved();
+    await dispatcher(async row => {
+      if (row.kind === 'text') return { messageId: 'text-confirmed' };
+      return sendLarkAudioMessage({ bin: '/missing/never-dispatch-unchecked-audio', profile: 'test', timeoutMs: 100 }, 'owner', Buffer.from('ogg'), row.dedup_key, async () => {
+        const hold = await checkDeliveryHold(async () => { throw new Error('账本暂时不可读'); });
+        if (hold) throw new DeliveryHeld(hold);
+      });
+    }).drain();
+    const audio = (await notices())[0].deliveries.find(row => row.component === 'audio').outbox;
+    expect(audio).toMatchObject({ status: 'pending', attempts: 0, message_id: null });
+    expect(audio.last_error).toContain('账本暂时不可读');
   });
   it('权限阻断停止排队运行会通知处理，主人暂停仍静默，两者都不计最终失败', async () => {
     await repos.taskPlans.block(plan.id, { key: 'preflight', kind: 'authorization', reason: '原日历的写入授权已撤销' });

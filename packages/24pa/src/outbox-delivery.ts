@@ -10,6 +10,10 @@ export interface DeliveryHold { status: 'pending' | 'failed' | 'expired'; error:
 export class DeliveryHeld extends Error {
   constructor(readonly hold: DeliveryHold) { super(hold.error); }
 }
+export async function checkDeliveryHold(check?: () => Promise<DeliveryHold | null>): Promise<DeliveryHold | null> {
+  try { return await check?.() ?? null; }
+  catch (error) { return { status: 'pending', error: `投递前核验未完成：${(error as Error).message}`, retryInMs: 60000 }; }
+}
 
 /** Owns durable delivery through platform confirmation and local reply routing.
  * A recorded message id is never sent again, even when route storage fails. */
@@ -56,9 +60,7 @@ export class OutboxDelivery {
   private async deliverRow(repo: OutboxRepo, row: OutboxRow): Promise<void> {
     let messageId = row.message_id;
     if (!messageId) {
-      let hold: DeliveryHold | null;
-      try { hold = await this.deps.beforeSend?.(row) ?? null; }
-      catch (error) { hold = { status: 'pending', error: `投递前核验未完成：${(error as Error).message}`, retryInMs: 60000 }; }
+      const hold = await checkDeliveryHold(this.deps.beforeSend ? () => this.deps.beforeSend!(row) : undefined);
       if (hold) { await repo.mark(row.id, { ...hold, releaseAttempt: true }); return; }
       const adapter = this.deps.adapters[row.channel];
       if (!adapter?.supports(row.kind)) {
