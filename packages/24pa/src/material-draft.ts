@@ -96,8 +96,9 @@ export function materialDiff(before: MaterialDraft | null, after: MaterialDraft)
   const changes = fields.filter(key => materialFingerprint(before?.[key] ?? null) !== materialFingerprint(after[key] ?? null));
   const old = before?.candidates ?? [];
   return { changed: changes.length > 0 || materialFingerprint(old) !== materialFingerprint(after.candidates), fields: changes,
-    candidates: after.candidates.map(row => { const prior = old.find(c => c.id === row.id); return { id: row.id, summary: row.summary, change: !prior ? 'added' : materialFingerprint(prior) === materialFingerprint(row) ? 'unchanged' : 'changed' }; }),
-    removed: old.filter(row => !after.candidates.some(c => c.id === row.id)).map(row => ({ id: row.id, summary: row.summary })),
+    fieldChanges: changes.map(key => ({ field: key, before: before?.[key] ?? null, after: after[key] ?? null })),
+    candidates: after.candidates.map(row => { const prior = old.find(c => c.id === row.id); return { id: row.id, summary: row.summary, before: prior ?? null, after: row, change: !prior ? 'added' : materialFingerprint(prior) === materialFingerprint(row) ? 'unchanged' : 'changed' }; }),
+    removed: old.filter(row => !after.candidates.some(c => c.id === row.id)).map(row => ({ id: row.id, summary: row.summary, before: row })),
     reordered: old.filter(row => after.candidates.some(c => c.id === row.id)).map(c => c.id).join() !== after.candidates.filter(row => old.some(c => c.id === row.id)).map(c => c.id).join(),
   };
 }

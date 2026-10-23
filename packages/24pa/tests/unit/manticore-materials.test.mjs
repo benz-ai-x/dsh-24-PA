@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fixture, join, readFile, writeFile } from '../helpers/runtime.mjs';
 import { FakeFeishuTransport } from '../../lib/feishu.js';
 import { sha256Hex } from '../../lib/handwriting.js';
-import { noteDerivedContent } from '../../lib/note-derivation.js';
+import { freezeNoteDerivation, noteDerivedContent } from '../../lib/note-derivation.js';
 import { parseMaterialDraft, materialDiff, qwenReadEvidence } from '../../lib/material-draft.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 
@@ -52,7 +52,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`M05 资料草稿、来�
     await approve(first.versionId); expect((await f.rt.repos.notes.getVersion(first.versionId)).status).toBe('stale');
     expect(await submit({ transcript: '模型再识别：赵工完成报告' })).toMatchObject({ protectedDraft: true, published: false });
     const current = await detail(); expect(current.material.draft.transcript).toContain('王工'); expect(current.material.recognition.transcript).toContain('赵工');
-    expect(current.diff.reordered).toBe(true); expect(current.diff.fields).toContain('transcript'); expect(current.versions).toHaveLength(1);
+    expect(current.diff.reordered).toBe(true); expect(current.diff.fields).toContain('transcript'); expect(current.diff.fieldChanges).toContainEqual({ field: 'transcript', before: '李工完成报告；另行准备资料', after: '主人修正：王工完成报告' }); expect(current.versions).toHaveLength(1);
     const next = await mutation('publish_draft', { expectedRevision: saved.revision });
     expect(next.version).toBe(2);
     expect(await mutation('publish_draft', { expectedRevision: saved.revision })).toMatchObject({ versionId: next.versionId, reused: true }); expect((await detail()).selected.content.transcript).toContain('王工');
@@ -137,10 +137,48 @@ for (const backend of ['sqlite', 'postgres']) describe(`M05 资料草稿、来�
     f.rt.config.ownerOpenId = 'owner';
     const journal = join(f.root, 'lark.json.docs.jsonl'), docs = (await readFile(journal, 'utf8')).trim().split('\n').map(JSON.parse);
     const old = docs.filter(row => row.id === initial.selected.doc_id).at(-1);
+    await writeFile(journal, '');
+    expect(await submit({ transcript: '回读失败时的新识别' })).toMatchObject({ protectedDraft: true, published: false, verification: { result: 'unknown' } });
+    expect((await detail()).versions).toHaveLength(1); expect((await detail()).material.draft.transcript).toBe(initial.material.draft.transcript);
+    await writeFile(journal, docs.map(row => JSON.stringify(row)).join('\n') + '\n');
     await writeFile(journal, JSON.stringify({ ...old, content: old.content.replace('李工完成报告', '主人远端手工修订'), revision: old.revision + 1 }) + '\n', { flag: 'a' });
+    const protectedResult = await submit({ transcript: '模型重新识别但未重新发布人工修订' });
+    expect(protectedResult).toMatchObject({ protectedDraft: true, published: false, verification: { result: 'changed' } });
+    expect((await detail()).versions).toHaveLength(1); expect((await detail()).material.draft.transcript).toBe(initial.material.draft.transcript);
+    expect((await detail()).material.recognition.transcript).toContain('模型重新识别');
     const next = await f.rt.notesTool({ action: 'republish', noteId: 'N-1' }, local);
     expect(await submit({ transcript: '新模型识别' })).toMatchObject({ protectedDraft: true, published: false });
     const current = await detail(); expect(current.selected.id).toBe(next.versionId); expect(current.selected.doc_snapshot).toContain('主人远端手工修订');
+  });
+
+  it.each(['task','calendar'])('升级前 %s 成功行动首次关联保留原版本、授权和对象；新参数只产生建议', async kind => {
+    const candidate = { summary: '准备旧版报告', sourceQuote: '旧原稿行动', ...(kind === 'calendar' ? { start: '2026-11-01T02:00:00Z', end: '2026-11-01T03:00:00Z' } : { due: '2026-11-02' }) };
+    const first = await submit({ candidates: [candidate] });
+    const original = await f.rt.repos.notes.getVersion(first.versionId);
+    // Historical rows have no material record or stable candidate IDs.
+    const content = { ...original.content, candidates: [candidate] }; delete content.materialRevision;
+    await f.rt.repos.notes.updateVersion(first.versionId, { content: { ...content, ...freezeNoteDerivation(content, original.doc_snapshot, original.doc_snapshot, original.fingerprint) } });
+    await f.rt.db.query('delete from pa24.note_material where note_id=$1', ['N-1']);
+    await approve(first.versionId);
+    const operationId = 'note.action:N-1:v1:0', grant = { noteId: 'N-1', versionId: first.versionId, index: 0, sourceQuote: candidate.sourceQuote };
+    const item = await f.rt.repos.workItems.get(child.id);
+    if (kind === 'calendar') await f.rt.calendarWrite(item, 'create', { ...candidate, _authorization: { ...grant, instruction: '旧版明确授权' } }, operationId);
+    else await f.rt.taskCreate(item, { ...candidate, _operationId: operationId, _instruction: '旧版明确授权', _authorization: grant });
+    const oldOperation = await f.rt.repos.operations.get(operationId), before = await detail();
+    expect(await mutation('adopt_actions', { versionId: first.versionId, candidateIds: ['legacy-1-0'] })).toMatchObject({ executed: 1, failed: 0, reused: 1 });
+    expect((await f.rt.repos.operations.get(operationId)).params).toEqual(oldOperation.params);
+    await f.rt.db.query('delete from pa24.note_action_link where note_id=$1', ['N-1']);
+    const saved = await mutation('save_draft', { expectedRevision: 0, draft: { ...before.material.draft, transcript: '主人补充说明', candidates: before.material.draft.candidates.map(c => ({ ...c, summary: '建议修订报告' })) } });
+    const next = await mutation('publish_draft', { expectedRevision: saved.revision }); await approve(next.versionId);
+    const selection = { versionId: next.versionId, candidateIds: ['legacy-1-0'] };
+    await f.rt.db.query('update pa24.action_operation set params=$2 where id=$1', [operationId, JSON.stringify({ ...oldOperation.params, noteId: 'another-note' })]);
+    expect(await mutation('adopt_actions', selection)).toMatchObject({ executed: 0, failed: 1 }); expect(await f.rt.repos.notes.actionLinks('N-1')).toEqual([]);
+    await f.rt.db.query('update pa24.action_operation set params=$2 where id=$1', [operationId, JSON.stringify(oldOperation.params)]);
+    const writesBefore = (await calls()).filter(row => row.args.includes('create')).length;
+    expect((await mutation('adopt_actions', selection)).results[0]).toMatchObject({ ok: true, reused: true, receipt: oldOperation.receipt, changeProposal: { previous: { summary: candidate.summary }, proposed: { summary: '建议修订报告' } } });
+    expect((await calls()).filter(row => row.args.includes('create'))).toHaveLength(writesBefore);
+    expect((await f.rt.repos.notes.actionLinks('N-1'))[0]).toMatchObject({ version_id: first.versionId, operation_id: operationId, authorization_record: oldOperation.params.request._authorization });
+    expect((await f.rt.repos.operations.get(operationId)).params).toEqual(oldOperation.params);
   });
 
   it('直接资料操作有真实运行档案，重复请求和失败重放不再执行，不能启动 Worker 接续', async () => {

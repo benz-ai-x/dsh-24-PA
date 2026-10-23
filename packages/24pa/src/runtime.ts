@@ -3327,7 +3327,7 @@ export class PaRuntime {
         continue;
       }
       const candidateId = candidate.id ?? `legacy-${version.version}-${index}`;
-      const linked = links.find(link => link.candidate_id === candidateId);
+      let linked = links.find(link => link.candidate_id === candidateId);
       const legacy = /^legacy-(\d+)-(\d+)$/.exec(candidateId);
       const operationId = linked?.operation_id ?? (legacy ? `note.action:${noteId}:v${legacy[1]}:${legacy[2]}` : `note.action:${noteId}:v${version.version}:${index}`);
       const previous = await this.repos!.operations.get(operationId);
@@ -3355,6 +3355,25 @@ export class PaRuntime {
         if (!!candidate.start !== !!candidate.end) { results.push({ index, ok: false, error: '澄清后的时间块需要完整开始和结束时间。' }); continue; }
       }
       const parameters = candidateParameters(candidate);
+      // Upgraded notes may have an operation but no material relationship yet.
+      // Recover the link from its original version and grant, never this version.
+      if (!linked && previous) {
+        try {
+          const original = await this.repos!.notes.getVersion(String(previous.params.versionId ?? ''));
+          const originalIndex = previous.params.index;
+          const originalCandidate = original && noteDerivedContent(original).candidates?.[originalIndex];
+          if (!original || original.note_id !== noteId || previous.params.noteId !== noteId || !Number.isInteger(originalIndex)
+            || !originalCandidate || (originalCandidate.id ?? `legacy-${original.version}-${originalIndex}`) !== candidateId) {
+            throw new Error('原行动缺少一致的资料版本及候选依据；请先核对原回执，不建立新授权。');
+          }
+          const family = ['calendar.create', 'wecom_calendar.create'].includes(previous.action) ? 'calendar' : 'task';
+          const recovered = await this.externalOperations.candidateCreation(operationId, family, { _authorization: { noteId, versionId: original.id, index: originalIndex } });
+          if (!recovered) throw new Error('原行动记录已变化，请重新核对。');
+          linked = await this.repos!.notes.linkAction({ note_id: noteId, candidate_id: candidateId, operation_id: operationId, version_id: original.id,
+            parameters: candidateParameters(previous.params.request ?? { ...originalCandidate, ...previous.params.clarification?.resolved }),
+            authorization_record: (previous.params.request?._authorization ?? recovered.args._authorization) as Record<string, unknown> });
+        } catch (error) { results.push({ index, candidateId, ok: false, operationId, error: (error as Error).message }); continue; }
+      }
       // Cross-version identity only links the object. It does not carry an
       // old grant onto new text, a new sort order, or different parameters.
       if (linked && linked.version_id !== versionId && previous) {
@@ -3368,7 +3387,7 @@ export class PaRuntime {
       // Recovering the same candidate keeps the original grant and entry.
       // Current content, version and owner are still verified above; new wording
       // is a request to recover its receipt, not a replacement authorization.
-      const authorization = { noteId, versionId, candidateId, index, instruction: previous?.params.instruction ?? instruction, owner: this.config!.ownerOpenId,
+      const authorization = previous?.params.request?._authorization ?? { noteId, versionId, candidateId, index, instruction: previous?.params.instruction ?? instruction, owner: this.config!.ownerOpenId,
         sourceSessionId: previous?.params.sourceSessionId ?? item.parent_session_id, sourceQuote: candidate.sourceQuote, parametersFingerprint: materialFingerprint(parameters), ...(clarification ? { clarification } : {}) };
       try {
         if (!linked) await this.repos!.notes.linkAction({ note_id: noteId, candidate_id: candidateId, operation_id: operationId, version_id: versionId, parameters, authorization_record: authorization });

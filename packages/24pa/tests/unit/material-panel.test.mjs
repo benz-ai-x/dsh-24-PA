@@ -95,3 +95,41 @@ it('听记挂载与可读分开；刷新只读取本地证据，不发 MCP 请�
   expect(container.textContent).toContain('已挂载（不等于可读）'); expect(container.textContent).toContain('尚无本工作区当前配置的实际读取回执');
   await click('刷新接入记录'); expect(requests.filter(req => req.endpoint === 'action')).toHaveLength(0);
 });
+
+
+it('资料页签方向键与 Home/End 同步焦点、选中和关联面板，不触发业务写入', async () => {
+  await click('项目纪要');
+  const tabs = [...container.querySelector('[role=tablist][aria-label="资料对照视图"]').querySelectorAll('[role=tab]')];
+  tabs[2].focus();
+  for (const [key, next] of [['ArrowRight',3],['End',4],['ArrowRight',0],['ArrowLeft',4],['Home',0]]) {
+    await act(async () => win.document.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true })));
+    expect(win.document.activeElement).toBe(tabs[next]); expect(tabs.filter(tab => tab.tabIndex === 0)).toEqual([tabs[next]]);
+    expect(tabs[next].getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('#' + tabs[next].getAttribute('aria-controls')).getAttribute('aria-labelledby')).toBe(tabs[next].id);
+  }
+  expect(requests.filter(req => req.endpoint === 'action')).toHaveLength(0);
+});
+
+it('候选与回执默认显示业务信息，完整 JSON 仅在折叠详情内', async () => {
+  record.selected.status = 'approved'; record.versions[0].status = 'approved';
+  record.selected.content.candidates[0].due = '2026-11-01';
+  await click('项目纪要'); await click('候选行动');
+  expect(container.querySelector('dl').textContent).toContain('2026-11-01');
+  await act(async () => input('准备材料').click()); await change(input('本次明确授权'), '执行选中的行动'); await click('授权执行所选行动');
+  expect(container.querySelector('[aria-label="资料操作结果"] h5').textContent).toContain('建议参数');
+  for (const pre of container.querySelectorAll('pre')) {
+    if (pre.textContent.trim().startsWith('{')) { expect(pre.closest('details')).not.toBeNull(); expect(pre.closest('details').open).toBe(false); }
+  }
+});
+
+it('发布预览展示正文、页序、疑点及候选参数的前后值', async () => {
+  record.diff = { fields: ['transcript','pageOrder','doubts'], fieldChanges: [
+    { field: 'transcript', before: '旧正文', after: '新正文' },
+    { field: 'pageOrder', before: [1,2], after: [2,1] },
+    { field: 'doubts', before: [{ pageNo: 1, quote: '旧疑点' }], after: [{ pageNo: 2, quote: '新疑点' }] },
+  ], candidates: [{ id: 'candidate-a', summary: '准备材料', change: 'changed', before: { summary: '准备材料', due: '2026-11-01' }, after: { summary: '准备材料', due: '2026-11-03' } }], removed: [], reordered: false };
+  await click('项目纪要'); await click('预览发布');
+  const diff = container.querySelector('[aria-label="发布差异"]');
+  for (const text of ['旧正文','新正文','旧疑点','新疑点','2026-11-01','2026-11-03','发布前参数','发布后参数']) expect(diff.textContent).toContain(text);
+  expect(button('确认发布').disabled).toBe(true); expect(requests.filter(req => req.endpoint === 'action')).toHaveLength(0);
+});

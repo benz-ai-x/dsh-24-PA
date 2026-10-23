@@ -436,13 +436,18 @@ export class HandwritingPipeline {
     const latest = await notes.latestVersion(note.id);
     const previous = existingMaterial?.draft ?? this.legacyDraft(note, latest, savedPages);
     const draft = parseMaterialDraft(recognized, previous, savedPages.map(p => p.page_no), note.title);
-    const material = existingMaterial ?? await notes.initializeMaterial(note.id, draft, { kind: 'handwriting', type: 'images', title: note.title }, draft);
+    const material = existingMaterial ?? await notes.initializeMaterial(note.id, latest ? previous : draft, { kind: 'handwriting', type: 'images', title: note.title }, draft);
     await notes.saveRecognition(note.id, draft);
-    if (existingMaterial && (existingMaterial.edited_by !== 'recognition' || latest?.content?.republishedFromDoc)) {
+    const localEdits = existingMaterial && existingMaterial.edited_by !== 'recognition';
+    // A cloud edit may not have been republished locally yet. Check before
+    // replacing the draft or superseding its version; unknown is not unchanged.
+    const verification = latest && !localEdits ? await this.verifyCurrentNote(note.id, { persist: true }) as { result: string; message: string } : null;
+    if (localEdits || latest?.content?.republishedFromDoc || (verification && verification.result !== 'matches')) {
       return { noteId: note.id, revision: material.revision, recognized: true, protectedDraft: true, published: false,
-        diff: materialDiff(material.draft, draft), message: '新的识别结果已保存供对照；人工草稿未被覆盖。请选取修订后保存并单独发布。' };
+        ...(verification ? { verification, docUrl: latest?.doc_url } : {}), diff: materialDiff(material.draft, draft),
+        message: '新的识别结果已保存供对照；原草稿和已发布版本未被替换。请核对飞书原文与修订后单独发布。' + (verification?.message ?? '') };
     }
-    if (existingMaterial && materialFingerprint(existingMaterial.draft) !== materialFingerprint(draft)) await notes.saveMaterial(note.id, material.revision, draft, 'recognition');
+    if (materialFingerprint(material.draft) !== materialFingerprint(draft)) await notes.saveMaterial(note.id, material.revision, draft, 'recognition');
     return this.publishNoteVersion(item, note, draft, null, crops, sha256Hex(JSON.stringify(recognized)));
   }
 

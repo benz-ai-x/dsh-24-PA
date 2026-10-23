@@ -57,7 +57,7 @@ describe('M05 实际 Loader 的资料公开操作与持久恢复', () => {
     await change('resend',{versionId,requestId:'resend-same'}); await change('resend',{versionId,requestId:'resend-same'});
     expect((await read('detail')).versions).toHaveLength(1); await approve();
     const result = await change('adopt_actions',{versionId,candidateIds:[candidateId]}); expect(result).toMatchObject({executed:1,failed:0}); operationId=result.results[0].operationId;
-    expect(await change('adopt_actions',{versionId,candidateIds:[candidateId]})).toMatchObject({executed:1,failed:0});
+    expect(await change('adopt_actions',{versionId,candidateIds:[candidateId],instruction:'按原授权恢复已有回执'})).toMatchObject({executed:1,failed:0,reused:1});
     expect((await rows('select count(*)::int as count from pa24.task'))[0].count).toBe(1);
     const work = await rows("select status from pa24.work_item where id like 'pa24-material-%'"); expect(work.every(row => ['completed','failed'].includes(row.status))).toBe(true);
   });
