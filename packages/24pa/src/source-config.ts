@@ -124,7 +124,7 @@ export function effectiveSources(config: LegacySourceConfiguration): SourceConfi
       name: `${platform === 'feishu' ? '飞书' : '企微'}${kind === 'calendar' ? '原日历来源' : '原待办来源'}`,
       purpose: 'personal', ownerId: platform === 'feishu' ? config.ownerOpenId : '',
       resourceKind: platform === 'wecom' ? 'authorized_scope' : kind === 'calendar' ? 'calendar' : 'tasklist',
-      resourceId, filter: kind === 'calendar' ? 'all' : 'responsible', access: 'readwrite', enabled: true,
+      resourceId, filter: 'all', access: 'readwrite', enabled: true,
     };
   });
   return { version: 1, entries, defaults: { calendar: entries[0]!.id, todo: entries[1]!.id }, mappings: [], meetingDurationMinutes: null };

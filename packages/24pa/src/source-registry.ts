@@ -3,7 +3,7 @@ import { effectiveSources, selectSource, sourceScopeFingerprint, SourceError, ty
 import type { SourceRepo, SourceEvidenceRow, SourceRegistrationRow } from './repo/source.js';
 
 export type SourceCapability = 'read' | 'create' | 'update' | 'cancel' | 'leave' | 'reminders' | 'series';
-export type CapabilityVerdict = 'allowed' | 'denied' | 'unknown' | 'adapter_unavailable';
+export type CapabilityVerdict = 'allowed' | 'attemptable' | 'denied' | 'unknown' | 'adapter_unavailable';
 export interface SourceIdentity {
   platform: SourcePlatform;
   ownerId: string;
@@ -31,6 +31,8 @@ export interface SourceTarget {
   scopeHash: string;
   connectionHash: string;
   selectedBy: 'explicit' | 'mapping' | 'default';
+  /** Frozen evidence: attemptable permits a requested create, not a verified write permission. */
+  permission?: { capability: SourceCapability; verdict: CapabilityVerdict };
   checkedAt: string;
 }
 export interface SourceRegistryDeps {
@@ -103,7 +105,7 @@ export class SourceRegistry {
     const current = effectiveSources(this.deps.config()).entries.find(item => item.id === source.id);
     if (!current || row.removed || row.scope_hash !== sourceScopeFingerprint(source) || sourceScopeFingerprint(current) !== row.scope_hash || connection !== this.deps.connectionHash(source.platform)) throw new SourceError('目标解析期间来源已变更，请重新确认。');
     return { sourceId: source.id, domain, platform: source.platform, identity: proof.identity!, identityKey: sourceIdentityKey(proof.identity!), resource: proof.resource!,
-      registrationRevision: row.revision, scopeHash: row.scope_hash, connectionHash: connection, selectedBy: reason, checkedAt: proof.checkedAt };
+      registrationRevision: row.revision, scopeHash: row.scope_hash, connectionHash: connection, selectedBy: reason, permission: { capability, verdict: proof.capabilities[capability] }, checkedAt: proof.checkedAt };
   }
 
   /** Current registration and actual permissions may only narrow an existing authorization. */
@@ -119,6 +121,7 @@ export class SourceRegistry {
     return proof;
   }
   private assertCapability(proof: SourceEvidence, capability: SourceCapability, name: string): void {
-    if (proof.state !== 'verified' || !proof.identity || !proof.resource || proof.capabilities[capability] !== 'allowed') throw new SourceError(`来源「${name}」的 ${capability} 能力未核验通过：${proof.message}`);
+    const permitted = proof.capabilities[capability] === 'allowed' || (capability === 'create' && proof.capabilities.create === 'attemptable');
+    if (proof.state !== 'verified' || !proof.identity || !proof.resource || !permitted) throw new SourceError(`来源「${name}」的 ${capability} 能力未核验通过：${proof.message}`);
   }
 }

@@ -38,6 +38,7 @@ export const PANEL_RPC = {
     skillsRun: 'skills.run',
     sources: 'sources',
     calendar: 'calendar',
+    todos: 'todos',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -62,6 +63,7 @@ export const PANEL_RPC = {
     skillRun: 'skill.run',
     sourceCheck: 'source.check',
     calendarVerify: 'calendar.verify',
+    todosVerify: 'todos.verify',
     testInject: 'test.inject',
   },
 } as const;
@@ -99,6 +101,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.skillsRun) return respond({ ok: true, value: await runtime.skillRuns.inspect(payload) });
             if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
             if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });
+            if (endpoint === E.todos) return respond({ ok: true, value: await runtime.todoSnapshot(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
             if (endpoint === E.memory) {
               if (!runtime.memory) throw new Error('尚未绑定工作区。');
@@ -181,6 +184,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.skillRun]: (runtime, payload) => runtime.runSkill(payload),
   [PANEL_RPC.actions.sourceCheck]: (runtime, payload) => runtime.checkSource(payload),
   [PANEL_RPC.actions.calendarVerify]: (runtime, payload) => runtime.verifyCalendar(payload),
+  [PANEL_RPC.actions.todosVerify]: (runtime, payload) => runtime.verifyTodos(payload),
   [PANEL_RPC.actions.workspaceBind]: async (runtime, payload) => {
     const path = String(payload.path ?? '');
     return runtime.bind(path, true).then(() => snapshot(runtime));
