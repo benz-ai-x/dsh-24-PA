@@ -1,0 +1,76 @@
+import { beforeAll, afterAll, it, expect } from 'vitest';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { bootHost } from '../helpers/host.mjs';
+import { startMockLlm } from '../helpers/mock-llm.mjs';
+import { startPgCluster } from '../helpers/pg.mjs';
+let root, workspace, host, llm, cluster, binding, env, scriptPath;
+beforeAll(async () => {
+  root = await mkdtemp(join(tmpdir(), 'pa24-budget-e2e-')); workspace = join(root, 'workspace'); await mkdir(workspace);
+  const storage = process.env.PA24_E2E_STORAGE === 'postgres' ? 'postgres' : 'sqlite';
+  if (storage === 'postgres') cluster = await startPgCluster();
+  await writeFile(join(workspace, 'AGENTS.md'), '# 隔离预算验证\n\n```json\n' + JSON.stringify({ ...DEFAULT_CONFIG, storage, enabledWorkers: ['memo','skill'], budget: { ...DEFAULT_CONFIG.budget, maxRequests: 0 } }) + '\n```\n');
+  scriptPath = join(root, 'script.json'); await writeFile(scriptPath, JSON.stringify({ steps: [] }));
+  llm = await startMockLlm({ scriptPath, logPath: join(root, 'requests.json'), recordInputs: true });
+  env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, ...(cluster ? { PA24_PG_DSN: cluster.dsn } : {}) };
+  host = await bootHost({ env }); binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
+}, 600000);
+afterAll(async () => { await host?.stop(); await llm?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true }); });
+const until = async (read, check) => { const deadline = Date.now() + 25000; while (Date.now() < deadline) { const value = await read(); if (check(value)) return value; await new Promise(resolve => setTimeout(resolve, 100)); } throw Error('预算验证超时：' + JSON.stringify(await read())); };
+const detail = runId => host.api('skills.run', { runId, workspaceBinding: binding });
+const summary = () => host.api('budget', { workspaceBinding: binding });
+const start = async (steps, mode = 'local', tools = []) => {
+  await writeFile(scriptPath, JSON.stringify({ steps, onlySkillRuns: true }));
+  const name = 'budget-' + randomUUID();
+  const markdown = '---\n' + JSON.stringify({ name, description: '预算输入恢复验证', metadata: { track: 'agent', tools, pa24: { schemaVersion: 1, mode, parameters: { subject: { type: 'string', required: true } }, actions: [], expectedResult: '保留完整输入完成', completionCriteria: '原运行不重复' } } }) + '\n---\n\n保留原输入和所有资料；完成后返回结论。';
+  const created = await host.api('action', { type: 'skill.change', op: 'save', requestId: randomUUID(), workspaceBinding: binding, displayName: '预算输入恢复', markdown });
+  const id = 'managed:' + created.entry.id;
+  if (mode === 'business') await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: [name] } });
+  await host.api('action', { type: 'skill.change', op: 'publish', requestId: randomUUID(), workspaceBinding: binding, id, expectedRevision: created.entry.revision, confirm: true });
+  const input = { id, versionId: created.entry.draft_version, parameters: { subject: '完整输入：逐字保留 甲乙丙\n第二行' }, workspaceBinding: binding };
+  const preview = await host.api('skills.preview', input);
+  return (await host.api('action', { type: 'skill.run', ...input, requestId: randomUUID(), fingerprint: preview.fingerprint, confirm: true })).run;
+};
+const grant = async run => host.api('action', { type: 'budget.release', workspaceBinding: binding, requestId: randomUUID(), confirm: true, scope: 'next-model-request', runId: run.id, workId: run.work_item_id, sessionId: run.session_id });
+const restart = async () => { const reuse = host.root; await host.stop({ keepRoot: true }); host = await bootHost({ env, root: reuse }); binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding; };
+const requestsFor = run => llm.requests.filter(request => JSON.stringify(request.inputs).includes('[24PA skill run: ' + run.id + ']'));
+it.each(['local','business'])('真实 Loader %s：首输入预算拦截、重启同 Run 放行、计量重启去重', async mode => {
+  const run = await start([{ text: 'BUDGET_RECOVERED：完整原输入已完成。' }], mode);
+  const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting');
+  expect(waiting.execution.blocks).toMatchObject([{ kind: 'budget' }]); expect(requestsFor(run)).toHaveLength(0);
+  expect(waiting.inputs.filter(row => row.accepted)).toHaveLength(1);
+  const original = waiting.inputs.find(row => row.accepted).message;
+  await restart(); const cold = await detail(run.id); expect(cold.run.status).toBe('waiting'); expect(cold.execution.executionMs).toBe(0);
+  await grant(run);
+  const done = await until(() => detail(run.id), value => !['running','waiting','pending'].includes(value.run.status));
+  expect(done.run.status, JSON.stringify(done)).toBe('completed'); expect(done.run.result).toContain('BUDGET_RECOVERED');
+  expect(done.run.session_id).toBe(run.session_id); expect(done.run.work_item_id).toBe(run.work_item_id);
+  expect(done.inputs.find(row => row.message_id === original.id)?.message).toEqual(original);
+  expect(requestsFor(run)).toHaveLength(1); expect(JSON.stringify(requestsFor(run)[0].inputs)).toContain('逐字保留');
+  expect(done.execution.executionMs).toBeGreaterThan(0); expect(done.execution.waitingMs).toBeGreaterThan(0);
+  const before = await summary(); expect(before.records.find(row => row.run_id === run.id)?.record.actual).toEqual({ provider: 'deepseek', model: 'deepseek-chat' });
+  expect(before.tokens).toBeGreaterThan(0); expect(before.estimatedCost).toBeNull();
+  await restart(); expect((await summary()).requests).toBe(before.requests);
+}, 600000);
+it('一次放行仅派发一次，后续步骤再次等待；停止后迟到放行不复活', async () => {
+  const run = await start([{ tool: { name: 'pa24_run', input: { action: 'progress', stage: '已处理资料', completed: '第一步', next: '汇总' } } }, { text: 'MUST_NOT_RUN' }], 'local', ['pa24_run']);
+  await until(() => detail(run.id), value => value.run.status === 'waiting'); await grant(run);
+  const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.length > 0);
+  expect(requestsFor(run)).toHaveLength(1); expect(waiting.calls[0].status).toBe('returned');
+  const before = waiting.execution.executionMs; await new Promise(resolve => setTimeout(resolve, 600)); expect((await detail(run.id)).execution.executionMs).toBe(before);
+  await host.api('action', { type: 'skill.run', op: 'stop', runId: run.id, workspaceBinding: binding });
+  await expect(grant(run)).rejects.toThrow(/结束|停止/); expect((await detail(run.id)).run.status).toBe('stopped'); expect(requestsFor(run)).toHaveLength(1);
+}, 600000);
+it('预算和主人等待同时存在时，放行保留主人等待；补充后同运行完成', async () => {
+  const run = await start([{ tool: { name: 'pa24_run', input: { action: 'wait', reason: '需要会议日期' } } }, { text: 'BUDGET_AND_INPUT_DONE' }], 'local', ['pa24_run']);
+  await until(() => detail(run.id), value => value.run.status === 'waiting'); await grant(run);
+  const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting' && value.execution.blocks.some(block => block.kind === 'input'));
+  // Resume records the owner's exact supplement; the next pre-step rechecks budget.
+  await host.api('action', { type: 'skill.run', op: 'resume', runId: run.id, requestId: randomUUID(), workspaceBinding: binding, instruction: '日期：10月30日', confirm: true });
+  await until(() => detail(run.id), value => value.execution.blocks.some(block => block.kind === 'budget'));
+  await grant(run); const done = await until(() => detail(run.id), value => value.run.status === 'completed');
+  expect(done.run.id).toBe(run.id); expect(requestsFor(run)).toHaveLength(2); expect(JSON.stringify(requestsFor(run).at(-1))).toContain('10月30日');
+}, 600000);

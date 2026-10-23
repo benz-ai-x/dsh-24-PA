@@ -24,6 +24,7 @@ export const PANEL_RPC = {
     action: 'action',
     memory: 'memory',
     health: 'health',
+    budget: 'budget',
     notesQueue: 'notes.queue',
     roles: 'roles',
     reminders: 'reminders',
@@ -74,6 +75,7 @@ export const PANEL_RPC = {
     workChange: 'work.change',
     skillChange: 'skill.change',
     skillRun: 'skill.run',
+    budgetRelease: 'budget.release',
     planChange: 'plan.change',
     planDelivery: 'plan.delivery',
     sourceCheck: 'source.check',
@@ -143,6 +145,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
                 }),
               });
             }
+            if (endpoint === E.budget) return respond({ ok: true, value: await runtime.modelBudgets.snapshot(payload) });
             if (endpoint === E.health) {
               return respond({ ok: true, value: await runtime.maintenanceHealth() });
             }
@@ -206,6 +209,7 @@ function requiredBinding(payload: PanelAction): string {
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
+  [PANEL_RPC.actions.budgetRelease]: (runtime, payload) => runtime.releaseBudget(payload),
   [PANEL_RPC.actions.skillChange]: (runtime, payload) => runtime.changeSkill(payload),
   [PANEL_RPC.actions.skillRun]: (runtime, payload) => runtime.runSkill(payload),
   [PANEL_RPC.actions.sourceCheck]: (runtime, payload) => runtime.checkSource(payload),

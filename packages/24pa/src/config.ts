@@ -1,3 +1,4 @@
+import { DEFAULT_BUDGET, validateBudget, type BudgetConfig } from './model-budget.js';
 import { createHash } from 'node:crypto';
 import { agentsMdTemplate } from './prompts.js';
 import { validateSources, type SourceConfiguration } from './source-config.js';
@@ -61,6 +62,7 @@ export interface PaConfig {
   diagnosticRetentionDays: number;
   /** Role ids; runtime-registered roles are valid beyond the built-in set. */
   enabledWorkers: string[];
+  budget: BudgetConfig;
   workerModels: Partial<Record<string, WorkerModelRoute>>;
   /**
    * Extra tools the local role may also use: the provider-gated delegation
@@ -171,6 +173,7 @@ export const DEFAULT_CONFIG: PaConfig = {
   diagnosticRetentionDays: 90,
   enabledWorkers: ['memo'],
   workerModels: {},
+  budget: DEFAULT_BUDGET,
   extraLocalTools: [],
   extraBusinessSkills: [],
   tts: { engine: 'none', voice: '', volcKeyEnv: '', meloDir: '' },
@@ -330,6 +333,7 @@ export function validateConfig(raw: unknown): PaConfig {
     maxWorkers: maxWorkers as number,
     diagnosticRetentionDays: diagnosticRetentionDays as number,
     enabledWorkers: enabledWorkers as string[],
+    budget: validateBudget(input.budget),
     workerModels: workerModels as PaConfig['workerModels'],
     extraLocalTools: extraLocalTools as string[],
     extraBusinessSkills: extraBusinessSkills as string[],
@@ -411,6 +415,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldDescriptor[] = [
   { name: 'maxWorkers', group: 'runtime', label: '并行上限（maxWorkers）', kind: 'number', formAllowed: true, default: DEFAULT_CONFIG.maxWorkers },
   { name: 'diagnosticRetentionDays', group: 'runtime', label: '详细诊断保留天数（diagnosticRetentionDays）', kind: 'number', formAllowed: true, default: DEFAULT_CONFIG.diagnosticRetentionDays },
   { name: 'enabledWorkers', group: 'runtime', label: '启用角色（enabledWorkers）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.enabledWorkers },
+  { name: 'budget', group: 'runtime', label: '模型预算（budget）', kind: 'string', formAllowed: true, default: DEFAULT_BUDGET },
   { name: 'workerModels', group: 'runtime', label: '模型路由（workerModels）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.workerModels },
   { name: 'extraLocalTools', group: 'runtime', label: '本地额外工具（extraLocalTools）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraLocalTools },
   { name: 'extraBusinessSkills', group: 'runtime', label: '业务 skill 放行面（extraBusinessSkills）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraBusinessSkills },

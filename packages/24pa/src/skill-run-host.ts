@@ -36,7 +36,7 @@ interface RunScope {
   skills: SkillRegistryLike;
   tools: { restrict(filter: { allow: string[] }): void; guard(check: (exec: RunToolCall) => string | undefined): void };
   on(event: 'agent/pre-step', listener: (payload: { agent: DshAgent; messages: RunInput[] }, next: () => Promise<unknown>) => Promise<unknown>): void;
-  on(event: 'agent/request', listener: (payload: { agent: DshAgent }, next: () => Promise<unknown>) => Promise<unknown>): void;
+  on(event: 'agent/request', listener: (payload: { agent: DshAgent; turn: number; step: number }, next: () => Promise<unknown>) => Promise<unknown>): void;
   on(event: 'tools/execute', listener: (exec: RunToolCall, next: () => Promise<RunToolResult>) => Promise<unknown>): void;
   on(event: 'tools/result', listener: (exec: RunToolCall, result: RunToolResult) => undefined): void;
   on(event: 'subagent/start' | 'subagent/end', listener: (info: RunActivation) => void): void;
@@ -44,6 +44,9 @@ interface RunScope {
 export interface RunHooks {
   allowed(): boolean;
   authorize(): Promise<void>;
+  prepareInput?(session: DshSession, messages: RunInput[]): Promise<RunInput[]>;
+  checkBudget?(session: DshSession): Promise<boolean>;
+  dispatchModel?(session: DshSession, turn: number, step: number, route: unknown): Promise<void>;
   beforeModel(session: DshSession): Promise<void>;
   restoreInput(id: string): Promise<RunInput>;
   ownsInput(message: RunInput): Promise<boolean>;
@@ -120,21 +123,23 @@ export class SkillRunHost {
       scope.on('agent/pre-step', async ({ agent: current, messages }, next) => {
         if (current.id !== agent.id) return next();
         if (canceled()) return { kind: 'reject' };
-        const replacements = new Map<string, RunInput | null>();
+        const replacements = new Map<string, RunInput[]>();
+        for (const message of messages) if (hooks.prepareInput) replacements.set(message.id, (await hooks.prepareInput(current.session, [message])));
         const adopted = new Set(agent.session.ownEvents().filter(event => event.type === 'user/message').map(event => event.data.id));
-        for (const message of messages) {
+        for (const raw of messages) {
+          for (const message of replacements.get(raw.id) ?? [raw]) {
           const id = !descendant && this.recoveryInputId(run, message);
           if (id) {
             const original = await hooks.restoreInput(id);
-            replacements.set(message.id, adopted.has(id) ? null : original);
+            replacements.set(raw.id, adopted.has(id) ? [] : [original]);
             // A control wake may overtake a parked original queue entry.
             // The original identity is adopted once at this same boundary.
             if (!adopted.has(id)) (agent as RunAgent).inbox.remove(id);
           }
         }
+          }
         const replace = (inputs: RunInput[]) => [...new Map(inputs.flatMap(message => {
-          const original = replacements.has(message.id) ? replacements.get(message.id) : message;
-          return original ? [[original.id, original] as const] : [];
+          return (replacements.get(message.id) ?? [message]).map(original => [original.id, original] as const);
         })).values()];
         const admitted = replace(messages);
         if (replacements.size && !admitted.length) return { kind: 'reject' };
@@ -146,6 +151,7 @@ export class SkillRunHost {
         }
         try {
           if (foreign) throw new Error('专用运行会话收到其他输入，已保存全部输入；请核对后从管理入口续办。');
+          if (hooks.checkBudget && !await hooks.checkBudget(current.session)) return { kind: 'reject' };
           await hooks.authorize();
           await this.verifyResources(run);
         } catch (error) { await hooks.block((error as Error).message); return { kind: 'reject' }; }
@@ -160,12 +166,14 @@ export class SkillRunHost {
         if (canceled()) throw new Error('原输入已取消，未执行新的工具动作。');
         return hooks.execute(call, next);
       });
-      scope.on('agent/request', async ({ agent: current }, next) => {
+      scope.on('agent/request', async ({ agent: current, turn, step }, next) => {
         if (current.id !== agent.id) return next();
         await hooks.beforeModel(current.session);
         await hooks.authorize();
         if (canceled()) throw new Error('原输入已取消，未开始新的模型请求。');
-        return next();
+        const route = await next();
+        await hooks.dispatchModel?.(current.session, turn, step, route);
+        return route;
       });
       scope.on('tools/result', (call, result) => { if (call.agent?.id === agent.id) hooks.final(call, result); return undefined; });
       scope.on('subagent/start', info => hooks.activation('start', info));

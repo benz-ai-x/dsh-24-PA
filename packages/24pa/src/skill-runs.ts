@@ -1,3 +1,4 @@
+import type { ModelBudgets } from './model-budgets.js';
 import type { DshAgent, DshContext, DshSession, ContentBlock } from './host.js';
 import type { Repos, SkillRunRow, SkillRunSnapshot, SkillRunReview } from './repo.js';
 import type { SkillPackages } from './skill-packages.js';
@@ -19,6 +20,7 @@ import { planTriggerId } from './repo/plan-trigger.js';
 
 interface RunContext { binding: string; cwd: string; repos: Repos }
 interface SkillRunsDeps {
+  budget?: ModelBudgets;
   host: DshContext;
   context(): RunContext | null;
   packages: SkillPackages;
@@ -61,6 +63,7 @@ export class SkillRuns {
     this.clock = new SkillRunClock(id => this.deps.control(() => this.expire(id)));
     this.templates = new SkillRunTemplates(deps.template, work => deps.control(work), (id, phase, error) => this.diagnostic(id, phase, error));
   }
+  activateBudget(id: string): void { const active = this.active.get(id); if (active) active.allowed = true; }
   dispose(): void { this.clock.dispose(); this.templates.dispose(); }
   private async diagnostic(id: string, phase: string, error: unknown): Promise<void> {
     // Technical logging must not replace the actual execution receipt.
@@ -273,6 +276,9 @@ export class SkillRuns {
     await this.host.mount(agent, run, {
       allowed: () => owner.allowed && this.deps.context()?.binding === owner.binding && this.deps.permissionHash(run.snapshot.plan?.authorization) === run.snapshot.permissionHash,
       authorize: () => this.authorize(run, owner.binding),
+      prepareInput: (session, messages) => this.deps.budget?.inputs(run.id, session, messages) ?? Promise.resolve(messages),
+      checkBudget: session => this.deps.budget?.check(run.id, session) ?? Promise.resolve(true),
+      dispatchModel: async (session, turn, step, route) => { await this.deps.budget?.check(run.id, session, { turn, step, route: route as { provider: string; model: string } }); },
       beforeModel: async session => {
         const clock = await this.clock.observe(context.repos.runControls, run.id, [session], id => id === session.id || this.clockLive(id));
         if (clock && clock.executionMs >= clock.limitMs) {
@@ -282,7 +288,7 @@ export class SkillRuns {
         }
         if (clock?.attempts.length && clock.attempts.at(-1)!.endedAt !== null) await context.repos.runControls.change(run.id, state => beginRunAttempt(state));
       },
-      ownsInput: async message => await this.ownsResume(run, agent.id, message) || this.native.ownsInput(repo, run, agent.id, message),
+      ownsInput: async message => await this.deps.budget?.ownsWake(run.id, agent.id, message) || await this.ownsResume(run, agent.id, message) || this.native.ownsInput(repo, run, agent.id, message),
       restoreInput: async id => {
         const record = (await repo.inputs(run.id)).find(row => row.session_id === run.session_id && row.message_id === id && row.accepted);
         if (!record) throw new Error('恢复信号没有已保存的原输入依据。');

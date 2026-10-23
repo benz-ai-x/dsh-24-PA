@@ -23,6 +23,7 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { workspaceLedgerIdentity } from './ledger-identity.js';
 import { InboxLifecycle } from './inbox-lifecycle.js';
+import { ModelBudgets } from './model-budgets.js';
 import { WorkerRuns } from './worker-runs.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
@@ -573,7 +574,7 @@ export class PaRuntime {
       packages: this.skillPackages,
     });
     this.skillRuns = new SkillRuns({
-      host: ctx, packages: this.skillPackages, management: this.skillManagement,
+      budget: this.modelBudgets, host: ctx, packages: this.skillPackages, management: this.skillManagement,
       maxWorkers: () => this.config?.maxWorkers ?? 2,
       context: () => this.workspace && this.workspaceBinding && this.repos
         ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repos: this.repos } : null,
@@ -1080,6 +1081,7 @@ export class PaRuntime {
     if (!this.repos) return;
     await this.outboxDelivery.recover();
     await this.workLifecycle.recover();
+    await this.modelBudgets.poll();
     await this.skillRuns.recover();
   }
 
@@ -1582,7 +1584,15 @@ export class PaRuntime {
     }
   }
 
+  readonly modelBudgets = new ModelBudgets({
+    host: () => this.ctx,
+    context: () => this.repos && this.workspace && this.workspaceBinding && this.config ? { repos: this.repos, path: this.workspace.statePath, binding: this.workspaceBinding,
+      config: this.config.budget, timeZone: this.config.timeZone, maxWorkers: this.config.maxWorkers } : null,
+    activate: id => this.skillRuns.activateBudget(id), detached: work => this.executions.detached(work),
+  });
+  async releaseBudget(input: Record<string, unknown>) { return this.executions.run(() => this.modelBudgets.grant(input)); }
   readonly workerRuns = new WorkerRuns({
+    budget: this.modelBudgets,
     lease: work => this.executions.run(work),
     context: () => this.repos && this.workspace && this.workspaceBinding ? { repos: this.repos, path: this.workspace.statePath, binding: this.workspaceBinding } : null,
     allowed: role => this.config?.enabledWorkers.includes(role) === true && !this.closed && !this.workspaceChanging,
@@ -1808,6 +1818,7 @@ export class PaRuntime {
         await this.workLifecycle.retryStops();
         const session = this.accessSessionId ? this.ctx.sessions.get?.(this.accessSessionId) : undefined;
         if (session) await this.planEngine.recover(session).catch(error => console.warn(`[pa24] 定时触发恢复待核对：${(error as Error).message}`));
+        await this.modelBudgets.poll();
         await this.skillRuns.poll();
         await this.planResults.reconcile();
         await this.taskPlans.reconcile();
@@ -1966,6 +1977,7 @@ export class PaRuntime {
   private async onTurnEnd(session: DshSession, event: { data: Record<string, any> }): Promise<void> {
     if (!this.repos || !this.config) return;
     this.usage.modelRequests += 1;
+    await this.modelBudgets.observe(session);
     if (await this.skillRuns.onSession(session)) return;
     if (session.id === this.accessSessionId) await this.ctx.sessions.flush(session).catch(() => { });
     const turn = event.data.turn;
@@ -3559,7 +3571,7 @@ export class PaRuntime {
           operationsUnknown: unknownOps,
           outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
           ledgerRetries: retries,
-          quota: '未配置模型限额（当前版本无 quota 配置项；如需硬限额请在模型路由侧设置）',
+          quota: '受管模型的持久用量、限额及一次放行见「模型与预算」；此处仅为本 Host 观测。',
           note: '计数自本 Host 启动累计（进程内观测，重启清零）；ledgerRetries 来自账本（外部操作重试＋Outbox 重发）；费用口径取决于模型计费，本页只提供可测投入量。',
         },
         dataFlow: {

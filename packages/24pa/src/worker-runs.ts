@@ -1,3 +1,4 @@
+import type { ModelBudgets } from './model-budgets.js';
 import type { DshAgent, DshSession } from './host.js';
 import type { Repos } from './repo.js';
 import type { RunInput, RunToolCall, RunToolResult } from './skill-run-host.js';
@@ -6,7 +7,7 @@ import { beginRunAttempt, blockRun, clearRunBlock, runControlSummary } from './r
 import { canceledInputIds, consumedTurn, turnHasModelInput } from './host-turn.js';
 
 interface WorkerScope {
-  on(event: 'agent/request', listener: (payload: { agent: DshAgent }, next: () => Promise<unknown>) => Promise<unknown>): void;
+  on(event: 'agent/request', listener: (payload: { agent: DshAgent; turn: number; step: number }, next: () => Promise<unknown>) => Promise<unknown>): void;
   on(event: 'agent/pre-step', listener: (payload: { agent: DshAgent; messages: RunInput[] }, next: () => Promise<unknown>) => Promise<unknown>): void;
   on(event: 'tools/execute', listener: (call: RunToolCall, next: () => Promise<RunToolResult>) => Promise<unknown>): void;
 }
@@ -17,6 +18,7 @@ export class WorkerRuns {
   private readonly activeCalls = new Set<string>();
   private readonly blocked = new Set<string>();
   constructor(private readonly deps: {
+    budget?: ModelBudgets;
     lease?<T>(work: () => Promise<T>): Promise<T>;
     context(): { repos: Repos; path: string; binding: string } | null;
     allowed(role: string): boolean;
@@ -43,6 +45,8 @@ export class WorkerRuns {
   private async authorized(agent: DshAgent) {
     const owned = await this.owned(agent.session);
     if (!owned || owned.item.status !== 'running' || owned.run.status !== 'running' || !this.deps.allowed(owned.item.role)) throw new Error('此交办已等待、停止或授权发生变化；未开始新的动作。');
+    const control = await owned.context.repos.runControls.get(owned.run.id);
+    if (control?.state.blocks.length || control?.state.terminal || control?.state.stop) throw new Error(control.state.blocks.map(block => block.reason).join('；') || '原运行不可继续。');
     try {
       if (this.blocked.has(owned.run.id)) throw new Error('原运行工具回执待核对，不能继续执行。');
       await owned.context.repos.workItems.assertKnownEffects(owned.item.id, true, this.activeCalls);
@@ -70,6 +74,7 @@ export class WorkerRuns {
         && (input.scope.input === 'start' ? message.source?.kind === 'user' : message.source?.kind === 'agent-message' && message.source.senderSessionId === input.scope.parentSessionId));
       const unique = [...new Map(accepted.map(message => [message.id, message])).values()];
       if (unique.length === 1) {
+        await context.repos.workerRuns.saveInput(input.execution_id, unique[0]!);
         const turn = events.find(event => ['step/start', 'turn/end'].includes(event.type) && turnHasModelInput(session, event.data.turn) && consumedTurn(session, event.data.turn).messageIds.has(unique[0]!.id))?.data.turn;
         await context.repos.workerRuns.inputReceipt(input.execution_id, turn === undefined ? 'received' : 'adopted', unique[0]!.id, turn);
       }
@@ -81,25 +86,37 @@ export class WorkerRuns {
     await agent.ctx.plugin({ name: 'pa24-worker-run-journal', apply: (scope: WorkerScope) => {
       scope.on('agent/pre-step', async ({ agent: current, messages }, next) => {
         if (current.id !== agent.id) return next();
-        const active = await this.authorized(current);
+        const active = await this.owned(current.session); if (!active) return { kind: 'reject' };
+        const replacements = new Map<string, RunInput[]>();
+        for (const message of messages) replacements.set(message.id, this.deps.budget ? (await this.deps.budget.inputs(active.run.id, current.session, [message])) : [message]);
+        const replace = (items: RunInput[]) => [...new Map(items.flatMap(message => (replacements.get(message.id) ?? [message]).map(value => [value.id, value] as const))).values()];
+        const admitted = replace(messages);
+        if (messages.length && !admitted.length) return { kind: 'reject' };
         const inputs = await active.context.repos.workerRuns.inputs(active.run.id);
-        for (const message of messages) {
-          if (!inputs.some(input => message.content?.some(block => block.type === 'text' && block.text === `[24PA execution: ${input.execution_id}]`)
-            && (input.scope.input === 'start' ? message.source?.kind === 'user' : message.source?.kind === 'agent-message' && message.source.senderSessionId === input.scope.parentSessionId))) {
+        for (const message of admitted) {
+          const input = inputs.find(input => message.content?.some(block => block.type === 'text' && block.text === `[24PA execution: ${input.execution_id}]`)
+            && (input.scope.input === 'start' ? message.source?.kind === 'user' : message.source?.kind === 'agent-message' && message.source.senderSessionId === input.scope.parentSessionId));
+          if (input) await active.context.repos.workerRuns.saveInput(input.execution_id, message);
+          else if (!await this.deps.budget?.ownsWake(active.run.id, current.id, message)) {
             await active.context.repos.workItems.update(active.item.id, { status: 'needs_reconciliation', progress: '原交办会话收到未关联输入，请通过原交办补充并核对。' });
             return { kind: 'reject' };
           }
         }
-        if (messages.length) await this.clearWait(active.item.id);
-        return next();
+        if (messages.some(message => inputs.some(input => input.scope.input !== 'start' && message.content.some(block => block.text === `[24PA execution: ${input.execution_id}]`)))) await this.clearWait(active.item.id);
+        if (this.deps.budget && !await this.deps.budget.check(active.run.id, current.session)) { this.clock.disarm(active.run.id); return { kind: 'reject' }; }
+        await this.authorized(current);
+        const decision = await next() as { kind: 'reject' } | { kind: 'enter'; messages: RunInput[] };
+        return decision.kind === 'enter' ? { ...decision, messages: replace(decision.messages) } : decision;
       });
-      scope.on('agent/request', async ({ agent: current }, next) => {
+      scope.on('agent/request', async ({ agent: current, turn, step }, next) => {
         if (current.id !== agent.id) return next();
         const active = await this.authorized(current); await this.observe(current.session, true);
         const control = await active.context.repos.runControls.get(active.run.id);
         if (control && control.state.executionMs >= control.state.limitMs) { void this.deps.expire(active.item.id).catch(() => {}); throw new Error('交办累计执行时限已用尽。'); }
         if (control?.state.attempts.length && control.state.attempts.at(-1)!.endedAt !== null) await active.context.repos.runControls.change(active.run.id, state => beginRunAttempt(state));
-        return next();
+        const route = await next();
+        await this.deps.budget?.check(active.run.id, current.session, { turn, step, route: route as { provider: string; model: string } });
+        return route;
       });
       scope.on('tools/execute', async (call, next) => {
         if (call.agent?.id !== agent.id) return next();

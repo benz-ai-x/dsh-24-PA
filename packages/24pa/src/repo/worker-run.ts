@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+import type { RunInput } from '../skill-run-host.js';
 import { randomUUID } from 'node:crypto';
 import type { PaDb, PaQueryer } from '../db.js';
 import type { WorkItemRow, WorkExecutionScope } from './work.js';
@@ -19,6 +21,7 @@ export interface WorkerRunRow {
 export interface WorkerInputRow {
   execution_id: string; run_id: string; scope: WorkExecutionScope; instruction: string;
   status: 'prepared' | 'received' | 'adopted' | 'rejected' | 'unknown'; native_message_id: string | null;
+  message: RunInput | null;
   adopted_turn: number | null; reason: string | null; created_at: Date;
 }
 const terminal = ['completed', 'failed', 'stopped', 'timed_out', 'rejected'];
@@ -56,6 +59,13 @@ export class WorkerRunRepo {
     await tx.query(`update pa24.worker_run_input set status = $2, native_message_id = coalesce($3, native_message_id),
       adopted_turn = coalesce($4, adopted_turn), reason = $5, updated_at = now()
       where execution_id = $1 and (status <> 'adopted' or $2 = 'adopted')`, [executionId, status, nativeId ?? null, turn ?? null, reason ?? null]);
+  }
+  async saveInput(executionId: string, message: RunInput): Promise<void> {
+    await this.db.withTransaction(async tx => {
+      const row = (await tx.query<WorkerInputRow>('select * from pa24.worker_run_input where execution_id = $1 for update', [executionId])).rows[0];
+      if (!row || (row.message && !isDeepStrictEqual(row.message, message))) throw new Error('原交办输入身份或内容发生冲突，须核对。');
+      await tx.query("update pa24.worker_run_input set message = $2, native_message_id = $3, status = case when status = 'adopted' then status else 'received' end where execution_id = $1", [executionId, JSON.stringify(message), message.id]);
+    });
   }
   async inputs(id: string): Promise<WorkerInputRow[]> {
     return (await this.db.query<WorkerInputRow>('select * from pa24.worker_run_input where run_id = $1 order by created_at, execution_id', [id])).rows;
