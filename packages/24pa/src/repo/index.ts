@@ -15,6 +15,14 @@ import { MessageRouteRepo, MessageRouteRow } from './route.js';
 import { BindingRepo, BindingRow, WorkspaceStateRepo, WorkspaceStateRow } from './state.js';
 import { SkillRepo } from './skill.js';
 import { SkillRunRepo } from './skill-run.js';
+import { RunControlRepo } from './run-control.js';
+import { TaskPlanRepo } from './task-plan.js';
+import { PlanTriggerRepo } from './plan-trigger.js';
+import { PlanResultRepo } from './plan-result.js';
+import { WorkControlRepo } from './work-control.js';
+import { WorkerRunRepo } from './worker-run.js';
+import { RunHistoryRepo } from './run-history.js';
+import { RunDiagnosticRepo } from './run-diagnostic.js';
 import { SourceRepo } from './source.js';
 import { SourceProjectionRepo } from './source-projection.js';
 import { DataChannel, ProjectRepo, ProjectRow, TaskRepo, TaskRow } from './task.js';
@@ -44,6 +52,14 @@ export interface Repos {
   health: HealthRepo;
   skills: SkillRepo;
   skillRuns: SkillRunRepo;
+  runControls: RunControlRepo;
+  taskPlans: TaskPlanRepo;
+  planTriggers: PlanTriggerRepo;
+  planResults: PlanResultRepo;
+  runHistory: RunHistoryRepo;
+  workerRuns: WorkerRunRepo;
+  workControls: WorkControlRepo;
+  runDiagnostics: RunDiagnosticRepo;
   sources: SourceRepo;
   sourceProjection: SourceProjectionRepo;
 }
@@ -73,6 +89,14 @@ export function createRepos(db: PaDb): Repos {
     health: new HealthRepo(db),
     skills: new SkillRepo(db),
     skillRuns: new SkillRunRepo(db),
+    runControls: new RunControlRepo(db),
+    taskPlans: new TaskPlanRepo(db),
+    planTriggers: new PlanTriggerRepo(db),
+    planResults: new PlanResultRepo(db),
+    runHistory: new RunHistoryRepo(db),
+    workerRuns: new WorkerRunRepo(db),
+    workControls: new WorkControlRepo(db),
+    runDiagnostics: new RunDiagnosticRepo(db),
     sources: new SourceRepo(db),
     sourceProjection: new SourceProjectionRepo(db),
   };
@@ -93,5 +117,6 @@ export * from './task.js';
 export * from './work.js';
 export * from './skill.js';
 export * from './skill-run.js';
+export * from './task-plan.js';
 export * from './source.js';
 export * from './source-projection.js';

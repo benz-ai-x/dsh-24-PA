@@ -50,7 +50,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`WorkItem lifecycle / ${b
     await expect(lifecycle.resume('a', 'continue')).rejects.toThrow('send unavailable');
     expect((await repos.workItems.get('a')).status).toBe('completed');
     failResume = false; await item('b'); await lifecycle.pump();
-    await expect(lifecycle.resume('a', 'supplement', true)).rejects.toThrow('并发');
+    await expect(lifecycle.resume('a', 'supplement', true)).rejects.toThrow('已停止或结束');
     expect((await repos.workItems.get('a')).status).toBe('completed');
     await lifecycle.resume('b', 'supplement', true);
     expect(resumes.at(-1)).toMatchObject({ id: 'b', child: 'child-b', parent: 'original-parent' });

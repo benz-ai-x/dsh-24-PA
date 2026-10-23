@@ -52,6 +52,12 @@ describe('AGENTS.md 配置校验', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, enabledWorkers: ['BAD ID'] })).toThrow(/enabledWorkers/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, enabledWorkers: ['memo', 'memo'] })).toThrow(/enabledWorkers/);
   });
+  it('旧配置默认保留诊断 90 天，显式期限须在有效范围', () => {
+    const { diagnosticRetentionDays: _, ...legacy } = DEFAULT_CONFIG;
+    expect(validateConfig(legacy).diagnosticRetentionDays).toBe(90);
+    expect(validateConfig({ ...legacy, diagnosticRetentionDays: 7 }).diagnosticRetentionDays).toBe(7);
+    for (const value of [null, 0, 1.5, 3651, '90']) expect(() => validateConfig({ ...legacy, diagnosticRetentionDays: value })).toThrow(/diagnosticRetentionDays/);
+  });
 
   it('workerModels 只接受合法角色 id 与 provider/model 字段', () => {
     expect(() => validateConfig({ ...DEFAULT_CONFIG, workerModels: { memo: { provider: 'p', model: 'm', x: 1 } } })).toThrow(/模型配置/);

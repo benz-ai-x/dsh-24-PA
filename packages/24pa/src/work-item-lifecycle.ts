@@ -8,7 +8,7 @@ import type { WorkCompletion } from './work-completion.js';
  * the same repository on SQLite and PostgreSQL. */
 export class WorkItemLifecycle {
   private serial: Promise<unknown> = Promise.resolve();
-  private readonly pending = new Map<string, { failures: number; nextAt: number; recovering: boolean; revision: number }>();
+  private readonly pending = new Map<string, { failures: number; nextAt: number; recovering: boolean; revision: number; checkpoints: number }>();
   private settling: Promise<void> | null = null;
   constructor(private readonly deps: {
     repo: () => WorkItemRepo; maxWorkers: () => number; available: () => boolean;
@@ -29,6 +29,16 @@ export class WorkItemLifecycle {
 
   pump(): Promise<void> { return this.gate(() => this.fillSlots()); }
   idle(): Promise<void> { return this.gate(async () => {}); }
+  retryStops(): Promise<void> {
+    return this.gate(async () => {
+      if (!this.deps.available() || !this.deps.quiesce) return;
+      const repo = this.deps.repo();
+      for (const item of await repo.pendingStops()) {
+        try { this.deps.interrupt(item); await this.deps.quiesce(item); await repo.stopReceipt(item.id, true, item.stop_reason); }
+        catch (error) { await repo.stopReceipt(item.id, false, item.stop_reason, (error as Error).message); }
+      }
+    });
+  }
 
   admit(create: () => Promise<WorkItemRow>): Promise<WorkItemRow> {
     return this.gate(async () => {
@@ -43,8 +53,8 @@ export class WorkItemLifecycle {
   private async fillSlots() {
     if (!this.deps.available()) return;
     const repo = this.deps.repo();
-    while (this.deps.available() && await repo.countByStatus('running') < this.deps.maxWorkers()) {
-      const item = await repo.claimNext();
+    while (this.deps.available()) {
+      const item = await repo.claimNext(this.deps.maxWorkers());
       if (!item) break;
       this.deps.track(item);
       try {
@@ -53,7 +63,9 @@ export class WorkItemLifecycle {
         await this.deps.start(executing);
       }
       catch (error) {
-        const failed = await repo.update(item.id, { status: 'failed', progress: `Worker 未启动：${(error as Error).message}` });
+        const unknown = (error as { outcome?: string }).outcome === 'unknown';
+        const failed = await repo.update(item.id, { status: unknown ? 'needs_reconciliation' : 'failed', progress: `${unknown ? 'Worker 接纳待核对' : 'Worker 未启动'}：${(error as Error).message}` });
+        if (!unknown) await repo.rejectedExecution(item.id, (error as Error).message);
         if (failed) this.deps.track(failed);
       }
     }
@@ -66,24 +78,26 @@ export class WorkItemLifecycle {
       const item = await repo.get(id);
       if (!item?.child_session_id) throw new Error('此事项尚无原生 Worker 会话，请核对后重新委派。');
       if (item.status === 'needs_reconciliation') throw new Error('上次输入接纳结果待核对，请先核对外部结果并明确停止本事项，再决定是否继续。');
-      if (supplement && item.status === 'stopped') throw new Error('事项已停止，不因引用复活。');
+      if (supplement && ['stopped', 'completed', 'failed'].includes(item.status)) throw new Error('交办已停止或结束，补充不会复活；请明确接续后建立新运行。');
       if (['accepted', 'queued'].includes(item.status)) throw new Error('事项尚在排队，请启动后再补充。');
       if (!supplement && item.status === 'running') throw new Error('事项正在运行或排队中。');
-      if (item.status !== 'running' && await repo.countByStatus('running') >= this.deps.maxWorkers()) throw new Error('Worker 并发已满，请稍后继续。');
+      await repo.assertResumable(id);
       if (item.status !== 'running') {
         await this.deps.quiesce?.(item);
         await repo.setRecoveryGen(id, (item.recovery_gen ?? 0) + 1);
       }
-      let running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待 Worker 处理' : '继续处理' });
+      let running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待执行采用' : '继续处理' }, this.deps.maxWorkers());
       this.deps.track(running!);
-      let acceptedMessageId: string | void;
+      let acceptedMessageId: string | void = undefined, submitted = false;
       try {
-        if (this.deps.completion) running = await repo.beginExecution(running!, this.deps.completion.workspacePath(), 'followup');
+        if (this.deps.completion) running = await repo.beginExecution(running!, this.deps.completion.workspacePath(), 'followup', input);
         this.deps.track(running!);
-        acceptedMessageId = await this.deps.resume(running!, input);
+        acceptedMessageId = await this.deps.resume(running!, input); submitted = true;
+        if (running?.execution_id) await repo.inputReceipt(running.execution_id, 'received', typeof acceptedMessageId === 'string' ? acceptedMessageId : undefined);
       }
       catch (error) {
-        const outcome = (error as { outcome?: string }).outcome ?? 'rejected';
+        const outcome = (error as { outcome?: string }).outcome ?? (submitted ? 'unknown' : 'rejected');
+        if (outcome === 'unknown' && running?.execution_id) await repo.inputReceipt(running.execution_id, 'unknown').catch(() => {});
         try {
           if (outcome === 'rejected' && running?.execution_id && running.execution_id !== item.execution_id) await repo.restoreExecution(id, running.execution_id, item);
           const restored = await repo.update(id, {
@@ -104,18 +118,25 @@ export class WorkItemLifecycle {
     });
   }
 
-  private async stopItem(id: string): Promise<void> {
+  private async stopItem(id: string, status: 'stopped' | 'timed_out' = 'stopped'): Promise<void> {
     const repo = this.deps.repo();
     const item = await repo.get(id);
     if (!item || !UNSETTLED_WORK_STATUSES.some(status => status === item.status)) throw new Error('此事项已结束。');
     const stopped = await repo.update(id, { status: 'stopped', progress: '本人要求停止；已完成及待核对的外部效果保留' });
     this.deps.track(stopped!);
+    await repo.stopReceipt(id, false, status);
     if (item.status === 'running' || item.status === 'needs_reconciliation') this.deps.interrupt(item);
+    if (item.active_worker_run_id) {
+      try {
+        if (!this.deps.quiesce) throw new Error('宿主没有提供停止确认能力。');
+        await this.deps.quiesce(item); await repo.stopReceipt(id, true, status);
+      } catch (error) { await repo.stopReceipt(id, false, status, (error as Error).message); }
+    }
   }
 
-  stop(id: string): Promise<void> {
+  stop(id: string, status: 'stopped' | 'timed_out' = 'stopped'): Promise<void> {
     return this.gate(async () => {
-      try { await this.stopItem(id); }
+      try { await this.stopItem(id, status); }
       finally { await this.fillSlots(); }
     });
   }
@@ -147,18 +168,17 @@ export class WorkItemLifecycle {
   /** Events are hints to read durable evidence. A failed hint remains queued;
    * the normal dispatcher retries it without model or external action calls. */
   async complete(id: string, checkpoint?: () => Promise<void>): Promise<void> {
-    const pending = this.pending.get(id);
-    if (pending) { pending.revision += 1; pending.recovering = false; if (!pending.failures) pending.nextAt = 0; }
-    else this.pending.set(id, { failures: 0, nextAt: 0, recovering: false, revision: 0 });
+    const pending = this.pending.get(id) ?? { failures: 0, nextAt: 0, recovering: false, revision: 0, checkpoints: 0 };
+    pending.revision += 1; pending.recovering = false; if (!pending.failures) pending.nextAt = 0;
+    pending.checkpoints += 1; this.pending.set(id, pending);
     // Flush the native completion even when the first ledger read fails. The
     // already-committed input marker plus this independent log survives exit.
     try { await checkpoint?.(); }
     catch (error) {
-      const attempt = this.pending.get(id)!;
-      this.deferRetry(attempt);
+      this.deferRetry(pending);
       this.deps.completion?.warn(`原回合持久化待确认，将自动重试：${(error as Error).message}`);
       return;
-    }
+    } finally { pending.checkpoints -= 1; }
     return this.retryCompletions();
   }
 
@@ -172,12 +192,13 @@ export class WorkItemLifecycle {
     // its identity under the gate and in SQL, so the old turn cannot win.
     const run = async () => {
       for (const [id, attempt] of [...this.pending]) {
-        if (!this.deps.available() || Date.now() < attempt.nextAt) continue;
+        if (!this.deps.available() || attempt.checkpoints || Date.now() < attempt.nextAt) continue;
         const revision = attempt.revision;
         const consumed = () => { if (attempt.revision === revision) this.pending.delete(id); else attempt.nextAt = 0; };
         let executionId: string | null | undefined;
         try {
           await this.idle();
+          if (attempt.checkpoints) continue;
           const item = await this.deps.repo().get(id);
           if (!item || item.status !== 'running') {
             // The transaction may have committed before its acknowledgement
@@ -237,9 +258,10 @@ export class WorkItemLifecycle {
    * contains only queued/accepted items. Failed recovery is visible and does
    * not consume capacity forever. */
   async recover(): Promise<void> {
+    await this.retryStops();
     if (this.deps.completion) {
       for (const item of await this.deps.repo().list(['running'], 10000, true)) {
-        if (item.execution_id) this.pending.set(item.id, { failures: 0, nextAt: 0, recovering: true, revision: 0 });
+        if (item.execution_id) this.pending.set(item.id, { failures: 0, nextAt: 0, recovering: true, revision: 0, checkpoints: 0 });
       }
       await this.retryCompletions();
     }

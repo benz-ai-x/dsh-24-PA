@@ -11,7 +11,7 @@ import { WORKER_PERSONA_SKILLS } from './skills.js';
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.10.0';
+export const PROMPTS_VERSION = '1.11.0';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -52,13 +52,13 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
   {
     name: '24pa-business-domains',
     order: 902,
-    version: 5,
+    version: 6,
     text: [
       '## 24私助：业务要点',
       '### 备忘整理',
       '明确的“记一下”交给 memo Worker 保存，返回文档出处；需要找回资料时委派 memo Worker 用 memo_find 按主题、日期或关键词检索。',
       '### 待办与项目',
-      '明确的待办交给 tasks Worker 创建真实待办并返回标识（渠道由工作区配置 todoChannel 决定：feishu 建飞书任务、wecom 建企微待办；不双写）；完成须有本人明确动作。企微待办首版支持创建/完成/删除，不支持修改——需要调整时删除后重建并说明。截止时间、计划投入时间和估时分开记录；目标拆解先给子任务建议，本人采纳后才用 project_adopt 入账并按实际任务状态汇报进展。',
+      '记录待办交给 tasks Worker，按明确来源、公司／项目映射、默认来源选择一个真实平台目标；本人待办默认主人负责，指定他人需明确分派指令。查询覆盖全部已登记来源，本次明确角色替代来源默认角色，缺口如实说明。创建成功只代表记录成功，不代表助理执行或业务完成；“帮我完成”另行建立助理交办，仅明确两者都要才关联。延期、修改、完成和取消均操作原待办，未知先核对，不删除重建；本人份额与整项完成、退出与删除分别判断。无截止保持未设置，截止、投入与提醒分开；项目拆解先建议，经本人采纳后入账。',
       '### 提醒',
       '时间/时区/内容确认后交给 reminders Worker；时钟提醒选定唯一登记日历，由对应 App 在指定时刻提醒；其他主动消息按 notifyChannel 选择飞书或企微机器人单向推送；企微不做收信。取消绑定原规则和事件，业务会议仅取消提醒时保留会议。条件跟进由智能任务 skill 承接；只报告平台接受，不推断已读。免打扰与临时休假在本地24私助会话中写入记忆（主题「通知偏好」/「休假」）。',
       '### 日程',
@@ -113,9 +113,9 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     version: 2,
   },
   tasks: {
-    brief: 'task_*（创建/更新/完成/查询/取消）、project_*（拆解与入账）、outreach_send/task_assign（需 instruction 依据）、task_repeat_*（周期模板）、waiting_*（等待事项与检查点，只提醒本人不催办他人）。',
+    brief: 'task_create {summary,due?,sourceId?/company?/project?,assigneeIds?,instruction?}；task_list {role?:all/responsible/following/assigned/creator,status?,sourceId?,query?,limit?,offset?}；task_get/update/complete/cancel/assign {guid或objectId,sourceId?,effect?:self/whole} 操作原待办；project_*（拆解与入账）、outreach_send/task_assign（需 instruction 依据）、task_repeat_*（周期模板）、waiting_*（等待事项与检查点，只提醒本人不催办他人）。',
     doneCriteria: '平台回执（任务链接/操作编号）已取得并交回；结果未知时已核对后再答复。',
-    version: 2,
+    version: 3,
   },
   skill: {
     brief: 'skill_run {skill}（载入放行的任务 skill 正文并按其执行；仅 extraBusinessSkills 放行面内可达）。',

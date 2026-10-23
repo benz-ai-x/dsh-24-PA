@@ -31,7 +31,7 @@ for (const storage of ['sqlite', 'postgres']) describe(`candidate recovery / ${s
     return (await readFile(join(f.root, `${name}.json.${suffix}.jsonl`), 'utf8').catch(() => '')).split('\n').filter(Boolean).map(JSON.parse);
   };
   async function blockProjection(kind) {
-    const table = kind === 'task' ? 'task' : 'calendar_event';
+    const table = kind === 'task' ? 'source_object' : 'calendar_event';
     if (storage === 'sqlite') {
       await f.rt.db.query(`create trigger candidate_fault before insert on pa24_${table} begin select raise(abort, 'CANDIDATE_SQL_DOWN'); end`);
       return () => f.rt.db.query('drop trigger candidate_fault');
@@ -40,24 +40,37 @@ for (const storage of ['sqlite', 'postgres']) describe(`candidate recovery / ${s
     await f.rt.db.query(`create trigger candidate_fault before insert on pa24.${table} for each row execute function pa24.candidate_fault()`);
     return async () => { await f.rt.db.query(`drop trigger candidate_fault on pa24.${table}`); await f.rt.db.query('drop function pa24.candidate_fault()'); };
   }
-  async function restart(channel) {
-    await f.rt.stop(); config = { ...config, todoChannel: channel, calendarChannel: channel, tasklistId: 'new-list', calendarId: 'new-calendar', timeZone: 'UTC' };
+  async function restart(channel, keepTargets = false) {
+    await f.rt.stop(); config = { ...config, todoChannel: channel, calendarChannel: channel, tasklistId: keepTargets ? config.tasklistId : 'new-list', calendarId: keepTargets ? config.calendarId : 'new-calendar', timeZone: 'UTC' };
     await f.workspace('a', config); f.rt = f.make(); await f.rt.bind(f.path); f.rt.transport = new FakeFeishuTransport('test'); f.parent = f.agents.get(await f.rt.openLocalSession());
   }
-  it.each(['feishu:task', 'wecom:task', 'feishu:calendar', 'wecom:calendar', 'feishu:task:container', 'feishu:calendar:container'])('%s preserves original receipt, target and owner after restart', async mode => {
+  it.each(['feishu:task', 'wecom:task', 'feishu:calendar', 'wecom:calendar', 'feishu:task:container', 'feishu:calendar:container', 'feishu:task:unchanged', 'feishu:task:localtime'])('%s preserves original receipt, target and owner after restart', async mode => {
     const [channel, kind, container] = mode.split(':'), other = container ? channel : channel === 'feishu' ? 'wecom' : 'feishu'; await setup(channel); const child = await worker();
-    const built = await f.rt.work({ action: 'minutes_build', topic: '采纳恢复', content: '本人记录', candidates: [{ summary: '联系王工' }, { summary: '新的行动' }].map(row => ({ ...row, ...(kind === 'calendar' ? { start: '2026-11-01T02:00:00Z', end: '2026-11-01T03:00:00Z' } : { due: '2026-11-02' }) })) }, child);
+    const built = await f.rt.work({ action: 'minutes_build', topic: '采纳恢复', content: '本人记录', candidates: [{ summary: '联系王工' }, { summary: '新的行动' }].map(row => ({ ...row, ...(kind === 'calendar' ? { start: '2026-11-01T02:00:00Z', end: '2026-11-01T03:00:00Z' } : { due: container === 'localtime' ? '2026-11-02T09:00' : '2026-11-02' }) })) }, child);
     const action = { action: 'minutes_adopt_actions', minutesId: built.minutesId, indexes: [0], instruction: '本人批准第一项' };
     const remove = await blockProjection(kind);
-    const failed = await f.rt.work(action, child); expect(failed.failed).toBe(1); expect(failed.results[0].error).toContain('CANDIDATE_SQL_DOWN');
+    const failed = await f.rt.work(action, child); expect(failed.failed, JSON.stringify(failed)).toBe(1); expect(failed.results[0].error).toContain('CANDIDATE_SQL_DOWN');
     await remove(); const id = `minutes.action:${built.minutesId}:0`, original = await f.rt.repos.operations.get(id);
+    if (container === 'localtime') expect(original.params.values.due.dueAt).toBe('2026-11-02T01:00:00.000Z');
     expect(original.receipt._externalResult).toBeTruthy(); expect(await journal(channel, kind)).toHaveLength(1);
-    await restart(other); const next = await worker(), repaired = await f.rt.work({ ...action, instruction: '恢复第一项' }, next);
+    await restart(other, container === 'unchanged'); const next = await worker(), repaired = await f.rt.work({ ...action, instruction: '恢复第一项' }, next);
     expect(repaired).toMatchObject({ executed: 1, failed: 0 });
     const remote = (await journal(channel, kind))[0], externalId = remote.guid ?? remote.todo_id ?? remote.event_id ?? remote.schedule_id;
-    const projected = kind === 'task' ? await f.rt.repos.tasks.get(id) : await f.rt.repos.calendar.findEvent(externalId);
-    expect(projected).toMatchObject(kind === 'task' ? { task_guid: externalId, channel, work_item_id: child.id } : { event_id: externalId, channel, calendar_id: channel === 'feishu' ? 'original-calendar' : 'wecom' });
-    expect(projected.summary).toContain('联系王工');
+    if (kind === 'task') {
+      const [projected] = await f.rt.repos.sourceProjection.todoLocations(externalId);
+      expect(projected).toMatchObject({ native_id: externalId, platform: channel, identity_key: original.params.sourceTarget.identityKey });
+      expect(projected.locator.resourceId).toBe(original.params.sourceTarget.resource.id);
+      expect(projected.body.summary).toContain('联系王工');
+      expect((await f.rt.repos.operations.get(id)).work_item_id).toBe(child.id);
+      const local = await f.rt.repos.tasks.get(id);
+      if (container === 'unchanged') expect(local).toBeTruthy();
+      if (local) expect(local.work_item_id).toBe(child.id);
+      else expect(repaired.results[0].verification.state).toBe('pending');
+    } else {
+      const projected = await f.rt.repos.calendar.findEvent(externalId);
+      expect(projected).toMatchObject({ event_id: externalId, channel, calendar_id: channel === 'feishu' ? 'original-calendar' : 'wecom' });
+      expect(projected.summary).toContain('联系王工');
+    }
     expect(repaired.results[0][kind === 'task' ? 'guid' : 'eventId']).toBe(externalId); expect(repaired.results[0].message).toContain(channel === 'feishu' ? '飞书' : '企微');
     if (!container) expect(await journal(other, kind)).toHaveLength(0); expect(await journal(channel, kind)).toHaveLength(1);
     expect((await f.rt.repos.operations.get(id)).params).toEqual(original.params);
@@ -73,9 +86,15 @@ for (const storage of ['sqlite', 'postgres']) describe(`candidate recovery / ${s
     if (fault === 'missing-target') delete row.params.tasklistId;
     if (fault === 'unknown-format') row.params.receiptFormat = 'future-v99';
     if (fault === 'foreign-source') row.params.minutesId = 'someone-else';
-    if (fault === 'legacy') { delete row.params.receiptFormat; delete row.params.channel; }
+    if (fault === 'legacy') {
+      // Persist the pre-Manticore contract, whose acknowledgement preceded its
+      // legacy task projection. Upgrade recovery must never call create again.
+      row.params = { tasklistId: row.params.tasklistId, summary: row.params.summary, due: null,
+        minutesId: row.params.minutesId, index: row.params.index, instruction: row.params.instruction };
+      row.receipt._externalResult = { data: row.receipt._externalResult.raw };
+    }
     if (fault === 'unknown-result') { row.status = 'unknown'; row.receipt = {}; }
-    if (fault === 'bad-receipt') row.receipt._externalResult = { data: { task: { guid: { nested: 'not-an-id' } } } };
+    if (fault === 'bad-receipt') row.receipt._externalResult = { guid: { nested: 'not-an-id' }, raw: { task: {} } };
     await f.rt.db.query('update pa24.action_operation set params = $2, action = $3, status = $4, receipt = $5 where id = $1',
       [id, JSON.stringify(row.params), fault === 'wrong-action' ? 'outreach.send' : row.action, row.status, JSON.stringify(row.receipt)]);
     await restart('wecom'); const result = await f.rt.work(action, await worker());

@@ -33,7 +33,7 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'plans.summary', 'runs', 'runs.summary', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
@@ -235,8 +235,8 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('function HealthBlock({ data: providedData, title })');
     expect(client).toContain('h(HealthBlock, { data: helpers.extra.health })');
     expect(client).toContain("h('summary', null, L('处理建议', 'Next steps'))");
-    // 空库与筛选无结果必须分开，无匹配分支在前。
-    expect(client.indexOf('data.matched === 0')).toBeLessThan(client.indexOf('data.total === 0'));
+    // 空库与无匹配现在由 memory-panel.test.mjs 的真实 React 交互区分。
+    expect(client).toContain('没有找到匹配的记忆');
     // 表单控件建立程序化标签，Worker 字段带角色上下文；变更可重置，离开有保护。
     expect(client).toContain('const withFieldId =');
     expect(client).toContain('htmlFor: id');

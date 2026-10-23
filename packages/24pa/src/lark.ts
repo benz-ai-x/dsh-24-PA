@@ -80,11 +80,13 @@ export async function sendLarkAudioMessage(
   userId: string,
   ogg: Buffer,
   idempotencyKey: string,
+  beforeDispatch?: () => Promise<void>,
 ): Promise<{ messageId: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'pa24-audio-'));
   try {
     const rel = 'digest.ogg';
     await writeFile(join(dir, rel), ogg);
+    await beforeDispatch?.();
     const result = await runLarkCli(
       { ...options, cwd: dir },
       ['im', '+messages-send', '--as', 'bot', '--user-id', userId, '--audio', `./${rel}`, '--idempotency-key', platformMessageKey('feishu', 'audio', idempotencyKey, userId)],

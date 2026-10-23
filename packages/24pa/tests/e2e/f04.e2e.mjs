@@ -41,6 +41,7 @@ const waitToolResult = async (substr, label, timeoutMs = 60_000) => {
   const last = llm.log.filter(r => r.tools.includes('pa24_work') && r.toolResults.length > 0).at(-1);
   throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后工具结果：${last ? last.toolResults.join('').slice(0, 400) : '无'}`);
 };
+const parsedToolResult = raw => JSON.parse(JSON.parse(raw)[0].text);
 const promptLocal = (requestId, text) =>
   host.remote('session/prompt', {
     request: { requestId, sessionId: localSessionId, mode: 'queue', content: [{ type: 'text', text }], clientTimeZone: 'Asia/Shanghai' },
@@ -118,7 +119,8 @@ describe('F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历）',
     });
     await inject(ownerEvent('evt-cal-2', '写方案那件事改到下午两点'));
     await waitWorkItem('改期写方案', '改期完成');
-    await waitToolResult('日程已修改', '改期回执');
+    const updated = parsedToolResult(await waitToolResult('已读取原平台对象并核对本次变更', '改期回读回执'));
+    expect(updated).toMatchObject({ eventId: created.event_id, verification: { state: 'verified', active: true } });
     expect(Date.parse((await readEvents()).find(e => e.event_id === created.event_id).start)).toBe(Date.parse('2026-10-07T14:00:00+08:00'));
 
     await writeScript({
@@ -130,7 +132,8 @@ describe('F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历）',
     });
     await inject(ownerEvent('evt-cal-3', '取消写方案的日程'));
     await waitWorkItem('取消写方案', '取消完成');
-    await waitToolResult('日程已取消', '取消回执');
+    const canceled = parsedToolResult(await waitToolResult('已读取原平台对象并核对本次变更', '取消回读回执'));
+    expect(canceled).toMatchObject({ eventId: created.event_id, verification: { state: 'verified', active: false } });
     expect((await readEvents()).find(e => e.event_id === created.event_id).status).toBe('canceled');
     expect((await cluster.query(`select count(*) from pa24.calendar_event where event_id='${created.event_id}' and status='canceled'`)).trim()).toBe('1');
   });
@@ -180,9 +183,11 @@ describe('F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历）',
     });
     await inject(ownerEvent('evt-cal-6', '再查一下后天的安排'));
     await waitWorkItem('降级查询', '降级查询完成');
-    const payload = await waitToolResult('可能过期', '降级回执');
-    expect(payload).toContain('同步失败');
-    expect((await cluster.query(`select coalesce(last_error,'') from pa24.calendar_sync_state`)).trim()).toContain('注入');
+    const payload = parsedToolResult(await waitToolResult('本次查询未完整核验', '逐来源降级回执'));
+    expect(payload).toMatchObject({ fresh: false, complete: false, total: null });
+    expect(payload.sources).toEqual(expect.arrayContaining([expect.objectContaining({ state: 'failed', reason: expect.any(String) })]));
+    expect(payload.sources.find(source => source.state === 'failed').reason.length).toBeGreaterThan(0);
+    expect(payload.events).toHaveLength(2);
   });
 
   it('P12：明确指令的会议邀请按记忆解析联系人；歧义拒绝且不发邀请', async () => {
@@ -190,7 +195,7 @@ describe('F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历）',
     await writeScript({
       mode: 'dispatch',
       leadReply: '已记住联系人。',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'contact-xw', category: 'fact', topic: '联系人：小王', content: '联系人 小王：ou_xiaowang_1（产品组）', source: '本人提供', status: 'confirmed', reason: '本人提供的联系人', expectedRevision: 0 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'contact-xw', category: 'fact', topic: '联系人：小王', content: '联系人 小王：ou_xiaowang_1（产品组）', source: '本人提供', status: 'confirmed', confirmation: '本人明确要求记住此条内容', reason: '本人提供的联系人', expectedRevision: 0 } },
     });
     await promptLocal('f04-contact-1', '记住联系人：小王，open_id 是 ou_xiaowang_1');
     for (let i = 0; i < 40 && (await host.api('memory', { query: '小王' })).revision < 1; i++) await new Promise(r => setTimeout(r, 500));
@@ -207,19 +212,19 @@ describe('F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历）',
     const payload = await waitToolResult('已按本人明确指令创建会议并邀请 1 位参会人', '邀请回执');
     expect(payload).toContain('ou_xiaowang_1');
     const meeting = (await readEvents()).find(e => e.summary.includes('过方案'));
-    expect(meeting.attendees.map(a => a.open_id)).toEqual(['ou_xiaowang_1']);
+    expect(meeting.attendees.map(a => a.user_id)).toEqual(['ou_xiaowang_1']);
 
     // 歧义联系人：记忆里有两个“小李” → 拒绝且不创建任何会议
     await writeScript({
       mode: 'dispatch',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'contact-xl1', category: 'fact', topic: '联系人：小李', content: '联系人 小李：ou_xiaoli_1（销售）', source: '本人提供', status: 'confirmed', reason: '本人提供的联系人', expectedRevision: 1 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'contact-xl1', category: 'fact', topic: '联系人：小李', content: '联系人 小李：ou_xiaoli_1（销售）', source: '本人提供', status: 'confirmed', confirmation: '本人明确要求记住此条内容', reason: '本人提供的联系人', expectedRevision: 1 } },
       leadReply: '已记住。',
     });
     await promptLocal('f04-contact-2', '记一个联系人小李：ou_xiaoli_1');
     for (let i = 0; i < 40 && (await host.api('memory', {})).revision < 2; i++) await new Promise(r => setTimeout(r, 500));
     await writeScript({
       mode: 'dispatch',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'contact-xl2', category: 'fact', topic: '联系人：小李', content: '联系人 小李：ou_xiaoli_2（市场）', source: '本人提供', status: 'confirmed', reason: '本人提供的同名联系人', expectedRevision: 2 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'contact-xl2', category: 'fact', topic: '联系人：小李', content: '联系人 小李：ou_xiaoli_2（市场）', source: '本人提供', status: 'confirmed', confirmation: '本人明确要求记住此条内容', reason: '本人提供的同名联系人', expectedRevision: 2 } },
       leadReply: '已记住。',
     });
     await promptLocal('f04-contact-3', '再记一个也叫小李的：ou_xiaoli_2');
