@@ -48,6 +48,7 @@ export const PANEL_RPC = {
     runExport: 'runs.export',
     runDiagnostics: 'runs.diagnostics',
     workInspect: 'work.inspect',
+    workerRun: 'worker.run',
     sources: 'sources',
     calendar: 'calendar',
   },
@@ -70,6 +71,7 @@ export const PANEL_RPC = {
     robotOpen: 'robot.open',
     roleRegister: 'role.register',
     workList: 'work.list',
+    workChange: 'work.change',
     skillChange: 'skill.change',
     skillRun: 'skill.run',
     planChange: 'plan.change',
@@ -121,6 +123,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.runSummary) return respond({ ok: true, value: await runtime.runHistory.summary(payload) });
             if (endpoint === E.runExport) return respond({ ok: true, value: await runtime.runHistory.export(payload) });
             if (endpoint === E.runDiagnostics) return respond({ ok: true, value: await runtime.runHistory.diagnostics(payload) });
+            if (endpoint === E.workerRun) return respond({ ok: true, value: await runtime.workerRuns.inspect(payload) });
             if (endpoint === E.workInspect) return respond({ ok: true, value: await runtime.runHistory.work(payload) });
             if (endpoint === E.planRunPreview) return respond({ ok: true, value: await runtime.planEngine.previewRun(payload) });
             if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
@@ -256,6 +259,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
     );
     return { roles: runtime.listRoles() };
   },
+  [PANEL_RPC.actions.workChange]: (runtime, payload) => runtime.changeWork(payload),
   [PANEL_RPC.actions.workList]: runtime => runtime.inspectWorkspace(async () => ({ items: runtime.repos ? await runtime.repos.workItems.list(undefined, 100) : [] })),
   [PANEL_RPC.actions.testInject]: async (runtime, payload) => {
     const transport = runtime.getTransport();

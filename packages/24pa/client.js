@@ -1132,6 +1132,102 @@ window.__ModuleLoader__.load({
                   outcome === 'sent' && h('label', { className: 'pa24-field' }, L('原平台消息标识', 'Original message ID'), h('input', { value: messageId, maxLength: 500, onChange: event => setMessageId(event.target.value) })),
                   h('button', { type: 'button', disabled: !evidence.trim() || (outcome === 'sent' && !messageId.trim()), onClick: () => mutate(delivery, 'review') }, L('确认并保存投递核对', 'Save delivery verification'))))))));
         }
+        function WorkControls({ work, changes, binding, changed }) {
+          const [op, setOp] = React.useState('supplement'), [instruction, setInstruction] = React.useState(''), [title, setTitle] = React.useState('');
+          const [approved, setApproved] = React.useState(false), [busy, setBusy] = React.useState(false), [error, setError] = React.useState(''), [note, setNote] = React.useState('');
+          const request = React.useRef(null), alive = React.useRef(true);
+          React.useEffect(() => () => { alive.current = false; }, []);
+          React.useEffect(() => { setApproved(false); }, [work.revision]);
+          const submit = async () => {
+            if (busy) return; setBusy(true); setError(''); setNote('');
+            const body = { type: 'work.change', workspaceBinding: binding, workId: work.id, expectedRevision: work.revision, op, instruction, title, confirm: approved };
+            const key = JSON.stringify(body); if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
+            try {
+              const result = await rpc('action', { ...body, requestId: request.current.id });
+              if (!alive.current || result.workspaceBinding !== binding) return;
+              request.current = null; setApproved(false); setInstruction('');
+              setNote(result.workId ? L('新目标已建立：', 'New goal created: ') + result.workId : L('操作已保存。补充是否采用及停止实际结果请查看关联运行。', 'Saved. Check the linked run for input adoption and actual stop confirmation.'));
+              changed();
+            } catch (error) { if (alive.current) setError(error.message); } finally { if (alive.current) setBusy(false); }
+          };
+          const active = ['running', 'waiting_input'].includes(work.status), ended = ['completed', 'failed', 'stopped'].includes(work.status);
+          const choices = [...(work.execution_mode !== 'skill' ? [...(active ? [['supplement', L('补充原交办', 'Supplement original work')]] : []), ...(ended || work.status === 'waiting_input' ? [['continue', L('明确接续', 'Explicit continuation')]] : []), ...(!ended ? [['stop', L('停止当前交办', 'Stop current work')]] : [])] : []),
+            ...(work.acceptance_required && work.status === 'completed' && ['pending','returned'].includes(work.acceptance_status) ? [['accept', L('接受交付物', 'Accept deliverable')], ['return', L('退回并说明未完成项', 'Return with remaining work')]] : []), ['new-goal', L('建立关联新目标', 'Create a linked new goal')]];
+          React.useEffect(() => { if (!choices.some(([value]) => value === op)) { setOp(choices[0][0]); setApproved(false); } }, [work.status, work.acceptance_status, op]);
+          return h('div', { className: 'pa24-note' },
+            work.completion_criteria && h('p', null, L('完成标准：', 'Completion criteria: ') + work.completion_criteria),
+            work.acceptance_required && h('p', null, L('主人验收：', 'Owner acceptance: ') + ({ none: L('尚未交付', 'Not delivered'), pending: L('等待验收', 'Awaiting acceptance'), accepted: L('已接受', 'Accepted'), returned: L('已退回', 'Returned') }[work.acceptance_status] || work.acceptance_status)),
+            work.parent_work_item_id && h('p', { className: 'pa24-meta' }, L('关联原交办：', 'Related work: ') + work.parent_work_item_id),
+            h('label', { className: 'pa24-field' }, L('交办操作', 'Work action'), h('select', { value: op, disabled: busy, onChange: event => { setOp(event.target.value); setApproved(false); } }, choices.map(([value, label]) => h('option', { key: value, value }, label)))),
+            op === 'new-goal' && h('label', { className: 'pa24-field' }, L('新目标名称', 'New goal title'), h('input', { value: title, onChange: event => { setTitle(event.target.value); setApproved(false); } })),
+            op !== 'stop' && h('label', { className: 'pa24-field' }, op === 'new-goal' ? L('新目标及你选定的上下文', 'New goal and selected context') : L('补充、剩余工作或验收依据', 'Supplement, remaining work or acceptance evidence'), h('textarea', { rows: 4, value: instruction, onChange: event => { setInstruction(event.target.value); setApproved(false); } })),
+            h('p', { className: 'pa24-meta' }, op === 'stop' ? L('停止不会撤销已完成动作或关联待办；实际停止结果单独留档。', 'Stopping keeps completed actions and linked tasks. Actual stop confirmation is recorded separately.')
+              : op === 'new-goal' ? L('仅携带你在上方填写的上下文，原交办保持原样。', 'Only the context entered above is included; the original work is preserved.')
+              : op === 'continue' ? L('未结束运行沿原记录恢复；已结束则新建运行。请明确未完成部分，已成功步骤不重做。', 'Resume unfinished runs; finished runs get a new execution. Specify remaining work; completed steps are retained.')
+              : L('收到补充与执行采用分别记录；接受或退回只记录验收，不自动执行新的工作。', 'Receipt and adoption are recorded separately. Acceptance and return do not start new work.')),
+            h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: approved, onChange: event => setApproved(event.target.checked) }), L('确认针对这项交办执行所选操作', 'Confirm this action on the selected work')),
+            h('button', { type: 'button', disabled: busy || !approved || (op !== 'stop' && !instruction.trim()) || (op === 'new-goal' && !title.trim()), onClick: submit }, L('提交交办操作', 'Submit work action')),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error), note && h('p', { role: 'status' }, note),
+            h('details', null, h('summary', null, L('操作与验收历史', 'Control and acceptance history')), (changes || []).map(row => h('div', { key: row.request_id }, h('p', null, date(row.created_at) + ' · ' + row.record.op + ' · ' + row.record.phase), h('p', null, row.record.input?.instruction || row.record.error || '')))));
+        }
+        function WorkerRunReview({ detail, binding, changed }) {
+          const [summary, setSummary] = React.useState(''), [completed, setCompleted] = React.useState(''), [remaining, setRemaining] = React.useState('');
+          const [calls, setCalls] = React.useState({}), [confirmed, setConfirmed] = React.useState(false), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
+          const request = React.useRef(null), alive = React.useRef(true);
+          React.useEffect(() => () => { alive.current = false; }, []);
+          React.useEffect(() => { setConfirmed(false); }, [detail.fingerprint, detail.work.revision]);
+          const unknown = detail.calls.filter(row => ['running','unknown'].includes(row.status));
+          const unresolved = detail.operations.filter(row => ['running','unknown'].includes(row.status));
+          const save = async () => {
+            const input = { type: 'work.change', op: 'review', workId: detail.run.work_item_id, expectedRevision: detail.work.revision, runId: detail.run.id,
+              fingerprint: detail.fingerprint, summary, completed, remaining, calls: unknown.map(row => ({ id: row.id, outcome: calls[row.id]?.outcome || 'partial', evidence: calls[row.id]?.evidence || '' })), confirm: confirmed, workspaceBinding: binding };
+            const key = JSON.stringify(input); if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
+            setBusy(true); setError('');
+            try { const result = await rpc('action', { ...input, requestId: request.current.id }); if (alive.current && result.workspaceBinding === binding) { setConfirmed(false); changed(); } }
+            catch (error) { if (alive.current) setError(error.message); } finally { if (alive.current) setBusy(false); }
+          };
+          return h('section', { className: 'pa24-note' }, h('h4', null, L('原运行核对', 'Review original run')),
+            h('p', null, L('先核对原对象或文件。核对依据单独留档，原未知回执保留；接续须另行明确确认。', 'Check the original objects or files. Findings are stored separately from uncertain receipts; continuation needs a separate explicit action.')),
+            !!unresolved.length && h('p', { role: 'alert' }, L('关联平台操作仍待核对：', 'Platform operations still need verification: ') + unresolved.map(row => row.id).join('、')),
+            [['核对摘要', summary, setSummary], ['已完成步骤', completed, setCompleted], ['剩余步骤', remaining, setRemaining]].map(([label, value, set]) => h('label', { key: label, className: 'pa24-field' }, L(label, { 核对摘要: 'Review summary', 已完成步骤: 'Completed steps', 剩余步骤: 'Remaining steps' }[label]), h('textarea', { value, rows: 2, maxLength: 4000, onChange: event => { set(event.target.value); setConfirmed(false); } }))),
+            unknown.map(row => h('fieldset', { key: row.id }, h('legend', null, row.tool + ' · ' + row.id),
+              h('select', { 'aria-label': L('动作核对结果', 'Verified action outcome'), value: calls[row.id]?.outcome || 'partial', onChange: event => { setCalls({ ...calls, [row.id]: { ...calls[row.id], outcome: event.target.value } }); setConfirmed(false); } },
+                h('option', { value: 'partial' }, L('部分完成', 'Partially completed')), h('option', { value: 'completed' }, L('已完成', 'Completed')), h('option', { value: 'not_performed' }, L('明确未执行', 'Confirmed not performed'))),
+              h('textarea', { 'aria-label': L('动作核对依据', 'Action verification evidence'), rows: 2, maxLength: 4000, value: calls[row.id]?.evidence || '', onChange: event => { setCalls({ ...calls, [row.id]: { ...calls[row.id], evidence: event.target.value } }); setConfirmed(false); } }))),
+            h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: confirmed, onChange: event => setConfirmed(event.target.checked) }), L('已核对实际效果及剩余步骤', 'I verified actual effects and remaining steps')),
+            h('button', { type: 'button', disabled: busy || !confirmed || !!unresolved.length || !summary.trim() || !completed.trim() || !remaining.trim() || unknown.some(row => !calls[row.id]?.evidence?.trim()), onClick: save }, L('保存交办运行核对', 'Save work run findings')),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error));
+        }
+        function WorkerRunDetail({ id, binding, openWork }) {
+          const [detail, setDetail] = React.useState(null), [error, setError] = React.useState(''), [diagnostic, setDiagnostic] = React.useState(null), [refresh, setRefresh] = React.useState(0);
+          const alive = React.useRef(true);
+          React.useEffect(() => { const abort = new AbortController(); let pending = false; alive.current = true;
+            const load = async () => { if (pending) return; pending = true; try { const result = await rpc('worker.run', { runId: id, workspaceBinding: binding }, abort.signal); if (!abort.signal.aborted && result.workspaceBinding === binding) { setDetail(result); setError(''); } } catch (error) { if (!abort.signal.aborted) setError(error.message); } finally { pending = false; } };
+            void load(); const timer = setInterval(load, 5000); return () => { alive.current = false; abort.abort(); clearInterval(timer); };
+          }, [id, binding, refresh]);
+          const preview = async () => { try { const result = await rpc('runs.diagnostics', { runId: id, workspaceBinding: binding }); if (alive.current && result.workspaceBinding === binding) setDiagnostic(result); } catch (error) { if (alive.current) setError(error.message); } };
+          const run = detail?.run;
+          return h('section', { className: 'pa24-card' }, h('h3', null, L('交办执行与投递', 'Work execution and delivery')),
+            h('button', { type: 'button', onClick: () => setRefresh(value => value + 1) }, L('刷新运行状态', 'Refresh run status')),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error), !detail && h('p', { role: 'status' }, L('正在读取运行…', 'Reading run…')),
+            run && h('div', null, h('p', null, runStatusLabel(run.status)), h('p', null, run.instruction), run.progress && h('p', null, run.progress), run.result && h('pre', { className: 'pa24-json' }, run.result),
+              run.progress_detail && h('div', null, h('p', null, L('已完成：', 'Completed: ') + run.progress_detail.completed), h('p', null, L('下一步：', 'Next: ') + run.progress_detail.next)),
+              detail.execution && h('p', null, L('累计执行 ', 'Execution ') + Math.round(detail.execution.executionMs / 1000) + L(' 秒；剩余 ', ' s; remaining ') + Math.round(detail.execution.remainingMs / 1000) + L(' 秒', ' s')),
+              detail.execution?.blocks.map(block => h('p', { key: block.key }, block.reason)),
+              detail.execution?.stop && h('p', null, detail.execution.stop.settledAt ? L('宿主已确认停止', 'Host confirmed stop') : L('已请求停止，仍等待确认', 'Stop requested; awaiting confirmation')),
+              h('button', { type: 'button', onClick: () => openWork(run.work_item_id) }, L('查看原助理交办', 'Open original work')),
+              h('h4', null, L('补充收到与采用', 'Input receipt and adoption')), (detail.inputs || []).map(row => h('div', { key: row.execution_id }, h('p', null, ({ prepared: L('待接纳', 'Awaiting admission'), received: L('已收到，尚未采用', 'Received, not adopted'), adopted: L('已在原回合采用', 'Adopted in original turn'), rejected: L('未接纳', 'Not admitted'), unknown: L('接纳待核对', 'Admission uncertain') })[row.status]), h('p', null, row.instruction))),
+              h('h4', null, L('工具动作与原回执', 'Tool actions and original receipts')), (detail.calls || []).map(call => h('details', { key: call.id }, h('summary', null, call.tool + ' · ' + t(call.status)), h('pre', { className: 'pa24-json' }, JSON.stringify({ arguments: call.args, result: call.result }, null, 2)))),
+              !!detail.reviews?.length && h('details', null, h('summary', null, detail.reviewed ? L('当前证据已核对', 'Current evidence reviewed') : L('已有核对，待核验新证据', 'Previous findings; new evidence needs review')), detail.reviews.map(row => h('pre', { key: row.request_id, className: 'pa24-json' }, JSON.stringify(row.record.result, null, 2)))),
+              detail.work && ['stopped','failed','timed_out','completed'].includes(run.status) && h(WorkerRunReview, { detail, binding, changed: () => setRefresh(value => value + 1) }),
+              h('h4', null, L('固定结果投递', 'Fixed result delivery')), !(detail.deliveries || []).length && h('p', null, L('尚无结果投递', 'No result delivery yet')), (detail.deliveries || []).map(row => h('p', { key: row.id }, row.channel + ' · ' + row.target + ' · ' + deliveryLabel(row.status) + (row.last_error ? ' · ' + row.last_error : ''))),
+              !!detail.deliveries?.length && h(PlanDeliveryControls, { detail: { run, deliveries: detail.deliveries.map(row => ({ id: row.id, deliveryStatus: row.status, deliveries: [{ outbox_id: row.id, outbox: row, component: row.kind, fingerprint: row.fingerprint }] })) }, binding, onChanged: () => setRefresh(value => value + 1) }),
+              h('details', null, h('summary', null, L('当次执行快照', 'Execution snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify(run.snapshot, null, 2))),
+              h('button', { type: 'button', onClick: () => saveDownload({ filename: '24pa-result-' + id + '.json', content: JSON.stringify({ run, inputs: detail.inputs, calls: detail.calls, deliveries: detail.deliveries }, null, 2) }) }, L('下载当次结果', 'Download run result')),
+              h('button', { type: 'button', onClick: preview }, L('预览脱敏诊断', 'Preview redacted diagnostics')),
+              diagnostic && h('div', { className: 'pa24-note' }, h('p', null, diagnostic.message), h('pre', { className: 'pa24-json' }, diagnostic.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostic) }, L('确认下载这份诊断', 'Confirm diagnostic download')))));
+        }
+
         function RunHistoryDetail(helpers) {
           const { state, extra, planStates, refresh, openCard, tz } = helpers, binding = state.workspaceBinding;
           const model = planRowState(planStates, 'run-history:' + binding, {}), view = React.useSyncExternalStore(model.subscribe, model.getSnapshot);
@@ -1153,7 +1249,7 @@ window.__ModuleLoader__.load({
           }, [binding, filterKey, offset, view.tick, view.workId, view.workOffset]);
           const set = (key, value) => model.update({ filters: { ...filters, [key]: value }, offset: 0, selectedRun: null, workId: null });
           const openWork = id => model.update({ workId: id, workOffset: 0, selectedRun: null });
-          const selectRun = row => model.update({ selectedRun: { id: row.id, skillId: row.skill_id }, workId: null });
+          const selectRun = row => model.update({ selectedRun: { id: row.id, skillId: row.skill_id, kind: row.record_kind }, workId: null });
           const exportRows = async () => { setBusy(true); setError(''); try { const file = await rpc('runs.export', { ...filters, workspaceBinding: binding }); if (alive.current && file.workspaceBinding === binding) saveDownload(file); } catch (error) { if (alive.current) setError(error.message); } finally { if (alive.current) setBusy(false); } };
           const field = (label, node) => h('label', { key: label, className: 'pa24-field' }, label, node);
           const select = (key, entries) => h('select', { value: filters[key] || '', onChange: event => set(key, event.target.value) }, entries.map(([value, label]) => h('option', { key: value, value }, label)));
@@ -1185,17 +1281,20 @@ window.__ModuleLoader__.load({
                 h('p', { className: 'pa24-meta' }, date(row.created_at, tz) + ' · ' + runSourceLabel(row.source)), row.progress && h('p', null, row.progress), row.summary && h('p', null, row.summary),
                 filters.kind === 'runs' && h('button', { type: 'button', onClick: () => selectRun(row) }, L('查看执行与投递', 'View execution and delivery')),
                 filters.kind === 'work' && h('button', { type: 'button', onClick: () => openWork(row.id) }, L('查看交办详情', 'View work item')),
-                filters.kind === 'events' && row.run_id && h('button', { type: 'button', onClick: () => selectRun({ id: row.run_id }) }, L('核对未执行原记录', 'Inspect unexecuted admission')),
+                filters.kind === 'events' && row.run_id && h('button', { type: 'button', onClick: () => selectRun({ id: row.run_id, record_kind: row.record_kind }) }, L('核对未执行原记录', 'Inspect unexecuted admission')),
                 filters.kind === 'events' && row.plan_id && h('button', { type: 'button', onClick: () => helpers.openPlan(row.plan_id) }, L('处理原计划', 'Open original plan')),
                 filters.kind === 'legacy' && h('details', null, h('summary', null, L('原始简报与旧关联', 'Original digest and links')), h('pre', { className: 'pa24-json' }, JSON.stringify(row, null, 2))),
                 h('details', null, h('summary', null, L('技术标识', 'Technical IDs')), h('p', { className: 'pa24-meta' }, row.id + (row.plan_id ? ' · ' + row.plan_id : ''))))),
               h('div', { className: 'pa24-row' }, h('button', { type: 'button', disabled: !offset, onClick: () => model.update({ offset: Math.max(0, offset - 20) }) }, L('上一页', 'Previous')), h('button', { type: 'button', disabled: offset + 20 >= list.data.total, onClick: () => model.update({ offset: offset + 20 }) }, L('下一页', 'Next')))),
-            active && h(SkillRunControls, { key: active.id, data: { id: active.skillId }, binding, detailOnly: true, initialRunId: active.id, openWork }),
+            active?.kind === 'worker' && h(WorkerRunDetail, { key: binding + active.id, id: active.id, binding, openWork }),
+            active && active.kind !== 'worker' && h(SkillRunControls, { key: active.id, data: { id: active.skillId }, binding, detailOnly: true, initialRunId: active.id, openWork }),
             view.workId && !work && h('p', { role: 'status' }, L('正在读取交办…', 'Reading work item…')),
             work && h('section', { className: 'pa24-card' }, h('h3', null, work.work.title), h('p', null, t(work.work.status)), h('p', null, work.work.instruction),
               work.work.progress && h('p', null, work.work.progress), work.work.result && h('pre', { className: 'pa24-json' }, work.work.result),
+              work.work.progress_detail && h('div', null, h('p', null, L('已完成：', 'Completed: ') + work.work.progress_detail.completed), h('p', null, L('下一步：', 'Next: ') + work.work.progress_detail.next)),
               h('p', { className: 'pa24-meta' }, L('来源：', 'Origin: ') + work.work.origin + ' · ' + L('结果回到：', 'Results return to: ') + work.work.delivery),
               work.work.child_session_id && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession({ childSessionId: work.work.child_session_id, parentSessionId: work.work.parent_session_id, mode: 'continuable' }) }, L('查看原交办会话', 'Open original work session')),
+              h(WorkControls, { key: binding + work.work.id, work: work.work, changes: work.changes, binding, changed: () => model.update({ tick: (model.getSnapshot().tick || 0) + 1 }) }),
               h('h4', null, L('关联执行记录 ', 'Linked runs ') + work.runs.total), work.runs.rows.map(row => h('div', { key: row.id }, h('button', { type: 'button', onClick: () => selectRun(row) }, date(row.created_at, tz) + ' · ' + t(row.status)))),
               work.runs.total > 20 && h('div', { className: 'pa24-row' }, h('button', { type: 'button', disabled: !(view.workOffset || 0), onClick: () => model.update({ workOffset: Math.max(0, (view.workOffset || 0) - 20) }) }, L('更近的运行', 'Newer runs')), h('button', { type: 'button', disabled: (view.workOffset || 0) + 20 >= work.runs.total, onClick: () => model.update({ workOffset: (view.workOffset || 0) + 20 }) }, L('更早的运行', 'Older runs')))),
             h('p', { className: 'pa24-meta' }, L('详细诊断默认保留 90 天，可在参数配置调整；结果及业务回执长期保留。', 'Detailed diagnostics default to 90 days in configuration. Results and business receipts persist.')),

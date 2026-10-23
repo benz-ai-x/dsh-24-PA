@@ -6,14 +6,27 @@ export interface HistoryFilter {
   query?: string; status?: string; deliveryStatus?: string; source?: string;
   workId?: string; planId?: string; skillId?: string; versionId?: string; offset: number; limit: number;
 }
-const RUN_SOURCE = `case when r.trial then 'trial'
+const EXECUTIONS = `(select r.id, r.work_item_id, r.skill_id, r.version_id, r.plan_id, r.status, r.delivery_status,
+  r.progress, r.result, r.snapshot, r.trial, r.trigger_kind, r.triggered_at, r.stop_reason, r.created_at, r.updated_at,
+  'skill' as record_kind, cast(null as text) as source from pa24.skill_run r
+  union all
+  select r.id, r.work_item_id, cast(null as text), cast(null as text), cast(null as text), r.status,
+    case when o.status = 'sent' then 'sent' when o.status in ('pending','sending') then 'pending'
+      when o.status = 'unknown' then 'unknown' when o.status in ('failed','dead') then 'failed' else 'not_requested' end,
+    r.progress, r.result, r.snapshot, false, cast(null as text), r.created_at, cast(null as text), r.created_at, r.updated_at,
+    'worker', r.source from pa24.worker_run r left join pa24.outbox o on o.dedup_key = r.outbox_key)`;
+const EVENTS = `(select t.id, p.title, t.plan_id, t.run_id, t.source, t.status, t.reason, t.created_at, t.updated_at, t.occurrence, t.snapshot,
+  cast(null as text) as record_kind, s.work_item_id from pa24.plan_trigger t left join pa24.digest_plan p on p.id = t.plan_id left join pa24.skill_run s on s.id = t.run_id
+  union all select r.id, w.title, cast(null as text), r.id, r.source, r.status, r.progress, r.created_at, r.updated_at, cast(r.created_at as text), r.snapshot,
+  'worker', r.work_item_id from pa24.worker_run r join pa24.work_item w on w.id = r.work_item_id where r.status = 'rejected')`;
+const RUN_SOURCE = `case when r.record_kind = 'worker' then r.source when r.trial then 'trial'
   when r.snapshot->'continuation'->>'fromRunId' is not null then
     case when coalesce(r.snapshot->'continuation'->>'instruction', '') <> '' then 'continuation' else 'rerun' end
   when r.trigger_kind = 'schedule' then 'schedule' else 'manual' end`;
-const EXECUTION_RECORD = `not exists (select 1 from pa24.plan_trigger unexecuted
+const EXECUTION_RECORD = `r.status <> 'rejected' and not exists (select 1 from pa24.plan_trigger unexecuted
   where unexecuted.run_id = r.id and unexecuted.status in ('skipped', 'rejected', 'expired'))`;
-const DELIVERY_FAILURE = `exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
-  where d.run_id = r.id and o.status in ('failed', 'unknown'))`;
+const DELIVERY_FAILURE = `(r.delivery_status in ('failed','unknown') or exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
+  where d.run_id = r.id and o.status in ('failed', 'unknown')))`;
 const PLAN_BLOCKED = (planId: string) => `exists (select 1 from pa24.digest_plan blocked_plan where blocked_plan.id = ${planId}
   and blocked_plan.recycled_at is null and (exists (select 1 from pa24.task_plan_block b where b.plan_id = blocked_plan.id)
   or exists (select 1 from pa24.skill_plan_block b where b.plan_id = blocked_plan.id)))`;
@@ -23,7 +36,7 @@ const EVENT_UNRESOLVED = `((${PLAN_BLOCKED('r.plan_id')} and (r.status in ('reje
     where d.run_id = r.run_id and o.status in ('failed', 'unknown')))`;
 const RUN_UNRESOLVED = `(r.status in ('waiting', 'needs_reconciliation', 'stopping') or ${DELIVERY_FAILURE}
   or (r.stop_reason = 'blocked' and ${PLAN_BLOCKED('r.plan_id')})
-  or (r.status in ('failed', 'timed_out') and not exists (select 1 from pa24.skill_run later
+  or (r.status in ('failed', 'timed_out') and not exists (select 1 from ${EXECUTIONS} later
     where later.work_item_id = r.work_item_id and later.created_at > r.created_at and later.status = 'completed')))`;
 
 /** Read projections keep executions, work goals and non-execution events
@@ -35,8 +48,8 @@ export class RunHistoryRepo {
     const bind = (value: unknown) => { values.push(value); return `$${values.length}`; };
     let table: string, fields: string, search: string[], unresolved: string;
     if (filter.kind === 'runs') {
-      table = 'pa24.skill_run r left join pa24.work_item w on w.id = r.work_item_id';
-      fields = `r.id, coalesce(r.snapshot->'plan'->>'title', w.title, r.snapshot->>'name') as title,
+      table = `${EXECUTIONS} r left join pa24.work_item w on w.id = r.work_item_id`;
+      fields = `r.id, r.record_kind, coalesce(r.snapshot->'plan'->>'title', w.title, r.snapshot->>'name') as title,
         r.snapshot->>'name' as skill_name, r.skill_id, r.version_id, r.work_item_id, r.plan_id,
         r.status, r.delivery_status, r.progress, substr(r.result, 1, 300) as summary,
         ${RUN_SOURCE} as source, r.created_at, r.updated_at, r.triggered_at`;
@@ -50,15 +63,16 @@ export class RunHistoryRepo {
       table = 'pa24.work_item r';
       fields = 'r.id, r.title, r.origin as source, r.status, r.progress, substr(r.result, 1, 300) as summary, r.created_at, r.updated_at, r.active_skill_run_id, r.role';
       search = ['r.id', 'r.title', 'r.instruction', 'r.progress', 'r.result'];
-      unresolved = "r.status in ('waiting_input', 'needs_reconciliation', 'failed')";
+      unresolved = "(r.status in ('waiting_input', 'needs_reconciliation', 'failed') or (r.status = 'completed' and r.acceptance_required = true and r.acceptance_status in ('pending','returned')))";
       if (filter.source) clauses.push(`r.origin = ${bind(filter.source)}`);
       if (filter.workId) clauses.push(`r.id = ${bind(filter.workId)}`);
       if (filter.planId) clauses.push(`exists (select 1 from pa24.skill_run linked where linked.work_item_id = r.id and linked.plan_id = ${bind(filter.planId)})`);
       if (filter.skillId) clauses.push(`exists (select 1 from pa24.skill_run linked where linked.work_item_id = r.id and linked.skill_id = ${bind(filter.skillId)})`);
     } else if (filter.kind === 'events') {
-      table = 'pa24.plan_trigger r left join pa24.digest_plan p on p.id = r.plan_id';
-      fields = 'r.id, p.title, r.plan_id, r.run_id, r.source, r.status, r.reason as summary, r.created_at, r.updated_at, r.occurrence';
-      search = ['r.id', 'p.title', 'r.reason']; unresolved = EVENT_UNRESOLVED;
+      table = `${EVENTS} r`;
+      fields = 'r.id, r.title, r.record_kind, r.plan_id, r.run_id, r.work_item_id, r.source, r.status, r.reason as summary, r.created_at, r.updated_at, r.occurrence';
+      search = ['r.id', 'r.title', 'r.reason']; unresolved = EVENT_UNRESOLVED;
+      if (filter.workId) clauses.push(`r.work_item_id = ${bind(filter.workId)}`);
       clauses.push("r.status in ('skipped', 'rejected', 'expired')");
       if (filter.planId) clauses.push(`r.plan_id = ${bind(filter.planId)}`);
       if (filter.skillId) clauses.push(`r.snapshot->'configuration'->>'skillId' = ${bind(filter.skillId.startsWith('builtin:') || filter.skillId.startsWith('project-dsh:') ? filter.skillId : `managed:${filter.skillId}`)}`);
@@ -92,14 +106,14 @@ export class RunHistoryRepo {
     const runs = await counts(`select sum(case when r.created_at >= $1 then 1 else 0 end) as runs24,
       sum(case when r.created_at >= $1 and r.status in ('failed', 'timed_out') then 1 else 0 end) as failed24,
       sum(case when r.created_at >= $1 and ${DELIVERY_FAILURE} then 1 else 0 end) as delivery_failed24,
-      sum(case when ${RUN_UNRESOLVED} then 1 else 0 end) as unresolved from pa24.skill_run r where ${EXECUTION_RECORD}`);
+      sum(case when ${RUN_UNRESOLVED} then 1 else 0 end) as unresolved from ${EXECUTIONS} r where ${EXECUTION_RECORD}`);
     const work = await counts(`select sum(case when r.status in ('accepted', 'queued', 'running') then 1 else 0 end) as active_work,
-      sum(case when r.status in ('waiting_input', 'needs_reconciliation') then 1 else 0 end) as waiting_work,
+      sum(case when r.status in ('waiting_input', 'needs_reconciliation') or (r.status = 'completed' and r.acceptance_required = true and r.acceptance_status in ('pending','returned')) then 1 else 0 end) as waiting_work,
       sum(case when r.status = 'failed' then 1 else 0 end) as failed_work,
       sum(case when r.created_at >= $1 then 1 else 0 end) as work24 from pa24.work_item r`);
     const events = await counts(`select sum(case when r.created_at >= $1 then 1 else 0 end) as unexecuted24,
       sum(case when ${EVENT_UNRESOLVED} then 1 else 0 end) as unresolved_events
-      from pa24.plan_trigger r where r.status in ('skipped', 'rejected', 'expired')`);
+      from ${EVENTS} r where r.status in ('skipped', 'rejected', 'expired')`);
     return { ...runs, ...work, ...events, from: since.toISOString(), observedAt: now.toISOString() };
   }
 }

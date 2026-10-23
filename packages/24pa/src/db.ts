@@ -784,4 +784,37 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `create index if not exists run_diagnostic_run_idx on pa24.run_diagnostic (run_id, created_at)`,
     ],
   },
+  {
+    version: 27,
+    statements: [
+      `alter table pa24.work_item add column if not exists active_worker_run_id text`,
+      `alter table pa24.work_item add column if not exists completion_criteria text`,
+      `alter table pa24.work_item add column if not exists parent_work_item_id text`,
+      `alter table pa24.work_item add column if not exists acceptance_required boolean not null default false`,
+      `alter table pa24.work_item add column if not exists acceptance_status text not null default 'none'`,
+      `alter table pa24.work_item add column if not exists revision integer not null default 0`,
+      `alter table pa24.work_item add column if not exists progress_detail jsonb`,
+      `create table if not exists pa24.worker_run (
+        id text primary key, work_item_id text not null, session_id text not null,
+        source text not null, status text not null, instruction text not null, snapshot jsonb not null,
+        progress text, progress_detail jsonb, stop_reason text, result text, result_ref jsonb, outbox_key text,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists worker_run_work_idx on pa24.worker_run (work_item_id, created_at)`,
+      `create table if not exists pa24.worker_run_input (
+        execution_id text primary key, run_id text not null, scope jsonb not null, instruction text not null,
+        status text not null, native_message_id text, adopted_turn integer, reason text,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists worker_run_input_run_idx on pa24.worker_run_input (run_id, created_at)`,
+      `create table if not exists pa24.worker_run_call (
+        id text primary key, run_id text not null, tool text not null, args jsonb not null,
+        status text not null, result jsonb, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.work_change (
+        request_id text primary key, request_hash text not null, work_item_id text not null, record jsonb not null,
+        created_at timestamptz not null default now()
+      )`,
+    ],
+  },
 ];

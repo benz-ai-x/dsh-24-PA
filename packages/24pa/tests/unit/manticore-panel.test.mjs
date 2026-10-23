@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { taskPlanDraft } from '../../lib/task-plan.js';
-let React, act, createRoot, win, root, container, binding, requests, plan, run, fault, delayed, savedBlob, intervals;
+let React, act, createRoot, win, root, container, binding, requests, plan, run, fault, delayed, savedBlob, intervals, work;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 const form = () => ({ title: '项目晨报', skillId: 'builtin:digest-morning', parameters: { title: '项目晨报正文' }, timeZone: 'Asia/Shanghai', timing: { type: 'daily', time: '09:00:00' }, executionLimitMs: 900000, selectors: {}, delivery: { channel: 'none', mode: 'always', voice: false, overrideQuiet: false } });
 const auth = () => ({ skill: { name: 'digest-morning', versionId: 'builtin-v1', tools: [], resources: [] }, targets: [], delivery: null });
@@ -25,6 +25,7 @@ beforeEach(async () => {
   binding = 'binding-a'; requests = []; fault = null; delayed = null; savedBlob = null; intervals = []; win.localStorage.clear();
   const draft = taskPlanDraft(form(), 'Asia/Shanghai');
   plan = { id: 'plan-a', kind: 'daily', title: '项目晨报', revision: 1, skill: 'digest-morning', status: 'paused', owner_enabled: false, task_config: draft.configuration, task_authorization: auth(), schedule_spec: draft.scheduleSpec, schedule_id: null, recycled_at: null, blocks: [], nextTimes: draft.nextTimes };
+  work = { id: 'work-a', title: '原交办目标', instruction: '原请求', status: 'completed', origin: 'local', delivery: 'local', result: '原交付物', revision: 1, execution_mode: 'worker', acceptance_required: true, acceptance_status: 'pending', completion_criteria: '核对交付物' };
   run = { run: { id: 'run-a', status: 'completed', delivery_status: 'partial', progress: '结果已保存', result: '完整结果', mode: 'template', work_item_id: 'work-a', skill_id: 'builtin:digest-morning', version_id: 'v1', created_at: new Date().toISOString() },
     calls: [], inputs: [], native: [], reviews: [], unresolvedOperations: [], attempts: [], execution: { executionMs: 500, remainingMs: 899500, queuedMs: 10, waitingMs: 0, blocks: [] },
     deliveries: [{ id: 'notice', deliveryStatus: 'partial', deliveries: [{ outbox_id: 12, fingerprint: 'delivery-fingerprint', component: 'audio', outbox: { status: 'failed', channel: 'feishu', target: 'owner', attempts: 1, last_error: '语音合成失败' } }] }] };
@@ -44,18 +45,19 @@ beforeEach(async () => {
       else if (endpoint === 'plans.inspect') value = { plan: structuredClone(plan), form: { ...form(), title: plan.title }, blocks: plan.blocks, activeRuns: [] };
       else if (endpoint === 'plans.draft') value = taskPlanDraft(p, 'Asia/Shanghai');
       else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, timeZone: plan.task_config.timeZone, fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标' };
-      else if (endpoint === 'runs') value = { kind: p.kind, rows: p.kind === 'runs' && (!p.query || '项目晨报'.includes(p.query)) ? Array.from({ length: p.offset ? 11 : 20 }, (_, index) => ({ id: !index && !p.offset ? 'run-a' : 'run-' + (index + p.offset), title: '项目晨报', skill_id: 'builtin:digest-morning', status: 'completed', delivery_status: 'partial', summary: '结果摘要', source: 'schedule', created_at: new Date().toISOString() })) : [], total: p.query && !'项目晨报'.includes(p.query) ? 0 : p.kind === 'runs' ? 31 : 0, timeZone: 'Asia/Shanghai' };
+      else if (endpoint === 'runs') value = { kind: p.kind, rows: p.kind === 'runs' && (!p.query || '项目晨报'.includes(p.query)) ? Array.from({ length: p.offset ? 11 : 20 }, (_, index) => ({ id: !index && !p.offset ? 'run-a' : 'run-' + (index + p.offset), title: '项目晨报', record_kind: run.run.record_kind, skill_id: 'builtin:digest-morning', status: 'completed', delivery_status: 'partial', summary: '结果摘要', source: 'schedule', created_at: new Date().toISOString() })) : [], total: p.query && !'项目晨报'.includes(p.query) ? 0 : p.kind === 'runs' ? 31 : 0, timeZone: 'Asia/Shanghai' };
       else if (endpoint === 'skills.run') value = structuredClone(run);
+      else if (endpoint === 'worker.run') value = { ...structuredClone(run), work: structuredClone(work), operations: [], reviews: [], deliveries: [{ id: 12, status: 'failed', target: 'original-parent', channel: 'local', kind: 'text', fingerprint: 'worker-delivery' }] };
       else if (endpoint === 'runs.diagnostics') value = { filename: 'diagnostic.json', content: '{"runId":"run-a"}', message: '已脱敏，请预览' };
       else if (endpoint === 'runs.export') value = { filename: 'runs.json', content: JSON.stringify({ total: 31, planId: p.planId }) };
-      else if (endpoint === 'work.inspect') value = { work: { id: 'work-a', title: '原交办目标', instruction: '原请求', status: 'completed', origin: 'local', delivery: 'local', result: '原交付物' }, runs: { rows: [{ ...run.run }], total: 1 } };
+      else if (endpoint === 'work.inspect') value = { work: structuredClone(work), changes: [], runs: { rows: [{ ...run.run }], total: 1 } };
       else if (endpoint === 'action') {
         if (p.type === 'plan.change') {
           if (p.op === 'save') { const draft = taskPlanDraft(p, 'Asia/Shanghai'); plan = { ...plan, title: p.title, task_config: draft.configuration, schedule_spec: draft.scheduleSpec, revision: plan.revision + 1, status: 'paused', owner_enabled: false }; }
           if (p.op === 'enable') { expect(p.fingerprint).toBe('plan-fingerprint-' + plan.revision); plan.status = 'active'; plan.owner_enabled = true; plan.schedule_id = 'native'; plan.revision++; }
           if (p.op === 'pause') { plan.status = 'paused'; plan.owner_enabled = false; plan.schedule_id = null; plan.revision++; }
           value = p.op === 'run' ? { trigger: { status: 'queued' }, run: run.run } : { plan: structuredClone(plan) };
-        } else if (p.type === 'plan.delivery') value = { deliveries: run.deliveries };
+        } else if (p.type === 'work.change') { expect(p.expectedRevision).toBe(work.revision); work.revision++; if (p.op === 'accept') work.acceptance_status = 'accepted'; value = { work: structuredClone(work) }; } else if (p.type === 'plan.delivery') value = { deliveries: run.deliveries };
         else throw Error('unexpected action ' + p.type);
       } else if (endpoint === 'digests') value = { plans: [], skills: [] };
       else if (endpoint === 'health') value = { capabilities: [] };
@@ -129,6 +131,24 @@ describe('M02 管理界面', () => {
     await click(button('明确补投此结果')); expect(requests.filter(row => row.endpoint === 'action').map(row => row.payload.type)).toEqual(['plan.delivery']);
     await click(button('预览脱敏诊断')); expect(savedBlob).toBeNull(); expect(container.textContent).toContain('已脱敏，请预览'); await click(button('确认下载这份诊断')); expect(await savedBlob.text()).toContain('run-a');
     await click(button('查看原助理交办')); expect(container.textContent).toContain('原交办目标'); expect(container.textContent).toContain('原请求');
+  });
+  it('交办验收绑定已查看的修订，进展刷新后清除旧确认', async () => {
+    await open('运行记录'); await click(button('查看执行与投递')); await click(button('查看原助理交办'));
+    await change(field('交办操作'), 'accept'); await change(field('补充、剩余工作或验收依据'), '已核对交付文件'); await click(field('确认针对这项交办执行所选操作'));
+    expect(button('提交交办操作').disabled).toBe(false);
+    work.revision++; await act(async () => intervals.filter(row => row.ms === 5000).at(-1).fn());
+    expect(button('提交交办操作').disabled).toBe(true); expect(field('补充、剩余工作或验收依据').value).toBe('已核对交付文件');
+    await click(field('确认针对这项交办执行所选操作')); await click(button('提交交办操作'));
+    expect(requests.filter(row => row.endpoint === 'action').at(-1).payload).toMatchObject({ type: 'work.change', op: 'accept', expectedRevision: 2, workId: 'work-a', confirm: true });
+    expect(container.textContent).toContain('已接受');
+  });
+  it('普通 Worker 运行打开独立详情并只补投原结果', async () => {
+    run.run.record_kind = 'worker'; run.inputs = [{ execution_id: 'execution', instruction: '补充的主题', status: 'adopted' }];
+    await open('运行记录'); await click(button('查看执行与投递'));
+    expect(container.textContent).toContain('交办执行与投递'); expect(container.textContent).toContain('补充的主题');
+    await click(button('明确补投此结果'));
+    expect(requests.filter(row => row.endpoint === 'action').at(-1).payload).toMatchObject({ type: 'plan.delivery', runId: 'run-a', outboxId: 12, fingerprint: 'worker-delivery', op: 'retry' });
+    expect(requests.filter(row => row.endpoint === 'worker.run').length).toBeGreaterThan(0);
   });
   it('未知投递先填平台证据，未收到结论不自动补投', async () => {
     run.deliveries[0].deliveries[0].outbox.status = 'unknown'; await open('运行记录'); await click(button('查看执行与投递'));

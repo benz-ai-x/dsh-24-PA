@@ -23,6 +23,7 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { workspaceLedgerIdentity } from './ledger-identity.js';
 import { InboxLifecycle } from './inbox-lifecycle.js';
+import { WorkerRuns } from './worker-runs.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox } from './repo.js';
@@ -1016,7 +1017,7 @@ export class PaRuntime {
   async stop(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.skillRuns.dispose();
+    this.skillRuns.dispose(); this.workerRuns.dispose();
     this.executions.stopAccepting();
     this.lifetime.abort();
     if (this.dispatchTimer) clearInterval(this.dispatchTimer);
@@ -1048,7 +1049,7 @@ export class PaRuntime {
   /** Release every acquired resource; safe to call again after a late start(). */
   private async cleanup(): Promise<void> {
     await this.executions.close();
-    this.skillRuns.dispose();
+    this.skillRuns.dispose(); this.workerRuns.dispose();
     await this.inboxLifecycle.stop();
     await this.workLifecycle.idle();
     await this.digest.pause();
@@ -1581,6 +1582,13 @@ export class PaRuntime {
     }
   }
 
+  readonly workerRuns = new WorkerRuns({
+    lease: work => this.executions.run(work),
+    context: () => this.repos && this.workspace && this.workspaceBinding ? { repos: this.repos, path: this.workspace.statePath, binding: this.workspaceBinding } : null,
+    allowed: role => this.config?.enabledWorkers.includes(role) === true && !this.closed && !this.workspaceChanging,
+    expire: async id => { await this.workLifecycle.stop(id, 'timed_out'); },
+    cancel: async id => { await this.workLifecycle.stop(id); },
+  });
   private readonly workItemByChild = new Map<string, WorkItemRow>();
   private readonly workLifecycle = new WorkItemLifecycle({
     repo: () => this.repos!.workItems,
@@ -1588,7 +1596,18 @@ export class PaRuntime {
     available: () => !!this.repos && !!this.config && !this.closed && !this.workspaceChanging,
     start: item => this.startWorker(item),
     resume: async (item, input) => {
+      if (!this.config?.enabledWorkers.includes(item.role)) throw new Error('原职责已撤销启用，不能继续执行。');
       const selected = await this.selectedWorkSkill(item);
+      if (item.active_worker_run_id) {
+        const run = await this.repos!.workerRuns.current(item.id);
+        if (run && !run.snapshot.execution) {
+          const previous = run.snapshot.fromRunId ? await this.repos!.workerRuns.get(run.snapshot.fromRunId) : null;
+          await this.repos!.workerRuns.freeze(run.id, { resumedInSession: item.child_session_id, fromRunId: previous?.id ?? null,
+            original: previous?.snapshot.execution ?? null, selectedSkill: selected, instruction: input });
+          if (previous) input += '\n\n原执行和核对依据（仅续办未完成项）：\n' + JSON.stringify(await this.repos!.workerRuns.continuation(item.id));
+        }
+      }
+      input += '\n\n沿原交办完成剩余工作；核对原会话和已保存动作，已成功步骤不重做，未知结果先核对。使用 pa24_run progress 报告真实阶段、已完成内容和下一步；缺信息或外部结果时使用 wait。';
       if (selected) input += `\n\n任务 skill ${selected.name}：\n${selected.content}`;
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
       if ('error' in parent) throw parent.error;
@@ -1786,6 +1805,7 @@ export class PaRuntime {
     void this.executions.afterTransition(async () => {
       if (binding === this.workspaceBinding && !this.closed) {
         await this.workLifecycle.retryCompletions();
+        await this.workLifecycle.retryStops();
         const session = this.accessSessionId ? this.ctx.sessions.get?.(this.accessSessionId) : undefined;
         if (session) await this.planEngine.recover(session).catch(error => console.warn(`[pa24] 定时触发恢复待核对：${(error as Error).message}`));
         await this.skillRuns.poll();
@@ -1972,7 +1992,7 @@ export class PaRuntime {
 
     const item = this.workItemByChild.get(session.id);
     if (!item) return;
-    await this.workLifecycle.complete(item.id, () => new WorkCompletionHistory(this.ctx).checkpoint(session));
+    await this.workLifecycle.complete(item.id, async () => { await new WorkCompletionHistory(this.ctx).checkpoint(session); await this.workerRuns.observe(session); });
     // Each consumed follow-up retains its own receipt even when a newer input
     // has replaced this work item's current execution identity.
     await this.inboxLifecycle.complete(session.id, consumed.messageIds, async () => {});
@@ -1980,7 +2000,7 @@ export class PaRuntime {
 
   // ---- delegation & worker control -----------------------------------------
 
-  async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string }, agent: DshAgent): Promise<unknown> {
+  async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string; completionCriteria?: string; acceptanceRequired?: boolean; parentWorkId?: string }, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
       const role = this.roleFor(agent);
       if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
@@ -2001,6 +2021,7 @@ export class PaRuntime {
         if (!config.extraBusinessSkills.includes(skillName)) throw new Error(`任务 skill ${skillName} 未在 extraBusinessSkills 放行面内；请先在工作区配置放行。`);
         skillDefinition = await this.skillCatalog.resolveForAgentRun(skillName, ['pa24_work', 'pa24_memory']);
       }
+      if (args.parentWorkId && !await this.repos!.workItems.get(args.parentWorkId)) throw new Error('关联的原交办不存在。');
       const title = text(args.title, 200);
       const instruction = text(args.instruction);
       let note: NoteRow | null = null;
@@ -2040,6 +2061,8 @@ export class PaRuntime {
           role: args.worker,
           // Raw delegation text only; context is composed when the child starts.
           instruction,
+          completion_criteria: args.completionCriteria ? text(args.completionCriteria, 4000) : WORKER_PROMPTS[args.worker as keyof typeof WORKER_PROMPTS]?.doneCriteria ?? roleDef.brief,
+          acceptance_required: args.acceptanceRequired === true, parent_work_item_id: args.parentWorkId ?? null,
           skill: args.worker === 'skill' ? args.skill! : null,
           skill_definition: skillDefinition,
           origin,
@@ -2113,7 +2136,7 @@ export class PaRuntime {
           nowIso: nowIso(),
           timeZone: this.config.timeZone,
           brief: roleDef.brief,
-          doneCriteria: WORKER_PROMPTS[item.role]?.doneCriteria,
+          doneCriteria: item.completion_criteria ?? WORKER_PROMPTS[item.role]?.doneCriteria,
         }),
       },
     ];
@@ -2140,7 +2163,10 @@ export class PaRuntime {
       }
     }
     if (runPrompt) prompt = runPrompt;
+    if (!runPrompt) prompt.push({ type: 'text', text: '处理过程中使用 pa24_run action=progress 记录真实阶段、已完成内容、下一步。缺少主人信息或外部结果时使用 action=wait 并说明所需内容。最终结果包含摘要、实际动作、产物或出处、未完成问题和接续建议；对照完成标准判断，不以已创建待办代替业务完成。' });
     prompt.push(workExecutionContent(item));
+    if (item.active_worker_run_id) await this.repos.workerRuns.freeze(item.active_worker_run_id, { persona, prompt, modelRoute: modelRoute ?? null,
+      tools: ['pa24_work', 'pa24_memory', 'pa24_run', ...(roleDef.tools ?? [])], completionCriteria: item.completion_criteria ?? null });
     // dsh 0.2.1-alpha.2 renames startContinuable to startActivation and
     // requires an explicit delivery; 'parent' keeps the continuable
     // semantics (the child's completion notifies this Lead). Older hosts
@@ -2157,7 +2183,7 @@ export class PaRuntime {
         // send_message arrives as an adjacent-agent scoped tool and is
         // unaffected by global restrict(); the child can still report to
         // its parent through the native continuation channel.
-        toolFilter: { allow: ['pa24_work', 'pa24_memory', ...(item.execution_mode === 'skill' ? ['pa24_run'] : []), ...(roleDef.tools ?? [])] },
+        toolFilter: { allow: ['pa24_work', 'pa24_memory', 'pa24_run', ...(roleDef.tools ?? [])] },
         maxDepth: 1,
         ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } } : {}),
       },
@@ -2165,14 +2191,63 @@ export class PaRuntime {
     const subagents = this.ctx.subagents;
     this.workerParents.add(item.parent_session_id);
     let activation: any;
-    if (typeof subagents.startActivation === 'function') activation = await this.executions.detached(() => subagents.startActivation!({ ...startSpec, delivery }));
+    if (typeof subagents.startActivation === 'function') activation = await this.executions.detached(() => subagents.startActivation!({ ...startSpec, delivery })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
     else if (delivery === 'caller') throw new Error('计划运行需要宿主提供 startActivation 及独立结果通道。');
-    else if (typeof subagents.startContinuable === 'function') activation = await this.executions.detached(() => subagents.startContinuable!(startSpec));
+    else if (typeof subagents.startContinuable === 'function') activation = await this.executions.detached(() => subagents.startContinuable!(startSpec)).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
     else throw new Error('宿主未提供 subagents 启动接口（startActivation/startContinuable 均缺失），请核对 dsh 版本兼容声明。');
     void activation?.result?.catch(() => { });
   }
 
-  async control(args: { action: string; workId?: string; instruction?: string }, agent: DshAgent): Promise<unknown> {
+  async changeWork(input: Record<string, unknown>, requester?: DshAgent): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      const requestId = String(input.requestId ?? ''), id = String(input.workId ?? '');
+      if (!/^[a-zA-Z0-9-]{16,100}$/.test(requestId) || !Number.isSafeInteger(input.expectedRevision)) throw new Error('缺少有效操作标识或交办修订。');
+      if (!['supplement','continue','stop','accept','return','new-goal','review'].includes(String(input.op))) throw new Error('未知交办操作。');
+      if (input.confirm !== true) throw new Error('请确认针对原交办执行此项操作。');
+      return this.gate(`work-control:${id}`, async () => {
+        const controls = this.repos!.workControls, item = await this.repos!.workItems.get(id);
+        if (!item) throw new Error('原交办不存在。');
+        const { workspaceBinding: _binding, ...stable } = input;
+        const hash = createHash('sha256').update(JSON.stringify(stable)).digest('hex');
+        const claimed = await controls.prepare(requestId, hash, id, Number(input.expectedRevision), stable);
+        if (!claimed.fresh) {
+          if (claimed.row.record.phase === 'completed') return { ...claimed.row.record.result as object, repeated: true, workspaceBinding: this.workspaceBinding };
+          throw new Error(claimed.row.record.error ?? '原操作已经接纳或结果待核对，请查看原交办，不重复发送。');
+        }
+        try {
+          let result: unknown;
+          if (input.op === 'review') {
+            result = await this.repos!.workerRuns.review(claimed.row, input);
+            return { ...result as object, workspaceBinding: this.workspaceBinding };
+          }
+          if (input.op === 'accept' || input.op === 'return') {
+            result = await controls.acceptance(claimed.row, Number(input.expectedRevision), input.op, text(input.instruction, 4000));
+            return { ...result as object, workspaceBinding: this.workspaceBinding };
+          } else if (input.op === 'new-goal') {
+            const parent = requester ? { agent: requester } : await this.ctx.sessionController.resolveAgent(await this.openLocalSession());
+            if ('error' in parent) throw parent.error;
+            result = await this.delegate({ worker: String(input.worker ?? item.role), title: text(input.title, 200), instruction: text(input.instruction, 20000),
+              parentWorkId: item.id, completionCriteria: input.completionCriteria ? String(input.completionCriteria) : undefined, acceptanceRequired: input.acceptanceRequired === true }, parent.agent);
+          } else {
+            if (item.execution_mode === 'skill') throw new Error('Skill 交办请通过原运行详情核对后接续或停止。');
+            if (input.op === 'stop') {
+              if (item.status !== 'stopped') await this.workLifecycle.stop(id);
+              await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '本人要求停止交办。');
+            } else await this.workLifecycle.resume(id, text(input.instruction, 20000), input.op === 'supplement');
+            result = { work: await this.repos!.workItems.get(id), run: await this.repos!.workerRuns.current(id) };
+          }
+          await controls.settle(claimed.row, 'completed', result);
+          return { ...result as object, workspaceBinding: this.workspaceBinding };
+        } catch (error) {
+          await controls.settle(claimed.row, (error as { outcome?: string }).outcome === 'rejected' ? 'failed' : 'unknown', undefined, (error as Error).message).catch(() => {});
+          throw error;
+        }
+      });
+    });
+  }
+
+  async control(args: { action: string; workId?: string; instruction?: string; requestId?: string; expectedRevision?: number; [key: string]: unknown }, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
       const role = this.roleFor(agent);
       if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('事项调度由24私助会话负责。');
@@ -2185,9 +2260,9 @@ export class PaRuntime {
       const item = await repos.workItems.get(id);
       if (!item) throw new Error('事项不存在。');
       if (args.action === 'inspect') {
-        const { instruction, result_ref, ...view } = item;
-        return view;
+        return this.runHistory.work({ workId: id, workspaceBinding: this.workspaceBinding });
       }
+      if (['supplement', 'accept', 'return', 'new-goal'].includes(args.action)) return this.changeWork({ ...args, op: args.action, confirm: true, requestId: args.requestId ?? randomUUID(), expectedRevision: args.expectedRevision ?? item.revision, workspaceBinding: this.workspaceBinding }, agent);
       if (item.execution_mode === 'skill') {
         const run = await repos.skillRuns.latestForWork(id);
         if (!run) throw new Error('此 Skill 交办缺少运行记录，请先核对。');
@@ -2210,6 +2285,8 @@ export class PaRuntime {
   async runControl(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
       const run = await this.repos?.skillRuns.bySession(agent.id);
+      if (!run && args.action === 'progress') return this.workerRuns.progress(agent, args);
+      if (!run && args.action === 'wait') return this.workerRuns.wait(agent, args.reason, args.kind);
       if (!run || run.session_id !== agent.id || run.status !== 'running' || args.action !== 'wait') throw new Error('此操作只用于当前受管 Skill 运行等待主人补充。');
       return this.skillRuns.waitForInput(run, args.reason);
     });

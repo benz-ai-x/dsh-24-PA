@@ -47,7 +47,7 @@ export function historyFilter(input: Record<string, unknown>, timeZone: string, 
   if (status && !statuses[kind].includes(status)) throw new Error('此类别不支持该执行状态。');
   if (source && !(kind === 'work' ? ['local', 'feishu'] : kind === 'events' ? ['manual', 'schedule'] : ['manual', 'schedule', 'trial', 'rerun', 'continuation']).includes(source)) throw new Error('此类别不支持该来源筛选。');
   if (deliveryStatus && !['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'failed', 'unknown', 'expired'].includes(deliveryStatus)) throw new Error('投递状态无效。');
-  const unsupported = kind === 'runs' ? [] : kind === 'work' ? ['versionId', 'deliveryStatus'] : kind === 'events' ? ['workId', 'versionId', 'deliveryStatus'] : ['source', 'workId', 'skillId', 'versionId', 'deliveryStatus'];
+  const unsupported = kind === 'runs' ? [] : kind === 'work' ? ['versionId', 'deliveryStatus'] : kind === 'events' ? ['versionId', 'deliveryStatus'] : ['source', 'workId', 'skillId', 'versionId', 'deliveryStatus'];
   for (const key of unsupported) if (text(key)) throw new Error(`当前档案类别不支持 ${key} 筛选，请清除后重试。`);
   const skillId = text('skillId');
   const offset = Number(input.offset ?? 0);
@@ -79,7 +79,7 @@ export class RunHistory {
     const context = this.context(input.workspaceBinding), work = await context.repos.workItems.get(String(input.workId));
     if (!work) throw new Error('助理交办不存在。');
     const runs = await context.repos.runHistory.list(historyFilter({ kind: 'runs', range: 'all', workId: work.id, offset: input.offset }, context.timeZone));
-    return { work, runs, workspaceBinding: context.binding };
+    return { work, runs, changes: await context.repos.workControls.history(work.id), workspaceBinding: context.binding };
   }
   private redact(value: unknown): string {
     const secrets = (this.deps.secretValues?.() ?? []).filter(Boolean).sort((a, b) => b.length - a.length);
@@ -100,7 +100,18 @@ export class RunHistory {
       total: all.rows.length, workspaceBinding: context.binding };
   }
   async diagnostics(input: Record<string, unknown>) {
-    const context = this.context(input.workspaceBinding), detail = await this.deps.skills.inspect(input);
+    const context = this.context(input.workspaceBinding);
+    const worker = await context.repos.workerRuns.get(String(input.runId));
+    if (worker) {
+      const detail = await context.repos.workerRuns.detail(worker.id);
+      return { filename: `24pa-diagnostic-${worker.id}.json`, workspaceBinding: context.binding,
+        message: '此预览排除请求正文、工具参数、结果、投递对象及工作区路径；确认后可下载。',
+        content: this.redact({ runId: worker.id, status: worker.status, createdAt: worker.created_at, updatedAt: worker.updated_at,
+          calls: detail.calls.map(call => ({ tool: call.tool, status: call.status })), inputs: detail.inputs.map(row => ({ status: row.status, adopted: row.adopted_turn !== null })),
+          executionMs: detail.control?.state.executionMs ?? null, limitMs: detail.control?.state.limitMs ?? null,
+          deliveries: detail.deliveries.map(row => ({ channel: row.channel, status: row.status, attempts: row.attempts })) }) };
+    }
+    const detail = await this.deps.skills.inspect(input);
     const retentionDays = context.diagnosticRetentionDays ?? 90;
     const data = { runId: detail.run.id, status: detail.run.status, deliveryStatus: detail.run.delivery_status, mode: detail.run.mode,
       skillId: detail.run.skill_id, versionId: detail.run.version_id, packageHash: detail.run.packageHash,

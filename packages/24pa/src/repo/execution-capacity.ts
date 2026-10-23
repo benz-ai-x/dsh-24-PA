@@ -22,7 +22,7 @@ export async function executionCapacity(tx: PaQueryer, limit: number): Promise<(
       || (!reviewed.has(run.id) && (state?.steps.some(step => step.end === null) || jobs.has(run.id) || calls.has(run.id)));
   }).map(run => run.id));
   const sessions = (await tx.query<{ session_id: string; run_id: string }>('select session_id, run_id from pa24.skill_run_session')).rows;
-  const workers = (await tx.query<{ id: string; parent_session_id: string }>("select id, parent_session_id from pa24.work_item where execution_mode = 'worker' and status = 'running'")).rows;
+  const workers = (await tx.query<{ id: string; parent_session_id: string }>("select id, parent_session_id from pa24.work_item where execution_mode = 'worker' and (status = 'running' or exists (select 1 from pa24.worker_run wr where wr.id = active_worker_run_id and wr.status = 'stopping') or exists (select 1 from pa24.worker_run_call wc where wc.run_id = active_worker_run_id and wc.status = 'running'))")).rows;
   const standalone = workers.filter(work => !sessions.some(session => session.session_id === work.parent_session_id && busy.has(session.run_id)));
   return candidate => {
     if (candidate.runId && busy.has(candidate.runId)) return true;

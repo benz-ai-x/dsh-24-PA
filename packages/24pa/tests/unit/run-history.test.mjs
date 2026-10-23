@@ -150,7 +150,7 @@ it('真实运行时按实际凭据引用与密钥库脱敏，包含引号、反�
 });
 
 it('诊断预览只导出允许的状态与计时，不带原输入、调用参数、回执正文或接收者', async () => {
-  const history = new RunHistory({ context: () => ({ binding: 'b', timeZone: 'UTC', repos: { runDiagnostics: { list: async () => [] } } }), skills: { inspect: async () => ({
+  const history = new RunHistory({ context: () => ({ binding: 'b', timeZone: 'UTC', repos: { workerRuns: { get: async () => null }, runDiagnostics: { list: async () => [] } } }), skills: { inspect: async () => ({
     run: { id: 'run', status: 'completed', delivery_status: 'sent', mode: 'business', skill_id: 's', version_id: 'v',
       parameters: { private: 'original-input' }, result: 'private-result', workspace_path: '/private/workspace' },
     execution: { executionMs: 300, limitMs: 1000, remainingMs: 700, blocks: [{ kind: 'input', reason: 'private-question' }] },

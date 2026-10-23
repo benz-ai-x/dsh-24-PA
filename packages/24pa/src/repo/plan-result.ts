@@ -18,7 +18,7 @@ export interface PlanDelivery {
 }
 const attention = (run: SkillRunRow) => ['waiting', 'needs_reconciliation'].includes(run.status);
 const noticeId = (run: SkillRunRow, kind: PlanNotice['kind']) => `plan-result-${taskPlanFingerprint([run.id, kind, kind === 'attention' ? [run.status, run.progress] : null])}`;
-const deliveryFingerprint = (row: OutboxRow) => taskPlanFingerprint([row.id, row.status, row.message_id, row.attempts, row.last_error]);
+export const deliveryFingerprint = (row: OutboxRow) => taskPlanFingerprint([row.id, row.status, row.message_id, row.attempts, row.last_error]);
 function aggregate(notice: PlanNotice, rows: OutboxRow[]): PlanDeliveryStatus {
   if (notice.status !== 'queued') return notice.status;
   if (!rows.length) return 'failed';
@@ -140,7 +140,11 @@ export class PlanResultRepo {
     await this.db.withTransaction(async tx => {
       // Lock the immutable intent first, then its mutable delivery receipt.
       const linked = (await tx.query<PlanDelivery>('select * from pa24.task_plan_delivery where outbox_id = $1 for update', [input.outboxId])).rows[0];
-      if (!linked || linked.run_id !== input.runId) throw new Error('投递不属于此运行。');
+      if (!linked || linked.run_id !== input.runId) {
+        const worker = (await tx.query<{ id: string }>(`select r.id from pa24.worker_run r join pa24.outbox o on o.dedup_key = r.outbox_key
+          where r.id = $1 and o.id = $2 for update`, [input.runId, input.outboxId])).rows[0];
+        if (!worker) throw new Error('投递不属于此运行。');
+      }
       const prior = (await tx.query<{ request_hash: string }>('select request_hash from pa24.task_plan_delivery_change where request_id = $1', [input.requestId])).rows[0];
       if (prior) { if (prior.request_hash !== input.requestHash) throw new Error('投递操作标识已用于其他内容。'); return; }
       const row = (await tx.query<OutboxRow>('select * from pa24.outbox where id = $1 for update', [input.outboxId])).rows[0];

@@ -84,15 +84,15 @@ export function apply(ctx: DshContext) {
   register(
     'pa24_delegate',
     '将明确的本人委托交给专业 Worker（memo=备忘、tasks=待办、calendar=日程、reminders=提醒、handwriting=手写整理、skill=任务 skill；可用性以运行时校验为准，不可用会明确报错）。一段输入含多件事时分别委派。handwriting 必须携带 noteId（笔记编号 N-x）；skill 必须携带 skill 名且该名已在 extraBusinessSkills 放行。返回接纳编号；接纳不代表完成。',
-    { worker: string, title: string, instruction: string, noteId: string, skill: string },
+    { worker: string, title: string, instruction: string, noteId: string, skill: string, completionCriteria: string, acceptanceRequired: { type: 'boolean' }, parentWorkId: string },
     ['worker', 'title', 'instruction'],
     (args, exec) => runtime.delegate(args, exec.agent!),
   );
 
   register(
     'pa24_jobs',
-    '查询并行事项、读取进度、继续或停止指定事项。',
-    { action: { type: 'string', enum: ['list', 'inspect', 'continue', 'stop'] }, workId: string, instruction: string },
+    '查询助理交办及全部关联运行；补充未结束交办，明确接续已结束交办，停止、接受/退回需验收的交付物，或以本人选定的instruction建立关联新目标。停止不会撤销既有业务动作。',
+    { action: { type: 'string', enum: ['list', 'inspect', 'continue', 'stop', 'supplement', 'accept', 'return', 'new-goal'] }, workId: string, instruction: string, requestId: string, expectedRevision: { type: 'integer' }, title: string, worker: string, completionCriteria: string, acceptanceRequired: { type: 'boolean' } },
     ['action'],
     (args, exec) => runtime.control(args, exec.agent!),
   );
@@ -117,8 +117,8 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_run',
-    '受管 Skill 缺少主人信息时，使用 wait 保存需要补充的 reason，暂停原运行的新动作。主人补充后沿同一运行继续；不能用于增加业务授权。',
-    { action: { type: 'string', enum: ['wait'] }, reason: string },
+    '普通交办使用 progress 记录真实 stage、completed、next；缺少主人信息/外部结果时，使用 wait 保存需要补充的 reason，暂停原运行的新动作。主人补充后沿同一运行继续；不能用于增加业务授权。',
+    { action: { type: 'string', enum: ['wait', 'progress'] }, reason: string, kind: { type: 'string', enum: ['input', 'external'] }, stage: string, completed: string, next: string },
     ['action', 'reason'],
     (args, exec) => runtime.runControl(args, exec.agent!),
   );
