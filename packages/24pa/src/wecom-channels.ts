@@ -1,18 +1,19 @@
 import { runCliProcess } from './cli-gateway.js';
 import { observeCalendar } from './calendar-observation.js';
 // WeCom channel module (F30): the calendar/todo/notify operations plus the
-// auth monitor behind one deep module. Channel selection (calendarChannel /
+// diagnostic probes behind one deep module. Channel selection (calendarChannel /
 // todoChannel / notifyChannel config semantics) and role bindings stay in the
 // runtime; wecom-cli is not idempotent so every write goes through staged
 // operations first (spec 1.6).
 
-import { runWecomCli, WecomCliError, wecomAuthAlertPlan, wecomWallTime, wecomParseWallTime, wecomObservedWallTime } from './wecom.js';
+import { runWecomCli, WecomCliError, wecomWallTime, wecomParseWallTime, wecomObservedWallTime } from './wecom.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint } from './util.js';
 import { taskPlanKey, saveTaskObservation } from './task-lifecycle.js';
 import { isCandidateOperation } from './external-operations.js';
-import type { PaConfig } from './config.js';
 import type { SharedChannelDeps } from './channel-deps.js';
 import type { Repos, TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
+import { effectiveSources } from './source-config.js';
+import { redactDiagnostic } from './diagnostic-redaction.js';
 
 /** A process-level success cannot prove this target's individual mutation. */
 function todoMutationReceipt(data: any, guid: string, action: string): Record<string, unknown> {
@@ -26,11 +27,10 @@ function todoMutationReceipt(data: any, guid: string, action: string): Record<st
 }
 
 export const WECOM_CALENDAR_ID = 'wecom';
-const WECOM_AUTH_ALERT_SUPPRESS_MS = 24 * 60 * 60 * 1000;
 
 export interface WecomServiceCheck {
   id: 'calendar' | 'todo' | 'push';
-  state: 'ok' | 'unauthorized' | 'expired' | 'unavailable' | 'error' | 'skipped';
+  state: 'ok' | 'unauthorized' | 'expired' | 'unavailable' | 'error' | 'skipped' | 'unverified';
   message: string;
   /** Verbatim platform guidance (contains the in-app authorization link). */
   helpMessage?: string;
@@ -45,28 +45,29 @@ export interface WecomDiagnostics {
   nextSteps: string[];
 }
 
-function anyWecomChannel(config: PaConfig): boolean {
-  return config.calendarChannel === 'wecom' || config.todoChannel === 'wecom' || config.notifyChannel === 'wecom';
-}
-
 export interface WecomDeps extends SharedChannelDeps {
   notifySourceChanged(sourceType: 'task' | 'calendar', sourceId: string, currentFingerprint: string | null): Promise<void>;
   gate<T>(key: string, work: () => Promise<T>): Promise<T>;
   stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;
-  isClosed(): boolean;
+  sanitize?<T>(value: T): T;
+  checkIdentity?(identity: { ownerId: string; authority: string }): Promise<void>;
 }
 
 export class WecomChannels {
   constructor(private readonly deps: WecomDeps) {}
+  private safe<T>(value: T): T { return this.deps.sanitize?.(value) ?? redactDiagnostic(value); }
 
   private wecomIdentityCache: { userid: string; name: string } | null = null;
   private wecomIdentityFailedAt = 0;
-  private wecomAuthLastAlertAt = 0;
   private wecomDiagnostics: WecomDiagnostics | null = null;
 
   /** Last inspection result, for readiness/health surfaces (F30). */
   get diagnostics(): WecomDiagnostics | null {
     return this.wecomDiagnostics;
+  }
+
+  invalidate(): void {
+    this.identityEpoch += 1; this.wecomIdentityCache = null; this.wecomIdentityFailedAt = 0; this.wecomDiagnostics = null;
   }
 
   // ---- wecom channel (F16, spec 1.6) ----------------------------------------
@@ -104,10 +105,12 @@ export class WecomChannels {
     }
     try {
       const { raw } = await this.wecomRun(['identity', 'whoami']);
+      if (epoch !== this.identityEpoch) throw new Error('该身份读取已被新的企微检查取代，请以新检查为准。');
       const context = String((raw as any)?.extra_identity_context ?? '');
       const match = /授权真人用户身份：\s*名字：(.+?)\s*ID：([A-Za-z0-9_\-]+)/.exec(context.replace(/\s+/g, ' '));
-      if (!match) throw new Error('whoami 未包含授权真人身份；请先在服务器完成 wecom-cli auth init 并由本人扫码。');
-      if (epoch !== this.identityEpoch) throw new Error('该身份读取已被新的企微检查取代，请以新检查为准。');
+      const bot = /机器人身份：\s*名字：.+?\s*ID：([A-Za-z0-9_\-]+)/.exec(context.replace(/\s+/g, ' '));
+      if (!match || !bot) throw new Error('whoami 未包含授权真人或机器人身份；请先在服务器完成 wecom-cli auth init 并由本人扫码。');
+      await this.deps.checkIdentity?.({ ownerId: match[2]!, authority: `bot:${bot[1]}` });
       this.wecomIdentityCache = { name: match[1]!.trim(), userid: match[2]! };
       return this.wecomIdentityCache;
     } catch (error) {
@@ -473,8 +476,8 @@ export class WecomChannels {
       cli = { state: 'error', message: `无法运行 ${this.deps.cli().bin}：${(error as Error).message}` };
       nextSteps.push('安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 准备节）。');
       const result: WecomDiagnostics = { checkedAt, cli, auth: { state: 'error', message: 'CLI 不可用，跳过。' }, identity: { state: 'missing', message: '未解析。' }, services, nextSteps };
-      this.wecomDiagnostics = result;
-      return result;
+      this.wecomDiagnostics = this.safe(result);
+      return this.wecomDiagnostics;
     }
     // 2. Identity (whoami covers bot binding + authorized human in one call).
     let identity: WecomDiagnostics['identity'];
@@ -489,22 +492,23 @@ export class WecomChannels {
     }
     // 3. Per-service authorization probes (read-only) for enabled domains.
     const probes: Array<{ id: WecomServiceCheck['id']; enabled: boolean; args: readonly string[] }> = [
-      { id: 'calendar', enabled: this.deps.config().calendarChannel === 'wecom', args: ['calendar', 'schedules', 'list'] },
-      { id: 'todo', enabled: this.deps.config().todoChannel === 'wecom', args: ['todo', 'list'] },
+      { id: 'calendar', enabled: effectiveSources(this.deps.config()).entries.some(row => row.enabled && row.platform === 'wecom' && row.domain === 'calendar'), args: ['calendar', 'schedules', 'list'] },
+      { id: 'todo', enabled: effectiveSources(this.deps.config()).entries.some(row => row.enabled && row.platform === 'wecom' && row.domain === 'todo'), args: ['todo', 'list'] },
       { id: 'push', enabled: this.deps.config().notifyChannel === 'wecom', args: [] },
     ];
     for (const probe of probes) {
-      if (!probe.enabled) continue;
+      if (!probe.enabled) { services.push({ id: probe.id, state: 'skipped', message: '该能力未启用。' }); continue; }
       if (probe.id === 'push') {
         services.push({
           id: 'push',
-          state: userid ? 'ok' : 'error',
+          state: userid ? 'unverified' : 'error',
           message: userid
             ? `推送目标已解析（${userid}）；无只读探针，以首次真实推送为准。`
             : '推送目标未解析（见身份检查）。',
         });
         continue;
       }
+      if (!userid) { services.push({ id: probe.id, state: 'error', message: '当前真人与机器人未核验，未以新身份读取该服务。' }); continue; }
       try {
         await this.wecomRun(probe.args);
         services.push({ id: probe.id, state: 'ok', message: '只读探测通过。' });
@@ -519,39 +523,11 @@ export class WecomChannels {
     }
     if (nextSteps.length === 0) nextSteps.push('企微渠道检查通过。服务级授权会过期（实测日程授权曾过期），异常时回到本检查。');
     const result: WecomDiagnostics = { checkedAt, cli, auth: { state: identity.state === 'ok' ? 'ok' : 'error', message: identity.message }, identity, services, nextSteps };
-    this.wecomDiagnostics = result;
-    return result;
+    this.wecomDiagnostics = this.safe(result);
+    return this.wecomDiagnostics;
   }
 
-  /** F23: one monitoring pass — read-only wecom_check, alert on renewal states. */
-  async authTick(): Promise<void> {
-    if (this.deps.isClosed() || !this.deps.repos() || !this.deps.config()) return;
-    const config = this.deps.config();
-    if (!anyWecomChannel(config)) return;
-    let plan;
-    try {
-      // The probe always runs so diagnostics stay fresh even while the
-      // notify side is suppressed.
-      const diagnostics = await this.wecomCheck();
-      const dayKey = wecomWallTime(new Date(), config.timeZone ?? 'Asia/Shanghai').slice(0, 10);
-      plan = wecomAuthAlertPlan(diagnostics.services, dayKey);
-    } catch {
-      return; // probe failures surface through on-demand checks, not the monitor
-    }
-    if (!plan) return;
-    const now = Date.now();
-    // Suppression is a single in-memory window (a restart may re-alert once);
-    // the day-scoped dedup key keeps the outbox from double-sending per day.
-    // The window only advances after a successful enqueue, so a failed push
-    // retries on the next tick instead of being silenced for a day.
-    if (now - this.wecomAuthLastAlertAt < WECOM_AUTH_ALERT_SUPPRESS_MS) return;
-    try {
-      await this.deps.notifyOwner(plan.dedupKey, plan.text);
-    } catch {
-      return; // leave the window unstamped so the next tick retries
-    }
-    this.wecomAuthLastAlertAt = now;
-  }
+
 }
 
 /** Deliberately bounded to the clock reminders we promise; never silently

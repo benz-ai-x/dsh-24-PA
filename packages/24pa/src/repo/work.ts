@@ -145,7 +145,7 @@ export class WorkItemRepo {
          where id = $1 and status = 'running'
          ${expected ? 'and recovery_gen = $5' : ''}
          ${expected?.executionId ? 'and execution_id = $6' : ''} returning *`,
-        [id, failed ? 'failed' : 'completed', output, failed ? 'Worker 未完成，结果待回传' : 'Worker 已完成，结果待回传',
+        [id, failed ? 'failed' : 'completed', output, failed ? '执行未完成，结果已保存' : '执行已结束，结果已保存',
           ...(expected ? [expected.generation] : []), ...(expected?.executionId ? [expected.executionId] : [])],
       );
       if (!result.rows[0]) return null;
@@ -296,6 +296,16 @@ export class ActionOperationRepo {
     return (await this.db.query<ActionOperationRow>(`select * from pa24.action_operation where work_item_id = $1
       and action in ('calendar.create', 'calendar.update', 'calendar.cancel', 'calendar.reminders',
         'wecom_calendar.create', 'wecom_calendar.update', 'wecom_calendar.cancel', 'wecom_calendar.reminders')`, [workItemId])).rows;
+  }
+
+  async todoWritesForWork(workItemId: string): Promise<ActionOperationRow[]> {
+    return (await this.db.query<ActionOperationRow>(`select * from pa24.action_operation where work_item_id = $1
+      and action in ('task.create', 'task.update', 'task.complete', 'task.delete', 'task.assign', 'wecom_todo.create', 'wecom_todo.update', 'wecom_todo.finish', 'wecom_todo.delete', 'wecom_todo.assign')`, [workItemId])).rows;
+  }
+
+  async todoRelations(): Promise<ActionOperationRow[]> {
+    return (await this.db.query<ActionOperationRow>(`select * from pa24.action_operation where status = 'succeeded'
+      and action in ('task.create', 'task.update', 'task.complete', 'task.delete', 'task.assign', 'wecom_todo.create', 'wecom_todo.update', 'wecom_todo.finish', 'wecom_todo.delete', 'wecom_todo.assign')`)).rows;
   }
 
   async calendarRemindersForWork(workItemId: string): Promise<ActionOperationRow[]> {

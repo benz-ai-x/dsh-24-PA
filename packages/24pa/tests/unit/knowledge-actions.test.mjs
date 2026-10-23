@@ -48,7 +48,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   ];
   it.each(['first', 'republish'].flatMap(phase => edits.map(edit => ({ phase, ...edit }))))('V01 $phase 的$name变化不能沿用旧派生内容', async sample => {
     await note();
-    if (sample.phase === 'first') await writeFile(join(f.root, 'lark.json'), JSON.stringify({ docCreateEdits: [sample] }));
+    if (sample.phase === 'first') await writeFile(join(f.root, 'lark.json'), JSON.stringify({ ownerOpenId: 'owner', docCreateEdits: [sample] }));
     const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
     let published = await f.rt.work({ action: 'note_submit', transcript: '联系王工，2026-11-02交付', summary: '联系王工', unknowns: ['人名原稿不清'],
       suggestions: ['优先联系王工'], relativeDates: [{ original: '周一', interpretation: '2026-11-02' }],
@@ -88,7 +88,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
 
   it.each([false, true])('V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=%s）', async metadata => {
     await note();
-    if (metadata) await writeFile(join(f.root, 'lark.json'), JSON.stringify({ docCreateEdits: [{ from: '<p>', to: '<p block-id="platform-id" render-time="now">' }] }));
+    if (metadata) await writeFile(join(f.root, 'lark.json'), JSON.stringify({ ownerOpenId: 'owner', docCreateEdits: [{ from: '<p>', to: '<p block-id="platform-id" render-time="now">' }] }));
     const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王工', summary: '联系王工', candidates: [{ summary: '联系王工' }] }, child);
     const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
@@ -267,8 +267,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     const resolved = kind === 'task' ? { summary: '联系王工', due: '2026-11-01' } : { summary: '联系王工', start: '2026-11-01T02:00:00Z', end: '2026-11-01T03:00:00Z' };
     const clarification = { index: 0, resolutions: [{ unknown: '人名和日期不清', answer: '王工，11月1日' }], resolved };
     const action = { action: 'note_adopt_actions', noteId: 'N-1', versionId: published.versionId, indexes: [0], instruction: '本人确认王工11月1日' };
-    const repository = kind === 'task' ? f.rt.repos.tasks : f.rt.repos.calendar;
-    const method = kind === 'task' ? 'save' : 'upsertEvent', originalSave = repository[method].bind(repository);
+    const repository = kind === 'task' ? f.rt.repos.sourceProjection : f.rt.repos.calendar;
+    const method = kind === 'task' ? 'recordReceipt' : 'upsertEvent', originalSave = repository[method].bind(repository);
     let failOnce = true;
     repository[method] = async (...args) => { if (failOnce) { failOnce = false; throw new Error('local projection failed'); } return originalSave(...args); };
     const changed = { ...clarification, resolved: { ...resolved, summary: '联系李工', ...(kind === 'task' ? { due: '2026-11-02' } : { start: '2026-11-02T02:00:00Z', end: '2026-11-02T03:00:00Z' }) } };
@@ -284,7 +284,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     expect(await f.rt.work({ ...action, instruction: '按原授权恢复' }, child)).toMatchObject({ executed: 1, failed: 0 });
     const op = await f.rt.repos.operations.get('note.action:N-1:v1:0');
     expect(op.params).toMatchObject({ summary: '联系王工', clarification, instruction: action.instruction }); expect(op.status).toBe('succeeded');
-    const projected = kind === 'task' ? (await f.rt.repos.tasks.list())[0] : await f.rt.repos.calendar.findEvent(op.receipt.eventId);
+    const projected = kind === 'task' ? (await f.rt.repos.sourceProjection.todoLocations(op.receipt.guid))[0]?.body : await f.rt.repos.calendar.findEvent(op.receipt.eventId);
     expect(projected.summary).toContain('联系王工');
     const journal = channel === 'feishu' ? (kind === 'task' ? 'lark.json.tasks.jsonl' : 'lark.json.events.jsonl') : (kind === 'task' ? 'wecom.json.todos.jsonl' : 'wecom.json.schedules.jsonl');
     const remote = (await readFile(join(f.root, journal), 'utf8')).trim().split('\n').map(JSON.parse);

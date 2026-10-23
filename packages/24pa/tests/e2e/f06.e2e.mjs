@@ -33,6 +33,19 @@ const waitToolResult = async (toolName, substr, label, timeoutMs = 60_000) => {
   const last = llm.log.filter(r => r.tools.includes(toolName) && r.toolResults.length > 0).at(-1);
   throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后工具结果：${last ? last.toolResults.join('').slice(0, 400) : '无'}`);
 };
+// Manticore records uncertain tool results before blocking the next model
+// step. Read that durable receipt; do not require the model to be called again.
+const waitBlockedToolResult = async (noteId, message) => {
+  for (let i = 0; i < 120; i++) {
+    const results = await rows(`select c.result, c.status, w.status as work_status from pa24.worker_run_call c
+      join pa24.worker_run r on r.id=c.run_id join pa24.work_item w on w.id=r.work_item_id
+      where w.title='整理 ${noteId}' and c.tool='pa24_work'`);
+    const result = results.find(row => JSON.stringify(row.result).includes(message));
+    if (result && result.work_status === 'needs_reconciliation') { expect(result.status).toBe('unknown'); return result; }
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw Error('未保存待核对工具结果：' + message);
+};
 const waitOutbox = async (prefix, label, timeoutMs = 30_000) => {
   for (let i = 0; i < timeoutMs / 500; i++) {
     const snap = await host.api('snapshot');
@@ -391,7 +404,7 @@ describe('F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG）',
     await setStubState({ failNext: { command: 'docs.media-insert', error: '注入的媒体插入失败' } });
     await writeScript(recognizeScript(noteC, submitAction(noteC)));
     await inject(ownerEvent('evt-org-7', { text: '整理这份笔记', parentMessageId: ack.message_id }));
-    await waitToolResult('pa24_work', '媒体插入失败', '媒体插入失败');
+    await waitBlockedToolResult(noteC, '媒体插入失败');
     // 未生成版本、未发送审核卡；staged 操作保留 docId 回执可恢复
     expect((await rows(`select count(*)::int as n from pa24.note_version where note_id='${noteC}'`))[0].n).toBe(0);
     const op = (await rows(`select status, (receipt->>'docId') is not null as has_doc from pa24.action_operation where action='note.publish' and params->>'noteId'='${noteC}'`))[0];
@@ -405,7 +418,7 @@ describe('F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG）',
     const noteD = noteIdOfAck(ack);
     await writeScript(recognizeScript(noteD, { action: 'note_approve', noteId: noteD, decision: 'approve' }));
     await inject(ownerEvent('evt-org-4', { text: '整理这份笔记', parentMessageId: ack.message_id }));
-    await waitToolResult('pa24_work', '没有执行这项操作的权限', 'Worker 无批准工具');
+    await waitBlockedToolResult(noteD, '没有执行这项操作的权限');
     // 未产生任何审核裁决
     expect((await rows(`select count(*)::int as n from pa24.review_decision where note_id='${noteD}'`))[0].n).toBe(0);
   });

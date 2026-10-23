@@ -12,7 +12,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(
 async function setup() {
   const f = await fixture(); cleanups.push(f.cleanup);
   const state = join(f.root, 'lark-state.json'), bin = join(f.root, 'lark-cli');
-  await writeFile(state, '{}');
+  await writeFile(state, JSON.stringify({ ownerOpenId: 'owner', appId: 'cli_test_app' }));
   await writeFile(bin, '#!/usr/bin/env node\nprocess.env.PA24_LARK_STUB_STATE=' + JSON.stringify(state) + ';\nawait import(' + JSON.stringify(resolve('tests/helpers/stub-lark-cli.mjs')) + ');\n'); await chmod(bin, 0o755);
   f.options.larkCliBin = bin;
   const a = await f.workspace('a', { mode: 'feishu', ownerOpenId: 'owner', tasklistId: 'list', folderToken: 'folder', enabledWorkers: ['memo', 'tasks'] }); await f.rt.bind(a);
@@ -75,13 +75,23 @@ describe('R3 Runtime 渠道边界', () => {
     let task = await f.rt.repos.tasks.byGuid(created.guid); const fp = taskFingerprint(task);
     expect(await f.rt.sourceVerdict('task', task.task_guid, fp)).toEqual({ valid: true });
     await f.rt.repos.projects.create({ id: 'project', name: '项目' }); await f.rt.repos.projects.link('project', task.id);
-    await writeFile(f.state, JSON.stringify({ taskGetOverride: { guid: task.task_guid, summary: '[24PA] 任务', completed_at: '1790000000000', due: null } }));
+    await writeFile(f.state, JSON.stringify({ ownerOpenId: 'owner', appId: 'cli_test_app', taskGetOverride: { guid: task.task_guid, summary: '[24PA] 任务', completed_at: '1790000000000', due: null } }));
     expect(await f.rt.sourceVerdict('task', task.task_guid, fp)).toMatchObject({ valid: false, reason: '任务已完成或取消' });
     let progress = await f.rt.work({ action: 'project_progress', projectId: 'project' }, child); expect(progress.next).toBeNull();
     task = await f.rt.repos.tasks.get(task.id); await f.rt.repos.tasks.save({ ...task, status: 'canceled' });
     progress = await f.rt.work({ action: 'project_progress', projectId: 'project' }, child); expect(progress.next).toBeNull();
-    await writeFile(f.state, JSON.stringify({ failNext: { command: 'task.get' } }));
+    await writeFile(f.state, JSON.stringify({ ownerOpenId: 'owner', appId: 'cli_test_app', failNext: { command: 'task.get' } }));
     expect(await f.rt.sourceVerdict('task', task.task_guid, fp)).toMatchObject({ valid: false, unknown: true });
+  });
+  it('升级后的旧未知创建不因当前默认或新运行恢复而重复；旧成功回执仍可查看', async () => {
+    const f = await setup();
+    const delegated = await f.rt.delegate({ worker: 'tasks', title: '旧待办', instruction: '核对原待办' }, f.local), child = { id: delegated.workId };
+    await f.rt.repos.operations.begin({ id: 'old-create', workItemId: delegated.workId, action: 'task.create', params: { summary: '原任务', due: null, tasklistId: 'old-list' } });
+    await f.rt.repos.operations.update('old-create', { status: 'unknown' });
+    await expect(f.rt.work({ action: 'task_create', summary: '原任务' }, child)).rejects.toThrow(/旧待办操作/);
+    expect((await f.calls()).filter(call => call.args.includes('create') || call.args.includes('+create'))).toHaveLength(0);
+    await f.rt.repos.operations.update('old-create', { status: 'succeeded', receipt: { guid: 'original-guid', url: 'https://task.example/original' } });
+    expect(await f.rt.work({ action: 'task_create', summary: '原任务' }, child)).toMatchObject({ guid: 'original-guid', reused: true, verification: { state: 'pending' } });
   });
   it('CLI audio 与同一长前缀的 text 键不同，audio 重试仍仅交付一次', async () => {
     const f = await setup(), calls = [];

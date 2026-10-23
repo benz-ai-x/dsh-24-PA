@@ -267,7 +267,7 @@ export class FeishuChannels {
       // Verbatim move from runtime: memory is non-null on the live path (the
       // original used a non-null assertion); the null-store TypeError is the
       // preserved failure mode, not a new guard message.
-      const memory = await this.deps.memory()!.search({ query: name, limit: 50 });
+      const memory = await this.deps.memory()!.search({ query: name, mode: 'facts', limit: 50 });
       const contactRecords = memory.records.filter(r => (r.topic === `联系人：${name}` || r.content.includes(`联系人 ${name}：`)) && r.status === 'confirmed');
       const ids = [...new Set(contactRecords.flatMap(r => r.content.match(/ou_[A-Za-z0-9_]+/g) ?? []))];
       if (ids.length === 1) resolved.push({ name, openId: ids[0]! });

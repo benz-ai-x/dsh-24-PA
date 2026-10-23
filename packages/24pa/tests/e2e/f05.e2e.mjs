@@ -120,7 +120,9 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
     const ruleId = (created.match(/(rmd-cal-[a-z0-9-]+)/) || [])[1];
     expect(ruleId, '备份行 ruleId 应为 rmd-cal-*').toBeTruthy();
     expect(unescapeJsonish(created)).toContain('"calendarChannel":"feishu"');
-    expect(unescapeJsonish(created)).toContain('App 原生日程提醒');
+    expect(unescapeJsonish(created)).toContain('App 原生提醒');
+    expect(unescapeJsonish(created)).toContain('"platformAccepted":true');
+    expect(unescapeJsonish(created)).toContain('"state":"verified"');
     const eventId = (unescapeJsonish(created).match(/"eventId":"(evtstub-[^"]+)"/) || [])[1];
     expect(eventId, '应返回日历事件 id').toBeTruthy();
     // 备份行：delegated＝引擎不投递
@@ -170,7 +172,7 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
 
   it('P15/P21/F45：本人休假偏好可记录；时钟免打扰归 App，不重新启动旧发送器', async () => {
     const vacationEnd = new Date(Date.now() + 3600000).toISOString();
-    await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-1', category: 'preference', topic: '休假', content: '本人休假中，暂停智能跟进', source: '本人指示', status: 'confirmed', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } }, leadReply: '已记录休假。' });
+    await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-1', category: 'preference', topic: '休假', content: '本人休假中，暂停智能跟进', source: '本人指示', status: 'confirmed', confirmation: '本人明确要求记住此条内容', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } }, leadReply: '已记录休假。' });
     await promptLocal('f05-vacation-1', '休假一小时，暂停智能跟进'); await waitMemoryRevision(1, '休假写入');
     await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '休假中的日历安排', instruction: '一分钟后提醒签收' }, workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: '签收快递' }, workerReply: '由日历 App 提醒。' });
     await inject(ownerEvent('vacation-calendar', '一分钟后提醒签收')); await waitWorkItem('休假中的日历安排', '安排');

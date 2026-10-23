@@ -9,6 +9,10 @@ import type { TaskPlanAuthorization } from './task-plan.js';
 import type { RunInput } from './skill-run-host.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { WorkspaceBackup } from './backup.js';
+import { ConnectionHealth, type HealthScope } from './connection-health.js';
+import { ConnectionTests } from './connection-tests.js';
+import { redactDiagnostic } from './diagnostic-redaction.js';
+import type { HealthState, HealthIdentity, HealthIdentityRow } from './repo/health.js';
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -37,6 +41,7 @@ import { writeSecretStore, secretStatus, resolveSecret, secretRefs, secretEnviro
 import { readWorkspaceConfiguration, writeWorkspaceConfiguration, type WorkspaceConfiguration } from './workspace-config.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
+import { candidateParameters, materialFingerprint } from './material-draft.js';
 import { WecomChannels, WECOM_CALENDAR_ID, wecomRepeatRule, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
@@ -54,6 +59,9 @@ import { SourceRegistry, type SourceTarget } from './source-registry.js';
 import type { ObservedSourceItem } from './repo/source-projection.js';
 import { SourceAccess } from './source-access.js';
 import { SourceCalendarReader } from './source-calendar-reader.js';
+import { SourceTodoReader } from './source-todo-reader.js';
+import { SourceTodo } from './source-todo.js';
+import { SourceTodoWrites } from './source-todo-writes.js';
 import { SourceCalendar } from './source-calendar.js';
 import { SourceCalendarWrites } from './source-calendar-writes.js';
 import { effectiveSources, sourceConfigurationFingerprint } from './source-config.js';
@@ -188,6 +196,7 @@ export class PaRuntime {
   private lastReceivedAt: string | null = null;
   private lastSentAt: string | null = null;
   private diagnostics: AccessDiagnostics | null = null;
+  private wecomIdentity: HealthIdentityRow | null = null;
   private checking: Promise<AccessDiagnostics> | null = null;
 
   private dispatchTimer: NodeJS.Timeout | null = null;
@@ -202,7 +211,13 @@ export class PaRuntime {
   private readonly outboxDelivery = new OutboxDelivery({
     repo: () => this.repos!.outbox,
     routes: () => this.repos!.messageRoutes,
-    sent: () => { this.lastSentAt = nowIso(); },
+    sanitizeError: error => this.sanitizeDiagnostic(String((error as Error)?.message ?? error)),
+    sent: async (row, messageId) => {
+      if (row.channel === 'local') return;
+      this.lastSentAt = nowIso();
+      await this.recordConnectionEvidence(`${row.channel}.${row.channel === 'wecom' ? 'push' : 'send'}`, '平台已接纳一条出站消息；不代表已读。',
+        { target: row.target, outboxId: row.id, deliveryId: messageId, nativeMessageId: row.channel === 'feishu' ? messageId : null });
+    },
     beforeSend: row => this.planResults.beforeSend(row),
     updated: row => this.planResults.updated(row),
     adapters: {
@@ -227,7 +242,11 @@ export class PaRuntime {
       wecom: {
         available: () => !!this.config,
         supports: kind => kind === 'text',
-        send: row => this.wecomChannels.wecomSendText(row.target, String(row.content?.text ?? ''), platformMessageKey(row.channel, row.kind, row.dedup_key, row.target)),
+        send: async row => {
+          const owner = await this.wecomChannels.wecomOwnerUserid(true);
+          if (owner.userid !== row.target) throw Object.assign(new Error('原待发目标与当前企微真人不同；保留原归属，需人工核对。'), { outcome: 'failed' });
+          return this.wecomChannels.wecomSendText(row.target, String(row.content?.text ?? ''), platformMessageKey(row.channel, row.kind, row.dedup_key, row.target));
+        },
       },
       feishu: {
         available: () => !!this.transport,
@@ -262,7 +281,7 @@ export class PaRuntime {
       },
       wecom: {
         create: (item, args) => this.wecomChannels.wecomTaskCreate(item, args),
-        update: async () => { throw new Error('企微待办首版不支持修改（F16 范围：创建/完成/删除）；如需调整，可删除后重建。'); },
+        update: async () => { throw new Error('旧投影请先经登记来源核验，再修改原企微待办。'); },
         complete: (item, task) => this.wecomChannels.wecomTaskFinish(item, task),
         refresh: task => this.wecomChannels.refreshWecomTaskFromRemote(task),
         cancel: (item, task, reason) => this.wecomChannels.wecomTaskDelete(item, task, reason),
@@ -309,7 +328,8 @@ export class PaRuntime {
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
-    isClosed: () => this.closed,
+    sanitize: value => this.sanitizeDiagnostic(value),
+    checkIdentity: identity => this.observeWecomIdentity(identity),
   });
 
   /** Feishu channel module (round-3 arch-1): lark-cli writes, projection sync
@@ -328,27 +348,34 @@ export class PaRuntime {
     config: () => this.config!,
     lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
     wecom: args => this.wecomChannels.wecomRun(args),
+    observeWecomIdentity: identity => this.observeWecomIdentity(identity),
   });
   readonly sourceRegistry = new SourceRegistry({
     config: () => this.config!, repo: () => this.repos!.sources,
     connectionHash: platform => this.sourceConnectionHash(platform),
+    evidenceCurrent: evidence => evidence.identity?.platform !== 'wecom' || !this.wecomIdentity ||
+      !this.wecomIdentity.changed && evidence.identity.ownerId === this.wecomIdentity.observed.ownerId
+      && evidence.identity.authority === this.wecomIdentity.observed.authority
+      && Date.parse(evidence.checkedAt) >= Math.max(new Date(this.wecomIdentity.accepted_at).getTime(), new Date(this.wecomIdentity.observed_at).getTime()),
     probe: source => {
       if (this.config!.mode !== 'feishu') throw new Error('体验模式不核验真实平台来源；切换真实接入后由本人发起检查。');
       return this.sourceAccess.check(source);
     }, gate: (key, work) => this.gate(key, work),
   });
+  private async observeWecomIdentity(identity: HealthIdentity): Promise<void> {
+    const row = await this.repos!.health.observeIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
+    this.wecomIdentity = row;
+    if (row.changed) {
+      this.wecomChannels.invalidate();
+      throw new Error('企微真人或机器人绑定已改变；旧身份成功证据失效。请在接入卡核对原交办、待发与新身份后确认，未自动接受新绑定。');
+    }
+  }
   private sourceConnectionHash(platform: 'feishu' | 'wecom'): string {
     return hash(JSON.stringify(platform === 'feishu'
       ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.options.larkCliBin, this.transportIdentity(this.config, this.secretStore)]
       : [this.config!.mode, this.options.wecomCliBin]));
   }
-  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry,
-    checkAction: action => {
-      // M04 replaces the legacy task adapter with registered-source writes.
-      // Until that adapter consumes the fixed target, do not authorize a plan
-      // that could silently route to the current global default.
-      if (['task_create', 'task_update', 'task_complete', 'task_cancel'].includes(action)) throw new Error('定时待办写入尚未接入固定来源，当前不能启用含此动作的计划。');
-    }, owner: async channel => {
+  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry, owner: async channel => {
     if (this.config?.mode !== 'feishu') throw new Error('体验模式不能绑定真实主人投递身份。');
     const identity = await this.sourceAccess.identity(channel);
     return { channel, target: identity.ownerId, identityKey: hash(JSON.stringify(identity)), connectionHash: this.sourceConnectionHash(channel) };
@@ -362,6 +389,27 @@ export class PaRuntime {
     config: () => this.config!, registry: this.sourceRegistry, projection: () => this.repos!.sourceProjection,
     read: (target, query) => this.sourceCalendarReader.read(target, query), gate: (key, work) => this.gate(key, work),
     object: (target, eventId) => this.sourceCalendarReader.object(target, eventId),
+  });
+
+  readonly connectionHealth = new ConnectionHealth({
+    repo: () => this.repos!.health, outbox: () => this.repos!.outbox, config: () => this.config!, version: () => this.connectionVersion(), registry: this.sourceRegistry,
+    feishu: () => this.inspectFeishuAccess(), wecom: () => this.wecomChannels.wecomCheck(), local: scope => this.checkLocalHealth(scope),
+    notify: (key, body) => this.ownerNotification(key, body), silentUntil: () => this.silencePolicy.silentUntil(), gate: (key, work) => this.gate(key, work),
+    sanitize: value => this.sanitizeDiagnostic(value),
+  });
+  readonly connectionTests = new ConnectionTests({
+    repo: () => this.repos!.health, config: () => this.config!, version: () => this.connectionVersion(), registry: this.sourceRegistry,
+    assertBinding: value => this.assertWorkspaceBinding(typeof value === 'string' ? value : null), gate: (key, work) => this.gate(key, work),
+    wecomIdentity: () => this.sourceAccess.identity('wecom'), feishuIdentity: async () => {
+      const result = await this.checkAccess();
+      if (result.auth.state !== 'ok' || result.auth.applicationMatched !== true) throw new Error('飞书主人与实际应用身份尚未核验一致。');
+    },
+    send: async (platform, target, body, key) => platform === 'wecom'
+      ? this.wecomChannels.wecomSendText(target, body, platformMessageKey(platform, 'text', key, target))
+      : this.transport ? this.transport.sendText(target, body, platformMessageKey(platform, 'text', key, target)) : Promise.reject(Object.assign(new Error('飞书传输未连接。'), { outcome: 'failed' })),
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args),
+    sanitize: value => this.sanitizeDiagnostic(value),
   });
   readonly sourceCalendarWrites = new SourceCalendarWrites({
     config: () => this.config!, registry: this.sourceRegistry, reader: this.sourceCalendarReader, repos: () => this.repos!, external: this.externalOperations,
@@ -385,6 +433,39 @@ export class PaRuntime {
       }
     },
   });
+
+  private readonly sourceTodoReader = new SourceTodoReader({
+    timeZone: () => this.config!.timeZone,
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args),
+  });
+  readonly sourceTodo = new SourceTodo({
+    config: () => this.config!, registry: this.sourceRegistry, projection: () => this.repos!.sourceProjection,
+    read: target => this.sourceTodoReader.read(target), object: (target, guid) => this.sourceTodoReader.object(target, guid),
+    localTasks: () => this.repos!.tasks.all(), operation: id => this.repos!.operations.get(id), relations: () => this.repos!.operations.todoRelations(),
+    projectTasks: id => this.repos!.projects.tasksOf(id), gate: (key, work) => this.gate(key, work),
+  });
+  readonly sourceTodoWrites = new SourceTodoWrites({
+    config: () => this.config!, registry: this.sourceRegistry, todos: this.sourceTodo, reader: this.sourceTodoReader,
+    repos: () => this.repos!, external: this.externalOperations,
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args), gate: (key, work) => this.gate(key, work),
+    notify: (guid, fingerprint) => this.notifySourceChanged('task', guid, fingerprint),
+  });
+
+  async todoSnapshot(input: Record<string, unknown> = {}): Promise<unknown> {
+    if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
+    return { ...await this.sourceTodo.query(input, false), workspaceBinding: this.workspaceBinding };
+  }
+
+  async verifyTodos(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+      return { ...await this.sourceTodo.query(input, true), workspaceBinding: this.workspaceBinding };
+    });
+  }
 
   async checkSource(input: Record<string, unknown>): Promise<unknown> {
     return this.executions.run(async () => {
@@ -725,7 +806,7 @@ export class PaRuntime {
         task_update: async (args, item) => this.taskUpdate(item, args),
         task_complete: async (args, item) => this.taskComplete(item, args),
         task_get: async args => this.taskGet(args),
-        task_cancel: async (args, item) => this.taskLifecycle.cancel(item, args),
+        task_cancel: async (args, item) => this.sourceTodoWrites.write(item, 'cancel', args),
         task_list: async args => this.taskList(args),
         project_create: async args => this.projectCreate(args),
         project_adopt: async (args, item) => this.projectAdopt(item, args),
@@ -1080,6 +1161,7 @@ export class PaRuntime {
   private async reconcileAfterRestart(): Promise<void> {
     if (!this.repos) return;
     await this.outboxDelivery.recover();
+    await this.repos!.workerRuns.recoverMaterials();
     await this.workLifecycle.recover();
     await this.modelBudgets.poll();
     await this.skillRuns.recover();
@@ -1182,6 +1264,7 @@ export class PaRuntime {
     this.db = db;
     this.activePostgresDsn = postgresDsn;
     this.repos = repos;
+    this.wecomIdentity = await repos.health.identity('wecom');
     this.workspace = next.workspace;
     this.workspaceBinding = randomUUID();
     this.skillPackages.refresh();
@@ -1288,11 +1371,16 @@ export class PaRuntime {
     if (identityChanged) {
       await this.inboxLifecycle.assertIdle();
       if (await this.hasActiveWork()) throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
+      if (this.repos) {
+        const impacts = await this.repos.health.impacts();
+        if (impacts.outbox || impacts.reviews) throw new ConfigError(`身份或接入模式变更涉及原待发/未知 ${impacts.outbox} 条、待审 ${impacts.reviews} 份；请先完成或核对原归属，未切换身份。`);
+      }
     }
 
   }
 
   private applyWorkspaceConfiguration(parsed: WorkspaceConfiguration): void {
+    if (this.sourceHash !== parsed.sourceHash) { this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null; }
     this.config = parsed.config;
     this.secretStore = parsed.secrets;
     this.instructions = parsed.instructions;
@@ -1334,11 +1422,11 @@ export class PaRuntime {
    * 覆盖），先跑完整校验器再原子写回唯一 ```json 块（工作规则区逐字节不变），
    * 随后走与 reload 相同的装载路径。storage/version 不在表单白名单。
    */
-  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding, expectedSourcesHash?: string): Promise<void> {
+  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding, expectedSourcesHash?: string, expectedConfigHash?: string): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
     return this.transition(async () => {
       this.assertWorkspaceBinding(expectedBinding);
-      await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets), { expectedSourcesHash });
+      await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets), { expectedSourcesHash, expectedConfigHash });
       try {
         await this.loadWorkspaceConfig();
       } catch (error) {
@@ -1399,6 +1487,7 @@ export class PaRuntime {
       const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next);
       const connection = reconnect || (this.config?.mode === 'feishu' && !this.transport) ? await this.prepareTransport(this.config!, next) : null;
       this.secretStore = next;
+      this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null;
       // 凭据可能刚到位/被清除：feishu 模式下按新解析结果重连（与配置保存同口径）。
       if (connection) await this.activateTransport(connection);
     });
@@ -1664,14 +1753,14 @@ export class PaRuntime {
     silentUntil: async () => {
       try {
         const now = new Date();
-        const vacation = await this.memory!.search({ topic: '休假', limit: 20 });
+        const vacation = await this.memory!.search({ topic: '休假', mode: 'facts', limit: 20 });
         for (const record of vacation.records) {
           if (record.status !== 'confirmed') continue;
           const end = record.validUntil ? new Date(record.validUntil) : null;
           if (!end || Number.isNaN(end.getTime())) continue;
           if (end.getTime() > now.getTime()) return end;
         }
-        const quiet = await this.memory!.search({ topic: '通知偏好', limit: 20 });
+        const quiet = await this.memory!.search({ topic: '通知偏好', mode: 'facts', limit: 20 });
         const tz = this.config?.timeZone ?? 'Asia/Shanghai';
         for (const record of quiet.records) {
           if (record.status !== 'confirmed') continue;
@@ -1733,13 +1822,15 @@ export class PaRuntime {
    *  stable runtime face; implementations live in WecomChannels. */
   private async authTick(): Promise<void> {
     return this.executions.run(async () => {
-      await this.wecomChannels.authTick();
+      if (!this.closed && this.config && this.repos) await this.connectionHealth.monitorWecom();
     });
   }
 
   wecomCheck(): Promise<WecomDiagnostics> {
     return this.executions.run(async () => {
-      return this.wecomChannels.wecomCheck();
+      const result = await this.wecomChannels.wecomCheck();
+      await this.connectionHealth.check(['wecom'], { wecom: result });
+      return result;
     });
   }
 
@@ -1753,7 +1844,6 @@ export class PaRuntime {
     return this.executions.run(async () => {
       const config = this.config;
       if (!config || !this.repos) throw new Error('24私助尚未就绪。');
-      this.lastReceivedAt = nowIso();
       const expectedApp = this.secretEnv()[config.appIdEnv] ?? '';
       const appId = event.appId || expectedApp;
       // Rejections are written atomically: a 'received' row could otherwise be
@@ -1794,6 +1884,12 @@ export class PaRuntime {
         // Platform redelivery of an event we already own; never process twice.
         return;
       }
+      this.lastReceivedAt = nowIso();
+      if (config.ownerOpenId && event.senderOpenId === config.ownerOpenId && expectedApp && event.appId === expectedApp && event.tenantKey) {
+        await this.recordConnectionEvidence('feishu.inbound-enterprise', '真实入站携带企业标识，已通过当前主人与应用校验；授权企业另列。', { appId: event.appId, tenantKey: event.tenantKey, ownerOpenId: event.senderOpenId });
+        await this.recordConnectionEvidence(event.kind === 'card' ? 'feishu.card-receive' : 'feishu.receive',
+          '已接纳通过主人、应用与企业归属校验的入站；消息处理与审核裁决分别记录。', { eventId: event.eventId, kind: event.kind, tenantKey: event.tenantKey, profile: config.larkProfile });
+      }
       if (config.mode === 'feishu') {
         await this.repos.bindings.upsert({
           appId,
@@ -1833,6 +1929,10 @@ export class PaRuntime {
       const event = row.payload as InboundEvent;
       if (row.kind === 'card') {
         await this.handwriting.processReviewCard(row.event_id, event);
+        const receipt = await this.repos.inbox.get(row.event_id);
+        if (receipt?.status === 'delivered' && event.tenantKey && event.appId === this.secretValue('feishuAppId') && event.senderOpenId === this.config!.ownerOpenId) {
+          await this.recordConnectionEvidence('feishu.review-callback', '真实版本审核回调已通过主人、应用、企业与版本校验并保存裁决。', { eventId: row.event_id, requestId: receipt.request_id });
+        }
         return;
       }
       const isInboundImage = event.messageType === 'image' || this.handwriting.isImageFileMessage(event);
@@ -1966,6 +2066,17 @@ export class PaRuntime {
   // ---- session events: committed results become deliveries -----------------
 
   onSessionEvent(session: DshSession, event: { type: string; data: Record<string, any> }): void {
+    if (!this.closed && event.type === 'tool/result') {
+      const binding = this.workspaceBinding;
+      void this.executions.afterTransition(async () => {
+        if (binding !== this.workspaceBinding || !this.repos || !this.config || session.header.cwd !== this.workspace?.statePath || session.header.parentSession || session.header.origin === 'subagent' || session.header.agentPreset !== 'pa24' || session.id === this.accessSessionId) return;
+        const callId = event.data.message?.toolCallId;
+        const call = session.ownEvents().find(e => e.type === 'tool/call' && e.data.callId === callId && String(e.data.name).startsWith('mcp__qwennote__'));
+        if (!call || !this.config.extraLocalTools.some(name => name === call.data.name || name === 'mcp__qwennote__*')) return;
+        const readable = !event.data.message?.isError && !event.data.error && event.data.message?.content?.some((b: any) => b.type === 'text' && b.text?.trim());
+        await this.repos.notes.recordReadEvidence({ sessionId: session.id, callId: String(callId), toolName: String(call.data.name), configuration: this.minutesConfiguration(), state: readable ? 'succeeded' : 'failed' });
+      }).catch(error => { if (!this.closed) console.warn(`[pa24] 听记读取证据保存失败：${(error as Error).message}`); });
+    }
     if (this.closed || event.type !== 'turn/end') return;
     const binding = this.workspaceBinding;
     void this.executions.afterTransition(async () => {
@@ -2220,6 +2331,7 @@ export class PaRuntime {
       return this.gate(`work-control:${id}`, async () => {
         const controls = this.repos!.workControls, item = await this.repos!.workItems.get(id);
         if (!item) throw new Error('原交办不存在。');
+        if (item.id.startsWith('pa24-material-') && !['review', 'new-goal'].includes(String(input.op))) throw new Error('资料直接操作请在原资料详情核对回执并明确重试；不能启动或接续模型 Worker。');
         const { workspaceBinding: _binding, ...stable } = input;
         const hash = createHash('sha256').update(JSON.stringify(stable)).digest('hex');
         const claimed = await controls.prepare(requestId, hash, id, Number(input.expectedRevision), stable);
@@ -2275,6 +2387,7 @@ export class PaRuntime {
         return this.runHistory.work({ workId: id, workspaceBinding: this.workspaceBinding });
       }
       if (['supplement', 'accept', 'return', 'new-goal'].includes(args.action)) return this.changeWork({ ...args, op: args.action, confirm: true, requestId: args.requestId ?? randomUUID(), expectedRevision: args.expectedRevision ?? item.revision, workspaceBinding: this.workspaceBinding }, agent);
+      if (item.id.startsWith('pa24-material-')) throw new Error('资料直接操作请回原资料核对回执后明确重试，不能作为模型 Worker 接续或停止。');
       if (item.execution_mode === 'skill') {
         const run = await repos.skillRuns.latestForWork(id);
         if (!run) throw new Error('此 Skill 交办缺少运行记录，请先核对。');
@@ -2336,6 +2449,20 @@ export class PaRuntime {
     });
   }
 
+  async memorySnapshot(input: Record<string, unknown> = {}, history = false) {
+    return this.executions.run(async () => {
+      if (!this.memory || !this.workspace) throw new Error('尚未绑定工作区。');
+      if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
+      const str = (value: unknown) => typeof value === 'string' ? value : undefined;
+      const result = history ? await this.memory.history(String(input.id ?? '')) : await this.memory.search({
+        mode: 'manage', query: str(input.query), category: str(input.category), topic: str(input.topic), status: str(input.status),
+        lifecycle: str(input.lifecycle), freshness: str(input.freshness), project: str(input.project), sourceState: str(input.sourceState),
+        conflict: str(input.conflict), confirmation: str(input.confirmation), limit: Number(input.limit ?? 20), offset: Number(input.offset ?? 0),
+      });
+      return { ...result, workspaceBinding: this.workspaceBinding };
+    });
+  }
+
   /**
    * pa24_memory: search is open to every workspace role; writes, maintenance
    * and undo require the local top-level 24私助 session (P42/P43).
@@ -2345,22 +2472,21 @@ export class PaRuntime {
       const role = this.roleFor(agent);
       if (!role || !this.memory || !this.workspace) throw new Error('记忆仅对绑定的 24私助 工作区会话开放。');
       const action = String(args.action ?? 'search');
-      const readOnly: Record<string, boolean> = {
-        search: true,
-        put: false,
-        delete: false,
-        inspect: true,
-        apply: false,
-        undo: false,
-        changesets: true,
-      };
-      if (!(action in readOnly)) throw new Error('未知记忆操作。');
-      if (!readOnly[action] && role !== 'local-robot') {
-        throw new Error('记忆写入与整理仅限 dsh 的24私助本地会话；飞书接入与 Worker 只能检索。');
+      const actions = ['search', 'put', 'delete', 'activate', 'deactivate', 'restore', 'purge', 'inspect', 'preview', 'apply', 'undo', 'changesets', 'history'];
+      if (!actions.includes(action)) throw new Error('未知记忆操作。');
+      if ((action !== 'search' || args.mode === 'manage') && role !== 'local-robot') {
+        throw new Error('记忆维护、历史与回收内容仅限 dsh 的24私助本地会话；飞书接入与 Worker 只能检索有效业务记忆。');
       }
       const actor = agent.id;
       if (action === 'search') {
         return this.memory.search({
+          mode: args.mode === 'manage' ? 'manage' : args.mode === 'facts' ? 'facts' : 'business',
+          lifecycle: args.lifecycle ? String(args.lifecycle) : undefined,
+          freshness: args.freshness ? String(args.freshness) : undefined,
+          project: args.project ? String(args.project) : undefined,
+          sourceState: args.sourceState ? String(args.sourceState) : undefined,
+          conflict: args.conflictState ? String(args.conflictState) : undefined,
+          confirmation: args.confirmationState ? String(args.confirmationState) : undefined,
           query: args.query ? String(args.query) : undefined,
           category: args.category ? String(args.category) : undefined,
           topic: args.topic ? String(args.topic) : undefined,
@@ -2375,6 +2501,11 @@ export class PaRuntime {
       if (action === 'changesets') {
         return { changesets: await this.memory.listChangesets() };
       }
+      if (action === 'history') return this.memory.history(String(args.id ?? ''));
+      if (action === 'preview') {
+        const changes = Array.isArray(args.changes) ? args.changes as MemoryChange[] : [];
+        return this.memory.previewChangeset(changes, { expectedRevision: requireRevision(args.expectedRevision), actor });
+      }
       if (action === 'put') {
         const expectedRevision = requireRevision(args.expectedRevision);
         if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
@@ -2386,6 +2517,12 @@ export class PaRuntime {
             content: text(args.content),
             source: text(args.source, 500),
             sourceVersion: args.sourceVersion ? String(args.sourceVersion) : undefined,
+            ...(args.lifecycle ? { lifecycle: args.lifecycle as 'active' | 'inactive' | 'recycled' } : {}),
+            ...(args.scope ? { scope: args.scope as import('./memory.js').MemoryRecord['scope'] } : {}),
+            ...(args.sourceCheck ? { sourceCheck: args.sourceCheck as import('./memory.js').MemoryRecord['sourceCheck'] } : {}),
+            ...(args.conflict ? { conflict: args.conflict as import('./memory.js').MemoryRecord['conflict'] } : {}),
+            ...(args.confirmation ? { confirmation: { kind: 'owner_instruction', text: text(args.confirmation), at: new Date().toISOString(), by: actor, ...(args.confirmationReference ? { reference: String(args.confirmationReference) } : {}) } } : {}),
+            validFrom: args.validFrom ? String(args.validFrom) : null,
             status: requireStatus(args.status),
             validUntil: args.validUntil ? String(args.validUntil) : null,
             reason: String(args.reason),
@@ -2398,12 +2535,16 @@ export class PaRuntime {
         if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
         return this.memory.remove(String(args.id ?? ''), { expectedRevision, actor, reason: String(args.reason) });
       }
+      if (['activate', 'deactivate', 'restore', 'purge'].includes(action)) {
+        return this.memory.transition(String(args.id ?? ''), action as 'activate' | 'deactivate' | 'restore' | 'purge', { expectedRevision: requireRevision(args.expectedRevision), actor, reason: String(args.reason ?? '') });
+      }
       if (action === 'apply') {
         const expectedRevision = requireRevision(args.expectedRevision);
         if (!String(args.reason ?? '').trim()) throw new Error('记忆整理需说明本人的指令依据。');
         const changes = Array.isArray(args.changes) ? (args.changes as MemoryChange[]) : [];
         if (changes.length === 0) throw new Error('变更集为空；请先通过 inspect 查看候选并让本人确认。');
-        return this.memory.applyChangeset(changes, { expectedRevision, actor, reason: String(args.reason) });
+        if (changes.length > 1 && !String(args.previewToken ?? '').trim()) throw new Error('批量维护必须先通过 preview 展示变更集，并携带同一内容的 previewToken。');
+        return this.memory.applyChangeset(changes, { expectedRevision, actor, reason: String(args.reason), previewToken: args.previewToken ? String(args.previewToken) : undefined });
       }
       if (action === 'undo') {
         const expectedRevision = requireRevision(args.expectedRevision);
@@ -2497,29 +2638,42 @@ export class PaRuntime {
 
   private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const id = String(args._operationId ?? '');
-    if (!isCandidateOperation(id)) return this.taskLifecycle.create(item, args);
-    return this.gate(`candidate:${id}`, async () => {
-      const original = await this.externalOperations.candidateCreation(id, 'task', args);
-      return this.taskLifecycle.create(item, original?.args ?? args, original?.channel);
-    });
+    const previous = id ? await this.repos!.operations.get(id) : null;
+    if (previous && previous.params.sourceContract !== 1 && isCandidateOperation(id)) {
+      return this.gate(`candidate:${id}`, async () => {
+        const original = await this.externalOperations.candidateCreation(id, 'task', args);
+        return this.taskLifecycle.create(item, original!.args, original!.channel);
+      });
+    }
+    // Pre-Manticore writes lack a verified source contract. Find them before
+    // considering the current default, so an upgrade cannot recreate a task.
+    if (!id) {
+      const old = (await this.repos!.operations.todoWritesForWork(item.id)).filter(row => row.params.sourceContract !== 1
+        && ['task.create', 'wecom_todo.create'].includes(row.action) && row.params.summary === text(args.summary, 500));
+      if (old.length) {
+        const row = old[0]!, error = () => Object.assign(new Error('已有旧待办操作，请先核对原回执和来源；不能按当前默认重建。'), { outcome: 'unknown' });
+        if (old.length !== 1 || String(row.params.due ?? '') !== String(args.due ?? '')) throw error();
+        if (row.status === 'succeeded' && typeof row.receipt?.guid === 'string') return { operationId: row.id, reused: true, ...row.receipt,
+          channel: row.action === 'task.create' ? 'feishu' : 'wecom', verification: { state: 'pending', message: '旧回执缺少来源与负责人核验，请在登记来源中核对原对象。' } };
+        if (row.receipt && Object.hasOwn(row.receipt, '_externalResult') && (row.action === 'wecom_todo.create' || typeof row.params.tasklistId === 'string')) {
+          return this.taskLifecycle.create(item, { ...args, _operationId: row.id, summary: row.params.summary, due: row.params.due,
+            _tasklistId: row.params.tasklistId, timeZone: row.params.timeZone, _instruction: row.params.instruction }, row.action === 'task.create' ? 'feishu' : 'wecom');
+        }
+        throw error();
+      }
+    }
+    return this.sourceTodoWrites.write(item, 'create', args);
   }
 
   private async resolveTask(args: Record<string, unknown>) { return this.taskLifecycle.resolve(args); }
 
-  private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.update(item, args); }
+  private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.sourceTodoWrites.write(item, 'update', args); }
 
-  private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.complete(item, args); }
+  private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.sourceTodoWrites.write(item, 'complete', args); }
 
-  private async taskGet(args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.get(args); }
+  private async taskGet(args: Record<string, unknown>): Promise<unknown> { return this.sourceTodo.get(args); }
 
-  private async taskList(args: Record<string, unknown>): Promise<unknown> {
-    const projectId = args.projectId ? String(args.projectId) : null;
-    const tasks = projectId ? await this.repos!.projects.tasksOf(projectId) : await this.repos!.tasks.list(args.status ? String(args.status) : undefined);
-    return {
-      count: tasks.length,
-      tasks: tasks.map(t => ({ id: t.id, guid: t.task_guid, summary: t.summary, url: t.url, status: t.status, channel: t.channel, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
-    };
-  }
+  private async taskList(args: Record<string, unknown>): Promise<unknown> { return this.sourceTodo.query(args); }
 
   private async projectCreate(args: Record<string, unknown>): Promise<unknown> {
     const name = text(args.name, 200);
@@ -2666,7 +2820,7 @@ export class PaRuntime {
     const openId = String(input.openId ?? '').trim();
     if (openId) return { name: name || openId, openId };
     if (!name) return { clarify: '未提供姓名或 open_id' };
-    const memory = await this.memory!.search({ query: name, limit: 50 });
+    const memory = await this.memory!.search({ query: name, mode: 'facts', limit: 50 });
     const contactRecords = memory.records.filter(r => (r.topic === `联系人：${name}` || r.content.includes(`联系人 ${name}：`)) && r.status === 'confirmed');
     const ids = [...new Set(contactRecords.flatMap(r => r.content.match(/ou_[A-Za-z0-9_]+/g) ?? []))];
     if (ids.length === 1) return { name, openId: ids[0]! };
@@ -2729,45 +2883,12 @@ export class PaRuntime {
 
   /** Assign an existing task to a collaborator under an explicit instruction (P13). */
   private async taskAssign(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const taskRef = await this.resolveTask(args);
-    if (taskRef.channel !== 'feishu') throw new Error('当前分派能力只支持飞书任务；企微待办未执行分派。');
-    const instruction = String(args.instruction ?? '').trim();
-    if (!instruction) throw new Error('分派任务必须携带本人明确的指令依据（instruction）；未执行任何分派。');
+    if (Array.isArray(args.assigneeIds)) return this.sourceTodoWrites.write(item, 'assign', args);
+    const original = await this.sourceTodo.resolve(args);
+    if (original.target.platform !== 'feishu') throw new Error('企微分派请提供已确认的 userid（assigneeIds），不会把飞书 open_id 当作企微身份。');
     const resolved = await this.resolveCollaborator(args);
-    if ('clarify' in resolved) {
-      throw new Error(`被分派人无法唯一确定（${resolved.clarify}）；请先与本人澄清，未执行任何分派。`);
-    }
-    this.assertFeishuLive('任务分派');
-    const id = `assign:${item.id}:${hash(`${taskRef.task_guid}\n${resolved.openId}`)}`;
-    const staged = await this.stagedOperation(item, 'task.assign', id, {
-      taskGuid: taskRef.task_guid,
-      assignee: resolved.openId,
-    });
-    if (!staged.created && staged.row.status === 'succeeded') {
-      return { operationId: staged.row.id, reused: true, guid: taskRef.task_guid, message: '此分派此前已提交，未重复执行。' };
-    }
-    try {
-      await this.externalOperations.perform(staged.row.id, () => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-        'task', '+assign', '--as', 'user', '--task-id', taskRef.task_guid, '--add', resolved.openId, '--idempotency-key', staged.row.id,
-      ]));
-      await this.repos!.outreach.insert({
-        id: staged.row.id,
-        work_item_id: item.id,
-        kind: 'assign',
-        target_open_id: resolved.openId,
-        target_name: resolved.name,
-        content: `分派任务 ${taskRef.task_guid}`,
-        instruction,
-        status: 'pending',
-      });
-      await this.repos!.outreach.mark(staged.row.id, { status: 'succeeded', taskGuid: taskRef.task_guid });
-      await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: taskRef.task_guid, assignee: resolved.openId } });
-      return { operationId: staged.row.id, guid: taskRef.task_guid, assignee: resolved, message: `已把任务分派给 ${resolved.name}（以平台回执为准）。` };
-    } catch (error) {
-      await this.failStaged(staged.row.id, error);
-      await this.repos!.outreach.mark(staged.row.id, { status: (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed', error: (error as Error).message, taskGuid: taskRef.task_guid });
-      throw error;
-    }
+    if ('clarify' in resolved) throw new Error(`被分派人无法唯一确定（${resolved.clarify}）；请先澄清。`);
+    return this.sourceTodoWrites.write(item, 'assign', { ...args, sourceId: original.target.sourceId, assigneeIds: [resolved.openId] });
   }
 
   /** Current fingerprint of a followed source, or null when it cannot be read. */
@@ -3020,7 +3141,7 @@ export class PaRuntime {
     });
     if (match) lastMinutes = { topic: match.topic, url: match.doc_url, actions: (Array.isArray(match.candidates) ? match.candidates : []).map((candidate: { summary: string }) => candidate.summary).slice(0, 5) };
     const memory = await readSource('记忆', scope.memory !== false, () => this.memory!.search({ query: keyword, limit: 5 }));
-    const memoryFacts = (memory?.records ?? []).filter(record => record.status === 'confirmed').map(record => `${record.topic}：${record.content.slice(0, 60)}（来源：${record.source}）`);
+    const memoryFacts = (memory?.records ?? []).filter(record => record.effective.useAs === 'fact').map(record => `${record.topic}：${record.content.slice(0, 60)}（来源：${record.source}）`);
     // Only tasks sharing a token with the meeting count as related; otherwise
     // the section stays absent rather than pretending relevance.
     // CJK summaries rarely use separators: match on 2-character sliding
@@ -3180,7 +3301,7 @@ export class PaRuntime {
    * version must be approved AND still match the live document.
    */
   private noteAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    return this.gate(`note-actions:${String(args.noteId ?? '')}`, () => this.adoptNoteActions(item, args));
+    return this.handwriting.withCurrentMaterial(String(args.noteId ?? ''), () => this.gate(`note-actions:${String(args.noteId ?? '')}`, () => this.adoptNoteActions(item, args)));
   }
 
   private async adoptNoteActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
@@ -3195,6 +3316,8 @@ export class PaRuntime {
     if (version.status !== 'approved') {
       throw new Error(`只有本人已审核通过的版本才能执行行动（当前 ${version.status}）；请先在飞书审核卡批准具体版本。`);
     }
+    const approval = (await this.repos!.notes.decisionsOf(noteId)).find(decision => decision.version_id === versionId && decision.decision === 'approve' && decision.fingerprint === version.fingerprint);
+    if (!approval || approval.reviewer_open_id !== this.config!.ownerOpenId) throw new Error('此版本没有当前主人对确切内容的审核凭证；请重新发布并由当前主人审核。');
     // Re-verify the live document still matches the approved fingerprint:
     // edited or unverifiable content never silently becomes execution params.
     if (trust.currentValidity === 'unknown') throw new Error(`无法核验文档当前内容（${trust.reason}）；暂不执行，请稍后再试。`);
@@ -3204,8 +3327,10 @@ export class PaRuntime {
     const derived = noteDerivedContent(version);
     if (derived.derivedStatus === 'needs_rebuild') throw new Error('当前版本的结构化候选尚未重建或缺少同源证明；请重新整理当前文档并审核新候选，不能执行旧版本行动。');
     const candidates = (Array.isArray(derived.candidates) ? derived.candidates : []) as NoteCandidate[];
-    const wanted = Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [];
-    if (wanted.length === 0) throw new Error('需要提供选择的候选编号（indexes[]）。');
+    const requestedIds = Array.isArray(args.candidateIds) ? args.candidateIds.map(String) : [];
+    const wanted = [...new Set(requestedIds.length ? requestedIds.map(id => candidates.findIndex((candidate, index) => (candidate.id ?? `legacy-${version.version}-${index}`) === id)) : Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [])];
+    if (wanted.length === 0) throw new Error('需要提供所选 candidateIds 或 indexes。');
+    const links = await this.repos!.notes.actionLinks(noteId);
     const results = [];
     for (const index of wanted) {
       let candidate = candidates[index];
@@ -3213,7 +3338,10 @@ export class PaRuntime {
         results.push({ index, ok: false, error: `候选 ${index} 不存在或无摘要。` });
         continue;
       }
-      const operationId = `note.action:${noteId}:v${version.version}:${index}`;
+      const candidateId = candidate.id ?? `legacy-${version.version}-${index}`;
+      let linked = links.find(link => link.candidate_id === candidateId);
+      const legacy = /^legacy-(\d+)-(\d+)$/.exec(candidateId);
+      const operationId = linked?.operation_id ?? (legacy ? `note.action:${noteId}:v${legacy[1]}:${legacy[2]}` : `note.action:${noteId}:v${version.version}:${index}`);
       const previous = await this.repos!.operations.get(operationId);
       const unknowns = candidateUnknowns(candidate, index, Array.isArray(derived.unknowns) ? derived.unknowns : []);
       const requestedClarification = Array.isArray(args.clarifications) ? args.clarifications.find((entry: any) => entry?.index === index) as Record<string, any> | undefined : undefined;
@@ -3238,38 +3366,69 @@ export class PaRuntime {
           end: resolved.end == null ? undefined : text(resolved.end, 100) };
         if (!!candidate.start !== !!candidate.end) { results.push({ index, ok: false, error: '澄清后的时间块需要完整开始和结束时间。' }); continue; }
       }
-      // Action identity = (note, version, index): repeats from any session
-      // return the existing object (P27 contract reused for notes). The
-      // owner's instruction is persisted with the operation so authorization
-      // and content approval stay separate records (P34).
+      const parameters = candidateParameters(candidate);
+      // Upgraded notes may have an operation but no material relationship yet.
+      // Recover the link from its original version and grant, never this version.
+      if (!linked && previous) {
+        try {
+          const original = await this.repos!.notes.getVersion(String(previous.params.versionId ?? ''));
+          const originalIndex = previous.params.index;
+          const originalCandidate = original && noteDerivedContent(original).candidates?.[originalIndex];
+          if (!original || original.note_id !== noteId || previous.params.noteId !== noteId || !Number.isInteger(originalIndex)
+            || !originalCandidate || (originalCandidate.id ?? `legacy-${original.version}-${originalIndex}`) !== candidateId) {
+            throw new Error('原行动缺少一致的资料版本及候选依据；请先核对原回执，不建立新授权。');
+          }
+          const family = ['calendar.create', 'wecom_calendar.create'].includes(previous.action) ? 'calendar' : 'task';
+          const recovered = await this.externalOperations.candidateCreation(operationId, family, { _authorization: { noteId, versionId: original.id, index: originalIndex } });
+          if (!recovered) throw new Error('原行动记录已变化，请重新核对。');
+          linked = await this.repos!.notes.linkAction({ note_id: noteId, candidate_id: candidateId, operation_id: operationId, version_id: original.id,
+            parameters: candidateParameters(previous.params.request ?? { ...originalCandidate, ...previous.params.clarification?.resolved }),
+            authorization_record: (previous.params.request?._authorization ?? recovered.args._authorization) as Record<string, unknown> });
+        } catch (error) { results.push({ index, candidateId, ok: false, operationId, error: (error as Error).message }); continue; }
+      }
+      // Cross-version identity only links the object. It does not carry an
+      // old grant onto new text, a new sort order, or different parameters.
+      if (linked && linked.version_id !== versionId && previous) {
+        if (previous.status === 'succeeded') {
+          results.push({ index, candidateId, ok: true, reused: true, operationId, receipt: previous.receipt,
+            changeProposal: materialFingerprint(linked.parameters) === materialFingerprint(parameters) ? null : { previous: linked.parameters, proposed: parameters },
+            message: '此候选已有成功对象；已保留关联。参数变化仅作为建议，需要另行明确授权修改原对象。' });
+        } else results.push({ index, candidateId, ok: false, operationId, error: '旧版本行动尚未明确完成；请先按原授权核对或恢复，不以新版本重建对象。' });
+        continue;
+      }
+      // Recovering the same candidate keeps the original grant and entry.
+      // Current content, version and owner are still verified above; new wording
+      // is a request to recover its receipt, not a replacement authorization.
+      const authorization = previous?.params.request?._authorization ?? { noteId, versionId, candidateId, index, instruction: previous?.params.instruction ?? instruction, owner: this.config!.ownerOpenId,
+        sourceSessionId: previous?.params.sourceSessionId ?? item.parent_session_id, sourceQuote: candidate.sourceQuote, parametersFingerprint: materialFingerprint(parameters), ...(clarification ? { clarification } : {}) };
       try {
+        if (!linked) await this.repos!.notes.linkAction({ note_id: noteId, candidate_id: candidateId, operation_id: operationId, version_id: versionId, parameters, authorization_record: authorization });
         if (candidate.start && candidate.end) {
-          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, timeZone: previous?.params.timeZone, _authorization: { noteId, versionId, index, instruction, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) } }, operationId)) as { eventId?: string; url?: string | null };
-          results.push({ index, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
+          const created = (await this.calendarWrite(item, 'create', { ...parameters, timeZone: previous?.params.timeZone, _authorization: authorization }, operationId)) as { eventId?: string; url?: string | null };
+          results.push({ index, candidateId, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
         } else {
           const created = await this.taskCreate(item, {
-            summary: candidate.summary,
-            due: candidate.due ?? undefined,
+            ...parameters,
             _operationId: operationId,
             _instruction: instruction,
-            _authorization: { noteId, versionId, index, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) },
+            _authorization: authorization,
           });
-          results.push({ index, ok: true, kind: 'task', sourceQuote: candidate.sourceQuote ?? null, dueRaw: candidate.due ?? null, ...(created as object) });
+          results.push({ index, candidateId, ok: true, kind: 'task', sourceQuote: candidate.sourceQuote ?? null, dueRaw: candidate.due ?? null, ...(created as object) });
         }
       } catch (error) {
         results.push({ index, ok: false, error: (error as Error).message });
       }
     }
     const failed = results.filter(r => !r.ok).length;
+    const reused = results.filter(r => r.ok && 'reused' in r && r.reused).length;
+    const proposals = results.filter(r => 'changeProposal' in r && r.changeProposal).length;
     return {
       noteId,
       versionId,
       executed: results.length - failed,
-      failed,
+      failed, reused, proposals,
       results,
-      message: failed === 0
-        ? `已按你的选择执行 ${results.length} 项（依据已审核的 ${noteId} v${version.version}；重复选择返回已有对象）。`
-        : `执行 ${results.length - failed} 项，${failed} 项未执行（见明细）；审核通过不等于全部行动已执行。`,
+      message: `已处理 ${results.length - failed} 项：${reused} 项返回已有对象，${proposals} 项仅提出参数变更建议；${failed} 项未执行。变更建议需要另行明确授权修改原对象，详见逐项回执。`,
     };
   }
 
@@ -3547,18 +3706,20 @@ export class PaRuntime {
             mounted,
             tokenCache: await this.qwennoteTokenCache(),
           });
-          const nextSteps = mounted ? channel.nextSteps : [...channel.nextSteps, '宿主重启后 mcp 工具注册约需半分钟——听记通道显示正常后再打开本地会话，该会话才会带上听记工具。'];
+          const nextSteps = mounted ? channel.nextSteps : [...channel.nextSteps, '宿主重启后工具注册可能尚未完成；确认工具已挂载后重新打开本地会话，再验证实际读取。'];
           capabilities.push({ id: 'qwennote-channel', state: channel.state, message: channel.message, detail: { nextSteps } });
         }
       }
       const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
-      const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));
+      const traffic = this.repos ? await this.repos.health.traffic() : { channels: [] };
+      const outboxCount = (states: string[]) => traffic.channels.reduce((sum: number, row: any) => sum + (states.includes(row.status) ? Number(row.count) : 0), 0);
       const unknownOps = await this.repos!.maintenance.unknownOperationCount().catch(() => null);
       const latencies = outboxRows.filter(o => o.status === 'sent' && o.sent_at).map(o => new Date(o.sent_at!).getTime() - new Date(o.created_at).getTime()).sort((a, b) => a - b);
       const retryTotals = await this.repos!.maintenance.attemptTotals().catch(() => null);
       const retries = retryTotals ? retryTotals.operations + retryTotals.outbox : null;
       const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
       return {
+        connectionEvidence: this.repos ? await this.connectionHealth.snapshot() : null,
         readiness: ready,
         capabilities,
         usage: {
@@ -3566,13 +3727,13 @@ export class PaRuntime {
           modelTurns: this.usage.modelRequests,
           notePagesInput: this.usage.notePagesInput,
           noteCrops: this.usage.noteCrops,
-          outboxQueued: pending.length,
-          outboxUnknown: outboxRows.filter(o => o.status === 'unknown').length,
+          outboxQueued: outboxCount(['pending', 'sending']),
+          outboxUnknown: outboxCount(['unknown']),
           operationsUnknown: unknownOps,
           outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
           ledgerRetries: retries,
           quota: '受管模型的持久用量、限额及一次放行见「模型与预算」；此处仅为本 Host 观测。',
-          note: '计数自本 Host 启动累计（进程内观测，重启清零）；ledgerRetries 来自账本（外部操作重试＋Outbox 重发）；费用口径取决于模型计费，本页只提供可测投入量。',
+          note: '模型/笔记投入自本 Host 启动累计（重启清零）；发送队列与未知计数覆盖完整账本，各渠道明细另列；延迟仅抽样最近 200 条。ledgerRetries 来自账本，费用口径取决于模型计费。',
         },
         dataFlow: {
           modelInput: '笔记原稿图片与转写文本会作为模型输入发送到所配置的 dsh 模型路由；账本与面板不外发。',
@@ -3581,8 +3742,8 @@ export class PaRuntime {
           secrets: '诊断与备份仅含凭据引用名（环境变量名），凭据值不进入任何输出。',
         },
         degraded: {
-          modelDown: '模型不可用只暂停需要模型的工作；固定提醒经 PG+Outbox 继续发送。',
-          pgDown: 'PG 不可用时停止接纳/写入相关业务并保留可恢复状态（启动与账本闸已实现）。',
+          modelDown: '模型不可用影响需要模型的步骤；已有结果保存与原生日历提醒按各自机制继续。',
+          pgDown: '业务账本不可用时停止接纳/写入相关业务并保留可恢复状态。',
           offlineAlert: '完全离线告警依赖独立服务器监控（声明边界）。',
         },
       };
@@ -3622,7 +3783,92 @@ export class PaRuntime {
 
   async notesTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
+      const action = String(args.action ?? '');
+      if (['detail', 'save_draft', 'publish_draft', 'resend', 'import_minutes', 'adopt_actions'].includes(action)) {
+        const role = this.roleFor(agent);
+        if (role !== 'local-robot' && role !== 'feishu-access') throw new Error('资料操作只向绑定工作区的24私助会话开放。');
+        if (action === 'detail') return this.handwriting.materialDetail(String(args.noteId ?? ''), args.versionId ? String(args.versionId) : undefined);
+        if (action === 'import_minutes') {
+          if (!this.config?.extraLocalTools.some(name => name.startsWith('mcp__qwennote__'))) throw new Error('当前工作区没有放行听记工具，请先在本地配置并实际读取资料。');
+          return this.handwriting.importMinutes(args, agent);
+        }
+        return this.materialMutation({ ...args, action }, agent);
+      }
       return this.handwriting.notesTool(args, agent);
+    });
+  }
+
+  private minutesConfiguration(): string {
+    return hash(JSON.stringify([this.workspace?.id, this.config?.ownerOpenId, this.config?.extraLocalTools, this.extraToolResolution?.active]));
+  }
+
+  async minutesSnapshot(): Promise<unknown> {
+    if (!this.repos || !this.config) throw new Error('尚未绑定工作区。');
+    const requested = this.config.extraLocalTools.filter(name => name.startsWith('mcp__qwennote__'));
+    const tools = (this.extraToolResolution?.active ?? []).filter(tool => tool.startsWith('mcp__qwennote__') && requested.some(name => name === 'mcp__qwennote__*' || name === tool));
+    return { workspaceBinding: this.workspaceBinding, configured: requested.length > 0, mounted: requested.length && !this.extraToolResolution ? null : tools.length > 0,
+      tools: tools.map(name => ({ name })),
+      authorization: tools.length ? 'mounted' : 'unknown', lastRead: await this.repos.notes.latestReadEvidence(this.minutesConfiguration()),
+      message: '配置、工具挂载与实际读取分别记录；一次成功回执只证明该次请求。按需查询和读取请进入本地对话，普通刷新不访问听记。' };
+  }
+
+  async materialSnapshot(input: Record<string, unknown>): Promise<unknown> {
+    this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+    if (!this.repos) throw new Error('业务账本未就绪。');
+    const kind = String(input.kind ?? 'list');
+    if (kind === 'detail') return { workspaceBinding: this.workspaceBinding, ...await this.handwriting.materialDetail(String(input.noteId ?? ''), input.versionId ? String(input.versionId) : undefined) as object };
+    if (kind === 'original') return { workspaceBinding: this.workspaceBinding, ...await this.handwriting.original(String(input.noteId ?? ''), Number(input.pageNo)) as object };
+    const limit = Number(input.limit ?? 20), offset = Number(input.offset ?? 0);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) throw new Error('资料分页参数无效。');
+    const result = await this.repos.notes.materialList({ query: input.query ? text(input.query, 300) : undefined, status: input.status ? String(input.status) : undefined, limit, offset });
+    return { workspaceBinding: this.workspaceBinding, ...result, items: result.items.map(row => ({ id: row.id, title: row.title, status: row.status, origin: row.origin, pages: row.pages,
+      updatedAt: row.updated_at, draftRevision: row.material?.revision ?? 0, materialType: row.material?.source.type ?? 'images',
+      latest: row.latest ? { id: row.latest.id, version: row.latest.version, status: row.latest.status, docUrl: row.latest.doc_url, verifiedAt: row.latest.verified_at, verifyResult: row.latest.verify_result } : null })) };
+  }
+
+  async changeMaterial(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      const action = String(input.action ?? ''), noteId = String(input.noteId ?? '');
+      if (action === 'save_draft') return this.handwriting.saveDraft(noteId, Number(input.expectedRevision), input.draft, 'local-panel');
+      if (action === 'verify') return this.handwriting.verifyNote(noteId);
+      if (action === 'resend') return this.handwriting.resendReview(noteId, String(input.versionId ?? ''), text(input.requestId, 200));
+      const id = await this.openLocalSession();
+      const resolved = await this.ctx.sessionController.resolveAgent(id);
+      if ('error' in resolved) throw resolved.error;
+      return this.materialMutation(input, resolved.agent);
+    });
+  }
+
+  private async materialMutation(input: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
+    if (!['local-robot', 'feishu-access'].includes(this.roleFor(agent) ?? '')) throw new Error('资料操作需要当前工作区的24私助会话。');
+    const action = String(input.action ?? ''), noteId = String(input.noteId ?? '');
+    if (action === 'save_draft') return this.handwriting.saveDraft(noteId, Number(input.expectedRevision), input.draft, agent.id);
+    if (action === 'resend') return this.handwriting.resendReview(noteId, String(input.versionId ?? ''), text(input.requestId, 200));
+    if (!['publish_draft', 'adopt_actions'].includes(action)) throw new Error('未知资料操作。');
+    const instruction = text(input.instruction, 2000).trim(), requestId = text(input.requestId, 200).trim();
+    if (!instruction || !requestId) throw new Error('发布或执行行动需要明确指令和唯一请求标识。');
+    const intent = JSON.stringify({ action, noteId, expectedRevision: input.expectedRevision, versionId: input.versionId, candidateIds: input.candidateIds, indexes: input.indexes, clarifications: input.clarifications, instruction });
+    const id = `pa24-material-${hash(`${agent.id}:${requestId}`)}`;
+    return this.gate(`material-action:${id}`, async () => {
+      let item = await this.repos!.workItems.get(id);
+      if (item && item.instruction !== intent) throw new Error('请求标识已绑定其他资料操作，请重新核对后提交。');
+      if (!item) item = await this.repos!.workItems.insert({ id, title: `${action === 'publish_draft' ? '发布资料' : '执行资料候选'} ${noteId}`, role: 'handwriting', instruction: intent,
+        origin: agent.id === this.accessSessionId ? 'feishu' : 'local', parent_session_id: agent.id, delivery: agent.id === this.accessSessionId ? `feishu:${this.config!.ownerOpenId}` : `local:${agent.id}`, status: 'running' });
+      if (['completed', 'failed'].includes(item.status) && item.result_ref?.materialResult) return item.result_ref.materialResult;
+      if (['failed', 'needs_reconciliation'].includes(item.status)) throw new Error(item.progress || '原资料操作已经失败或中断，请核对后以新请求明确重试。');
+      const run = await this.repos!.workerRuns.beginMaterial(item, { path: this.workspace!.path, id: this.workspace!.id }, action);
+      let outcome: unknown;
+      try {
+        outcome = action === 'publish_draft' ? await this.handwriting.publishDraft(item, noteId, Number(input.expectedRevision)) : await this.noteAdoptActions(item, input);
+      } catch (error) {
+        await this.repos!.workerRuns.finishMaterial(id, (error as Error).message, { message: (error as Error).message }, true);
+        throw error;
+      }
+      const result = { ...outcome as object, workId: id, runId: run.id };
+      const failed = Number((result as { failed?: number }).failed ?? 0);
+      await this.repos!.workerRuns.finishMaterial(id, failed ? `${failed} 项候选未执行，详见逐项结果` : '资料操作已完成，详见逐项结果', result);
+      return result;
     });
   }
 
@@ -3733,10 +3979,12 @@ export class PaRuntime {
     return this.executions.run(async () => {
       if (!this.repos) throw new Error('业务账本未就绪。');
       const queue = await this.repos.notes.reviewQueue();
+      const counts = await this.repos.notes.materialCounts();
       const reminders = await this.repos.reviewReminders.activeAll();
       const history = await this.repos.notes.versionsWithDecisions(30);
       return {
-        count: queue.length,
+        count: (counts.awaiting_review ?? 0) + (counts.needs_rereview ?? 0) + (counts.returned ?? 0),
+        counts,
         items: queue.map(note => ({
           noteId: note.id,
           noteStatus: note.status,
@@ -3797,7 +4045,104 @@ export class PaRuntime {
 
   // ---- diagnostics & readiness ---------------------------------------------
 
+  private connectionVersion(): string {
+    return hash(JSON.stringify([this.sourceHash, this.config?.larkProfile, this.config?.ownerOpenId,
+      this.transportIdentity(this.config, this.secretStore), this.options.larkCliBin, this.options.wecomCliBin, resolveVersions()]));
+  }
+
+  private sanitizeDiagnostic<T>(value: T): T {
+    return redactDiagnostic(value, ['feishuAppSecret', 'pgDsn', 'volcTtsKey'].map(key => this.secretValue(key as SecretKey)));
+  }
+
+  private async recordConnectionEvidence(scope: string, message: string, detail: unknown): Promise<void> {
+    if (!this.repos) return;
+    // Observation failure must not erase a previously saved platform receipt.
+    await this.repos.health.save({ scope, state: 'verified', configVersion: this.connectionVersion(), checkedAt: nowIso(),
+      coverage: '当前生效配置的一次实际平台事件；完整历史计数另列', message, impact: '只证明这次事件覆盖的链路，不证明所有能力。',
+      nextSteps: [], detail }).catch(error => console.warn(`[pa24] 接入证据未保存：${(error as Error).message}`));
+  }
+
+  async healthSnapshot(binding?: unknown): Promise<unknown> {
+    if (binding !== undefined) this.assertWorkspaceBinding(typeof binding === 'string' ? binding : null);
+    if (!this.repos || !this.config) throw new Error('尚未绑定工作区。');
+    return this.connectionHealth.snapshot();
+  }
+
+  async checkHealth(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (input.scopes !== undefined && (!Array.isArray(input.scopes) || !input.scopes.every(scope => typeof scope === 'string'))) throw new Error('健康检查范围必须为列表。');
+      return this.connectionHealth.check(input.scopes as string[] | undefined);
+    });
+  }
+
+  async connectionTest(input: Record<string, unknown>, operation: 'preview' | 'execute' | 'cleanup'): Promise<unknown> {
+    return this.executions.run<unknown>(async () => this.connectionTests[operation](input));
+  }
+
+  async acceptWecomIdentity(input: Record<string, unknown>): Promise<unknown> {
+    return this.transition(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (input.confirm !== true || input.configVersion !== this.connectionVersion()) throw new Error('需核对当前配置与身份后明确确认。');
+      const impacts = await this.repos!.health.impacts();
+      if (impacts.work || impacts.outbox || impacts.reviews) throw new Error(`仍有交办 ${impacts.work} 项、待发/未知 ${impacts.outbox} 条、待审 ${impacts.reviews} 份，请先核对原归属；未切换机器人绑定。`);
+      const identity = input.identity as { ownerId?: unknown; authority?: unknown };
+      if (!identity || typeof identity.ownerId !== 'string' || typeof identity.authority !== 'string') throw new Error('缺少核验得到的真人与机器人标识。');
+      const row = await this.repos!.health.acceptIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
+      this.wecomIdentity = row;
+      this.wecomChannels.invalidate();
+      return { identity: row, message: '已确认新的企微绑定；旧来源和计划未迁移，请按原归属逐项重新登记与核验。' };
+    });
+  }
+
+  async configurationEvidence(binding?: unknown): Promise<unknown> {
+    if (binding !== undefined) this.assertWorkspaceBinding(typeof binding === 'string' ? binding : null);
+    if (!this.workspace || !this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    let savedHash: string | null = null, error: string | null = null;
+    try { savedHash = (await readWorkspaceConfiguration(this.workspace.statePath)).sourceHash; }
+    catch (failure) { error = this.sanitizeDiagnostic((failure as Error).message); }
+    return { path: this.workspace.statePath, activeHash: this.sourceHash, savedHash, loadedAt: this.loadedAt,
+      state: error ? 'source_error' : savedHash === this.sourceHash ? 'applied' : 'saved_not_applied', error,
+      impacts: await this.repos.health.impacts(), configVersion: this.connectionVersion(),
+      message: '源文件和生效配置分别标识；更换默认来源不迁移旧对象、计划或待发。身份变更前先核对进行中交办、待审版本与原渠道回执。' };
+  }
+
+  private async checkLocalHealth(scope: HealthScope): Promise<{ state: HealthState; coverage: string; message: string; impact: string; nextSteps: string[]; detail?: unknown }> {
+    const result = (state: HealthState, coverage: string, message: string, detail?: unknown) => ({ state, coverage, message,
+      impact: '本项只覆盖列明的本地证据；不代表真实账号、模型或设备已验收。', nextSteps: state === 'fault' ? ['在对应卡片修复后重新检查。'] : [], detail });
+    if (scope === 'workspace') {
+      const evidence = await this.configurationEvidence() as { state: string };
+      await this.dbRef.check();
+      return result(evidence.state === 'applied' ? 'verified' : 'partial', '实际工作区配置源与生效版本、账本连通性、在途影响', evidence.state === 'applied' ? '源文件与生效配置一致，实际账本可读取。' : '源文件尚未生效或不可读取，当前旧配置仍在使用。', evidence);
+    }
+    if (scope === 'memory') {
+      const memory = await this.memory!.search({ limit: 1 });
+      return result('verified', '当前 JSON 权威文件可解析；不确认记忆内容真实性', '记忆权威文件可读取。', { total: memory.total });
+    }
+    if (scope === 'materials') return result('unverified', '本地笔记账本和听记工具配置；不读取外部资料或核验手写质量', '材料来源、识别质量及当前听记资料可读性需在资料卡逐项核验。', { qwennoteConfigured: this.config!.extraLocalTools.some(name => name.startsWith(QWENNOTE_TOOL_PREFIX)) });
+    if (scope === 'skills') {
+      await this.skillManagement.list(this.workspaceBinding);
+      return result('verified', '本地 Skill 管理目录及版本登记可读取；不运行 Skill', 'Skill 管理目录可读取，具体依赖与运行结果以单项记录为准。');
+    }
+    if (scope === 'plans') {
+      const taskPlans = await this.repos!.taskPlans.summary();
+      return result('verified', '旧计划与通用定时任务的配置、启停和阻断账本可读取；不补触发、不执行 Skill',
+        '计划账本可读取；每条计划的独立阻断与运行证据请在定时任务卡查看。', { taskPlans });
+    }
+    if (scope === 'models') return result('unverified', '已生效的模型路由声明，不请求模型', '路由存在不代表模型可用或账单预算已核验。', { workerModels: this.config!.workerModels });
+    if (scope === 'voice') return result(this.config!.tts.engine === 'none' ? 'disabled' : this.ttsProbeCache?.result.ready ? 'verified' : 'unverified', '语音配置与最近显式预检；不合成、不发送', this.config!.tts.engine === 'none' ? '语音未启用。' : '语音状态以当前配置的显式预检和试听回执为准。', this.ttsProbeCache);
+    return result('unverified', '账本存储类型与备份能力说明；不执行备份或恢复演练', '本次只读检查不证明备份完整或恢复成功，请查看备份、校验和演练各自记录。', { storage: this.config!.storage });
+  }
+
   async checkAccess(): Promise<AccessDiagnostics> {
+    return this.executions.run(async () => {
+      const result = await this.inspectFeishuAccess();
+      await this.connectionHealth.check(['feishu'], { feishu: result });
+      return result;
+    });
+  }
+
+  private async inspectFeishuAccess(): Promise<AccessDiagnostics> {
     return this.executions.run(async () => {
       if (this.checking) return this.checking;
       if (!this.workspace || !this.config) throw new Error('尚未绑定工作区。');
@@ -3806,9 +4151,19 @@ export class PaRuntime {
       const bin = this.options.larkCliBin;
       // F36: 报错脱敏覆盖密钥库来源的真实值（env 值 safeError 自行读）。
       const extraSecrets = [this.secretValue('feishuAppId'), this.secretValue('feishuAppSecret')].filter(Boolean);
-      const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets)
-        .then(result => {
-          if (this.workspace === workspace) this.diagnostics = result;
+      const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets, this.secretValue('feishuAppId'))
+        .then(async result => {
+          if (this.workspace === workspace) {
+            this.diagnostics = result;
+            if (typeof result.auth.openId === 'string' && typeof result.auth.appId === 'string') {
+              const identity = { ownerId: result.auth.openId, authority: `app:${result.auth.appId}:tenant:${result.auth.tenantKey ?? 'unverified'}` };
+              const observed = await this.repos!.health.observeIdentity('feishu', identity);
+              // Feishu's expected binding is explicitly held in configuration.
+              // A matching configured identity may be accepted; a foreign
+              // profile never silently rewrites the configured owner or app.
+              if (observed.changed && result.auth.state === 'ok') await this.repos!.health.acceptIdentity('feishu', identity);
+            }
+          }
           return result;
         })
         .finally(() => {
@@ -3880,6 +4235,8 @@ export class PaRuntime {
           config: this.config,
           loadedAt: this.loadedAt,
           configError: this.configError,
+          sourceHash: this.sourceHash,
+          configVersion: this.connectionVersion(),
           accessSessionId: this.accessSessionId,
           localSessionId: this.localSessionId,
         }

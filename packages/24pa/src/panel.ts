@@ -23,9 +23,15 @@ export const PANEL_RPC = {
     snapshot: 'snapshot',
     action: 'action',
     memory: 'memory',
+    memoryHistory: 'memory.history',
     health: 'health',
     budget: 'budget',
+    healthSnapshot: 'health.snapshot',
+    healthTestPreview: 'health.test.preview',
+    configEvidence: 'workspace.evidence',
     notesQueue: 'notes.queue',
+    materials: 'materials',
+    minutes: 'minutes',
     roles: 'roles',
     reminders: 'reminders',
     digests: 'digests',
@@ -52,6 +58,7 @@ export const PANEL_RPC = {
     workerRun: 'worker.run',
     sources: 'sources',
     calendar: 'calendar',
+    todos: 'todos',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -60,7 +67,12 @@ export const PANEL_RPC = {
     workspaceSecretUpdate: 'workspace.secret-update',
     connectionCheck: 'connection.check',
     connectionWecomCheck: 'connection.wecom-check',
+    healthCheck: 'health.check',
+    healthTest: 'health.test',
+    healthTestCleanup: 'health.test.cleanup',
+    healthIdentityAccept: 'health.identity-accept',
     notesPoll: 'notes.poll',
+    materialChange: 'material.change',
     notesRemindPoll: 'notes.remind-poll',
     digestSupervise: 'digest.supervise',
     digestReschedule: 'digest.reschedule',
@@ -80,6 +92,7 @@ export const PANEL_RPC = {
     planDelivery: 'plan.delivery',
     sourceCheck: 'source.check',
     calendarVerify: 'calendar.verify',
+    todosVerify: 'todos.verify',
     testInject: 'test.inject',
   },
 } as const;
@@ -105,6 +118,9 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           if (endpoint === E.action) return respond({ ok: true, value: await action(runtime, payload) });
           if (endpoint === E.snapshot && runtime.closed) return respond({ ok: true, value: { ...runtime.snapshot(), work: [], outbox: [], configMeta: { fields: CONFIG_FIELDS } } });
           return await runtime.inspectWorkspace(async () => {
+            if (endpoint === E.healthSnapshot) return respond({ ok: true, value: await runtime.healthSnapshot(payload.workspaceBinding) });
+            if (endpoint === E.healthTestPreview) return respond({ ok: true, value: await runtime.connectionTest(payload, 'preview') });
+            if (endpoint === E.configEvidence) return respond({ ok: true, value: await runtime.configurationEvidence(payload.workspaceBinding) });
             if (endpoint === E.skillsCatalog) return respond({ ok: true, value: await runtime.skillManagement.list(payload.workspaceBinding) });
             if (endpoint === E.skillsInspect) return respond({ ok: true, value: await runtime.skillManagement.inspect(payload.id, payload.workspaceBinding) });
             if (endpoint === E.skillsExport) return respond({ ok: true, value: await runtime.skillManagement.exportMarkdown(payload.id, payload.fingerprint, payload.workspaceBinding, typeof payload.versionId === 'string' ? payload.versionId : undefined) });
@@ -130,21 +146,10 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.planRunPreview) return respond({ ok: true, value: await runtime.planEngine.previewRun(payload) });
             if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
             if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });
+            if (endpoint === E.todos) return respond({ ok: true, value: await runtime.todoSnapshot(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
-            if (endpoint === E.memory) {
-              if (!runtime.memory) throw new Error('尚未绑定工作区。');
-              return respond({
-                ok: true,
-                value: await runtime.memory.search({
-                  query: str(payload.query),
-                  category: str(payload.category),
-                  topic: str(payload.topic),
-                  status: str(payload.status),
-                  limit: Number.isFinite(Number(payload.limit)) ? Number(payload.limit) : 20,
-                  offset: Number.isFinite(Number(payload.offset)) ? Number(payload.offset) : 0,
-                }),
-              });
-            }
+            if (endpoint === E.memoryHistory) return respond({ ok: true, value: await runtime.memorySnapshot(payload, true) });
+            if (endpoint === E.memory) return respond({ ok: true, value: await runtime.memorySnapshot(payload) });
             if (endpoint === E.budget) return respond({ ok: true, value: await runtime.modelBudgets.snapshot(payload) });
             if (endpoint === E.health) {
               return respond({ ok: true, value: await runtime.maintenanceHealth() });
@@ -152,6 +157,8 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.notesQueue) {
               return respond({ ok: true, value: await runtime.reviewQueue() });
             }
+            if (endpoint === E.materials) return respond({ ok: true, value: await runtime.materialSnapshot(payload) });
+            if (endpoint === E.minutes) return respond({ ok: true, value: await runtime.minutesSnapshot() });
             if (endpoint === E.roles) {
               return respond({ ok: true, value: { roles: runtime.listRoles() } });
             }
@@ -210,10 +217,16 @@ function requiredBinding(payload: PanelAction): string {
 
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.budgetRelease]: (runtime, payload) => runtime.releaseBudget(payload),
+  [PANEL_RPC.actions.materialChange]: (runtime, payload) => runtime.changeMaterial(payload),
+  [PANEL_RPC.actions.healthCheck]: (runtime, payload) => runtime.checkHealth(payload),
+  [PANEL_RPC.actions.healthTest]: (runtime, payload) => runtime.connectionTest(payload, 'execute'),
+  [PANEL_RPC.actions.healthTestCleanup]: (runtime, payload) => runtime.connectionTest(payload, 'cleanup'),
+  [PANEL_RPC.actions.healthIdentityAccept]: (runtime, payload) => runtime.acceptWecomIdentity(payload),
   [PANEL_RPC.actions.skillChange]: (runtime, payload) => runtime.changeSkill(payload),
   [PANEL_RPC.actions.skillRun]: (runtime, payload) => runtime.runSkill(payload),
   [PANEL_RPC.actions.sourceCheck]: (runtime, payload) => runtime.checkSource(payload),
   [PANEL_RPC.actions.calendarVerify]: (runtime, payload) => runtime.verifyCalendar(payload),
+  [PANEL_RPC.actions.todosVerify]: (runtime, payload) => runtime.verifyTodos(payload),
   [PANEL_RPC.actions.workspaceBind]: async (runtime, payload) => {
     const path = String(payload.path ?? '');
     return runtime.bind(path, true).then(() => snapshot(runtime));
@@ -222,7 +235,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.workspaceConfigUpdate]: (runtime, payload) => {
     const config = payload.config as Record<string, unknown> | undefined;
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ConfigError('缺少配置补丁。');
-    return runtime.updateWorkspaceConfig(config, requiredBinding(payload), str(payload.expectedSourcesHash)).then(() => snapshot(runtime));
+    return runtime.updateWorkspaceConfig(config, requiredBinding(payload), str(payload.expectedSourcesHash), str(payload.expectedConfigHash)).then(() => snapshot(runtime));
   },
   // F36: 密钥值进工作区密钥库（.24pa/secrets.json，0600），与 AGENTS.md 解耦。
   [PANEL_RPC.actions.workspaceSecretUpdate]: (runtime, payload) => {

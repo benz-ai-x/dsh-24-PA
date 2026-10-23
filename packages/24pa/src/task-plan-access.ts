@@ -9,6 +9,11 @@ const writes: Record<string, { domain: SourceDomain; capability: SourceCapabilit
   task_create: { domain: 'todo', capability: 'create' }, task_update: { domain: 'todo', capability: 'update' },
   task_complete: { domain: 'todo', capability: 'update' }, task_cancel: { domain: 'todo', capability: 'cancel' },
 };
+// Todo containers prove the readable identity/scope, not permission to mutate
+// every contained object. The exact operation remains in the authorization;
+// SourceTodoWrites checks each original object and its requested effect.
+const scopeCapability = (domain: SourceDomain, capability: SourceCapability): SourceCapability =>
+  domain === 'todo' && ['update', 'cancel'].includes(capability) ? 'read' : capability;
 const reads = new Set(['calendar_sources', 'calendar_query', 'calendar_busy', 'task_get', 'task_list', 'memo_find']);
 const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
@@ -41,7 +46,7 @@ export class TaskPlanAccess {
     const targets: TaskPlanAuthorization['targets'] = [];
     for (const action of skill.contract?.actions ?? []) {
       const write = writes[action]; if (!write || targets.some(row => row.target.domain === write.domain && row.capability === write.capability)) continue;
-      const target = await this.deps.sources.bind(write.domain, config.selectors[write.domain], write.capability);
+      const target = await this.deps.sources.bind(write.domain, config.selectors[write.domain], scopeCapability(write.domain, write.capability), true);
       const sameDomain = targets.find(row => row.target.domain === write.domain)?.target;
       if (sameDomain && (sameDomain.identityKey !== target.identityKey || sameDomain.resource.id !== target.resource.id || sameDomain.registrationRevision !== target.registrationRevision)) throw new Error('目标核验过程中身份或资源改变，请重新预览。');
       targets.push({ target, capability: write.capability });
@@ -51,7 +56,7 @@ export class TaskPlanAccess {
   }
   async verify(authorization: TaskPlanAuthorization): Promise<void> {
     for (const action of authorization.skill.contract?.actions ?? []) this.checkAction(action);
-    for (const row of authorization.targets) await this.deps.sources.verify(row.target, row.capability);
+    for (const row of authorization.targets) await this.deps.sources.verify(row.target, scopeCapability(row.target.domain, row.capability), true);
     await this.verifyDelivery(authorization.delivery);
   }
   async verifyDelivery(delivery: TaskPlanAuthorization['delivery']): Promise<void> {
@@ -70,7 +75,7 @@ export class TaskPlanAccess {
     }
     const binding = authorization.targets.find(row => row.target.domain === write.domain && row.capability === write.capability);
     if (!binding) throw new Error('本计划缺少已确认的业务目标。');
-    await this.deps.sources.verify(binding.target, binding.capability);
+    await this.deps.sources.verify(binding.target, scopeCapability(binding.target.domain, binding.capability), true);
     const selected = authorization.selectors?.[write.domain] ?? {};
     const basis = binding.target.selectedBy === 'explicit' ? { sourceId: selected.sourceId }
       : binding.target.selectedBy === 'mapping' ? { company: selected.company, project: selected.project } : {};

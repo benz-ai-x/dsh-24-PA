@@ -3,7 +3,7 @@ import { effectiveSources, selectSource, sourceScopeFingerprint, SourceError, ty
 import type { SourceRepo, SourceEvidenceRow, SourceRegistrationRow } from './repo/source.js';
 
 export type SourceCapability = 'read' | 'create' | 'update' | 'cancel' | 'leave' | 'reminders' | 'series';
-export type CapabilityVerdict = 'allowed' | 'denied' | 'unknown' | 'adapter_unavailable';
+export type CapabilityVerdict = 'allowed' | 'attemptable' | 'denied' | 'unknown' | 'adapter_unavailable';
 export interface SourceIdentity {
   platform: SourcePlatform;
   ownerId: string;
@@ -31,6 +31,8 @@ export interface SourceTarget {
   scopeHash: string;
   connectionHash: string;
   selectedBy: 'explicit' | 'mapping' | 'default';
+  /** Frozen evidence: attemptable permits a requested create, not a verified write permission. */
+  permission?: { capability: SourceCapability; verdict: CapabilityVerdict };
   checkedAt: string;
 }
 export interface SourceRegistryDeps {
@@ -38,6 +40,8 @@ export interface SourceRegistryDeps {
   config(): LegacySourceConfiguration;
   /** A non-secret digest of the active adapter identity/config generation. */
   connectionHash(platform: SourcePlatform): string;
+  /** Observed identity changes invalidate cached successes without changing configuration. */
+  evidenceCurrent?(evidence: SourceEvidence): boolean;
   probe(source: SourceRegistration): Promise<SourceEvidence>;
   gate<T>(key: string, work: () => Promise<T>): Promise<T>;
 }
@@ -66,7 +70,8 @@ export class SourceRegistry {
   }
   private validEvidence(source: SourceRegistration, row: SourceRegistrationRow, proof: SourceEvidenceRow | null): boolean {
     return !!proof && !row.removed && proof.registration_revision === row.revision && proof.scope_hash === sourceScopeFingerprint(source)
-      && proof.connection_hash === this.deps.connectionHash(source.platform);
+      && proof.connection_hash === this.deps.connectionHash(source.platform)
+      && (proof.evidence.state !== 'verified' || this.deps.evidenceCurrent?.(proof.evidence) !== false);
   }
 
   async check(id: string): Promise<SourceEvidence> {
@@ -93,9 +98,11 @@ export class SourceRegistry {
     });
   }
 
-  /** Resolve once at authorization time; the snapshot survives future default changes. */
-  async bind(domain: SourceDomain, selector: SourceSelector = {}, capability: SourceCapability = 'create'): Promise<SourceTarget> {
-    const { source, reason } = selectSource(effectiveSources(this.deps.config()), domain, selector, capability !== 'read');
+  /** Resolve once at authorization time; the snapshot survives future default changes.
+   * Object mutations can require a writable registration while proving only
+   * scope readability; the adapter must still check the actual object. */
+  async bind(domain: SourceDomain, selector: SourceSelector = {}, capability: SourceCapability = 'create', writable = capability !== 'read'): Promise<SourceTarget> {
+    const { source, reason } = selectSource(effectiveSources(this.deps.config()), domain, selector, writable || capability !== 'read');
     const connection = this.deps.connectionHash(source.platform);
     const proof = await this.check(source.id);
     this.assertCapability(proof, capability, source.name);
@@ -103,7 +110,7 @@ export class SourceRegistry {
     const current = effectiveSources(this.deps.config()).entries.find(item => item.id === source.id);
     if (!current || row.removed || row.scope_hash !== sourceScopeFingerprint(source) || sourceScopeFingerprint(current) !== row.scope_hash || connection !== this.deps.connectionHash(source.platform)) throw new SourceError('目标解析期间来源已变更，请重新确认。');
     return { sourceId: source.id, domain, platform: source.platform, identity: proof.identity!, identityKey: sourceIdentityKey(proof.identity!), resource: proof.resource!,
-      registrationRevision: row.revision, scopeHash: row.scope_hash, connectionHash: connection, selectedBy: reason, checkedAt: proof.checkedAt };
+      registrationRevision: row.revision, scopeHash: row.scope_hash, connectionHash: connection, selectedBy: reason, permission: { capability, verdict: proof.capabilities[capability] }, checkedAt: proof.checkedAt };
   }
 
   /** Explicit routing conditions cannot silently replace a frozen target. */
@@ -119,10 +126,10 @@ export class SourceRegistry {
   }
 
   /** Current registration and actual permissions may only narrow an existing authorization. */
-  async verify(target: SourceTarget, capability: SourceCapability): Promise<SourceEvidence> {
+  async verify(target: SourceTarget, capability: SourceCapability, writable = capability !== 'read'): Promise<SourceEvidence> {
     const source = effectiveSources(this.deps.config()).entries.find(row => row.id === target.sourceId);
     if (!source || !source.enabled || sourceScopeFingerprint(source) !== target.scopeHash) throw new SourceError('原目标的来源、接入身份或授权范围已变更；需明确修复或重配，不能改投新默认。');
-    if (capability !== 'read' && source.access !== 'readwrite') throw new SourceError('原来源已改为只读。');
+    if ((writable || capability !== 'read') && source.access !== 'readwrite') throw new SourceError('原来源已改为只读。');
     const connection = this.deps.connectionHash(target.platform);
     const proof = await this.check(source.id), registration = await this.deps.repo().get(source.id);
     if (!registration || registration.revision !== target.registrationRevision || connection !== this.deps.connectionHash(target.platform)) throw new SourceError('原来源已移除、重新登记或正在切换接入，请核对原目标后重配。');
@@ -131,6 +138,7 @@ export class SourceRegistry {
     return proof;
   }
   private assertCapability(proof: SourceEvidence, capability: SourceCapability, name: string): void {
-    if (proof.state !== 'verified' || !proof.identity || !proof.resource || proof.capabilities[capability] !== 'allowed') throw new SourceError(`来源「${name}」的 ${capability} 能力未核验通过：${proof.message}`);
+    const permitted = proof.capabilities[capability] === 'allowed' || (capability === 'create' && proof.capabilities.create === 'attemptable');
+    if (proof.state !== 'verified' || !proof.identity || !proof.resource || !permitted) throw new SourceError(`来源「${name}」的 ${capability} 能力未核验通过：${proof.message}`);
   }
 }

@@ -164,7 +164,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     await writeScript({
       mode: 'dispatch',
       leadReply: '已按你的指示记住/整理。',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'm-meeting', category: 'preference', topic: '会议', content: '会议之间留 15 分钟缓冲', source: '本人指示', status: 'confirmed', reason: '本人明确偏好', expectedRevision: 0 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'm-meeting', category: 'preference', topic: '会议', content: '会议之间留 15 分钟缓冲', source: '本人指示', status: 'confirmed', confirmation: '本人明确要求记住此条内容', reason: '本人明确偏好', expectedRevision: 0 } },
     });
     await promptLocal('f02-mem-1', '记住：会议之间留 15 分钟缓冲');
     let memory = await waitMemoryRevision(1, '首次写入');
@@ -177,7 +177,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     await writeScript({
       mode: 'dispatch',
       leadReply: '已记住。',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'm-meeting', category: 'preference', topic: '会议', content: '会议之间留 20 分钟缓冲', source: '本人指示', status: 'confirmed', reason: '更正', expectedRevision: 0 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'm-meeting', category: 'preference', topic: '会议', content: '会议之间留 20 分钟缓冲', source: '本人指示', status: 'confirmed', confirmation: '本人明确要求记住此条内容', reason: '更正', expectedRevision: 0 } },
     });
     await promptLocal('f02-mem-2', '更正：留 20 分钟');
     for (let i = 0; i < 40; i++) {
@@ -194,7 +194,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     await writeScript({
       mode: 'dispatch',
       leadReply: '已记住重复条目，准备整理。',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'm-meeting-dup', category: 'preference', topic: '会议', content: '会议之间留 15 分钟缓冲', source: '本人指示', status: 'confirmed', reason: '重复记录', expectedRevision: 1 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'm-meeting-dup', category: 'preference', topic: '会议', content: '会议之间留 15 分钟缓冲', source: '本人指示', status: 'confirmed', confirmation: '本人明确要求记住此条内容', reason: '重复记录', expectedRevision: 1 } },
     });
     await promptLocal('f02-mem-3', '再记一遍同一条');
     await waitMemoryRevision(2, '写入重复条目');
@@ -205,7 +205,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     });
     await promptLocal('f02-mem-4', '整理会议主题的记忆，删除重复项');
     await waitMemoryRevision(3, '应用变更集');
-    memory = await host.api('memory', {});
+    memory = await host.api('memory', { lifecycle: 'active' });
     expect(memory.revision).toBe(3);
     expect(memory.matched).toBe(1);
     await writeScript({

@@ -11,7 +11,7 @@ import { WORKER_PERSONA_SKILLS } from './skills.js';
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.10.0';
+export const PROMPTS_VERSION = '1.11.0';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -52,13 +52,13 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
   {
     name: '24pa-business-domains',
     order: 902,
-    version: 5,
+    version: 6,
     text: [
       '## 24私助：业务要点',
       '### 备忘整理',
       '明确的“记一下”交给 memo Worker 保存，返回文档出处；需要找回资料时委派 memo Worker 用 memo_find 按主题、日期或关键词检索。',
       '### 待办与项目',
-      '明确的待办交给 tasks Worker 创建真实待办并返回标识（渠道由工作区配置 todoChannel 决定：feishu 建飞书任务、wecom 建企微待办；不双写）；完成须有本人明确动作。企微待办首版支持创建/完成/删除，不支持修改——需要调整时删除后重建并说明。截止时间、计划投入时间和估时分开记录；目标拆解先给子任务建议，本人采纳后才用 project_adopt 入账并按实际任务状态汇报进展。',
+      '记录待办交给 tasks Worker，按明确来源、公司／项目映射、默认来源选择一个真实平台目标；本人待办默认主人负责，指定他人需明确分派指令。查询覆盖全部已登记来源，本次明确角色替代来源默认角色，缺口如实说明。创建成功只代表记录成功，不代表助理执行或业务完成；“帮我完成”另行建立助理交办，仅明确两者都要才关联。延期、修改、完成和取消均操作原待办，未知先核对，不删除重建；本人份额与整项完成、退出与删除分别判断。无截止保持未设置，截止、投入与提醒分开；项目拆解先建议，经本人采纳后入账。',
       '### 提醒',
       '时间/时区/内容确认后交给 reminders Worker；时钟提醒选定唯一登记日历，由对应 App 在指定时刻提醒；其他主动消息按 notifyChannel 选择飞书或企微机器人单向推送；企微不做收信。取消绑定原规则和事件，业务会议仅取消提醒时保留会议。条件跟进由智能任务 skill 承接；只报告平台接受，不推断已读。免打扰与临时休假在本地24私助会话中写入记忆（主题「通知偏好」/「休假」）。',
       '### 日程',
@@ -68,9 +68,9 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
       '### 规划与简报',
       'plan_today/plan_preview 给出重点、容量、冲突与候选时间块（只是建议，截止与安排分开）；plan_adopt 只写入你选定的块（写前重新复核）。digest Worker 由原生 Schedule 在晨报/晚间/每周窗口唤醒 Lead 后委派（digest_enable/control/list 管理计划）；简报事实与建议分开、带来源和数据缺失，绝不自动延期或写记忆。',
       '### 手写笔记',
-      '本人飞书拍照会自动收集为编号笔记（如 N-1，原稿与页序入账本）。本人要求整理时，用 pa24_delegate 委派 handwriting 并携带 noteId（需要配置视觉模型路由）；Worker 提交转写/摘要/疑点/候选行动后，待审文档和审核卡发给本人——批准/退回只能由本人在卡片上完成，你和 Worker 都没有审核权。审核后可用 pa24_notes verify 核验文档是否被改动、republish 重发候选版本。',
+      '本人飞书拍照会自动收集为编号笔记（如 N-1，原稿与页序入账本）。本人要求整理时，用 pa24_delegate 委派 handwriting 并携带 noteId（需要配置视觉模型路由）；Worker 提交转写/摘要/疑点/候选行动后，待审文档和审核卡发给本人——批准/退回只能由本人在卡片上完成，你和 Worker 都没有审核权。对照原稿与识别结果时用 pa24_notes detail；save_draft 仅保存人工草稿，必须另用 publish_draft 明确发布待审版本。重新识别不会覆盖人工草稿；版本正文、页序、疑点和候选差异需核对。审核后用 verify 核验内容，resend 只重发当前审核入口；远端文档改变后 republish 固定新正文，但候选需重新整理。adopt_actions 只执行当前已审版本中主人明确选定的候选，候选 ID 跨版本保留；已有成功对象只关联，变更先提出建议。',
       '### 听记资料',
-      '主人提及录音卡、听记、速记或需要会议转写原文时，先用 mcp__qwennote__* 工具查询最近听记并按标题/时间定位读取（仅本地24私助会话可用，经 extraLocalTools 放行；工具未放行或未配置时如实说明，不臆造听记内容）。引用听记必须带来源（标题与时间）；从中提炼的待办、日程等候选行动一律走既有候选行动→本人审核→行动授权流程，不因来源是听记而跳过确认。',
+      '主人提及录音卡、听记、速记或需要会议转写原文时，先用 mcp__qwennote__* 工具查询最近听记并按标题/时间定位读取（仅本地24私助会话可用，经 extraLocalTools 放行；工具未放行或未配置时如实说明，不臆造听记内容）。引用听记必须带实际资料类型、来源（标题与时间）。需要保存所选资料时用 pa24_notes action=import_minutes，提供真实成功 tool/result 的 callId、materialType、title 和主人指令；sourceText 只能取该次回执原文。保存后仅生成本地草稿，可用 detail/save_draft 整理，publish_draft 明确发布新的待审版本；保存不等于发布，审核不等于行动授权。工具挂载不能证明可读，不全库同步或自动写记忆；从中提炼的待办、日程等候选行动一律走既有候选行动→本人审核→行动授权流程，不因来源是听记而跳过确认。',
       '### JSON 记忆',
       '办理工作前按需用 pa24_memory search 检索相关偏好/事实（带来源与确认状态）；写入、整理与撤销只在 dsh 的24私助本地会话进行，先取 revision 再提交。不做自动整理。',
       '### dsh 工作区维护',
@@ -113,9 +113,9 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     version: 2,
   },
   tasks: {
-    brief: 'task_*（创建/更新/完成/查询/取消）、project_*（拆解与入账）、outreach_send/task_assign（需 instruction 依据）、task_repeat_*（周期模板）、waiting_*（等待事项与检查点，只提醒本人不催办他人）。',
+    brief: 'task_create {summary,due?,sourceId?/company?/project?,assigneeIds?,instruction?}；task_list {role?:all/responsible/following/assigned/creator,status?,sourceId?,query?,limit?,offset?}；task_get/update/complete/cancel/assign {guid或objectId,sourceId?,effect?:self/whole} 操作原待办；project_*（拆解与入账）、outreach_send/task_assign（需 instruction 依据）、task_repeat_*（周期模板）、waiting_*（等待事项与检查点，只提醒本人不催办他人）。',
     doneCriteria: '平台回执（任务链接/操作编号）已取得并交回；结果未知时已核对后再答复。',
-    version: 2,
+    version: 3,
   },
   skill: {
     brief: 'skill_run {skill}（载入放行的任务 skill 正文并按其执行；仅 extraBusinessSkills 放行面内可达）。',

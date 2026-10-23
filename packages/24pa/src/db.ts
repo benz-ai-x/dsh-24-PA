@@ -818,6 +818,50 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
     ],
   },
   {
+    version: 28,
+    statements: [
+      `create table if not exists pa24.health_evidence (
+        id text primary key, scope text not null, config_version text not null, state text not null,
+        record jsonb not null, checked_at timestamptz not null
+      )`,
+      `create index if not exists health_evidence_scope_idx on pa24.health_evidence (scope, checked_at)`,
+      `create table if not exists pa24.health_test (
+        id text primary key, request_hash text not null, config_version text not null, status text not null,
+        plan jsonb not null, result jsonb, cleanup jsonb,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.health_monitor (
+        id text primary key, record jsonb not null, updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.health_identity (
+        platform text primary key, accepted jsonb not null, observed jsonb not null,
+        changed boolean not null default false, accepted_at timestamptz not null default now(),
+        observed_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+    ],
+  },
+  {
+    version: 29,
+    statements: [
+      `create table if not exists pa24.note_material (
+        note_id text primary key, revision integer not null, draft jsonb not null, recognition jsonb,
+        source jsonb not null, edited_by text not null, published_revision integer,
+        updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.note_action_link (
+        note_id text not null, candidate_id text not null, operation_id text not null,
+        version_id text not null, parameters jsonb not null, authorization_record jsonb not null,
+        created_at timestamptz not null default now(), primary key (note_id, candidate_id)
+      )`,
+      `create table if not exists pa24.material_read_evidence (
+        session_id text not null, call_id text not null, tool_name text not null,
+        configuration text not null, state text not null, read_at timestamptz not null default now(),
+        primary key (session_id, call_id)
+      )`,
+    ],
+  },
+  {
     version: 30,
     statements: [
       `alter table pa24.worker_run_input add column if not exists message jsonb`,

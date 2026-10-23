@@ -38,7 +38,7 @@ export class ExternalOperations {
     return { channel, args: { summary: p.summary, due: p.due, timeZone: p.timeZone ?? null,
       start: p.start, end: p.end, calendarId: p.calendarId, channel,
       _tasklistId: p.tasklistId, _operationId: id, _instruction: p.instruction,
-      _authorization: Object.fromEntries(['minutesId', 'noteId', 'versionId', 'index', 'sourceQuote', 'clarification', ...(family === 'calendar' ? ['instruction'] : [])].filter(key => p[key] !== undefined).map(key => [key, p[key]])) } };
+      _authorization: Object.fromEntries(['minutesId', 'noteId', 'versionId', 'index', 'sourceQuote', 'clarification', 'candidateId', 'owner', 'sourceSessionId', 'parametersFingerprint', 'instruction'].filter(key => p[key] !== undefined).map(key => [key, p[key]])) } };
   }
 
   stage(item: Pick<WorkItemRow, 'id'>, action: string, paramsKey: string, params: Record<string, unknown>, hint?: string) {

@@ -7,6 +7,7 @@ interface SourceAccessDeps {
   config(): PaConfig;
   lark(args: string[]): Promise<{ data: any }>;
   wecom(args: string[]): Promise<{ data: any; raw: unknown }>;
+  observeWecomIdentity?(identity: SourceIdentity): Promise<void>;
 }
 
 /** Read-only, versioned adapter evidence. Resource roles never replace object-level checks. */
@@ -26,12 +27,15 @@ export class SourceAccess {
     const bot = /机器人身份：\s*名字：.+?\s*ID：([A-Za-z0-9_-]+)/.exec(context);
     const person = /授权真人用户身份：\s*名字：.+?\s*ID：([A-Za-z0-9_-]+)/.exec(context);
     if (!bot || !person) throw new Error('企微机器人和授权真人身份未核验一致，请重新检查接入。');
-    return { platform, ownerId: person[1]!, authority: `bot:${bot[1]}` };
+    const identity = { platform, ownerId: person[1]!, authority: `bot:${bot[1]}` };
+    await this.deps.observeWecomIdentity?.(identity);
+    return identity;
   }
   async check(source: SourceRegistration): Promise<SourceEvidence> {
     const result: SourceEvidence = { checkedAt: new Date().toISOString(), state: 'pending', identity: null, resource: null, capabilities: unknownCapabilities(), message: '尚未核验' };
     if (!source.resourceId) return { ...result, message: '请先补齐资源标识。' };
-    return source.platform === 'feishu' ? this.feishu(source, result) : this.wecom(source, result);
+    const evidence = await (source.platform === 'feishu' ? this.feishu(source, result) : this.wecom(source, result));
+    return { ...evidence, checkedAt: new Date().toISOString() };
   }
 
   private async feishu(source: SourceRegistration, result: SourceEvidence): Promise<SourceEvidence> {
@@ -65,6 +69,12 @@ export class SourceAccess {
         capabilities: { ...result.capabilities, read: 'allowed', create: writable ? 'allowed' : 'unknown' },
         message: '清单详情可读；清单协作权限与每项待办的负责人、完成和删除权限分别核验。' };
     }
+    if (source.domain === 'todo' && source.resourceKind === 'authorized_scope' && source.resourceId === 'authorized') {
+      await this.deps.lark(['task', '+get-related-tasks', '--as', 'user', '--include-complete', '--page-limit', '1']);
+      return { ...result, state: 'verified', identity, resource: { kind: 'authorized_scope', id: 'authorized' }, role: 'related_tasks',
+        capabilities: { ...result.capabilities, read: 'allowed', create: 'attemptable' },
+        message: '本人相关待办接口可读；创建权限尚未核验，仅可按明确授权尝试，平台拒绝须如实报告；以实际返回的创建、负责和关注关系为准，不等同于企业全部待办。' };
+    }
     return { ...result, identity, capabilities: { ...result.capabilities, read: 'adapter_unavailable' }, message: '当前飞书适配器尚未接通该授权范围类型，请登记具体日历或清单。' };
   }
 
@@ -79,7 +89,7 @@ export class SourceAccess {
       ? ['calendar', 'schedules', 'list', '--begin-time', wecomWallTime(now, zone), '--end-time', wecomWallTime(end, zone)]
       : ['todo', 'list', '--status-filter', '["proceed"]', '--limit', '1']);
     return { ...result, state: 'verified', identity, resource: { kind: 'authorized_scope', id: 'authorized' }, role: 'authorized_scope',
-      capabilities: { ...result.capabilities, read: 'allowed', create: 'allowed' },
-      message: '当前真人授权范围的服务访问通过，可按明确指令提交创建；实际写入以回执为准。此范围不是可指定的公司／项目日历容器，既有对象覆盖和逐项角色须另行核验。' };
+      capabilities: { ...result.capabilities, read: 'allowed', create: 'attemptable' },
+      message: '当前真人授权范围可读；创建权限尚未核验，仅可按明确授权尝试，平台拒绝须如实报告，实际写入以回执为准。此范围不是可指定的公司／项目日历容器，既有对象覆盖和逐项角色须另行核验。' };
   }
 }
