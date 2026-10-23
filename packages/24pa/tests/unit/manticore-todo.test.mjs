@@ -68,7 +68,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     if (args[1] === 'tasks' && args[2] === 'get') {
       if (failure === 'get') throw Error('readback offline');
       if (!remote.has(key)) throw Error('not found');
-      return { data: { task: remote.get(key) } };
+      return { data: { task: failure === 'description' ? { ...remote.get(key), description: '旧描述' } : remote.get(key) } };
     }
     if (failure === 'unknown') throw Object.assign(Error('response lost'), { outcome: 'unknown' });
     const data = flag('--data') ? JSON.parse(flag('--data')) : {};
@@ -113,7 +113,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     config = { ...DEFAULT_CONFIG, ownerOpenId: 'owner', sources: registration() }; remote = new Map(); calls = []; failure = null; mismatch = false; gates = new Map();
     registry = new SourceRegistry({ repo: () => repos.sources, config: () => config, connectionHash: () => 'connection', probe: async source => proof(source), gate });
     await registry.synchronize(); reader = new SourceTodoReader({ timeZone: () => config.timeZone, lark, wecom });
-    service = new SourceTodo({ config: () => config, registry, projection: () => repos.sourceProjection, read: t => reader.read(t), object: (t, guid) => reader.object(t, guid), localTasks: () => repos.tasks.all(), relations: () => repos.operations.todoAssignments(), gate });
+    service = new SourceTodo({ config: () => config, registry, projection: () => repos.sourceProjection, read: t => reader.read(t), object: (t, guid) => reader.object(t, guid), localTasks: () => repos.tasks.all(), operation: id => repos.operations.get(id), projectTasks: id => repos.projects.tasksOf(id), relations: () => repos.operations.todoAssignments(), gate });
     writes = new SourceTodoWrites({ config: () => config, registry, todos: service, reader, repos: () => repos, external: new ExternalOperations(() => repos.operations), lark, wecom, gate, notify: async () => {} });
     work = await repos.workItems.insert({ id: 'work', title: '记录待办', role: 'tasks', instruction: '本人记录待办', origin: 'local', parent_session_id: 'parent', child_session_id: 'child', delivery: 'parent', status: 'running' });
   });
@@ -240,6 +240,30 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     expect(remote.size).toBe(1);
   });
 
+  it('描述读回仍为旧内容时标记不一致，明确修正只更新原对象', async () => {
+    const created = await writes.write(work, 'create', { summary: '描述核验', description: '旧描述' });
+    failure = 'description';
+    const result = await writes.write(work, 'update', { guid: created.guid, description: '新描述' });
+    expect(result.verification).toMatchObject({ state: 'mismatch', differences: ['描述与请求不符'] });
+    failure = null;
+    const repaired = await writes.write(work, 'update', { guid: created.guid, description: '最终描述' });
+    expect(repaired).toMatchObject({ guid: created.guid, description: '最终描述', verification: { state: 'verified' } });
+    expect(remote.size).toBe(1); expect(calls.filter(args => args[2] === 'create')).toHaveLength(1);
+  });
+  it('同 GUID 跨平台对象不能继承旧本地编号、交办或项目关联', async () => {
+    const created = await writes.write(work, 'create', { summary: '飞书原件', estimateMinutes: 40 });
+    const local = await repos.tasks.byGuid(created.guid);
+    await repos.projects.create({ id: 'local-project', name: '原项目' }); await repos.projects.link('local-project', local.id);
+    await useWecom(); remote.clear();
+    remote.set(created.guid, { todo_id: created.guid, title: '企微独立对象', deadline: null, status: 'proceed', user_status: 'accept', creator: { userid: 'owner' }, followers: [{ userid: 'owner', user_status: 'accept' }] });
+    const result = await service.query({});
+    expect(result.tasks[0]).toMatchObject({ taskId: null, workItemIds: [], estimateMinutes: null });
+    expect((await service.query({ projectId: 'local-project' })).tasks).toEqual([]);
+    await expect(writes.write(work, 'complete', { taskId: local.id })).rejects.toThrow(/原目标/);
+    const changed = await writes.write(work, 'update', { guid: created.guid, sourceId: 'w', summary: '明确修改企微对象' });
+    expect(changed.verification.state).toBe('pending'); expect(changed.verification.message).toMatch(/GUID.*冲突/);
+    expect(await repos.tasks.get(local.id)).toEqual(local);
+  });
   it('原对象变更尊重明确项目与渠道，不能忽略矛盾参数而写入', async () => {
     const created = await writes.write(work, 'create', { summary: '个人待办' });
     await expect(writes.write(work, 'update', { guid: created.guid, project: '项目', summary: '误投' })).rejects.toThrow(/不在已登记清单/);

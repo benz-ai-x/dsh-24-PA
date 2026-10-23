@@ -368,7 +368,7 @@ export class PaRuntime {
   readonly sourceTodo = new SourceTodo({
     config: () => this.config!, registry: this.sourceRegistry, projection: () => this.repos!.sourceProjection,
     read: target => this.sourceTodoReader.read(target), object: (target, guid) => this.sourceTodoReader.object(target, guid),
-    localTasks: () => this.repos!.tasks.all(), relations: () => this.repos!.operations.todoAssignments(),
+    localTasks: () => this.repos!.tasks.all(), operation: id => this.repos!.operations.get(id), relations: () => this.repos!.operations.todoAssignments(),
     projectTasks: id => this.repos!.projects.tasksOf(id), gate: (key, work) => this.gate(key, work),
   });
   readonly sourceTodoWrites = new SourceTodoWrites({

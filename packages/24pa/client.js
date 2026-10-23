@@ -683,6 +683,7 @@ window.__ModuleLoader__.load({
           if (!todoModels.has(binding)) todoModels.set(binding, { source: '', role: '', status: 'open', deadline: 'all', query: '', offset: 0, draft: '' });
           const model = todoModels.get(binding), [, redraw] = React.useReducer(n => n + 1, 0);
           const [view, setView] = React.useState({ key: '', data: null, busy: false, error: '' }), [sources, setSources] = React.useState([]), [notice, setNotice] = React.useState('');
+          const [sourceError, setSourceError] = React.useState(''), [sourceBusy, setSourceBusy] = React.useState(false), [sourceEpoch, reloadSources] = React.useReducer(n => n + 1, 0);
           const sequence = React.useRef(0), limit = 20;
           const args = JSON.stringify({ ...(model.source ? { sourceId: model.source } : {}), ...(model.role ? { role: model.role } : {}), status: model.status, deadline: model.deadline, query: model.query, offset: model.offset, limit, workspaceBinding: binding });
           const validate = result => {
@@ -691,9 +692,13 @@ window.__ModuleLoader__.load({
           };
           React.useEffect(() => {
             const abort = new AbortController();
-            void rpc('sources', { workspaceBinding: binding }, abort.signal).then(result => { if (!abort.signal.aborted) setSources(result.entries.filter(row => row.domain === 'todo')); }).catch(() => {});
+            setSourceBusy(true);
+            void rpc('sources', { workspaceBinding: binding }, abort.signal).then(result => {
+              if (!Array.isArray(result.entries)) throw new Error(L('待办来源响应不完整。', 'Incomplete todo source response.'));
+              if (!abort.signal.aborted) { setSources(result.entries.filter(row => row.domain === 'todo')); setSourceError(''); }
+            }).catch(error => { if (!abort.signal.aborted) setSourceError(error.message); }).finally(() => { if (!abort.signal.aborted) setSourceBusy(false); });
             return () => abort.abort();
-          }, [binding]);
+          }, [binding, sourceEpoch]);
           React.useEffect(() => {
             const abort = new AbortController(), epoch = ++sequence.current;
             setView(old => ({ key: args, data: old.key === args ? old.data : null, busy: true, error: '' }));
@@ -703,6 +708,7 @@ window.__ModuleLoader__.load({
             return () => { abort.abort(); sequence.current++; };
           }, [args]);
           const verify = async () => {
+            reloadSources();
             const epoch = ++sequence.current;
             setView(old => ({ ...old, busy: true, error: '' }));
             try {
@@ -723,11 +729,12 @@ window.__ModuleLoader__.load({
             sectionHead('tasks', L('待办', 'Todos'), L('原平台业务工作。记录待办与交办助理执行分别办理。', 'Platform business tasks. Recording a todo is separate from asking the assistant to execute it.'),
               h('div', { className: 'pa24-row' }, button('refresh', view.busy ? L('核验中…', 'Verifying…') : L('核验待办', 'Verify todos'), verify, { disabled: view.busy }), button('plus', L('记录待办', 'Record todo'), () => prepare('记录待办')), button('settings', L('配置待办来源', 'Configure sources'), () => openCard('config', 'pa24-sources'), { className: 'pa24-quiet' })), 'blue'),
             h('div', { className: 'pa24-source-fields' },
-              select(L('待办来源', 'Todo source'), 'source', [['', L('全部已登记来源', 'All registered sources')], ...sources.map(row => [row.id, row.name])]),
+              select(L('待办来源', 'Todo source'), 'source', [['', L('全部已登记来源', 'All registered sources')], ...(model.source && !sources.some(row => row.id === model.source) ? [[model.source, model.source + L('（来源待加载）', ' (source pending)')]] : []), ...sources.map(row => [row.id, row.name])]),
               select(L('本人角色', 'My role'), 'role', [['', L('按来源默认', 'Source defaults')], ...['all', 'responsible', 'following', 'assigned', 'creator'].map(value => [value, roleLabel(value)])]),
               select(L('业务状态', 'Business status'), 'status', [['open', L('未完成', 'Open')], ['completed', L('已完成', 'Completed')], ['all', L('全部可见状态', 'All visible states')]]),
               select(L('截止范围', 'Deadline'), 'deadline', [['all', L('全部', 'All')], ['overdue', L('已逾期', 'Overdue')], ['today', L('今日尚未到期', 'Due later today')], ['undated', L('未设置截止', 'No deadline')], ['upcoming', L('以后到期', 'Upcoming')]]),
               h('label', { className: 'pa24-field' }, L('搜索待办', 'Search todos'), h('input', { value: model.query, onChange: event => change('query', event.target.value) }))),
+            sourceError && h('div', { role: 'alert', className: 'pa24-error' }, L('待办来源加载失败：', 'Todo source loading failed: ') + sourceError, button('refresh', sourceBusy ? L('来源加载中…', 'Loading sources…') : L('重试加载来源', 'Retry sources'), reloadSources, { disabled: sourceBusy })),
             view.error && h('div', { role: 'alert', className: 'pa24-error' }, view.error, button('refresh', L('重试核验', 'Retry verification'), verify, { disabled: view.busy })),
             view.busy && h('p', { role: 'status', className: 'pa24-meta' }, L('正在读取待办；普通浏览不访问原平台。', 'Reading saved todos; browsing does not access the platforms.')),
             data && h('div', null,
@@ -1574,7 +1581,7 @@ window.__ModuleLoader__.load({
             h('select', { value, onChange: event => change(event.target.value) }, options.map(([key, title]) => h('option', { key, value: key }, title))));
           const platformLabel = value => value === 'wecom' ? L('企业微信', 'WeCom') : L('飞书', 'Feishu');
           const domainLabel = value => value === 'calendar' ? L('日历', 'Calendar') : L('待办', 'Todo');
-          const capabilityLabel = value => ({ allowed: L('当前范围允许，实际结果看回执', 'Allowed in current scope; result needs receipt'), denied: L('无权', 'Denied'), adapter_unavailable: L('接入方式待完善', 'Adapter unavailable'), unknown: L('待核验', 'Unverified') })[value] || L('待核验', 'Unverified');
+          const capabilityLabel = value => ({ allowed: L('当前范围允许，实际结果看回执', 'Allowed in current scope; result needs receipt'), attemptable: L('可按明确授权尝试，写权限待核验', 'May attempt an authorized request; write permission unverified'), denied: L('无权', 'Denied'), adapter_unavailable: L('接入方式待完善', 'Adapter unavailable'), unknown: L('待核验', 'Unverified') })[value] || L('待核验', 'Unverified');
           const add = domain => {
             const id = 'source-' + crypto.randomUUID();
             update({ entries: [...draft.entries, { id, domain, platform: 'feishu', name: '', purpose: 'personal', ownerId: helpers.config?.ownerOpenId || '', resourceKind: domain === 'calendar' ? 'calendar' : 'tasklist', resourceId: '', filter: domain === 'calendar' ? 'all' : 'responsible', access: 'readwrite', enabled: true }] });

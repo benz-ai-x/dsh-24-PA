@@ -219,7 +219,7 @@ const nativeTask = task => ({ ...task,
   members: task.members ?? [{ id: state.ownerOpenId ?? 'ou_test_owner', type: 'user', role: 'assignee' }],
   tasklists: task.tasklists ?? [{ tasklist_guid: task.tasklistId ?? 'tl_test' }], mode: task.mode ?? 2 });
 if (plain[0] === 'task' && ((plain[1] === 'tasklists' && plain[2] === 'tasks') || plain[1] === '+get-related-tasks')) {
-  if (state.todoListFailure === argOf('--tasklist-guid')) fail('task list unavailable');
+  if (state.todoListFailure && state.todoListFailure === argOf('--tasklist-guid')) fail('task list unavailable');
   const all = tasks.filter(task => !task.deleted && (!argOf('--tasklist-guid') || nativeTask(task).tasklists.some(row => row.tasklist_guid === argOf('--tasklist-guid'))));
   const offset = Number(argOf('--page-token') ?? 0), size = state.todoPageSize ?? Number(argOf('--page-size') ?? 100);
   ok({ items: all.slice(offset, offset + size).map(nativeTask), has_more: offset + size < all.length, page_token: offset + size < all.length ? String(offset + size) : '' });

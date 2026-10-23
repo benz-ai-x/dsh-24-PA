@@ -4,6 +4,7 @@ import type { SourceProjectionRepo, SourceMembershipRow, SourceObservation, Obse
 import type { TaskRow, ActionOperationRow } from './repo.js';
 import { sourceObjectId } from './repo/source-projection.js';
 import { localDay } from './calendar-time.js';
+import { isDeepStrictEqual } from 'node:util';
 
 export type TodoRole = 'all' | 'responsible' | 'following' | 'assigned' | 'creator';
 const query = { from: null, to: null };
@@ -14,6 +15,7 @@ interface SourceTodoDeps {
   read(target: SourceTarget): Promise<SourceObservation>;
   object(target: SourceTarget, guid: string): Promise<ObservedSourceItem>;
   localTasks(): Promise<TaskRow[]>;
+  operation(id: string): Promise<ActionOperationRow | null>;
   relations(): Promise<ActionOperationRow[]>;
   projectTasks?(id: string): Promise<TaskRow[]>;
   gate<T>(key: string, work: () => Promise<T>): Promise<T>;
@@ -26,6 +28,24 @@ function unknownRole(roles: SourceRoles, role: TodoRole): boolean {
  * saved view; only an explicit refresh crosses the platform boundary. */
 export class SourceTodo {
   constructor(private readonly deps: SourceTodoDeps) {}
+
+  /** A legacy task GUID alone proves neither the platform identity nor the
+   * original source. Only a durable receipt or a qualified projection ID links it. */
+  private async localReference(task: TaskRow): Promise<{ objectId: string; target?: SourceTarget } | null> {
+    const operation = await this.deps.operation(task.id), receipt = operation?.receipt;
+    const target = operation?.params.sourceTarget as SourceTarget | undefined;
+    if (operation?.status === 'succeeded' && target?.domain === 'todo' && target.platform === task.channel
+      && receipt?.guid === task.task_guid && receipt.channel === task.channel && isDeepStrictEqual(receipt.sourceTarget, target)
+      && receipt.objectId === sourceObjectId(target, task.task_guid)) return { objectId: receipt.objectId, target };
+    if (task.id.startsWith('object:')) {
+      const locations = await this.deps.projection().locations(task.id);
+      if (locations.some(row => row.domain === 'todo' && row.platform === task.channel && row.native_id === task.task_guid
+        && sourceObjectId({ domain: row.domain, platform: row.platform, identityKey: row.identity_key }, row.native_id) === task.id)) return { objectId: task.id };
+    }
+    return null;
+  }
+
+  async localObjectId(task: TaskRow): Promise<string | null> { return (await this.localReference(task))?.objectId ?? null; }
 
   private selected(args: Record<string, unknown>): SourceRegistration[] {
     const config = effectiveSources(this.deps.config());
@@ -53,6 +73,7 @@ export class SourceTodo {
     const search = String(args.query ?? '').trim().toLowerCase();
     const selected = this.selected(args), snapshot = await this.deps.registry.list();
     const [locals, relations] = await Promise.all([this.deps.localTasks(), this.deps.relations()]);
+    const localObjects = new Map(await Promise.all(locals.map(async task => [task.id, await this.localObjectId(task)] as const)));
     const projectTasks = args.projectId === undefined ? null : await this.deps.projectTasks?.(String(args.projectId)) ?? [];
     const objects = new Map<string, { row: SourceMembershipRow; locations: any[]; match: boolean; stale: boolean }>();
     const sources = [];
@@ -111,13 +132,13 @@ export class SourceTodo {
       return time < now ? 'overdue' : time < today.to.getTime() ? 'today' : 'upcoming';
     };
     const all = [...objects].filter(([, object]) => object.match).map(([objectId, { row, locations, stale }]) => {
-      const links = locals.filter(task => task.channel === row.platform && task.task_guid === row.native_id);
+      const links = locals.filter(task => localObjects.get(task.id) === objectId);
       return { ...row.body, objectId, guid: row.native_id, channel: row.platform, summary: String(row.body.summary ?? ''),
         status: String(row.body.status), description: String(row.body.description ?? ''), dueAt: row.body.dueAt ?? null, dueDate: row.body.dueDate ?? null, bucket: bucket(row.body), locations, stale,
         checkedAt: row.observed_at.toISOString(), url: locations.find(location => location.locator.url)?.locator.url ?? null,
         workItemIds: [...new Set(links.map(task => task.work_item_id).filter(Boolean))], taskId: links.length === 1 ? links[0]!.id : null,
         plannedAt: links.length === 1 ? links[0]!.planned_at?.toISOString() ?? null : null, estimateMinutes: links.length === 1 ? links[0]!.estimate_minutes : null };
-    }).filter(row => (projectTasks === null || projectTasks.some(task => task.channel === row.channel && task.task_guid === row.guid))
+    }).filter(row => (projectTasks === null || projectTasks.some(task => localObjects.get(task.id) === row.objectId))
       && (status === 'all' || row.status === status) && (deadline === 'all' || row.bucket === deadline)
       && (!search || `${row.summary}\n${row.description ?? ''}`.toLowerCase().includes(search)));
     const weight = { overdue: 0, today: 1, upcoming: 2, undated: 3 };
@@ -139,15 +160,27 @@ export class SourceTodo {
     const explicit = args.sourceId === undefined && args.company === undefined && args.project === undefined ? null : selectSource(config, 'todo', {
       ...(args.sourceId !== undefined ? { sourceId: String(args.sourceId) } : {}), ...(args.company !== undefined ? { company: String(args.company) } : {}), ...(args.project !== undefined ? { project: String(args.project) } : {}),
     }, false).source;
-    const key = String(args.guid ?? args.taskId ?? '');
+    const key = String(args.taskId ?? args.guid ?? '');
     const local = (await this.deps.localTasks()).find(task => task.id === key);
+    if (local && args.guid !== undefined && args.guid !== local.task_guid && args.guid !== local.id) throw new Error('指定 GUID 与本地待办原对象不符。');
+    const reference = local ? await this.localReference(local) : null;
+    if (local && !reference) throw new Error('旧待办缺少原身份和来源的持久证据，不能按裸 GUID 自动绑定；请先查询并核对原平台对象。');
+    if (reference && args.objectId !== undefined && args.objectId !== reference.objectId) throw new Error('指定对象与原待办持久回执不符。');
     const guid = local?.task_guid ?? key;
-    const locations = args.objectId ? await this.deps.projection().locations(String(args.objectId)) : await this.deps.projection().todoLocations(guid);
+    if (reference?.target) {
+      const target = reference.target;
+      if ((explicit && explicit.id !== target.sourceId) || (args.channel !== undefined && args.channel !== target.platform)
+        || ((args.tasklistId ?? args._tasklistId) !== undefined && (args.tasklistId ?? args._tasklistId) !== target.resource.id)) throw new Error('指定来源、平台或清单与原待办持久回执不符。');
+      await this.deps.registry.verify(target, 'read');
+      return { target, guid, item: await this.deps.object(target, guid) };
+    }
+    const objectId = reference?.objectId ?? (args.objectId ? String(args.objectId) : null);
+    const locations = objectId ? await this.deps.projection().locations(objectId) : await this.deps.projection().todoLocations(guid);
     const valid = locations.filter(row => row.domain === 'todo' && row.active && (!guid || row.native_id === guid) && (!explicit || row.source_id === explicit.id)
       && (!args.channel || row.platform === args.channel) && config.entries.some(source => source.enabled && source.id === row.source_id && sourceScopeFingerprint(source) === row.scope_hash));
     const destinations = new Set(valid.map(row => JSON.stringify([row.platform, row.identity_key, row.native_id])));
     if (destinations.size > 1) throw new Error('该标识对应多个平台或身份的待办，请明确来源和原对象。');
-    if (!valid[0] && (!explicit || !guid || args.objectId)) throw new Error('请先核验待办来源并确定原对象；不能用当前默认目标猜测旧对象。');
+    if (!valid[0] && (!explicit || !guid || objectId)) throw new Error('请先核验待办来源并确定原对象；不能用当前默认目标猜测旧对象。');
     const sourceId = valid[0]?.source_id ?? explicit!.id;
     const target = await this.deps.registry.bind('todo', { sourceId }, 'read');
     if ((args.channel !== undefined && args.channel !== target.platform) || ((args.tasklistId ?? args._tasklistId) !== undefined && (args.tasklistId ?? args._tasklistId) !== target.resource.id)) throw new Error('指定平台或清单与原待办来源不符。');

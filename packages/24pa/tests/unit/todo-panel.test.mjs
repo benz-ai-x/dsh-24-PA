@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
-let React, act, createRoot, win, root, container, requests, binding, failed, pending, poll;
+let React, act, createRoot, win, root, container, requests, binding, failed, pending, poll, sourceFailed;
 beforeAll(async () => {
   win = new Window({ url: 'http://localhost/' });
   for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLSelectElement', 'Event', 'MouseEvent', 'KeyboardEvent', 'localStorage']) vi.stubGlobal(key, key === 'window' ? win : win[key]);
@@ -15,7 +15,7 @@ const response = (payload, fresh = false) => ({ workspaceBinding: binding, sourc
     locations: [{ sourceId: 'project', sourceName: '项目待办', platform: 'feishu', roles: { complete: true, values: ['responsible'] } }] }],
   counts: { overdue: 2, today: 3, open: 21 }, fresh, complete: fresh, count: 21, total: fresh ? 21 : null, hasMore: !payload.offset, message: fresh ? '已核验 1 个来源' : '当前可展示结果，未完整核验，不能据此判断全部完成' });
 beforeEach(async () => {
-  requests = []; binding = 'binding-a'; failed = false; pending = null; win.localStorage.clear();
+  requests = []; binding = 'binding-a'; failed = false; sourceFailed = true; pending = null; win.localStorage.clear();
   const interval = globalThis.setInterval;
   vi.spyOn(globalThis, 'setInterval').mockImplementation((fn, delay, ...args) => { if (delay === 2500) poll = fn; return interval(fn, delay, ...args); });
   vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
@@ -24,6 +24,7 @@ beforeEach(async () => {
       if (pending) return pending;
       if (failed) return { ok: true, json: async () => ({ ok: false, error: { message: '原平台离线' } }) };
     }
+    if (req.endpoint === 'sources' && sourceFailed) return { ok: true, json: async () => ({ ok: false, error: { message: '来源服务离线' } }) };
     const value = req.endpoint === 'snapshot' ? { workspace: { path: '/workspace-' + binding, config: { ...DEFAULT_CONFIG } }, workspaceBinding: binding, work: [], outbox: [], secrets: {}, readiness: { items: [] } }
       : req.endpoint === 'todos' || (req.endpoint === 'action' && req.payload.type === 'todos.verify') ? response(req.payload, req.endpoint === 'action')
       : req.endpoint === 'sources' ? { entries: [entry] } : req.endpoint === 'reminders' ? { rules: [], occurrences: [] }
@@ -39,6 +40,7 @@ beforeEach(async () => {
   await act(async () => root.render(React.createElement(Panel)));
   const card = [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：待办'));
   expect(card).toBeTruthy(); card.focus(); expect(win.document.activeElement).toBe(card); await act(async () => card.click());
+  sourceFailed = false;
 });
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.restoreAllMocks(); });
 const button = text => [...container.querySelectorAll('button')].find(node => node.textContent === text);
@@ -67,4 +69,20 @@ it('核验期间禁止重复提交；工作区切换丢弃旧结果与草稿', a
   expect(container.querySelector('[data-testid=todo-detail] textarea')).toBeNull();
   await act(async () => { finish({ ok: true, json: async () => ({ ok: true, value: old }) }); });
   expect(container.textContent).not.toContain('迟到的旧工作区结果'); expect(requests.filter(req => req.payload.type === 'todos.verify')).toHaveLength(1);
+});
+
+it('来源加载失败可见并可重试，核验刷新会重新加载且保留筛选与草稿', async () => {
+  expect(container.textContent).toContain('待办来源加载失败：来源服务离线');
+  await click('延期或修改');
+  const draft = container.querySelector('[data-testid=todo-detail] textarea').value;
+  await click('重试加载来源');
+  expect(container.textContent).not.toContain('待办来源加载失败');
+  const source = [...container.querySelectorAll('label')].find(node => node.textContent.startsWith('待办来源')).control;
+  expect([...source.options].map(row => row.value)).toContain('project');
+  await act(async () => { Object.getOwnPropertyDescriptor(win.HTMLSelectElement.prototype, 'value').set.call(source, 'project'); source.dispatchEvent(new win.Event('change', { bubbles: true })); });
+  sourceFailed = true; const before = requests.filter(req => req.endpoint === 'sources').length;
+  await click('核验待办'); expect(requests.filter(req => req.endpoint === 'sources')).toHaveLength(before + 1);
+  expect(container.textContent).toContain('待办来源加载失败'); expect(source.value).toBe('project');
+  expect(container.querySelector('[data-testid=todo-detail] textarea').value).toBe(draft);
+  sourceFailed = false; await click('核验待办'); expect(container.textContent).not.toContain('待办来源加载失败'); expect(source.value).toBe('project');
 });

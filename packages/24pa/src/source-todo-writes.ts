@@ -230,7 +230,7 @@ export class SourceTodoWrites {
         const response = await this.deps.external.perform(id, () => this.invoke(id, kind, target, executionParams));
         if (!response.guid) throw unknown('平台接受后缺少原待办标识，请核对原回执。');
         receipt = { guid: response.guid, objectId: sourceObjectId(target, response.guid), sourceTarget: target, sourceId: target.sourceId,
-          sourceName: params.sourceName, channel: target.platform, kind, effect: params.effect ?? null, platformAccepted: true,
+          sourceName: params.sourceName, permissionEvidence: target.permission ?? null, channel: target.platform, kind, effect: params.effect ?? null, platformAccepted: true,
           url: response.raw?.task?.url ?? params.before?.locator.url ?? null,
           acceptedAt: (await this.deps.repos().operations.get(id))?.receipt?._externalAcceptedAt ?? null };
         const before = params.before as ObservedSourceItem | null;
@@ -248,7 +248,7 @@ export class SourceTodoWrites {
       verification = { state: 'verified', message: '飞书删除接口已确认整项删除；不是完成或退出' };
       actual.status = 'canceled';
       const local = await this.deps.repos().tasks.byGuid(receipt.guid);
-      if (local?.channel === target.platform) { await this.deps.notify(receipt.guid, null); await this.deps.repos().tasks.save({ ...local, status: 'canceled', last_synced_at: new Date() }); }
+      if (local && await this.deps.todos.localObjectId(local) === sourceObjectId(target, receipt.guid)) { await this.deps.notify(receipt.guid, null); await this.deps.repos().tasks.save({ ...local, status: 'canceled', last_synced_at: new Date() }); }
     } else try {
       await this.deps.registry.verify(target, 'read');
       const observed = await this.deps.reader.object(target, receipt.guid);
@@ -257,6 +257,7 @@ export class SourceTodoWrites {
       actual = observed.body;
       const differences: string[] = [];
       if (params.summary !== undefined && params.summary !== observed.body.summary) differences.push('标题与请求不符');
+      if (params.description !== undefined && params.description !== observed.body.description) differences.push('描述与请求不符');
       if (params.due && JSON.stringify(canonical(params.due)) !== JSON.stringify(canonical({ dueAt: observed.body.dueAt, dueDate: observed.body.dueDate, dueHasTime: observed.body.dueHasTime }))) differences.push('截止时间或精度与请求不符');
       if (params.assigneeIds?.some((expected: string) => !(observed.body.assignees as TodoPerson[] ?? []).some(person => person.id === expected && !['removed', 'reject', 'notshow'].includes(person.state ?? '')))) differences.push('请求的负责人未在原对象中落实，请沿该对象补齐分派');
       if (kind === 'complete' && (params.effect === 'whole' ? observed.body.status !== 'completed' : !['finished', 'completed'].includes(String(observed.body.ownerStatus)))) differences.push('所选完成范围尚未在原平台读回确认');
@@ -314,8 +315,8 @@ export class SourceTodoWrites {
 
   private async mirror(item: WorkItemRow, id: string, target: SourceTarget, observed: ObservedSourceItem, params: Record<string, any>): Promise<void> {
     const repo = this.deps.repos(), prior = await repo.tasks.byGuid(observed.nativeId);
-    if (prior && prior.channel !== target.platform) return;
-    const row = { id: prior?.id ?? (params.kind === 'create' ? id : sourceObjectId(target, observed.nativeId)), work_item_id: prior?.work_item_id ?? (params.kind === 'create' ? item.id : null),
+    if (prior && await this.deps.todos.localObjectId(prior) !== sourceObjectId(target, observed.nativeId)) throw new Error('本地旧待办 GUID 与当前身份对象冲突，已保留原关联；原平台已接收的变更不会重发。');
+    const row = { id: prior?.id ?? id, work_item_id: prior?.work_item_id ?? (params.kind === 'create' ? item.id : null),
       task_guid: observed.nativeId, url: typeof observed.locator.url === 'string' ? observed.locator.url : null,
       summary: String(observed.body.summary), due_at: observed.body.dueAt || observed.body.dueDate ? new Date(String(observed.body.dueAt ?? observed.body.dueDate)) : null,
       due_has_time: observed.body.dueHasTime === true, planned_at: params.values.plannedAt === undefined ? prior?.planned_at ?? null : params.values.plannedAt === null ? null : new Date(params.values.plannedAt),
