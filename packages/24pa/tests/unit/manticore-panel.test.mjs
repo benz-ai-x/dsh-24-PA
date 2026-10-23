@@ -43,7 +43,7 @@ beforeEach(async () => {
       else if (endpoint === 'plans') value = { rows: !p.query || plan.title.includes(p.query) ? [structuredClone(plan)] : [], total: p.query && !plan.title.includes(p.query) ? 0 : 1, offset: p.offset, limit: 20 };
       else if (endpoint === 'plans.inspect') value = { plan: structuredClone(plan), form: { ...form(), title: plan.title }, blocks: plan.blocks, activeRuns: [] };
       else if (endpoint === 'plans.draft') value = taskPlanDraft(p, 'Asia/Shanghai');
-      else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标' };
+      else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, timeZone: plan.task_config.timeZone, fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标' };
       else if (endpoint === 'runs') value = { kind: p.kind, rows: p.kind === 'runs' && (!p.query || '项目晨报'.includes(p.query)) ? Array.from({ length: p.offset ? 11 : 20 }, (_, index) => ({ id: !index && !p.offset ? 'run-a' : 'run-' + (index + p.offset), title: '项目晨报', skill_id: 'builtin:digest-morning', status: 'completed', delivery_status: 'partial', summary: '结果摘要', source: 'schedule', created_at: new Date().toISOString() })) : [], total: p.query && !'项目晨报'.includes(p.query) ? 0 : p.kind === 'runs' ? 31 : 0, timeZone: 'Asia/Shanghai' };
       else if (endpoint === 'skills.run') value = structuredClone(run);
       else if (endpoint === 'runs.diagnostics') value = { filename: 'diagnostic.json', content: '{"runId":"run-a"}', message: '已脱敏，请预览' };
@@ -72,6 +72,43 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.restoreAllMocks(); });
 
 describe('M02 管理界面', () => {
+  it('重配保持暂停，预览明确固定时区', async () => {
+    plan.task_config.timeZone = 'America/New_York';
+    await open('定时任务'); await click(button('项目晨报')); await click(button('重新绑定目标 · 先预览'));
+    expect(container.textContent).toContain('未来触发时间 · America/New_York');
+    await click(field('确认本计划的工具、资源、目标和此项操作')); await click(button('确认执行此操作'));
+    expect(requests.filter(row => row.endpoint === 'action').at(-1).payload.op).toBe('rebind');
+    expect(plan.owner_enabled).toBe(false);
+  });
+  it('JSON与参数字段共用唯一输入；无效JSON不被字段编辑覆盖', async () => {
+    await open('定时任务'); await click(button('晨报预设'));
+    await change(field('参数对象'), '{"title":"JSON标题","custom":"保留值"}');
+    expect(field('title · 结果标题').value).toBe('JSON标题');
+    await change(field('title · 结果标题'), '字段标题');
+    expect(JSON.parse(field('参数对象').value)).toEqual({ title: '字段标题', custom: '保留值' });
+    await change(field('参数对象'), '{'); expect(field('title · 结果标题').disabled).toBe(true);
+    expect(field('参数对象').value).toBe('{');
+  });
+  it('目录或详情读取失败时刷新可恢复，保留表单输入', async () => {
+    fault = 'skills.catalog'; await open('定时任务'); await click(button('晨报预设'));
+    await change(field('名称'), '保留草稿');
+    expect(field('Skill').querySelectorAll('option')).toHaveLength(1);
+    fault = 'skills.inspect'; await click(managerButton('刷新'));
+    expect(field('Skill').querySelectorAll('option')).toHaveLength(4);
+    fault = null; await click(managerButton('刷新'));
+    expect(field('名称').value).toBe('保留草稿'); expect(field('title · 结果标题')).toBeTruthy();
+    expect(requests.filter(row => row.endpoint === 'skills.catalog')).toHaveLength(3);
+    expect(requests.filter(row => row.endpoint === 'skills.inspect')).toHaveLength(3);
+  });
+  it('切换工作区后补充读取挂起也不能显示原运行摘要', async () => {
+    await open('运行记录');
+    const summary = () => [...container.querySelectorAll('.pa24-manager .pa24-cap-kpi small')].find(node => node.textContent === '24 小时运行')?.parentElement.textContent;
+    expect(summary()).toBe('3124 小时运行'); await click(button('返回卡片'));
+    let release; delayed = { endpoint: 'runs.summary', promise: new Promise(resolve => { release = resolve; }) };
+    binding = 'binding-b'; await act(async () => intervals.find(row => row.ms === 2500).fn());
+    await open('运行记录'); expect(summary()).toBeUndefined();
+    await act(async () => release({ ok: true, json: async () => ({ ok: true, value: { runs24: 0, workspaceBinding: binding } }) }));
+  });
   it('预设统一表单先预览后保存暂停；离页保留草稿，授权确认后启用', async () => {
     await open('定时任务'); await click(button('晨报预设')); await change(field('名称'), '调整后的晨报'); expect(button('保存为暂停').disabled).toBe(true);
     await change(field('日历公司'), '甲公司'); await change(field('日历项目'), 'Manticore');

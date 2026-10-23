@@ -82,6 +82,19 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
       timeContext: digestPeriod(row.kind, 'Asia/Tokyo', at, 'schedule'), skill: { ...version.definition,
         metadata: { ...version.definition.metadata, pa24Identity: { versionId: version.id } } } });
   };
+  it('重配目标保留暂停选择且预览携带计划固定时区；重复确认不改启停', async () => {
+    let row = await create({ timeZone: 'America/New_York' });
+    row = (await service.change(command('pause', await enable(row)))).plan;
+    config.sources.defaults.calendar = 'B';
+    const preview = await service.preview({ id: row.id, workspaceBinding: 'binding', rebind: true });
+    expect(preview.timeZone).toBe('America/New_York');
+    const input = command('rebind', row, { confirm: true, fingerprint: preview.fingerprint });
+    const result = await service.change(input);
+    expect(result.plan).toMatchObject({ owner_enabled: false, status: 'paused', schedule_id: null });
+    expect(result.plan.task_authorization.targets[0].target.sourceId).toBe('B');
+    expect((await service.change(input)).repeated).toBe(true);
+    expect(creates).toBe(1);
+  });
   it('管理摘要和筛选按全部计划一致计算，旧启用与受阻计划不混入暂停或下次运行', async () => {
     const before = await repos.taskPlans.summary(), prefix = '管理全量-' + randomUUID();
     for (let i = 0; i < 21; i++) await create({ title: prefix + '-' + i });

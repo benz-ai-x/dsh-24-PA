@@ -105,9 +105,9 @@ export class TaskPlanService {
   async preview(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);
     const prepared = await this.preflight(context, row, input.rebind === true);
-    return { planId: row.id, revision: row.revision, authorization: prepared.authorization, nextTimes: prepared.nextTimes,
+    return { planId: row.id, revision: row.revision, timeZone: row.task_config!.timeZone, authorization: prepared.authorization, nextTimes: prepared.nextTimes,
       fingerprint: prepared.fingerprint, workspaceBinding: context.binding,
-      message: '核验只读取当前能力与目标；确认启用后开始未来触发。在途运行继续使用原快照。' };
+      message: input.rebind === true ? '确认后更新固定目标，保留原启停选择。在途运行继续使用原快照。' : '核验只读取当前能力与目标；启用或解除阻断按所选操作办理。在途运行继续使用原快照。' };
   }
   async draft(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding);
@@ -140,6 +140,10 @@ export class TaskPlanService {
         const check = await this.migration.preview(context, row, input);
         if (input.confirm !== true || input.fingerprint !== check.fingerprint) throw new Error('原配置、来源或授权已改变，请重新预览迁移。');
         result = await repo.migrate({ ...selected(row, 'done'), configuration: check.configuration, authorization: check.authorization });
+      } else if (op === 'rebind' && row) {
+        const check = await this.preflight(context, row, true);
+        if (input.confirm !== true || input.fingerprint !== check.fingerprint) throw new Error('配置、权限或目标已改变，请重新预览并确认重配。');
+        result = await repo.authorize({ ...selected(row, 'done'), authorization: check.authorization });
       } else if (op === 'enable' && row) {
         let authorized = await repo.repeated(identity('authorization'));
         if (!authorized) {

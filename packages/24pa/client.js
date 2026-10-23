@@ -420,10 +420,10 @@ window.__ModuleLoader__.load({
           React.useEffect(() => {
             const abort = new AbortController();
             if (!workspacePath) {
-              setView({ status: 'ready', data: {}, errors: {} });
+              setView({ binding: workspaceBinding, status: 'ready', data: {}, errors: {} });
               return () => abort.abort();
             }
-            setView(v => ({ status: 'loading', data: v.data, errors: v.errors || {} }));
+            setView(v => ({ binding: workspaceBinding, status: 'loading', data: v.binding === workspaceBinding ? v.data : null, errors: v.binding === workspaceBinding ? v.errors : {} }));
             const out = {}, errors = {};
             const capture = (key, request) => request.then(result => { out[key] = result; }).catch(error => { errors[key] = error.message; });
             void Promise.all([
@@ -436,10 +436,10 @@ window.__ModuleLoader__.load({
               capture('digests', rpc('digests', {}, abort.signal)),
               capture('plans', rpc('plans.summary', { workspaceBinding }, abort.signal)),
               capture('runs', rpc('runs.summary', { workspaceBinding }, abort.signal)),
-            ]).then(() => { if (!abort.signal.aborted) setView({ status: 'ready', data: out, errors }); });
+            ]).then(() => { if (!abort.signal.aborted) setView({ binding: workspaceBinding, status: 'ready', data: out, errors }); });
             return () => abort.abort();
           }, [workspacePath, tick, workspaceBinding]);
-          return { ...(view.data || {}), _status: view.status, _errors: view.errors || {} };
+          return view.binding === workspaceBinding ? { ...(view.data || {}), _status: view.status, _errors: view.errors || {} } : { _status: 'loading', _errors: {} };
         };
         const capLine = (label, value) => h('div', { className: 'pa24-cap-line' }, h('span', { className: 'pa24-muted' }, label), h('b', null, value));
         // F35: 模式显示词收敛一处（config/workspace 两卡 label＋body 共用）。
@@ -935,7 +935,7 @@ window.__ModuleLoader__.load({
           link.href = url; link.download = file.filename; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0);
         };
         function PlanAuthorization({ value, config }) {
-          const auth = value.authorization;
+          const auth = value.authorization, timeZone = value.timeZone || value.configuration?.timeZone;
           return h('div', { className: 'pa24-note' },
             value.message && h('p', null, value.message), (value.notices || []).map((note, i) => h('p', { key: i }, note)),
             auth && h('div', null, h('p', null, L('Skill：', 'Skill: ') + auth.skill.name + ' · ' + auth.skill.versionId),
@@ -944,31 +944,34 @@ window.__ModuleLoader__.load({
               auth.targets.map(({ target, capability }) => h('p', { key: target.sourceId + capability },
                 ((config?.sources?.entries || []).find(source => source.id === target.sourceId)?.name || target.sourceId) + ' · ' + target.platform + ' · ' + capability + ' · ' + target.resource.id)),
               h('p', null, auth.delivery ? L('固定投递给主人：', 'Fixed owner delivery: ') + auth.delivery.channel + ' · ' + auth.delivery.target : L('结果仅保存', 'Save results only'))),
-            value.nextTimes?.length > 0 && h('div', null, h('strong', null, L('未来触发时间', 'Upcoming occurrences')), value.nextTimes.map(at => h('p', { key: at, className: 'pa24-meta' }, date(at, value.configuration?.timeZone || config?.timeZone)))));
+            value.nextTimes?.length > 0 && h('div', null, h('strong', null, L('未来触发时间', 'Upcoming occurrences') + (timeZone ? ' · ' + timeZone : '')), value.nextTimes.map(at => h('p', { key: at, className: 'pa24-meta' }, date(at, timeZone || 'UTC')))));
         }
-        function TaskPlanForm({ form, setForm, catalog, binding, config, busy, onPreview, onSave, draft }) {
+        function TaskPlanForm({ form, setForm, catalog, binding, config, busy, onPreview, onSave, draft, refreshTick }) {
           const [skill, setSkill] = React.useState(null), [error, setError] = React.useState('');
           React.useEffect(() => {
             const abort = new AbortController(); setSkill(null); setError('');
             if (form.skillId) rpc('skills.inspect', { id: form.skillId, workspaceBinding: binding }, abort.signal).then(value => { if (!abort.signal.aborted && value.workspaceBinding === binding) setSkill(value); }).catch(error => { if (!abort.signal.aborted) setError(error.message); });
             return () => abort.abort();
-          }, [form.skillId, binding]);
+          }, [form.skillId, binding, refreshTick]);
           const field = (label, node) => h('label', { key: label, className: 'pa24-field' }, label, node);
           const set = (key, value) => setForm({ ...form, [key]: value });
           const timing = (key, value) => set('timing', { ...form.timing, [key]: value });
           const delivery = (key, value) => set('delivery', { ...form.delivery, [key]: value, ...(key === 'channel' && value !== 'feishu' ? { voice: false } : {}) });
           const text = (value, onChange, props = {}) => h('input', { value: value ?? '', onChange: event => onChange(event.target.value), ...props });
           const options = (value, onChange, entries) => h('select', { value, onChange: event => onChange(event.target.value) }, entries.map(([key, label]) => h('option', { key, value: key }, label)));
+          let parameters = null;
+          try { const parsed = JSON.parse(form.parametersText); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) parameters = parsed; } catch {}
           const parameterFields = skill?.metadata?.pa24?.parameters || (skill?.type === 'template' ? { title: { type: 'string', description: L('结果标题', 'Result title') } } : {});
           return h('fieldset', { className: 'pa24-card', disabled: busy }, h('legend', null, form.id ? L('编辑暂停的计划', 'Edit paused plan') : L('新建定时任务', 'New scheduled task')),
             field(L('名称', 'Name'), text(form.title, value => set('title', value), { maxLength: 120 })),
-            field('Skill', options(form.skillId, value => setForm({ ...form, skillId: value, parameters: {}, parametersText: '{}' }), [['', L('选择任务或模板', 'Choose a task or template')], ...(catalog?.entries || []).filter(entry => ['task', 'template'].includes(entry.type)).map(entry => [entry.id, entry.name + ' · ' + (entry.source === 'builtin' ? L('内置原件', 'Built-in') : entry.source === 'managed' ? L('受管', 'Managed') : L('工作区', 'Workspace'))])])),
+            field('Skill', options(form.skillId, value => setForm({ ...form, skillId: value, parametersText: '{}' }), [['', L('选择任务或模板', 'Choose a task or template')], ...(catalog?.entries || []).filter(entry => ['task', 'template'].includes(entry.type)).map(entry => [entry.id, entry.name + ' · ' + (entry.source === 'builtin' ? L('内置原件', 'Built-in') : entry.source === 'managed' ? L('受管', 'Managed') : L('工作区', 'Workspace'))])])),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error),
             Object.entries(parameterFields).map(([name, definition]) => field(name + (definition.required ? ' *' : '') + (definition.description ? ' · ' + definition.description : ''),
               h('input', { type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text',
-                ...(definition.type === 'boolean' ? { checked: form.parameters[name] ?? definition.default ?? false } : { value: form.parameters[name] ?? definition.default ?? '', step: definition.type === 'integer' ? 1 : 'any' }),
-                onChange: event => { const value = definition.type === 'boolean' ? event.target.checked : ['integer', 'number'].includes(definition.type) ? Number(event.target.value) : event.target.value;
-                  const parameters = { ...form.parameters, [name]: value }; setForm({ ...form, parameters, parametersText: JSON.stringify(parameters, null, 2) }); } }))),
+                ...(definition.type === 'boolean' ? { checked: parameters?.[name] ?? definition.default ?? false } : { value: parameters?.[name] ?? definition.default ?? '', step: definition.type === 'integer' ? 1 : 'any' }),
+                disabled: !parameters, onChange: event => { const value = definition.type === 'boolean' ? event.target.checked : ['integer', 'number'].includes(definition.type) ? Number(event.target.value) : event.target.value;
+                  set('parametersText', JSON.stringify({ ...parameters, [name]: value }, null, 2)); } }))),
+            !parameters && h('p', { role: 'alert' }, L('参数 JSON 必须是有效对象；修正后可继续编辑参数字段。', 'Parameters must be a valid JSON object before editing fields.')),
             h('details', null, h('summary', null, L('全部参数 JSON', 'All parameters as JSON')), field(L('参数对象', 'Parameter object'), h('textarea', { rows: 4, value: form.parametersText, onChange: event => set('parametersText', event.target.value) }))),
             field(L('时间规则', 'Timing rule'), options(form.timing.type, value => timing('type', value), [['once', L('一次性', 'Once')], ['daily', L('每天', 'Daily')], ['weekdays', L('周一至周五', 'Monday–Friday')], ['weekly', L('每周', 'Weekly')], ['monthly', L('每月', 'Monthly')], ['interval', L('间隔', 'Interval')], ['advanced', L('高级规则', 'Advanced')]])),
             field(L('时区', 'Time zone'), text(form.timeZone, value => set('timeZone', value))),
@@ -999,13 +1002,13 @@ window.__ModuleLoader__.load({
         function TaskPlansDetail(helpers) {
           const { state, config, tz, planStates, openCard, refresh } = helpers, binding = state.workspaceBinding;
           const model = planRowState(planStates, 'task-manager:' + binding, {}), view = React.useSyncExternalStore(model.subscribe, model.getSnapshot);
-          const [catalog, setCatalog] = React.useState(null), [list, setList] = React.useState({ loading: true }), [detail, setDetail] = React.useState(null);
+          const [catalog, setCatalog] = React.useState(null), [catalogError, setCatalogError] = React.useState(''), [list, setList] = React.useState({ loading: true }), [detail, setDetail] = React.useState(null);
           const query = view.query || '', filter = view.filter || '', skillFilter = view.skillFilter || '', offset = view.offset || 0;
           React.useEffect(() => {
-            const abort = new AbortController();
-            rpc('skills.catalog', { workspaceBinding: binding }, abort.signal).then(value => { if (!abort.signal.aborted && value.workspaceBinding === binding) setCatalog(value); }).catch(error => { if (!abort.signal.aborted) model.update({ error: error.message }); });
+            const abort = new AbortController(); setCatalogError(''); setCatalog(previous => previous?.workspaceBinding === binding ? previous : null);
+            rpc('skills.catalog', { workspaceBinding: binding }, abort.signal).then(value => { if (!abort.signal.aborted && value.workspaceBinding === binding) setCatalog(value); }).catch(error => { if (!abort.signal.aborted) setCatalogError(error.message); });
             return () => abort.abort();
-          }, [binding]);
+          }, [binding, view.tick]);
           React.useEffect(() => {
             const abort = new AbortController(), key = JSON.stringify([binding, query, filter, skillFilter, offset]); let pending = false;
             setList(previous => previous.key === key ? { ...previous, loading: true, error: null } : { key, loading: true });
@@ -1050,9 +1053,10 @@ window.__ModuleLoader__.load({
           return h('section', { className: 'pa24-manager' },
             sectionHead('pulse', L('定时任务', 'Scheduled tasks'), L('时间 + Skill。保存、启用、单次执行和投递分别留档。', 'Time + skill. Configuration, activation, execution and delivery have separate records.'), button(L('新建计划', 'New plan'), () => fresh(null)), 'green'),
             h('div', { className: 'pa24-row' }, ['morning', 'evening', 'weekly'].map(preset => button(({ morning: L('晨报预设', 'Morning preset'), evening: L('复盘预设', 'Evening preset'), weekly: L('周回顾预设', 'Weekly preset') })[preset], () => fresh(preset))), button(L('刷新', 'Refresh'), async () => { model.update({ tick: (view.tick || 0) + 1 }); await refresh().catch(() => {}); })),
+            catalogError && h('p', { role: 'alert', className: 'pa24-error' }, catalogError),
             catalog && catalog.discovery !== 'complete' && h('p', { role: 'alert' }, catalog.discoveryError || L('Skill 目录读取不完整，请核验接入后刷新。', 'Skill discovery is incomplete; check access and refresh.')),
             view.error && h('p', { role: 'alert', className: 'pa24-error' }, view.error), view.note && h('p', { role: 'status' }, view.note),
-            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog, binding, config, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), draft: view.draft }),
+            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), draft: view.draft }),
             view.form && button(L('放弃草稿并关闭编辑', 'Discard draft and close'), () => update({ form: null, draft: null })),
             h('div', { className: 'pa24-row' }, h('label', { className: 'pa24-field' }, L('搜索计划', 'Search plans'), h('input', { value: query, onChange: event => update({ query: event.target.value, offset: 0 }) })),
               h('label', { className: 'pa24-field' }, L('计划状态', 'Plan status'), h('select', { value: filter, onChange: event => update({ filter: event.target.value, offset: 0 }) }, [['', L('全部未回收', 'All unrecycled')], ['enabled', L('启用', 'Enabled')], ['paused', L('暂停', 'Paused')], ['blocked', L('需处理', 'Needs attention')], ['recycled', L('回收站', 'Recycle bin')]].map(([value, label]) => h('option', { key: value, value }, label)))),
@@ -1087,7 +1091,7 @@ window.__ModuleLoader__.load({
                 h('label', { className: 'pa24-field' }, L('原 Skill 来源', 'Original skill source'), h('select', { value: view.migrationSkill || '', onChange: event => update({ migrationSkill: event.target.value }) }, h('option', { value: '' }, L('请选择原来源', 'Select original source')), (catalog?.entries || []).filter(entry => (entry.internalName || entry.name) === p.skill).map(entry => h('option', { key: entry.id, value: entry.id }, entry.name + ' · ' + entry.source)))),
                 button(L('预览旧计划迁移', 'Preview legacy migration'), () => preview('plans.migration-preview', 'migrate', { skillId: view.migrationSkill || undefined }))),
               p.task_config && !p.recycled_at && h('details', null, h('summary', null, L('重配目标与删除', 'Rebind or delete')),
-                button(L('重新绑定目标 · 先预览', 'Rebind targets · preview'), () => preview('plans.preview', 'enable', { rebind: true })),
+                button(L('重新绑定目标 · 先预览', 'Rebind targets · preview'), () => preview('plans.preview', 'rebind', { rebind: true })),
                 h('p', null, L('删除保留历史。若有当前运行，可等待结束或请求停止后回收。', 'Deletion keeps history. Wait for active runs or request their stop.')),
                 button(L('等待当前运行结束后删除', 'Delete after current runs end'), () => change({ op: 'delete', id: p.id, expectedRevision: p.revision, running: 'wait' })),
                 button(L('停止当前运行并删除', 'Stop current runs and delete'), () => change({ op: 'delete', id: p.id, expectedRevision: p.revision, running: 'stop' }))),
