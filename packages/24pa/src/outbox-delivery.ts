@@ -87,11 +87,12 @@ export class OutboxDelivery {
         // Keep sending until routing is durable. Crash recovery sees this
         // receipt and repairs the local step without invoking the adapter.
         await repo.mark(row.id, { status: 'sending', messageId });
-        await this.deps.sent(row, messageId);
       } catch (error) {
         await repo.mark(row.id, { status: 'unknown', messageId, error: `平台已确认，本地回执保存失败：${this.error(error)}` }).catch(() => {});
         return;
       }
+      try { await this.deps.sent(row, messageId); }
+      catch (error) { console.warn(`[pa24] 接入送达证据待补记：${this.error(error)}`); }
     }
     try {
       if (row.channel === 'feishu') await this.route(row.dedup_key, messageId);

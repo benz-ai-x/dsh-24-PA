@@ -82,7 +82,8 @@ export class HealthRepo {
   async impacts(): Promise<Record<string, number>> {
     const result = (await this.db.query<{ kind: string; count: string }>(`select 'work' as kind,count(*) as count from pa24.work_item where status in ('queued','running','waiting_input','needs_reconciliation')
       union all select 'outbox',count(*) from pa24.outbox where status in ('pending','sending','unknown')
-      union all select 'reviews',count(*) from pa24.note_version where status='pending_review'`)).rows;
+      union all select 'reviews',count(*) from pa24.note_version where status='pending_review'
+      union all select 'plans',count(*) from pa24.digest_plan where recycled_at is null`)).rows;
     return Object.fromEntries(result.map(row => [row.kind, Number(row.count)]));
   }
 }

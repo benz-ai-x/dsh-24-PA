@@ -2,11 +2,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG, CONFIG_FIELDS } from '../../lib/config.js';
-let React, createRoot, act, win, root, container, requests, health, failRead, pendingRead, binding, poll;
+let React, createRoot, act, win, root, container, requests, health, failRead, pendingRead, binding, poll, wecom;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 const config = { ...DEFAULT_CONFIG, mode: 'feishu', ownerOpenId: 'ou-owner', notifyChannel: 'wecom' };
 const snapshot = () => ({ workspace: { path: `/test/${binding}`, config, sourceHash: 'saved-1', configVersion: 'config-1' }, workspaceBinding: binding,
-  configMeta: { fields: CONFIG_FIELDS }, work: [], outbox: [], secrets: {}, readiness: { items: [] }, transport: { connected: true } });
+  configMeta: { fields: CONFIG_FIELDS }, wecom, work: [], outbox: [], secrets: {}, readiness: { items: [] }, transport: { connected: true } });
 const evidence = () => ({ configVersion: 'config-1', readAt: '2026-10-23T01:00:00Z', evidence: [
   { scope: 'feishu.receive', state: 'no_activity', checkedAt: '', configVersion: 'config-1', coverage: '合格入站', message: '无活动不等于故障', impact: '尚未证明链路', nextSteps: ['本人发送测试私聊'] },
   { scope: 'feishu.application', state: 'stale', checkedAt: '2026-10-22T01:00:00Z', configVersion: 'old-config', coverage: '实际应用', message: '旧配置证据已过期', impact: '只影响此应用', nextSteps: ['核对应用'] },
@@ -23,7 +23,7 @@ beforeAll(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); React = await import('react'); ({ act } = React); ({ createRoot } = await import('react-dom/client'));
 });
 beforeEach(async () => {
-  binding = 'binding-a'; health = evidence(); requests = []; failRead = false; pendingRead = null; win.localStorage.clear();
+  wecom = undefined; binding = 'binding-a'; health = evidence(); requests = []; failRead = false; pendingRead = null; win.localStorage.clear();
   const interval = globalThis.setInterval; vi.spyOn(globalThis, 'setInterval').mockImplementation((fn, delay, ...args) => { if (delay === 2500) poll = fn; return interval(fn, delay, ...args); });
   vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
     const req = JSON.parse(init.body); requests.push(req); let value;
@@ -78,6 +78,15 @@ describe('M07 接入与配置：真实 React DOM 操作', () => {
     expect(button('清理测试对象').disabled).toBe(true); await click(checkbox('确认清理此测试对象')); await click(button('清理测试对象'));
     expect(container.textContent).toContain('清理已接纳，原回执保留'); expect(button('清理测试对象')).toBeUndefined();
     expect(requests.filter(row => row.payload.type === 'health.test.cleanup')).toHaveLength(1);
+  });
+  it('CLI 可用但身份变化时不显示总体正常，旧新身份可读且需要另行确认', async () => {
+    wecom = { checkedAt: '2026-10-23T01:00:00Z', cli: { state: 'ok', message: 'CLI 可执行' }, identity: { state: 'error', message: '原身份已变化，待本人确认' }, services: [], nextSteps: [] };
+    health = { ...evidence(), identity: { changed: true, accepted: { ownerId: 'original-owner', authority: 'bot-original' }, observed: { ownerId: 'new-owner', authority: 'bot-new' } } };
+    await act(async () => { await poll(); }); await openCard('企业微信');
+    const identitySection = [...container.querySelectorAll('section')].find(node => node.querySelector('h2')?.textContent === 'CLI 与身份');
+    expect(identitySection.textContent).toContain('身份待核验'); expect(identitySection.textContent).not.toContain('status.ok');
+    expect(container.textContent).toContain('original-owner · bot-original'); expect(container.textContent).toContain('new-owner · bot-new');
+    expect(button('确认新绑定').disabled).toBe(true); expect(requests.some(row => row.payload.type === 'health.identity-accept')).toBe(false);
   });
   it('工作区切换后的迟到证据不会回填新工作区', async () => {
     let resolveOld; pendingRead = new Promise(resolve => { resolveOld = resolve; }); await openCard('飞书');

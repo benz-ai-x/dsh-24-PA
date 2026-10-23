@@ -36,7 +36,7 @@ async function setup(entry = source('first')) {
   return { ...f, state, auth, child, execute, run, calls };
 }
 
-it('实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 GUID 不改绑、关联或覆盖', async () => {
+it('实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 GUID 不自动改绑或关联，新授权操作保留交办关联', async () => {
   const f = await setup();
   const created = await f.run({ action: 'task_create', summary: '原待办', description: '原描述', assigneeIds: ['owner'] });
   const local = await f.rt.repos.tasks.byGuid(created.guid);
@@ -54,7 +54,9 @@ it('实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 G
   expect(changed.verification.state).toBe('pending'); expect(changed.verification.message).toMatch(/GUID.*冲突/);
   expect((await f.rt.repos.tasks.get(local.id)).id).toBe(local.id);
   expect((await f.rt.repos.tasks.get(local.id)).summary).toBe('原待办');
-  expect((await f.run({ action: 'task_list', role: 'all' })).tasks[0].workItemIds).toEqual([]);
+  const afterExplicitUpdate = (await f.run({ action: 'task_list', role: 'all' })).tasks[0];
+  expect(afterExplicitUpdate.taskId).toBeNull(); // 不借用另一身份下的本地镜像。
+  expect(afterExplicitUpdate.workItemIds).toEqual([f.child.id]); // 新身份的明确操作回执关联本次交办。
 });
 
 it('实际公共工具拒绝无来源证据的旧本地编号，即便指定了当前来源', async () => {

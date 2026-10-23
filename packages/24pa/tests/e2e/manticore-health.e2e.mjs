@@ -14,7 +14,13 @@ describe('M07 真实 Loader 接入健康', () => {
     const legacy = await api('action', { type: 'connection.check' });
     const retained = await api('health.snapshot', { workspaceBinding: await binding() });
     expect(retained.evidence.find(row => row.scope === 'feishu.identity').checkedAt >= legacy.checkedAt).toBe(true);
+    const created = await api('action', { type: 'plan.change', op: 'save', workspaceBinding: await binding(), requestId: randomUUID(), title: '健康只读计划',
+      skillId: 'builtin:digest-morning', timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'none' } });
     const report = await api('action', { type: 'health.check', workspaceBinding: await binding() });
+    expect(report.evidence.find(row => row.scope === 'plans').detail.taskPlans).toMatchObject({ total: 1, paused: 1, enabled: 0 });
+    const inspected = await api('plans.inspect', { id: created.plan.id, workspaceBinding: await binding() });
+    expect(inspected.triggers.total).toBe(0);
+
     expect(report.requestedScopes).toContain('memory'); expect(report.evidence.find(row => row.scope === 'wecom.push').state).toBe('disabled');
     expect(report.evidence.find(row => row.scope === 'feishu.identity').state).toBe('verified');
     expect(report.evidence.find(row => row.scope === 'workspace').state).toBe('verified');

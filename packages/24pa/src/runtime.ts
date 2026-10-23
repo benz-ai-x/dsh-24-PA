@@ -3964,8 +3964,9 @@ export class PaRuntime {
       return result('verified', '本地 Skill 管理目录及版本登记可读取；不运行 Skill', 'Skill 管理目录可读取，具体依赖与运行结果以单项记录为准。');
     }
     if (scope === 'plans') {
-      await this.repos!.digests.listPlans();
-      return result('verified', '既有定时任务账本可读取；不补触发、不执行 Skill', '计划账本可读取；每条计划的独立阻断与运行证据请在定时任务卡查看。');
+      const taskPlans = await this.repos!.taskPlans.summary();
+      return result('verified', '旧计划与通用定时任务的配置、启停和阻断账本可读取；不补触发、不执行 Skill',
+        '计划账本可读取；每条计划的独立阻断与运行证据请在定时任务卡查看。', { taskPlans });
     }
     if (scope === 'models') return result('unverified', '已生效的模型路由声明，不请求模型', '路由存在不代表模型可用或账单预算已核验。', { workerModels: this.config!.workerModels });
     if (scope === 'voice') return result(this.config!.tts.engine === 'none' ? 'disabled' : this.ttsProbeCache?.result.ready ? 'verified' : 'unverified', '语音配置与最近显式预检；不合成、不发送', this.config!.tts.engine === 'none' ? '语音未启用。' : '语音状态以当前配置的显式预检和试听回执为准。', this.ttsProbeCache);
