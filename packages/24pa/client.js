@@ -1606,7 +1606,7 @@ window.__ModuleLoader__.load({
           });
           return h('section', { id: 'pa24-sources', className: 'pa24-card pa24-sources' },
             sectionHead('calendar', L('日历与待办来源', 'Calendar & todo sources'), L('登记需要查询和使用的资源。默认来源仅用于创建；查询覆盖全部启用来源。', 'Register the resources you use. Defaults select creation targets; queries cover all enabled sources.')),
-            h('p', { className: 'pa24-helper' }, L('日历来源已用于查询和办理。待办来源目前可登记与检查；待办办理仍使用“待办渠道”和“任务清单”配置。', 'Calendar sources apply to queries and changes. Todo sources currently support registration and checks; todo operations still use the Todo channel and Task list settings.')),
+            h('p', { className: 'pa24-helper' }, L('日历和待办均按已登记来源查询与办理。创建时使用明确指定或唯一匹配的来源；修改、完成和取消沿原对象办理。', 'Calendars and todos use registered sources. Creation uses the explicitly selected or uniquely matched source; changes, completion and cancellation retain the original object.')),
             failure && h('div', { role: 'alert', className: 'pa24-error' }, failure, h('button', { type: 'button', onClick: () => load(!draft) }, L('重试读取', 'Retry'))),
             !draft && !failure && h('p', { role: 'status' }, L('正在读取来源…', 'Loading sources…')),
             draft && h('fieldset', { disabled: busy, style: { border: 0, padding: 0, margin: 0, minWidth: 0 } },
