@@ -344,13 +344,7 @@ export class PaRuntime {
       ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.options.larkCliBin, this.transportIdentity(this.config, this.secretStore)]
       : [this.config!.mode, this.options.wecomCliBin]));
   }
-  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry,
-    checkAction: action => {
-      // M04 replaces the legacy task adapter with registered-source writes.
-      // Until that adapter consumes the fixed target, do not authorize a plan
-      // that could silently route to the current global default.
-      if (['task_create', 'task_update', 'task_complete', 'task_cancel'].includes(action)) throw new Error('定时待办写入尚未接入固定来源，当前不能启用含此动作的计划。');
-    }, owner: async channel => {
+  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry, owner: async channel => {
     if (this.config?.mode !== 'feishu') throw new Error('体验模式不能绑定真实主人投递身份。');
     const identity = await this.sourceAccess.identity(channel);
     return { channel, target: identity.ownerId, identityKey: hash(JSON.stringify(identity)), connectionHash: this.sourceConnectionHash(channel) };
