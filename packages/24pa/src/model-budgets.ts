@@ -15,7 +15,7 @@ interface BudgetContext { repos: Repos; path: string; binding: string; config: B
 export class ModelBudgets {
   private readonly waking = new Set<string>();
   private readonly sent = new Set<string>();
-  constructor(private readonly deps: { host: () => DshContext; context(): BudgetContext | null; activate(runId: string): void; resumeInput?(runId: string): Promise<boolean>; detached<T>(work: () => T): T }) {}
+  constructor(private readonly deps: { host: () => DshContext; context(): BudgetContext | null; activate(runId: string): void; resumeInput?(runId: string, sessionId: string): Promise<boolean>; detached<T>(work: () => T): T }) {}
   private context(binding?: unknown) { const ctx = this.deps.context(); if (!ctx || (binding !== undefined && ctx.binding !== binding)) throw new Error('预算所属工作区已切换，请刷新。'); return ctx; }
   async owner(session: DshSession): Promise<BudgetOwner | null> {
     const ctx = this.context(); if (session.header.cwd !== ctx.path) return null;
@@ -126,7 +126,7 @@ export class ModelBudgets {
       try {
         const owner = await ctx.repos.modelBudget.owner(release.run_id), control = await ctx.repos.runControls.get(release.run_id);
         if (!owner || !['running','waiting'].includes(owner.status) || !control || !canFinishDispatchedStep(control.state) || control.state.stop) continue;
-        if (owner.kind === 'skill' && await this.deps.resumeInput?.(owner.runId)) continue;
+        if (owner.kind === 'skill' && await this.deps.resumeInput?.(owner.runId, release.session_id)) continue;
         const agents = this.deps.host().get('agents') as { get?(id: string): DshAgent & { inbox?: { nextTurn: RunInput[]; nextStep: RunInput[] } } } | null;
         const live = agents?.get?.(release.session_id);
         // Workspace-instruction middleware may park context in nextStep after

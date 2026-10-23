@@ -16,6 +16,8 @@ import { WorkspaceExecution } from '../../lib/workspace-execution.js';
 import { runCliProcess } from '../../lib/cli-gateway.js';
 import { SkillRunHost } from '../../lib/skill-run-host.js';
 import { SkillRunNative } from '../../lib/skill-run-native.js';
+import { DEFAULT_BUDGET } from '../../lib/model-budget.js';
+import { ModelBudgets } from '../../lib/model-budgets.js';
 import { canceledInputIds } from '../../lib/host-turn.js';
 
 describe('运行累计执行与等待时间', () => {
@@ -102,6 +104,80 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     const state = (await repos.runControls.get(run.id)).state;
     expect(state.blocks.map(row => row.key)).toEqual(['budget']); expect(canExecuteRun(state)).toBe(false);
   });
+  it.each(['ordinary', 'budget'])('未采用原输入只由一个恢复入口唤醒，先进入=%s', async first => {
+    const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '完整原输入' }] };
+    await repos.skillRuns.input(run.id, message, true, run.session_id);
+    const events = [], session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => events };
+    let originalWakes = 0, budgetWakes = 0, captured, proceed;
+    const reached = new Promise(resolve => { captured = resolve; }), barrier = new Promise(resolve => { proceed = resolve; });
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null,
+      sessionController: { prompt: async () => { budgetWakes++; return { accepted: true }; } } };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    const owner = { runId: run.id, workId: run.work_item_id, sessionId: run.session_id, kind: 'skill' };
+    const budget = new ModelBudgets({ host: () => host, context: () => ({ repos, path: '/workspace', binding: 'binding', config: { ...DEFAULT_BUDGET, maxRequests: 0 }, timeZone: 'Asia/Shanghai', maxWorkers: 2 }),
+      activate: id => runs.activateBudget(id), resumeInput: (id, sessionId) => runs.resumeBudgetInput(id, sessionId), detached: fn => fn() });
+    runs.host.resumePending = async (_, original) => {
+      expect(original).toEqual(message); originalWakes++; captured(); await barrier;
+      expect(await repos.modelBudget.gate(owner, DEFAULT_BUDGET, 'Asia/Shanghai', { turn: 1, step: 1, route: { provider: 'test', model: 'test' } })).toMatchObject({ allowed: true });
+      events.push({ type: 'user/message', data: original });
+    };
+    await repos.modelBudget.gate(owner, { ...DEFAULT_BUDGET, maxRequests: 0 }, 'Asia/Shanghai');
+    const permit = await repos.modelBudget.grant({ id: randomUUID(), hash: randomUUID(), ...owner });
+    try {
+      expect(await runs.resumeBudgetInput(run.id, 'independent-child')).toBe(false);
+      const entering = first === 'ordinary' ? runs.poll() : budget.poll(); await reached;
+      await (first === 'ordinary' ? budget.poll() : runs.poll());
+      expect(originalWakes).toBe(1); expect(budgetWakes).toBe(0);
+      proceed(); await entering;
+      expect((await repos.modelBudget.release(permit.id)).status).toBe('used');
+      expect((await repos.skillRuns.get(run.id)).status).toBe('running');
+    } finally { proceed(); runs.dispose(); }
+  });
+
+  it.each(['ready', 'used'])('旧预算拒绝快照不结算新许可（%s），随后原请求完成', async permitState => {
+    const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原输入' }] };
+    await repos.skillRuns.input(run.id, message, true, run.session_id);
+    const owner = { runId: run.id, workId: run.work_item_id, sessionId: run.session_id, kind: 'skill' };
+    const events = [
+      { type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: message },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'blocked' } } },
+    ];
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => events };
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    await repos.modelBudget.gate(owner, { ...DEFAULT_BUDGET, maxRequests: 0 }, 'Asia/Shanghai');
+    let captured, proceed;
+    const capture = new Promise(resolve => { captured = resolve; }), barrier = new Promise(resolve => { proceed = resolve; });
+    const observe = runs.native.observe.bind(runs.native);
+    runs.native.observe = async (...args) => { const snapshot = await observe(...args); captured(); await barrier; return snapshot; };
+    const request = { turn: 2, step: 1, route: { provider: 'test', model: 'test' } };
+    try {
+      const settling = runs.poll(); await capture;
+      const permit = await repos.modelBudget.grant({ id: randomUUID(), hash: randomUUID(), ...owner });
+      expect(await repos.modelBudget.claimWake(permit, [], 2)).toBe(true);
+      if (permitState === 'used') await repos.modelBudget.gate(owner, DEFAULT_BUDGET, 'Asia/Shanghai', request);
+      proceed(); await settling;
+      expect((await repos.skillRuns.get(run.id)).status).toBe('running');
+      expect((await repos.runControls.get(run.id)).state.terminal).toBeNull();
+      if (permitState === 'ready') expect(await repos.modelBudget.gate(owner, DEFAULT_BUDGET, 'Asia/Shanghai', request)).toMatchObject({ allowed: true });
+      events.push({ type: 'turn/start', data: { turn: 2 } }, { type: 'user/message', data: message },
+        { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: '原请求完成' }] } } },
+        { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } });
+      await runs.poll(); expect((await repos.skillRuns.get(run.id)).status).toBe('completed');
+    } finally { proceed(); runs.dispose(); }
+  });
+  it('另一会话预算等待不拒绝已派发工具，独立人工阻断仍拒绝', async () => {
+    await repos.runControls.change(run.id, state => blockRun(state, { key: 'budget:sibling', kind: 'budget', reason: '另一会话到限' }));
+    await repos.skillRuns.transition(run.id, 'waiting', '另一会话等待');
+    await repos.skillRuns.beginCall(run.id, 'allowed', 'bash', {}, run.session_id);
+    expect((await repos.skillRuns.calls(run.id)).find(row => row.call_id === 'allowed').status).toBe('running');
+    await repos.runControls.change(run.id, state => blockRun(state, { key: 'input', kind: 'input', reason: '缺信息' }));
+    await expect(repos.skillRuns.beginCall(run.id, 'blocked', 'bash', {}, run.session_id)).rejects.toThrow(/等待/);
+    expect((await repos.skillRuns.calls(run.id)).some(row => row.call_id === 'blocked')).toBe(false);
+  });
+
   it.each(['paused', 'no-budget', 'open-step', 'unknown-tool', 'unsettled-job'])('冷恢复只确认未执行的预算等待，保留原始回执：%s', async condition => {
     const childId = randomUUID(), epoch = randomUUID(), events = [];
     await repos.skillRuns.child(run.id, childId, run.session_id, '/workspace');

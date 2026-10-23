@@ -1678,7 +1678,7 @@ export class PaRuntime {
     host: () => this.ctx,
     context: () => this.repos && this.workspace && this.workspaceBinding && this.config ? { repos: this.repos, path: this.workspace.statePath, binding: this.workspaceBinding,
       config: this.config.budget, timeZone: this.config.timeZone, maxWorkers: this.config.maxWorkers } : null,
-    activate: id => this.skillRuns.activateBudget(id), resumeInput: id => this.skillRuns.resumeBudgetInput(id), detached: work => this.executions.detached(work),
+    activate: id => this.skillRuns.activateBudget(id), resumeInput: (id, sessionId) => this.skillRuns.resumeBudgetInput(id, sessionId), detached: work => this.executions.detached(work),
   });
   async releaseBudget(input: Record<string, unknown>) { return this.executions.run(() => this.modelBudgets.grant(input)); }
   readonly workerRuns = new WorkerRuns({

@@ -5,7 +5,7 @@ import type { SkillContract, SkillPackage } from '../skill-package.js';
 import type { SkillEntryRow } from './skill.js';
 import type { WorkItemRow } from './work.js';
 import { initializeRunControl, type RunControlRow } from './run-control.js';
-import { finishRunControl } from '../run-control.js';
+import { finishRunControl, canFinishDispatchedStep } from '../run-control.js';
 import type { TaskPlanAuthorization, TaskPlanConfiguration } from '../task-plan.js';
 import type { TaskPlanRow } from './task-plan.js';
 import { hasExecutionCapacity } from './execution-capacity.js';
@@ -281,11 +281,24 @@ export class SkillRunRepo {
     await tx.query('insert into pa24.skill_run_admission_guard (id) values ($1) on conflict (id) do nothing', [skillId]);
     await tx.query('select id from pa24.skill_run_admission_guard where id = $1 for update', [skillId]);
   }
-  async transition(id: string, status: SkillRunStatus, progress: string, result?: string): Promise<SkillRunRow | null> {
+  async modelRequests(id: string, tx: PaQueryer = this.db): Promise<string[]> {
+    return (await tx.query<{ id: string }>('select id from pa24.budget_request where run_id = $1 order by id', [id])).rows.map(row => row.id);
+  }
+  async transition(id: string, status: SkillRunStatus, progress: string, result?: string, observedRequests?: readonly string[]): Promise<SkillRunRow | null> {
     return this.db.withTransaction(async tx => {
       const row = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [id])).rows[0];
       if (!row || ['completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'].includes(row.status)) return row ?? null;
       if (row.status === 'stopping' && !['stopped', 'timed_out', 'needs_reconciliation'].includes(status)) return row;
+      if (observedRequests && row.status !== 'stopping') {
+        // Budget grant/dispatch takes this same Run lock. A stale Session
+        // snapshot cannot settle a newly admitted or already dispatched wake.
+        if (row.status !== 'running' || (await tx.query("select id from pa24.budget_release where run_id = $1 and status = 'ready'", [id])).rowCount) return row;
+        const current = await this.modelRequests(id, tx);
+        if (current.length !== observedRequests.length || current.some((value, index) => value !== observedRequests[index])) return row;
+        await tx.query('select id from pa24.work_item where id = $1 for update', [row.work_item_id]);
+        const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];
+        if (control && !canFinishDispatchedStep(control.state)) return row;
+      }
       const next = (await tx.query<SkillRunRow>('update pa24.skill_run set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 returning *',
         [id, status, progress, result ?? row.result])).rows[0]!;
       await tx.query('update pa24.work_item set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 and active_skill_run_id = $5',
@@ -348,7 +361,9 @@ export class SkillRunRepo {
   async beginCall(id: string, callId: string, tool: string, args: Record<string, unknown>, sessionId?: string, rootCallId?: string): Promise<void> {
     await this.db.withTransaction(async tx => {
       const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [id])).rows[0];
-      if (!run || run.status !== 'running') throw new Error('运行已停止或等待核对，未执行此工具。');
+      const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];
+      const budgetWaiting = run?.status === 'waiting' && control?.state.blocks.some(block => block.kind === 'budget');
+      if (!run || (run.status !== 'running' && !budgetWaiting) || (control && !canFinishDispatchedStep(control.state))) throw new Error('运行已停止或等待核对，未执行此工具。');
       const inserted = await tx.query(`insert into pa24.skill_run_call (run_id, call_id, tool, arguments, status, session_id, root_call_id) values ($1, $2, $3, $4, 'running', $5, $6)
         on conflict (run_id, session_id, call_id) do nothing returning call_id`, [id, callId, tool, JSON.stringify(args), sessionId ?? run.session_id, rootCallId ?? callId]);
       if (!inserted.rowCount) throw new Error('此工具调用已有执行意图，不能重复执行。');

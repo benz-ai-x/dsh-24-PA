@@ -63,11 +63,14 @@ export class SkillRuns {
     this.clock = new SkillRunClock(id => this.deps.control(() => this.expire(id)));
     this.templates = new SkillRunTemplates(deps.template, work => deps.control(work), (id, phase, error) => this.diagnostic(id, phase, error));
   }
-  async resumeBudgetInput(id: string): Promise<boolean> {
+  async resumeBudgetInput(id: string, sessionId: string): Promise<boolean> {
     const context = this.context(), run = await context.repos.skillRuns.get(id);
-    if (!run || !(await context.repos.runControls.resumes(id)).some(row => row.status !== 'submitted')) return false;
-    // Owner supplements precede an internal budget wake. Otherwise the one
-    // permitted request could be spent before the requested information arrives.
+    if (!run || sessionId !== run.session_id) return false;
+    // The original input and owner supplements have one recovery dispatcher.
+    // A budget wake cannot race its maintenance lease on the same Session;
+    // a separately permitted child still resumes within its own scope.
+    if (this.resuming.has(id)) return true;
+    if (!(await context.repos.runControls.resumes(id)).some(row => row.status !== 'submitted') && !(await this.pendingInputs(run)).length) return false;
     await this.dispatchResumes(run);
     return true;
   }
@@ -597,6 +600,7 @@ export class SkillRuns {
     if (await this.stopCanceledInput(run)) return;
     const calls = await repo.calls(run.id);
     if (calls.some(call => call.status === 'unknown' || (recovering && call.status === 'running'))) return this.block(run, '工具结果待核对；停止或重启不抹除已经发生的动作。');
+    const observedRequests = await repo.modelRequests(run.id);
     let observation;
     try { observation = await this.native.observe(repo, run, recovering, session => this.deps.budget?.paused(session) ?? Promise.resolve(false)); }
     catch (error) { await this.diagnostic(run.id, 'native-observe', error); return this.block(run, errorText(error)); }
@@ -642,9 +646,10 @@ export class SkillRuns {
     const status = fresh.status === 'stopping' || kind === 'aborted' ? 'stopped' : kind === 'completed' && output ? 'completed' : 'failed';
     const reason = status === 'completed' ? '执行回合已完成，结果已保存；业务完成以结果和动作回执为准，未请求投递'
       : status === 'stopped' ? '已停止；已发生的动作及未知结果保留' : `执行未完成：${terminal.data.reason?.error?.message ?? kind}`;
+    const settled = await repo.transition(run.id, status, reason, output, observedRequests);
+    if (settled?.status !== status) return;
     const state = this.active.get(run.id); if (state) state.allowed = false;
     this.clock.disarm(run.id);
-    await repo.transition(run.id, status, reason, output);
   }
   async recover(): Promise<void> {
     if (this.recovering || !this.deps.context()) return;

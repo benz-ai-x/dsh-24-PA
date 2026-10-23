@@ -112,8 +112,8 @@ it('计划主人暂停保持；预算放行只继续在途原运行，确定性�
 }, 600000);
 
 it.each([false, true])('原生子任务的模型也受预算控制，主子同时等待后冷恢复=%s仍回原运行', async cold => {
-  const run = await start([], 'local', ['subagent']);
-  await writeFile(scriptPath, JSON.stringify({ mode: 'native-run', rootStep: { tool: { name: 'subagent', input: { description: '预算子任务', prompt: '[NATIVE_CHILD] 只返回预算子任务结果。' } } }, childStep: { text: 'CHILD_RESULT：预算子任务完成。' } }));
+  const run = await start([], 'local', ['subagent', 'bash']);
+  await writeFile(scriptPath, JSON.stringify({ mode: 'native-run', rootStep: { tool: { name: 'subagent', input: { description: '预算子任务', prompt: '[NATIVE_CHILD] 只返回预算子任务结果。' } } }, childStep: { tool: { name: 'bash', input: { description: '子任务原预算下读取', command: 'pwd', workdir: workspace } } } }));
   await until(() => detail(run.id), value => value.run.status === 'waiting');
   let released = [];
   if (cold) {
@@ -134,7 +134,9 @@ it.each([false, true])('原生子任务的模型也受预算控制，主子同�
     if (value.run.status === 'completed') { expect(value.run.result).toContain('ROOT_RESULT'); break; }
     expect(value.run.status).toBe('waiting');
   }
-  expect((await detail(run.id)).run.status).toBe('completed');expect(released.some(id=>id!==run.session_id)).toBe(true);
+  const completed = await detail(run.id);
+  expect(completed.run.status).toBe('completed');expect(released.some(id=>id!==run.session_id)).toBe(true);
+  expect(completed.calls.find(row => row.tool === 'bash')).toMatchObject({ status: 'returned' });
   if (cold) {
     await restart(); expect((await detail(run.id)).run.status).toBe('completed');
     const preview = await host.api('skills.preview', { rerunId: run.id, configuration: 'original', workspaceBinding: binding });
