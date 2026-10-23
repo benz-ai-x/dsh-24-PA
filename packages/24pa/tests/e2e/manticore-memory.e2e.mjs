@@ -94,4 +94,34 @@ describe('Manticore M06 真实 Loader / Session / 条件文件写入', () => {
     expect(await readFile(join(workspace, '.24pa/memory.json'), 'utf8')).toBe(before); expect(llm.log.length).toBe(models);
     await expect(host.api('memory', { workspaceBinding: 'wrong-workspace' })).rejects.toThrow('工作区');
   });
+
+  it('实际工具入口重复旧确认不能确认新正文，凭证不改写，新的明确确认恢复事实资格', async () => {
+    let revision = (await current()).revision;
+    const originalCommand = put('colour', revision, { topic: '颜色', content: '我喜欢红色', confirmation: '记住我喜欢红色' });
+    expect(await tool(originalCommand)).toMatchObject({ revision: ++revision, audit: 'recorded' });
+    const original = (await current()).records.find(row => row.id === 'colour').confirmation;
+    expect(await tool({ ...originalCommand, expectedRevision: revision, content: '我喜欢蓝色' })).toMatchObject({ revision: ++revision, audit: 'recorded' });
+    expect((await tool({ action: 'search', mode: 'facts', query: '颜色' })).records).toEqual([]);
+    const changed = (await host.api('memory', { query: '颜色' })).records[0];
+    expect(changed).toMatchObject({ content: '我喜欢蓝色', status: 'unverified', effective: { confirmation: 'unverified', useAs: 'clue' } });
+    expect(changed.confirmation).toEqual(original);
+    expect(await tool({ ...originalCommand, expectedRevision: revision, content: '我喜欢蓝色' })).toMatchObject({ revision: ++revision });
+    expect((await tool({ action: 'search', mode: 'facts', query: '颜色' })).records).toEqual([]);
+    expect(await tool({ ...originalCommand, expectedRevision: revision, content: '我喜欢蓝色', confirmation: '我现在确认喜欢蓝色，请更正这条偏好' })).toMatchObject({ revision: ++revision });
+    const fresh = (await tool({ action: 'search', mode: 'facts', query: '颜色' })).records[0];
+    expect(fresh.content).toBe('我喜欢蓝色'); expect(fresh.confirmation.statementHash).not.toBe(original.statementHash);
+  });
+
+  it('旧 schema 1 记录经真实本地工具停用再撤销，恢复默认 active 和业务可检索状态', async () => {
+    const file = await current();
+    const legacy = { id: 'legacy', category: 'fact', topic: '旧版记录', content: '旧版未声明使用状态的内容', source: '本人历史指令', status: 'unverified', updatedAt: '2026-01-01T00:00:00Z', updatedBy: 'owner', reason: '历史维护' };
+    file.schemaVersion = 1; file.records.push(legacy);
+    await writeFile(join(workspace, '.24pa/memory.json'), JSON.stringify(file));
+    expect(await tool({ action: 'deactivate', id: 'legacy', expectedRevision: file.revision, reason: '暂时停用旧版记录' })).toMatchObject({ revision: file.revision + 1 });
+    expect((await tool({ action: 'search', query: '旧版记录' })).records).toEqual([]);
+    const history = await tool({ action: 'history', id: 'legacy' });
+    expect(await tool({ action: 'undo', changesetId: history.revisions[0].id, expectedRevision: file.revision + 1, reason: '撤销此次停用' })).toMatchObject({ revision: file.revision + 2, audit: 'recorded' });
+    expect((await tool({ action: 'search', query: '旧版记录' })).records).toMatchObject([{ id: 'legacy', content: legacy.content, effective: { lifecycle: 'active', useAs: 'clue' } }]);
+    expect((await current()).records.find(row => row.id === 'legacy').lifecycle).toBe('active');
+  });
 });

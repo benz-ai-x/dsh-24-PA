@@ -361,7 +361,7 @@ export class MemoryStore {
       const before = changeset.before[id];
       if (before) {
         if (changeset.after[id]?.lifecycle === 'recycled' && before.lifecycle !== 'recycled') inverse.push({ op: 'restore', id, reason: options.reason });
-        inverse.push({ op: 'put', record: before, reason: `撤销 ${changesetId}：${options.reason}` });
+        inverse.push({ op: 'put', record: { ...before, lifecycle: before.lifecycle ?? 'active' }, reason: `撤销 ${changesetId}：${options.reason}` });
       }
       else if (changeset.after[id] !== null) inverse.push({ op: 'delete', id, reason: `撤销 ${changesetId}：${options.reason}` });
     }

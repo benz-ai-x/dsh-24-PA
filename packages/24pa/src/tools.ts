@@ -125,7 +125,7 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_memory',
-    '检索/维护本工作区 JSON 长期记忆。search 默认返回有效事实及待核实线索，effective.useAs 区分用途；facts 只返有确认依据的当前事实。manage/history/inspect/changesets 与所有维护仅限本地顶层会话。delete 是回收；restore 恢复，purge 永久清除回收正文及可恢复版本。单项修改需 revision 和本人依据；批量先 preview 展示选择，再 apply 携带返回的 changes/previewToken。confirmation 仅可引用本人的明确记住/确认指令，审核资料或模型推断不算。',
+    '检索/维护本工作区 JSON 长期记忆。search 默认返回有效事实及待核实线索，effective.useAs 区分用途；facts 只返有确认依据的当前事实。manage/history/inspect/changesets 与所有维护仅限本地顶层会话。delete 是回收；restore 恢复，purge 永久清除回收正文及可恢复版本。单项修改需 revision 和本人依据；批量先 preview 展示选择，再 apply 携带返回的 changes/previewToken。confirmation 仅可引用本人的明确记住/确认指令，审核资料或模型推断不算；重复旧依据不会确认改写后的陈述，需本人明确确认当前内容。',
     {
       action: { type: 'string', enum: ['search', 'put', 'delete', 'activate', 'deactivate', 'restore', 'purge', 'inspect', 'preview', 'apply', 'undo', 'changesets', 'history'] },
       mode: { type: 'string', enum: ['business', 'facts', 'manage'] },

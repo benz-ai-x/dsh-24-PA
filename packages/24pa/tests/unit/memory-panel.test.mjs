@@ -19,6 +19,7 @@ beforeEach(async () => {
   requests = []; binding = 'binding-a'; failed = false; pending = null; selectedSession = null; win.localStorage.clear();
   rows = Array.from({ length: 23 }, (_, index) => row('r' + index));
   rows[0] = row('r0', { lifecycle: 'recycled', sourceCheck: { state: 'unavailable', checkedAt: '2026-10-23T00:00:00Z', evidence: '只读检查返回 403' }, effective: { lifecycle: 'recycled', freshness: 'expired', confirmation: 'missing', conflict: 'none', useAs: 'excluded', relatedIds: [] } });
+  rows[1].scope = { kind: 'personal' }; rows[2].scope = { kind: 'company', name: '公司甲' }; rows[3].scope = { kind: 'project', name: '项目甲' };
   const interval = globalThis.setInterval;
   vi.spyOn(globalThis, 'setInterval').mockImplementation((fn, delay, ...args) => { if (delay === 2500) poll = fn; return interval(fn, delay, ...args); });
   vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
@@ -57,6 +58,8 @@ const change = async (element, value) => { expect(element).toBeTruthy(); await a
 it.each(['light', 'dark'])('%s：完整正文、确认/来源/时效分开，历史与筛选分页只读，维护携带完整身份', async theme => {
   if (theme === 'dark') win.document.body.setAttribute('data-ds-dark-theme', ''); else win.document.body.removeAttribute('data-ds-dark-theme'); win.happyDOM.setWindowSize({ width: 390, height: 844 });
   expect(container.textContent).toContain('共 23 条 · 匹配 23 条'); expect(container.textContent).toContain('可阅读的完整正文 r0'); expect(container.textContent).toContain('来源不可访问'); expect(container.textContent).toContain('不代表事实已被推翻');
+  const scopes = [...container.querySelectorAll('dt')].filter(node => node.textContent === '范围').map(node => node.nextElementSibling.textContent);
+  expect(scopes).toEqual(expect.arrayContaining(['个人', '公司 · 公司甲', '项目 · 项目甲']));
   await click('下一页'); expect(container.textContent).toContain('可阅读的完整正文 r22'); expect(requests.filter(req => req.endpoint === 'memory').at(-1).payload.offset).toBe(20);
   await change(field('使用状态'), 'recycled'); expect(container.textContent).toContain('共 23 条 · 匹配 1 条'); expect(requests.filter(req => req.endpoint === 'memory').at(-1).payload).toMatchObject({ lifecycle: 'recycled', offset: 0, workspaceBinding: 'binding-a' });
   await click('查看修订'); expect(container.textContent).toContain('旧的完整正文'); expect(container.textContent).toContain('新的完整正文');

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import nodeFs from 'node:fs';
 import { mkdtemp, mkdir, readFile, writeFile, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { syncBuiltinESMExports } from 'node:module';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { MemoryStore, parseMemoryFile, planMemoryRestore, emptyMemory, memoryStatementHash } from '../../lib/memory.js';
 import { fixture as runtimeFixture } from '../helpers/runtime.mjs';
@@ -33,7 +35,7 @@ it('确认绑定具体陈述，来源核验独立；复制旧确认或只审核�
   const checked = (await store.search({ mode: 'facts' })).records[0]; expect(checked.effective.useAs).toBe('fact');
   expect(checked.confirmation.statementHash).toBe(memoryStatementHash(checked));
   await store.put({ ...checked, content: '改写后的另一项陈述' }, opts(1));
-  expect((await store.search({})).records[0].effective).toMatchObject({ useAs: 'clue', confirmation: 'missing' });
+  expect((await store.search({})).records[0].effective).toMatchObject({ useAs: 'clue', confirmation: 'unverified' });
   await expect(store.put(record('doc', { confirmation: { kind: 'document_approval', text: '文档已审核', at, by: 'owner' } }), opts(2))).rejects.toThrow('确认依据类型');
   await store.put(record('inferred', { status: 'unverified', confirmation: undefined, source: '审核通过的笔记' }), opts(2));
   expect((await store.search({ mode: 'facts' })).matched).toBe(0);
@@ -98,9 +100,19 @@ it('回收/恢复保留内容与来源；永久删除清除修订正文、审计
 
 it('永久删除清理中断如实返回已提交，重启只清理派生历史且不会重写权威', async () => {
   const { store, dir, fs, memoryPath } = await fixture(); await store.put(record('r', { content: 'interrupt-private-body' }), opts(0)); await store.remove('r', opts(1));
-  vi.spyOn(store, 'replaceDerived').mockRejectedValueOnce(Error('disk unavailable'));
-  const result = await store.transition('r', 'purge', opts(2)); expect(result).toMatchObject({ revision: 3, audit: 'pending' }); expect(result.warning).toContain('清理待完成');
+  const changesetsDir = join(dir, '.24pa/changesets'), rename = nodeFs.promises.rename;
+  const publication = vi.spyOn(nodeFs.promises, 'rename').mockImplementation(async (source, target) => {
+    if (dirname(target) === changesetsDir) throw Object.assign(Error('disk unavailable'), { code: 'EIO' });
+    return rename(source, target);
+  });
+  syncBuiltinESMExports();
+  let result;
+  try { result = await store.transition('r', 'purge', opts(2)); }
+  finally { publication.mockRestore(); syncBuiltinESMExports(); }
+  expect(result).toMatchObject({ revision: 3, audit: 'pending' }); expect(result.warning).toContain('清理待完成');
   const raw = await readFile(memoryPath, 'utf8'); expect(raw).not.toContain('interrupt-private-body');
+  const interruptedHistory = await Promise.all((await readdir(changesetsDir)).map(name => readFile(join(changesetsDir, name), 'utf8')));
+  expect(interruptedHistory.some(content => content.includes('interrupt-private-body'))).toBe(true);
   const restarted = new MemoryStore(dir, { fs }); expect((await restarted.search({})).auditWarning).toBeUndefined(); expect(await readFile(memoryPath, 'utf8')).toBe(raw);
   for (const name of await readdir(join(dir, '.24pa/changesets'))) expect(await readFile(join(dir, '.24pa/changesets', name), 'utf8')).not.toContain('interrupt-private-body');
 });
@@ -148,4 +160,47 @@ it('停用项回收后修改与恢复保留回收前停用状态，不自动重�
   const { store } = await fixture(); await store.put(record('r', { lifecycle: 'inactive' }), opts(0)); await store.remove('r', opts(1));
   await store.put(record('r', { content: '回收内更正', confirmation: undefined }), opts(2)); await store.transition('r', 'restore', opts(3));
   expect((await store.search({ mode: 'manage' })).records[0].lifecycle).toBe('inactive'); expect((await store.search({})).records).toEqual([]);
+});
+
+it('实际维护入口重复旧确认不会给新正文重新授信，原凭证保留且新明确确认才能成为事实', async () => {
+  const f = await runtimeFixture();
+  try {
+    const path = await f.workspace('confirmation'); await f.rt.bind(path);
+    const owner = [...f.agents.values()].find(agent => f.rt.roleFor(agent) === 'local-robot');
+    const command = { action: 'put', id: 'colour', category: 'preference', topic: '颜色', content: '我喜欢红色', source: '本地主人指令', status: 'confirmed', confirmation: '记住我喜欢红色', reason: '主人维护' };
+    await f.rt.memoryTool({ ...command, expectedRevision: 0 }, owner);
+    const original = (await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records[0].confirmation;
+    await f.rt.memoryTool({ ...command, content: '我喜欢蓝色', expectedRevision: 1 }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
+    const changed = (await f.rt.memoryTool({ action: 'search', mode: 'manage' }, owner)).records[0];
+    expect(changed).toMatchObject({ content: '我喜欢蓝色', status: 'unverified', effective: { confirmation: 'unverified', useAs: 'clue' } });
+    expect(changed.confirmation).toEqual(original);
+    await f.rt.memoryTool({ ...command, content: '我喜欢蓝色', expectedRevision: 2 }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
+    await f.rt.memoryTool({ ...command, content: '我喜欢蓝色', confirmation: '我现在明确确认：喜欢蓝色，请记住这个更正', expectedRevision: 3 }, owner);
+    const confirmed = (await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records[0];
+    expect(confirmed.content).toBe('我喜欢蓝色'); expect(confirmed.confirmation.statementHash).not.toBe(original.statementHash);
+    const changes = [{ op: 'put', record: { ...confirmed, content: '我喜欢绿色', confirmation: { ...confirmed.confirmation, at: '2026-10-24T00:00:00Z', statementHash: undefined } }, reason: '批量修改，但没有新的确认' }];
+    const preview = await f.rt.memoryTool({ action: 'preview', expectedRevision: 4, changes }, owner);
+    expect(preview.after.colour.status).toBe('unverified'); expect(preview.after.colour.confirmation).toEqual(confirmed.confirmation);
+    await f.rt.memoryTool({ action: 'apply', expectedRevision: 4, changes: preview.changes, previewToken: preview.previewToken, reason: '接受待核实修改' }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
+  } finally { await f.cleanup(); }
+});
+
+it('实际维护入口撤销旧 schema 1 条目的停用，恢复缺省 active 与原内容', async () => {
+  const f = await runtimeFixture();
+  try {
+    const path = await f.workspace('legacy-undo'); await f.rt.bind(path);
+    const owner = [...f.agents.values()].find(agent => f.rt.roleFor(agent) === 'local-robot');
+    await f.rt.memoryTool({ action: 'search', mode: 'manage' }, owner);
+    const legacy = record('legacy', { confirmation: undefined });
+    await writeFile(join(path, '.24pa/memory.json'), JSON.stringify({ schemaVersion: 1, revision: 7, records: [legacy] }));
+    await f.rt.memoryTool({ action: 'deactivate', id: 'legacy', expectedRevision: 7, reason: '暂时停用' }, owner);
+    expect((await f.rt.memoryTool({ action: 'search' }, owner)).records).toEqual([]);
+    const history = await f.rt.memoryTool({ action: 'history', id: 'legacy' }, owner);
+    expect(await f.rt.memoryTool({ action: 'undo', changesetId: history.revisions[0].id, expectedRevision: 8, reason: '撤销刚才的停用' }, owner)).toMatchObject({ revision: 9, audit: 'recorded' });
+    expect((await f.rt.memoryTool({ action: 'search' }, owner)).records).toMatchObject([{ id: 'legacy', content: legacy.content, effective: { lifecycle: 'active' } }]);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'manage' }, owner)).counts).toMatchObject({ active: 1, inactive: 0 });
+  } finally { await f.cleanup(); }
 });

@@ -200,7 +200,14 @@ export function stageMemoryChanges(file: MemoryFile, changes: MemoryChange[], ac
       const entry: MemoryRecord = { ...input, id, validUntil: input.validUntil ?? null, lifecycle: input.lifecycle ?? current?.lifecycle ?? 'active', updatedAt: at, updatedBy: actor, reason: change.reason };
       if (current?.lifecycle === 'recycled' && entry.lifecycle !== 'recycled') throw new MemoryError('回收项必须先明确恢复，不能以修改绕过恢复。');
       if (entry.lifecycle === 'recycled' && entry.recycledFrom === undefined && current?.recycledFrom) entry.recycledFrom = current.recycledFrom;
-      if (entry.confirmation && !entry.confirmation.statementHash) entry.confirmation = { ...entry.confirmation, statementHash: memoryStatementHash(entry) };
+      if (entry.confirmation && current?.confirmation && entry.confirmation.text.trim() === current.confirmation.text.trim()) {
+        // Repeating the same evidence cannot confirm a different statement,
+        // even when an adapter supplies a new timestamp or omits its hash.
+        entry.confirmation = { ...current.confirmation };
+        if (entry.confirmation.statementHash !== memoryStatementHash(entry)) entry.status = 'unverified';
+      } else if (entry.confirmation && !entry.confirmation.statementHash) {
+        entry.confirmation = { ...entry.confirmation, statementHash: memoryStatementHash(entry) };
+      }
       validateRecord(entry);
       if (index < 0) next.records.push(entry); else next.records[index] = entry;
       after[id] = entry;
