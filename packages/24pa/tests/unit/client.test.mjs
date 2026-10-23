@@ -33,7 +33,7 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'plans', 'plans.draft', 'plans.inspect', 'plans.summary', 'runs', 'runs.summary', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'plans.summary', 'runs', 'runs.summary', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {

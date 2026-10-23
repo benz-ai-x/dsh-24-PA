@@ -38,7 +38,7 @@ beforeEach(async () => {
       let value;
       if (endpoint === 'snapshot') value = { workspace: { path: '/workspace', config: DEFAULT_CONFIG }, work: [], outbox: [], readiness: { items: [] } };
       else if (endpoint === 'plans.summary') value = { total: 1, enabled: 0, paused: 1, blocked: 0 };
-      else if (endpoint === 'runs.summary') value = { runs24: 31, failed24: 2, delivery_failed24: 1, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: 2, failed_work: 3, observedAt: new Date().toISOString() };
+      else if (endpoint === 'runs.summary') value = { runs24: 31, failed24: 2, delivery_failed24: 1, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, observedAt: new Date().toISOString() };
       else if (endpoint === 'skills.catalog') value = { entries: ['morning', 'evening', 'weekly'].map(kind => ({ id: 'builtin:digest-' + kind, name: 'digest-' + kind, type: 'template', source: 'builtin' })), discovery: 'complete' };
       else if (endpoint === 'skills.inspect') value = { id: p.id, type: 'template', metadata: { track: 'template', pa24: true } };
       else if (endpoint === 'plans') value = { rows: !p.query || plan.title.includes(p.query) ? [structuredClone(plan)] : [], total: p.query && !plan.title.includes(p.query) ? 0 : 1, offset: p.offset, limit: 20 };
@@ -141,6 +141,7 @@ describe('M02 管理界面', () => {
     await click(field('确认针对这项交办执行所选操作')); await click(button('提交交办操作'));
     expect(requests.filter(row => row.endpoint === 'action').at(-1).payload).toMatchObject({ type: 'work.change', op: 'accept', expectedRevision: 2, workId: 'work-a', confirm: true });
     expect(container.textContent).toContain('已接受');
+    expect(container.textContent).toContain('1待我处理交办');
   });
   it('普通 Worker 运行打开独立详情并只补投原结果', async () => {
     run.run.record_kind = 'worker'; run.inputs = [{ execution_id: 'execution', instruction: '补充的主题', status: 'adopted' }];

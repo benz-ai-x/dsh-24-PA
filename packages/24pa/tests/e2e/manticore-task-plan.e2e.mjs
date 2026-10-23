@@ -181,12 +181,12 @@ it('计划原快照重跑保留时间范围、参数和原交办；当前配置�
   expect(requestsFor(result.run)).toHaveLength(1); expect((await inspect(row.id)).triggers.total).toBe(2);
 }, 60000);
 
-it('尚未支持固定来源的旧待办写入在计划启用前拒绝，不回退全局渠道', async () => {
+it('待办来源未经真实身份核验时拒绝启用，不回退全局渠道', async () => {
   const enabled = (await host.api('snapshot')).workspace.config.enabledWorkers;
-  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { enabledWorkers: [...new Set([...enabled, 'tasks'])] } });
+  await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { enabledWorkers: [...new Set([...enabled, 'tasks'])], todoChannel: 'feishu', tasklistId: 'unverified-personal-list' } });
   const id = await business(['pa24_work'], ['task_create']);
   const row = await create(id, { parameters: { subject: '不得误投' } });
-  await expect(enable(row)).rejects.toThrow(/尚未接入固定来源/);
+  await expect(enable(row)).rejects.toThrow(/create 能力未核验通过/);
   expect((await inspect(row.id)).plan).toMatchObject({ owner_enabled: false, task_authorization: null, schedule_id: null });
   expect((await inspect(row.id)).triggers.total).toBe(0);
 }, 60000);

@@ -145,7 +145,7 @@ export class WorkItemRepo {
          where id = $1 and status = 'running'
          ${expected ? 'and recovery_gen = $5' : ''}
          ${expected?.executionId ? 'and execution_id = $6' : ''} returning *`,
-        [id, failed ? 'failed' : 'completed', output, failed ? 'Worker 未完成，结果待回传' : 'Worker 已完成，结果待回传',
+        [id, failed ? 'failed' : 'completed', output, failed ? '执行未完成，结果已保存' : '执行已结束，结果已保存',
           ...(expected ? [expected.generation] : []), ...(expected?.executionId ? [expected.executionId] : [])],
       );
       if (!result.rows[0]) return null;

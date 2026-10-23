@@ -86,7 +86,7 @@ export class WorkItemLifecycle {
         await this.deps.quiesce?.(item);
         await repo.setRecoveryGen(id, (item.recovery_gen ?? 0) + 1);
       }
-      let running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待 Worker 处理' : '继续处理' }, this.deps.maxWorkers());
+      let running = await repo.update(id, { status: 'running', progress: supplement ? '收到补充输入，等待执行采用' : '继续处理' }, this.deps.maxWorkers());
       this.deps.track(running!);
       let acceptedMessageId: string | void = undefined, submitted = false;
       try {

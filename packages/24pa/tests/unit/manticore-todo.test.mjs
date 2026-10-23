@@ -232,11 +232,11 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     expect(calls.filter(args => args[2] === 'create')).toHaveLength(1);
   });
   it('候选授权变化不可覆盖原创建，完整原授权在恢复时保留', async () => {
-    const authorization = { candidateId: 'stable', versionId: 'v1', instruction: '授权创建', parametersFingerprint: 'fp', owner: 'owner' };
+    const authorization = { noteId: 'test', index: 0, candidateId: 'stable', versionId: 'v1', instruction: '授权创建', parametersFingerprint: 'fp', owner: 'owner' };
     const args = { summary: '候选', _operationId: 'note.action:test:v1:0', _authorization: authorization };
     const first = await writes.write(work, 'create', args); const again = await writes.write(work, 'create', args);
     expect(again.guid).toBe(first.guid); expect((await repos.operations.get(args._operationId)).params.request._authorization).toEqual(authorization);
-    await expect(writes.write(work, 'create', { ...args, _authorization: { ...authorization, versionId: 'v2' } })).rejects.toThrow(/授权已变化/);
+    await expect(writes.write(work, 'create', { ...args, _authorization: { ...authorization, versionId: 'v2' } })).rejects.toThrow(/授权已变化|授权身份不符/);
     expect(remote.size).toBe(1);
   });
 

@@ -1,12 +1,13 @@
 import { Temporal } from '@js-temporal/polyfill';
 import type { PaConfig } from './config.js';
 import { effectiveSources, selectSource, sourceScopeFingerprint } from './source-config.js';
-import type { SourceRegistry, SourceTarget } from './source-registry.js';
+import { sourceIdentityKey, type SourceRegistry, type SourceTarget } from './source-registry.js';
 import type { SourceTodo } from './source-todo.js';
 import type { SourceTodoReader, TodoPerson } from './source-todo-reader.js';
 import type { Repos, WorkItemRow, ActionOperationRow } from './repo.js';
 import { sourceObjectId, type ObservedSourceItem } from './repo/source-projection.js';
-import { ExternalOperations } from './external-operations.js';
+import { ExternalOperations, isCandidateOperation } from './external-operations.js';
+import { isDeepStrictEqual } from 'node:util';
 import { hash, text } from './util.js';
 import { wecomWallTime } from './wecom.js';
 import { taskFingerprint } from './task-lifecycle.js';
@@ -98,6 +99,7 @@ export class SourceTodoWrites {
         if (matches[0]) { previous = matches[0]; id = previous.id; }
       }
       if (previous && (previous.params.sourceContract !== 1 || !previous.params.sourceTarget || previous.params.kind !== kind)) throw unknown('原待办操作使用不同恢复契约，不能按当前默认重建。');
+      if (previous) this.validateRecovery(previous, args);
       if (previous && previous.params.requestHash !== requestHash && !this.sameIntent(args, previous.params)) throw unknown('原待办操作参数或授权已变化，请沿原对象明确修改，不能覆盖原创建。');
       const params = previous?.params ?? { ...await this.prepare(kind, args), sourceContract: 1, requestHash, request,
         ...(args._authorization as Record<string, unknown> ?? {}) };
@@ -105,6 +107,30 @@ export class SourceTodoWrites {
       return this.deps.gate(`source-todo-object:${JSON.stringify([target.platform, target.identityKey, params.guid ?? target.resource.id])}`,
         () => this.writeFrozen(item, kind, id, params, previous));
     });
+  }
+
+  private validateRecovery(row: ActionOperationRow, args: Record<string, unknown>): void {
+    const p = row.params, target = p.sourceTarget as SourceTarget;
+    const present = (value: unknown): value is string => typeof value === 'string' && !!value.trim();
+    if (target.domain !== 'todo' || !['feishu', 'wecom'].includes(target.platform)
+      || !present(target.sourceId) || !present(target.identity?.ownerId) || !present(target.identity?.authority)
+      || target.identity.platform !== target.platform || target.identityKey !== sourceIdentityKey(target.identity)
+      || !present(target.resource?.id) || !['tasklist', 'authorized_scope'].includes(target.resource.kind)
+      || p.channel !== target.platform || p.tasklistId !== target.resource.id
+      || !p.values || !p.request || !present(p.requestHash)
+      || (p.receiptFormat !== undefined && p.receiptFormat !== `${target.platform}-task-v1`)) {
+      throw unknown('原待办操作的来源、目标或恢复格式不足，需核对原回执，不能重建。');
+    }
+    if (isCandidateOperation(row.id)) {
+      const authorization = args._authorization as Record<string, unknown> | undefined;
+      const scope = row.id.startsWith('note.action:') ? ['noteId', 'versionId', 'index'] : ['minutesId', 'index'];
+      if (p.kind !== 'create' || !row.work_item_id || !present(p.instruction)
+        || scope.some(key => p[key] === undefined || !isDeepStrictEqual(p[key], authorization?.[key])
+          || !isDeepStrictEqual(p[key], p.request._authorization?.[key]))) {
+        throw unknown('候选原操作的资料来源或授权身份不符，请先核对，不能沿当前交办重建。');
+      }
+    }
+    if (row.status === 'succeeded' && !present(row.receipt?.guid)) throw unknown('原待办操作缺少可信对象回执，请先核对。');
   }
 
   private sameIntent(args: Record<string, unknown>, saved: Record<string, any>): boolean {
@@ -228,7 +254,7 @@ export class SourceTodoWrites {
       if (!staged.created) receipt = staged.row.receipt!;
       else {
         const response = await this.deps.external.perform(id, () => this.invoke(id, kind, target, executionParams));
-        if (!response.guid) throw unknown('平台接受后缺少原待办标识，请核对原回执。');
+        if (typeof response?.guid !== 'string' || !response.guid.trim()) throw unknown('平台接受后缺少原待办标识，请核对原回执。');
         receipt = { guid: response.guid, objectId: sourceObjectId(target, response.guid), sourceTarget: target, sourceId: target.sourceId,
           sourceName: params.sourceName, permissionEvidence: target.permission ?? null, channel: target.platform, kind, effect: params.effect ?? null, platformAccepted: true,
           url: response.raw?.task?.url ?? params.before?.locator.url ?? null,
@@ -253,7 +279,7 @@ export class SourceTodoWrites {
       await this.deps.registry.verify(target, 'read');
       const observed = await this.deps.reader.object(target, receipt.guid);
       await this.deps.repos().sourceProjection.observe(target, { query, items: [observed], observedAt: new Date(), state: 'partial', reason: '仅核验本次待办变更，完整来源范围待查询' });
-      await this.mirror(item, id, target, observed, params);
+      await this.mirror(staged.row.work_item_id, id, target, observed, params);
       actual = observed.body;
       const differences: string[] = [];
       if (params.summary !== undefined && params.summary !== observed.body.summary) differences.push('标题与请求不符');
@@ -313,10 +339,10 @@ export class SourceTodoWrites {
     return { guid: result.todo_id, raw: result };
   }
 
-  private async mirror(item: WorkItemRow, id: string, target: SourceTarget, observed: ObservedSourceItem, params: Record<string, any>): Promise<void> {
+  private async mirror(workItemId: string | null, id: string, target: SourceTarget, observed: ObservedSourceItem, params: Record<string, any>): Promise<void> {
     const repo = this.deps.repos(), prior = await repo.tasks.byGuid(observed.nativeId);
     if (prior && await this.deps.todos.localObjectId(prior) !== sourceObjectId(target, observed.nativeId)) throw new Error('本地旧待办 GUID 与当前身份对象冲突，已保留原关联；原平台已接收的变更不会重发。');
-    const row = { id: prior?.id ?? id, work_item_id: prior?.work_item_id ?? (params.kind === 'create' ? item.id : null),
+    const row = { id: prior?.id ?? id, work_item_id: prior?.work_item_id ?? (params.kind === 'create' ? workItemId : null),
       task_guid: observed.nativeId, url: typeof observed.locator.url === 'string' ? observed.locator.url : null,
       summary: String(observed.body.summary), due_at: observed.body.dueAt || observed.body.dueDate ? new Date(String(observed.body.dueAt ?? observed.body.dueDate)) : null,
       due_has_time: observed.body.dueHasTime === true, planned_at: params.values.plannedAt === undefined ? prior?.planned_at ?? null : params.values.plannedAt === null ? null : new Date(params.values.plannedAt),
