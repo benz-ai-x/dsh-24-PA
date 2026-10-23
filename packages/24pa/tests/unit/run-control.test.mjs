@@ -15,6 +15,7 @@ import { SkillRuns } from '../../lib/skill-runs.js';
 import { WorkspaceExecution } from '../../lib/workspace-execution.js';
 import { runCliProcess } from '../../lib/cli-gateway.js';
 import { SkillRunHost } from '../../lib/skill-run-host.js';
+import { SkillRunNative } from '../../lib/skill-run-native.js';
 import { canceledInputIds } from '../../lib/host-turn.js';
 
 describe('运行累计执行与等待时间', () => {
@@ -101,6 +102,31 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     const state = (await repos.runControls.get(run.id)).state;
     expect(state.blocks.map(row => row.key)).toEqual(['budget']); expect(canExecuteRun(state)).toBe(false);
   });
+  it.each(['paused', 'no-budget', 'open-step', 'unknown-tool', 'unsettled-job'])('冷恢复只确认未执行的预算等待，保留原始回执：%s', async condition => {
+    const childId = randomUUID(), epoch = randomUUID(), events = [];
+    await repos.skillRuns.child(run.id, childId, run.session_id, '/workspace');
+    await repos.skillRuns.nativeReceipt(run.id, 'activation', run.session_id, epoch, 'start', { id: childId, runId: epoch });
+    if (condition === 'open-step') events.push({ type: 'step/start', data: { turn: 1, step: 1 } });
+    if (condition === 'unknown-tool') await repos.skillRuns.beginCall(run.id, 'unknown', 'bash', {}, childId);
+    if (condition === 'unsettled-job') await repos.skillRuns.nativeReceipt(run.id, 'job', childId, 'missing-end', 'start', { id: 'missing-end' });
+    const rootSession = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [] };
+    const child = { id: childId, header: { cwd: '/workspace', origin: 'subagent', parentSession: run.session_id }, ownEvents: () => events };
+    const native = new SkillRunNative({ history: async (_, id) => id === childId ? child : rootSession,
+      descendants: async () => [{ kind: 'child', id: childId, parentId: run.session_id, mode: 'local' }],
+      busy: () => false, resident: () => false, ownedJobs: () => [], job: () => undefined });
+    if (condition === 'paused') {
+      expect((await native.observe(repos.skillRuns, run, true, async () => true)).pending).toBe(true);
+      const original = (await repos.skillRuns.native(run.id))[0];
+      expect(original.end_data).toBeNull(); expect(original.recovery_data).toMatchObject({ kind: 'budget-paused', sessionId: childId, eventCount: 0 });
+      expect((await native.observe(repos.skillRuns, run, true, async () => true)).pending).toBe(true);
+      expect((await native.observe(repos.skillRuns, run, false, async () => false)).pending).toBe(false);
+      expect((await repos.skillRuns.native(run.id))[0]).toEqual(original);
+    } else {
+      await expect(native.observe(repos.skillRuns, run, true, async () => condition !== 'no-budget')).rejects.toThrow(/结束回执/);
+      expect((await repos.skillRuns.native(run.id)).every(row => !row.recovery_data)).toBe(true);
+    }
+  });
+
   it('原生规则更新中的 NUL 分隔符无损保存；旧输入仍可读取', async () => {
     const message = { id: randomUUID(), content: [{ type: 'text', text: '原生上下文\u0000\ud800' }], source: { kind: 'agent-instructions', changes: [{ scope: '.\u0000AGENTS.md' }] } };
     await repos.skillRuns.input(run.id, message, true, run.session_id);

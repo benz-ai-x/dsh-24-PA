@@ -43,7 +43,11 @@ export interface SkillRunCall {
 }
 export interface SkillRunSession { run_id: string; session_id: string; parent_session_id: string | null; workspace_path: string }
 export interface SkillRunInput { run_id: string; session_id: string | null; message_id: string; message: { id: string; source?: Record<string, unknown> }; accepted: boolean }
-export interface SkillRunNative { run_id: string; kind: 'activation' | 'job'; owner_id: string; native_id: string; start_data: Record<string, any> | null; end_data: Record<string, any> | null }
+export interface SkillRunNative { run_id: string; kind: 'activation' | 'job'; owner_id: string; native_id: string; start_data: Record<string, any> | null; end_data: Record<string, any> | null; recovery_data?: { kind: 'budget-paused'; sessionId: string; eventCount: number; recordedAt: string } | null }
+/** A cold, proven budget pause closes only the old residency epoch. The
+ * owning Run and pending input remain unfinished until explicitly resumed. */
+export const unresolvedNative = (row: SkillRunNative): boolean =>
+  (!row.end_data && row.recovery_data?.kind !== 'budget-paused') || row.end_data?.producerReported === false;
 export interface SkillRunReview {
   request_id: string; request_hash: string; run_id: string; evidence_hash: string; created_at: Date;
   record: { actor: string; summary: string; completed: string; remaining: string;
@@ -97,7 +101,7 @@ export class SkillRunRepo {
       if (evidence.fingerprint !== input.fingerprint) throw new Error('运行证据已有新回执，请刷新后重新核对。');
       const unknown = evidence.calls.filter(call => ['running', 'unknown'].includes(call.status));
       if (unknown.length !== input.record.calls.length || unknown.some(call => input.record.calls.filter(item => item.sessionId === call.session_id && item.callId === call.call_id).length !== 1)) throw new Error('须逐项核对所有未决工具动作。');
-      const unfinished = evidence.native.filter(item => !item.end_data || item.end_data.producerReported === false);
+      const unfinished = evidence.native.filter(unresolvedNative);
       if (unfinished.length !== input.record.native.length || unfinished.some(item => input.record.native.filter(row => row.kind === item.kind && row.ownerId === item.owner_id && row.nativeId === item.native_id).length !== 1)) throw new Error('须逐项提供未决子任务／作业已结束的核对依据。');
       if ((await this.unresolvedOperations(run.work_item_id, tx)).length) throw new Error('关联平台动作仍待核对；请先修复原对象回执，不能用运行核对绕过。');
       const saved = (await tx.query<SkillRunReview>(`insert into pa24.skill_run_review (request_id, request_hash, run_id, evidence_hash, record)
@@ -125,7 +129,7 @@ export class SkillRunRepo {
       if (['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(run.status)
         || await this.stopPending(run.id, tx)
         || (!evidence.reviewed && (evidence.reviews.length || evidence.calls.some(call => ['running', 'unknown'].includes(call.status))
-          || evidence.native.some(item => !item.end_data || item.end_data.producerReported === false)))) throw new Error('原交办仍在执行或结果待核对，不能新开运行绕过。');
+          || evidence.native.some(unresolvedNative)))) throw new Error('原交办仍在执行或结果待核对，不能新开运行绕过。');
       context.push({ id: run.id, status: run.status, result: run.result, calls: evidence.calls,
         review: evidence.reviews.find(review => review.evidence_hash === evidence.fingerprint)?.record ?? null });
     }
@@ -139,7 +143,7 @@ export class SkillRunRepo {
       const ended = ['completed', 'failed', 'stopped', 'timed_out'].includes(run.status);
       if (run.status === 'needs_reconciliation' || await this.stopPending(run.id, tx)
         || (!evidence.reviewed && (evidence.reviews.length || evidence.calls.some(call => call.status === 'unknown')
-          || (ended && (evidence.calls.some(call => call.status === 'running') || evidence.native.some(item => !item.end_data || item.end_data.producerReported === false)))))
+          || (ended && (evidence.calls.some(call => call.status === 'running') || evidence.native.some(unresolvedNative)))))
         || (await this.unresolvedOperations(run.work_item_id, tx)).length) throw new Error(`本 Skill 的运行 ${run.id} 仍有结果待核对，请先处理原记录，不能通过全新运行绕过。`);
     }
   }
@@ -158,7 +162,7 @@ export class SkillRunRepo {
       return ['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(run.status) || await this.stopPending(run.id, tx)
         || (!evidence.reviewed && !!(evidence.reviews.length
         || evidence.calls.some(call => ['running', 'unknown'].includes(call.status))
-        || evidence.native.some(item => !item.end_data || item.end_data.producerReported === false)))
+        || evidence.native.some(unresolvedNative)))
         || (await this.unresolvedOperations(run.work_item_id, tx)).length > 0;
   }
   async get(id: string): Promise<SkillRunRow | null> {
@@ -386,6 +390,14 @@ export class SkillRunRepo {
   }
   async native(id: string): Promise<SkillRunNative[]> {
     return (await this.db.query<SkillRunNative>('select * from pa24.skill_run_native where run_id = $1 order by created_at, native_id', [id])).rows;
+  }
+  async recordBudgetPause(id: string, ownerId: string, nativeId: string, sessionId: string, eventCount: number): Promise<void> {
+    // Preserve the absent original host end receipt; store the separate
+    // recovery conclusion and its exact durable Session evidence boundary.
+    await this.db.query(`update pa24.skill_run_native set recovery_data = $4
+      where run_id = $1 and kind = 'activation' and owner_id = $2 and native_id = $3
+      and start_data->>'id' = $5 and end_data is null and recovery_data is null`,
+    [id, ownerId, nativeId, JSON.stringify({ kind: 'budget-paused', sessionId, eventCount, recordedAt: new Date().toISOString() }), sessionId]);
   }
   async nativeReceipt(id: string, kind: SkillRunNative['kind'], owner: string, nativeId: string, phase: 'start' | 'end', data: unknown): Promise<void> {
     const column = phase === 'start' ? 'start_data' : 'end_data';

@@ -271,7 +271,9 @@ export class SkillRuns {
     }
     let state = this.active.get(run.id);
     if (!state) {
-      state = { run, binding: context.binding, allowed: run.status === 'running' };
+      const control = await context.repos.runControls.get(run.id);
+      const budgetOnly = control && control.state.blocks.some(block => block.kind === 'budget') && canFinishDispatchedStep(control.state);
+      state = { run, binding: context.binding, allowed: run.status === 'running' || (run.status === 'waiting' && !!budgetOnly) };
       this.active.set(run.id, state);
       const unknown = (await repo.calls(run.id)).some(call => ['running', 'unknown'].includes(call.status));
       if (unknown) { state.allowed = false; await this.block(run, '上次工具执行缺少确定回执，须先核对实际结果。'); }
@@ -285,8 +287,9 @@ export class SkillRuns {
       allowed: () => owner.allowed && this.deps.context()?.binding === owner.binding && this.deps.permissionHash(run.snapshot.plan?.authorization) === run.snapshot.permissionHash,
       authorize: () => this.authorize(run, owner.binding),
       prepareInput: (session, messages) => this.deps.budget?.inputs(run.id, session, messages) ?? Promise.resolve(messages),
-      checkBudget: session => this.deps.budget?.check(run.id, session) ?? Promise.resolve(true),
-      dispatchModel: async (session, turn, step, route) => { await this.deps.budget?.check(run.id, session, { turn, step, route: route as { provider: string; model: string } }); },
+      // A delegated business WorkItem has its own WorkerRuns budget gate.
+      checkBudget: delegatedWork ? undefined : session => this.deps.budget?.check(run.id, session) ?? Promise.resolve(true),
+      dispatchModel: delegatedWork ? undefined : async (session, turn, step, route) => { await this.deps.budget?.check(run.id, session, { turn, step, route: route as { provider: string; model: string } }); },
       beforeModel: async session => {
         const clock = await this.clock.observe(context.repos.runControls, run.id, [session], id => id === session.id || this.clockLive(id));
         if (clock && clock.executionMs >= clock.limitMs) {
@@ -595,7 +598,7 @@ export class SkillRuns {
     const calls = await repo.calls(run.id);
     if (calls.some(call => call.status === 'unknown' || (recovering && call.status === 'running'))) return this.block(run, '工具结果待核对；停止或重启不抹除已经发生的动作。');
     let observation;
-    try { observation = await this.native.observe(repo, run, recovering); }
+    try { observation = await this.native.observe(repo, run, recovering, session => this.deps.budget?.paused(session) ?? Promise.resolve(false)); }
     catch (error) { await this.diagnostic(run.id, 'native-observe', error); return this.block(run, errorText(error)); }
     const history = observation.root;
     let control;

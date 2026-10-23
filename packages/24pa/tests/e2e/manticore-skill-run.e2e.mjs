@@ -282,6 +282,12 @@ it('本地 Skill 通过原生业务交办执行，Worker 保留业务门禁并�
   expect(call, JSON.stringify(detail)).toMatchObject({ status: 'returned', arguments: { action: 'memo_find' } });
   const child = (await host.api('snapshot')).work.find(item => item.id === call.session_id);
   expect(child).toMatchObject({ status: 'completed', parent_session_id: detail.run.session_id, execution_mode: 'worker' });
+  const budget = await host.api('budget', { workspaceBinding: binding });
+  const childRequests = budget.records.filter(row => row.session_id === child.id);
+  expect(childRequests.length).toBeGreaterThan(0);
+  expect(childRequests.every(row => row.run_id === child.active_worker_run_id && row.work_item_id === child.id && row.event_id)).toBe(true);
+  expect(new Set(childRequests.map(row => row.event_id)).size).toBe(childRequests.length);
+
 }, 60_000);
 
 it.each([false, true])('原生 workflow（后台=%s）的并行子任务和返回值归属同一运行', async background => {

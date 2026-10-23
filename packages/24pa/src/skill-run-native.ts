@@ -98,7 +98,7 @@ export class SkillRunNative {
     }
   }
 
-  async observe(repo: SkillRunRepo, run: SkillRunRow, recovering = false): Promise<{ pending: boolean; root: DshSession | null; histories: DshSession[] }> {
+  async observe(repo: SkillRunRepo, run: SkillRunRow, recovering = false, budgetPaused?: (session: DshSession) => Promise<boolean>): Promise<{ pending: boolean; root: DshSession | null; histories: DshSession[] }> {
     await this.flush(run.id);
     const root = await this.host.history(run);
     if (!root) return { pending: false, root: null, histories: [] };
@@ -155,6 +155,7 @@ export class SkillRunNative {
     }
     await this.flush(run.id);
     const native = await repo.native(run.id);
+    const pauses: Array<{ ownerId: string; nativeId: string; sessionId: string; eventCount: number }> = [];
     for (const child of descendants) {
       const activations = native.filter(row => row.kind === 'activation' && row.owner_id === child.parentId && row.start_data?.id === child.id);
       if (!activations.length) {
@@ -164,7 +165,21 @@ export class SkillRunNative {
       if (child.mode !== 'external' && !sessions.some(row => row.session_id === child.id && row.parent_session_id === child.parentId)) throw new Error('原生子任务尚未纳入本次运行的权限和动作记录。');
       for (const activation of activations) {
         if (!activation.end_data) {
-          if (recovering) throw new Error('子任务缺少结束回执，需核对原执行。');
+          const session = histories.find(row => row.id === child.id);
+          const paused = !!session && await budgetPaused?.(session);
+          if (activation.recovery_data?.kind === 'budget-paused') {
+            // A newly admitted wake or still-blocked input is unfinished work;
+            // an old paused residency epoch is not an unknown execution.
+            if (paused) pending = true;
+            continue;
+          }
+          if (recovering) {
+            const events = session?.ownEvents() ?? [];
+            const openStep = events.some(event => event.type === 'step/start' && !events.some(end => end.type === 'step/end' && end.data.turn === event.data.turn && end.data.step === event.data.step));
+            const unknownCall = (await repo.calls(run.id)).some(call => call.session_id === child.id && ['running', 'unknown'].includes(call.status));
+            if (!paused || child.mode === 'external' || !session || openStep || unknownCall) throw new Error('子任务缺少结束回执，需核对原执行。');
+            pauses.push({ ownerId: activation.owner_id, nativeId: activation.native_id, sessionId: child.id, eventCount: events.length });
+          }
           pending = true;
         } else if (!['completed', 'aborted', 'error', 'max-tokens', 'refusal'].includes(activation.end_data.stopReason)) throw new Error('子任务返回了无法核验的终止状态。');
       }
@@ -188,6 +203,7 @@ export class SkillRunNative {
     if ([...this.activations.values()].some(item => item.run.id === run.id)) {
       if (recovering || !pending) throw new Error('子任务生命周期与原生目录尚未对应，需核对原执行。');
     }
+    for (const pause of pauses) await repo.recordBudgetPause(run.id, pause.ownerId, pause.nativeId, pause.sessionId, pause.eventCount);
     return { pending: pending || this.host.busy(run.session_id), root, histories };
   }
 }

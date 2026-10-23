@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
-let root, workspace, host, llm, cluster, binding, env, scriptPath, reusableBusiness;
+let root, workspace, host, llm, cluster, binding, env, scriptPath, reusableBusiness, latestRun;
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'pa24-budget-e2e-')); workspace = join(root, 'workspace'); await mkdir(workspace);
   const storage = process.env.PA24_E2E_STORAGE === 'postgres' ? 'postgres' : 'sqlite';
@@ -19,7 +19,7 @@ beforeAll(async () => {
   host = await bootHost({ env }); binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
 }, 600000);
 afterAll(async () => { await host?.stop(); await llm?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true }); });
-const until = async (read, check) => { const deadline = Date.now() + 25000; while (Date.now() < deadline) { const value = await read(); if (check(value)) return value; await new Promise(resolve => setTimeout(resolve, 100)); } throw Error('预算验证超时：' + JSON.stringify(await read())); };
+const until = async (read, check) => { const deadline = Date.now() + 25000; while (Date.now() < deadline) { const value = await read(); if (check(value)) return value; await new Promise(resolve => setTimeout(resolve, 100)); } const value = await read(); const last = latestRun ? await detail(latestRun.id) : null; throw Error('预算验证超时：' + JSON.stringify({ value, last, logs: host.logs() })); };
 const detail = runId => host.api('skills.run', { runId, workspaceBinding: binding });
 const summary = () => host.api('budget', { workspaceBinding: binding });
 const start = async (steps, mode = 'local', tools = []) => {
@@ -32,7 +32,8 @@ const start = async (steps, mode = 'local', tools = []) => {
   await host.api('action', { type: 'skill.change', op: 'publish', requestId: randomUUID(), workspaceBinding: binding, id, expectedRevision: created.entry.revision, confirm: true });
   const input = { id, versionId: created.entry.draft_version, parameters: { subject: '完整输入：逐字保留 甲乙丙\n第二行' }, workspaceBinding: binding };
   const preview = await host.api('skills.preview', input);
-  return (await host.api('action', { type: 'skill.run', ...input, requestId: randomUUID(), fingerprint: preview.fingerprint, confirm: true })).run;
+  latestRun = (await host.api('action', { type: 'skill.run', ...input, requestId: randomUUID(), fingerprint: preview.fingerprint, confirm: true })).run;
+  return latestRun;
 };
 const grant = async run => host.api('action', { type: 'budget.release', workspaceBinding: binding, requestId: randomUUID(), confirm: true, scope: 'next-model-request', runId: run.id, workId: run.work_item_id, sessionId: run.session_id });
 const restart = async () => { const reuse = host.root; await host.stop({ keepRoot: true }); host = await bootHost({ env, root: reuse }); binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding; };
@@ -110,14 +111,22 @@ it('计划主人暂停保持；预算放行只继续在途原运行，确定性�
   expect((await until(()=>detail(templateRun.id), value=>value.run.status==='completed')).run.mode).toBe('template');expect((await summary()).requests).toBe(before);
 }, 600000);
 
-it('原生子任务的模型也受预算控制，按被阻断会话逐次放行回原运行', async () => {
+it.each([false, true])('原生子任务的模型也受预算控制，主子同时等待后冷恢复=%s仍回原运行', async cold => {
   const run = await start([], 'local', ['subagent']);
   await writeFile(scriptPath, JSON.stringify({ mode: 'native-run', rootStep: { tool: { name: 'subagent', input: { description: '预算子任务', prompt: '[NATIVE_CHILD] 只返回预算子任务结果。' } } }, childStep: { text: 'CHILD_RESULT：预算子任务完成。' } }));
   await until(() => detail(run.id), value => value.run.status === 'waiting');
   let released = [];
+  if (cold) {
+    await grant(run);
+    await until(summary, value => value.waiting.filter(item => item.run_id === run.id).length === 2);
+    await restart();
+    const restored = await detail(run.id);
+    expect(restored.run.status, JSON.stringify(restored)).toBe('waiting');
+    expect(restored.native.some(row => row.recovery_data?.kind === 'budget-paused' && row.end_data === null)).toBe(true);
+  }
   for (let i = 0; i < 6; i++) {
     const row = await until(summary, value => value.waiting.some(item => item.run_id === run.id));
-    const waiter = row.waiting.find(item => item.run_id === run.id);released.push(waiter.session_id);
+    const waiter = row.waiting.find(item => item.run_id === run.id && item.session_id !== run.session_id) ?? row.waiting.find(item => item.run_id === run.id);released.push(waiter.session_id);
     const requestId = randomUUID();
     await host.api('action', { type: 'budget.release', workspaceBinding: binding, requestId, confirm: true, scope: 'next-model-request', runId: run.id, workId: run.work_item_id, sessionId: waiter.session_id });
     await until(summary, value => value.releases.some(row => row.id === requestId && row.status === 'used'));
@@ -126,4 +135,9 @@ it('原生子任务的模型也受预算控制，按被阻断会话逐次放行�
     expect(value.run.status).toBe('waiting');
   }
   expect((await detail(run.id)).run.status).toBe('completed');expect(released.some(id=>id!==run.session_id)).toBe(true);
+  if (cold) {
+    await restart(); expect((await detail(run.id)).run.status).toBe('completed');
+    const preview = await host.api('skills.preview', { rerunId: run.id, configuration: 'original', workspaceBinding: binding });
+    expect(preview.fingerprint).toBeTruthy(); // Paused old epochs do not become phantom unknown actions.
+  }
 }, 600000);

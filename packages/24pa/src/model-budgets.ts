@@ -24,6 +24,13 @@ export class ModelBudgets {
     const run = await ctx.repos.skillRuns.bySession(session.id);
     return run ? { runId: run.id, workId: run.work_item_id, sessionId: session.id, kind: 'skill' } : null;
   }
+  async paused(session: DshSession): Promise<boolean> {
+    const ctx = this.context(), owner = await this.owner(session); if (!owner) return false;
+    const run = await ctx.repos.modelBudget.owner(owner.runId), control = await ctx.repos.runControls.get(owner.runId);
+    if (!run || !['running', 'waiting'].includes(run.status) || !control || control.state.terminal || control.state.stop) return false;
+    return control.state.blocks.some(block => block.key === budgetBlockKey(session.id) && block.kind === 'budget')
+      || (await ctx.repos.modelBudget.releases(owner.runId)).some(row => row.session_id === session.id && row.status === 'ready' && !row.record.error);
+  }
   async observe(session: DshSession): Promise<void> {
     const ctx = this.context(), owner = await this.owner(session); if (!owner) return;
     const startedAt = owner.kind === 'worker' ? (await ctx.repos.workerRuns.get(owner.runId))?.snapshot.startedAt ?? 0 : 0;

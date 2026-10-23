@@ -1685,7 +1685,7 @@ window.__ModuleLoader__.load({
           const request = React.useRef(null), alive = React.useRef(true);
           React.useEffect(() => () => { alive.current = false; }, []);
           const unknown = detail.calls.filter(call => ['running', 'unknown'].includes(call.status));
-          const pending = detail.native.filter(item => !item.end_data || item.end_data.producerReported === false);
+          const pending = detail.native.filter(item => (!item.end_data && item.recovery_data?.kind !== 'budget-paused') || item.end_data?.producerReported === false);
           const callKey = call => JSON.stringify([call.session_id, call.call_id]);
           const nativeKey = item => JSON.stringify([item.kind, item.owner_id, item.native_id]);
           const save = async () => {
