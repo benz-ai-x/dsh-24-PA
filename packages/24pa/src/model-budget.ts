@@ -37,12 +37,13 @@ export function budgetUsage(raw: unknown): BudgetUsage | null {
   for (const key of ['inputTokens','outputTokens','totalTokens','cacheReadTokens','cacheWriteTokens','reasoningTokens'] as const) {
     if ((value[key] !== undefined || ['inputTokens','outputTokens'].includes(key)) && (!Number.isSafeInteger(value[key]) || value[key]! < 0)) return null;
   }
-  if ((value.cacheReadTokens ?? 0) + (value.cacheWriteTokens ?? 0) > value.inputTokens || (value.reasoningTokens ?? 0) > value.outputTokens) return null;
+  if ((value.reasoningTokens ?? 0) > value.outputTokens) return null;
+  if (value.totalTokens !== undefined && value.totalTokens < value.inputTokens + value.outputTokens + (value.cacheReadTokens ?? 0) + (value.cacheWriteTokens ?? 0)) return null;
   return value;
 }
 export function estimateUsage(usage: BudgetUsage | null, price: ModelPrice | undefined): number | null {
   if (!usage || !price || (usage.cacheReadTokens && price.cacheReadPerMillion === undefined) || (usage.cacheWriteTokens && price.cacheWritePerMillion === undefined)) return null;
-  return ((usage.inputTokens - (usage.cacheReadTokens ?? 0) - (usage.cacheWriteTokens ?? 0)) * price.inputPerMillion
+  return (usage.inputTokens * price.inputPerMillion
     + usage.outputTokens * price.outputPerMillion + (usage.cacheReadTokens ?? 0) * (price.cacheReadPerMillion ?? 0)
     + (usage.cacheWriteTokens ?? 0) * (price.cacheWritePerMillion ?? 0)) / 1_000_000;
 }
@@ -62,7 +63,7 @@ export interface BudgetMeasurement {
 export function budgetSummary(records: BudgetMeasurement[], config: BudgetConfig) {
   const unknownUsage = records.filter(row => !row.usage).length;
   const unknownCost = records.filter(row => row.estimate == null || row.currency !== config.currency).length;
-  const knownTokens = records.reduce((sum, row) => sum + (row.usage ? row.usage.totalTokens ?? row.usage.inputTokens + row.usage.outputTokens : 0), 0);
+  const knownTokens = records.reduce((sum, row) => sum + (row.usage ? row.usage.totalTokens ?? row.usage.inputTokens + row.usage.outputTokens + (row.usage.cacheReadTokens ?? 0) + (row.usage.cacheWriteTokens ?? 0) : 0), 0);
   const knownEstimatedCost = records.reduce((sum, row) => sum + (row.currency === config.currency ? row.estimate ?? 0 : 0), 0);
   const reasons: string[] = [], warnings: string[] = [];
   for (const [label, limit, amount, unknown] of [

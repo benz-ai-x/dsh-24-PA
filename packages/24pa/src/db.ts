@@ -872,8 +872,8 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
       `create index if not exists budget_request_session_idx on pa24.budget_request (session_id, turn, step)`,
       `create table if not exists pa24.budget_wait (
-        run_id text primary key, work_item_id text not null, session_id text not null, reason text not null,
-        created_at timestamptz not null default now()
+        run_id text not null, work_item_id text not null, session_id text not null, reason text not null,
+        created_at timestamptz not null default now(), primary key (run_id, session_id)
       )`,
       `create table if not exists pa24.budget_release (
         id text primary key, request_hash text not null, run_id text not null, work_item_id text not null,

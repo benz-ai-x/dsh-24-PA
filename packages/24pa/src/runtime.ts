@@ -1,3 +1,4 @@
+import { canFinishDispatchedStep } from './run-control.js';
 import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
@@ -1677,7 +1678,7 @@ export class PaRuntime {
     host: () => this.ctx,
     context: () => this.repos && this.workspace && this.workspaceBinding && this.config ? { repos: this.repos, path: this.workspace.statePath, binding: this.workspaceBinding,
       config: this.config.budget, timeZone: this.config.timeZone, maxWorkers: this.config.maxWorkers } : null,
-    activate: id => this.skillRuns.activateBudget(id), detached: work => this.executions.detached(work),
+    activate: id => this.skillRuns.activateBudget(id), resumeInput: id => this.skillRuns.resumeBudgetInput(id), detached: work => this.executions.detached(work),
   });
   async releaseBudget(input: Record<string, unknown>) { return this.executions.run(() => this.modelBudgets.grant(input)); }
   readonly workerRuns = new WorkerRuns({
@@ -1730,7 +1731,9 @@ export class PaRuntime {
     interrupt: item => this.ctx.subagents.interrupt(item.child_session_id ?? item.id, { kind: 'user', parentSessionId: item.parent_session_id }),
     track: item => this.trackWorkItem(item),
     completion: { workspacePath: () => this.workspace!.statePath,
-      read: item => new WorkCompletionHistory(this.ctx).read(item),
+      read: item => new WorkCompletionHistory(this.ctx, async work => (await this.repos!.modelBudget.releases(work.active_worker_run_id ?? ''))
+        .filter(row => row.run_id === work.active_worker_run_id && row.work_item_id === work.id && row.session_id === (work.child_session_id ?? work.id) && row.status === 'used' && row.record.consumedAt && row.record.executionId === work.execution_id)
+        .map(row => ({ messageId: row.native_message_id, consumedAt: row.record.consumedAt! }))).read(item),
       delivered: () => { void this.kickOutbox(); }, warn: message => console.warn(`[pa24] ${message}`),
     },
   });
@@ -2088,7 +2091,7 @@ export class PaRuntime {
   private async onTurnEnd(session: DshSession, event: { data: Record<string, any> }): Promise<void> {
     if (!this.repos || !this.config) return;
     this.usage.modelRequests += 1;
-    await this.modelBudgets.observe(session);
+    await this.modelBudgets.observe(session).catch(error => console.warn(`[pa24] 模型用量等待持久事件补录：${(error as Error).message}`));
     if (await this.skillRuns.onSession(session)) return;
     if (session.id === this.accessSessionId) await this.ctx.sessions.flush(session).catch(() => { });
     const turn = event.data.turn;
@@ -2407,12 +2410,17 @@ export class PaRuntime {
     });
   }
 
+  private async finishingBudgetStep(runId?: string | null): Promise<boolean> {
+    const control = runId ? await this.repos?.runControls.get(runId) : null;
+    return !!control && control.state.blocks.some(block => block.kind === 'budget') && canFinishDispatchedStep(control.state);
+  }
+
   async runControl(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
       const run = await this.repos?.skillRuns.bySession(agent.id);
       if (!run && args.action === 'progress') return this.workerRuns.progress(agent, args);
       if (!run && args.action === 'wait') return this.workerRuns.wait(agent, args.reason, args.kind);
-      if (!run || run.session_id !== agent.id || run.status !== 'running' || args.action !== 'wait') throw new Error('此操作只用于当前受管 Skill 运行等待主人补充。');
+      if (!run || run.session_id !== agent.id || (run.status !== 'running' && !(run.status === 'waiting' && await this.finishingBudgetStep(run.id))) || args.action !== 'wait') throw new Error('此操作只用于当前受管 Skill 运行等待主人补充。');
       return this.skillRuns.waitForInput(run, args.reason);
     });
   }
@@ -2424,9 +2432,10 @@ export class PaRuntime {
       if (!this.repos) throw new Error('业务账本未就绪。');
       const ownedRun = await this.repos.skillRuns.bySession(agent.id);
       const run = ownedRun?.session_id === agent.id ? ownedRun : null;
-      if (run?.status === 'running' && args.action === 'skill_wait') return this.skillRuns.waitForInput(run, args.reason);
+      if (run && args.action === 'skill_wait' && (run.status === 'running' || (run.status === 'waiting' && await this.finishingBudgetStep(run.id)))) return this.skillRuns.waitForInput(run, args.reason);
       const item = await this.repos.workItems.get(run?.work_item_id ?? agent.id);
-      if (!item || item.status !== 'running' || (run && (run.mode !== 'business' || run.status !== 'running' || item.child_session_id !== agent.id))) {
+      const budgetWaiting = item?.status === 'waiting_input' && await this.finishingBudgetStep(run?.id ?? item.active_worker_run_id);
+      if (!item || (item.status !== 'running' && !budgetWaiting) || (run && (run.mode !== 'business' || (run.status !== 'running' && !(run.status === 'waiting' && budgetWaiting)) || item.child_session_id !== agent.id))) {
         throw new Error('此会话不是运行中的 Worker，或事项已停止。');
       }
       if (run) {

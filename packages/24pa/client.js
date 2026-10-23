@@ -464,6 +464,76 @@ window.__ModuleLoader__.load({
               h('details', null, h('summary', null, L('查看完整配置 JSON', 'View full configuration JSON')), h('pre', null, JSON.stringify(config, null, 2)))));
         }
 
+        const budgetNumber = value => value === '' || value == null ? null : Number(value);
+        const budgetValue = value => value == null ? L('未知', 'Unknown') : Number(value).toLocaleString(undefined, { maximumFractionDigits: 8 });
+        function BudgetConfigFields({ value, onChange }) {
+          const change = (key, next) => onChange({ ...value, [key]: next });
+          const field = (label, node) => h('label', { className: 'pa24-memory-filter', key: label }, label, node);
+          const number = (label, key, step = 'any') => field(label, h('input', { type: 'number', min: 0, step, value: value[key] ?? '', onChange: event => change(key, event.target.value), placeholder: L('留空不限', 'Blank: no limit') }));
+          const select = (label, key, choices) => field(label, h('select', { value: value[key], onChange: event => change(key, event.target.value) }, choices.map(([id, text]) => h('option', { key: id, value: id }, text))));
+          const priceChange = (index, key, next) => change('prices', value.prices.map((price, i) => i === index ? { ...price, [key]: next } : price));
+          return h('section', { id: 'pa24-config-budget', 'aria-label': L('模型预算设置', 'Model budget settings') },
+            h('h3', null, L('模型预算', 'Model budget')),
+            h('p', { className: 'pa24-meta' }, L('按工作区时区统计。限额留空表示不限，0 表示暂停新受管请求；一次放行只影响指定运行的下一次请求。', 'Periods use the workspace timezone. Blank means unlimited; 0 pauses new managed requests. A one-time release allows only the next request of the selected run.')),
+            h('div', { className: 'pa24-memory-filters' }, select(L('预算周期', 'Budget period'), 'period', [['day', L('每日', 'Daily')], ['month', L('每月', 'Monthly')]]), select(L('估算币种', 'Estimate currency'), 'currency', [['CNY', 'CNY'], ['USD', 'USD']]),
+              number(L('请求次数限额', 'Request limit'), 'maxRequests', 1), number(L('Token 限额', 'Token limit'), 'maxTokens', 1), number(L('估算费用限额', 'Estimated cost limit'), 'maxEstimatedCost'), number(L('预警比例（0–1）', 'Warning ratio (0–1)'), 'warningRatio', 0.05)),
+            h('details', null, h('summary', null, L('模型单价与依据', 'Model prices and sources')),
+              h('p', { className: 'pa24-meta' }, L('每百万 token 单价，使用上方币种。缺少实际模型价格或缓存价格时费用未知；不会把估价当供应商账单。', 'Rates per million tokens in the selected currency. Missing model or cache prices leave cost unknown. Estimates are not provider bills.')),
+              value.prices.map((price, i) => h('fieldset', { key: i, style: { minWidth: 0, border: '1px solid var(--pa-line)', margin: '12px 0' } }, h('legend', null, L('价格 ', 'Price ') + (i + 1)),
+                h('div', { className: 'pa24-memory-filters' }, [['provider','提供方','Provider'],['model','模型','Model'],['basis','价格依据','Price source']].map(([key, zh, en]) => field(L(zh,en), h('input', { value: price[key] ?? '', onChange: event => priceChange(i, key, event.target.value) }))),
+                  [['inputPerMillion','输入单价','Input rate'],['outputPerMillion','输出单价','Output rate'],['cacheReadPerMillion','缓存读取单价（可选）','Cache read rate (optional)'],['cacheWritePerMillion','缓存写入单价（可选）','Cache write rate (optional)']].map(([key, zh, en]) => field(L(zh,en), h('input', { type: 'number', min: 0, step: 'any', value: price[key] ?? '', onChange: event => priceChange(i,key,event.target.value) })))),
+                h('button', { type: 'button', onClick: () => change('prices', value.prices.filter((_, index) => i !== index)) }, L('移除此价格', 'Remove price')))),
+              h('button', { type: 'button', disabled: value.prices.length >= 100, onClick: () => change('prices', [...value.prices, { provider: '', model: '', inputPerMillion: '', outputPerMillion: '', basis: '' }]) }, L('添加模型价格', 'Add model price'))));
+        }
+        function BudgetDetail({ helpers }) {
+          const binding = helpers.state.workspaceBinding;
+          const [view, reload] = useRpc('budget', { workspaceBinding: binding }, [binding]);
+          const [grant, setGrant] = React.useState(null), [confirm, setConfirm] = React.useState(false), [message, setMessage] = React.useState(''), [offset, setOffset] = React.useState(0);
+          const { busy, error, button } = usePanelActions();
+          const data = view.data?.workspaceBinding === binding ? view.data : null;
+          React.useEffect(() => { setOffset(0); }, [data?.period?.from, data?.records?.length]);
+          const limit = value => value == null ? L('不限', 'Unlimited') : budgetValue(value);
+          const prepare = row => { setGrant({ ...row, requestId: crypto.randomUUID() }); setConfirm(false); setMessage(''); };
+          const release = async () => {
+            const result = await rpc('action', { type: 'budget.release', workspaceBinding: binding, requestId: grant.requestId, runId: grant.run_id, workId: grant.work_item_id, sessionId: grant.session_id, scope: 'next-model-request', confirm: true });
+            setMessage(result.message); setGrant(null); setConfirm(false); reload(); await helpers.refresh();
+          };
+          const records = [...(data?.records || [])].reverse();
+          return h('section', { className: 'pa24-manager pa24-budget' },
+            sectionHead('pulse', L('模型与预算', 'Models & budget'), L('受管请求的持久用量、实际模型和一次放行。', 'Durable usage, actual models, and one-time releases for managed requests.'),
+              h('div', { className: 'pa24-row' }, button('refresh', L('刷新用量', 'Refresh usage'), reload), button('code', L('设置预算与模型', 'Configure budget and models'), () => helpers.openCard('config', 'pa24-config-budget')))),
+            (error || message) && h('p', { role: error ? 'alert' : 'status', className: error ? 'pa24-error' : 'pa24-helper' }, error || message),
+            view.status === 'loading' && h('p', { role: 'status' }, L('正在读取持久用量…', 'Reading durable usage…')),
+            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, view.error, button('refresh', L('重试读取', 'Retry reading'), reload)),
+            data && h(React.Fragment, null,
+              h('section', { className: 'pa24-card' }, h('div', { className: 'pa24-row' }, h('h3', null, L('本周期用量', 'Usage this period')), badge(data.status === 'blocked' ? L('等待预算处理', 'Budget action needed') : data.status === 'warning' ? L('接近限额', 'Near limit') : L('限额内', 'Within limits'), data.status === 'ok' ? 'blue' : 'amber')),
+                fields([[L('统计时段', 'Period'), date(data.period.from, data.period.timeZone) + ' → ' + date(data.period.to, data.period.timeZone) + ' · ' + data.period.timeZone], [L('开始记录', 'Recorded since'), data.recordedSince ? date(data.recordedSince, data.period.timeZone) : L('尚无受管请求', 'No managed requests yet')],
+                  [L('请求次数 / 限额', 'Requests / limit'), data.requests + ' / ' + limit(data.config.maxRequests)], [L('Token / 限额', 'Tokens / limit'), budgetValue(data.tokens) + ' / ' + limit(data.config.maxTokens)], [L('估算费用 / 限额', 'Estimated cost / limit'), budgetValue(data.estimatedCost) + ' / ' + limit(data.config.maxEstimatedCost) + ' ' + data.currency],
+                  [L('未取得完整用量', 'Unknown usage'), data.unknownUsage + L(' 次', ' requests')], [L('费用未知', 'Unknown cost'), data.unknownCost + L(' 次', ' requests')], [L('未结算请求', 'Unsettled requests'), data.pending]]),
+                data.unknownUsage > 0 && h('p', { className: 'pa24-meta' }, L('已知部分 Token：', 'Known token subtotal: ') + budgetValue(data.knownTokens)),
+                data.unknownCost > 0 && h('p', { className: 'pa24-meta' }, L('已知部分估算：', 'Known estimated subtotal: ') + budgetValue(data.knownEstimatedCost) + ' ' + data.currency),
+                [...data.reasons, ...data.warnings].map(reason => h('p', { key: reason, className: 'pa24-helper' }, reason)), h('p', { className: 'pa24-meta' }, data.coverage), h('p', { className: 'pa24-meta' }, data.basis), h('p', { className: 'pa24-helper' }, data.notice)),
+              h('section', { className: 'pa24-card' }, h('h3', null, L('等待预算处理的运行', 'Runs awaiting budget action')),
+                data.waiting.length ? data.waiting.map(row => h('article', { key: row.run_id + ':' + row.session_id, className: 'pa24-resource' }, h('strong', null, row.title), h('p', null, row.reason),
+                  row.blocks.filter(block => block.kind !== 'budget').map(block => h('p', { key: block.key }, L('另有阻断：', 'Other blocker: ') + block.reason)),
+                  h('div', { className: 'pa24-row' }, button('check', L('准备放行一次', 'Prepare one-time release'), () => prepare(row)), button('clock', L('查看原运行', 'View original run'), () => helpers.openRuns({ query: row.run_id }))),
+                  h('details', null, h('summary', null, L('原交办与运行标识', 'Original work and run IDs')), fields([[L('交办', 'Work'), row.work_item_id], [L('运行', 'Run'), row.run_id], [L('会话', 'Session'), row.session_id]])))) : h('p', { className: 'pa24-meta' }, L('没有等待预算处理的运行。', 'No runs awaiting budget action.'))),
+              grant && h('section', { className: 'pa24-card', 'aria-label': L('确认预算放行范围', 'Confirm budget release scope') }, h('h3', null, grant.title),
+                h('p', null, L('仅放行此运行的下一次受管模型请求；重试也占一次。其他阻断保持，已停止或结束的运行不会复活。', 'Allow only the next managed model request for this run; a retry also consumes it. Other blockers remain, and ended runs cannot be revived.')),
+                fields([[L('运行', 'Run'), grant.run_id], [L('会话', 'Session'), grant.session_id]]),
+                h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: confirm, onChange: event => setConfirm(event.target.checked) }), L('确认仅放行以上范围一次', 'Confirm one request in this scope')),
+                h('div', { className: 'pa24-row' }, button('check', L('确认放行一次', 'Allow one request'), release, { disabled: busy || !confirm, className: 'pa24-primary' }), button('close', L('取消放行', 'Cancel release'), () => setGrant(null)))),
+              h('section', { className: 'pa24-card' }, h('h3', null, L('实际模型与用量依据', 'Actual models and usage evidence')),
+                records.length ? records.slice(offset, offset + 20).map(row => h('article', { key: row.id, className: 'pa24-resource' },
+                  h('strong', null, row.record.actual ? row.record.actual.provider + ' / ' + row.record.actual.model : L('实际模型尚未回报', 'Actual model not yet reported')),
+                  fields([[L('请求时间', 'Requested at'), date(row.record.at, data.period.timeZone)], [L('请求路由', 'Requested route'), [row.record.proposed?.provider, row.record.proposed?.model].filter(Boolean).join(' / ') || L('未记录', 'Not recorded')],
+                    [L('Token', 'Tokens'), row.record.usage ? budgetValue(row.record.usage.totalTokens ?? row.record.usage.inputTokens + row.record.usage.outputTokens + (row.record.usage.cacheReadTokens ?? 0) + (row.record.usage.cacheWriteTokens ?? 0)) : L('未知', 'Unknown')], [L('估算费用', 'Estimated cost'), budgetValue(row.record.estimate) + ' ' + row.record.currency], [L('价格依据', 'Price source'), row.record.price?.basis || L('缺少可核对价格', 'No verified price')]]),
+                  button('clock', L('查看关联运行', 'View linked run'), () => helpers.openRuns({ query: row.run_id })), h('details', null, h('summary', null, L('完整计量记录', 'Full measurement record')), h('pre', null, JSON.stringify(row, null, 2))))) : h('p', { className: 'pa24-meta' }, L('本周期尚无受管请求；未记录不代表供应商没有费用。', 'No managed requests recorded this period; providers may still have charges.')),
+                records.length > 20 && h('nav', { className: 'pa24-page-nav', 'aria-label': L('用量分页', 'Usage pagination') }, button('chevron', L('上一页', 'Previous'), () => setOffset(Math.max(0,offset-20)), { disabled: !offset }), h('span', null, `${offset+1}–${Math.min(offset+20,records.length)} / ${records.length}`), button('chevron', L('下一页', 'Next'), () => setOffset(offset+20), { disabled: offset+20 >= records.length }))),
+              data.releases.length > 0 && h('details', null, h('summary', null, L('一次放行记录', 'One-time release history')), data.releases.map(row => h('div', { key: row.id, className: 'pa24-resource' },
+                h('p', null, (row.status === 'used' ? L('已消费', 'Used') : L('等待可执行条件', 'Waiting for execution conditions')) + ' · ' + date(row.created_at, data.period.timeZone)), h('p', { className: 'pa24-meta' }, row.run_id), row.record.error && h('p', { role: 'status' }, row.record.error))))));
+        }
+
         function HealthBlock({ data: providedData, title }) {
           const [view, setView] = React.useState(() => providedData ? { status: 'ready', data: providedData, error: '' } : { status: 'idle', data: null, error: '' });
           React.useEffect(() => {
@@ -561,6 +631,7 @@ window.__ModuleLoader__.load({
               capture('minutes', rpc('minutes', {}, abort.signal)),
               capture('memory', rpc('memory', { query: '', offset: 0 }, abort.signal)),
               capture('health', rpc('health', {}, abort.signal)),
+              capture('budget', rpc('budget', { workspaceBinding }, abort.signal)),
               capture('roles', rpc('roles', {}, abort.signal)),
               capture('reminders', rpc('reminders', {}, abort.signal)),
               capture('calendar', rpc('calendar', { workspaceBinding }, abort.signal)),
@@ -2178,12 +2249,12 @@ window.__ModuleLoader__.load({
             detail: helpers => h(ConfigFormDetail, { key: helpers.state.workspaceBinding, helpers }),
           },
           {
-            id: 'budget', cat: 'ops', tone: 'green', icon: 'pulse', title: ['模型与预算', 'Models & budget'], sub: ['路由 · 用量 · 健康判定', 'Routing · usage · health verdict'], action: ['健康报告', 'Health report'],
-            tier: ({ extra }) => (extra.health ? 'ok' : 'unchecked'),
-            body: ({ extra }) => (extra.health && extra.health.usage
-              ? h('div', null, capLine(L('模型轮次', 'Model turns'), extra.health.usage.modelTurns ?? '—'), capLine(L('发送队列', 'Outbox queued'), extra.health.usage.outboxQueued ?? '—'))
-              : h('p', { className: 'pa24-meta' }, L('读取中…', 'Loading…'))),
-            detail: helpers => h(HealthBlock, { data: helpers.extra.health, title: L('模型与预算', 'Models & budget') }),
+            id: 'budget', cat: 'ops', tone: 'green', icon: 'pulse', title: ['模型与预算', 'Models & budget'], sub: ['实际模型 · 持久用量 · 限额', 'Actual models · durable usage · limits'], action: ['查看预算', 'View budget'],
+            tier: ({ extra }) => extra._errors?.budget ? 'error' : !extra.budget?.status ? 'unchecked' : extra.budget.status === 'ok' ? 'ok' : 'warn',
+            body: ({ extra }) => extra._errors?.budget ? h('p', { className: 'pa24-meta' }, L('用量读取失败，请打开重试。', 'Usage could not be read; open to retry.')) : extra.budget?.config
+              ? h('div', null, capLine(L('本周期请求', 'Requests this period'), extra.budget.requests), capLine(L('Token', 'Tokens'), budgetValue(extra.budget.tokens)), capLine(L('估算费用', 'Estimated cost'), budgetValue(extra.budget.estimatedCost) + ' ' + extra.budget.currency), extra.budget.waiting?.length > 0 && nextStrip(extra.budget.waiting.length + L(' 项运行等待预算处理', ' runs need budget action')))
+              : h('p', { className: 'pa24-meta' }, L('尚未读取持久用量', 'Durable usage not read')),
+            detail: helpers => h(BudgetDetail, { key: helpers.state.workspaceBinding, helpers }),
           },
         ];
         const CARD_ORDER = ['skills', 'work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];
@@ -2355,6 +2426,7 @@ window.__ModuleLoader__.load({
             diagnosticRetentionDays: config?.diagnosticRetentionDays ?? 90,
             enabledWorkers: [...(config?.enabledWorkers ?? ['memo'])],
             workerModels: JSON.parse(JSON.stringify(config?.workerModels ?? {})),
+            budget: JSON.parse(JSON.stringify(config?.budget ?? { period: 'month', warningRatio: 0.8, maxRequests: null, maxTokens: null, maxEstimatedCost: null, currency: 'CNY', prices: [] })),
             extraKnown: KNOWN_EXTRA.filter(x => (config?.extraLocalTools ?? []).includes(x)),
             extraSkills: (config?.extraBusinessSkills ?? []).join(', '),
             tts: { engine: config?.tts?.engine ?? 'none', voice: config?.tts?.voice ?? '', volcKeyEnv: config?.tts?.volcKeyEnv ?? '', meloDir: config?.tts?.meloDir ?? '' },
@@ -2425,6 +2497,9 @@ window.__ModuleLoader__.load({
                 maxWorkers: Number(form.maxWorkers), diagnosticRetentionDays: Number(form.diagnosticRetentionDays), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra, extraBusinessSkills: skills,
                 appIdEnv: form.appIdEnv.trim(), appSecretEnv: form.appSecretEnv.trim(), pgDsnEnv: form.pgDsnEnv.trim(),
                 tts: form.tts,
+                budget: { ...form.budget, warningRatio: Number(form.budget.warningRatio), maxRequests: budgetNumber(form.budget.maxRequests), maxTokens: budgetNumber(form.budget.maxTokens), maxEstimatedCost: budgetNumber(form.budget.maxEstimatedCost),
+                  prices: form.budget.prices.map(price => ({ provider: price.provider.trim(), model: price.model.trim(), basis: price.basis.trim(), inputPerMillion: budgetNumber(price.inputPerMillion), outputPerMillion: budgetNumber(price.outputPerMillion),
+                    ...Object.fromEntries(['cacheReadPerMillion', 'cacheWritePerMillion'].filter(key => price[key] !== '' && price[key] != null).map(key => [key, Number(price[key])])) })) },
               };
           };
           const adoptSaved = saved => {
@@ -2571,6 +2646,7 @@ window.__ModuleLoader__.load({
                   : h('p', { className: 'pa24-meta' }, L('先勾选上方 Worker。', 'Check a worker above first.'))),
                 L('按角色覆盖 provider/model，留空即继承默认路由。', 'Per-role provider/model overrides; blank fields inherit the default route.'),
                 form.enabledWorkers.includes('handwriting') && !(form.workerModels.handwriting && (form.workerModels.handwriting.model || form.workerModels.handwriting.provider)) && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-amber)' } }, L('已启用手写整理但未配置视觉模型路由——该能力将不可用。', 'Handwriting is enabled without a vision model route and will be unavailable.'))),
+              h(BudgetConfigFields, { value: form.budget, onChange: value => set('budget', value) }),
               h('details', { id: 'pa24-extra-tools', style: { marginTop: 4 } }, h('summary', null, L('extraLocalTools（高级，默认收起）', 'extraLocalTools (advanced, collapsed)')),
                 h('div', { style: { minWidth: 0, paddingTop: 6 } }, KNOWN_EXTRA.map(x =>
                   h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),

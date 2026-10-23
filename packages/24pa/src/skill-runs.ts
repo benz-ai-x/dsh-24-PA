@@ -14,7 +14,7 @@ import { skillDelegationTools } from './local-tool-access.js';
 import { skillRequirements } from './skill-requirements.js';
 import { SkillRunClock } from './skill-run-clock.js';
 import { SkillRunTemplates } from './skill-run-template.js';
-import { initialRunControl, beginRunAttempt, blockRun, clearRunBlock, runControlSummary, type RunBlockKind } from './run-control.js';
+import { initialRunControl, canFinishDispatchedStep, beginRunAttempt, blockRun, clearRunBlock, runControlSummary, type RunBlockKind } from './run-control.js';
 import { isDeepStrictEqual } from 'node:util';
 import { planTriggerId } from './repo/plan-trigger.js';
 
@@ -62,6 +62,14 @@ export class SkillRuns {
     this.host = new SkillRunHost(deps.host); this.native = new SkillRunNative(this.host);
     this.clock = new SkillRunClock(id => this.deps.control(() => this.expire(id)));
     this.templates = new SkillRunTemplates(deps.template, work => deps.control(work), (id, phase, error) => this.diagnostic(id, phase, error));
+  }
+  async resumeBudgetInput(id: string): Promise<boolean> {
+    const context = this.context(), run = await context.repos.skillRuns.get(id);
+    if (!run || !(await context.repos.runControls.resumes(id)).some(row => row.status !== 'submitted')) return false;
+    // Owner supplements precede an internal budget wake. Otherwise the one
+    // permitted request could be spent before the requested information arrives.
+    await this.dispatchResumes(run);
+    return true;
   }
   activateBudget(id: string): void { const active = this.active.get(id); if (active) active.allowed = true; }
   dispose(): void { this.clock.dispose(); this.templates.dispose(); }
@@ -503,8 +511,9 @@ export class SkillRuns {
   private async authorize(run: SkillRunRow, binding: string): Promise<void> {
     const context = this.context(binding), current = await context.repos.skillRuns.get(run.id);
     const control = await context.repos.runControls.get(run.id);
-    if (control?.state.blocks.length && !control.state.terminal) throw new Error(control.state.blocks.map(block => block.reason).join('；'));
-    if (this.active.get(run.id)?.allowed === false || current?.status !== 'running') throw new Error('运行已停止或等待处理，不能继续执行。');
+    if (control && !canFinishDispatchedStep(control.state)) throw new Error(control.state.blocks.map(block => block.reason).join('；') || '原运行不可继续。');
+    const budgetWaiting = current?.status === 'waiting' && control?.state.blocks.some(block => block.kind === 'budget');
+    if (this.active.get(run.id)?.allowed === false || (current?.status !== 'running' && !budgetWaiting)) throw new Error('运行已停止或等待处理，不能继续执行。');
     if (this.deps.permissionHash(run.snapshot.plan?.authorization) !== run.snapshot.permissionHash) {
       await this.waitForBlock(run, 'current-authorization', 'authorization', '身份或授权配置与原运行不同；恢复原范围后可重新检查。');
       throw new Error('当前身份或授权发生变化，等待处理。');

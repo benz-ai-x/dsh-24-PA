@@ -3,7 +3,7 @@ import type { DshAgent, DshSession } from './host.js';
 import type { Repos } from './repo.js';
 import type { RunInput, RunToolCall, RunToolResult } from './skill-run-host.js';
 import { SkillRunClock } from './skill-run-clock.js';
-import { beginRunAttempt, blockRun, clearRunBlock, runControlSummary } from './run-control.js';
+import { beginRunAttempt, canFinishDispatchedStep, blockRun, clearRunBlock, runControlSummary } from './run-control.js';
 import { canceledInputIds, consumedTurn, turnHasModelInput } from './host-turn.js';
 
 interface WorkerScope {
@@ -44,9 +44,12 @@ export class WorkerRuns {
   }
   private async authorized(agent: DshAgent) {
     const owned = await this.owned(agent.session);
-    if (!owned || owned.item.status !== 'running' || owned.run.status !== 'running' || !this.deps.allowed(owned.item.role)) throw new Error('此交办已等待、停止或授权发生变化；未开始新的动作。');
+    if (!owned || !this.deps.allowed(owned.item.role)) throw new Error('此交办已停止或授权发生变化；未开始新的动作。');
     const control = await owned.context.repos.runControls.get(owned.run.id);
-    if (control?.state.blocks.length || control?.state.terminal || control?.state.stop) throw new Error(control.state.blocks.map(block => block.reason).join('；') || '原运行不可继续。');
+    if (control && !canFinishDispatchedStep(control.state)) throw new Error(control.state.blocks.map(block => block.reason).join('；') || '原运行不可继续。');
+    const budgetWaiting = control?.state.blocks.some(block => block.kind === 'budget');
+    if ((owned.item.status !== 'running' && !(owned.item.status === 'waiting_input' && budgetWaiting))
+      || (owned.run.status !== 'running' && !(owned.run.status === 'waiting' && budgetWaiting))) throw new Error('此交办已等待或停止；未开始新的动作。');
     try {
       if (this.blocked.has(owned.run.id)) throw new Error('原运行工具回执待核对，不能继续执行。');
       await owned.context.repos.workItems.assertKnownEffects(owned.item.id, true, this.activeCalls);

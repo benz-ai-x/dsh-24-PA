@@ -13,7 +13,10 @@ const config = extra => validateBudget({ ...DEFAULT_BUDGET, prices: [price], ...
 it('未知用量、未知缓存价格和混合币种不冒充零；周期使用工作区时区', () => {
   expect(budgetUsage({ inputTokens: 10 })).toBeNull();
   expect(estimateUsage({ inputTokens: 10, outputTokens: 5, cacheWriteTokens: 2 }, price)).toBeNull();
-  expect(estimateUsage({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 2 }, price)).toBeCloseTo(0.0000564);
+  expect(estimateUsage({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 2 }, price)).toBeCloseTo(0.0000604);
+  expect(budgetUsage({ inputTokens: 2, outputTokens: 1, cacheReadTokens: 20, totalTokens: 23 })).not.toBeNull();
+  expect(budgetUsage({ inputTokens: 2, outputTokens: 1, cacheReadTokens: 20, totalTokens: 3 })).toBeNull();
+  expect(budgetSummary([{ usage: { inputTokens: 2, outputTokens: 1, cacheReadTokens: 20 } }], config({})).tokens).toBe(23);
   const report = budgetSummary([{ at: '', currency: 'USD', usage: null, estimate: 1 }], config({ maxTokens: 100 }));
   expect(report).toMatchObject({ tokens: null, estimatedCost: null, knownTokens: 0, unknownCost: 1, unknownUsage: 1, status: 'blocked' });
   expect(budgetSummary([{ currency: 'CNY', usage: { inputTokens: 80, outputTokens: 0 }, estimate: 0 }], config({ maxTokens: 100 })).status).toBe('warning');
@@ -71,6 +74,21 @@ for (const backend of ['sqlite','postgres']) describe('durable model budget / ' 
     await expect(repos.modelBudget.grant(release())).rejects.toThrow('迟到');
     await expect(repos.modelBudget.gate(owner, config({}), 'Asia/Shanghai', request)).rejects.toThrow('迟到');
     expect((await repos.workerRuns.get(owner.runId)).status).toBe('stopped');
+  });
+  it('主子会话各自保留预算等待，另一会话的阻断不覆盖指定的一次放行', async () => {
+    const child = { ...owner, sessionId: 'native-child' };
+    await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai');
+    await repos.modelBudget.gate(child, config({ maxRequests: 0 }), 'Asia/Shanghai');
+    expect((await budget.snapshot()).waiting).toHaveLength(2);
+    const input = { ...release(), sessionId: child.sessionId };
+    await repos.modelBudget.grant(input);
+    expect((await budget.snapshot()).waiting.map(row => row.session_id)).toEqual([owner.sessionId]);
+    expect(await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai', request)).toMatchObject({ allowed: false });
+    expect(await repos.modelBudget.gate(child, config({ maxRequests: 0 }), 'Asia/Shanghai', request)).toMatchObject({ allowed: true });
+    expect((await repos.modelBudget.release(input.id)).status).toBe('used');
+    expect((await budget.snapshot()).waiting.map(row => row.session_id)).toEqual([owner.sessionId]);
+    expect(await repos.modelBudget.gate(child, config({ maxRequests: 0 }), 'Asia/Shanghai', request)).toMatchObject({ allowed: false });
+    expect((await budget.snapshot()).waiting).toHaveLength(2);
   });
   it('预算恢复保留多个原生消息的身份、来源和完整内容；已有结果仍固定投递', async () => {
     await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai');

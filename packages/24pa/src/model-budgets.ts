@@ -4,7 +4,7 @@ import type { RunInput } from './skill-run-host.js';
 import type { BudgetOwner, BudgetReleaseRow } from './repo/model-budget.js';
 import { budgetHash, budgetUsage, type BudgetConfig } from './model-budget.js';
 import { consumedTurn, turnHasModelInput, canceledInputIds } from './host-turn.js';
-import { canExecuteRun } from './run-control.js';
+import { canFinishDispatchedStep, budgetBlockKey } from './run-control.js';
 const wakeMarker = (id: string) => `[24PA budget wake: ${id}]`;
 const adopted = (session: DshSession) => new Set(session.ownEvents().filter(event => event.type === 'turn/end' || event.type === 'step/start')
   .filter(event => turnHasModelInput(session, event.data.turn)).flatMap(event => [...consumedTurn(session, event.data.turn).messageIds])
@@ -15,7 +15,7 @@ interface BudgetContext { repos: Repos; path: string; binding: string; config: B
 export class ModelBudgets {
   private readonly waking = new Set<string>();
   private readonly sent = new Set<string>();
-  constructor(private readonly deps: { host: () => DshContext; context(): BudgetContext | null; activate(runId: string): void; detached<T>(work: () => T): T }) {}
+  constructor(private readonly deps: { host: () => DshContext; context(): BudgetContext | null; activate(runId: string): void; resumeInput?(runId: string): Promise<boolean>; detached<T>(work: () => T): T }) {}
   private context(binding?: unknown) { const ctx = this.deps.context(); if (!ctx || (binding !== undefined && ctx.binding !== binding)) throw new Error('预算所属工作区已切换，请刷新。'); return ctx; }
   async owner(session: DshSession): Promise<BudgetOwner | null> {
     const ctx = this.context(); if (session.header.cwd !== ctx.path) return null;
@@ -63,6 +63,8 @@ export class ModelBudgets {
       if (release.status !== 'ready') continue; // stale wake cannot spend another release
       const canonical = release.record.control ?? message;
       await ctx.repos.modelBudget.acceptedWake(release.id, canonical);
+      const owner = await ctx.repos.modelBudget.owner(runId);
+      if (owner?.kind === 'skill') await ctx.repos.skillRuns.input(runId, canonical, true, session.id);
       const originals = (release.record.originals ?? []).filter(original => !adopted(session).has(original.id));
       if (originals.length) {
         if (originals.some(original => canceledInputIds(session).has(original.id))) throw new Error('原输入已取消，预算放行不能重新采用。');
@@ -77,16 +79,17 @@ export class ModelBudgets {
     for (const row of await ctx.repos.modelBudget.waiters()) {
       const control = await ctx.repos.runControls.get(row.run_id), owner = await ctx.repos.modelBudget.owner(row.run_id);
       if (!owner || !['running','waiting'].includes(owner.status) || !control || control.state.terminal) continue;
-      if (!control.state.blocks.some(block => block.kind === 'budget')) continue;
+      if (!control.state.blocks.some(block => block.key === budgetBlockKey(row.session_id) && block.kind === 'budget')) continue;
       const work = await ctx.repos.workItems.get(row.work_item_id);
       waiting.push({ ...row, title: work?.title ?? row.work_item_id, blocks: control.state.blocks });
     }
-    return { ...summary, waiting, config: ctx.config, fingerprint: budgetHash(ctx.config), workspaceBinding: ctx.binding,
+    return { ...summary, waiting, releases: await ctx.repos.modelBudget.releases(), config: ctx.config, fingerprint: budgetHash(ctx.config), workspaceBinding: ctx.binding,
       coverage: '本工作区受管 Skill 及普通助理交办的原生模型请求；不含自由对话、外部 CLI、TTS 或升级前未记录请求。',
       basis: '宿主持久 Session 事件与派发意向按身份去重。费用使用请求时保存的每百万 token 价格；估算不是供应商账单，未知不按零计算。',
       notice: '仅暂停新的受管模型请求；已发请求可能继续计费，原生日历提醒、已完成结果保存与投递继续。' };
   }
   async grant(input: Record<string, unknown>) {
+    if (typeof input.workspaceBinding !== 'string' || !input.workspaceBinding) throw new Error('缺少预算所属工作区标识。');
     const ctx = this.context(input.workspaceBinding);
     if (input.confirm !== true || typeof input.requestId !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(input.requestId) || input.scope !== 'next-model-request') throw new Error('请确认仅放行原交办／运行指定会话的下一次模型请求。');
     const release = await ctx.repos.modelBudget.grant({ id: input.requestId, hash: budgetHash(input), runId: String(input.runId), workId: String(input.workId), sessionId: String(input.sessionId) });
@@ -112,10 +115,14 @@ export class ModelBudgets {
       this.waking.add(release.id);
       try {
         const owner = await ctx.repos.modelBudget.owner(release.run_id), control = await ctx.repos.runControls.get(release.run_id);
-        if (!owner || !['running','waiting'].includes(owner.status) || !control || !canExecuteRun(control.state) || control.state.stop) continue;
+        if (!owner || !['running','waiting'].includes(owner.status) || !control || !canFinishDispatchedStep(control.state) || control.state.stop) continue;
+        if (owner.kind === 'skill' && await this.deps.resumeInput?.(owner.runId)) continue;
         const agents = this.deps.host().get('agents') as { get?(id: string): DshAgent & { inbox?: { nextTurn: RunInput[]; nextStep: RunInput[] } } } | null;
         const live = agents?.get?.(release.session_id);
-        if (live && (live.status !== 'idle' || live.inbox?.nextTurn.length || live.inbox?.nextStep.length)) continue;
+        // Workspace-instruction middleware may park context in nextStep after
+        // rejecting the task. It must travel with the wake, not prevent it.
+        const queued = [...(live?.inbox?.nextTurn ?? []), ...(live?.inbox?.nextStep ?? [])];
+        if (live && (live.status !== 'idle' || queued.some(message => !['agent-instructions', 'runtime-context'].includes(message.source?.kind ?? '')))) continue;
         const history = await this.history(release.session_id);
         if (!history || history.header.cwd !== ctx.path) throw new Error('原会话历史或工作区归属无法核验。');
         await this.observe(history);
@@ -124,8 +131,8 @@ export class ModelBudgets {
         const candidates = owner.kind === 'worker' ? (await ctx.repos.workerRuns.inputs(owner.runId)).flatMap(row => row.message ? [row.message] : [])
           : (await ctx.repos.skillRuns.inputs(owner.runId)).filter(row => row.accepted && row.session_id === release.session_id).map(row => row.message as RunInput);
         const canceled = canceledInputIds(history), adoptedIds = adopted(history);
-        if (candidates.some(row => canceled.has(row.id))) throw new Error('原输入已取消，不能预算恢复。');
-        const originals = candidates.filter(row => !adoptedIds.has(row.id));
+        const originals = candidates.filter(row => !['agent-instructions', 'runtime-context'].includes(row.source?.kind ?? '') && !adoptedIds.has(row.id));
+        if (originals.some(row => canceled.has(row.id))) throw new Error('原输入已取消，不能预算恢复。');
         const alreadyAdoptedWake = release.native_message_id && adoptedIds.has(release.native_message_id);
         if (alreadyAdoptedWake) continue;
         if (!release.record.wake && !await ctx.repos.modelBudget.claimWake(release, originals, ctx.maxWorkers)) continue;
