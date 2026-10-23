@@ -128,7 +128,7 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
   it('P13：联系人入库后按明确指令发信；草稿不发送、目标不清先澄清', async () => {
     await writeScript({
       mode: 'dispatch',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'contact-lilei', category: 'fact', topic: '联系人：李雷', content: '联系人 李雷：ou_collab_1（合作方负责人）', source: '本人提供', status: 'confirmed', reason: '本人提供的联系人', expectedRevision: 0 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'contact-lilei', category: 'fact', topic: '联系人：李雷', content: '联系人 李雷：ou_collab_1（合作方负责人）', source: '本人提供', status: 'confirmed', confirmation: '本人明确要求记住此条内容', reason: '本人提供的联系人', expectedRevision: 0 } },
       leadReply: '已记录联系人。',
     });
     await promptLocal('f08-contact-1', '记一下联系人：李雷，open_id 是 ou_collab_1');

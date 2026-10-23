@@ -125,9 +125,23 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_memory',
-    '检索/维护本工作区 JSON 长期记忆。search/inspect/changesets 只读；put/delete/apply/undo 仅限 dsh 的24私助本地会话，必须携带查询得到的 revision 和本人的指令依据。',
+    '检索/维护本工作区 JSON 长期记忆。search 默认返回有效事实及待核实线索，effective.useAs 区分用途；facts 只返有确认依据的当前事实。manage/history/inspect/changesets 与所有维护仅限本地顶层会话。delete 是回收；restore 恢复，purge 永久清除回收正文及可恢复版本。单项修改需 revision 和本人依据；批量先 preview 展示选择，再 apply 携带返回的 changes/previewToken。confirmation 仅可引用本人的明确记住/确认指令，审核资料或模型推断不算；重复旧依据不会确认改写后的陈述，需本人明确确认当前内容。',
     {
-      action: { type: 'string', enum: ['search', 'put', 'delete', 'inspect', 'apply', 'undo', 'changesets'] },
+      action: { type: 'string', enum: ['search', 'put', 'delete', 'activate', 'deactivate', 'restore', 'purge', 'inspect', 'preview', 'apply', 'undo', 'changesets', 'history'] },
+      mode: { type: 'string', enum: ['business', 'facts', 'manage'] },
+      lifecycle: { type: 'string', enum: ['active', 'inactive', 'recycled'] },
+      freshness: { type: 'string', enum: ['current', 'expired', 'upcoming'] },
+      project: string,
+      sourceState: { type: 'string', enum: ['unchecked', 'current', 'changed', 'unavailable'] },
+      conflictState: { type: 'string', enum: ['none', 'candidate', 'unresolved', 'resolved'] },
+      confirmationState: { type: 'string', enum: ['verified', 'missing', 'unverified'] },
+      confirmation: string,
+      confirmationReference: { ...string, description: '本人明确确认指令的实际引用标识。同措辞的新确认使用新指令引用；重复旧依据不得编造新引用。' },
+      scope: { type: 'object', properties: { kind: { type: 'string', enum: ['personal', 'company', 'project'] }, name: string }, required: ['kind'] },
+      sourceCheck: { type: 'object', properties: { state: { type: 'string', enum: ['unchecked', 'current', 'changed', 'unavailable'] }, checkedAt: string, evidence: string, version: string }, required: ['state'] },
+      conflict: { type: 'object', properties: { state: { type: 'string', enum: ['unresolved', 'resolved'] }, relatedIds: { type: 'array', items: string }, reason: string }, required: ['state', 'relatedIds', 'reason'] },
+      validFrom: string,
+      previewToken: string,
       query: string,
       category: { type: 'string', enum: ['preference', 'fact', 'project', 'decision'] },
       topic: string,
@@ -177,7 +191,7 @@ export function apply(ctx: DshContext) {
         config: snapshot.workspace?.config ?? null,
         loadedAt: snapshot.workspace?.loadedAt ?? null,
         configError: snapshot.workspace?.configError ?? null,
-        memoryNote: '长期记忆与整理功能在后续功能组交付；当前版本先完成配置维护。',
+        memoryNote: '长期记忆通过 pa24_memory 查询与本地维护；面板可查全文和修订，批量修改先预览，永久删除前先回收。',
       };
     },
   );

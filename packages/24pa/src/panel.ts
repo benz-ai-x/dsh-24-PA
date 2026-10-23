@@ -23,6 +23,7 @@ export const PANEL_RPC = {
     snapshot: 'snapshot',
     action: 'action',
     memory: 'memory',
+    memoryHistory: 'memory.history',
     health: 'health',
     notesQueue: 'notes.queue',
     roles: 'roles',
@@ -103,20 +104,8 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });
             if (endpoint === E.todos) return respond({ ok: true, value: await runtime.todoSnapshot(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
-            if (endpoint === E.memory) {
-              if (!runtime.memory) throw new Error('尚未绑定工作区。');
-              return respond({
-                ok: true,
-                value: await runtime.memory.search({
-                  query: str(payload.query),
-                  category: str(payload.category),
-                  topic: str(payload.topic),
-                  status: str(payload.status),
-                  limit: Number.isFinite(Number(payload.limit)) ? Number(payload.limit) : 20,
-                  offset: Number.isFinite(Number(payload.offset)) ? Number(payload.offset) : 0,
-                }),
-              });
-            }
+            if (endpoint === E.memoryHistory) return respond({ ok: true, value: await runtime.memorySnapshot(payload, true) });
+            if (endpoint === E.memory) return respond({ ok: true, value: await runtime.memorySnapshot(payload) });
             if (endpoint === E.health) {
               return respond({ ok: true, value: await runtime.maintenanceHealth() });
             }

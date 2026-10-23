@@ -1573,14 +1573,14 @@ export class PaRuntime {
     silentUntil: async () => {
       try {
         const now = new Date();
-        const vacation = await this.memory!.search({ topic: '休假', limit: 20 });
+        const vacation = await this.memory!.search({ topic: '休假', mode: 'facts', limit: 20 });
         for (const record of vacation.records) {
           if (record.status !== 'confirmed') continue;
           const end = record.validUntil ? new Date(record.validUntil) : null;
           if (!end || Number.isNaN(end.getTime())) continue;
           if (end.getTime() > now.getTime()) return end;
         }
-        const quiet = await this.memory!.search({ topic: '通知偏好', limit: 20 });
+        const quiet = await this.memory!.search({ topic: '通知偏好', mode: 'facts', limit: 20 });
         const tz = this.config?.timeZone ?? 'Asia/Shanghai';
         for (const record of quiet.records) {
           if (record.status !== 'confirmed') continue;
@@ -2167,6 +2167,20 @@ export class PaRuntime {
     });
   }
 
+  async memorySnapshot(input: Record<string, unknown> = {}, history = false) {
+    return this.executions.run(async () => {
+      if (!this.memory || !this.workspace) throw new Error('尚未绑定工作区。');
+      if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
+      const str = (value: unknown) => typeof value === 'string' ? value : undefined;
+      const result = history ? await this.memory.history(String(input.id ?? '')) : await this.memory.search({
+        mode: 'manage', query: str(input.query), category: str(input.category), topic: str(input.topic), status: str(input.status),
+        lifecycle: str(input.lifecycle), freshness: str(input.freshness), project: str(input.project), sourceState: str(input.sourceState),
+        conflict: str(input.conflict), confirmation: str(input.confirmation), limit: Number(input.limit ?? 20), offset: Number(input.offset ?? 0),
+      });
+      return { ...result, workspaceBinding: this.workspaceBinding };
+    });
+  }
+
   /**
    * pa24_memory: search is open to every workspace role; writes, maintenance
    * and undo require the local top-level 24私助 session (P42/P43).
@@ -2176,22 +2190,21 @@ export class PaRuntime {
       const role = this.roleFor(agent);
       if (!role || !this.memory || !this.workspace) throw new Error('记忆仅对绑定的 24私助 工作区会话开放。');
       const action = String(args.action ?? 'search');
-      const readOnly: Record<string, boolean> = {
-        search: true,
-        put: false,
-        delete: false,
-        inspect: true,
-        apply: false,
-        undo: false,
-        changesets: true,
-      };
-      if (!(action in readOnly)) throw new Error('未知记忆操作。');
-      if (!readOnly[action] && role !== 'local-robot') {
-        throw new Error('记忆写入与整理仅限 dsh 的24私助本地会话；飞书接入与 Worker 只能检索。');
+      const actions = ['search', 'put', 'delete', 'activate', 'deactivate', 'restore', 'purge', 'inspect', 'preview', 'apply', 'undo', 'changesets', 'history'];
+      if (!actions.includes(action)) throw new Error('未知记忆操作。');
+      if ((action !== 'search' || args.mode === 'manage') && role !== 'local-robot') {
+        throw new Error('记忆维护、历史与回收内容仅限 dsh 的24私助本地会话；飞书接入与 Worker 只能检索有效业务记忆。');
       }
       const actor = agent.id;
       if (action === 'search') {
         return this.memory.search({
+          mode: args.mode === 'manage' ? 'manage' : args.mode === 'facts' ? 'facts' : 'business',
+          lifecycle: args.lifecycle ? String(args.lifecycle) : undefined,
+          freshness: args.freshness ? String(args.freshness) : undefined,
+          project: args.project ? String(args.project) : undefined,
+          sourceState: args.sourceState ? String(args.sourceState) : undefined,
+          conflict: args.conflictState ? String(args.conflictState) : undefined,
+          confirmation: args.confirmationState ? String(args.confirmationState) : undefined,
           query: args.query ? String(args.query) : undefined,
           category: args.category ? String(args.category) : undefined,
           topic: args.topic ? String(args.topic) : undefined,
@@ -2206,6 +2219,11 @@ export class PaRuntime {
       if (action === 'changesets') {
         return { changesets: await this.memory.listChangesets() };
       }
+      if (action === 'history') return this.memory.history(String(args.id ?? ''));
+      if (action === 'preview') {
+        const changes = Array.isArray(args.changes) ? args.changes as MemoryChange[] : [];
+        return this.memory.previewChangeset(changes, { expectedRevision: requireRevision(args.expectedRevision), actor });
+      }
       if (action === 'put') {
         const expectedRevision = requireRevision(args.expectedRevision);
         if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
@@ -2217,6 +2235,12 @@ export class PaRuntime {
             content: text(args.content),
             source: text(args.source, 500),
             sourceVersion: args.sourceVersion ? String(args.sourceVersion) : undefined,
+            ...(args.lifecycle ? { lifecycle: args.lifecycle as 'active' | 'inactive' | 'recycled' } : {}),
+            ...(args.scope ? { scope: args.scope as import('./memory.js').MemoryRecord['scope'] } : {}),
+            ...(args.sourceCheck ? { sourceCheck: args.sourceCheck as import('./memory.js').MemoryRecord['sourceCheck'] } : {}),
+            ...(args.conflict ? { conflict: args.conflict as import('./memory.js').MemoryRecord['conflict'] } : {}),
+            ...(args.confirmation ? { confirmation: { kind: 'owner_instruction', text: text(args.confirmation), at: new Date().toISOString(), by: actor, ...(args.confirmationReference ? { reference: String(args.confirmationReference) } : {}) } } : {}),
+            validFrom: args.validFrom ? String(args.validFrom) : null,
             status: requireStatus(args.status),
             validUntil: args.validUntil ? String(args.validUntil) : null,
             reason: String(args.reason),
@@ -2229,12 +2253,16 @@ export class PaRuntime {
         if (!String(args.reason ?? '').trim()) throw new Error('记忆修订需说明本人的指令依据。');
         return this.memory.remove(String(args.id ?? ''), { expectedRevision, actor, reason: String(args.reason) });
       }
+      if (['activate', 'deactivate', 'restore', 'purge'].includes(action)) {
+        return this.memory.transition(String(args.id ?? ''), action as 'activate' | 'deactivate' | 'restore' | 'purge', { expectedRevision: requireRevision(args.expectedRevision), actor, reason: String(args.reason ?? '') });
+      }
       if (action === 'apply') {
         const expectedRevision = requireRevision(args.expectedRevision);
         if (!String(args.reason ?? '').trim()) throw new Error('记忆整理需说明本人的指令依据。');
         const changes = Array.isArray(args.changes) ? (args.changes as MemoryChange[]) : [];
         if (changes.length === 0) throw new Error('变更集为空；请先通过 inspect 查看候选并让本人确认。');
-        return this.memory.applyChangeset(changes, { expectedRevision, actor, reason: String(args.reason) });
+        if (changes.length > 1 && !String(args.previewToken ?? '').trim()) throw new Error('批量维护必须先通过 preview 展示变更集，并携带同一内容的 previewToken。');
+        return this.memory.applyChangeset(changes, { expectedRevision, actor, reason: String(args.reason), previewToken: args.previewToken ? String(args.previewToken) : undefined });
       }
       if (action === 'undo') {
         const expectedRevision = requireRevision(args.expectedRevision);
@@ -2510,7 +2538,7 @@ export class PaRuntime {
     const openId = String(input.openId ?? '').trim();
     if (openId) return { name: name || openId, openId };
     if (!name) return { clarify: '未提供姓名或 open_id' };
-    const memory = await this.memory!.search({ query: name, limit: 50 });
+    const memory = await this.memory!.search({ query: name, mode: 'facts', limit: 50 });
     const contactRecords = memory.records.filter(r => (r.topic === `联系人：${name}` || r.content.includes(`联系人 ${name}：`)) && r.status === 'confirmed');
     const ids = [...new Set(contactRecords.flatMap(r => r.content.match(/ou_[A-Za-z0-9_]+/g) ?? []))];
     if (ids.length === 1) return { name, openId: ids[0]! };
@@ -2831,7 +2859,7 @@ export class PaRuntime {
     });
     if (match) lastMinutes = { topic: match.topic, url: match.doc_url, actions: (Array.isArray(match.candidates) ? match.candidates : []).map((candidate: { summary: string }) => candidate.summary).slice(0, 5) };
     const memory = await readSource('记忆', scope.memory !== false, () => this.memory!.search({ query: keyword, limit: 5 }));
-    const memoryFacts = (memory?.records ?? []).filter(record => record.status === 'confirmed').map(record => `${record.topic}：${record.content.slice(0, 60)}（来源：${record.source}）`);
+    const memoryFacts = (memory?.records ?? []).filter(record => record.effective.useAs === 'fact').map(record => `${record.topic}：${record.content.slice(0, 60)}（来源：${record.source}）`);
     // Only tasks sharing a token with the meeting count as related; otherwise
     // the section stays absent rather than pretending relevance.
     // CJK summaries rarely use separators: match on 2-character sliding
