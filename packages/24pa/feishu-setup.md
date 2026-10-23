@@ -91,7 +91,7 @@ lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,d
 | `cli.state=error`：找不到可执行 | 宿主进程 PATH 无 lark-cli | 安装并确保宿主启动环境能找到；改完必须重启宿主 |
 | `auth.state=missing`：尚无用户授权 | 未做块 B | 按三步法发起 `auth login`（Device Flow） |
 | `auth.state=unbound` | ownerOpenId 为空 | 用 auth status 的 `user.openId` 填 AGENTS.md |
-| `auth.state=mismatch` | CLI 授权用户 ≠ 配置主人 | 本人重新授权，或把 ownerOpenId 改为实际授权者（确认后者就是主人） |
+| `auth.state=mismatch` | CLI 授权用户 ≠ 配置主人 | 核对固定 profile 的用户与实际应用；已登记账本主人不可转让，换主人须使用独立工作区与空账本 |
 | `auth.state=unverified` | 令牌失效/无法验证 | 重新 `auth login` 刷新令牌 |
 | `auth.state=error` | `auth status --verify` 本身失败 | `lark-cli config show --profile <名>` 核对应用配置（App ID/brand）与网络；配置损坏时由本人 `config remove` 后重新 `config init` |
 | `resources.*.state=error` | 权限点未开或应用未发布新版本 | 对照块 A 权限清单；**权限变更后重新发布版本** |
@@ -102,7 +102,15 @@ lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,d
 
 ## 安全红线
 
-- App Secret 与令牌只存在服务器环境/钥匙串：**不读取、不回显、不写入任何文件或消息**；AGENTS.md 只保存环境变量名。
+- App Secret 与令牌仅由本人填入部署环境或面板密钥组：**不回显、不写入对话或普通文件**；面板密钥库按 0600 保存，AGENTS.md 只保存引用名。
 - 浏览器授权与密钥填写永远由本人完成；你只发起流程、转交链接、验证结果。
 - 配置失败可随时回退：AGENTS.md 改回 `mode: "demo"` 并重启即可恢复无飞书的本地体验；业务账本不受影响。
 - 多轮未达标时，先 `check` 定位当前卡点，再按 `nextSteps` 收敛——不要在未验证的假设上反复尝试外部写入；自动验收循环本身只跑只读检查。
+
+## Manticore 接入证据与明确测试
+
+飞书卡的「检查证据与明确测试」按主人、固定 profile、实际应用、企业、授权资源、收信、发信和真实审核回调分别展示。企业标识未由平台返回时显示未验证；长连接启动、资源只读成功均不代表端到端完成。配置或实际身份变化会使旧成功证据过期，无活动保持中性。
+
+「刷新证据」只读本地账本。「执行只读检查」不发消息、不创建对象、不读听记正文、不启动模型。「定位修复配置」把脱敏诊断、字段和配置版本带到参数卡；修改后再按原范围重验。参数卡另列源文件版本、生效版本和进行中影响，失败保留输入与旧生效配置。
+
+真实测试先预览具体主人或登记来源、动作、费用边界、残留，再勾选确认执行。测试资源不邀请其他人、不设提醒；结果给出原生对象标识，清理必须另行确认。消息保留在原聊天，当前不提供撤回。进程中断或超时先核对原目标，重复请求返回原记录而不重复创建。真实审核回调须在实际待审版本上完成，不能用普通收信代替。

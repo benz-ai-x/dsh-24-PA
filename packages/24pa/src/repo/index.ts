@@ -5,6 +5,7 @@ import { CalendarEventRow, CalendarRepo, CalendarSyncRow } from './calendar.js';
 import { DigestOccurrenceRow, DigestPlanRow, DigestRepo, MinutesRepo, MinutesRow } from './digest.js';
 import { InboxRepo, InboxRow, InboxStatus, NewInbox } from './inbox.js';
 import { MaintenanceRepo } from './maintenance.js';
+import { HealthRepo } from './health.js';
 import { MemoRepo, MemoRow } from './memo.js';
 import { NotePageRow, NoteRepo, NoteRow, NoteStatus, NoteVersionRow, NoteVersionStatus, ReviewDecisionRow, ReviewReminderRepo, ReviewReminderRow, ReviewTokenRow } from './notes.js';
 import { NewOutbox, OutboxRepo, OutboxRow, OutboxStatus } from './outbox.js';
@@ -48,6 +49,7 @@ export interface Repos {
   digests: DigestRepo;
   minutes: MinutesRepo;
   maintenance: MaintenanceRepo;
+  health: HealthRepo;
   skills: SkillRepo;
   skillRuns: SkillRunRepo;
   runControls: RunControlRepo;
@@ -84,6 +86,7 @@ export function createRepos(db: PaDb): Repos {
     digests: new DigestRepo(db),
     minutes: new MinutesRepo(db),
     maintenance: new MaintenanceRepo(db),
+    health: new HealthRepo(db),
     skills: new SkillRepo(db),
     skillRuns: new SkillRunRepo(db),
     runControls: new RunControlRepo(db),
@@ -102,6 +105,7 @@ export * from './calendar.js';
 export * from './digest.js';
 export * from './inbox.js';
 export * from './maintenance.js';
+export * from './health.js';
 export * from './memo.js';
 export * from './notes.js';
 export * from './outbox.js';

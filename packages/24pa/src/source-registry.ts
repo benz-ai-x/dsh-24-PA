@@ -40,6 +40,8 @@ export interface SourceRegistryDeps {
   config(): LegacySourceConfiguration;
   /** A non-secret digest of the active adapter identity/config generation. */
   connectionHash(platform: SourcePlatform): string;
+  /** Observed identity changes invalidate cached successes without changing configuration. */
+  evidenceCurrent?(evidence: SourceEvidence): boolean;
   probe(source: SourceRegistration): Promise<SourceEvidence>;
   gate<T>(key: string, work: () => Promise<T>): Promise<T>;
 }
@@ -68,7 +70,8 @@ export class SourceRegistry {
   }
   private validEvidence(source: SourceRegistration, row: SourceRegistrationRow, proof: SourceEvidenceRow | null): boolean {
     return !!proof && !row.removed && proof.registration_revision === row.revision && proof.scope_hash === sourceScopeFingerprint(source)
-      && proof.connection_hash === this.deps.connectionHash(source.platform);
+      && proof.connection_hash === this.deps.connectionHash(source.platform)
+      && (proof.evidence.state !== 'verified' || this.deps.evidenceCurrent?.(proof.evidence) !== false);
   }
 
   async check(id: string): Promise<SourceEvidence> {

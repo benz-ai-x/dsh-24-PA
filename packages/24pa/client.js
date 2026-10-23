@@ -85,7 +85,7 @@ window.__ModuleLoader__.load({
       .pa24 *{box-sizing:border-box}.pa24 svg{flex-shrink:0;vertical-align:middle}.pa24 h1,.pa24 h2,.pa24 h3,.pa24 p{margin:0}.pa24 h1{font-size:21px;line-height:1.35;letter-spacing:-.4px;font-weight:700}.pa24 h2{font-size:17px;line-height:1.5;font-weight:650}.pa24 h3{font-size:15px;line-height:1.55;font-weight:650}.pa24 p+p{margin-top:6px}.pa24-wrap{max-width:1100px;margin:auto;min-width:0}
       .pa24-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.pa24-between{justify-content:space-between}.pa24-muted{color:var(--pa-muted)}.pa24-meta{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-ellip{display:inline-block;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}.pa24-note{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.85}
       .pa24 button,.pa24 .pa24-link-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 14px;border:1px solid var(--pa-line);border-radius:10px;color:var(--pa-ink);background:var(--pa-surface);font:inherit;font-size:13px;font-weight:550;cursor:pointer;transition:background .15s,border-color .15s;text-decoration:none}
-      .pa24 button:hover:not(:disabled){background:var(--pa-soft);border-color:var(--pa-muted)}.pa24 button:disabled{opacity:.45;cursor:not-allowed}.pa24 button.pa24-primary{background:var(--pa-blue);color:#fff;border-color:var(--pa-blue)}body[data-ds-dark-theme] .pa24 button.pa24-primary{color:#172c27}
+      .pa24 button:hover:not(:disabled){background:var(--pa-soft);border-color:var(--pa-muted)}.pa24 button:disabled{opacity:.45;cursor:not-allowed}.pa24 button.pa24-primary{background:var(--pa-blue);color:#fff;border-color:var(--pa-blue)}.pa24 button.pa24-primary:hover:not(:disabled){background:color-mix(in srgb,var(--pa-blue) 90%,#000);border-color:var(--pa-blue)}body[data-ds-dark-theme] .pa24 button.pa24-primary{color:#172c27}
       .pa24 button.pa24-quiet{background:transparent;border-color:transparent;color:var(--pa-muted)}.pa24 button.pa24-quiet:hover:not(:disabled){background:var(--pa-soft);color:var(--pa-ink);border-color:var(--pa-line)}
       .pa24 :is(button,input,textarea,select,summary,a,[tabindex]):focus-visible{outline:3px solid var(--pa-blue);outline-offset:3px}.pa24 input,.pa24 select{min-height:42px;width:100%;font:inherit;padding:10px 12px;border:1px solid var(--pa-line);border-radius:10px;background:var(--pa-surface);color:var(--pa-ink)}
       .pa24-icon-tile{width:40px;height:40px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tone-bg);color:var(--tone)}.pa24-tone-blue{--tone:var(--pa-blue);--tone-bg:var(--pa-blue-bg)}.pa24-tone-green{--tone:var(--pa-green);--tone-bg:var(--pa-green-bg)}.pa24-tone-violet{--tone:var(--pa-violet);--tone-bg:var(--pa-violet-bg)}.pa24-tone-amber{--tone:var(--pa-amber);--tone-bg:var(--pa-amber-bg)}.pa24-tone-danger{--tone:var(--pa-danger);--tone-bg:var(--pa-danger-bg)}.pa24-tone-neutral{--tone:var(--pa-muted);--tone-bg:var(--pa-soft)}.pa24-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;background:var(--tone-bg);color:var(--tone);font-size:11px;font-weight:600;line-height:1.7;white-space:nowrap}
@@ -134,6 +134,7 @@ window.__ModuleLoader__.load({
       .pa24-detail-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
       :is(.pa24-skills,.pa24-manager) label.pa24-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;max-width:100%;font-size:13px}:is(.pa24-skills,.pa24-manager) label.pa24-field:has(input[type=checkbox]){flex-direction:row;align-items:flex-start}:is(.pa24-skills,.pa24-manager) label.pa24-field input:not([type=checkbox]),:is(.pa24-skills,.pa24-manager) label.pa24-field textarea,:is(.pa24-skills,.pa24-manager) label.pa24-field select{width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--pa-line);border-radius:8px;background:var(--pa-soft);color:var(--pa-ink);font:inherit}:is(.pa24-skills,.pa24-manager) label.pa24-field textarea{resize:vertical}:is(.pa24-skills,.pa24-manager) label.pa24-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px;margin:2px 0;padding:0}:is(.pa24-skills,.pa24-manager) fieldset{min-width:0;border:1px solid var(--pa-line);border-radius:10px;padding:12px}:is(.pa24-skills,.pa24-manager) legend{font-size:12px;overflow-wrap:anywhere}
       .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
+      .pa24-health{min-width:0;overflow-wrap:anywhere}.pa24-health .pa24-example{display:block}.pa24-health .pa24-example .pa24-check{display:flex;margin:12px 0}.pa24-health .pa24-check input{flex:0 0 18px;width:18px;height:18px}.pa24-health select{max-width:100%}
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
       .pa24-source-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}.pa24-source-fields label{display:flex;flex-direction:column;gap:5px;min-width:0}.pa24-sources input,.pa24-sources select{max-width:100%;box-sizing:border-box}.pa24-sources .pa24-check input{width:18px;flex:0 0 18px}.pa24-source-save{position:sticky;bottom:72px;background:var(--pa-surface);border-top:1px solid var(--pa-line);padding:12px 0;margin-top:16px;z-index:2}.pa24-source-save p{margin:6px 0 0}.pa24-sources .pa24-job{overflow-wrap:anywhere}
       .pa24-form-actions{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-top:16px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);box-shadow:0 -4px 14px color-mix(in srgb,var(--pa-ink) 9%,transparent)}
@@ -425,6 +426,7 @@ window.__ModuleLoader__.load({
           const refreshAfter = fn => async () => { const r = await fn(); await helpers.refresh(); return r; };
           const wButton = (name, label, fn, props) => helpers.button(name, label, refreshAfter(fn), props);
           return h('div', null,
+            h(ConfigurationEvidence, { state: helpers.state }),
             h(WorkspaceCards, { snapshot: helpers.state, busy: helpers.busy, button: wButton, openRobot: helpers.openRobot, openConfig: () => helpers.openCard('config'), path, onPathChange: setPath }),
             h(HealthBlock, { data: helpers.extra.health }));
         }
@@ -500,6 +502,7 @@ window.__ModuleLoader__.load({
           const rows = [];
           for (const item of (state.readiness?.items || [])) rows.push(item.state);
           for (const cap of (extra.health?.capabilities || [])) rows.push(cap.state);
+          for (const proof of (extra.health?.connectionEvidence?.evidence || [])) rows.push(proof.state === 'fault' ? 'error' : proof.state === 'verified' ? 'ok' : ['unverified', 'stale', 'partial', 'unchecked'].includes(proof.state) ? 'warn' : 'info');
           if (state.transport) rows.push(state.transport.connected ? 'ok' : (state.workspace && state.workspace.config && state.workspace.config.mode === 'feishu' ? 'error' : 'warn'));
           if (!rows.length) return { tier: 'unchecked', ok: 0, warn: 0, error: 0 };
           const ok = rows.filter(x => x === 'ok').length, warn = rows.filter(x => x === 'warn').length, error = rows.filter(x => x === 'error').length;
@@ -509,8 +512,7 @@ window.__ModuleLoader__.load({
           const times = [state.diagnostics && state.diagnostics.checkedAt, state.wecom && state.wecom.checkedAt].filter(Boolean).map(x => new Date(x).getTime());
           return times.length ? new Date(Math.max(...times)) : null;
         };
-        const wecomChannelsOn = config => !!(config && ['calendarChannel', 'todoChannel', 'notifyChannel'].some(k => config[k] === 'wecom'));
-        const wecomTier = config => (wecomChannelsOn(config) ? 'ok' : 'unchecked');
+        const wecomChannelsOn = config => !!(config && (config.sources?.entries?.some(row => row.enabled && row.platform === 'wecom') || ['calendarChannel', 'todoChannel', 'notifyChannel'].some(k => config[k] === 'wecom')));
         const qwennoteConfigured = config => !!(config && (config.extraLocalTools || []).some(x => String(x).startsWith('mcp__qwennote__')));
         const extraToolCap = extra => (extra.health?.capabilities || []).find(c => c.id === 'extra-local-tools');
         // F34: 「需注意」档位统一口径——卡片描边、接入进度行与 tab 角标共用。
@@ -618,7 +620,84 @@ window.__ModuleLoader__.load({
         const resourceTierOf = row => (!row ? 'unchecked' : row.state === 'ok' ? 'ok' : ['error', 'mismatch'].includes(row.state) ? 'error' : row.state === 'missing' ? 'missing' : 'warn');
 
         // 二级详情：原 feishu tab 全量内容平移。
-        function FeishuDetail({ state, busy, button, openRobot }) {
+        function ConnectionEvidence({ state, platform, openRepair }) {
+          const binding = state.workspaceBinding;
+          const current = React.useRef(binding); current.current = binding;
+          const [data, setData] = React.useState(null), [error, setError] = React.useState(''), [busy, setBusy] = React.useState(false);
+          const [scope, setScope] = React.useState(platform || 'all'), [sources, setSources] = React.useState([]);
+          const [testAction, setTestAction] = React.useState(platform === 'wecom' ? 'wecom.push' : 'feishu.send');
+          const [sourceId, setSourceId] = React.useState(''), [preview, setPreview] = React.useState(null), [approved, setApproved] = React.useState(false);
+          const [cleanId, setCleanId] = React.useState(''), [identityApproved, setIdentityApproved] = React.useState(false), [feedback, setFeedback] = React.useState('');
+          const requestId = React.useRef(null);
+          const load = async () => {
+            const owner = binding;
+            const [health, catalog] = await Promise.all([rpc('health.snapshot', { workspaceBinding: owner }), rpc('sources', { workspaceBinding: owner })]);
+            if (current.current !== owner) return;
+            setData(health); setSources((catalog.entries || []).filter(row => !platform || row.platform === platform)); setError('');
+          };
+          React.useEffect(() => { let live = true; current.current = binding; setData(null); setSources([]); setPreview(null); setApproved(false); setCleanId(''); setFeedback('');
+            void load().catch(failure => { if (live && current.current === binding) setError(failure.message); });
+            return () => { live = false; current.current = null; };
+          }, [binding, platform, state.workspace?.configVersion, state.diagnostics?.checkedAt, state.wecom?.checkedAt]);
+          React.useEffect(() => { setPreview(null); setApproved(false); requestId.current = null; }, [testAction, sourceId]);
+          React.useEffect(() => { setApproved(false); setIdentityApproved(false); }, [state.workspace?.configVersion, data?.identity?.observed?.ownerId, data?.identity?.observed?.authority]);
+          const run = async work => { const owner = binding; setBusy(true); setFeedback(''); setError('');
+            try { const message = await work(); if (current.current === owner) { setFeedback(message || L('操作已记录。', 'Action recorded.')); await load(); } }
+            catch (failure) { if (current.current === owner) setError(failure.message); }
+            finally { if (current.current === owner) setBusy(false); }
+          };
+          const names = { verified: '已核验', partial: '部分可用', unverified: '未验证', unchecked: '未检查', disabled: '未启用', no_activity: '无活动', fault: '故障', stale: '证据已过期' };
+          const scopeNames = { workspace: '工作区与账本', feishu: '飞书', wecom: '企业微信', sources: '日历与待办来源', materials: '审核与听记', memory: '结构化记忆', skills: 'Skill 管理', plans: '定时任务', models: '模型路由', voice: '语音', backup: '备份与恢复' };
+          const rows = (data?.evidence || []).filter(row => !platform || row.scope === platform || row.scope.startsWith(platform + '.') || row.scope.startsWith('source:') && sources.some(source => 'source:' + source.id === row.scope));
+          const tests = (data?.tests || []).filter(row => !platform || row.plan.platform === platform);
+          const identityLabel = identity => identity ? `${identity.ownerId} · ${identity.authority}` : L('尚未核验', 'Not verified');
+          const targetLabel = target => typeof target === 'string' ? target : `${target.platform} · ${target.sourceId} · ${target.resource?.id} · ${target.identity?.ownerId} · ${target.identity?.authority}`;
+          const testTargetLabel = plan => targetLabel(plan.target) + (plan.identity ? ` · ${plan.identity.authority}` : '');
+          return h('section', { className: 'pa24-card pa24-health' },
+            sectionHead('shield', L('检查证据与明确测试', 'Evidence and explicit tests'), L('刷新只读已保存证据。主动检查不发消息、不创建对象、不读听记正文、不启动模型。', 'Refresh reads saved evidence; checks create no objects, send no messages, read no minutes, and invoke no model.'),
+              h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void run(async () => { await load(); return L('已读取保存证据。', 'Saved evidence read.'); }) }, icon('refresh'), L('刷新证据', 'Refresh evidence'))),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error, ' ', h('button', { type: 'button', disabled: busy, onClick: () => void run(load) }, L('重试读取', 'Retry read'))),
+            feedback && h('p', { role: 'status', className: 'pa24-helper' }, feedback),
+            !data && !error && h('p', { role: 'status' }, L('正在读取检查证据…', 'Reading evidence…')),
+            h('div', { className: 'pa24-row' }, h('label', null, L('检查范围 ', 'Check scope '), h('select', { value: scope, onChange: event => setScope(event.target.value), disabled: busy },
+              h('option', { value: 'all' }, L('全部模块', 'All modules')), Object.entries(scopeNames).map(([value, label]) => h('option', { key: value, value }, label)))),
+              h('button', { type: 'button', disabled: busy, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.check', workspaceBinding: binding, ...(scope === 'all' ? {} : { scopes: [scope] }) }); return L('只读检查已完成，实际覆盖 ', 'Read-only check completed; covered ') + result.evidence.length + L(' 项证据。', ' evidence items.'); }) }, busy ? L('处理中…', 'Working…') : L('执行只读检查', 'Run read-only check'))),
+            data && h('p', { className: 'pa24-meta' }, L('当前配置版本：', 'Current config version: ') + data.configVersion?.slice(0, 16) + ' · ' + L('读取时间：', 'Read at: ') + date(data.readAt, tzOf(state))),
+            rows.map(row => h('div', { className: 'pa24-resource', key: row.scope }, h('div', { className: 'pa24-row pa24-between' }, h('strong', null, scopeNames[row.scope] || row.scope), badge(names[row.state] || row.state, row.state === 'verified' ? 'green' : row.state === 'fault' ? 'danger' : 'neutral')),
+              h('p', null, row.message), h('p', { className: 'pa24-meta' }, row.coverage), h('p', { className: 'pa24-meta' }, L('检查时间 ', 'Checked ') + date(row.checkedAt, tzOf(state)) + ' · ' + L('证据配置 ', 'Evidence config ') + row.configVersion?.slice(0, 16)),
+              h('details', null, h('summary', null, L('影响与修复', 'Impact and repair')), h('p', null, row.impact), row.nextSteps.map((step, index) => h('p', { key: index }, step)), h('p', { className: 'pa24-meta' }, L('参数修改请到「参数配置」；修复后重新检查本项。', 'Edit Parameters, then recheck this scope.')), openRepair && h('button', { type: 'button', onClick: () => openRepair(row) }, L('定位修复配置', 'Open relevant configuration'))))),
+            data?.monitor && (!platform || platform === 'wecom') && h('details', null, h('summary', null, L('企业微信自动巡检', 'WeCom monitoring')), fields([
+              [L('最近巡检', 'Last check'), date(data.monitor.checkedAt, tzOf(state))], [L('巡检频率', 'Cadence'), L('每 6 小时，只读', 'Every 6 hours, read-only')],
+              [L('最近通知日', 'Last notification day'), data.monitor.notifiedDay || L('尚未通知', 'None')], [L('静默至', 'Silent until'), data.monitor.silentUntil ? date(data.monitor.silentUntil, tzOf(state)) : '—'],
+              [L('通知错误', 'Notification error'), data.monitor.notificationError || '—'], [L('通知渠道', 'Notification channel'), data.monitor.notificationChannel || '—'],
+              [L('通知投递状态', 'Notification delivery'), data.monitor.delivery?.status || '—'], [L('投递失败原因', 'Delivery error'), data.monitor.delivery?.last_error || '—'],
+            ]), h('p', { className: 'pa24-meta' }, L('每天最多一条；问题持久去重。通知失败留在原渠道，不改投；恢复不清除主人暂停或其他阻断。', 'At most one notification per day; persistent deduplication, no channel fallback, no clearing unrelated blocks.'))),
+            data?.identity?.changed && (!platform || platform === 'wecom') && h('div', { className: 'pa24-error' }, h('strong', null, L('企微绑定发生变化', 'WeCom binding changed')),
+              h('p', null, L('原身份：', 'Previous: ') + identityLabel(data.identity.accepted)), h('p', null, L('当前检测：', 'Observed: ') + identityLabel(data.identity.observed)),
+              h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: identityApproved, onChange: event => setIdentityApproved(event.target.checked) }), L('我已核对原交办、待发和待审，确认使用以上新身份。', 'I have checked original work, pending deliveries, and reviews and confirm this identity.')),
+              h('button', { type: 'button', disabled: busy || !identityApproved, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.identity-accept', workspaceBinding: binding, configVersion: data.configVersion, identity: data.identity.observed, confirm: true }); setIdentityApproved(false); return result.message; }) }, L('确认新绑定', 'Confirm new binding'))),
+            h('details', null, h('summary', null, L('明确触发真实测试', 'Explicit real test')),
+              h('p', { className: 'pa24-meta' }, L('以下动作会在原平台留下真实对象或消息，先预览目标再确认。', 'These actions leave real objects or messages. Preview the target before confirming.')),
+              h('label', null, L('测试动作 ', 'Action '), h('select', { value: testAction, onChange: event => setTestAction(event.target.value), disabled: busy },
+                (!platform || platform === 'feishu') && h('option', { value: 'feishu.send' }, L('发送飞书测试消息', 'Feishu test message')), (!platform || platform === 'wecom') && h('option', { value: 'wecom.push' }, L('发送企微测试消息', 'WeCom test message')), h('option', { value: 'source.create' }, L('创建来源测试对象', 'Create source test object')))),
+              testAction === 'source.create' && h('label', null, L('登记来源 ', 'Registered source '), h('select', { value: sourceId, onChange: event => setSourceId(event.target.value), disabled: busy }, h('option', { value: '' }, L('请选择明确来源', 'Choose a source')), sources.filter(source => source.enabled && source.access === 'readwrite').map(source => h('option', { key: source.id, value: source.id }, `${source.name} · ${source.domain} · ${source.platform}`)))),
+              h('button', { type: 'button', disabled: busy || testAction === 'source.create' && !sourceId, onClick: () => void run(async () => { const next = await rpc('health.test.preview', { workspaceBinding: binding, action: testAction, sourceId }); if (current.current === binding) { setPreview(next); setApproved(false); requestId.current = globalThis.crypto.randomUUID(); } return L('已生成测试预览，尚未执行。', 'Preview ready; no test executed.'); }) }, L('预览测试目标', 'Preview test target')),
+              preview && h('div', { className: 'pa24-example' }, fields([[L('目标', 'Target'), testTargetLabel(preview.plan)], [L('动作', 'Action'), preview.plan.description], [L('费用', 'Cost'), preview.plan.cost], [L('残留与清理', 'Residue and cleanup'), preview.plan.residue]]),
+                h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: approved, onChange: event => setApproved(event.target.checked) }), L('确认对以上目标执行这一次测试', 'Confirm one test against this target')),
+                h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !approved, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.test', workspaceBinding: binding, requestId: requestId.current, ...preview, confirm: true }); setApproved(false); return `${L('测试状态：', 'Test status: ')}${result.status} · ${result.result?.message || result.message || ''}`; }) }, L('执行已确认测试', 'Execute confirmed test')))),
+            tests.length > 0 && h('details', null, h('summary', null, L('测试记录、结果与清理', 'Test results and cleanup')), h('p', { className: 'pa24-meta' }, data.testCoverage), tests.map(test => h('div', { key: test.id, className: 'pa24-resource' }, h('strong', null, test.plan.parameters?.title || test.id),
+              h('p', null, `${test.plan.action} · ${test.status} · ${testTargetLabel(test.plan)}`), h('p', null, test.result?.message || L('尚无确认回执；请先核对原目标。', 'No confirmed receipt; reconcile the original target first.')),
+              test.result?.nativeId && h('p', { className: 'pa24-meta' }, L('原生对象：', 'Native object: ') + test.result.nativeId),
+              test.result?.deliveryId && h('p', { className: 'pa24-meta' }, L('投递标识：', 'Delivery ID: ') + test.result.deliveryId + ' · ' + L('原生消息：', 'Native message: ') + (test.result.nativeMessageId || L('平台未返回', 'Not returned'))),
+              h('p', { className: 'pa24-meta' }, test.cleanup?.message || test.result?.residue || test.plan.residue),
+              test.status === 'succeeded' && test.plan.action === 'source.create' && !test.cleanup && h('div', null,
+                h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: cleanId === test.id, onChange: event => setCleanId(event.target.checked ? test.id : '') }), L('确认清理此测试对象', 'Confirm cleanup of this test object')),
+                h('button', { type: 'button', disabled: busy || cleanId !== test.id, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.test.cleanup', workspaceBinding: binding, testId: test.id, confirm: true }); setCleanId(''); return result.cleanup?.message; }) }, L('清理测试对象', 'Clean up test object')))))),
+            data?.traffic && h('details', null, h('summary', null, L('完整收发集合统计', 'Complete traffic totals')), h('p', { className: 'pa24-meta' }, data.traffic.coverage),
+              fields((data.traffic.channels || []).map(row => [`${row.channel} · ${row.status}`, `${row.count} ${L('条', 'rows')}`])), fields((data.traffic.inbox || []).map(row => [`${row.source} · ${row.kind} · ${row.status}`, `${row.count} ${L('条', 'rows')}`]))));
+        }
+
+        function FeishuDetail({ state, busy, button, openRobot, openRepair }) {
           const workspace = state.workspace, config = workspace ? workspace.config : null, tz = tzOf(state);
           const check = state.diagnostics;
           const cli = check ? check.cli : null;
@@ -638,10 +717,11 @@ window.__ModuleLoader__.load({
               resource ? h('p', null, resource.message) : null);
           });
           return h('div', { className: 'pa24-grid' },
+            h(ConnectionEvidence, { state, platform: 'feishu', openRepair }),
             h('section', { className: 'pa24-card' },
               sectionHead('plug', L('飞书接入', 'Feishu access'), L('用自然语言配置，在这里查阅接入情况。', 'Configure in natural language; review the access state here.'),
                 h('div', { className: 'pa24-row' },
-                  button('refresh', busy ? L('检查中…', 'Checking…') : L('检查接入状态', 'Check access'), () => rpc('action', { type: 'connection.check' })),
+                  button('refresh', busy ? L('检查中…', 'Checking…') : L('检查接入状态', 'Check access'), () => rpc('action', { type: 'health.check', scopes: ['feishu'], workspaceBinding: state.workspaceBinding })),
                   button('chat', L('通过对话配置', 'Configure in chat'), openRobot)), 'blue'),
               fields([
                 [L('固定 CLI profile', 'Feishu CLI profile'), badge(config ? config.larkProfile : L('未配置', 'Not configured'), 'neutral')],
@@ -687,7 +767,7 @@ window.__ModuleLoader__.load({
           return h('div', null,
             sectionHead('folder', L('飞书知识库', 'Feishu wiki'), L('备忘与手写待审文档的落库节点；未配置时回退文档目录。', 'Where memos and pending review docs land; falls back to the docs folder when unset.'),
               h('div', { className: 'pa24-row' },
-                button('refresh', L('检查接入状态', 'Check access'), () => rpc('action', { type: 'connection.check' })),
+                button('refresh', L('检查接入状态', 'Check access'), () => rpc('action', { type: 'health.check', scopes: ['feishu'], workspaceBinding: state.workspaceBinding })),
                 button('chat', L('通过对话配置', 'Configure in chat'), openRobot, { className: 'pa24-quiet' })), 'blue'),
             h('section', { className: 'pa24-card' },
               fields([
@@ -1899,10 +1979,12 @@ window.__ModuleLoader__.load({
             id: 'wecom', cat: 'setup', tone: 'amber', icon: 'bot', title: ['企业微信', 'WeCom'], sub: ['日程/待办第二渠道 · 单向推送', 'Second channel for calendar/todo · one-way push'], action: ['接入详情', 'Access details'],
             tier: ({ state }) => {
               const config = state.workspace ? state.workspace.config : null;
-              if (!wecomTier(config) || !state.wecom) return 'unchecked';
+              if (!wecomChannelsOn(config) || !state.wecom) return 'unchecked';
+              if (state.wecom.cli?.state !== 'ok' || state.wecom.identity?.state !== 'ok') return 'error';
               const states = (state.wecom.services || []).map(s => s.state);
               if (states.includes('error') || states.includes('unavailable')) return 'error';
               if (states.some(s => ['unauthorized', 'expired'].includes(s))) return 'warn';
+              if (states.some(s => s === 'unverified')) return 'unchecked';
               return 'ok';
             },
             label: ({ state }) => {
@@ -2015,6 +2097,7 @@ window.__ModuleLoader__.load({
           const last = lastActiveCheck(state);
           const nextSteps = [...new Set([...(state.diagnostics?.nextSteps ?? []), ...(state.wecom?.nextSteps ?? [])])];
           return h('div', null,
+            h(ConnectionEvidence, { state, openRepair: helpers.openRepair }),
             sectionHead('shield', null, L('聚合运行就绪、能力健康与消息通道的总体结论；一键全量检查会对飞书（及启用的企微渠道）发起只读平台探测。', 'An aggregated verdict over readiness, capability health, and messaging; the one-click full check runs read-only probes against Feishu (and any enabled WeCom channel).'),
               h('div', { className: 'pa24-row' }, helpers.button('refresh', helpers.busy ? L('检查中…', 'Checking…') : L('一键全量检查', 'Run full check'), () => helpers.run(helpers.runFullCheck), { disabled: helpers.busy, className: 'pa24-primary' })), 'blue'),
             h('section', { className: 'pa24-card' },
@@ -2080,7 +2163,7 @@ window.__ModuleLoader__.load({
             await load(true); await helpers.refresh().catch(() => {});
             if (binding === currentBinding.current) setFeedback({ ok: true, message: L('来源已保存并重载；新登记或变更的范围需要只读检查。', 'Sources saved and reloaded; check new or changed scopes.') });
           });
-          return h('section', { id: 'pa24-sources', className: 'pa24-card pa24-sources' },
+          return h('section', { id: 'pa24-sources', tabIndex: -1, className: 'pa24-card pa24-sources' },
             sectionHead('calendar', L('日历与待办来源', 'Calendar & todo sources'), L('登记需要查询和使用的资源。默认来源仅用于创建；查询覆盖全部启用来源。', 'Register the resources you use. Defaults select creation targets; queries cover all enabled sources.')),
             h('p', { className: 'pa24-helper' }, L('日历和待办均按已登记来源查询与办理。创建时使用明确指定或唯一匹配的来源；修改、完成和取消沿原对象办理。', 'Calendars and todos use registered sources. Creation uses the explicitly selected or uniquely matched source; changes, completion and cancellation retain the original object.')),
             failure && h('div', { role: 'alert', className: 'pa24-error' }, failure, h('button', { type: 'button', onClick: () => load(!draft) }, L('重试读取', 'Retry'))),
@@ -2133,6 +2216,22 @@ window.__ModuleLoader__.load({
                 dirty && h('p', { className: 'pa24-meta' }, L('来源修改通过此按钮单独保存。', 'Save source changes with this button.')))));
         }
 
+        function ConfigurationEvidence({ state }) {
+          const binding = state.workspaceBinding, [view, setView] = React.useState({ data: null, error: '' }), [tick, setTick] = React.useState(0);
+          React.useEffect(() => { let live = true; setView({ data: null, error: '' });
+            void rpc('workspace.evidence', { workspaceBinding: binding }).then(data => { if (live) setView({ data, error: '' }); }).catch(error => { if (live) setView({ data: null, error: error.message }); });
+            return () => { live = false; };
+          }, [binding, state.workspace?.sourceHash, tick]);
+          return h('section', { className: 'pa24-card' }, sectionHead('folder', L('配置来源与生效', 'Saved and active configuration'), L('源文件保存成功和运行时生效分别核验。', 'Saved source and active runtime are verified separately.'),
+            h('button', { type: 'button', className: 'pa24-quiet', onClick: () => setTick(value => value + 1) }, icon('refresh'), L('读取配置状态', 'Read configuration status'))),
+            view.error && h('p', { className: 'pa24-error', role: 'alert' }, view.error), !view.data && !view.error && h('p', { role: 'status' }, L('正在读取配置来源…', 'Reading configuration source…')),
+            view.data && h('div', null, fields([
+              [L('当前状态', 'State'), { applied: L('已保存并生效', 'Saved and active'), saved_not_applied: L('源文件已有更新，尚未生效', 'Saved changes are not active'), source_error: L('源文件读取失败，旧配置仍生效', 'Source read failed; prior config remains active') }[view.data.state]],
+              [L('源文件版本', 'Saved version'), view.data.savedHash?.slice(0, 16) || L('无法读取', 'Unavailable')], [L('生效版本', 'Active version'), view.data.activeHash?.slice(0, 16)],
+              [L('生效时间', 'Loaded at'), date(view.data.loadedAt, tzOf(state))], [L('进行中交办', 'Active work'), view.data.impacts?.work], [L('待发或未知投递', 'Pending or unknown deliveries'), view.data.impacts?.outbox], [L('待审版本', 'Pending reviews'), view.data.impacts?.reviews], [L('保留的定时任务', 'Retained plans'), view.data.impacts?.plans],
+            ]), view.data.error && h('p', { role: 'alert', className: 'pa24-error' }, view.data.error), h('p', { className: 'pa24-meta' }, view.data.message)));
+        }
+
         function ConfigFormDetail({ helpers }) {
           const { config, state } = helpers;
           // arch-4: the voice list rides the snapshot's configMeta (single
@@ -2168,7 +2267,16 @@ window.__ModuleLoader__.load({
           // Compare with its stable editing baseline, never a newer snapshot.
           const [baseline, setBaseline] = React.useState(makeForm);
           const sourceConfig = React.useRef(config);
+          const configHash = React.useRef(state.workspace?.sourceHash);
+          const liveBinding = React.useRef(state.workspaceBinding); liveBinding.current = state.workspaceBinding;
+          React.useEffect(() => () => { liveBinding.current = null; }, []);
           const [saveState, setSaveState] = React.useState(null);
+          React.useEffect(() => {
+            const field = helpers.repairContext?.field;
+            if (!field) return;
+            const node = field === 'sources' ? document.getElementById('pa24-sources') : [...document.querySelectorAll('label')].find(label => label.textContent.includes(`（${field}）`))?.control;
+            node?.scrollIntoView?.({ block: 'center' }); node?.focus?.();
+          }, [helpers.repairContext]);
           const [busy, setBusy] = React.useState(false);
           const configDirty = JSON.stringify(form) !== JSON.stringify(baseline);
           const set = (key, value) => { setForm(f => ({ ...f, [key]: value })); setSaveState(null); };
@@ -2225,6 +2333,7 @@ window.__ModuleLoader__.load({
             setForm(canonical); setBaseline(canonical);
           };
           const save = async () => {
+            const ownerBinding = state.workspaceBinding;
             setBusy(true);
             try {
               const normalized = normalize(form), original = normalize(baseline);
@@ -2245,12 +2354,14 @@ window.__ModuleLoader__.load({
                 if (Object.keys(routes).length) patch.workerModels = routes;
                 else delete patch.workerModels;
               }
-              const saved = Object.keys(patch).length ? await rpc('action', { type: 'workspace.config-update', config: patch, workspaceBinding: state.workspaceBinding }) : state;
+              const saved = Object.keys(patch).length ? await rpc('action', { type: 'workspace.config-update', config: patch, workspaceBinding: ownerBinding, expectedConfigHash: configHash.current }) : state;
+              if (liveBinding.current !== ownerBinding) return;
+              configHash.current = saved.workspace.sourceHash;
               adoptSaved(saved.workspace.config);
               await helpers.refresh().catch(() => {});
               setSaveState({ ok: true, message: L('已保存并重载生效。', 'Saved and reloaded.') });
-            } catch (e) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
-            finally { setBusy(false); }
+            } catch (e) { if (liveBinding.current === ownerBinding) setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
+            finally { if (liveBinding.current === ownerBinding) setBusy(false); }
           };
           // F36: 密钥组——只写不回显；非空＝写入密钥库，勾选清除＝清空该位，
           // 其余不动。走独立 action（workspace.secret-update），与 AGENTS.md 解耦。
@@ -2276,12 +2387,14 @@ window.__ModuleLoader__.load({
             return () => helpers.setFormDirty(false);
           }, [dirty]);
           const reset = () => {
+            configHash.current = state.workspace?.sourceHash;
             adoptSaved(config);
             setSecretDraft({});
             setSecretClears({});
             setSaveState(null);
           };
           const saveSecrets = async () => {
+            const ownerBinding = state.workspaceBinding;
             const values = {};
             let changed = false;
             for (const [key] of SECRET_FIELDS) {
@@ -2292,12 +2405,13 @@ window.__ModuleLoader__.load({
             if (!changed) { setSaveState({ ok: true, message: L('密钥无改动。', 'No secret changes.') }); return; }
             setBusy(true);
             try {
-              await rpc('action', { type: 'workspace.secret-update', values, workspaceBinding: state.workspaceBinding });
+              await rpc('action', { type: 'workspace.secret-update', values, workspaceBinding: ownerBinding });
+              if (liveBinding.current !== ownerBinding) return;
               setSecretDraft({}); setSecretClears({});
               await helpers.refresh().catch(() => {});
-              setSaveState({ ok: true, message: L('密钥已保存到工作区密钥库。', 'Secrets saved to the workspace store.') });
-            } catch (e) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
-            finally { setBusy(false); }
+              if (liveBinding.current === ownerBinding) setSaveState({ ok: true, message: L('密钥已保存到工作区密钥库。', 'Secrets saved to the workspace store.') });
+            } catch (e) { if (liveBinding.current === ownerBinding) setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
+            finally { if (liveBinding.current === ownerBinding) setBusy(false); }
           };
           const tryVoice = async () => {
             setBusy(true);
@@ -2310,6 +2424,15 @@ window.__ModuleLoader__.load({
           // 表单顶部，用户在表单中下部点保存时错误在视口外不可见（走查 S6）。
           return h('fieldset', { disabled: busy, style: { border: 0, padding: 0, margin: 0, minWidth: 0 } },
             sectionHead('code', null, L('保存＝校验→写回 AGENTS.md 配置块→重载生效；工作规则不受影响，校验失败保留原文。', 'Save = validate → rewrite the AGENTS.md config block → reload; prose rules untouched, file kept on validation failure.'), null, 'blue'),
+            helpers.repairContext && h('section', { className: 'pa24-card', 'aria-label': L('修复上下文', 'Repair context') },
+              h('h2', null, L('本次修复依据', 'Repair evidence')), h('p', null, helpers.repairContext.message),
+              h('p', { className: 'pa24-meta' }, L('定位字段：', 'Field: ') + helpers.repairContext.field + ' · ' + L('诊断配置：', 'Diagnostic config: ') + helpers.repairContext.configVersion?.slice(0, 16)),
+              h('p', null, helpers.repairContext.impact), helpers.repairContext.nextSteps.map((step, index) => h('p', { key: index }, step)),
+              h('button', { type: 'button', disabled: busy, onClick: () => void helpers.run(async () => {
+                const scope = helpers.repairContext.scope.startsWith('source:') ? 'sources' : helpers.repairContext.scope.split('.')[0];
+                await rpc('action', { type: 'health.check', workspaceBinding: state.workspaceBinding, scopes: [scope] }); await helpers.refresh(); helpers.openCard('healthcheck');
+              }) }, L('修复后只读重验', 'Recheck after repair'))),
+            h(ConfigurationEvidence, { state }),
             h(SourceSettings, { key: state.workspaceBinding, helpers }),
             h('section', { className: 'pa24-card' },
               h('h2', null, L('模式与身份', 'Mode & identity')),
@@ -2435,6 +2558,7 @@ window.__ModuleLoader__.load({
           React.useSyncExternalStore(cb => ctx.locale.subscribe(cb), () => ctx.locale.getSnapshot());
           const [manage, setManage] = React.useState(false), [hidden, setHidden] = React.useState(readHiddenPrefs());
           const [extraTick, setExtraTick] = React.useState(0);
+          const [repairContext, setRepairContext] = React.useState(null);
           const [refreshing, setRefreshing] = React.useState(false), [lastRefreshAt, setLastRefreshAt] = React.useState(null);
           // F34: 管理态 Esc 可退（与「完成」等效）；隐藏动作给一条轻反馈，
           // 说明去哪恢复——不留悬念也不打断（无确认弹窗）。
@@ -2499,6 +2623,11 @@ window.__ModuleLoader__.load({
             setTab(card.cat); setDetail(id); main.current?.scrollTo({ top: 0 });
             if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: 'start' }), 0);
           };
+          const openRepair = row => {
+            const fields = { 'feishu.application': 'feishuAppId', 'feishu.resource:folder': 'folderToken', 'feishu.resource:wiki': 'wikiNodeToken', 'feishu.resource:tasklist': 'tasklistId', 'feishu.resource:calendar': 'calendarId', 'wecom.push': 'notifyChannel', 'wecom.push-authorization': 'notifyChannel', voice: 'tts.engine', models: 'workerModels', materials: 'extraLocalTools' };
+            const field = row.scope.startsWith('source:') || row.scope === 'sources' || row.scope.startsWith('wecom.') && !row.scope.startsWith('wecom.push') ? 'sources' : fields[row.scope] || (row.scope.startsWith('feishu') ? 'larkProfile' : 'mode');
+            setRepairContext({ ...row, field, binding: state.workspaceBinding }); openCard('config');
+          };
           const toggleManage = () => {
             if (!canLeave()) return;
             formDirty.current = false;
@@ -2526,15 +2655,14 @@ window.__ModuleLoader__.load({
           // 一键全量检查（用户裁决：含主动平台探测）：飞书 → 启用中的企微 →
           // 刷新快照与补充数据；单步失败不中断（健康报告会呈现失败项）。
           const runFullCheck = async () => {
-            await rpc('action', { type: 'connection.check' }).catch(() => {});
-            if (wecomChannelsOn(config)) await rpc('action', { type: 'connection.wecom-check' }).catch(() => {});
+            await rpc('action', { type: 'health.check', workspaceBinding: state.workspaceBinding });
             await refresh();
           };
           const openRuns = filters => {
             planRowState(planStates.current, 'run-history:' + state.workspaceBinding, {}).update({ filters: { kind: 'runs', range: '7', includeUnresolved: true, ...filters }, offset: 0, selectedRun: null, workId: null }); openCard('activity');
           };
           const openPlan = id => { planRowState(planStates.current, 'task-manager:' + state.workspaceBinding, {}).update({ selected: id, form: null, preview: null }); openCard('digest'); };
-          const helpers = { state, extra, workspace, config, tz, planStates: planStates.current, busy, button, run, runFullCheck, refresh, openCard, openRuns, openPlan, setFormDirty: value => { formDirty.current = value; }, openRobot: chatWithRobot };
+          const helpers = { state, extra, workspace, config, tz, planStates: planStates.current, busy, button, run, runFullCheck, refresh, openCard, openRuns, openPlan, openRepair, repairContext: repairContext?.binding === state.workspaceBinding ? repairContext : null, setFormDirty: value => { formDirty.current = value; }, openRobot: chatWithRobot };
           // F26: tab 角标＝分类内「需注意/需处理」卡片数；出现 error 时角标转红，
           // 仅 warn 时保持琥珀（口径为实施默认，后续可裁决调整）。
           const chipOf = cat => {
@@ -2578,19 +2706,20 @@ window.__ModuleLoader__.load({
 
         // F20: 企微接入面板模块——对标飞书接入：渠道配置、CLI 与身份、
         // 服务级授权（含平台 helpMessage 原文）与 nextSteps 导航。
-        function WecomView({ state, busy, button, openRobot }) {
+        function WecomView({ state, busy, button, openRobot, openRepair }) {
           const wecom = state.wecom;
           const workspace = state.workspace, config = workspace ? workspace.config : null, tz = tzOf(state);
           const channelBadge = value => value === 'wecom' ? badge(L('企微', 'WeCom'), 'neutral', 'bot') : badge(L('飞书', 'Feishu'), 'neutral', 'plug');
           const serviceMeta = { calendar: L('日程', 'Calendar'), todo: L('待办', 'Todo'), push: L('推送', 'Push') };
           const serviceBadge = s => statusBadge(
             { ok: 'ok', unauthorized: 'missing', expired: 'warn', unavailable: 'error', error: 'error', skipped: 'unchecked' }[s.state] || 'unchecked',
-            { unauthorized: L('未授权', 'Unauthorized'), expired: L('已过期', 'Expired'), unavailable: L('企业不可用', 'Enterprise unavailable'), error: L('异常', 'Error'), skipped: L('未启用', 'Not enabled') }[s.state]);
+            { unauthorized: L('未授权', 'Unauthorized'), expired: L('已过期', 'Expired'), unavailable: L('企业不可用', 'Enterprise unavailable'), error: L('异常', 'Error'), skipped: L('未启用', 'Not enabled'), unverified: L('未验证', 'Unverified') }[s.state]);
           return h('div', { className: 'pa24-grid' },
+            h(ConnectionEvidence, { state, platform: 'wecom', openRepair }),
             h('section', { className: 'pa24-card' },
                 sectionHead('bot', L('企微接入', 'WeCom access'), L('日程/待办第二操作渠道与提醒单向推送（不做收信，飞书保持唯一交互入口）。', 'A second operation channel for calendar/todo plus one-way reminder push (no inbound; Feishu stays the only interaction entry).'),
                   h('div', { className: 'pa24-row' },
-                    button('refresh', busy ? L('检查中…', 'Checking…') : L('检查企微接入', 'Check WeCom access'), () => rpc('action', { type: 'connection.wecom-check' })),
+                    button('refresh', busy ? L('检查中…', 'Checking…') : L('检查企微接入', 'Check WeCom access'), () => rpc('action', { type: 'health.check', scopes: ['wecom'], workspaceBinding: state.workspaceBinding })),
                     button('chat', L('通过对话配置', 'Configure in chat'), openRobot)), 'blue'),
               fields([
                 [L('日程渠道', 'Calendar channel'), channelBadge(config ? config.calendarChannel : 'feishu')],
@@ -2600,7 +2729,7 @@ window.__ModuleLoader__.load({
               ]),
               h('div', { className: 'pa24-helper' }, L('可以说：“检查企微接入，告诉我还缺什么。” 检查只读，不发送消息、不建企微对象；完整接入步骤让24私助给出指南（说“给我企微接入指南”）。', 'Try: “Check WeCom access and tell me what is missing.” Checks are read-only — no messages sent, no WeCom objects created; for the full walkthrough ask 24PA for the guide.'))),
             wecom && h('section', { className: 'pa24-card' },
-              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与身份', 'CLI & identity')), statusBadge(wecom.cli.state === 'ok' ? 'ok' : 'error', wecom.cli.state === 'ok' ? undefined : L('CLI 不可用', 'CLI unavailable'))),
+              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与身份', 'CLI & identity')), statusBadge(wecom.cli.state !== 'ok' || wecom.identity.state === 'error' ? 'error' : wecom.identity.state === 'ok' ? 'ok' : 'warn', wecom.cli.state !== 'ok' ? L('CLI 不可用', 'CLI unavailable') : wecom.identity.state === 'ok' ? undefined : L('身份待核验', 'Identity needs verification'))),
               fields([
                 [L('CLI 状态', 'CLI status'), wecom.cli.message],
                 [L('机器人绑定与授权真人', 'Bot binding & authorized user'), wecom.identity.message],

@@ -1,4 +1,5 @@
 import type { OutboxRepo, OutboxRow, MessageRouteRepo } from './repo.js';
+import { redactDiagnostic } from './diagnostic-redaction.js';
 
 export interface DeliveryAdapter {
   available(): boolean;
@@ -12,7 +13,7 @@ export class DeliveryHeld extends Error {
 }
 export async function checkDeliveryHold(check?: () => Promise<DeliveryHold | null>): Promise<DeliveryHold | null> {
   try { return await check?.() ?? null; }
-  catch (error) { return { status: 'pending', error: `投递前核验未完成：${(error as Error).message}`, retryInMs: 60000 }; }
+  catch (error) { return { status: 'pending', error: `投递前核验未完成：${redactDiagnostic((error as Error).message)}`, retryInMs: 60000 }; }
 }
 
 /** Owns durable delivery through platform confirmation and local reply routing.
@@ -24,10 +25,12 @@ export class OutboxDelivery {
     repo(): OutboxRepo;
     routes(): MessageRouteRepo;
     adapters: Partial<Record<OutboxRow['channel'], DeliveryAdapter>>;
-    sent(): void;
+    sent(row: OutboxRow, messageId: string): void | Promise<void>;
+    sanitizeError?(error: unknown): string;
     beforeSend?(row: OutboxRow): Promise<DeliveryHold | null>;
     updated?(row: OutboxRow): Promise<void>;
   }) {}
+  private error(error: unknown): string { return this.deps.sanitizeError?.(error) ?? redactDiagnostic(String((error as Error)?.message ?? error)); }
 
   recover(): Promise<void> { return this.deps.repo().recoverInterrupted(); }
 
@@ -52,7 +55,7 @@ export class OutboxDelivery {
         try { await this.deliverRow(repo, row); }
         finally {
           try { await this.deps.updated?.(row); }
-          catch (error) { console.warn(`[pa24] 投递回执汇总待补记：${(error as Error).message}`); }
+          catch (error) { console.warn(`[pa24] 投递回执汇总待补记：${this.error(error)}`); }
         }
       }
     }
@@ -77,25 +80,26 @@ export class OutboxDelivery {
       } catch (error) {
         if (error instanceof DeliveryHeld) { await repo.mark(row.id, { ...error.hold, releaseAttempt: true }); return; }
         const unknown = (error as { outcome?: string })?.outcome !== 'failed';
-        await repo.mark(row.id, { status: unknown ? 'unknown' : row.attempts >= 3 ? 'failed' : 'pending', error: (error as Error).message, ...(!unknown && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
+        await repo.mark(row.id, { status: unknown ? 'unknown' : row.attempts >= 3 ? 'failed' : 'pending', error: this.error(error), ...(!unknown && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
         return;
       }
       try {
         // Keep sending until routing is durable. Crash recovery sees this
         // receipt and repairs the local step without invoking the adapter.
         await repo.mark(row.id, { status: 'sending', messageId });
-        this.deps.sent();
       } catch (error) {
-        await repo.mark(row.id, { status: 'unknown', messageId, error: `平台已确认，本地回执保存失败：${(error as Error).message}` }).catch(() => {});
+        await repo.mark(row.id, { status: 'unknown', messageId, error: `平台已确认，本地回执保存失败：${this.error(error)}` }).catch(() => {});
         return;
       }
+      try { await this.deps.sent(row, messageId); }
+      catch (error) { console.warn(`[pa24] 接入送达证据待补记：${this.error(error)}`); }
     }
     try {
       if (row.channel === 'feishu') await this.route(row.dedup_key, messageId);
       await repo.mark(row.id, { status: 'sent', messageId });
     } catch (error) {
       // Retrying this row means routing only because message_id survives.
-      await repo.mark(row.id, { status: 'pending', messageId, error: `已送达，回复关联待补记：${(error as Error).message}`, retryInMs: Math.min(60_000, 2000 * row.attempts) }).catch(() => {});
+      await repo.mark(row.id, { status: 'pending', messageId, error: `已送达，回复关联待补记：${this.error(error)}`, retryInMs: Math.min(60_000, 2000 * row.attempts) }).catch(() => {});
     }
   }
 

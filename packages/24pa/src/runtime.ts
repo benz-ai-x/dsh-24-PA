@@ -9,6 +9,10 @@ import type { TaskPlanAuthorization } from './task-plan.js';
 import type { RunInput } from './skill-run-host.js';
 import { randomUUID, createHash } from 'node:crypto';
 import { WorkspaceBackup } from './backup.js';
+import { ConnectionHealth, type HealthScope } from './connection-health.js';
+import { ConnectionTests } from './connection-tests.js';
+import { redactDiagnostic } from './diagnostic-redaction.js';
+import type { HealthState, HealthIdentity, HealthIdentityRow } from './repo/health.js';
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -190,6 +194,7 @@ export class PaRuntime {
   private lastReceivedAt: string | null = null;
   private lastSentAt: string | null = null;
   private diagnostics: AccessDiagnostics | null = null;
+  private wecomIdentity: HealthIdentityRow | null = null;
   private checking: Promise<AccessDiagnostics> | null = null;
 
   private dispatchTimer: NodeJS.Timeout | null = null;
@@ -204,7 +209,13 @@ export class PaRuntime {
   private readonly outboxDelivery = new OutboxDelivery({
     repo: () => this.repos!.outbox,
     routes: () => this.repos!.messageRoutes,
-    sent: () => { this.lastSentAt = nowIso(); },
+    sanitizeError: error => this.sanitizeDiagnostic(String((error as Error)?.message ?? error)),
+    sent: async (row, messageId) => {
+      if (row.channel === 'local') return;
+      this.lastSentAt = nowIso();
+      await this.recordConnectionEvidence(`${row.channel}.${row.channel === 'wecom' ? 'push' : 'send'}`, '平台已接纳一条出站消息；不代表已读。',
+        { target: row.target, outboxId: row.id, deliveryId: messageId, nativeMessageId: row.channel === 'feishu' ? messageId : null });
+    },
     beforeSend: row => this.planResults.beforeSend(row),
     updated: row => this.planResults.updated(row),
     adapters: {
@@ -229,7 +240,11 @@ export class PaRuntime {
       wecom: {
         available: () => !!this.config,
         supports: kind => kind === 'text',
-        send: row => this.wecomChannels.wecomSendText(row.target, String(row.content?.text ?? ''), platformMessageKey(row.channel, row.kind, row.dedup_key, row.target)),
+        send: async row => {
+          const owner = await this.wecomChannels.wecomOwnerUserid(true);
+          if (owner.userid !== row.target) throw Object.assign(new Error('原待发目标与当前企微真人不同；保留原归属，需人工核对。'), { outcome: 'failed' });
+          return this.wecomChannels.wecomSendText(row.target, String(row.content?.text ?? ''), platformMessageKey(row.channel, row.kind, row.dedup_key, row.target));
+        },
       },
       feishu: {
         available: () => !!this.transport,
@@ -311,7 +326,8 @@ export class PaRuntime {
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
-    isClosed: () => this.closed,
+    sanitize: value => this.sanitizeDiagnostic(value),
+    checkIdentity: identity => this.observeWecomIdentity(identity),
   });
 
   /** Feishu channel module (round-3 arch-1): lark-cli writes, projection sync
@@ -330,15 +346,28 @@ export class PaRuntime {
     config: () => this.config!,
     lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
     wecom: args => this.wecomChannels.wecomRun(args),
+    observeWecomIdentity: identity => this.observeWecomIdentity(identity),
   });
   readonly sourceRegistry = new SourceRegistry({
     config: () => this.config!, repo: () => this.repos!.sources,
     connectionHash: platform => this.sourceConnectionHash(platform),
+    evidenceCurrent: evidence => evidence.identity?.platform !== 'wecom' || !this.wecomIdentity ||
+      !this.wecomIdentity.changed && evidence.identity.ownerId === this.wecomIdentity.observed.ownerId
+      && evidence.identity.authority === this.wecomIdentity.observed.authority
+      && Date.parse(evidence.checkedAt) >= Math.max(new Date(this.wecomIdentity.accepted_at).getTime(), new Date(this.wecomIdentity.observed_at).getTime()),
     probe: source => {
       if (this.config!.mode !== 'feishu') throw new Error('体验模式不核验真实平台来源；切换真实接入后由本人发起检查。');
       return this.sourceAccess.check(source);
     }, gate: (key, work) => this.gate(key, work),
   });
+  private async observeWecomIdentity(identity: HealthIdentity): Promise<void> {
+    const row = await this.repos!.health.observeIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
+    this.wecomIdentity = row;
+    if (row.changed) {
+      this.wecomChannels.invalidate();
+      throw new Error('企微真人或机器人绑定已改变；旧身份成功证据失效。请在接入卡核对原交办、待发与新身份后确认，未自动接受新绑定。');
+    }
+  }
   private sourceConnectionHash(platform: 'feishu' | 'wecom'): string {
     return hash(JSON.stringify(platform === 'feishu'
       ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.options.larkCliBin, this.transportIdentity(this.config, this.secretStore)]
@@ -358,6 +387,27 @@ export class PaRuntime {
     config: () => this.config!, registry: this.sourceRegistry, projection: () => this.repos!.sourceProjection,
     read: (target, query) => this.sourceCalendarReader.read(target, query), gate: (key, work) => this.gate(key, work),
     object: (target, eventId) => this.sourceCalendarReader.object(target, eventId),
+  });
+
+  readonly connectionHealth = new ConnectionHealth({
+    repo: () => this.repos!.health, outbox: () => this.repos!.outbox, config: () => this.config!, version: () => this.connectionVersion(), registry: this.sourceRegistry,
+    feishu: () => this.inspectFeishuAccess(), wecom: () => this.wecomChannels.wecomCheck(), local: scope => this.checkLocalHealth(scope),
+    notify: (key, body) => this.ownerNotification(key, body), silentUntil: () => this.silencePolicy.silentUntil(), gate: (key, work) => this.gate(key, work),
+    sanitize: value => this.sanitizeDiagnostic(value),
+  });
+  readonly connectionTests = new ConnectionTests({
+    repo: () => this.repos!.health, config: () => this.config!, version: () => this.connectionVersion(), registry: this.sourceRegistry,
+    assertBinding: value => this.assertWorkspaceBinding(typeof value === 'string' ? value : null), gate: (key, work) => this.gate(key, work),
+    wecomIdentity: () => this.sourceAccess.identity('wecom'), feishuIdentity: async () => {
+      const result = await this.checkAccess();
+      if (result.auth.state !== 'ok' || result.auth.applicationMatched !== true) throw new Error('飞书主人与实际应用身份尚未核验一致。');
+    },
+    send: async (platform, target, body, key) => platform === 'wecom'
+      ? this.wecomChannels.wecomSendText(target, body, platformMessageKey(platform, 'text', key, target))
+      : this.transport ? this.transport.sendText(target, body, platformMessageKey(platform, 'text', key, target)) : Promise.reject(Object.assign(new Error('飞书传输未连接。'), { outcome: 'failed' })),
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args),
+    sanitize: value => this.sanitizeDiagnostic(value),
   });
   readonly sourceCalendarWrites = new SourceCalendarWrites({
     config: () => this.config!, registry: this.sourceRegistry, reader: this.sourceCalendarReader, repos: () => this.repos!, external: this.externalOperations,
@@ -1210,6 +1260,7 @@ export class PaRuntime {
     this.db = db;
     this.activePostgresDsn = postgresDsn;
     this.repos = repos;
+    this.wecomIdentity = await repos.health.identity('wecom');
     this.workspace = next.workspace;
     this.workspaceBinding = randomUUID();
     this.skillPackages.refresh();
@@ -1316,11 +1367,16 @@ export class PaRuntime {
     if (identityChanged) {
       await this.inboxLifecycle.assertIdle();
       if (await this.hasActiveWork()) throw new ConfigError('身份或接入模式变更前，请先完成或停止进行中的事项。');
+      if (this.repos) {
+        const impacts = await this.repos.health.impacts();
+        if (impacts.outbox || impacts.reviews) throw new ConfigError(`身份或接入模式变更涉及原待发/未知 ${impacts.outbox} 条、待审 ${impacts.reviews} 份；请先完成或核对原归属，未切换身份。`);
+      }
     }
 
   }
 
   private applyWorkspaceConfiguration(parsed: WorkspaceConfiguration): void {
+    if (this.sourceHash !== parsed.sourceHash) { this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null; }
     this.config = parsed.config;
     this.secretStore = parsed.secrets;
     this.instructions = parsed.instructions;
@@ -1362,11 +1418,11 @@ export class PaRuntime {
    * 覆盖），先跑完整校验器再原子写回唯一 ```json 块（工作规则区逐字节不变），
    * 随后走与 reload 相同的装载路径。storage/version 不在表单白名单。
    */
-  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding, expectedSourcesHash?: string): Promise<void> {
+  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding, expectedSourcesHash?: string, expectedConfigHash?: string): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
     return this.transition(async () => {
       this.assertWorkspaceBinding(expectedBinding);
-      await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets), { expectedSourcesHash });
+      await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets), { expectedSourcesHash, expectedConfigHash });
       try {
         await this.loadWorkspaceConfig();
       } catch (error) {
@@ -1427,6 +1483,7 @@ export class PaRuntime {
       const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next);
       const connection = reconnect || (this.config?.mode === 'feishu' && !this.transport) ? await this.prepareTransport(this.config!, next) : null;
       this.secretStore = next;
+      this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null;
       // 凭据可能刚到位/被清除：feishu 模式下按新解析结果重连（与配置保存同口径）。
       if (connection) await this.activateTransport(connection);
     });
@@ -1753,13 +1810,15 @@ export class PaRuntime {
    *  stable runtime face; implementations live in WecomChannels. */
   private async authTick(): Promise<void> {
     return this.executions.run(async () => {
-      await this.wecomChannels.authTick();
+      if (!this.closed && this.config && this.repos) await this.connectionHealth.monitorWecom();
     });
   }
 
   wecomCheck(): Promise<WecomDiagnostics> {
     return this.executions.run(async () => {
-      return this.wecomChannels.wecomCheck();
+      const result = await this.wecomChannels.wecomCheck();
+      await this.connectionHealth.check(['wecom'], { wecom: result });
+      return result;
     });
   }
 
@@ -1773,7 +1832,6 @@ export class PaRuntime {
     return this.executions.run(async () => {
       const config = this.config;
       if (!config || !this.repos) throw new Error('24私助尚未就绪。');
-      this.lastReceivedAt = nowIso();
       const expectedApp = this.secretEnv()[config.appIdEnv] ?? '';
       const appId = event.appId || expectedApp;
       // Rejections are written atomically: a 'received' row could otherwise be
@@ -1814,6 +1872,12 @@ export class PaRuntime {
         // Platform redelivery of an event we already own; never process twice.
         return;
       }
+      this.lastReceivedAt = nowIso();
+      if (config.ownerOpenId && event.senderOpenId === config.ownerOpenId && expectedApp && event.appId === expectedApp && event.tenantKey) {
+        await this.recordConnectionEvidence('feishu.inbound-enterprise', '真实入站携带企业标识，已通过当前主人与应用校验；授权企业另列。', { appId: event.appId, tenantKey: event.tenantKey, ownerOpenId: event.senderOpenId });
+        await this.recordConnectionEvidence(event.kind === 'card' ? 'feishu.card-receive' : 'feishu.receive',
+          '已接纳通过主人、应用与企业归属校验的入站；消息处理与审核裁决分别记录。', { eventId: event.eventId, kind: event.kind, tenantKey: event.tenantKey, profile: config.larkProfile });
+      }
       if (config.mode === 'feishu') {
         await this.repos.bindings.upsert({
           appId,
@@ -1852,6 +1916,10 @@ export class PaRuntime {
       const event = row.payload as InboundEvent;
       if (row.kind === 'card') {
         await this.handwriting.processReviewCard(row.event_id, event);
+        const receipt = await this.repos.inbox.get(row.event_id);
+        if (receipt?.status === 'delivered' && event.tenantKey && event.appId === this.secretValue('feishuAppId') && event.senderOpenId === this.config!.ownerOpenId) {
+          await this.recordConnectionEvidence('feishu.review-callback', '真实版本审核回调已通过主人、应用、企业与版本校验并保存裁决。', { eventId: row.event_id, requestId: receipt.request_id });
+        }
         return;
       }
       const isInboundImage = event.messageType === 'image' || this.handwriting.isImageFileMessage(event);
@@ -3578,13 +3646,15 @@ export class PaRuntime {
         }
       }
       const outboxRows = this.repos ? await this.repos.outbox.recent(200) : [];
-      const pending = outboxRows.filter(o => ['pending', 'sending'].includes(o.status));
+      const traffic = this.repos ? await this.repos.health.traffic() : { channels: [] };
+      const outboxCount = (states: string[]) => traffic.channels.reduce((sum: number, row: any) => sum + (states.includes(row.status) ? Number(row.count) : 0), 0);
       const unknownOps = await this.repos!.maintenance.unknownOperationCount().catch(() => null);
       const latencies = outboxRows.filter(o => o.status === 'sent' && o.sent_at).map(o => new Date(o.sent_at!).getTime() - new Date(o.created_at).getTime()).sort((a, b) => a - b);
       const retryTotals = await this.repos!.maintenance.attemptTotals().catch(() => null);
       const retries = retryTotals ? retryTotals.operations + retryTotals.outbox : null;
       const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
       return {
+        connectionEvidence: this.repos ? await this.connectionHealth.snapshot() : null,
         readiness: ready,
         capabilities,
         usage: {
@@ -3592,13 +3662,13 @@ export class PaRuntime {
           modelTurns: this.usage.modelRequests,
           notePagesInput: this.usage.notePagesInput,
           noteCrops: this.usage.noteCrops,
-          outboxQueued: pending.length,
-          outboxUnknown: outboxRows.filter(o => o.status === 'unknown').length,
+          outboxQueued: outboxCount(['pending', 'sending']),
+          outboxUnknown: outboxCount(['unknown']),
           operationsUnknown: unknownOps,
           outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
           ledgerRetries: retries,
           quota: '未配置模型限额（当前版本无 quota 配置项；如需硬限额请在模型路由侧设置）',
-          note: '计数自本 Host 启动累计（进程内观测，重启清零）；ledgerRetries 来自账本（外部操作重试＋Outbox 重发）；费用口径取决于模型计费，本页只提供可测投入量。',
+          note: '模型/笔记投入自本 Host 启动累计（重启清零）；发送队列与未知计数覆盖完整账本，各渠道明细另列；延迟仅抽样最近 200 条。ledgerRetries 来自账本，费用口径取决于模型计费。',
         },
         dataFlow: {
           modelInput: '笔记原稿图片与转写文本会作为模型输入发送到所配置的 dsh 模型路由；账本与面板不外发。',
@@ -3607,8 +3677,8 @@ export class PaRuntime {
           secrets: '诊断与备份仅含凭据引用名（环境变量名），凭据值不进入任何输出。',
         },
         degraded: {
-          modelDown: '模型不可用只暂停需要模型的工作；固定提醒经 PG+Outbox 继续发送。',
-          pgDown: 'PG 不可用时停止接纳/写入相关业务并保留可恢复状态（启动与账本闸已实现）。',
+          modelDown: '模型不可用影响需要模型的步骤；已有结果保存与原生日历提醒按各自机制继续。',
+          pgDown: '业务账本不可用时停止接纳/写入相关业务并保留可恢复状态。',
           offlineAlert: '完全离线告警依赖独立服务器监控（声明边界）。',
         },
       };
@@ -3823,7 +3893,104 @@ export class PaRuntime {
 
   // ---- diagnostics & readiness ---------------------------------------------
 
+  private connectionVersion(): string {
+    return hash(JSON.stringify([this.sourceHash, this.config?.larkProfile, this.config?.ownerOpenId,
+      this.transportIdentity(this.config, this.secretStore), this.options.larkCliBin, this.options.wecomCliBin, resolveVersions()]));
+  }
+
+  private sanitizeDiagnostic<T>(value: T): T {
+    return redactDiagnostic(value, ['feishuAppSecret', 'pgDsn', 'volcTtsKey'].map(key => this.secretValue(key as SecretKey)));
+  }
+
+  private async recordConnectionEvidence(scope: string, message: string, detail: unknown): Promise<void> {
+    if (!this.repos) return;
+    // Observation failure must not erase a previously saved platform receipt.
+    await this.repos.health.save({ scope, state: 'verified', configVersion: this.connectionVersion(), checkedAt: nowIso(),
+      coverage: '当前生效配置的一次实际平台事件；完整历史计数另列', message, impact: '只证明这次事件覆盖的链路，不证明所有能力。',
+      nextSteps: [], detail }).catch(error => console.warn(`[pa24] 接入证据未保存：${(error as Error).message}`));
+  }
+
+  async healthSnapshot(binding?: unknown): Promise<unknown> {
+    if (binding !== undefined) this.assertWorkspaceBinding(typeof binding === 'string' ? binding : null);
+    if (!this.repos || !this.config) throw new Error('尚未绑定工作区。');
+    return this.connectionHealth.snapshot();
+  }
+
+  async checkHealth(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (input.scopes !== undefined && (!Array.isArray(input.scopes) || !input.scopes.every(scope => typeof scope === 'string'))) throw new Error('健康检查范围必须为列表。');
+      return this.connectionHealth.check(input.scopes as string[] | undefined);
+    });
+  }
+
+  async connectionTest(input: Record<string, unknown>, operation: 'preview' | 'execute' | 'cleanup'): Promise<unknown> {
+    return this.executions.run<unknown>(async () => this.connectionTests[operation](input));
+  }
+
+  async acceptWecomIdentity(input: Record<string, unknown>): Promise<unknown> {
+    return this.transition(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (input.confirm !== true || input.configVersion !== this.connectionVersion()) throw new Error('需核对当前配置与身份后明确确认。');
+      const impacts = await this.repos!.health.impacts();
+      if (impacts.work || impacts.outbox || impacts.reviews) throw new Error(`仍有交办 ${impacts.work} 项、待发/未知 ${impacts.outbox} 条、待审 ${impacts.reviews} 份，请先核对原归属；未切换机器人绑定。`);
+      const identity = input.identity as { ownerId?: unknown; authority?: unknown };
+      if (!identity || typeof identity.ownerId !== 'string' || typeof identity.authority !== 'string') throw new Error('缺少核验得到的真人与机器人标识。');
+      const row = await this.repos!.health.acceptIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
+      this.wecomIdentity = row;
+      this.wecomChannels.invalidate();
+      return { identity: row, message: '已确认新的企微绑定；旧来源和计划未迁移，请按原归属逐项重新登记与核验。' };
+    });
+  }
+
+  async configurationEvidence(binding?: unknown): Promise<unknown> {
+    if (binding !== undefined) this.assertWorkspaceBinding(typeof binding === 'string' ? binding : null);
+    if (!this.workspace || !this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    let savedHash: string | null = null, error: string | null = null;
+    try { savedHash = (await readWorkspaceConfiguration(this.workspace.statePath)).sourceHash; }
+    catch (failure) { error = this.sanitizeDiagnostic((failure as Error).message); }
+    return { path: this.workspace.statePath, activeHash: this.sourceHash, savedHash, loadedAt: this.loadedAt,
+      state: error ? 'source_error' : savedHash === this.sourceHash ? 'applied' : 'saved_not_applied', error,
+      impacts: await this.repos.health.impacts(), configVersion: this.connectionVersion(),
+      message: '源文件和生效配置分别标识；更换默认来源不迁移旧对象、计划或待发。身份变更前先核对进行中交办、待审版本与原渠道回执。' };
+  }
+
+  private async checkLocalHealth(scope: HealthScope): Promise<{ state: HealthState; coverage: string; message: string; impact: string; nextSteps: string[]; detail?: unknown }> {
+    const result = (state: HealthState, coverage: string, message: string, detail?: unknown) => ({ state, coverage, message,
+      impact: '本项只覆盖列明的本地证据；不代表真实账号、模型或设备已验收。', nextSteps: state === 'fault' ? ['在对应卡片修复后重新检查。'] : [], detail });
+    if (scope === 'workspace') {
+      const evidence = await this.configurationEvidence() as { state: string };
+      await this.dbRef.check();
+      return result(evidence.state === 'applied' ? 'verified' : 'partial', '实际工作区配置源与生效版本、账本连通性、在途影响', evidence.state === 'applied' ? '源文件与生效配置一致，实际账本可读取。' : '源文件尚未生效或不可读取，当前旧配置仍在使用。', evidence);
+    }
+    if (scope === 'memory') {
+      const memory = await this.memory!.search({ limit: 1 });
+      return result('verified', '当前 JSON 权威文件可解析；不确认记忆内容真实性', '记忆权威文件可读取。', { total: memory.total });
+    }
+    if (scope === 'materials') return result('unverified', '本地笔记账本和听记工具配置；不读取外部资料或核验手写质量', '材料来源、识别质量及当前听记资料可读性需在资料卡逐项核验。', { qwennoteConfigured: this.config!.extraLocalTools.some(name => name.startsWith(QWENNOTE_TOOL_PREFIX)) });
+    if (scope === 'skills') {
+      await this.skillManagement.list(this.workspaceBinding);
+      return result('verified', '本地 Skill 管理目录及版本登记可读取；不运行 Skill', 'Skill 管理目录可读取，具体依赖与运行结果以单项记录为准。');
+    }
+    if (scope === 'plans') {
+      const taskPlans = await this.repos!.taskPlans.summary();
+      return result('verified', '旧计划与通用定时任务的配置、启停和阻断账本可读取；不补触发、不执行 Skill',
+        '计划账本可读取；每条计划的独立阻断与运行证据请在定时任务卡查看。', { taskPlans });
+    }
+    if (scope === 'models') return result('unverified', '已生效的模型路由声明，不请求模型', '路由存在不代表模型可用或账单预算已核验。', { workerModels: this.config!.workerModels });
+    if (scope === 'voice') return result(this.config!.tts.engine === 'none' ? 'disabled' : this.ttsProbeCache?.result.ready ? 'verified' : 'unverified', '语音配置与最近显式预检；不合成、不发送', this.config!.tts.engine === 'none' ? '语音未启用。' : '语音状态以当前配置的显式预检和试听回执为准。', this.ttsProbeCache);
+    return result('unverified', '账本存储类型与备份能力说明；不执行备份或恢复演练', '本次只读检查不证明备份完整或恢复成功，请查看备份、校验和演练各自记录。', { storage: this.config!.storage });
+  }
+
   async checkAccess(): Promise<AccessDiagnostics> {
+    return this.executions.run(async () => {
+      const result = await this.inspectFeishuAccess();
+      await this.connectionHealth.check(['feishu'], { feishu: result });
+      return result;
+    });
+  }
+
+  private async inspectFeishuAccess(): Promise<AccessDiagnostics> {
     return this.executions.run(async () => {
       if (this.checking) return this.checking;
       if (!this.workspace || !this.config) throw new Error('尚未绑定工作区。');
@@ -3832,9 +3999,19 @@ export class PaRuntime {
       const bin = this.options.larkCliBin;
       // F36: 报错脱敏覆盖密钥库来源的真实值（env 值 safeError 自行读）。
       const extraSecrets = [this.secretValue('feishuAppId'), this.secretValue('feishuAppSecret')].filter(Boolean);
-      const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets)
-        .then(result => {
-          if (this.workspace === workspace) this.diagnostics = result;
+      const run = (this.checking = inspectAccess(config, bin, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets, this.secretValue('feishuAppId'))
+        .then(async result => {
+          if (this.workspace === workspace) {
+            this.diagnostics = result;
+            if (typeof result.auth.openId === 'string' && typeof result.auth.appId === 'string') {
+              const identity = { ownerId: result.auth.openId, authority: `app:${result.auth.appId}:tenant:${result.auth.tenantKey ?? 'unverified'}` };
+              const observed = await this.repos!.health.observeIdentity('feishu', identity);
+              // Feishu's expected binding is explicitly held in configuration.
+              // A matching configured identity may be accepted; a foreign
+              // profile never silently rewrites the configured owner or app.
+              if (observed.changed && result.auth.state === 'ok') await this.repos!.health.acceptIdentity('feishu', identity);
+            }
+          }
           return result;
         })
         .finally(() => {
@@ -3906,6 +4083,8 @@ export class PaRuntime {
           config: this.config,
           loadedAt: this.loadedAt,
           configError: this.configError,
+          sourceHash: this.sourceHash,
+          configVersion: this.connectionVersion(),
           accessSessionId: this.accessSessionId,
           localSessionId: this.localSessionId,
         }

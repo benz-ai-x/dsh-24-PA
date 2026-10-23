@@ -5,6 +5,7 @@ import { delimiter, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PaConfig } from './config.js';
 import { runLarkCli, type LarkCliOptions } from './lark.js';
+import { redactDiagnostic } from './diagnostic-redaction.js';
 
 // Feishu transport seam: production uses the official SDK long connection;
 // tests inject events through the same inbound path without a network. The
@@ -182,12 +183,9 @@ type CheckState = 'ok' | 'unchecked' | 'missing' | 'unbound' | 'mismatch' | 'unv
 const status = (state: CheckState, message: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ state, message, ...extra });
 
 function safeError(error: unknown, config: PaConfig, extraSecrets: string[] = []): string {
-  let message = String((error as Error)?.message ?? error);
   // F36: 环境变量与密钥库来源的值都要脱敏（extraSecrets＝解析后的真实值）。
-  for (const secret of [process.env[config.appIdEnv], process.env[config.appSecretEnv], ...extraSecrets]) {
-    if (secret) message = message.split(secret).join('[已隐藏]');
-  }
-  return message.replace(/(?:access_token|refresh_token|app_secret|authorization)\s*[=:]\s*\S+/gi, '凭据=[已隐藏]').slice(0, 500);
+  return redactDiagnostic(String((error as Error)?.message ?? error),
+    [process.env[config.appIdEnv] ?? '', process.env[config.appSecretEnv] ?? '', ...extraSecrets]).slice(0, 500);
 }
 
 async function resolveExecutable(bin: string): Promise<string> {
@@ -279,8 +277,9 @@ export async function inspectAccess(
   bin: string,
   workspace: { path: string; sourceHash: string },
   extraSecrets: string[] = [],
+  expectedAppId = '',
 ): Promise<AccessDiagnostics> {
-  const collected = await collectAccess(config, bin, workspace, extraSecrets);
+  const collected = await collectAccess(config, bin, workspace, extraSecrets, expectedAppId);
   return { ...collected, nextSteps: setupNextSteps(config, collected) };
 }
 
@@ -289,6 +288,7 @@ async function collectAccess(
   bin: string,
   workspace: { path: string; sourceHash: string },
   extraSecrets: string[] = [],
+  expectedAppId = '',
 ): Promise<Omit<AccessDiagnostics, 'nextSteps'>> {
   const result: Omit<AccessDiagnostics, 'nextSteps'> = {
     checkedAt: new Date().toISOString(),
@@ -339,21 +339,25 @@ async function collectAccess(
     const { data } = await runLarkCli(readOptions, ['auth', 'status', '--verify']);
     const user = data?.identities?.user;
     const matched = !!config.ownerOpenId && user?.openId === config.ownerOpenId;
+    const appMatched = !!expectedAppId && data?.appId === expectedAppId;
     const verified = data?.verified === true && user?.tokenStatus === 'valid';
     result.auth = status(
-      !user?.openId ? 'missing' : !config.ownerOpenId ? 'unbound' : !matched ? 'mismatch' : verified ? 'ok' : 'unverified',
+      !user?.openId ? 'missing' : !config.ownerOpenId ? 'unbound' : !matched || (expectedAppId && data?.appId && !appMatched) ? 'mismatch' : verified && (!expectedAppId || appMatched) ? 'ok' : 'unverified',
       !user?.openId
         ? '固定 profile 尚无用户授权'
         : !config.ownerOpenId
           ? '已有 CLI 身份；工作区尚未绑定主人'
-          : !matched
-            ? 'CLI 用户与配置主人不一致，未读取资源'
+          : !matched || (expectedAppId && data?.appId && !appMatched)
+            ? 'CLI 用户或应用与当前配置不一致，未读取资源'
+            : expectedAppId && !data?.appId ? '授权返回缺少实际应用身份，尚不能核验与接入应用一致'
             : verified
               ? 'CLI 用户令牌有效，身份与主人一致'
               : '身份匹配，但令牌有效性未确认',
-      { profile: config.larkProfile, userName: user?.userName ?? null, openId: user?.openId ?? null, verified, matched, tokenStatus: user?.tokenStatus ?? null },
+      { profile: config.larkProfile, userName: user?.userName ?? null, openId: user?.openId ?? null, appId: data?.appId ?? null,
+        tenantKey: data?.tenantKey ?? user?.tenantKey ?? null, applicationMatched: expectedAppId ? appMatched : null,
+        verified, matched, tokenStatus: user?.tokenStatus ?? null },
     );
-    if (!matched || !verified) return result;
+    if (!matched || !verified || (expectedAppId && !appMatched)) return result;
     result.resources = await Promise.all(
       resources.map(async ([id, label, value, args]) => {
         // 与上方初始 map 同口径：wiki 缺省是合法回退，不是配置缺口。
