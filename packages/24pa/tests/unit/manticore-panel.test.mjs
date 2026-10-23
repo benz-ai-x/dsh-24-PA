@@ -151,6 +151,24 @@ describe('M02 管理界面', () => {
     expect(requests.filter(row => row.endpoint === 'action').at(-1).payload).toMatchObject({ type: 'plan.delivery', runId: 'run-a', outboxId: 12, fingerprint: 'worker-delivery', op: 'retry' });
     expect(requests.filter(row => row.endpoint === 'worker.run').length).toBeGreaterThan(0);
   });
+  it('资料直接运行及关联交办均显示业务结果，完整输入回执折叠且无通用接续', async () => {
+    work.id = 'pa24-material-a'; work.acceptance_required = false; work.acceptance_status = null;
+    work.instruction = JSON.stringify({ action: 'adopt_actions', noteId: 'N-1', versionId: 'N-1:v1' });
+    work.result = JSON.stringify({ message: '已返回原行动对象', results: [{ ok: true, reused: true, url: 'https://example.test/original-task' }] });
+    Object.assign(run.run, { record_kind: 'worker', work_item_id: work.id, instruction: work.instruction, result: work.result, snapshot: { executor: 'material-action', title: '明确执行资料候选' } });
+    run.execution = null;
+    await open('运行记录'); await click(button('查看执行与投递'));
+    const verify = () => {
+      expect(container.textContent).toContain('已返回原行动对象');
+      expect(container.querySelector('a[href="https://example.test/original-task"]')).not.toBeNull();
+      for (const node of container.querySelectorAll('pre,p')) if (node.textContent.trim().startsWith('{')) {
+        expect(node.closest('details')).not.toBeNull(); expect(node.closest('details').open).toBe(false);
+      }
+    };
+    verify(); await click(button('查看原助理交办')); verify();
+    expect([...field('交办操作').options].map(option => option.value)).not.toContain('continue');
+    expect(requests.filter(row => row.endpoint === 'action')).toHaveLength(0);
+  });
   it('未知投递先填平台证据，未收到结论不自动补投', async () => {
     run.deliveries[0].deliveries[0].outbox.status = 'unknown'; await open('运行记录'); await click(button('查看执行与投递'));
     expect(button('明确补投此结果')).toBeUndefined(); await click(button('核对原平台是否收到')); expect(button('确认并保存投递核对').disabled).toBe(true);

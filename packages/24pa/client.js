@@ -289,6 +289,7 @@ window.__ModuleLoader__.load({
           }
           return h('pre', { className: 'pa24-material-text' }, String(value));
         }
+        const materialReceipt = value => { if (typeof value !== 'string') return value; try { return JSON.parse(value); } catch { return value; } };
         function MaterialFeedback({ value }) {
           if (typeof value === 'string') return h('p', { role: 'status', className: 'pa24-note' }, value);
           if (!value) return null;
@@ -1507,8 +1508,7 @@ window.__ModuleLoader__.load({
           }, [id, binding, refresh]);
           const preview = async () => { try { const result = await rpc('runs.diagnostics', { runId: id, workspaceBinding: binding }); if (alive.current && result.workspaceBinding === binding) setDiagnostic(result); } catch (error) { if (alive.current) setError(error.message); } };
           const run = detail?.run, directMaterial = run?.snapshot?.executor === 'material-action';
-          let materialResult = run?.result;
-          if (directMaterial && materialResult) { try { materialResult = JSON.parse(materialResult); } catch { /* Preserve older text receipts. */ } }
+          const materialResult = materialReceipt(run?.result);
           return h('section', { className: 'pa24-card' }, h('h3', null, L('交办执行与投递', 'Work execution and delivery')),
             h('button', { type: 'button', onClick: () => setRefresh(value => value + 1) }, L('刷新运行状态', 'Refresh run status')),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error), !detail && h('p', { role: 'status' }, L('正在读取运行…', 'Reading run…')),
@@ -1591,8 +1591,9 @@ window.__ModuleLoader__.load({
             active?.kind === 'worker' && h(WorkerRunDetail, { key: binding + active.id, id: active.id, binding, openWork }),
             active && active.kind !== 'worker' && h(SkillRunControls, { key: active.id, data: { id: active.skillId }, binding, detailOnly: true, initialRunId: active.id, openWork }),
             view.workId && !work && h('p', { role: 'status' }, L('正在读取交办…', 'Reading work item…')),
-            work && h('section', { className: 'pa24-card' }, h('h3', null, work.work.title), h('p', null, t(work.work.status)), h('p', null, work.work.instruction),
-              work.work.progress && h('p', null, work.work.progress), work.work.result && h('pre', { className: 'pa24-json' }, work.work.result),
+            work && h('section', { className: 'pa24-card' }, h('h3', null, work.work.title), h('p', null, t(work.work.status)),
+              work.work.id.startsWith('pa24-material-') ? h('details', null, h('summary', null, L('当次资料操作输入', 'Material action input')), h('pre', { className: 'pa24-json' }, work.work.instruction)) : h('p', null, work.work.instruction),
+              work.work.progress && h('p', null, work.work.progress), work.work.result && (work.work.id.startsWith('pa24-material-') ? h(MaterialFeedback, { value: materialReceipt(work.work.result) }) : h('pre', { className: 'pa24-json' }, work.work.result)),
               work.work.progress_detail && h('div', null, h('p', null, L('已完成：', 'Completed: ') + work.work.progress_detail.completed), h('p', null, L('下一步：', 'Next: ') + work.work.progress_detail.next)),
               h('p', { className: 'pa24-meta' }, L('来源：', 'Origin: ') + work.work.origin + ' · ' + L('结果回到：', 'Results return to: ') + work.work.delivery),
               work.work.child_session_id && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession({ childSessionId: work.work.child_session_id, parentSessionId: work.work.parent_session_id, mode: 'continuable' }) }, L('查看原交办会话', 'Open original work session')),
