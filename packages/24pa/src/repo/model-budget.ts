@@ -24,9 +24,15 @@ export class ModelBudgetRepo {
     const worker = (await tx.query<WorkerRunRow>('select * from pa24.worker_run where id = $1', [id])).rows[0];
     return worker ? { runId: id, workId: worker.work_item_id, sessionId: worker.session_id, kind: 'worker', status: worker.status } : null;
   }
-  private async current(tx: PaQueryer, owner: BudgetOwner) {
+  private async lockOwner(tx: PaQueryer, owner: BudgetOwner) {
+    // Match each execution owner's existing transaction order: managed Skill
+    // stops lock Run then WorkItem; ordinary Worker stops lock WorkItem first.
+    if (owner.kind === 'skill') await tx.query('select id from pa24.skill_run where id = $1 for update', [owner.runId]);
     const work = (await tx.query<{ active_worker_run_id: string; active_skill_run_id: string; status: string }>('select * from pa24.work_item where id = $1 for update', [owner.workId])).rows[0];
-    const run = await this.owner(owner.runId, tx);
+    return { work, run: await this.owner(owner.runId, tx) };
+  }
+  private async current(tx: PaQueryer, owner: BudgetOwner) {
+    const { work, run } = await this.lockOwner(tx, owner);
     const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [owner.runId])).rows[0];
     if (!run || run.workId !== owner.workId || !['running','waiting'].includes(run.status) || !work || !['running','waiting_input'].includes(work.status)
       || (owner.kind === 'worker' ? work.active_worker_run_id : work.active_skill_run_id) !== owner.runId || !control || control.state.terminal || control.state.stop) throw new Error('原运行已停止、结束或待核对；迟到预算放行不会复活。');
@@ -137,7 +143,8 @@ export class ModelBudgetRepo {
       const row = (await tx.query<BudgetReleaseRow>('select * from pa24.budget_release where id = $1', [id])).rows[0];
       if (row?.status !== 'ready') return; // The model already consumed it.
       await tx.query('update pa24.budget_release set record = $2 where id = $1', [id, JSON.stringify({ ...row.record, error, wake: mayHaveDispatched ? row.record.wake : undefined })]);
-      const owner = await this.owner(row.run_id, tx);
+      const found = await this.owner(row.run_id, tx);
+      const owner = found && (await this.lockOwner(tx, found)).run;
       if (owner && ['running', 'waiting'].includes(owner.status)) await this.state(tx, owner, mayHaveDispatched ? 'needs_reconciliation' : 'waiting',
         mayHaveDispatched ? `预算续办是否接纳未知，须先核对原运行：${error}` : `预算续办未接纳，可重试原许可：${error}`);
     });

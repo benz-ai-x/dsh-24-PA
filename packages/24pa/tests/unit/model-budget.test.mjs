@@ -4,6 +4,8 @@ import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { WorkItemLifecycle } from '../../lib/work-item-lifecycle.js';
+import { ModelBudgetRepo } from '../../lib/repo/model-budget.js';
+import { WorkItemRepo } from '../../lib/repo/work.js';
 import { ModelBudgets } from '../../lib/model-budgets.js';
 import { budgetUsage, budgetSummary, validateBudget, estimateUsage, budgetPeriod, DEFAULT_BUDGET } from '../../lib/model-budget.js';
 import { blockRun, clearRunBlock } from '../../lib/run-control.js';
@@ -116,6 +118,34 @@ for (const backend of ['sqlite','postgres']) describe('durable model budget / ' 
     expect((await repos.workItems.claimNext(1)).id).toBe(other);
     await repos.modelBudget.wakeError(permit.id, 'late', false);
     expect((await repos.workerRuns.get(owner.runId)).status).toBe('stopped');
+  });
+  it.runIf(backend === 'postgres')('预算续办失败与主人停止同时发生不会反序死锁或覆盖停止', async () => {
+    await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai');
+    const permit = await repos.modelBudget.grant(release()); await repos.modelBudget.claimWake(permit, [], 1);
+    let locked, releaseStop;
+    const lockReached = new Promise(resolve => { locked = resolve; });
+    const stopBarrier = new Promise(resolve => { releaseStop = resolve; });
+    const wrap = (before, after) => ({ query: db.query.bind(db), withTransaction: fn => db.withTransaction(tx => fn({ query: async (sql, args) => {
+      await before(sql); const result = await tx.query(sql, args); await after(sql); return result;
+    } })) });
+    let runFirst = false;
+    const stopping = new WorkItemRepo(wrap(async () => {}, async sql => {
+      if (sql.startsWith('update pa24.work_item set updated_at')) { locked(); await stopBarrier; }
+    }));
+    const failing = new ModelBudgetRepo(wrap(async sql => {
+      if (sql.startsWith('select * from pa24.work_item') && sql.includes('for update')) releaseStop();
+    }, async sql => {
+      if (sql.startsWith('update pa24.worker_run set status = $2')) { runFirst = true; releaseStop(); }
+    }));
+    const stop = stopping.update(owner.workId, { status: 'stopped', progress: '主人停止' });
+    await lockReached; const outcomes = await Promise.allSettled([stop, failing.wakeError(permit.id, 'definite rejection', false)]);
+    expect(outcomes.map(row => row.status)).toEqual(['fulfilled', 'fulfilled']);
+    expect(runFirst).toBe(false); // The stop won before failure settlement.
+    expect((await repos.workerRuns.get(owner.runId)).status).toBe('stopping');
+    await repos.workItems.stopReceipt(owner.workId, true);
+    expect((await repos.workerRuns.get(owner.runId)).status).toBe('stopped');
+    expect((await repos.workItems.get(owner.workId)).status).toBe('stopped');
+    expect((await repos.modelBudget.release(permit.id)).record.error).toBe('definite rejection');
   });
   const wakeFixture = () => {
     session.header.parentSession = undefined;
