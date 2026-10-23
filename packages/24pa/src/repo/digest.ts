@@ -8,6 +8,7 @@ import type { DigestTriggerSource } from '../digest-trigger.js';
 import { lockPlanSkill } from './skill.js';
 import type { ResolvedTaskSkill } from '../skills.js';
 import type { SkillPackage } from '../skill-package.js';
+import { assertTaskPlanEnabled } from './task-plan.js';
 
 export interface DigestPlanRow {
   id: string;
@@ -80,6 +81,7 @@ export class DigestRepo {
     if (patch.skill !== undefined || patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') {
       await lockPlanSkill(tx, patch.skill ?? before.skill, id, patch.skill !== undefined);
     }
+    if (patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') await assertTaskPlanEnabled(tx, id);
     const sets = ['updated_at = now()', 'revision = revision + 1'];
     const values: unknown[] = [id];
     digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle']);
@@ -96,6 +98,7 @@ export class DigestRepo {
   async comparePlan(plan: DigestPlanRow, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'kind' | 'lifecycle' | 'schedule_generation'>>): Promise<DigestPlanRow> {
     return this.db.withTransaction(async tx => {
     if (patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') await lockPlanSkill(tx, plan.skill, plan.id);
+    if (patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') await assertTaskPlanEnabled(tx, plan.id);
     const sets = ['updated_at = now()', 'revision = revision + 1'];
     const values: unknown[] = [plan.id, plan.revision ?? 0];
     digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle']);
@@ -148,9 +151,12 @@ export class DigestRepo {
       }
       const observed = (await client.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1', [input.planId])).rows[0];
       if (!observed) throw new Error('计划不存在。');
+      if ('task_config' in observed && observed.task_config) throw new Error('此计划须通过固定授权的通用运行准入，不能从旧简报入口执行。');
       const version = await lockPlanSkill(client, observed.skill, observed.id);
+      await assertTaskPlanEnabled(client, observed.id);
       const plan = (await client.query<DigestPlanRow>('select * from pa24.digest_plan where id = $1 for update', [input.planId])).rows[0];
       if (!plan || plan.status !== 'active') throw new Error(`计划 ${input.planId} 当前未开启，不能开始运行。`);
+      if ('task_config' in plan && plan.task_config) throw new Error('计划已升级，旧入口不能认领新的运行窗口。');
       if (plan.skill !== observed.skill || (input.planRevision !== undefined && plan.revision !== input.planRevision)) throw new Error('计划配置已变化，请重新读取后运行。');
       if (version && (input.skill?.metadata.pa24Identity as { versionId?: string } | undefined)?.versionId !== version.id) throw new Error('Skill 已更新，请重新读取后运行，不能混用新旧版本。');
       const skillSnapshot: DigestOccurrenceRow['skill_snapshot'] = input.skill === undefined ? null : { definition: input.skill,
@@ -184,8 +190,14 @@ export class DigestRepo {
   }
 
   async recordWorkSource(workItemId: string, source: DigestTriggerSource): Promise<void> {
-    await this.db.query(`insert into pa24.digest_work_binding (work_item_id, source) values ($1, $2)
-      on conflict (work_item_id) do nothing`, [workItemId, JSON.stringify(source)]);
+    await this.db.withTransaction(async tx => {
+      if (source.kind === 'schedule') for (const delivery of [...source.deliveries].sort((a, b) => a.scheduleId.localeCompare(b.scheduleId))) {
+        const plan = (await tx.query<DigestPlanRow & { task_config?: unknown }>('select * from pa24.digest_plan where schedule_id = $1 for update', [delivery.scheduleId])).rows[0];
+        if (plan?.task_config) throw new Error('计划已升级，原生触发由通用运行入口处理，不重复委派旧简报。');
+      }
+      await tx.query(`insert into pa24.digest_work_binding (work_item_id, source) values ($1, $2)
+        on conflict (work_item_id) do nothing`, [workItemId, JSON.stringify(source)]);
+    });
   }
 
   async workSource(workItemId: string): Promise<DigestTriggerSource | null> {

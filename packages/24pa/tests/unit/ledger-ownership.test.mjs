@@ -43,6 +43,14 @@ async function legacyLedger(storage, path, { paths = [path], owners = ['owner-a'
   await db.query('alter table pa24.work_item drop column active_skill_run_id');
   await db.query('alter table pa24.digest_occurrence drop column skill_snapshot');
   await db.query('alter table pa24.digest_occurrence drop column plan_snapshot');
+  await db.query(`drop index if exists ${storage === 'sqlite' ? '' : 'pa24.'}skill_run_plan_idx`);
+  // Newer plan columns must also be removed before replaying schema 17+.
+  // Keep this fixture aligned with additive migrations without erasing the
+  // legacy rows whose ownership admission is being tested.
+  for (const migration of MIGRATIONS.filter(row => row.version >= 22)) for (const sql of migration.statements) {
+    const added = sql.match(/^alter table (pa24\.\w+) add column if not exists (\w+)/);
+    if (added) await db.query(`alter table ${added[1]} drop column ${added[2]}`);
+  }
   await db.query('delete from pa24.schema_migrations where version >= 17');
   const repos = createRepos(db);
   for (const path of paths) await repos.workspaceState.save(path, {});

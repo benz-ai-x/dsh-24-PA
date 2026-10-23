@@ -68,16 +68,17 @@ export class OutboxRepo {
     return result.rows;
   }
 
-  async mark(id: number, patch: { status: OutboxStatus; messageId?: string; error?: string; retryInMs?: number }): Promise<void> {
+  async mark(id: number, patch: { status: OutboxStatus; messageId?: string; error?: string; retryInMs?: number; releaseAttempt?: boolean }): Promise<void> {
     await this.db.query(
       `update pa24.outbox set
          status = case when $8::bool then 'expired' else $2::text end,
          message_id = coalesce($3, message_id),
          last_error = $4,
+         attempts = case when $9::bool and attempts > 0 then attempts - 1 else attempts end,
          sent_at = case when $5::bool then now() else sent_at end,
          next_attempt_at = case when $6::bool then now() + make_interval(secs => $7) else next_attempt_at end
        where id = $1`,
-      [id, patch.status, patch.messageId ?? null, patch.error ?? null, patch.status === 'sent', patch.retryInMs !== undefined, (patch.retryInMs ?? 0) / 1000, patch.status === 'expired'],
+      [id, patch.status, patch.messageId ?? null, patch.error ?? null, patch.status === 'sent', patch.retryInMs !== undefined, (patch.retryInMs ?? 0) / 1000, patch.status === 'expired', patch.releaseAttempt === true],
     );
   }
 

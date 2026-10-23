@@ -684,4 +684,137 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 21,
+    statements: [
+      `create table if not exists pa24.skill_run_control (
+        run_id text primary key, revision integer not null default 0,
+        state jsonb not null, updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.skill_run_resume (
+        request_id text primary key, run_id text not null, request_hash text not null,
+        message jsonb not null, status text not null, native_message_id text,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists skill_run_resume_run_idx on pa24.skill_run_resume (run_id, created_at)`,
+    ],
+  },
+  {
+    version: 22,
+    statements: [
+      `alter table pa24.digest_plan add column if not exists task_config jsonb`,
+      `alter table pa24.digest_plan add column if not exists task_authorization jsonb`,
+      `alter table pa24.digest_plan add column if not exists owner_enabled boolean not null default false`,
+      `alter table pa24.digest_plan add column if not exists recycled_at timestamptz`,
+      `alter table pa24.digest_plan add column if not exists delete_when_idle boolean not null default false`,
+      `alter table pa24.digest_plan add column if not exists failure_count integer not null default 0`,
+      `alter table pa24.digest_plan add column if not exists last_success_hash text`,
+      `update pa24.digest_plan set owner_enabled = true where status = 'active'`,
+      `create table if not exists pa24.task_plan_block (
+        plan_id text not null references pa24.digest_plan (id), key text not null,
+        kind text not null, reason text not null, created_at timestamptz not null default now(),
+        primary key (plan_id, key)
+      )`,
+      `create table if not exists pa24.task_plan_change (
+        request_id text primary key, request_hash text not null, result jsonb,
+        created_at timestamptz not null default now()
+      )`,
+      `alter table pa24.skill_run add column if not exists plan_id text`,
+      `alter table pa24.skill_run add column if not exists trigger_kind text`,
+      `alter table pa24.skill_run add column if not exists triggered_at timestamptz`,
+      `create index if not exists skill_run_plan_idx on pa24.skill_run (plan_id, created_at)`,
+      `create table if not exists pa24.plan_trigger (
+        id text primary key, plan_id text not null references pa24.digest_plan (id),
+        generation text not null, occurrence text not null, source text not null,
+        status text not null, reason text, run_id text, snapshot jsonb not null,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
+        unique (plan_id, generation, occurrence)
+      )`,
+      `create index if not exists plan_trigger_status_idx on pa24.plan_trigger (status, created_at)`,
+      `create table if not exists pa24.skill_run_admission_guard (id text primary key)`,
+    ],
+  },
+  {
+    version: 23,
+    statements: [
+      `create table if not exists pa24.task_plan_run_outcome (
+        run_id text primary key, plan_id text not null, status text not null,
+        result_hash text, created_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.task_plan_notice (
+        id text primary key, run_id text not null, plan_id text not null, kind text not null,
+        status text not null, reason text, destination jsonb,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists task_plan_notice_run_idx on pa24.task_plan_notice (run_id, created_at)`,
+      `create table if not exists pa24.task_plan_delivery (
+        outbox_id bigint primary key, notice_id text not null, run_id text not null,
+        component text not null, expires_at timestamptz, override_quiet boolean not null default false
+      )`,
+      `create index if not exists task_plan_delivery_run_idx on pa24.task_plan_delivery (run_id)`,
+      `create table if not exists pa24.task_plan_delivery_change (
+        request_id text primary key, request_hash text not null, outbox_id bigint not null,
+        record jsonb not null, created_at timestamptz not null default now()
+      )`,
+    ],
+  },
+  {
+    version: 24,
+    statements: [
+      `alter table pa24.skill_run add column if not exists stop_reason text`,
+    ],
+  },
+  {
+    version: 25,
+    statements: [
+      `create table if not exists pa24.task_plan_migration (
+        plan_id text primary key, original jsonb not null, time_zone text not null,
+        request_id text not null, migrated_at timestamptz not null default now()
+      )`,
+    ],
+  },
+  {
+    version: 26,
+    statements: [
+      `create table if not exists pa24.run_diagnostic (
+        id text primary key, run_id text not null, phase text not null, detail jsonb not null,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists run_diagnostic_created_idx on pa24.run_diagnostic (created_at)`,
+      `create index if not exists run_diagnostic_run_idx on pa24.run_diagnostic (run_id, created_at)`,
+    ],
+  },
+  {
+    version: 27,
+    statements: [
+      `alter table pa24.work_item add column if not exists active_worker_run_id text`,
+      `alter table pa24.work_item add column if not exists completion_criteria text`,
+      `alter table pa24.work_item add column if not exists parent_work_item_id text`,
+      `alter table pa24.work_item add column if not exists acceptance_required boolean not null default false`,
+      `alter table pa24.work_item add column if not exists acceptance_status text not null default 'none'`,
+      `alter table pa24.work_item add column if not exists revision integer not null default 0`,
+      `alter table pa24.work_item add column if not exists progress_detail jsonb`,
+      `create table if not exists pa24.worker_run (
+        id text primary key, work_item_id text not null, session_id text not null,
+        source text not null, status text not null, instruction text not null, snapshot jsonb not null,
+        progress text, progress_detail jsonb, stop_reason text, result text, result_ref jsonb, outbox_key text,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists worker_run_work_idx on pa24.worker_run (work_item_id, created_at)`,
+      `create table if not exists pa24.worker_run_input (
+        execution_id text primary key, run_id text not null, scope jsonb not null, instruction text not null,
+        status text not null, native_message_id text, adopted_turn integer, reason text,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create index if not exists worker_run_input_run_idx on pa24.worker_run_input (run_id, created_at)`,
+      `create table if not exists pa24.worker_run_call (
+        id text primary key, run_id text not null, tool text not null, args jsonb not null,
+        status text not null, result jsonb, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.work_change (
+        request_id text primary key, request_hash text not null, work_item_id text not null, record jsonb not null,
+        created_at timestamptz not null default now()
+      )`,
+    ],
+  },
 ];

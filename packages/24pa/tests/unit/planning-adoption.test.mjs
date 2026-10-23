@@ -38,19 +38,19 @@ for (const backend of ['sqlite', 'postgres']) for (const channel of ['feishu', '
     const acceptedInputs = f.nativeInputs.size;
     await f.rt.stop(); f.rt = f.make(); await f.rt.bind(workspacePath); f.rt.transport = new FakeFeishuTransport('test'); local = f.agents.get(await f.rt.openLocalSession());
     // This worker has no durable completed turn. Recovery must not replay its
-    // actions; an explicit owner decision resumes the original work instead.
+    // actions; unknown external writes must be reconciled before continuation.
     expect((await f.rt.repos.workItems.get(child.id)).status).toBe('needs_reconciliation');
     expect(f.nativeInputs.size).toBe(acceptedInputs);
     await expect(adopt(child, [blocks[0]])).rejects.toThrow('不是运行中的 Worker');
     await f.rt.control({ action: 'stop', workId: child.id }, local);
-    await f.rt.control({ action: 'continue', workId: child.id, instruction: '本人确认继续核对原操作，未知结果不能重发。' }, local);
-    expect((await adopt(child, [blocks[0]])).results[0]).toMatchObject({ outcome: 'unknown', operationId });
+    await expect(f.rt.control({ action: 'continue', workId: child.id, instruction: '本人确认继续核对原操作，未知结果不能重发。' }, local)).rejects.toThrow('未知外部操作');
     expect((await adopt(await worker(), [blocks[1]])).results[0].skipped).toBe('unknown_conflict');
-    f.rt.config.timeZone = 'UTC'; expect((await adopt(child, [blocks[0]])).results[0].error).toContain('不能改投'); f.rt.config.timeZone = 'Asia/Shanghai';
     // Explicit maintenance reconciliation after reading the real CLI journal;
     // the application must consume that durable result, never re-send it.
     const [actual] = await remote(), eventId = actual.event_id ?? actual.schedule_id;
     await f.rt.repos.operations.update(operationId, { status: 'succeeded', receipt: { eventId, kind: 'create' } });
+    await f.rt.control({ action: 'continue', workId: child.id, instruction: '原操作已核对成功，只修复关联，不重做。' }, local);
+    f.rt.config.timeZone = 'UTC'; expect((await adopt(child, [blocks[0]])).results[0].error).toContain('不能改投'); f.rt.config.timeZone = 'Asia/Shanghai';
     expect((await adopt(child, [blocks[0]])).results[0]).toMatchObject({ outcome: 'succeeded', eventId, operationId }); expect(await remote()).toHaveLength(1);
   });
 

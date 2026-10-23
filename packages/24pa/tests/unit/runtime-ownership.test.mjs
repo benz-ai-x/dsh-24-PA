@@ -116,7 +116,7 @@ describe('公开 runtime 执行归属与恢复', () => {
   it('容量满导致补充输入未送达宿主，明确拒绝而不留下 admitted', async () => {
     const f = await setup({ maxWorkers: 1, mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }, { env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'secret' } });
     const local = f.agents.get(await f.rt.openLocalSession());
-    await f.rt.repos.workItems.insert({ ...row('completed', 'completed'), parent_session_id: local.id });
+    await f.rt.repos.workItems.insert({ ...row('completed', 'waiting_input'), parent_session_id: local.id });
     await f.rt.delegate({ worker: 'memo', title: '占满', instruction: '保存' }, local);
     await f.rt.repos.messageRoutes.record('original', { kind: 'workitem', workItemId: 'completed' });
     const send = vi.spyOn(f.ctx.subagents, 'sendMessage');
@@ -169,8 +169,13 @@ describe('公开 runtime 执行归属与恢复', () => {
     let events = end(1, 'supplement-1', null, 'first done', undefined, f.nativeInputs.get('supplement-1')); child.session.ownEvents = () => events;
     vi.spyOn(f.ctx.sessions, 'flush').mockImplementationOnce(async () => { entered.resolve(); await release.promise; return true; });
     f.rt.onSessionEvent(child.session, events.at(-1)); await entered.promise;
-    await inject('second'); await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('second')).request_id).toBe('supplement-2'));
-    release.resolve(); await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('first')).status).toBe('delivered'));
+    try {
+      await inject('second'); await vi.waitFor(async () => {
+        const input = await f.rt.repos.inbox.get('second');
+        expect(input.request_id, JSON.stringify(input)).toBe('supplement-2');
+      });
+    } finally { release.resolve(); }
+    await vi.waitFor(async () => expect((await f.rt.repos.inbox.get('first')).status).toBe('delivered'));
     expect((await f.rt.repos.inbox.get('second')).status).toBe('admitted'); expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('running');
     events = [...events, ...end(2, 'supplement-2', null, 'second done', undefined, f.nativeInputs.get('supplement-2'))]; f.rt.onSessionEvent(child.session, events.at(-1));
     await vi.waitFor(async () => expect((await f.rt.repos.workItems.get(task.workId)).status).toBe('completed'));

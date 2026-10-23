@@ -133,10 +133,16 @@ export class SourceTodo {
     };
     const all = [...objects].filter(([, object]) => object.match).map(([objectId, { row, locations, stale }]) => {
       const links = locals.filter(task => localObjects.get(task.id) === objectId);
+      const relatedWork = relations.filter(operation => {
+        const target = operation.params.sourceTarget as SourceTarget | undefined, receipt = operation.receipt;
+        return operation.status === 'succeeded' && target?.domain === 'todo' && receipt?.guid === row.native_id
+          && receipt.channel === row.platform && target.platform === row.platform && target.identityKey === row.identity_key
+          && receipt.objectId === objectId && isDeepStrictEqual(receipt.sourceTarget, target);
+      }).map(operation => operation.work_item_id);
       return { ...row.body, objectId, guid: row.native_id, channel: row.platform, summary: String(row.body.summary ?? ''),
         status: String(row.body.status), description: String(row.body.description ?? ''), dueAt: row.body.dueAt ?? null, dueDate: row.body.dueDate ?? null, bucket: bucket(row.body), locations, stale,
         checkedAt: row.observed_at.toISOString(), url: locations.find(location => location.locator.url)?.locator.url ?? null,
-        workItemIds: [...new Set(links.map(task => task.work_item_id).filter(Boolean))], taskId: links.length === 1 ? links[0]!.id : null,
+        workItemIds: [...new Set([...links.map(task => task.work_item_id), ...relatedWork].filter(Boolean))], taskId: links.length === 1 ? links[0]!.id : null,
         plannedAt: links.length === 1 ? links[0]!.planned_at?.toISOString() ?? null : null, estimateMinutes: links.length === 1 ? links[0]!.estimate_minutes : null };
     }).filter(row => (projectTasks === null || projectTasks.some(task => localObjects.get(task.id) === row.objectId))
       && (status === 'all' || row.status === status) && (deadline === 'all' || row.bucket === deadline)

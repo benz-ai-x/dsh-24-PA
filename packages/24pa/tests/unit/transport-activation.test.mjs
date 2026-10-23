@@ -8,6 +8,8 @@ import { createRepos, InboxRepo } from '../../lib/repo.js';
 import { readFile } from 'node:fs/promises';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { FakeFeishuTransport } from '../../lib/feishu.js';
+import { randomUUID } from 'node:crypto';
+import { makeSkillPackage, parseSkillMarkdown } from '../../lib/skill-package.js';
 
 const cleanup = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -35,6 +37,28 @@ async function fixture() {
 // without starting a model or a worker in this transport test.
 const event = id => ({ eventId: id, kind: 'message', appId: 'app', tenantKey: '', senderOpenId: 'other', chatType: 'p2p', text: 'test' });
 const settled = promise => promise.then(() => ({ ok: true }), error => ({ ok: false, error }));
+
+it('超时但尚未确认停止时，工作区和机器人身份仍被原账本阻挡', async () => {
+  const { rt, workspace } = await fixture(), repos = rt.repos;
+  const markdown = '---\nname: stop-check\ndescription: stop-check\nmetadata:\n  track: agent\n  tools: []\n---\nReturn a result.';
+  let entry = await repos.skills.change({ requestId: randomUUID(), requestHash: 'create', op: 'save', displayName: '停止核对', version: {
+    package_data: makeSkillPackage([{ path: 'SKILL.md', bytes: Buffer.from(markdown) }]), definition: parseSkillMarkdown(markdown), validation_error: null } });
+  entry = await repos.skills.change({ requestId: randomUUID(), requestHash: 'publish', op: 'publish', id: entry.id, expectedRevision: entry.revision, versionId: entry.draft_version });
+  const version = await repos.skills.version(entry.active_version);
+  const run = await repos.skillRuns.admit({ request_id: randomUUID(), request_hash: 'run', skill_id: entry.id, version_id: version.id,
+    source_session_id: 'source', workspace_path: rt.workspace.statePath, mode: 'local', trial: false, expectedRevision: entry.revision,
+    snapshot: { name: '停止核对', definition: version.definition, package: version.package_data, contract: null, parameters: {}, tools: [], permissionHash: 'allowed' } });
+  await repos.runControls.change(run.id, state => { state.stop = { requestedAt: Date.now(), settledAt: null, error: '等待原生停止回执' }; });
+  await repos.skillRuns.transition(run.id, 'timed_out', '超时');
+  expect((await repos.workItems.get(run.work_item_id)).status).toBe('failed');
+  const next = await workspace('after-unsettled-stop');
+  await expect(rt.bind(next)).rejects.toThrow(/进行中的事项/);
+  await expect(rt.updateWorkspaceConfig({ mode: 'feishu' })).rejects.toThrow(/进行中的事项/);
+  expect(rt.repos).toBe(repos);
+  await repos.runControls.change(run.id, state => { state.stop.settledAt = Date.now(); });
+  await rt.bind(next);
+  expect(rt.workspace.statePath).toBe(next);
+});
 
 describe('prepared transport acknowledgements', () => {
   it('rejects an early event when transport startup fails, preserving the old workspace', async () => {
@@ -197,7 +221,7 @@ it.each(['finish', 'stop'])('引用 Worker 的补充输入在 %s 后释放原工
   const { rt, workspace, ctx } = await fixture();
   const a = await workspace(`followup-${outcome}`, 'feishu'); await rt.bind(a);
   const localId = await rt.openLocalSession(), accessId = localId.replace(/-local$/, '-feishu');
-  await rt.repos.workItems.insert({ id: 'work', child_session_id: 'child', title: '原事项', role: 'memo', instruction: 'work', origin: 'feishu', parent_session_id: accessId, delivery: 'feishu:owner', status: 'completed' });
+  await rt.repos.workItems.insert({ id: 'work', child_session_id: 'child', title: '原事项', role: 'memo', instruction: 'work', origin: 'feishu', parent_session_id: accessId, delivery: 'feishu:owner', status: 'waiting_input' });
   await rt.repos.messageRoutes.record('original-message', { kind: 'workitem', workItemId: 'work' });
   let child;
   ctx.sessions = { get: id => id === 'child' ? child : undefined, flush: async () => true };

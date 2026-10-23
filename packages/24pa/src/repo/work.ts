@@ -3,8 +3,10 @@
 import type { ResolvedTaskSkill } from '../skills.js';
 import type { PaDb } from '../db.js';
 import { enqueueOutbox, type NewOutbox } from './outbox.js';
+import { WorkerRunRepo } from './worker-run.js';
 import { randomUUID } from 'node:crypto';
 import { readLedgerOwner } from './ledger.js';
+import { executionCapacity, hasExecutionCapacity } from './execution-capacity.js';
 
 export interface WorkExecutionScope {
   workspaceId: string;
@@ -30,6 +32,12 @@ export const UNSETTLED_WORK_STATUSES = ['accepted', 'queued', 'running', 'waitin
 export interface WorkItemRow {
   execution_mode?: 'worker' | 'skill';
   active_skill_run_id?: string | null;
+  active_worker_run_id?: string | null;
+  completion_criteria?: string | null;
+  parent_work_item_id?: string | null;
+  acceptance_required?: boolean;
+  acceptance_status?: 'none' | 'pending' | 'accepted' | 'returned';
+  revision?: number;
   id: string;
   title: string;
   role: string;
@@ -45,6 +53,7 @@ export interface WorkItemRow {
   execution_scope?: WorkExecutionScope | null;
   status: WorkItemStatus;
   progress: string | null;
+  progress_detail?: { stage: string; completed: string; next: string } | null;
   result: string | null;
   result_ref: any;
   created_at: Date;
@@ -54,18 +63,27 @@ export interface WorkItemRow {
 export class WorkItemRepo {
   constructor(private readonly db: PaDb) {}
 
-  async claimNext(): Promise<WorkItemRow | null> {
-    const result = await this.db.query<WorkItemRow>(
-      `update pa24.work_item set status = 'running', progress = 'Worker 正在处理', updated_at = now()
-       where id = (select id from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted') order by created_at, id limit 1)
-       and status in ('queued', 'accepted') returning *`,
-    );
-    return result.rows[0] ?? null;
+  async claimNext(limit = 2): Promise<WorkItemRow | null> {
+    return this.db.withTransaction(async tx => {
+      const available = await executionCapacity(tx, limit);
+      const candidates = (await tx.query<WorkItemRow>("select * from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted') order by created_at, id")).rows;
+      // A queued standalone worker must not hide a child that can use its
+      // active parent's existing slot: that parent may be awaiting the child.
+      for (const candidate of candidates) {
+        if (!available({ parentSessionId: candidate.parent_session_id })) continue;
+        const result = await tx.query<WorkItemRow>(
+          `update pa24.work_item set status = 'running', progress = 'Worker 正在处理', updated_at = now()
+           where id = $1 and status in ('queued', 'accepted') returning *`, [candidate.id],
+        );
+        if (result.rows[0]) return result.rows[0];
+      }
+      return null;
+    });
   }
 
   /** Commit the input identity before native admission, so a later DB outage
    * cannot erase the link to the independently persisted Session history. */
-  async beginExecution(item: WorkItemRow, workspacePath: string, input: WorkExecutionScope['input']): Promise<WorkItemRow> {
+  async beginExecution(item: WorkItemRow, workspacePath: string, input: WorkExecutionScope['input'], instruction = item.instruction): Promise<WorkItemRow> {
     return this.db.withTransaction(async tx => {
       const owner = await readLedgerOwner(tx);
       if (!owner) throw new Error('账本尚未登记工作区，不能接纳 Worker 输入。');
@@ -78,16 +96,43 @@ export class WorkItemRepo {
         [item.id, randomUUID(), JSON.stringify(scope), scope.generation],
       );
       if (!result.rows[0]) throw new Error('事项代次或状态已变更，未接纳新输入。');
-      return result.rows[0];
+      const runId = await new WorkerRunRepo(this.db).begin(tx, result.rows[0], instruction);
+      return { ...result.rows[0], ...(runId ? { active_worker_run_id: runId } : {}) };
     });
   }
 
   async restoreExecution(id: string, expectedId: string, previous: WorkItemRow): Promise<void> {
-    await this.db.query(`update pa24.work_item set execution_id = $3, execution_scope = $4
-      where id = $1 and execution_id = $2`,
-    [id, expectedId, previous.execution_id ?? null, previous.execution_scope ? JSON.stringify(previous.execution_scope) : null]);
+    await this.db.withTransaction(async tx => {
+      const rejected = (await tx.query<{ run_id: string }>('select run_id from pa24.worker_run_input where execution_id = $1', [expectedId])).rows[0];
+      await new WorkerRunRepo(this.db).inputReceipt(expectedId, 'rejected', undefined, undefined, '宿主明确未接纳输入', tx);
+      if (rejected && rejected.run_id !== previous.active_worker_run_id) await tx.query("update pa24.worker_run set status = 'rejected', progress = '宿主明确未接纳输入' where id = $1", [rejected.run_id]);
+      await tx.query(`update pa24.work_item set execution_id = $3, execution_scope = $4, active_worker_run_id = $5
+        where id = $1 and execution_id = $2`,
+      [id, expectedId, previous.execution_id ?? null, previous.execution_scope ? JSON.stringify(previous.execution_scope) : null, previous.active_worker_run_id ?? null]);
+    });
   }
 
+  async assertResumable(id: string): Promise<void> {
+    const run = await new WorkerRunRepo(this.db).current(id);
+    if (run?.status === 'stopping') throw new Error('原运行尚未确认停止，请先核对停止结果。');
+    await this.assertKnownEffects(id, !!run && ['completed','failed','stopped','timed_out','rejected'].includes(run.status));
+  }
+  async assertKnownEffects(id: string, includeRunning = false, activeCalls?: ReadonlySet<string>): Promise<void> {
+    await new WorkerRunRepo(this.db).continuation(id, includeRunning, activeCalls);
+    const unknown = await this.db.query("select id from pa24.action_operation where work_item_id = $1 and status in ('running','unknown') limit 1", [id]);
+    if (unknown.rowCount) throw new Error('原交办仍有未知外部操作，请先核对原平台回执；不以新运行重复写入。');
+  }
+  async pendingStops(): Promise<Array<WorkItemRow & { stop_reason: 'stopped' | 'timed_out' }>> {
+    return (await this.db.query<WorkItemRow & { stop_reason: 'stopped' | 'timed_out' }>(`select w.*, r.stop_reason from pa24.work_item w
+      join pa24.worker_run r on r.id = w.active_worker_run_id where r.status = 'stopping' order by r.created_at`)).rows;
+  }
+  async inputReceipt(executionId: string, status: 'received' | 'unknown', nativeId?: string): Promise<void> {
+    await new WorkerRunRepo(this.db).inputReceipt(executionId, status, nativeId);
+  }
+  async rejectedExecution(id: string, reason: string): Promise<void> { await new WorkerRunRepo(this.db).rejected(id, reason); }
+  async stopReceipt(id: string, settled: boolean, status: 'stopped' | 'timed_out' = 'stopped', error?: string): Promise<void> {
+    await new WorkerRunRepo(this.db).stop(id, settled, status, error);
+  }
   async ownsExecution(item: WorkItemRow): Promise<boolean> {
     return !!item.execution_scope?.workspaceId && (await readLedgerOwner(this.db))?.workspace_id === item.execution_scope.workspaceId;
   }
@@ -95,39 +140,48 @@ export class WorkItemRepo {
   async finishWithDelivery(id: string, output: string, failed: boolean, delivery: NewOutbox, expected?: { executionId?: string; generation: number }): Promise<WorkItemRow | null> {
     return this.db.withTransaction(async tx => {
       const result = await tx.query<WorkItemRow>(
-        `update pa24.work_item set status = $2, result = $3, progress = $4, updated_at = now()
+        `update pa24.work_item set status = $2, result = $3, progress = $4, revision = revision + 1,
+           acceptance_status = case when acceptance_required and $2 = 'completed' then 'pending' else acceptance_status end, updated_at = now()
          where id = $1 and status = 'running'
          ${expected ? 'and recovery_gen = $5' : ''}
          ${expected?.executionId ? 'and execution_id = $6' : ''} returning *`,
-        [id, failed ? 'failed' : 'completed', output, failed ? 'Worker 未完成，结果待回传' : 'Worker 已完成，结果待回传',
+        [id, failed ? 'failed' : 'completed', output, failed ? '执行未完成，结果已保存' : '执行已结束，结果已保存',
           ...(expected ? [expected.generation] : []), ...(expected?.executionId ? [expected.executionId] : [])],
       );
       if (!result.rows[0]) return null;
       await enqueueOutbox(tx, delivery);
+      await new WorkerRunRepo(this.db).finish(tx, result.rows[0], delivery.dedupKey);
       return result.rows[0];
     });
   }
 
   async insert(row: Omit<WorkItemRow, 'created_at' | 'updated_at' | 'progress' | 'result' | 'result_ref' | 'child_session_id'> & { child_session_id?: string }): Promise<WorkItemRow> {
     const result = await this.db.query<WorkItemRow>(
-      `insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, child_session_id, delivery, status, skill, skill_definition)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning *`,
-      [row.id, row.title, row.role, row.instruction, row.origin, row.parent_session_id, row.child_session_id ?? null, row.delivery, row.status, row.skill ?? null, row.skill_definition ? JSON.stringify(row.skill_definition) : null],
+      `insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, child_session_id, delivery, status, skill, skill_definition, completion_criteria, acceptance_required, parent_work_item_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) returning *`,
+      [row.id, row.title, row.role, row.instruction, row.origin, row.parent_session_id, row.child_session_id ?? null, row.delivery, row.status, row.skill ?? null, row.skill_definition ? JSON.stringify(row.skill_definition) : null, row.completion_criteria ?? null, row.acceptance_required === true, row.parent_work_item_id ?? null],
     );
     return result.rows[0]!;
   }
 
-  async update(id: string, patch: Partial<Pick<WorkItemRow, 'status' | 'progress' | 'result' | 'result_ref' | 'child_session_id'>>): Promise<WorkItemRow | null> {
-    const sets: string[] = ['updated_at = now()'];
+  async update(id: string, patch: Partial<Pick<WorkItemRow, 'status' | 'progress' | 'progress_detail' | 'result' | 'result_ref' | 'child_session_id'>>, limit?: number): Promise<WorkItemRow | null> {
+    const sets: string[] = ['updated_at = now()', 'revision = revision + 1'];
     const values: unknown[] = [id];
     let n = 2;
     for (const [key, value] of Object.entries(patch)) {
       sets.push(`${key} = $${n}`);
-      values.push(value === undefined ? null : key === 'result_ref' ? JSON.stringify(value) : value);
+      values.push(value === undefined ? null : ['result_ref','progress_detail'].includes(key) ? JSON.stringify(value) : value);
       n += 1;
     }
-    const result = await this.db.query<WorkItemRow>(`update pa24.work_item set ${sets.join(', ')} where id = $1 returning *`, values);
-    return result.rows[0] ?? null;
+    return this.db.withTransaction(async tx => {
+      if (limit !== undefined && patch.status === 'running') {
+        const item = (await tx.query<WorkItemRow>('select * from pa24.work_item where id = $1', [id])).rows[0];
+        if (!await hasExecutionCapacity(tx, limit, { workId: id, parentSessionId: item?.parent_session_id })) throw new Error('全局执行并发已满，请稍后继续。');
+      }
+      const result = await tx.query<WorkItemRow>(`update pa24.work_item set ${sets.join(', ')} where id = $1 returning *`, values);
+      if (result.rows[0]) await new WorkerRunRepo(this.db).updateForWork(tx, result.rows[0]);
+      return result.rows[0] ?? null;
+    });
   }
 
   async get(id: string): Promise<WorkItemRow | null> {
@@ -249,9 +303,9 @@ export class ActionOperationRepo {
       and action in ('task.create', 'task.update', 'task.complete', 'task.delete', 'task.assign', 'wecom_todo.create', 'wecom_todo.update', 'wecom_todo.finish', 'wecom_todo.delete', 'wecom_todo.assign')`, [workItemId])).rows;
   }
 
-  async todoAssignments(): Promise<ActionOperationRow[]> {
+  async todoRelations(): Promise<ActionOperationRow[]> {
     return (await this.db.query<ActionOperationRow>(`select * from pa24.action_operation where status = 'succeeded'
-      and action in ('task.create', 'task.assign', 'wecom_todo.create', 'wecom_todo.assign')`)).rows;
+      and action in ('task.create', 'task.update', 'task.complete', 'task.delete', 'task.assign', 'wecom_todo.create', 'wecom_todo.update', 'wecom_todo.finish', 'wecom_todo.delete', 'wecom_todo.assign')`)).rows;
   }
 
   async calendarRemindersForWork(workItemId: string): Promise<ActionOperationRow[]> {

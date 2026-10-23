@@ -8,6 +8,7 @@ export class WorkspaceExecution {
   private readonly context = new AsyncLocalStorage<Lease | undefined>();
   private readonly pending = new Set<Promise<unknown>>();
   private paused = false;
+  private draining = false;
   private closed = false;
   private changing: Promise<unknown> = Promise.resolve();
 
@@ -17,7 +18,18 @@ export class WorkspaceExecution {
       if (!inherited.active) return Promise.reject(new Error('执行归属已结束，不能继续使用工作区。'));
       return work();
     }
-    if (this.closed || this.paused) return Promise.reject(new Error('工作区正在切换或已停止，请稍后重试。'));
+    return this.admit(work, false);
+  }
+
+  /** Cancellation and its receipts must be able to finish an existing job
+   * while a configuration transition waits for that job. This does not admit
+   * new business work, or run against a workspace already being replaced. */
+  control<T>(work: () => Promise<T>): Promise<T> {
+    return this.detached(() => this.admit(work, true));
+  }
+
+  private admit<T>(work: () => Promise<T>, control: boolean): Promise<T> {
+    if (this.closed || (this.paused && !(control && this.draining))) return Promise.reject(new Error('工作区正在切换或已停止，请稍后重试。'));
     const lease: Lease = { active: true };
     const result = this.context.run(lease, async () => work());
     this.pending.add(result);
@@ -33,7 +45,9 @@ export class WorkspaceExecution {
     const result = this.changing.then(async () => {
       if (this.closed) throw new Error('24私助已停止。');
       this.paused = true;
-      await Promise.allSettled([...this.pending]);
+      this.draining = true;
+      while (this.pending.size) await Promise.allSettled([...this.pending]);
+      this.draining = false;
       const lease: Lease = { active: true };
       try { return await this.context.run(lease, change); }
       finally { lease.active = false; this.paused = false; }
@@ -56,6 +70,6 @@ export class WorkspaceExecution {
   async close(): Promise<void> {
     this.stopAccepting();
     await this.changing;
-    await Promise.allSettled([...this.pending]);
+    while (this.pending.size) await Promise.allSettled([...this.pending]);
   }
 }

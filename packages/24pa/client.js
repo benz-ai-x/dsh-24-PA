@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
       reminderOnce: '单次', reminderDaily: '每日', reminderPaused: '已暂停', reminderCanceled: '已取消', reminderDone: '已结束',
       queued: '排队中', running: '处理中', completed: '已完成', accepted: '已接纳',
       sent: '已发送', pending: '待发送', sending: '发送中', failed: '未完成', expired: '已过期', unknown: '结果未知',
+      waiting: '等待处理', stopping: '正在停止', timed_out: '累计执行超时', skipped: '已跳过', rejected: '已拒绝', delivering: '待投递', model_done: '已生成', unconfirmed: '待核对',
       waiting_input: '等待补充', stopped: '已停止', needs_reconciliation: '需核对',
       'status.ok': '正常', 'status.warn': '待核验', 'status.error': '需要处理', 'status.missing': '待配置', 'status.unchecked': '尚未检查',
     };
@@ -40,6 +41,7 @@ window.__ModuleLoader__.load({
       reminderOnce: 'Once', reminderDaily: 'Daily', reminderPaused: 'Paused', reminderCanceled: 'Canceled', reminderDone: 'Done',
       queued: 'Queued', running: 'Running', completed: 'Completed', accepted: 'Accepted',
       sent: 'Sent', pending: 'Pending', sending: 'Sending', failed: 'Failed', expired: 'Expired', unknown: 'Unknown',
+      waiting: 'Waiting', stopping: 'Stopping', timed_out: 'Timed out', skipped: 'Skipped', rejected: 'Rejected', delivering: 'Awaiting delivery', model_done: 'Generated', unconfirmed: 'Unconfirmed',
       waiting_input: 'Waiting for input', stopped: 'Stopped', needs_reconciliation: 'Needs reconciliation',
       'status.ok': 'OK', 'status.warn': 'Needs review', 'status.error': 'Needs attention', 'status.missing': 'Not configured', 'status.unchecked': 'Not checked',
     };
@@ -93,7 +95,7 @@ window.__ModuleLoader__.load({
       .pa24-error{padding:16px;border:1px solid var(--pa-danger);border-radius:12px;background:var(--pa-danger-bg);margin:14px 0;color:var(--pa-danger);overflow-wrap:anywhere}
       .pa24-tabs{display:flex;gap:6px;border-bottom:1px solid var(--pa-line);margin:0 0 18px;overflow-x:auto;scrollbar-width:thin;padding:3px 0 10px}.pa24-tabs button{flex-shrink:0;min-height:40px;padding:8px 12px;background:transparent;border:1px solid transparent;border-radius:9px;color:var(--pa-muted);font-weight:500}.pa24-tabs button[aria-selected=true]{background:var(--tone-bg);color:var(--tone);font-weight:650}
       .pa24-section-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}.pa24-section-title{display:flex;align-items:center;gap:10px}.pa24-section-desc{margin-top:5px!important;color:var(--pa-muted);font-size:13px}
-      .pa24-skills{min-width:0;overflow-wrap:anywhere}.pa24-skills .pa24-section-head{flex-wrap:wrap}.pa24-skills .pa24-section-head>div{flex:1 1 240px;min-width:0}.pa24-skills .pa24-section-head>button{flex-shrink:0;white-space:nowrap}.pa24-skills .pa24-row>label{min-width:0;max-width:100%}.pa24-skills .pa24-note>button{max-width:100%;white-space:normal}
+      :is(.pa24-skills,.pa24-manager){min-width:0;overflow-wrap:anywhere}:is(.pa24-skills,.pa24-manager) .pa24-section-head{flex-wrap:wrap}:is(.pa24-skills,.pa24-manager) .pa24-section-head>div{flex:1 1 240px;min-width:0}:is(.pa24-skills,.pa24-manager) .pa24-section-head>button{flex-shrink:0;white-space:nowrap}:is(.pa24-skills,.pa24-manager) .pa24-row>label{min-width:0;max-width:100%}:is(.pa24-skills,.pa24-manager) .pa24-note>button{max-width:100%;white-space:normal}
       .pa24-card{min-width:0;background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:16px;padding:16px 18px;margin-bottom:16px;box-shadow:var(--pa-shadow)}.pa24-card>h2{margin-bottom:10px}.pa24-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}.pa24-grid>.pa24-card{margin:0}
       .pa24-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px}.pa24-stat{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--pa-line);border-radius:14px;background:var(--pa-surface)}.pa24-stat strong{font-size:22px;line-height:1.2;font-weight:650;font-variant-numeric:tabular-nums}.pa24-stat-label{font-size:12px;color:var(--pa-muted);margin-bottom:4px}.pa24-stat small{font-size:11px;color:var(--pa-muted);margin-left:8px}
       .pa24-empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:35px 18px}.pa24-empty>.pa24-icon-tile{width:64px;height:64px;border-radius:22px;margin-bottom:18px}.pa24-empty>.pa24-icon-tile svg{width:29px;height:29px}.pa24-empty h3{font-size:17px;margin:3px 0 8px}.pa24-empty p{max-width:440px;color:var(--pa-muted);font-size:13px}.pa24-empty .pa24-row{margin-top:18px;justify-content:center}
@@ -130,7 +132,7 @@ window.__ModuleLoader__.load({
       .pa24-chip{display:none;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:99px;font-size:10px;font-weight:700;background:var(--pa-amber-bg);color:var(--pa-amber)}
       .pa24-chip.show{display:inline-flex}.pa24-chip.error{background:var(--pa-danger-bg);color:var(--pa-danger)}
       .pa24-detail-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
-      .pa24-skills label.pa24-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;max-width:100%;font-size:13px}.pa24-skills label.pa24-field:has(input[type=checkbox]){flex-direction:row;align-items:flex-start}.pa24-skills label.pa24-field input:not([type=checkbox]),.pa24-skills label.pa24-field textarea,.pa24-skills label.pa24-field select{width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--pa-line);border-radius:8px;background:var(--pa-soft);color:var(--pa-ink);font:inherit}.pa24-skills label.pa24-field textarea{resize:vertical}.pa24-skills label.pa24-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px;margin:2px 0;padding:0}.pa24-skills fieldset{min-width:0;border:1px solid var(--pa-line);border-radius:10px;padding:12px}.pa24-skills legend{font-size:12px;overflow-wrap:anywhere}
+      :is(.pa24-skills,.pa24-manager) label.pa24-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;max-width:100%;font-size:13px}:is(.pa24-skills,.pa24-manager) label.pa24-field:has(input[type=checkbox]){flex-direction:row;align-items:flex-start}:is(.pa24-skills,.pa24-manager) label.pa24-field input:not([type=checkbox]),:is(.pa24-skills,.pa24-manager) label.pa24-field textarea,:is(.pa24-skills,.pa24-manager) label.pa24-field select{width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--pa-line);border-radius:8px;background:var(--pa-soft);color:var(--pa-ink);font:inherit}:is(.pa24-skills,.pa24-manager) label.pa24-field textarea{resize:vertical}:is(.pa24-skills,.pa24-manager) label.pa24-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px;margin:2px 0;padding:0}:is(.pa24-skills,.pa24-manager) fieldset{min-width:0;border:1px solid var(--pa-line);border-radius:10px;padding:12px}:is(.pa24-skills,.pa24-manager) legend{font-size:12px;overflow-wrap:anywhere}
       .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
       .pa24-source-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}.pa24-source-fields label{display:flex;flex-direction:column;gap:5px;min-width:0}.pa24-sources input,.pa24-sources select{max-width:100%;box-sizing:border-box}.pa24-sources .pa24-check input{width:18px;flex:0 0 18px}.pa24-source-save{position:sticky;bottom:72px;background:var(--pa-surface);border-top:1px solid var(--pa-line);padding:12px 0;margin-top:16px;z-index:2}.pa24-source-save p{margin:6px 0 0}.pa24-sources .pa24-job{overflow-wrap:anywhere}
@@ -458,10 +460,10 @@ window.__ModuleLoader__.load({
           React.useEffect(() => {
             const abort = new AbortController();
             if (!workspacePath) {
-              setView({ status: 'ready', data: {}, errors: {} });
+              setView({ binding: workspaceBinding, status: 'ready', data: {}, errors: {} });
               return () => abort.abort();
             }
-            setView(v => ({ status: 'loading', data: v.data, errors: v.errors || {} }));
+            setView(v => ({ binding: workspaceBinding, status: 'loading', data: v.binding === workspaceBinding ? v.data : null, errors: v.binding === workspaceBinding ? v.errors : {} }));
             const out = {}, errors = {};
             const capture = (key, request) => request.then(result => { out[key] = result; }).catch(error => { errors[key] = error.message; });
             void Promise.all([
@@ -473,10 +475,12 @@ window.__ModuleLoader__.load({
               capture('calendar', rpc('calendar', { workspaceBinding }, abort.signal)),
               capture('todos', rpc('todos', { workspaceBinding }, abort.signal)),
               capture('digests', rpc('digests', {}, abort.signal)),
-            ]).then(() => { if (!abort.signal.aborted) setView({ status: 'ready', data: out, errors }); });
+              capture('plans', rpc('plans.summary', { workspaceBinding }, abort.signal)),
+              capture('runs', rpc('runs.summary', { workspaceBinding }, abort.signal)),
+            ]).then(() => { if (!abort.signal.aborted) setView({ binding: workspaceBinding, status: 'ready', data: out, errors }); });
             return () => abort.abort();
           }, [workspacePath, tick, workspaceBinding]);
-          return { ...(view.data || {}), _status: view.status, _errors: view.errors || {} };
+          return view.binding === workspaceBinding ? { ...(view.data || {}), _status: view.status, _errors: view.errors || {} } : { _status: 'loading', _errors: {} };
         };
         const capLine = (label, value) => h('div', { className: 'pa24-cap-line' }, h('span', { className: 'pa24-muted' }, label), h('b', null, value));
         // F35: 模式显示词收敛一处（config/workspace 两卡 label＋body 共用）。
@@ -1009,7 +1013,7 @@ window.__ModuleLoader__.load({
         }
 
         function DigestDetail({ extra, state, config, tz, button, openRobot, openCard, refresh, planStates }) {
-          const plans = extra.digests?.plans ?? [];
+          const plans = (extra.digests?.plans ?? []).filter(plan => !plan.managed);
           const skills = extra.digests?.skills ?? [];
           const on = voiceOn(config);
           const tts = state.tts;
@@ -1034,6 +1038,392 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-row' },
                 button('refresh', L('检测语音引擎', 'Probe voice engine'), () => rpc('action', { type: 'tts.probe' }), { className: 'pa24-quiet' }),
                 on && button('bot', L('发一条测试语音', 'Send a test voice'), () => rpc('action', { type: 'tts.test' }), { key: 'test', className: 'pa24-quiet' }))));
+        }
+
+        const planStateLabel = plan => plan.recycled_at ? L('已回收', 'Recycled') : plan.delete_when_idle ? L('等待结束后删除', 'Deleting after completion')
+          : plan.blocks?.length || plan.skillBlock ? L('需处理', 'Needs attention') : plan.status === 'active' && (!plan.task_config || plan.owner_enabled) ? L('已启用', 'Enabled') : L('已暂停', 'Paused');
+        const planTimingLabel = plan => {
+          const spec = plan.schedule_spec || {}, zone = plan.task_config?.timeZone || spec.daily?.time_zone || spec.weekly?.time_zone || spec.cron?.time_zone;
+          if (spec.at) return L('一次性 · ', 'Once · ') + date(spec.at, zone);
+          if (spec.daily) return L('每天 ', 'Daily ') + spec.daily.time + ' · ' + zone;
+          if (spec.weekly) return (plan.kind === 'weekdays' ? L('周一至周五（不含法定工作日判断）', 'Monday–Friday (no holiday calendar)')
+            : L('每周 ', 'Weekly ') + spec.weekly.weekdays.map(day => L('星期' + '一二三四五六日'[day - 1], ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][day - 1])).join('、')) + ' · ' + spec.weekly.time + ' · ' + zone;
+          if (spec.every_seconds) return L('每隔 ', 'Every ') + spec.every_seconds + L(' 秒', ' seconds');
+          if (spec.cron) return L('规则 ', 'Rule ') + spec.cron.expression + ' · ' + zone + (plan.kind === 'monthly' ? L('（无该月日期则跳过）', ' (skip missing dates)') : '');
+          return L('历史未记录时间规则', 'Timing rule not recorded');
+        };
+        const runStatusLabel = value => ({ pending: L('排队待执行', 'Queued'), running: L('执行中', 'Executing'), waiting: L('等待处理', 'Waiting'), timed_out: L('累计执行超时', 'Execution timed out'), stopping: L('正在停止', 'Stopping'), stopped: L('已停止', 'Stopped'), completed: L('执行已结束', 'Execution finished'), failed: L('执行失败', 'Execution failed'), needs_reconciliation: L('结果待核对', 'Needs reconciliation') }[value] || t(value));
+        const runSourceLabel = value => ({ manual: L('手工', 'Manual'), schedule: L('计划', 'Scheduled'), trial: L('试运行', 'Trial'), rerun: L('重跑', 'Rerun'), continuation: L('接续', 'Continuation'), local: L('本地', 'Local'), feishu: L('飞书', 'Feishu') }[value] || L('历史未记录', 'Not recorded'));
+        const deliveryLabel = (value, channel) => ({ not_requested: L('仅保存', 'Saved only'), suppressed: L('按规则不推送', 'Suppressed by rule'), pending: L('待投递', 'Pending delivery'), sending: L('正在投递', 'Sending'), sent: channel === 'local' ? L('已送入原会话', 'Delivered to original session') : channel ? L('平台已接收', 'Platform received') : L('结果已投递', 'Result delivered'), partial: L('部分投递', 'Partially delivered'), failed: L('投递失败', 'Delivery failed'), unknown: L('投递待核对', 'Delivery unknown'), expired: L('过期未投递', 'Expired') }[value] || L('历史未记录', 'Not recorded'));
+        const saveDownload = file => {
+          const url = URL.createObjectURL(new Blob([file.content], { type: 'application/json;charset=utf-8' })), link = document.createElement('a');
+          link.href = url; link.download = file.filename; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0);
+        };
+        function PlanAuthorization({ value, config }) {
+          const auth = value.authorization, timeZone = value.timeZone || value.configuration?.timeZone;
+          return h('div', { className: 'pa24-note' },
+            value.message && h('p', null, value.message), (value.notices || []).map((note, i) => h('p', { key: i }, note)),
+            auth && h('div', null, h('p', null, L('Skill：', 'Skill: ') + auth.skill.name + ' · ' + auth.skill.versionId),
+              h('p', null, L('工具：', 'Tools: ') + (auth.skill.tools.join('、') || L('无', 'None'))),
+              h('p', null, L('包内资源：', 'Package resources: ') + (auth.skill.resources.join('、') || L('无', 'None'))),
+              auth.targets.map(({ target, capability }) => h('p', { key: target.sourceId + capability },
+                ((config?.sources?.entries || []).find(source => source.id === target.sourceId)?.name || target.sourceId) + ' · ' + target.platform + ' · ' + capability + ' · ' + target.resource.id)),
+              h('p', null, auth.delivery ? L('固定投递给主人：', 'Fixed owner delivery: ') + auth.delivery.channel + ' · ' + auth.delivery.target : L('结果仅保存', 'Save results only'))),
+            value.nextTimes?.length > 0 && h('div', null, h('strong', null, L('未来触发时间', 'Upcoming occurrences') + (timeZone ? ' · ' + timeZone : '')), value.nextTimes.map(at => h('p', { key: at, className: 'pa24-meta' }, date(at, timeZone || 'UTC')))));
+        }
+        function TaskPlanForm({ form, setForm, catalog, binding, config, busy, onPreview, onSave, draft, refreshTick }) {
+          const [skill, setSkill] = React.useState(null), [error, setError] = React.useState('');
+          React.useEffect(() => {
+            const abort = new AbortController(); setSkill(null); setError('');
+            if (form.skillId) rpc('skills.inspect', { id: form.skillId, workspaceBinding: binding }, abort.signal).then(value => { if (!abort.signal.aborted && value.workspaceBinding === binding) setSkill(value); }).catch(error => { if (!abort.signal.aborted) setError(error.message); });
+            return () => abort.abort();
+          }, [form.skillId, binding, refreshTick]);
+          const field = (label, node) => h('label', { key: label, className: 'pa24-field' }, label, node);
+          const set = (key, value) => setForm({ ...form, [key]: value });
+          const timing = (key, value) => set('timing', { ...form.timing, [key]: value });
+          const delivery = (key, value) => set('delivery', { ...form.delivery, [key]: value, ...(key === 'channel' && value !== 'feishu' ? { voice: false } : {}) });
+          const text = (value, onChange, props = {}) => h('input', { value: value ?? '', onChange: event => onChange(event.target.value), ...props });
+          const options = (value, onChange, entries) => h('select', { value, onChange: event => onChange(event.target.value) }, entries.map(([key, label]) => h('option', { key, value: key }, label)));
+          let parameters = null;
+          try { const parsed = JSON.parse(form.parametersText); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) parameters = parsed; } catch {}
+          const parameterFields = skill?.metadata?.pa24?.parameters || (skill?.type === 'template' ? { title: { type: 'string', description: L('结果标题', 'Result title') } } : {});
+          return h('fieldset', { className: 'pa24-card', disabled: busy }, h('legend', null, form.id ? L('编辑暂停的计划', 'Edit paused plan') : L('新建定时任务', 'New scheduled task')),
+            field(L('名称', 'Name'), text(form.title, value => set('title', value), { maxLength: 120 })),
+            field('Skill', options(form.skillId, value => setForm({ ...form, skillId: value, parametersText: '{}' }), [['', L('选择任务或模板', 'Choose a task or template')], ...(catalog?.entries || []).filter(entry => ['task', 'template'].includes(entry.type)).map(entry => [entry.id, entry.name + ' · ' + (entry.source === 'builtin' ? L('内置原件', 'Built-in') : entry.source === 'managed' ? L('受管', 'Managed') : L('工作区', 'Workspace'))])])),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error),
+            Object.entries(parameterFields).map(([name, definition]) => field(name + (definition.required ? ' *' : '') + (definition.description ? ' · ' + definition.description : ''),
+              h('input', { type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text',
+                ...(definition.type === 'boolean' ? { checked: parameters?.[name] ?? definition.default ?? false } : { value: parameters?.[name] ?? definition.default ?? '', step: definition.type === 'integer' ? 1 : 'any' }),
+                disabled: !parameters, onChange: event => { const value = definition.type === 'boolean' ? event.target.checked : ['integer', 'number'].includes(definition.type) ? Number(event.target.value) : event.target.value;
+                  set('parametersText', JSON.stringify({ ...parameters, [name]: value }, null, 2)); } }))),
+            !parameters && h('p', { role: 'alert' }, L('参数 JSON 必须是有效对象；修正后可继续编辑参数字段。', 'Parameters must be a valid JSON object before editing fields.')),
+            h('details', null, h('summary', null, L('全部参数 JSON', 'All parameters as JSON')), field(L('参数对象', 'Parameter object'), h('textarea', { rows: 4, value: form.parametersText, onChange: event => set('parametersText', event.target.value) }))),
+            field(L('时间规则', 'Timing rule'), options(form.timing.type, value => timing('type', value), [['once', L('一次性', 'Once')], ['daily', L('每天', 'Daily')], ['weekdays', L('周一至周五', 'Monday–Friday')], ['weekly', L('每周', 'Weekly')], ['monthly', L('每月', 'Monthly')], ['interval', L('间隔', 'Interval')], ['advanced', L('高级规则', 'Advanced')]])),
+            field(L('时区', 'Time zone'), text(form.timeZone, value => set('timeZone', value))),
+            form.timing.type === 'once' && field(L('日期时间（按上方时区，可输入 ISO 偏移）', 'Date and time (zone above, or ISO offset)'), text(form.timing.at, value => timing('at', value), { placeholder: '2026-11-01T09:00:00' })),
+            ['daily', 'weekdays', 'weekly', 'monthly'].includes(form.timing.type) && field(L('时刻', 'Time'), text(form.timing.time || '09:00:00', value => timing('time', value.length === 5 ? value + ':00' : value), { type: 'time', step: 60 })),
+            form.timing.type === 'weekly' && h('fieldset', { className: 'pa24-note' }, h('legend', null, L('每周哪些天', 'Weekdays')), [1, 2, 3, 4, 5, 6, 7].map(day => field(L('星期' + '一二三四五六日'[day - 1], ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][day - 1]), h('input', { type: 'checkbox', checked: (form.timing.weekdays || []).includes(day), onChange: event => timing('weekdays', event.target.checked ? [...(form.timing.weekdays || []), day].sort() : form.timing.weekdays.filter(value => value !== day)) })))),
+            form.timing.type === 'monthly' && field(L('每月几日（无该日则跳过）', 'Day of month (skip missing dates)'), text(form.timing.day || 1, value => timing('day', Number(value)), { type: 'number', min: 1, max: 31 })),
+            form.timing.type === 'interval' && field(L('间隔秒数（至少 60 秒）', 'Interval seconds (minimum 60)'), text(form.timing.seconds || 3600, value => timing('seconds', Number(value)), { type: 'number', min: 60 })),
+            form.timing.type === 'advanced' && field(L('Cron 表达式', 'Cron expression'), text(form.timing.expression, value => timing('expression', value), { placeholder: '0 9 * * 1-5' })),
+            field(L('累计执行时限（分钟，等待不计入）', 'Execution limit (minutes, waits excluded)'), text(form.executionLimitMs / 60000, value => set('executionLimitMs', Number(value) * 60000), { type: 'number', min: 1 / 60, max: 1440, step: 'any' })),
+            field(L('结果投递', 'Delivery'), options(form.delivery.channel, value => delivery('channel', value), [['none', L('仅保存', 'Save only')], ['feishu', L('飞书主人', 'Feishu owner')], ['wecom', L('企微主人', 'WeCom owner')]])),
+            field(L('通知条件', 'Notify when'), options(form.delivery.mode, value => delivery('mode', value), [['always', L('每次完成', 'Every completion')], ['changed', L('结果正文变化', 'Result text changes')], ['errors', L('仅异常或需处理', 'Errors or attention only')]])),
+            form.delivery.channel === 'feishu' && field(L('语音并附完整文本', 'Voice plus full text'), h('input', { type: 'checkbox', checked: form.delivery.voice, onChange: event => delivery('voice', event.target.checked) })),
+            field(L('我明确预约此时投递，可覆盖免打扰', 'Deliver at my reserved time, overriding quiet hours'), h('input', { type: 'checkbox', checked: form.delivery.overrideQuiet, onChange: event => delivery('overrideQuiet', event.target.checked) })),
+            h('details', null, h('summary', null, L('业务写入目标', 'Business write targets')), h('p', { className: 'pa24-meta' }, L('不填时在启用核验时使用默认选择；确认后固定资源。', 'Blank uses the default during verification; confirmation pins the resource.')),
+              ['calendar', 'todo'].map(domain => {
+                const label = domain === 'calendar' ? L('日历', 'Calendar') : L('待办', 'Task');
+                const selection = (key, value) => { const selectors = { ...form.selectors }, current = { ...selectors[domain] }; if (value.trim()) current[key] = value; else delete current[key];
+                  if (Object.keys(current).length) selectors[domain] = current; else delete selectors[domain]; set('selectors', selectors); };
+                return h('fieldset', { key: domain }, h('legend', null, label),
+                  field(label + L('来源', ' source'), options(form.selectors?.[domain]?.sourceId || '', value => selection('sourceId', value), [['', L('按公司／项目或默认来源', 'Use company/project or default')], ...(config?.sources?.entries || []).filter(entry => entry.domain === domain).map(entry => [entry.id, entry.name])])),
+                  field(label + L('公司', ' company'), text(form.selectors?.[domain]?.company, value => selection('company', value))),
+                  field(label + L('项目', ' project'), text(form.selectors?.[domain]?.project, value => selection('project', value))));
+              })),
+            draft && h(PlanAuthorization, { value: draft, config }),
+            h('div', { className: 'pa24-row' }, h('button', { type: 'button', onClick: onPreview }, L('校验并预览时间', 'Validate and preview')), h('button', { type: 'button', disabled: !draft, onClick: onSave }, L('保存为暂停', 'Save paused'))));
+        }
+        function TaskPlansDetail(helpers) {
+          const { state, config, tz, planStates, openCard, refresh } = helpers, binding = state.workspaceBinding;
+          const model = planRowState(planStates, 'task-manager:' + binding, {}), view = React.useSyncExternalStore(model.subscribe, model.getSnapshot);
+          const [catalog, setCatalog] = React.useState(null), [catalogError, setCatalogError] = React.useState(''), [list, setList] = React.useState({ loading: true }), [detail, setDetail] = React.useState(null);
+          const query = view.query || '', filter = view.filter || '', skillFilter = view.skillFilter || '', offset = view.offset || 0;
+          React.useEffect(() => {
+            const abort = new AbortController(); setCatalogError(''); setCatalog(previous => previous?.workspaceBinding === binding ? previous : null);
+            rpc('skills.catalog', { workspaceBinding: binding }, abort.signal).then(value => { if (!abort.signal.aborted && value.workspaceBinding === binding) setCatalog(value); }).catch(error => { if (!abort.signal.aborted) setCatalogError(error.message); });
+            return () => abort.abort();
+          }, [binding, view.tick]);
+          React.useEffect(() => {
+            const abort = new AbortController(), key = JSON.stringify([binding, query, filter, skillFilter, offset]); let pending = false;
+            setList(previous => previous.key === key ? { ...previous, loading: true, error: null } : { key, loading: true });
+            const load = async () => { if (pending) return; pending = true; try {
+              const result = await rpc('plans', { workspaceBinding: binding, query, state: filter, skillId: skillFilter, offset }, abort.signal);
+              if (!Array.isArray(result.rows) || !Number.isSafeInteger(result.total)) throw new Error(L('计划列表响应不完整，请刷新重试。', 'Incomplete plan list; refresh to retry.'));
+              if (!abort.signal.aborted && result.workspaceBinding === binding) setList({ key, data: result });
+              if (view.selected) { const result = await rpc('plans.inspect', { workspaceBinding: binding, id: view.selected }, abort.signal); if (!abort.signal.aborted && result.workspaceBinding === binding) setDetail(result); }
+            } catch (error) { if (!abort.signal.aborted) setList(previous => ({ ...previous, loading: false, error: error.message })); } finally { pending = false; } };
+            setDetail(previous => previous?.workspaceBinding === binding && previous?.plan.id === view.selected ? previous : null); void load(); const timer = setInterval(load, 5000); return () => { abort.abort(); clearInterval(timer); };
+          }, [binding, query, filter, skillFilter, offset, view.tick, view.selected]);
+          const update = patch => model.update({ ...patch, error: '', preview: null, approved: false });
+          const change = async payload => {
+            if (model.getSnapshot().busy) return;
+            const selection = model.getSnapshot();
+            const body = { type: 'plan.change', workspaceBinding: binding, ...payload }, key = JSON.stringify(body), prior = model.getSnapshot().request;
+            const request = prior?.key === key ? prior : { key, id: crypto.randomUUID() }; model.update({ request, busy: true, error: '', note: '' });
+            try {
+              const result = await rpc('action', { ...body, requestId: request.id });
+              const current = model.getSnapshot(), sameSelection = current.selected === selection.selected && current.form === selection.form;
+              model.update({ ...(sameSelection ? { selected: result.plan?.id || selection.selected, form: null, preview: null, approved: false } : {}), request: null, tick: (model.getSnapshot().tick || 0) + 1,
+                note: result.trigger ? (result.trigger.reason || L('已接纳本次触发；执行状态见运行记录。', 'Trigger accepted; see run history for execution.')) : L('操作已保存，原历史保留。', 'Saved; original history retained.') });
+              await refresh().catch(() => {});
+            } catch (error) { model.update({ error: error.message }); }
+            finally { model.update({ busy: false }); }
+          };
+          const preview = async (endpoint, op, extra = {}) => {
+            if (!detail || view.busy) return; model.update({ busy: true, error: '', preview: null, approved: false });
+            try { const result = await rpc(endpoint, { id: detail.plan.id, workspaceBinding: binding, ...extra }); if (result.workspaceBinding === binding && model.getSnapshot().selected === detail.plan.id) model.update({ preview: { ...result, op, extra } }); }
+            catch (error) { model.update({ error: error.message }); } finally { model.update({ busy: false }); }
+          };
+          const edit = form => update({ selected: form.id || null, form: { ...form, parameters: form.parameters || {}, parametersText: JSON.stringify(form.parameters || {}, null, 2) }, draft: null });
+          const fresh = preset => edit({ title: preset ? ({ morning: '晨报', evening: '晚间复盘', weekly: '周回顾' })[preset] : '', skillId: preset ? 'builtin:digest-' + preset : '',
+            timing: { type: preset === 'weekly' ? 'weekly' : 'daily', time: preset === 'evening' ? '21:00:00' : '09:00:00', weekdays: [5] }, timeZone: config?.timeZone || 'Asia/Shanghai',
+            executionLimitMs: 900000, parameters: {}, selectors: {}, delivery: { channel: config?.ownerOpenId ? config.notifyChannel : config?.notifyChannel === 'wecom' ? 'wecom' : 'none', mode: 'always', voice: false, overrideQuiet: false } });
+          const formPayload = () => { const { parametersText, ...form } = view.form; return { ...form, parameters: JSON.parse(parametersText) }; };
+          const saveDraft = async save => { try {
+            const form = formPayload(); if (save) await change({ ...form, op: 'save' }); else { model.update({ busy: true, error: '' }); const draft = await rpc('plans.draft', { ...form, workspaceBinding: binding }); if (draft.workspaceBinding === binding && model.getSnapshot().form === view.form) model.update({ draft }); }
+          } catch (error) { model.update({ error: error.message }); } finally { if (!save) model.update({ busy: false }); } };
+          const p = detail?.plan, selectedRow = list.data?.rows.find(row => row.id === p?.id), disabled = view.busy;
+          const button = (label, fn, extra = {}) => h('button', { key: label, type: 'button', disabled, onClick: () => void fn(), ...extra }, label);
+          return h('section', { className: 'pa24-manager' },
+            sectionHead('pulse', L('定时任务', 'Scheduled tasks'), L('时间 + Skill。保存、启用、单次执行和投递分别留档。', 'Time + skill. Configuration, activation, execution and delivery have separate records.'), button(L('新建计划', 'New plan'), () => fresh(null)), 'green'),
+            h('div', { className: 'pa24-row' }, ['morning', 'evening', 'weekly'].map(preset => button(({ morning: L('晨报预设', 'Morning preset'), evening: L('复盘预设', 'Evening preset'), weekly: L('周回顾预设', 'Weekly preset') })[preset], () => fresh(preset))), button(L('刷新', 'Refresh'), async () => { model.update({ tick: (view.tick || 0) + 1 }); await refresh().catch(() => {}); })),
+            catalogError && h('p', { role: 'alert', className: 'pa24-error' }, catalogError),
+            catalog && catalog.discovery !== 'complete' && h('p', { role: 'alert' }, catalog.discoveryError || L('Skill 目录读取不完整，请核验接入后刷新。', 'Skill discovery is incomplete; check access and refresh.')),
+            view.error && h('p', { role: 'alert', className: 'pa24-error' }, view.error), view.note && h('p', { role: 'status' }, view.note),
+            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), draft: view.draft }),
+            view.form && button(L('放弃草稿并关闭编辑', 'Discard draft and close'), () => update({ form: null, draft: null })),
+            h('div', { className: 'pa24-row' }, h('label', { className: 'pa24-field' }, L('搜索计划', 'Search plans'), h('input', { value: query, onChange: event => update({ query: event.target.value, offset: 0 }) })),
+              h('label', { className: 'pa24-field' }, L('计划状态', 'Plan status'), h('select', { value: filter, onChange: event => update({ filter: event.target.value, offset: 0 }) }, [['', L('全部未回收', 'All unrecycled')], ['enabled', L('启用', 'Enabled')], ['paused', L('暂停', 'Paused')], ['blocked', L('需处理', 'Needs attention')], ['recycled', L('回收站', 'Recycle bin')]].map(([value, label]) => h('option', { key: value, value }, label)))),
+              h('label', { className: 'pa24-field' }, L('按 Skill 筛选', 'Filter by skill'), h('select', { value: skillFilter, onChange: event => update({ skillFilter: event.target.value, offset: 0 }) }, h('option', { value: '' }, L('全部 Skill', 'All skills')), (catalog?.entries || []).map(entry => h('option', { key: entry.id, value: entry.id }, entry.name + ' · ' + entry.source))))),
+            list.error && h('p', { role: 'alert', className: 'pa24-error' }, L('读取失败；保留上次读取结果：', 'Read failed; last results retained: ') + list.error),
+            list.loading && h('p', { role: 'status' }, L('正在读取计划…', 'Reading plans…')),
+            list.data && h('div', { className: 'pa24-card' }, h('p', { className: 'pa24-meta' }, L('匹配计划 ', 'Matching plans: ') + list.data.total),
+              !list.data.rows.length && h('p', null, query || filter || skillFilter ? L('没有匹配的计划', 'No matching plans') : L('尚无计划，可新建或选择预设。', 'No plans. Create one or choose a preset.')),
+              list.data.rows.map(row => h('article', { key: row.id, className: 'pa24-job' }, button(row.title, () => update({ selected: row.id, form: null, draft: null }), { 'aria-pressed': row.id === view.selected }),
+                h('p', null, planStateLabel(row) + ' · ' + row.skill), h('p', null, planTimingLabel(row)), h('p', { className: 'pa24-meta' }, L('下次：', 'Next: ') + (row.nextTimes?.[0] ? date(row.nextTimes[0], row.task_config?.timeZone || tz) : L('暂无已核验触发时间', 'No verified occurrence'))),
+                row.timingError && h('p', { role: 'alert', className: 'pa24-error' }, row.timingError),
+                row.recentRun && h('p', { className: 'pa24-meta' }, L('最近执行：', 'Last execution: ') + runStatusLabel(row.recentRun.status) + ' · ' + deliveryLabel(row.recentRun.delivery_status)),
+                !row.task_config && h('p', { className: 'pa24-meta' }, L('旧计划：核验后沿原关联升级', 'Legacy plan: verify before adoption')))),
+              h('div', { className: 'pa24-row' }, button(L('上一页', 'Previous'), () => update({ offset: Math.max(0, offset - 20) }), { disabled: disabled || !offset }), button(L('下一页', 'Next'), () => update({ offset: offset + 20 }), { disabled: disabled || offset + 20 >= list.data.total }))),
+            view.selected && !detail && h('p', { role: 'status' }, L('正在读取所选计划…', 'Reading selected plan…')),
+            p && h('section', { className: 'pa24-card' }, h('h3', null, p.title), h('p', null, planStateLabel({ ...p, blocks: detail.blocks, skillBlock: selectedRow?.skillBlock })),
+              h('p', { className: 'pa24-meta' }, L('主人选择：', 'Owner choice: ') + ((!p.task_config ? p.status === 'active' : p.owner_enabled) ? L('启用', 'Enabled') : L('暂停', 'Paused'))),
+              p.task_config && h('p', null, L('固定时区：', 'Pinned time zone: ') + p.task_config.timeZone + ' · ' + L('累计时限 ', 'Execution limit ') + p.task_config.executionLimitMs / 60000 + L(' 分钟', ' min')),
+              (detail.blocks || []).map(block => h('div', { key: block.key, className: 'pa24-note' }, h('p', null, block.reason), button(L('核验并解除此阻断', 'Verify and clear this blocker'), () => preview('plans.preview', 'repair', { key: block.key })))),
+              selectedRow?.skillBlock && h('p', { role: 'alert' }, selectedRow.skillBlock.reason),
+              p.lifecycle?.error && h('p', { role: 'alert' }, p.lifecycle.error),
+              h('div', { className: 'pa24-row' },
+                p.task_config && !p.recycled_at && !p.delete_when_idle && button(L('暂停未来运行', 'Pause future runs'), () => change({ op: 'pause', id: p.id, expectedRevision: p.revision })),
+                p.task_config && !p.recycled_at && !p.delete_when_idle && button(L('核验并启用', 'Verify and enable'), () => preview('plans.preview', 'enable')),
+                p.task_config && !p.recycled_at && !p.delete_when_idle && button(L('立即运行 · 先预览', 'Run now · preview'), () => preview('plans.run-preview', 'run')),
+                p.task_config && !p.recycled_at && button(L('编辑配置', 'Edit configuration'), () => edit({ ...detail.form, id: p.id, expectedRevision: p.revision }), { disabled: disabled || p.status === 'active' || !!p.schedule_id || !!p.lifecycle }),
+                p.task_config && button(L('复制为新计划', 'Copy plan'), () => edit({ ...detail.form, title: p.title + L(' 副本', ' copy') })),
+                p.recycled_at && button(L('还原为暂停', 'Restore paused'), () => change({ op: 'restore', id: p.id, expectedRevision: p.revision })),
+                button(L('查看全部运行', 'View all runs'), () => helpers.openRuns({ planId: p.id, range: 'all' }))),
+              p.status === 'active' && p.task_config && h('p', { className: 'pa24-meta' }, L('修改配置前先暂停；当前运行继续使用原快照。', 'Pause before editing; in-flight runs keep their snapshot.')),
+              !p.task_config && h('div', { className: 'pa24-note' }, h('p', null, L('保留原计划时间、状态和历史；核验当前身份与投递后升级。', 'Retain timing, state and history; verify current identity and delivery before adoption.')),
+                h('label', { className: 'pa24-field' }, L('原 Skill 来源', 'Original skill source'), h('select', { value: view.migrationSkill || '', onChange: event => update({ migrationSkill: event.target.value }) }, h('option', { value: '' }, L('请选择原来源', 'Select original source')), (catalog?.entries || []).filter(entry => (entry.internalName || entry.name) === p.skill).map(entry => h('option', { key: entry.id, value: entry.id }, entry.name + ' · ' + entry.source)))),
+                button(L('预览旧计划迁移', 'Preview legacy migration'), () => preview('plans.migration-preview', 'migrate', { skillId: view.migrationSkill || undefined }))),
+              p.task_config && !p.recycled_at && h('details', null, h('summary', null, L('重配目标与删除', 'Rebind or delete')),
+                button(L('重新绑定目标 · 先预览', 'Rebind targets · preview'), () => preview('plans.preview', 'rebind', { rebind: true })),
+                h('p', null, L('删除保留历史。若有当前运行，可等待结束或请求停止后回收。', 'Deletion keeps history. Wait for active runs or request their stop.')),
+                button(L('等待当前运行结束后删除', 'Delete after current runs end'), () => change({ op: 'delete', id: p.id, expectedRevision: p.revision, running: 'wait' })),
+                button(L('停止当前运行并删除', 'Stop current runs and delete'), () => change({ op: 'delete', id: p.id, expectedRevision: p.revision, running: 'stop' }))),
+              h('details', null, h('summary', null, L('配置、原关联与迁移凭据', 'Configuration and migration evidence')), h('pre', { className: 'pa24-json' }, JSON.stringify({ schedule: p.schedule_spec, configuration: p.task_config, authorization: p.task_authorization, migration: detail.migration }, null, 2))),
+              view.preview?.planId === p.id && h('section', { className: 'pa24-note' }, h(PlanAuthorization, { value: view.preview, config }),
+                h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: !!view.approved, onChange: event => model.update({ approved: event.target.checked }) }), L('确认本计划的工具、资源、目标和此项操作', 'Confirm tools, resources, targets and this action')),
+                button(L('确认执行此操作', 'Confirm action'), () => change({ op: view.preview.op, id: p.id, expectedRevision: view.preview.revision, fingerprint: view.preview.fingerprint, confirm: true, ...view.preview.extra }), { disabled: disabled || !view.approved }))),
+            h('details', null, h('summary', null, L('旧简报入口与语音引擎', 'Legacy digest controls and voice engine')), h(DigestDetail, helpers)));
+        }
+
+        function PlanDeliveryControls({ detail, binding, onChanged }) {
+          const [selected, setSelected] = React.useState(null), [outcome, setOutcome] = React.useState('not_sent'), [evidence, setEvidence] = React.useState(''), [messageId, setMessageId] = React.useState('');
+          const [busy, setBusy] = React.useState(false), [error, setError] = React.useState(''), [note, setNote] = React.useState('');
+          const request = React.useRef(null), alive = React.useRef(true);
+          React.useEffect(() => () => { alive.current = false; }, []);
+          const mutate = async (delivery, op) => {
+            if (busy) return;
+            const payload = { type: 'plan.delivery', workspaceBinding: binding, runId: detail.run.id, outboxId: Number(delivery.outbox_id), fingerprint: delivery.fingerprint, op, confirm: true,
+              ...(op === 'review' ? { outcome, evidence, ...(outcome === 'sent' ? { messageId } : {}) } : {}) };
+            const key = JSON.stringify(payload); if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
+            setBusy(true); setError(''); setNote('');
+            try { await rpc('action', { ...payload, requestId: request.current.id }); if (alive.current) { setSelected(null); setNote(op === 'retry' ? L('已接纳原投递的补投请求；业务不会重跑。', 'Original delivery retry accepted; business execution is not rerun.') : L('核对已保存；未送达的结果须另行明确补投。', 'Verification saved; confirmed unsent results need a separate retry.')); request.current = null; onChanged(); } }
+            catch (failure) { if (alive.current) setError(failure.message); } finally { if (alive.current) setBusy(false); }
+          };
+          return h('section', { className: 'pa24-note' }, h('h4', null, L('结果投递与补投', 'Delivery and retry')), error && h('p', { role: 'alert', className: 'pa24-error' }, error), note && h('p', { role: 'status' }, note),
+            detail.deliveries.map(notice => h('article', { key: notice.id, className: 'pa24-job' }, h('p', null, deliveryLabel(notice.deliveryStatus)), notice.reason && h('p', null, notice.reason),
+              notice.deliveries.map(delivery => h('div', { key: delivery.outbox_id, className: 'pa24-note' },
+                h('p', null, (delivery.component === 'audio' ? L('语音', 'Audio') : L('完整文本', 'Full text')) + ' · ' + deliveryLabel(delivery.outbox.status, delivery.outbox.channel)),
+                h('p', { className: 'pa24-meta' }, delivery.outbox.channel + ' · ' + L('固定接收者 ', 'Pinned recipient ') + delivery.outbox.target),
+                delivery.outbox.last_error && h('p', { role: 'alert' }, delivery.outbox.last_error),
+                delivery.expires_at && h('p', { className: 'pa24-meta' }, L('投递有效至：', 'Delivery expires: ') + new Date(delivery.expires_at).toLocaleString()),
+                delivery.outbox.message_id && h('p', { className: 'pa24-meta' }, (delivery.outbox.channel === 'local' ? L('本地投递标识：', 'Local delivery ID: ') : L('原平台回执：', 'Platform receipt: ')) + delivery.outbox.message_id),
+                delivery.outbox.status === 'failed' && !delivery.outbox.message_id && h('button', { type: 'button', disabled: busy, onClick: () => mutate(delivery, 'retry') }, L('明确补投此结果', 'Retry this delivery')),
+                delivery.outbox.status === 'unknown' && !delivery.outbox.message_id && h('button', { type: 'button', disabled: busy, onClick: () => { setSelected(delivery.outbox_id); setEvidence(''); setMessageId(''); setOutcome('not_sent'); } }, L('核对原平台是否收到', 'Verify platform receipt')),
+                selected === delivery.outbox_id && h('fieldset', { disabled: busy }, h('legend', null, L('原投递核对', 'Verify original delivery')),
+                  h('label', { className: 'pa24-field' }, L('核对结果', 'Verified outcome'), h('select', { value: outcome, onChange: event => setOutcome(event.target.value) }, h('option', { value: 'not_sent' }, L('确认未收到', 'Confirmed unsent')), h('option', { value: 'sent' }, L('确认已收到', 'Confirmed received')))),
+                  h('label', { className: 'pa24-field' }, L('核对依据', 'Evidence'), h('textarea', { value: evidence, rows: 3, maxLength: 4000, onChange: event => setEvidence(event.target.value) })),
+                  outcome === 'sent' && h('label', { className: 'pa24-field' }, L('原平台消息标识', 'Original message ID'), h('input', { value: messageId, maxLength: 500, onChange: event => setMessageId(event.target.value) })),
+                  h('button', { type: 'button', disabled: !evidence.trim() || (outcome === 'sent' && !messageId.trim()), onClick: () => mutate(delivery, 'review') }, L('确认并保存投递核对', 'Save delivery verification'))))))));
+        }
+        function WorkControls({ work, changes, binding, changed }) {
+          const [op, setOp] = React.useState('supplement'), [instruction, setInstruction] = React.useState(''), [title, setTitle] = React.useState('');
+          const [approved, setApproved] = React.useState(false), [busy, setBusy] = React.useState(false), [error, setError] = React.useState(''), [note, setNote] = React.useState('');
+          const request = React.useRef(null), alive = React.useRef(true);
+          React.useEffect(() => () => { alive.current = false; }, []);
+          React.useEffect(() => { setApproved(false); }, [work.revision]);
+          const submit = async () => {
+            if (busy) return; setBusy(true); setError(''); setNote('');
+            const body = { type: 'work.change', workspaceBinding: binding, workId: work.id, expectedRevision: work.revision, op, instruction, title, confirm: approved };
+            const key = JSON.stringify(body); if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
+            try {
+              const result = await rpc('action', { ...body, requestId: request.current.id });
+              if (!alive.current || result.workspaceBinding !== binding) return;
+              request.current = null; setApproved(false); setInstruction('');
+              setNote(result.workId ? L('新目标已建立：', 'New goal created: ') + result.workId : L('操作已保存。补充是否采用及停止实际结果请查看关联运行。', 'Saved. Check the linked run for input adoption and actual stop confirmation.'));
+              changed();
+            } catch (error) { if (alive.current) setError(error.message); } finally { if (alive.current) setBusy(false); }
+          };
+          const active = ['running', 'waiting_input'].includes(work.status), ended = ['completed', 'failed', 'stopped'].includes(work.status);
+          const choices = [...(work.execution_mode !== 'skill' ? [...(active ? [['supplement', L('补充原交办', 'Supplement original work')]] : []), ...(ended || work.status === 'waiting_input' ? [['continue', L('明确接续', 'Explicit continuation')]] : []), ...(!ended ? [['stop', L('停止当前交办', 'Stop current work')]] : [])] : []),
+            ...(work.acceptance_required && work.status === 'completed' && ['pending','returned'].includes(work.acceptance_status) ? [['accept', L('接受交付物', 'Accept deliverable')], ['return', L('退回并说明未完成项', 'Return with remaining work')]] : []), ['new-goal', L('建立关联新目标', 'Create a linked new goal')]];
+          React.useEffect(() => { if (!choices.some(([value]) => value === op)) { setOp(choices[0][0]); setApproved(false); } }, [work.status, work.acceptance_status, op]);
+          return h('div', { className: 'pa24-note' },
+            work.completion_criteria && h('p', null, L('完成标准：', 'Completion criteria: ') + work.completion_criteria),
+            work.acceptance_required && h('p', null, L('主人验收：', 'Owner acceptance: ') + ({ none: L('尚未交付', 'Not delivered'), pending: L('等待验收', 'Awaiting acceptance'), accepted: L('已接受', 'Accepted'), returned: L('已退回', 'Returned') }[work.acceptance_status] || work.acceptance_status)),
+            work.parent_work_item_id && h('p', { className: 'pa24-meta' }, L('关联原交办：', 'Related work: ') + work.parent_work_item_id),
+            h('label', { className: 'pa24-field' }, L('交办操作', 'Work action'), h('select', { value: op, disabled: busy, onChange: event => { setOp(event.target.value); setApproved(false); } }, choices.map(([value, label]) => h('option', { key: value, value }, label)))),
+            op === 'new-goal' && h('label', { className: 'pa24-field' }, L('新目标名称', 'New goal title'), h('input', { value: title, onChange: event => { setTitle(event.target.value); setApproved(false); } })),
+            op !== 'stop' && h('label', { className: 'pa24-field' }, op === 'new-goal' ? L('新目标及你选定的上下文', 'New goal and selected context') : L('补充、剩余工作或验收依据', 'Supplement, remaining work or acceptance evidence'), h('textarea', { rows: 4, value: instruction, onChange: event => { setInstruction(event.target.value); setApproved(false); } })),
+            h('p', { className: 'pa24-meta' }, op === 'stop' ? L('停止不会撤销已完成动作或关联待办；实际停止结果单独留档。', 'Stopping keeps completed actions and linked tasks. Actual stop confirmation is recorded separately.')
+              : op === 'new-goal' ? L('仅携带你在上方填写的上下文，原交办保持原样。', 'Only the context entered above is included; the original work is preserved.')
+              : op === 'continue' ? L('未结束运行沿原记录恢复；已结束则新建运行。请明确未完成部分，已成功步骤不重做。', 'Resume unfinished runs; finished runs get a new execution. Specify remaining work; completed steps are retained.')
+              : L('收到补充与执行采用分别记录；接受或退回只记录验收，不自动执行新的工作。', 'Receipt and adoption are recorded separately. Acceptance and return do not start new work.')),
+            h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: approved, onChange: event => setApproved(event.target.checked) }), L('确认针对这项交办执行所选操作', 'Confirm this action on the selected work')),
+            h('button', { type: 'button', disabled: busy || !approved || (op !== 'stop' && !instruction.trim()) || (op === 'new-goal' && !title.trim()), onClick: submit }, L('提交交办操作', 'Submit work action')),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error), note && h('p', { role: 'status' }, note),
+            h('details', null, h('summary', null, L('操作与验收历史', 'Control and acceptance history')), (changes || []).map(row => h('div', { key: row.request_id }, h('p', null, date(row.created_at) + ' · ' + row.record.op + ' · ' + row.record.phase), h('p', null, row.record.input?.instruction || row.record.error || '')))));
+        }
+        function WorkerRunReview({ detail, binding, changed }) {
+          const [summary, setSummary] = React.useState(''), [completed, setCompleted] = React.useState(''), [remaining, setRemaining] = React.useState('');
+          const [calls, setCalls] = React.useState({}), [confirmed, setConfirmed] = React.useState(false), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
+          const request = React.useRef(null), alive = React.useRef(true);
+          React.useEffect(() => () => { alive.current = false; }, []);
+          React.useEffect(() => { setConfirmed(false); }, [detail.fingerprint, detail.work.revision]);
+          const unknown = detail.calls.filter(row => ['running','unknown'].includes(row.status));
+          const unresolved = detail.operations.filter(row => ['running','unknown'].includes(row.status));
+          const save = async () => {
+            const input = { type: 'work.change', op: 'review', workId: detail.run.work_item_id, expectedRevision: detail.work.revision, runId: detail.run.id,
+              fingerprint: detail.fingerprint, summary, completed, remaining, calls: unknown.map(row => ({ id: row.id, outcome: calls[row.id]?.outcome || 'partial', evidence: calls[row.id]?.evidence || '' })), confirm: confirmed, workspaceBinding: binding };
+            const key = JSON.stringify(input); if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
+            setBusy(true); setError('');
+            try { const result = await rpc('action', { ...input, requestId: request.current.id }); if (alive.current && result.workspaceBinding === binding) { setConfirmed(false); changed(); } }
+            catch (error) { if (alive.current) setError(error.message); } finally { if (alive.current) setBusy(false); }
+          };
+          return h('section', { className: 'pa24-note' }, h('h4', null, L('原运行核对', 'Review original run')),
+            h('p', null, L('先核对原对象或文件。核对依据单独留档，原未知回执保留；接续须另行明确确认。', 'Check the original objects or files. Findings are stored separately from uncertain receipts; continuation needs a separate explicit action.')),
+            !!unresolved.length && h('p', { role: 'alert' }, L('关联平台操作仍待核对：', 'Platform operations still need verification: ') + unresolved.map(row => row.id).join('、')),
+            [['核对摘要', summary, setSummary], ['已完成步骤', completed, setCompleted], ['剩余步骤', remaining, setRemaining]].map(([label, value, set]) => h('label', { key: label, className: 'pa24-field' }, L(label, { 核对摘要: 'Review summary', 已完成步骤: 'Completed steps', 剩余步骤: 'Remaining steps' }[label]), h('textarea', { value, rows: 2, maxLength: 4000, onChange: event => { set(event.target.value); setConfirmed(false); } }))),
+            unknown.map(row => h('fieldset', { key: row.id }, h('legend', null, row.tool + ' · ' + row.id),
+              h('select', { 'aria-label': L('动作核对结果', 'Verified action outcome'), value: calls[row.id]?.outcome || 'partial', onChange: event => { setCalls({ ...calls, [row.id]: { ...calls[row.id], outcome: event.target.value } }); setConfirmed(false); } },
+                h('option', { value: 'partial' }, L('部分完成', 'Partially completed')), h('option', { value: 'completed' }, L('已完成', 'Completed')), h('option', { value: 'not_performed' }, L('明确未执行', 'Confirmed not performed'))),
+              h('textarea', { 'aria-label': L('动作核对依据', 'Action verification evidence'), rows: 2, maxLength: 4000, value: calls[row.id]?.evidence || '', onChange: event => { setCalls({ ...calls, [row.id]: { ...calls[row.id], evidence: event.target.value } }); setConfirmed(false); } }))),
+            h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: confirmed, onChange: event => setConfirmed(event.target.checked) }), L('已核对实际效果及剩余步骤', 'I verified actual effects and remaining steps')),
+            h('button', { type: 'button', disabled: busy || !confirmed || !!unresolved.length || !summary.trim() || !completed.trim() || !remaining.trim() || unknown.some(row => !calls[row.id]?.evidence?.trim()), onClick: save }, L('保存交办运行核对', 'Save work run findings')),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error));
+        }
+        function WorkerRunDetail({ id, binding, openWork }) {
+          const [detail, setDetail] = React.useState(null), [error, setError] = React.useState(''), [diagnostic, setDiagnostic] = React.useState(null), [refresh, setRefresh] = React.useState(0);
+          const alive = React.useRef(true);
+          React.useEffect(() => { const abort = new AbortController(); let pending = false; alive.current = true;
+            const load = async () => { if (pending) return; pending = true; try { const result = await rpc('worker.run', { runId: id, workspaceBinding: binding }, abort.signal); if (!abort.signal.aborted && result.workspaceBinding === binding) { setDetail(result); setError(''); } } catch (error) { if (!abort.signal.aborted) setError(error.message); } finally { pending = false; } };
+            void load(); const timer = setInterval(load, 5000); return () => { alive.current = false; abort.abort(); clearInterval(timer); };
+          }, [id, binding, refresh]);
+          const preview = async () => { try { const result = await rpc('runs.diagnostics', { runId: id, workspaceBinding: binding }); if (alive.current && result.workspaceBinding === binding) setDiagnostic(result); } catch (error) { if (alive.current) setError(error.message); } };
+          const run = detail?.run;
+          return h('section', { className: 'pa24-card' }, h('h3', null, L('交办执行与投递', 'Work execution and delivery')),
+            h('button', { type: 'button', onClick: () => setRefresh(value => value + 1) }, L('刷新运行状态', 'Refresh run status')),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error), !detail && h('p', { role: 'status' }, L('正在读取运行…', 'Reading run…')),
+            run && h('div', null, h('p', null, runStatusLabel(run.status)), h('p', null, run.instruction), run.progress && h('p', null, run.progress), run.result && h('pre', { className: 'pa24-json' }, run.result),
+              run.progress_detail && h('div', null, h('p', null, L('已完成：', 'Completed: ') + run.progress_detail.completed), h('p', null, L('下一步：', 'Next: ') + run.progress_detail.next)),
+              detail.execution && h('p', null, L('累计执行 ', 'Execution ') + Math.round(detail.execution.executionMs / 1000) + L(' 秒；剩余 ', ' s; remaining ') + Math.round(detail.execution.remainingMs / 1000) + L(' 秒', ' s')),
+              detail.execution?.blocks.map(block => h('p', { key: block.key }, block.reason)),
+              detail.execution?.stop && h('p', null, detail.execution.stop.settledAt ? L('宿主已确认停止', 'Host confirmed stop') : L('已请求停止，仍等待确认', 'Stop requested; awaiting confirmation')),
+              h('button', { type: 'button', onClick: () => openWork(run.work_item_id) }, L('查看原助理交办', 'Open original work')),
+              h('h4', null, L('补充收到与采用', 'Input receipt and adoption')), (detail.inputs || []).map(row => h('div', { key: row.execution_id }, h('p', null, ({ prepared: L('待接纳', 'Awaiting admission'), received: L('已收到，尚未采用', 'Received, not adopted'), adopted: L('已在原回合采用', 'Adopted in original turn'), rejected: L('未接纳', 'Not admitted'), unknown: L('接纳待核对', 'Admission uncertain') })[row.status]), h('p', null, row.instruction))),
+              h('h4', null, L('工具动作与原回执', 'Tool actions and original receipts')), (detail.calls || []).map(call => h('details', { key: call.id }, h('summary', null, call.tool + ' · ' + t(call.status)), h('pre', { className: 'pa24-json' }, JSON.stringify({ arguments: call.args, result: call.result }, null, 2)))),
+              !!detail.reviews?.length && h('details', null, h('summary', null, detail.reviewed ? L('当前证据已核对', 'Current evidence reviewed') : L('已有核对，待核验新证据', 'Previous findings; new evidence needs review')), detail.reviews.map(row => h('pre', { key: row.request_id, className: 'pa24-json' }, JSON.stringify(row.record.result, null, 2)))),
+              detail.work && ['stopped','failed','timed_out','completed'].includes(run.status) && h(WorkerRunReview, { detail, binding, changed: () => setRefresh(value => value + 1) }),
+              h('h4', null, L('固定结果投递', 'Fixed result delivery')), !(detail.deliveries || []).length && h('p', null, L('尚无结果投递', 'No result delivery yet')), (detail.deliveries || []).map(row => h('p', { key: row.id }, row.channel + ' · ' + row.target + ' · ' + deliveryLabel(row.status, row.channel) + (row.last_error ? ' · ' + row.last_error : ''))),
+              !!detail.deliveries?.length && h(PlanDeliveryControls, { detail: { run, deliveries: detail.deliveries.map(row => ({ id: row.id, deliveryStatus: row.status, deliveries: [{ outbox_id: row.id, outbox: row, component: row.kind, fingerprint: row.fingerprint }] })) }, binding, onChanged: () => setRefresh(value => value + 1) }),
+              h('details', null, h('summary', null, L('当次执行快照', 'Execution snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify(run.snapshot, null, 2))),
+              h('button', { type: 'button', onClick: () => saveDownload({ filename: '24pa-result-' + id + '.json', content: JSON.stringify({ run, inputs: detail.inputs, calls: detail.calls, deliveries: detail.deliveries }, null, 2) }) }, L('下载当次结果', 'Download run result')),
+              h('button', { type: 'button', onClick: preview }, L('预览脱敏诊断', 'Preview redacted diagnostics')),
+              diagnostic && h('div', { className: 'pa24-note' }, h('p', null, diagnostic.message), h('pre', { className: 'pa24-json' }, diagnostic.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostic) }, L('确认下载这份诊断', 'Confirm diagnostic download')))));
+        }
+
+        function RunHistoryDetail(helpers) {
+          const { state, extra, planStates, refresh, openCard, tz } = helpers, binding = state.workspaceBinding;
+          const model = planRowState(planStates, 'run-history:' + binding, {}), view = React.useSyncExternalStore(model.subscribe, model.getSnapshot);
+          const filters = view.filters || { kind: 'runs', range: '7', includeUnresolved: true }, offset = view.offset || 0;
+          const [list, setList] = React.useState({ loading: true }), [work, setWork] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
+          const alive = React.useRef(true); React.useEffect(() => () => { alive.current = false; }, []);
+          const filterKey = JSON.stringify(filters);
+          React.useEffect(() => {
+            const abort = new AbortController(), key = JSON.stringify([binding, filterKey, offset]); let pending = false;
+            setList(previous => previous.key === key ? { ...previous, loading: true, error: null } : { key, loading: true });
+            setWork(previous => previous?.workspaceBinding === binding && previous?.work.id === view.workId && previous?.runs.offset === (view.workOffset || 0) ? previous : null);
+            const load = async () => { if (pending) return; pending = true; try {
+              const result = await rpc('runs', { ...filters, offset, workspaceBinding: binding }, abort.signal);
+              if (!Array.isArray(result.rows) || !Number.isSafeInteger(result.total)) throw new Error(L('运行档案响应不完整，请刷新重试。', 'Incomplete run history; refresh to retry.'));
+              if (!abort.signal.aborted && result.workspaceBinding === binding) setList({ key, data: result });
+              if (view.workId) { const result = await rpc('work.inspect', { workId: view.workId, offset: view.workOffset || 0, workspaceBinding: binding }, abort.signal); if (!abort.signal.aborted && result.workspaceBinding === binding) setWork(result); }
+            } catch (error) { if (!abort.signal.aborted) setList(previous => ({ ...previous, loading: false, error: error.message })); } finally { pending = false; } };
+            void load(); const timer = setInterval(load, 5000); return () => { abort.abort(); clearInterval(timer); };
+          }, [binding, filterKey, offset, view.tick, view.workId, view.workOffset]);
+          const set = (key, value) => model.update({ filters: { ...filters, [key]: value }, offset: 0, selectedRun: null, workId: null });
+          const openWork = id => model.update({ workId: id, workOffset: 0, selectedRun: null });
+          const selectRun = row => model.update({ selectedRun: { id: row.id, skillId: row.skill_id, kind: row.record_kind }, workId: null });
+          const exportRows = async () => { setBusy(true); setError(''); try { const file = await rpc('runs.export', { ...filters, workspaceBinding: binding }); if (alive.current && file.workspaceBinding === binding) saveDownload(file); } catch (error) { if (alive.current) setError(error.message); } finally { if (alive.current) setBusy(false); } };
+          const field = (label, node) => h('label', { key: label, className: 'pa24-field' }, label, node);
+          const select = (key, entries) => h('select', { value: filters[key] || '', onChange: event => set(key, event.target.value) }, entries.map(([value, label]) => h('option', { key: value, value }, label)));
+          const statuses = { runs: ['pending', 'running', 'waiting', 'stopping', 'completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'], work: ['accepted', 'queued', 'running', 'waiting_input', 'completed', 'failed', 'stopped', 'needs_reconciliation'], events: ['skipped', 'rejected', 'expired'], legacy: ['delivering', 'model_done', 'sent', 'unconfirmed'] };
+          const summary = extra.runs, active = view.selectedRun;
+          return h('section', { className: 'pa24-manager' }, sectionHead('pulse', L('运行记录', 'Run history'), L('执行、交办目标和未执行事件分别统计。等待恢复与自动重试沿用原运行。', 'Executions, work goals and non-execution events are counted separately. Waits and automatic retries keep the same run.'),
+            h('div', { className: 'pa24-row' }, h('button', { type: 'button', onClick: () => { model.update({ tick: (view.tick || 0) + 1 }); void refresh().catch(() => {}); } }, L('刷新', 'Refresh')), h('button', { type: 'button', disabled: busy || !list.data, onClick: exportRows }, L('导出全部筛选结果', 'Export all matching results')))),
+            extra._errors?.runs && h('p', { role: 'alert', className: 'pa24-error' }, extra._errors.runs),
+            summary?.observedAt && h('div', { className: 'pa24-card' }, capKpi([[summary.runs24, L('24 小时运行', '24h runs')], [summary.failed24, L('执行失败', 'Execution failures')], [summary.delivery_failed24, L('投递失败', 'Delivery failures')], [summary.unexecuted24, L('未执行事件', 'Unexecuted events')]]),
+              capKpi([[summary.active_work, L('进行中交办', 'Active work')], [summary.waiting_work, L('待我处理交办', 'Work awaiting you')], [summary.failed_work, L('异常交办', 'Failed work')]]),
+              h('p', { className: 'pa24-meta' }, L('跨日未解决：运行 ', 'Unresolved across dates: runs ') + summary.unresolved + L('，未执行事件 ', ', unexecuted events ') + summary.unresolved_events + ' · ' + date(summary.observedAt, tz))),
+            h('div', { className: 'pa24-card' }, field(L('档案类别', 'Record category'), h('select', { value: filters.kind, onChange: event => model.update({ filters: { kind: event.target.value, range: filters.range, from: filters.from, to: filters.to, includeUnresolved: filters.includeUnresolved, query: filters.query, planId: filters.planId }, offset: 0, selectedRun: null, workId: null }) },
+              [['runs', L('执行记录', 'Executions')], ['work', L('助理交办', 'Work items')], ['events', L('未执行事件', 'Unexecuted events')], ['legacy', L('旧简报档案', 'Legacy digests')]].map(([value, label]) => h('option', { key: value, value }, label)))),
+              field(L('时间范围', 'Date range'), select('range', [['7', L('近 7 天', 'Last 7 days')], ['30', L('近 30 天', 'Last 30 days')], ['custom', L('自定义', 'Custom')], ['all', L('全部历史', 'All history')]])),
+              filters.range === 'custom' && h('div', null, ['from', 'to'].map(key => field((key === 'from' ? L('开始', 'From') : L('结束', 'To')) + ' · ' + tz, h('input', { type: 'datetime-local', value: filters[key] || '', onChange: event => set(key, event.target.value) })))),
+              field(L('保留跨日期待处理与未解决异常', 'Keep unresolved records across dates'), h('input', { type: 'checkbox', checked: filters.includeUnresolved !== false, onChange: event => set('includeUnresolved', event.target.checked) })),
+              field(L('标题、摘要或标识', 'Title, summary or ID'), h('input', { value: filters.query || '', onChange: event => set('query', event.target.value) })),
+              field(L('执行状态', 'Execution status'), select('status', [['', L('全部状态', 'All statuses')], ...statuses[filters.kind].map(value => [value, filters.kind === 'runs' ? runStatusLabel(value) : t(value)])])),
+              h('details', null, h('summary', null, L('来源、关联与投递筛选', 'Source, links and delivery filters')),
+                filters.kind !== 'legacy' && field(L('发起来源', 'Initiation source'), select('source', [['', L('全部来源', 'All sources')], ...(filters.kind === 'work' ? [['local', L('本地', 'Local')], ['feishu', L('飞书', 'Feishu')]] : [['manual', L('手工', 'Manual')], ['schedule', L('计划', 'Scheduled')], ...(filters.kind === 'runs' ? [['trial', L('试运行', 'Trial')], ['rerun', L('重跑', 'Rerun')], ['continuation', L('接续', 'Continuation')]] : [])])])),
+                [['planId', L('计划标识', 'Plan ID')], ...(['runs', 'work'].includes(filters.kind) ? [['workId', L('交办标识', 'Work ID')]] : []), ...(filters.kind !== 'legacy' ? [['skillId', 'Skill ID']] : []), ...(filters.kind === 'runs' ? [['versionId', L('版本标识', 'Version ID')]] : [])].map(([key, label]) => field(label, h('input', { value: filters[key] || '', onChange: event => set(key, event.target.value) }))),
+                filters.kind === 'runs' && field(L('投递状态', 'Delivery status'), select('deliveryStatus', [['', L('全部投递状态', 'All delivery statuses')], ...['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'failed', 'unknown', 'expired'].map(value => [value, deliveryLabel(value)])])))),
+            error && h('p', { role: 'alert', className: 'pa24-error' }, error),
+            list.error && h('p', { role: 'alert', className: 'pa24-error' }, L('读取失败；下方可能为上次结果：', 'Read failed; results below may be stale: ') + list.error),
+            list.loading && h('p', { role: 'status' }, L('正在读取档案…', 'Reading history…')),
+            list.data && h('div', { className: 'pa24-card' }, h('p', { className: 'pa24-meta' }, L('匹配记录 ', 'Matching records: ') + list.data.total + ' · ' + L('当前时区 ', 'Time zone ') + list.data.timeZone),
+              !list.data.rows.length && h('p', null, list.data.empty ? L('此类档案尚无记录。实际运行或交办后会在这里保留。', 'No records in this category yet. Actual executions or work will appear here.') : L('当前筛选没有记录。可扩大时间范围或清除筛选。', 'No matching records. Widen the range or clear filters.')),
+              list.data.rows.map(row => h('article', { key: row.id, className: 'pa24-job' }, h('h3', null, row.title || row.id), h('p', null, (filters.kind === 'runs' ? runStatusLabel(row.status) : t(row.status)) + (row.delivery_status ? ' · ' + deliveryLabel(row.delivery_status) : '')),
+                h('p', { className: 'pa24-meta' }, date(row.created_at, tz) + ' · ' + runSourceLabel(row.source)), row.progress && h('p', null, row.progress), row.summary && h('p', null, row.summary),
+                filters.kind === 'runs' && h('button', { type: 'button', onClick: () => selectRun(row) }, L('查看执行与投递', 'View execution and delivery')),
+                filters.kind === 'work' && h('button', { type: 'button', onClick: () => openWork(row.id) }, L('查看交办详情', 'View work item')),
+                filters.kind === 'events' && row.run_id && h('button', { type: 'button', onClick: () => selectRun({ id: row.run_id, record_kind: row.record_kind }) }, L('核对未执行原记录', 'Inspect unexecuted admission')),
+                filters.kind === 'events' && row.plan_id && h('button', { type: 'button', onClick: () => helpers.openPlan(row.plan_id) }, L('处理原计划', 'Open original plan')),
+                filters.kind === 'legacy' && h('details', null, h('summary', null, L('原始简报与旧关联', 'Original digest and links')), h('pre', { className: 'pa24-json' }, JSON.stringify(row, null, 2))),
+                h('details', null, h('summary', null, L('技术标识', 'Technical IDs')), h('p', { className: 'pa24-meta' }, row.id + (row.plan_id ? ' · ' + row.plan_id : ''))))),
+              h('div', { className: 'pa24-row' }, h('button', { type: 'button', disabled: !offset, onClick: () => model.update({ offset: Math.max(0, offset - 20) }) }, L('上一页', 'Previous')), h('button', { type: 'button', disabled: offset + 20 >= list.data.total, onClick: () => model.update({ offset: offset + 20 }) }, L('下一页', 'Next')))),
+            active?.kind === 'worker' && h(WorkerRunDetail, { key: binding + active.id, id: active.id, binding, openWork }),
+            active && active.kind !== 'worker' && h(SkillRunControls, { key: active.id, data: { id: active.skillId }, binding, detailOnly: true, initialRunId: active.id, openWork }),
+            view.workId && !work && h('p', { role: 'status' }, L('正在读取交办…', 'Reading work item…')),
+            work && h('section', { className: 'pa24-card' }, h('h3', null, work.work.title), h('p', null, t(work.work.status)), h('p', null, work.work.instruction),
+              work.work.progress && h('p', null, work.work.progress), work.work.result && h('pre', { className: 'pa24-json' }, work.work.result),
+              work.work.progress_detail && h('div', null, h('p', null, L('已完成：', 'Completed: ') + work.work.progress_detail.completed), h('p', null, L('下一步：', 'Next: ') + work.work.progress_detail.next)),
+              h('p', { className: 'pa24-meta' }, L('来源：', 'Origin: ') + work.work.origin + ' · ' + L('结果回到：', 'Results return to: ') + work.work.delivery),
+              work.work.child_session_id && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession({ childSessionId: work.work.child_session_id, parentSessionId: work.work.parent_session_id, mode: 'continuable' }) }, L('查看原交办会话', 'Open original work session')),
+              h(WorkControls, { key: binding + work.work.id, work: work.work, changes: work.changes, binding, changed: () => { model.update({ tick: (model.getSnapshot().tick || 0) + 1 }); void refresh().catch(() => {}); } }),
+              h('h4', null, L('关联执行记录 ', 'Linked runs ') + work.runs.total), work.runs.rows.map(row => h('div', { key: row.id }, h('button', { type: 'button', onClick: () => selectRun(row) }, date(row.created_at, tz) + ' · ' + t(row.status)))),
+              work.runs.total > 20 && h('div', { className: 'pa24-row' }, h('button', { type: 'button', disabled: !(view.workOffset || 0), onClick: () => model.update({ workOffset: Math.max(0, (view.workOffset || 0) - 20) }) }, L('更近的运行', 'Newer runs')), h('button', { type: 'button', disabled: (view.workOffset || 0) + 20 >= work.runs.total, onClick: () => model.update({ workOffset: (view.workOffset || 0) + 20 }) }, L('更早的运行', 'Older runs')))),
+            h('p', { className: 'pa24-meta' }, L('详细诊断默认保留 90 天，可在参数配置调整；结果及业务回执长期保留。', 'Detailed diagnostics default to 90 days in configuration. Results and business receipts persist.')),
+            h('button', { type: 'button', onClick: () => openCard('config') }, L('打开参数配置', 'Open configuration')));
         }
 
         function SkillRunReview({ detail, binding, onSaved }) {
@@ -1082,20 +1472,26 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', disabled: busy || !confirmed || detail.unresolvedOperations.length > 0, onClick: save }, L('保存核对并结束本次运行', 'Save findings and close run')));
         }
 
-        function SkillRunControls({ data, binding }) {
+        function SkillRunControls({ data, binding, detailOnly = false, initialRunId = null, openWork }) {
           const [values, setValues] = React.useState({}), [preview, setPreview] = React.useState(null);
           const [target, setTarget] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
-          const [history, setHistory] = React.useState(null), [selected, setSelected] = React.useState(null), [detail, setDetail] = React.useState(null);
+          const [history, setHistory] = React.useState(null), [selected, setSelected] = React.useState(initialRunId), [detail, setDetail] = React.useState(null);
+          const [diagnostics, setDiagnostics] = React.useState(null);
           const [offset, setOffset] = React.useState(0), [refresh, setRefresh] = React.useState(0), [approved, setApproved] = React.useState(false);
           const [instruction, setInstruction] = React.useState('');
+          const [resumeInput, setResumeInput] = React.useState(''), [limitMinutes, setLimitMinutes] = React.useState('15');
           const request = React.useRef(null), alive = React.useRef(true);
+          const selectedRun = React.useRef(selected); selectedRun.current = selected;
+          React.useEffect(() => { setDiagnostics(null); setPreview(null); setApproved(false); setInstruction(''); setResumeInput(''); }, [selected]);
           React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
           React.useEffect(() => {
             const abort = new AbortController();
             const load = async () => {
               try {
-                const result = await rpc('skills.runs', { id: data.id, offset, workspaceBinding: binding }, abort.signal);
-                if (!abort.signal.aborted && result.workspaceBinding === binding) setHistory(result);
+                if (!detailOnly) {
+                  const result = await rpc('skills.runs', { id: data.id, offset, workspaceBinding: binding }, abort.signal);
+                  if (!abort.signal.aborted && result.workspaceBinding === binding) setHistory(result);
+                }
                 if (selected) {
                   const result = await rpc('skills.run', { runId: selected, workspaceBinding: binding }, abort.signal);
                   if (!abort.signal.aborted && result.workspaceBinding === binding) setDetail(result);
@@ -1106,20 +1502,20 @@ window.__ModuleLoader__.load({
             return () => { abort.abort(); clearInterval(timer); };
           }, [data.id, binding, selected, offset, refresh]);
           const fields = data.metadata?.pa24?.parameters || {};
-          const status = value => ({ pending: '等待接纳', running: '执行中', stopping: '正在停止', stopped: '已停止', completed: '执行已结束', failed: '执行失败', needs_reconciliation: '结果待核对' }[value] || value);
+          const status = runStatusLabel;
           const prepare = async selection => {
             setBusy(true); setError(''); setPreview(null); setApproved(false); request.current = null;
-            const next = selection ? { ...selection, instruction } : null; setTarget(next);
+            const requestedRun = selectedRun.current, next = selection ? { ...selection, instruction } : null; setTarget(next);
             try {
-              const result = await rpc('skills.preview', { id: data.id, versionId: data.versionId, ...(!next ? { parameters: values } : {}), ...(next || {}), workspaceBinding: binding });
-              if (alive.current && result.workspaceBinding === binding) setPreview(result);
+              const result = await rpc('skills.preview', { id: data.id, versionId: data.versionId, executionLimitMs: Math.round(Number(limitMinutes) * 60000), ...(!next ? { parameters: values } : {}), ...(next || {}), workspaceBinding: binding });
+              if (alive.current && selectedRun.current === requestedRun && result.workspaceBinding === binding) setPreview(result);
             } catch (failure) { if (alive.current) setError(failure.message); }
             finally { if (alive.current) setBusy(false); }
           };
           const run = async trial => {
             if (!preview) return;
             const payload = { type: 'skill.run', id: data.id, versionId: preview.versionId, parameters: preview.parameters, ...(target || {}),
-              fingerprint: preview.fingerprint, confirm: true, trial, workspaceBinding: binding };
+              executionLimitMs: preview.executionLimitMs, fingerprint: preview.fingerprint, confirm: true, trial, workspaceBinding: binding };
             const key = JSON.stringify(payload);
             if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
             setBusy(true); setError('');
@@ -1136,6 +1532,17 @@ window.__ModuleLoader__.load({
             catch (failure) { if (alive.current) setError(failure.message); }
             finally { if (alive.current) setBusy(false); }
           };
+          const resume = async recheck => {
+            const payload = { type: 'skill.run', op: recheck ? 'recheck' : 'resume', runId: detail.run.id, workspaceBinding: binding, instruction: resumeInput, confirm: true };
+            const key = JSON.stringify(payload);
+            if (request.current?.key !== key) request.current = { key, id: crypto.randomUUID() };
+            setBusy(true); setError('');
+            try {
+              const result = await rpc('action', { ...payload, requestId: request.current.id });
+              if (alive.current && selectedRun.current === payload.runId && result.workspaceBinding === binding) { setDetail(result); setResumeInput(''); setRefresh(n => n + 1); }
+            } catch (failure) { if (alive.current && selectedRun.current === payload.runId) setError(failure.message); }
+            finally { if (alive.current) setBusy(false); }
+          };
           const downloadResult = () => {
             const url = URL.createObjectURL(new Blob([detail.run.result || ''], { type: 'text/plain;charset=utf-8' }));
             const link = document.createElement('a'); link.href = url; link.download = 'skill-result-' + detail.run.id + '.txt';
@@ -1147,16 +1554,19 @@ window.__ModuleLoader__.load({
             setValues(next); setPreview(null); setApproved(false);
           };
           return h('section', { className: 'pa24-note', 'aria-label': L('Skill 运行', 'Skill runs') },
-            h('h4', null, L('手工运行', 'Manual run')),
-            h('p', { className: 'pa24-meta' }, L('预览不会执行。试运行会真实调用获准工具，结果保存在独立运行记录，并关联助理交办。', 'Preview does not execute. A trial really invokes authorized tools; results are saved in a run linked to a work item.')),
-            Object.entries(fields).map(([name, field]) => h('label', { key: name, className: 'pa24-field' }, name + (field.required ? ' *' : '') + (field.description ? ' · ' + field.description : ''),
+            !detailOnly && h('h4', null, L('手工运行', 'Manual run')),
+            !detailOnly && h('p', { className: 'pa24-meta' }, L('预览不会执行。试运行会真实调用获准工具，结果保存在独立运行记录，并关联助理交办。', 'Preview does not execute. A trial really invokes authorized tools; results are saved in a run linked to a work item.')),
+            !detailOnly && Object.entries(fields).map(([name, field]) => h('label', { key: name, className: 'pa24-field' }, name + (field.required ? ' *' : '') + (field.description ? ' · ' + field.description : ''),
               h('input', { type: field.type === 'boolean' ? 'checkbox' : ['number', 'integer'].includes(field.type) ? 'number' : 'text',
                 ...(field.type === 'boolean' ? { checked: values[name] ?? field.default ?? false } : { value: values[name] ?? field.default ?? '', step: field.type === 'integer' ? 1 : 'any' }),
                 onChange: event => changeValue(name, field, field.type === 'boolean' ? event.target.checked : event.target.value) }))),
-            h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry.status) || ['persona', 'setup'].includes(data.type), onClick: () => prepare(null) }, L('预览本次运行', 'Preview run')),
+            !detailOnly && h('label', { className: 'pa24-field' }, L('累计执行时限（分钟，等待不计入）', 'Active execution limit (minutes; waits excluded)'),
+              h('input', { type: 'number', min: 1 / 60, max: 1440, step: 'any', value: limitMinutes, onChange: event => { setLimitMinutes(event.target.value); setPreview(null); setApproved(false); } })),
+            !detailOnly && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status) || ['persona', 'setup'].includes(data.type), onClick: () => prepare(null) }, L('预览本次运行', 'Preview run')),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error),
             preview && h('div', { className: 'pa24-note' },
               h('p', null, preview.message), h('p', null, L('版本：', 'Version: ') + preview.versionId),
+              h('p', null, L('累计执行时限：', 'Active execution limit: ') + (preview.executionLimitMs ?? 900000) / 60000 + L(' 分钟', ' minutes')),
               h('p', null, L('工具：', 'Tools: ') + (preview.tools.join('、') || L('无', 'None'))),
               preview.contract && h('p', null, L('完成标准：', 'Completion criteria: ') + preview.contract.completionCriteria),
               preview.continuation && h('div', { className: 'pa24-note' },
@@ -1168,37 +1578,62 @@ window.__ModuleLoader__.load({
               h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: approved, onChange: event => setApproved(event.target.checked) }), L('确认这些参数、工具范围和真实执行。', 'Confirm these inputs, tools and actual execution.')),
               h('div', { className: 'pa24-row' },
                 h('button', { type: 'button', disabled: busy || !approved, onClick: () => run(true) }, L('试运行', 'Trial run')),
-                h('button', { type: 'button', disabled: busy || !approved || (!target && data.entry.active_version !== preview.versionId), onClick: () => run(false) }, L('正式运行', 'Run')))),
-            h('h4', null, L('运行历史', 'Run history')),
-            !history ? h('p', { role: 'status' }, L('正在读取运行记录…', 'Reading runs…')) : h('div', null,
+                h('button', { type: 'button', disabled: busy || !approved || (!target && data.entry?.active_version !== preview.versionId), onClick: () => run(false) }, L('正式运行', 'Run')))),
+            !detailOnly && h('h4', null, L('运行历史', 'Run history')),
+            !detailOnly && (!history ? h('p', { role: 'status' }, L('正在读取运行记录…', 'Reading runs…')) : h('div', null,
               h('p', { className: 'pa24-meta' }, L('共 ' + history.total + ' 次', history.total + ' runs')),
               !history.rows.length && h('p', null, L('尚无运行记录；未试运行。', 'No runs yet; untested.')),
               history.rows.map(row => h('div', { key: row.id, className: 'pa24-row' },
                 h('button', { type: 'button', onClick: () => { setSelected(row.id); setDetail(null); } }, row.id.slice(0, 8) + ' · ' + status(row.status)),
-                h('span', { className: 'pa24-meta' }, (row.trial ? L('试运行', 'Trial') : L('正式运行', 'Run')) + ' · ' + new Date(row.created_at).toLocaleString())))),
+                h('span', { className: 'pa24-meta' }, (row.trial ? L('试运行', 'Trial') : L('正式运行', 'Run')) + ' · ' + new Date(row.created_at).toLocaleString()))))),
             history?.total > 20 && h('div', { className: 'pa24-row' },
               h('button', { disabled: offset === 0, onClick: () => setOffset(Math.max(0, offset - 20)) }, L('上一页', 'Previous')),
               h('button', { disabled: offset + 20 >= history.total, onClick: () => setOffset(offset + 20) }, L('下一页', 'Next'))),
             selected && !detail && h('p', { role: 'status' }, L('正在读取运行详情…', 'Reading run…')),
             detail && h('div', { className: 'pa24-note' },
               h('h4', null, status(detail.run.status)), h('p', null, detail.run.progress),
+              detail.execution ? h('div', { className: 'pa24-note' },
+                h('p', null, L('累计执行 ', 'Active execution ') + (detail.execution.executionMs / 1000).toFixed(1) + L(' 秒 · 剩余 ', ' s · Remaining ') + (detail.execution.remainingMs / 1000).toFixed(1) + L(' 秒', ' s')),
+                h('p', { className: 'pa24-meta' }, L('排队 ', 'Queued ') + (detail.execution.queuedMs / 1000).toFixed(1) + L(' 秒 · 等待 ', ' s · Waiting ') + (detail.execution.waitingMs / 1000).toFixed(1) + L(' 秒', ' s')),
+                detail.execution.blocks.map(block => h('p', { key: block.key }, block.reason)),
+                detail.execution.stop && h('p', { role: detail.execution.stop.error ? 'alert' : 'status' }, detail.execution.stop.error || (detail.execution.stop.settledAt
+                  ? L('原生执行已确认停止。', 'Native execution has stopped.') : L('已请求停止，正在等待实际执行回执。', 'Stop requested; waiting for native receipts.'))))
+                : h('p', { className: 'pa24-meta' }, L('历史记录没有累计执行计时资料。', 'Active execution timing is unavailable for this legacy record.')),
+              detail.run.status === 'waiting' && h('div', { className: 'pa24-note' },
+                h('p', null, L('补充和放行沿原运行继续，不重置时限。其他阻断须分别处理。', 'Resume this run without resetting its time limit. Resolve each remaining blocker separately.')),
+                detail.execution?.blocks.some(block => block.kind === 'input') && h('label', { className: 'pa24-field' }, L('补充给本次运行的信息', 'Information for this run'),
+                  h('textarea', { value: resumeInput, rows: 3, maxLength: 4000, onChange: event => setResumeInput(event.target.value) })),
+                h('div', { className: 'pa24-row' },
+                  detail.execution?.blocks.some(block => block.kind === 'input') && h('button', { type: 'button', disabled: busy || !resumeInput.trim(), onClick: () => resume(false) }, L('补充并继续原运行', 'Submit and resume')),
+                  h('button', { type: 'button', disabled: busy, onClick: () => resume(true) }, L('重新检查并继续原运行', 'Recheck and resume')))),
               h('p', { className: 'pa24-meta' }, L('助理交办：', 'Work item: ') + detail.run.work_item_id),
               h('p', { className: 'pa24-meta' }, L('版本：', 'Version: ') + detail.run.version_id),
-              h('p', { className: 'pa24-meta' }, L('结果投递：未请求；生成的结果保存在本记录。', 'Delivery: not requested; generated results are saved here.')),
+              h('p', { className: 'pa24-meta' }, L('结果投递：', 'Delivery: ') + deliveryLabel(detail.run.delivery_status)),
+              h('p', { className: 'pa24-meta' }, L('触发时间：', 'Triggered: ') + (detail.run.triggered_at ? new Date(detail.run.triggered_at).toLocaleString() : L('历史未记录', 'Not recorded')) + ' · ' + L('接纳时间：', 'Admitted: ') + new Date(detail.run.created_at).toLocaleString()),
               detail.run.result && h('pre', { className: 'pa24-json' }, detail.run.result),
-              ['completed', 'failed', 'stopped'].includes(detail.run.status) && h('label', { className: 'pa24-field' }, L('接续补充说明（可选）', 'Continuation instructions (optional)'),
+              ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('label', { className: 'pa24-field' }, L('接续补充说明（可选）', 'Continuation instructions (optional)'),
                 h('textarea', { value: instruction, maxLength: 4000, rows: 2, onChange: event => { setInstruction(event.target.value); setPreview(null); setApproved(false); } })),
               h('div', { className: 'pa24-row' },
                 detail.run.mode !== 'template' && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession(detail.run.mode === 'business' ? { childSessionId: detail.run.session_id, parentSessionId: detail.run.source_session_id, mode: 'continuable' } : detail.run.session_id) }, L('查看原执行会话', 'Open execution session')),
                 detail.run.result && h('button', { type: 'button', onClick: downloadResult }, L('下载结果', 'Download result')),
-                ['pending', 'running', 'stopping', 'needs_reconciliation'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy, onClick: () => stop(detail.run.id) }, L('停止本次运行', 'Stop run')),
-                ['completed', 'failed', 'stopped'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'original' }) }, L('用原快照重跑 · 先预览', 'Rerun snapshot · preview')),
-                ['completed', 'failed', 'stopped'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'current' }) }, L('用当前配置重跑 · 先预览', 'Rerun current · preview'))),
+                openWork && h('button', { type: 'button', onClick: () => openWork(detail.run.work_item_id) }, L('查看原助理交办', 'Open original work item')),
+                h('button', { type: 'button', onClick: async () => { const id = detail.run.id; try { const result = await rpc('runs.diagnostics', { workspaceBinding: binding, runId: id }); if (alive.current && selectedRun.current === id && result.workspaceBinding === binding) setDiagnostics(result); } catch (failure) { if (alive.current) setError(failure.message); } } }, L('预览脱敏诊断', 'Preview redacted diagnostics')),
+                ['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy, onClick: () => stop(detail.run.id) }, L('停止本次运行', 'Stop run')),
+                ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'original' }) }, L('用原快照重跑 · 先预览', 'Rerun snapshot · preview')),
+                ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'current' }) }, L('用当前配置重跑 · 先预览', 'Rerun current · preview'))),
+              diagnostics && h('div', { className: 'pa24-note' }, h('p', null, diagnostics.message), h('pre', { className: 'pa24-json' }, diagnostics.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostics) }, L('确认下载这份诊断', 'Download this diagnostic preview'))),
+              h('details', null, h('summary', null, L('输入、资源与版本快照', 'Input, resources and version snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify({ parameters: detail.run.parameters, contract: detail.run.contract, files: detail.run.files, plan: detail.run.plan }, null, 2))),
+              (detail.deliveries || []).length > 0 && h(PlanDeliveryControls, { key: detail.run.id, detail, binding, onChanged: () => setRefresh(n => n + 1) }),
+              detail.attempts?.length > 0 && h('details', null, h('summary', null, L('执行尝试（含自动重试）', 'Execution attempts (including retries)')),
+                detail.attempts.map(attempt => h('p', { key: attempt.number }, L('第 ', 'Attempt ') + attempt.number + L(' 次', '') + ' · ' + new Date(attempt.startedAt).toLocaleString() + (attempt.error ? ' · ' + attempt.error : '')))),
               h('details', null, h('summary', null, L('实际工具调用与回执', 'Actual tool calls and receipts')), h('pre', { className: 'pa24-json' }, JSON.stringify(detail.calls, null, 2))),
+              detail.inputs?.length > 0 && h('details', null, h('summary', null, L('输入接纳与采用', 'Input receipt and adoption')),
+                detail.inputs.map(input => h('p', { key: input.message_id }, input.message_id + ' · ' + (!input.accepted ? L('归属未确认', 'Ownership not confirmed')
+                  : input.adopted === true ? L('已采用', 'Adopted') : input.adopted === false ? L('已接纳，尚未采用', 'Accepted, not adopted') : L('采用状态暂不可核验', 'Adoption could not be verified'))))),
               detail.reviews?.length > 0 && h('details', null, h('summary', null, L('人工核对记录', 'Human verification history')),
                 !detail.reviewed && h('p', { role: 'alert' }, L('核对后收到新证据，需要重新核对后才能接续。', 'New evidence arrived after verification; review it before continuing.')),
                 h('pre', { className: 'pa24-json' }, JSON.stringify(detail.reviews, null, 2))),
-              (detail.run.status === 'needs_reconciliation' || (detail.reviews?.length > 0 && !detail.reviewed)) && h(SkillRunReview, { key: detail.run.id + ':' + detail.fingerprint, detail, binding,
+              (detail.run.status === 'needs_reconciliation' || (['failed', 'stopped', 'timed_out'].includes(detail.run.status) && !detail.reviewed && detail.calls.some(call => ['running', 'unknown'].includes(call.status))) || (detail.reviews?.length > 0 && !detail.reviewed)) && h(SkillRunReview, { key: detail.run.id + ':' + detail.fingerprint, detail, binding,
                 onSaved: result => { setDetail(result); setRefresh(n => n + 1); } }),
               detail.native?.length > 0 && h('details', null, h('summary', null, L('子任务与后台作业', 'Subtasks and background jobs')),
                 detail.native.map(item => h('div', { key: item.kind + ':' + item.owner_id + ':' + item.native_id, className: 'pa24-note' },
@@ -1395,14 +1830,15 @@ window.__ModuleLoader__.load({
             detail: helpers => h(TodoDetail, { key: helpers.state.workspaceBinding, ...helpers }),
           },
           {
-            id: 'activity', cat: 'work', tone: 'blue', icon: 'pulse', title: ['运行记录', 'Activity'], sub: ['事项与投递时间线', 'Work and delivery timeline'], action: ['查看时间线', 'Open timeline'],
-            tier: ({ state }) => (state.work || []).some(j => ['failed', 'needs_reconciliation'].includes(j.status)) || (state.outbox || []).some(o => ['failed', 'unknown'].includes(o.status)) ? 'warn' : 'ok',
-            body: ({ state, tz }) => {
-              const work = state.work || [], outbox = state.outbox || [];
-              const latest = [...work.map(j => j.updated_at || j.created_at), ...outbox.map(o => o.sent_at || o.created_at)].filter(Boolean).sort().pop();
-              return h('div', null, capLine(L('事项记录', 'Work records'), work.length + L(' 条', '')), capLine(L('最近活动', 'Latest activity'), latest ? date(latest, tz) : L('尚无记录', 'No record yet')));
+            id: 'activity', cat: 'work', tone: 'blue', icon: 'pulse', title: ['运行记录', 'Run history'], sub: ['执行 · 投递 · 助理交办', 'Execution · delivery · work items'], action: ['查看运行档案', 'Open run history'],
+            tier: ({ extra }) => extra._errors?.runs ? 'error' : !extra.runs?.observedAt ? 'unchecked' : extra.runs.unresolved || extra.runs.unresolved_events ? 'warn' : 'ok',
+            body: ({ extra }) => {
+              const summary = extra.runs;
+              return summary?.observedAt ? h('div', null, capKpi([[summary.runs24, L('24 小时运行', '24h runs')], [summary.failed24, L('执行失败', 'Execution failures')], [summary.delivery_failed24, L('投递失败', 'Delivery failures')]]),
+                capLine(L('未执行事件', 'Unexecuted events'), summary.unexecuted24), capLine(L('待我处理交办', 'Work awaiting you'), summary.waiting_work))
+                : h('p', { className: 'pa24-meta' }, extra._errors?.runs || L('正在读取完整统计…', 'Reading complete statistics…'));
             },
-            detail: helpers => h(ActivityDetail, helpers),
+            detail: helpers => h(RunHistoryDetail, { key: helpers.state.workspaceBinding, ...helpers }),
           },
           {
             id: 'reminders', cat: 'work', tone: 'amber', icon: 'calendar', title: ['日程', 'Calendar'], sub: ['今日安排 · 多日历与原生提醒', 'Today · calendars and native reminders'], action: ['查看日程', 'View calendar'],
@@ -1431,15 +1867,15 @@ window.__ModuleLoader__.load({
             detail: helpers => (helpers.workspace ? h(MemoryView, { key: helpers.state.workspaceBinding + helpers.workspace.path, workspace: helpers.workspace, binding: helpers.state.workspaceBinding, openRobot: helpers.openRobot }) : empty('memory', 'violet', L('尚未绑定工作区', 'No workspace bound'), L('绑定工作区后，记忆会按确认状态显示在这里。', 'Once a workspace is bound, memories show up here with their confirmation status.'))),
           },
           {
-            id: 'digest', cat: 'work', tone: 'green', icon: 'pulse', title: ['晨报与复盘', 'Digest & retrospective'], sub: ['周期服务 · 原生定时唤醒 · 语音版', 'Scheduled services · native Schedule wake · voice'], action: ['调整计划', 'Adjust plans'],
-            tier: ({ extra }) => extra.digests ? 'ok' : 'unchecked',
-            body: ({ extra, config }) => {
-              const plans = extra.digests?.plans;
-              return h('div', null,
-                capLine(L('周期计划', 'Digest plans'), plans ? plans.filter(p => p.status === 'active').length + L(' 条启用', ' active') : L('读取中…', 'Loading…')),
-                capLine(L('语音引擎', 'Voice engine'), voiceOn(config) ? config.tts.engine : L('未启用', 'Off')));
+            id: 'digest', cat: 'work', tone: 'green', icon: 'pulse', title: ['定时任务', 'Scheduled tasks'], sub: ['时间 + Skill · 晨报与复盘预设', 'Time + skill · digest presets'], action: ['管理定时任务', 'Manage plans'],
+            tier: ({ extra }) => extra._errors?.plans ? 'error' : extra.plans?.total === undefined ? 'unchecked' : extra.plans.blocked || extra.plans.timingError ? 'warn' : 'ok',
+            body: ({ extra, tz }) => {
+              const plans = extra.plans;
+              return plans?.total !== undefined ? h('div', null, capKpi([[plans.enabled, L('启用', 'Enabled')], [plans.paused, L('暂停', 'Paused')], [plans.blocked, L('需处理', 'Needs attention')]]),
+                capLine(L('下次运行', 'Next run'), plans.next ? plans.next.title + ' · ' + date(plans.next.at, tz) : L('暂无已核验触发时间', 'No verified occurrence')))
+                : h('p', { className: 'pa24-meta' }, extra._errors?.plans || L('正在读取计划统计…', 'Reading plan statistics…'));
             },
-            detail: helpers => h(DigestDetail, helpers),
+            detail: helpers => h(TaskPlansDetail, { key: helpers.state.workspaceBinding, ...helpers }),
           },
           {
             id: 'feishu', cat: 'setup', tone: 'green', icon: 'plug', title: ['飞书', 'Feishu'], sub: ['唯一收信入口 · 发件与审核卡', 'The only inbound · outbound & review cards'], action: ['接入详情', 'Access details'],
@@ -1717,6 +2153,7 @@ window.__ModuleLoader__.load({
             tasklistId: config?.tasklistId ?? '',
             calendarId: config?.calendarId ?? 'primary',
             maxWorkers: config?.maxWorkers ?? 2,
+            diagnosticRetentionDays: config?.diagnosticRetentionDays ?? 90,
             enabledWorkers: [...(config?.enabledWorkers ?? ['memo'])],
             workerModels: JSON.parse(JSON.stringify(config?.workerModels ?? {})),
             extraKnown: KNOWN_EXTRA.filter(x => (config?.extraLocalTools ?? []).includes(x)),
@@ -1777,7 +2214,7 @@ window.__ModuleLoader__.load({
                 mode: form.mode, larkProfile: form.larkProfile.trim(), ownerOpenId: form.ownerOpenId.trim(), timeZone: form.timeZone.trim(),
                 calendarChannel: form.calendarChannel, todoChannel: form.todoChannel, notifyChannel: form.notifyChannel,
                 folderToken: form.folderToken.trim(), wikiNodeToken: form.wikiNodeToken.trim(), tasklistId: form.tasklistId.trim(), calendarId: form.calendarId.trim(),
-                maxWorkers: Number(form.maxWorkers), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra, extraBusinessSkills: skills,
+                maxWorkers: Number(form.maxWorkers), diagnosticRetentionDays: Number(form.diagnosticRetentionDays), enabledWorkers: form.enabledWorkers, workerModels: models, extraLocalTools: extra, extraBusinessSkills: skills,
                 appIdEnv: form.appIdEnv.trim(), appSecretEnv: form.appSecretEnv.trim(), pgDsnEnv: form.pgDsnEnv.trim(),
                 tts: form.tts,
               };
@@ -1899,6 +2336,7 @@ window.__ModuleLoader__.load({
             h('section', { className: 'pa24-card' },
               h('h2', null, L('运行参数', 'Runtime')),
               row(L('并发数（maxWorkers）', 'Parallelism (maxWorkers)'), h('input', { type: 'number', min: 1, max: 8, step: 1, value: form.maxWorkers, onChange: e => set('maxWorkers', e.target.value) }), L('1–8 的整数。', 'An integer from 1 to 8.')),
+              row(L('详细诊断保留天数（diagnosticRetentionDays）', 'Diagnostic retention (days)'), h('input', { type: 'number', min: 1, max: 3650, step: 1, value: form.diagnosticRetentionDays, onChange: e => set('diagnosticRetentionDays', e.target.value) }), L('默认 90 天；仅清理技术诊断，运行快照、结果和动作回执长期保留。', 'Default: 90 days. Snapshots, results and action receipts remain.')),
               row(L('启用的 Worker（enabledWorkers）', 'Enabled workers (enabledWorkers)'), h('div', { style: { minWidth: 0 } }, WORKER_IDS.map(r =>
                 h('label', { key: r, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.enabledWorkers.includes(r), onChange: e => toggleIn('enabledWorkers')(r, e.target.checked) }), roleName(r) + '（' + r + '）')))),
               row(L('模型路由（workerModels）', 'Model routes (workerModels)'), h('div', { style: { minWidth: 0 } },
@@ -2020,6 +2458,9 @@ window.__ModuleLoader__.load({
               const s = await rpc('snapshot');
               if (sequence === snapshotSequence.current) { setState(s); setConnError(''); setExtraTick(v => v + 1); setLastRefreshAt(new Date().toISOString()); }
               return s;
+            } catch (failure) {
+              if (sequence === snapshotSequence.current) setConnError(failure.message);
+              throw failure;
             } finally { setRefreshing(false); }
           };
           React.useEffect(() => {
@@ -2029,7 +2470,7 @@ window.__ModuleLoader__.load({
               pending = true;
               const sequence = ++snapshotSequence.current;
               try { const s = await rpc('snapshot'); if (live && sequence === snapshotSequence.current) { setState(s); setConnError(''); } }
-              catch (e) { if (live) setConnError(e.message); }
+              catch (e) { if (live && sequence === snapshotSequence.current) setConnError(e.message); }
               finally { pending = false; }
             };
             void load(); const timer = setInterval(() => void load(), 2500);
@@ -2089,7 +2530,11 @@ window.__ModuleLoader__.load({
             if (wecomChannelsOn(config)) await rpc('action', { type: 'connection.wecom-check' }).catch(() => {});
             await refresh();
           };
-          const helpers = { state, extra, workspace, config, tz, planStates: planStates.current, busy, button, run, runFullCheck, refresh, openCard, setFormDirty: value => { formDirty.current = value; }, openRobot: chatWithRobot };
+          const openRuns = filters => {
+            planRowState(planStates.current, 'run-history:' + state.workspaceBinding, {}).update({ filters: { kind: 'runs', range: '7', includeUnresolved: true, ...filters }, offset: 0, selectedRun: null, workId: null }); openCard('activity');
+          };
+          const openPlan = id => { planRowState(planStates.current, 'task-manager:' + state.workspaceBinding, {}).update({ selected: id, form: null, preview: null }); openCard('digest'); };
+          const helpers = { state, extra, workspace, config, tz, planStates: planStates.current, busy, button, run, runFullCheck, refresh, openCard, openRuns, openPlan, setFormDirty: value => { formDirty.current = value; }, openRobot: chatWithRobot };
           // F26: tab 角标＝分类内「需注意/需处理」卡片数；出现 error 时角标转红，
           // 仅 warn 时保持琥珀（口径为实施默认，后续可裁决调整）。
           const chipOf = cat => {

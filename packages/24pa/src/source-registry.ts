@@ -95,9 +95,11 @@ export class SourceRegistry {
     });
   }
 
-  /** Resolve once at authorization time; the snapshot survives future default changes. */
-  async bind(domain: SourceDomain, selector: SourceSelector = {}, capability: SourceCapability = 'create'): Promise<SourceTarget> {
-    const { source, reason } = selectSource(effectiveSources(this.deps.config()), domain, selector, capability !== 'read');
+  /** Resolve once at authorization time; the snapshot survives future default changes.
+   * Object mutations can require a writable registration while proving only
+   * scope readability; the adapter must still check the actual object. */
+  async bind(domain: SourceDomain, selector: SourceSelector = {}, capability: SourceCapability = 'create', writable = capability !== 'read'): Promise<SourceTarget> {
+    const { source, reason } = selectSource(effectiveSources(this.deps.config()), domain, selector, writable || capability !== 'read');
     const connection = this.deps.connectionHash(source.platform);
     const proof = await this.check(source.id);
     this.assertCapability(proof, capability, source.name);
@@ -108,11 +110,23 @@ export class SourceRegistry {
       registrationRevision: row.revision, scopeHash: row.scope_hash, connectionHash: connection, selectedBy: reason, permission: { capability, verdict: proof.capabilities[capability] }, checkedAt: proof.checkedAt };
   }
 
+  /** Explicit routing conditions cannot silently replace a frozen target. */
+  assertSelection(target: SourceTarget, selector: SourceSelector, authorized: SourceSelector = {}): void {
+    const config = effectiveSources(this.deps.config());
+    for (const key of ['sourceId', 'company', 'project'] as const) {
+      if (selector[key] === undefined || selector[key] === authorized[key]) continue;
+      // Check each explicit condition, even if another field already names
+      // the fixed source. Conflicting conditions must not disappear silently.
+      const selected = selectSource(config, target.domain, { [key]: selector[key] });
+      if (selected.source.id !== target.sourceId) throw new SourceError('本次动作要求的目标超出计划固定授权，请先明确重配计划。');
+    }
+  }
+
   /** Current registration and actual permissions may only narrow an existing authorization. */
-  async verify(target: SourceTarget, capability: SourceCapability): Promise<SourceEvidence> {
+  async verify(target: SourceTarget, capability: SourceCapability, writable = capability !== 'read'): Promise<SourceEvidence> {
     const source = effectiveSources(this.deps.config()).entries.find(row => row.id === target.sourceId);
     if (!source || !source.enabled || sourceScopeFingerprint(source) !== target.scopeHash) throw new SourceError('原目标的来源、接入身份或授权范围已变更；需明确修复或重配，不能改投新默认。');
-    if (capability !== 'read' && source.access !== 'readwrite') throw new SourceError('原来源已改为只读。');
+    if ((writable || capability !== 'read') && source.access !== 'readwrite') throw new SourceError('原来源已改为只读。');
     const connection = this.deps.connectionHash(target.platform);
     const proof = await this.check(source.id), registration = await this.deps.repo().get(source.id);
     if (!registration || registration.revision !== target.registrationRevision || connection !== this.deps.connectionHash(target.platform)) throw new SourceError('原来源已移除、重新登记或正在切换接入，请核对原目标后重配。');

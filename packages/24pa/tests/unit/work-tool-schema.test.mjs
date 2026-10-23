@@ -5,14 +5,14 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import { PaRuntime } from '../../lib/runtime.js';
 import { apply } from '../../lib/tools.js';
 
-function registeredWork(work = async args => args) {
+function registeredWork(work = async args => args, name = 'pa24_work') {
   const definitions = new Map();
   apply({
-    get: () => ({ workspaceRulesSection: () => '', work }), on: () => { }, effect: fn => fn(),
+    get: () => ({ workspaceRulesSection: () => '', work, runControl: work }), on: () => { }, effect: fn => fn(),
     tools: { register: definition => { definitions.set(definition.name, definition); return () => { }; } },
     systemPrompt: { section: () => () => { } }
   });
-  return definitions.get('pa24_work');
+  return definitions.get(name);
 }
 
 const minimal = {
@@ -35,6 +35,17 @@ const minimal = {
 };
 
 describe('真实注册的 Worker 模型接口', () => {
+  it('pa24_run progress 只要求进展字段，等待原因由运行时按 action 校验', async () => {
+    const ctx = new Context(); let received;
+    const args = { action: 'progress', stage: '整理资料', completed: '核对输入', next: '保存结果' };
+    expect(validateJsonSchemaValue(registeredWork(undefined, 'pa24_run').parameters, args)).toEqual([]);
+    try {
+      await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime);
+      ctx.tools.register(registeredWork(async value => { received = value; return value; }, 'pa24_run'));
+      const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: 'progress', name: 'pa24_run', arguments: args });
+      expect(result.isError).not.toBe(true); expect(received).toEqual(args);
+    } finally { await ctx.fiber.dispose(); }
+  });
   it('每个正式绑定动作都有模型 payload 契约，角色权限仍由 runtime 校验', () => {
     const runtime = new PaRuntime({ skills: null, get: () => null }, { env: {}, workspacePath: '' });
     const bound = runtime.roles.list().flatMap(role => Object.keys(role.actions));

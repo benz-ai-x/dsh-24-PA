@@ -113,7 +113,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     config = { ...DEFAULT_CONFIG, ownerOpenId: 'owner', sources: registration() }; remote = new Map(); calls = []; failure = null; mismatch = false; gates = new Map();
     registry = new SourceRegistry({ repo: () => repos.sources, config: () => config, connectionHash: () => 'connection', probe: async source => proof(source), gate });
     await registry.synchronize(); reader = new SourceTodoReader({ timeZone: () => config.timeZone, lark, wecom });
-    service = new SourceTodo({ config: () => config, registry, projection: () => repos.sourceProjection, read: t => reader.read(t), object: (t, guid) => reader.object(t, guid), localTasks: () => repos.tasks.all(), operation: id => repos.operations.get(id), projectTasks: id => repos.projects.tasksOf(id), relations: () => repos.operations.todoAssignments(), gate });
+    service = new SourceTodo({ config: () => config, registry, projection: () => repos.sourceProjection, read: t => reader.read(t), object: (t, guid) => reader.object(t, guid), localTasks: () => repos.tasks.all(), operation: id => repos.operations.get(id), projectTasks: id => repos.projects.tasksOf(id), relations: () => repos.operations.todoRelations(), gate });
     writes = new SourceTodoWrites({ config: () => config, registry, todos: service, reader, repos: () => repos, external: new ExternalOperations(() => repos.operations), lark, wecom, gate, notify: async () => {} });
     work = await repos.workItems.insert({ id: 'work', title: '记录待办', role: 'tasks', instruction: '本人记录待办', origin: 'local', parent_session_id: 'parent', child_session_id: 'child', delivery: 'parent', status: 'running' });
   });
@@ -232,11 +232,11 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     expect(calls.filter(args => args[2] === 'create')).toHaveLength(1);
   });
   it('候选授权变化不可覆盖原创建，完整原授权在恢复时保留', async () => {
-    const authorization = { candidateId: 'stable', versionId: 'v1', instruction: '授权创建', parametersFingerprint: 'fp', owner: 'owner' };
+    const authorization = { noteId: 'test', index: 0, candidateId: 'stable', versionId: 'v1', instruction: '授权创建', parametersFingerprint: 'fp', owner: 'owner' };
     const args = { summary: '候选', _operationId: 'note.action:test:v1:0', _authorization: authorization };
     const first = await writes.write(work, 'create', args); const again = await writes.write(work, 'create', args);
     expect(again.guid).toBe(first.guid); expect((await repos.operations.get(args._operationId)).params.request._authorization).toEqual(authorization);
-    await expect(writes.write(work, 'create', { ...args, _authorization: { ...authorization, versionId: 'v2' } })).rejects.toThrow(/授权已变化/);
+    await expect(writes.write(work, 'create', { ...args, _authorization: { ...authorization, versionId: 'v2' } })).rejects.toThrow(/授权已变化|授权身份不符/);
     expect(remote.size).toBe(1);
   });
 
@@ -249,6 +249,15 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     const repaired = await writes.write(work, 'update', { guid: created.guid, description: '最终描述' });
     expect(repaired).toMatchObject({ guid: created.guid, description: '最终描述', verification: { state: 'verified' } });
     expect(remote.size).toBe(1); expect(calls.filter(args => args[2] === 'create')).toHaveLength(1);
+  });
+  it('修改原待办关联本次交办，保留创建交办和原镜像归属', async () => {
+    const created = await writes.write(work, 'create', { summary: '原待办' });
+    const next = await repos.workItems.insert({ id: 'next-work', title: '修改原待办', role: 'tasks', instruction: '主人明确修改', origin: 'local', parent_session_id: 'parent', child_session_id: 'next-child', delivery: 'parent', status: 'running' });
+    await writes.write(next, 'update', { guid: created.guid, summary: '已修改' });
+    const result = await service.query({});
+    expect(result.tasks[0].workItemIds.sort()).toEqual([next.id, work.id].sort());
+    expect((await repos.tasks.byGuid(created.guid)).work_item_id).toBe(work.id);
+    expect(remote.size).toBe(1);
   });
   it('同 GUID 跨平台对象不能继承旧本地编号、交办或项目关联', async () => {
     const created = await writes.write(work, 'create', { summary: '飞书原件', estimateMinutes: 40 });
