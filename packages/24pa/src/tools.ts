@@ -119,7 +119,7 @@ export function apply(ctx: DshContext) {
     'pa24_run',
     '普通交办使用 progress 记录真实 stage、completed、next；缺少主人信息/外部结果时，使用 wait 保存需要补充的 reason，暂停原运行的新动作。主人补充后沿同一运行继续；不能用于增加业务授权。',
     { action: { type: 'string', enum: ['wait', 'progress'] }, reason: string, kind: { type: 'string', enum: ['input', 'external'] }, stage: string, completed: string, next: string },
-    ['action', 'reason'],
+    ['action'],
     (args, exec) => runtime.runControl(args, exec.agent!),
   );
 

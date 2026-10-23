@@ -221,7 +221,7 @@ it.each(['finish', 'stop'])('引用 Worker 的补充输入在 %s 后释放原工
   const { rt, workspace, ctx } = await fixture();
   const a = await workspace(`followup-${outcome}`, 'feishu'); await rt.bind(a);
   const localId = await rt.openLocalSession(), accessId = localId.replace(/-local$/, '-feishu');
-  await rt.repos.workItems.insert({ id: 'work', child_session_id: 'child', title: '原事项', role: 'memo', instruction: 'work', origin: 'feishu', parent_session_id: accessId, delivery: 'feishu:owner', status: 'completed' });
+  await rt.repos.workItems.insert({ id: 'work', child_session_id: 'child', title: '原事项', role: 'memo', instruction: 'work', origin: 'feishu', parent_session_id: accessId, delivery: 'feishu:owner', status: 'waiting_input' });
   await rt.repos.messageRoutes.record('original-message', { kind: 'workitem', workItemId: 'work' });
   let child;
   ctx.sessions = { get: id => id === 'child' ? child : undefined, flush: async () => true };

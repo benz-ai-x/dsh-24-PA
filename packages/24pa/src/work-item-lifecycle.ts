@@ -8,7 +8,7 @@ import type { WorkCompletion } from './work-completion.js';
  * the same repository on SQLite and PostgreSQL. */
 export class WorkItemLifecycle {
   private serial: Promise<unknown> = Promise.resolve();
-  private readonly pending = new Map<string, { failures: number; nextAt: number; recovering: boolean; revision: number }>();
+  private readonly pending = new Map<string, { failures: number; nextAt: number; recovering: boolean; revision: number; checkpoints: number }>();
   private settling: Promise<void> | null = null;
   constructor(private readonly deps: {
     repo: () => WorkItemRepo; maxWorkers: () => number; available: () => boolean;
@@ -168,18 +168,17 @@ export class WorkItemLifecycle {
   /** Events are hints to read durable evidence. A failed hint remains queued;
    * the normal dispatcher retries it without model or external action calls. */
   async complete(id: string, checkpoint?: () => Promise<void>): Promise<void> {
-    const pending = this.pending.get(id);
-    if (pending) { pending.revision += 1; pending.recovering = false; if (!pending.failures) pending.nextAt = 0; }
-    else this.pending.set(id, { failures: 0, nextAt: 0, recovering: false, revision: 0 });
+    const pending = this.pending.get(id) ?? { failures: 0, nextAt: 0, recovering: false, revision: 0, checkpoints: 0 };
+    pending.revision += 1; pending.recovering = false; if (!pending.failures) pending.nextAt = 0;
+    pending.checkpoints += 1; this.pending.set(id, pending);
     // Flush the native completion even when the first ledger read fails. The
     // already-committed input marker plus this independent log survives exit.
     try { await checkpoint?.(); }
     catch (error) {
-      const attempt = this.pending.get(id)!;
-      this.deferRetry(attempt);
+      this.deferRetry(pending);
       this.deps.completion?.warn(`原回合持久化待确认，将自动重试：${(error as Error).message}`);
       return;
-    }
+    } finally { pending.checkpoints -= 1; }
     return this.retryCompletions();
   }
 
@@ -193,12 +192,13 @@ export class WorkItemLifecycle {
     // its identity under the gate and in SQL, so the old turn cannot win.
     const run = async () => {
       for (const [id, attempt] of [...this.pending]) {
-        if (!this.deps.available() || Date.now() < attempt.nextAt) continue;
+        if (!this.deps.available() || attempt.checkpoints || Date.now() < attempt.nextAt) continue;
         const revision = attempt.revision;
         const consumed = () => { if (attempt.revision === revision) this.pending.delete(id); else attempt.nextAt = 0; };
         let executionId: string | null | undefined;
         try {
           await this.idle();
+          if (attempt.checkpoints) continue;
           const item = await this.deps.repo().get(id);
           if (!item || item.status !== 'running') {
             // The transaction may have committed before its acknowledgement
@@ -261,7 +261,7 @@ export class WorkItemLifecycle {
     await this.retryStops();
     if (this.deps.completion) {
       for (const item of await this.deps.repo().list(['running'], 10000, true)) {
-        if (item.execution_id) this.pending.set(item.id, { failures: 0, nextAt: 0, recovering: true, revision: 0 });
+        if (item.execution_id) this.pending.set(item.id, { failures: 0, nextAt: 0, recovering: true, revision: 0, checkpoints: 0 });
       }
       await this.retryCompletions();
     }

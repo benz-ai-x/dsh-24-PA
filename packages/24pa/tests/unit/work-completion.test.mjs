@@ -97,8 +97,12 @@ for (const storage of ['sqlite', 'postgres']) describe(`original work completion
       return result;
     });
     end(a); end(b); await vi.waitFor(() => expect(lost.size).toBe(2));
-    await vi.waitFor(async () => expect((await work(c)).status).toBe('running'), { timeout: 3000 });
-    expect(await results(a)).toHaveLength(1); expect(await results(b)).toHaveLength(1); expect(f.nativeInputs.size).toBe(3);
+    // Capacity is claimed before the new input is durably prepared and sent.
+    // Wait for native admission as well, rather than racing that SQL boundary.
+    await vi.waitFor(async () => {
+      expect((await work(c)).status).toBe('running'); expect(f.nativeInputs.size).toBe(3);
+    }, { timeout: 3000 });
+    expect(await results(a)).toHaveLength(1); expect(await results(b)).toHaveLength(1);
   });
 
   it('temporary cold-read failure retries evidence without resuming the Worker', async () => {

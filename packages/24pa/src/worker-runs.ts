@@ -14,6 +14,8 @@ interface WorkerScope {
  * reassigns the Skill execution engine's session ownership. */
 export class WorkerRuns {
   private readonly clock: SkillRunClock;
+  private readonly activeCalls = new Set<string>();
+  private readonly blocked = new Set<string>();
   constructor(private readonly deps: {
     lease?<T>(work: () => Promise<T>): Promise<T>;
     context(): { repos: Repos; path: string; binding: string } | null;
@@ -41,6 +43,16 @@ export class WorkerRuns {
   private async authorized(agent: DshAgent) {
     const owned = await this.owned(agent.session);
     if (!owned || owned.item.status !== 'running' || owned.run.status !== 'running' || !this.deps.allowed(owned.item.role)) throw new Error('此交办已等待、停止或授权发生变化；未开始新的动作。');
+    try {
+      if (this.blocked.has(owned.run.id)) throw new Error('原运行工具回执待核对，不能继续执行。');
+      await owned.context.repos.workItems.assertKnownEffects(owned.item.id, true, this.activeCalls);
+    }
+    catch (error) {
+      this.blocked.add(owned.run.id);
+      this.clock.disarm(owned.run.id);
+      await owned.context.repos.workerRuns.block(owned.run.id, (error as Error).message);
+      throw error;
+    }
     const canceled = canceledInputIds(agent.session);
     if ((await owned.context.repos.workerRuns.inputs(owned.run.id)).some(input => input.native_message_id && canceled.has(input.native_message_id))) {
       void this.deps.cancel?.(owned.item.id).catch(() => {});
@@ -96,14 +108,31 @@ export class WorkerRuns {
         const active = await this.authorized(current);
         await this.observe(current.session, true);
         const key = await active.context.repos.workerRuns.call(active.run.id, call.name, call.arguments);
+        this.activeCalls.add(key);
         try {
           const result = await next();
-          await active.context.repos.workerRuns.callResult(key, result.isError ? 'failed' : 'succeeded', result);
+          // ToolRuntime returns handler failures as values, including a lost
+          // acknowledgement after a write. Only its pre-dispatch cancellation
+          // proves that this call did not execute.
+          const unknown = (result.isError || call.signal.aborted) && result.error?.info?.code !== 'ABORTED_BEFORE_DISPATCH';
+          if (unknown) this.blocked.add(active.run.id);
+          await active.context.repos.workerRuns.callResult(key, unknown ? 'unknown' : result.isError ? 'failed' : 'succeeded', result);
+          if (unknown) this.clock.disarm(active.run.id);
+          // Business tools can return a structured partial result while an
+          // external operation remains unknown. That still blocks new steps.
+          try { await active.context.repos.workItems.assertKnownEffects(active.item.id, true, this.activeCalls); }
+          catch (error) {
+            this.blocked.add(active.run.id);
+            this.clock.disarm(active.run.id);
+            await active.context.repos.workerRuns.block(active.run.id, (error as Error).message);
+          }
           return result;
         } catch (error) {
+          this.blocked.add(active.run.id);
+          this.clock.disarm(active.run.id);
           await active.context.repos.workerRuns.callResult(key, 'unknown', { message: (error as Error).message }).catch(() => {});
           throw error;
-        }
+        } finally { this.activeCalls.delete(key); }
         };
         return this.deps.lease ? this.deps.lease(execute) : execute();
       });

@@ -115,7 +115,10 @@ export class WorkItemRepo {
   async assertResumable(id: string): Promise<void> {
     const run = await new WorkerRunRepo(this.db).current(id);
     if (run?.status === 'stopping') throw new Error('原运行尚未确认停止，请先核对停止结果。');
-    if (run && ['completed','failed','stopped','timed_out'].includes(run.status)) await new WorkerRunRepo(this.db).continuation(id);
+    await this.assertKnownEffects(id, !!run && ['completed','failed','stopped','timed_out','rejected'].includes(run.status));
+  }
+  async assertKnownEffects(id: string, includeRunning = false, activeCalls?: ReadonlySet<string>): Promise<void> {
+    await new WorkerRunRepo(this.db).continuation(id, includeRunning, activeCalls);
     const unknown = await this.db.query("select id from pa24.action_operation where work_item_id = $1 and status in ('running','unknown') limit 1", [id]);
     if (unknown.rowCount) throw new Error('原交办仍有未知外部操作，请先核对原平台回执；不以新运行重复写入。');
   }

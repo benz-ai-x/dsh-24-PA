@@ -1,4 +1,7 @@
-import { beforeAll, afterAll, describe, it, expect } from 'vitest';
+import { beforeAll, afterAll, beforeEach, afterEach, describe, it, expect } from 'vitest';
+import ToolRuntime from '@deepseek-ai/dsh-tools';
+import { Context } from '@deepseek-ai/cordis';
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import { randomUUID } from 'node:crypto';
 import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
@@ -8,19 +11,30 @@ import { historyFilter } from '../../lib/run-history.js';
 import { WorkerRuns } from '../../lib/worker-runs.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run journal / ${backend}`, () => {
-  let db, repos, cluster, life, quiesce;
-  beforeAll(async () => {
-    if (backend === 'postgres') { cluster = await startPgCluster(); db = new PaDatabase(cluster.dsn); } else db = new SqliteDb(':memory:');
+  let db, repos, cluster, life, quiesce, services;
+  beforeAll(async () => { if (backend === 'postgres') cluster = await startPgCluster(); });
+  beforeEach(async () => {
+    if (cluster) { await cluster.query('drop schema if exists pa24 cascade'); db = new PaDatabase(cluster.dsn); } else db = new SqliteDb(':memory:');
     await db.migrate({ workspaceId: 'workspace', workspacePath: '/workspace', ownerOpenId: 'owner' }); repos = createRepos(db);
+    quiesce = null; services = [];
     life = new WorkItemLifecycle({ repo: () => repos.workItems, maxWorkers: () => 8, available: () => true,
       start: async () => {}, resume: async () => 'native-' + randomUUID(), interrupt: () => {}, track: () => {}, quiesce: async () => quiesce?.(),
       completion: { workspacePath: () => '/workspace', read: async () => ({ kind: 'pending' }), delivered() {}, warn() {} } });
   });
-  afterAll(async () => { await db?.close(); await cluster?.stop(); });
+  afterEach(async () => { for (const service of services) service.dispose(); await db?.close(); });
+  afterAll(async () => { await cluster?.stop(); });
   const make = async (extra = {}) => { const id = randomUUID(); return repos.workItems.insert({ id, title: '真实交付', role: 'memo', instruction: '保存原请求', origin: 'local', parent_session_id: 'parent', child_session_id: id, delivery: 'local:parent', status: 'queued', ...extra }); };
   const list = workId => repos.runHistory.list(historyFilter({ kind: 'runs', range: 'all', workId }, 'Asia/Shanghai'));
   const finish = item => life.finish(item.id, { output: '交付物与原对象凭证', executionId: item.execution_id, generation: item.recovery_gen,
     delivery: () => ({ dedupKey: `workitem:${item.id}:result:${item.execution_id}`, channel: 'local', target: 'parent', kind: 'text', content: { text: '回传' } }) });
+  const journal = async item => {
+    const listeners = new Map(), agent = { id: item.id, session: { id: item.id, header: { cwd: '/workspace', parentSession: 'parent' }, ownEvents: () => [] },
+      ctx: { plugin: plugin => ({ await: async () => plugin.apply({ on: (event, listener) => listeners.set(event, listener) }) }) } };
+    const service = new WorkerRuns({ context: () => ({ repos, path: '/workspace', binding: 'binding' }), allowed: () => true, expire: async () => {} });
+    services.push(service); await service.attach(agent);
+    return { agent, request: next => listeners.get('agent/request')({ agent }, next),
+      execute: (next, signal = new AbortController().signal) => listeners.get('tools/execute')({ agent, callId: randomUUID(), name: 'save_file', arguments: {}, signal }, next) };
+  };
   it('旧交办不伪造档案；首次执行、运行中补充和结束后接续有稳定且不同的身份', async () => {
     const old = await make({ status: 'completed' }); expect((await list(old.id)).total).toBe(0);
     let item = await make(); await life.pump(); item = await repos.workItems.get(item.id); const first = item.active_worker_run_id;
@@ -51,14 +65,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
     expect(detail.run.status).toBe('stopped'); expect(detail.control.state.stop.settledAt).toBeTypeOf('number');
   });
   it('验收回执与状态原子保存，重复操作只返回原修订，旧确认不覆盖进展', async () => {
+    expect((await repos.runHistory.summary()).waiting_work).toBe(0);
     let item = await make({ acceptance_required: true }); await life.pump(); item = await repos.workItems.get(item.id); await finish(item); item = await repos.workItems.get(item.id);
+    expect((await repos.runHistory.summary()).waiting_work).toBe(1);
     const input = { op: 'accept', instruction: '人工核对交付物', expectedRevision: item.revision }, id = randomUUID();
     const claimed = await repos.workControls.prepare(id, id, item.id, item.revision, input);
     const one = await repos.workControls.acceptance(claimed.row, item.revision, 'accept', input.instruction);
     const again = await repos.workControls.acceptance(claimed.row, item.revision, 'accept', input.instruction);
     expect(again.work.revision).toBe(one.work.revision); expect((await repos.workControls.get(id)).record.phase).toBe('completed');
     await expect(repos.workControls.prepare(randomUUID(), 'stale', item.id, item.revision, input)).rejects.toThrow('新进展');
-    const summary = await repos.runHistory.summary(); expect(summary.waiting_work).toBeGreaterThanOrEqual(1);
+    const summary = await repos.runHistory.summary(); expect(summary.waiting_work).toBe(0);
   });
   it('重启可继续核对停止，不把未确认停止当完成；保留超时原因', async () => {
     let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
@@ -89,9 +105,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
     const id = randomUUID(), claim = await repos.workControls.prepare(id, id, item.id, item.revision, input);
     await repos.workerRuns.review(claim.row, input); const saved = await repos.workerRuns.detail(detail.run.id);
     expect(saved.reviewed).toBe(true); expect(saved.calls[0].status).toBe('unknown'); await repos.workItems.assertResumable(item.id);
+    await life.resume(item.id, '只完成剩余摘要'); const continued = await repos.workItems.get(item.id);
+    expect(continued.active_worker_run_id).not.toBe(detail.run.id);
     await repos.workerRuns.callResult(callId, 'unknown', { error: 'new conflicting receipt' });
+    expect((await repos.workItems.get(item.id)).status).toBe('running');
     expect((await repos.workerRuns.detail(detail.run.id)).reviewed).toBe(false);
     await expect(repos.workItems.assertResumable(item.id)).rejects.toThrow('未核对动作');
+    const cold = await journal(continued);
+    await expect(cold.request(async () => { throw Error('must not dispatch'); })).rejects.toThrow('未核对动作');
+    expect((await repos.workerRuns.get(continued.active_worker_run_id)).status).toBe('needs_reconciliation');
+    expect((await repos.workerRuns.get(detail.run.id)).status).toBe('stopped');
   });
   it('明确未接纳的交办单列拒绝事件，不计一次执行', async () => {
     const item = await make();
@@ -99,6 +122,70 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
     await failing.pump(); expect((await list(item.id)).total).toBe(0);
     const events = await repos.runHistory.list(historyFilter({ kind: 'events', range: 'all', workId: item.id }, 'Asia/Shanghai'));
     expect(events.total).toBe(1); expect(events.rows[0]).toMatchObject({ status: 'rejected', record_kind: 'worker', summary: '职责配置缺失' });
+    const first = (await repos.workItems.get(item.id)).active_worker_run_id;
+    await life.resume(item.id, '职责已修复，明确接续');
+    const continued = await repos.workItems.get(item.id);
+    expect(continued.active_worker_run_id).not.toBe(first);
+    expect((await repos.workerRuns.get(continued.active_worker_run_id)).snapshot.fromRunId).toBe(first);
+    expect((await repos.workerRuns.get(first)).status).toBe('rejected');
+    expect((await list(item.id)).total).toBe(1);
+    expect((await repos.runHistory.list(historyFilter({ kind: 'events', range: 'all', workId: item.id }, 'Asia/Shanghai'))).total).toBe(1);
+  });
+  it('真实 ToolRuntime 在写入后包装的错误仍是未知，冷读门禁阻止后续模型、工具和补充', async () => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
+    const hook = await journal(item), ctx = new Context(); let writes = 0;
+    try {
+      await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime);
+      ctx.tools.register({ name: 'save_file', description: 'test write', parameters: { type: 'object', properties: {} },
+        output: { schema: { type: 'object' }, render: () => [] },
+        execute: async () => { writes++; throw Error('write completed but acknowledgement lost'); } });
+      const result = await hook.execute(() => ctx.tools.execute({ callId: 'real-tool', name: 'save_file', arguments: {}, signal: new AbortController().signal }));
+      expect(result.isError).toBe(true); expect(writes).toBe(1);
+      const detail = await repos.workerRuns.detail(item.active_worker_run_id);
+      expect(detail.calls[0].status).toBe('unknown'); expect(detail.run.status).toBe('needs_reconciliation');
+      expect((await repos.workItems.get(item.id)).status).toBe('needs_reconciliation');
+      await expect(life.resume(item.id, '换个参数再试', true)).rejects.toThrow('核对');
+      // A stale status projection cannot bypass durable unresolved evidence.
+      await repos.workItems.update(item.id, { status: 'running' });
+      const cold = await journal(item); let models = 0;
+      await expect(cold.request(async () => { models++; })).rejects.toThrow('核对');
+      await expect(cold.execute(async () => { writes++; return {}; })).rejects.toThrow();
+      expect(models).toBe(0); expect(writes).toBe(1);
+    } finally { await ctx.fiber.dispose(); }
+  });
+  it('关联平台动作未知也在模型和工具边界阻断，不能换参数绕过', async () => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
+    const hook = await journal(item); let dispatched = 0;
+    await repos.operations.begin({ id: 'external', workItemId: item.id, action: 'calendar.create', params: {} });
+    await repos.operations.update('external', { status: 'unknown', error: 'lost receipt' });
+    await expect(hook.request(async () => { dispatched++; })).rejects.toThrow('核对');
+    await expect(hook.execute(async () => { dispatched++; return {}; })).rejects.toThrow();
+    expect(dispatched).toBe(0); expect((await repos.workItems.get(item.id)).status).toBe('needs_reconciliation');
+  });
+  it('未知回执写库失败后，当前门禁与冷恢复都保留未结清调用的阻断', async () => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
+    const hook = await journal(item), save = repos.workerRuns.callResult;
+    repos.workerRuns.callResult = async () => { throw Error('receipt ledger unavailable'); };
+    try { await expect(hook.execute(async () => ({ isError: true }))).rejects.toThrow('ledger unavailable'); }
+    finally { repos.workerRuns.callResult = save; }
+    expect((await repos.workerRuns.detail(item.active_worker_run_id)).calls[0].status).toBe('running');
+    await expect(hook.request(async () => { throw Error('must not dispatch'); })).rejects.toThrow('核对');
+    await repos.workItems.update(item.id, { status: 'running' });
+    const cold = await journal(item);
+    await expect(cold.request(async () => { throw Error('must not dispatch'); })).rejects.toThrow('核对');
+  });
+  it.each(['unknown', 'succeeded'])('停止期间到达的 %s 工具凭证只修复原记录，不复活交办', async outcome => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
+    const hook = await journal(item); let release, entered;
+    const pending = new Promise(resolve => { entered = resolve; });
+    const execution = hook.execute(async () => { entered(); return new Promise(resolve => { release = resolve; }); });
+    await pending; await life.stop(item.id);
+    release(outcome === 'unknown' ? { isError: true, error: { message: 'lost receipt' } } : { value: { saved: true } });
+    await execution;
+    const detail = await repos.workerRuns.detail(item.active_worker_run_id);
+    expect(detail.calls[0].status).toBe(outcome); expect(detail.run.status).toBe('stopped');
+    expect((await repos.workItems.get(item.id)).status).toBe('stopped');
+    await expect(life.resume(item.id, '迟到补充', true)).rejects.toThrow('补充不会复活');
   });
   it('收到与采用以原生消费证据区分，工具计时不包含等待', async () => {
     let item = await make(); await life.pump(); item = await repos.workItems.get(item.id); const run = await repos.workerRuns.get(item.active_worker_run_id);

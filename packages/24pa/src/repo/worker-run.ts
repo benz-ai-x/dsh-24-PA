@@ -21,7 +21,7 @@ export interface WorkerInputRow {
   status: 'prepared' | 'received' | 'adopted' | 'rejected' | 'unknown'; native_message_id: string | null;
   adopted_turn: number | null; reason: string | null; created_at: Date;
 }
-const terminal = ['completed', 'failed', 'stopped', 'timed_out'];
+const terminal = ['completed', 'failed', 'stopped', 'timed_out', 'rejected'];
 
 /** Journal only. WorkItemLifecycle remains the ordinary Worker's execution
  * owner; a shared native child is never registered as a managed Skill session. */
@@ -80,7 +80,7 @@ export class WorkerRunRepo {
     if (item.execution_mode === 'skill') return;
     const status = item.status === 'waiting_input' ? 'waiting' : item.status === 'stopped' ? 'stopping' : item.status;
     await tx.query(`update pa24.worker_run set status = $2, progress = $3, result = case when $2 in ('completed','failed') then $4 else result end, result_ref = $5, progress_detail = $6, updated_at = now()
-      where id = $1 and status not in ('completed','failed','stopped','timed_out')`,
+      where id = $1 and status not in ('completed','failed','stopped','timed_out','rejected')`,
     [item.active_worker_run_id, status, item.progress, item.result, item.result_ref ? JSON.stringify(item.result_ref) : null, item.progress_detail ? JSON.stringify(item.progress_detail) : null]);
   }
   async finish(tx: PaQueryer, item: WorkItemRow, outboxKey: string): Promise<void> {
@@ -113,7 +113,21 @@ export class WorkerRunRepo {
     return key;
   }
   async callResult(id: string, status: 'succeeded' | 'failed' | 'unknown', result: unknown): Promise<void> {
-    await this.db.query('update pa24.worker_run_call set status = $2, result = $3, updated_at = now() where id = $1', [id, status, JSON.stringify(result ?? null)]);
+    await this.db.withTransaction(async tx => {
+      const row = (await tx.query<{ run_id: string }>('select run_id from pa24.worker_run_call where id = $1', [id])).rows[0];
+      if (row && status === 'unknown') await this.block(row.run_id, '工具结果未知，请先核对已发生的动作；未开始新的模型或工具步骤。', tx);
+      await tx.query('update pa24.worker_run_call set status = $2, result = $3, updated_at = now() where id = $1', [id, status, JSON.stringify(result ?? null)]);
+    });
+  }
+  async block(id: string, reason: string, tx?: PaQueryer): Promise<void> {
+    if (!tx) return this.db.withTransaction(query => this.block(id, reason, query));
+    const run = await this.get(id, tx); if (!run) return;
+    const item = (await tx.query<WorkItemRow>('select * from pa24.work_item where id = $1 for update', [run.work_item_id])).rows[0];
+    // Late evidence belongs to its original run. It cannot resurrect a stopped
+    // WorkItem or change a different continuation's state.
+    if (item?.active_worker_run_id !== id || !['running','waiting_input','needs_reconciliation'].includes(item.status)) return;
+    const blocked = await tx.query("update pa24.worker_run set status = 'needs_reconciliation', progress = $2, updated_at = now() where id = $1 and status in ('running','waiting','needs_reconciliation')", [id, reason]);
+    if (blocked.rowCount) await tx.query("update pa24.work_item set status = 'needs_reconciliation', progress = $2, revision = revision + 1, updated_at = now() where id = $1", [item.id, reason]);
   }
   async evidence(id: string, tx: PaQueryer = this.db) {
     const calls = (await tx.query<{ id: string; tool: string; status: string; args: unknown; result: unknown }>('select * from pa24.worker_run_call where run_id = $1 order by created_at, id', [id])).rows;
@@ -142,12 +156,12 @@ export class WorkerRunRepo {
       return result;
     });
   }
-  async continuation(workId: string): Promise<unknown[]> {
+  async continuation(workId: string, includeRunning = true, activeCalls?: ReadonlySet<string>): Promise<unknown[]> {
     const runs = (await this.db.query<WorkerRunRow>('select * from pa24.worker_run where work_item_id = $1 order by created_at, id', [workId])).rows;
     const context = [];
     for (const run of runs) {
       const evidence = await this.evidence(run.id);
-      if (evidence.calls.some(call => ['running','unknown'].includes(call.status)) && !evidence.reviewed) throw new Error('原运行含未核对动作，请先在运行记录逐项核对。');
+      if (evidence.calls.some(call => call.status === 'unknown' || (includeRunning && call.status === 'running' && !activeCalls?.has(call.id))) && !evidence.reviewed) throw new Error('原运行含未核对动作，请先在运行记录逐项核对。');
       context.push({ runId: run.id, status: run.status, result: run.result, progress: run.progress_detail, calls: evidence.calls,
         review: evidence.reviews.find(row => (row.record.result as { fingerprint?: string })?.fingerprint === evidence.fingerprint)?.record.result ?? null });
     }
