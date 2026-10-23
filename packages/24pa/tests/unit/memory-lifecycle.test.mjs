@@ -188,6 +188,30 @@ it('实际维护入口重复旧确认不会给新正文重新授信，原凭证�
   } finally { await f.cleanup(); }
 });
 
+it('实际维护入口同措辞新引用确认当前内容，同引用或缺失引用不能重新授信', async () => {
+  const f = await runtimeFixture();
+  try {
+    const path = await f.workspace('confirmation-reference'); await f.rt.bind(path);
+    const owner = [...f.agents.values()].find(agent => f.rt.roleFor(agent) === 'local-robot');
+    const command = { action: 'put', id: 'colour', category: 'preference', topic: '颜色', content: '我喜欢红色', source: '本地主人指令', status: 'confirmed', confirmation: '我确认当前这条偏好，请记住', confirmationReference: 'message-1', reason: '主人维护' };
+    await f.rt.memoryTool({ ...command, expectedRevision: 0 }, owner);
+    const original = (await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records[0].confirmation;
+    await f.rt.memoryTool({ ...command, content: '我喜欢蓝色', expectedRevision: 1 }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'manage' }, owner)).records[0].confirmation).toEqual(original);
+    await f.rt.memoryTool({ ...command, content: '我喜欢蓝色', confirmationReference: undefined, expectedRevision: 2 }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'manage' }, owner)).records[0].confirmation).toEqual(original);
+    await f.rt.memoryTool({ ...command, content: '我喜欢蓝色', confirmationReference: 'message-2', expectedRevision: 3 }, owner);
+    const facts = (await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records;
+    expect(facts).toMatchObject([{ content: '我喜欢蓝色', status: 'confirmed', confirmation: { text: command.confirmation, reference: 'message-2' }, effective: { confirmation: 'verified', useAs: 'fact' } }]);
+    expect(facts[0].confirmation.statementHash).not.toBe(original.statementHash);
+    await f.rt.memoryTool({ ...command, content: '我喜欢绿色', confirmation: '改写引用文字也不能改变原指令', confirmationReference: 'message-2', expectedRevision: 4 }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'manage' }, owner)).records[0].confirmation).toEqual(facts[0].confirmation);
+  } finally { await f.cleanup(); }
+});
+
 it('实际维护入口撤销旧 schema 1 条目的停用，恢复缺省 active 与原内容', async () => {
   const f = await runtimeFixture();
   try {

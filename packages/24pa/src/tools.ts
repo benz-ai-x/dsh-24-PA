@@ -136,7 +136,7 @@ export function apply(ctx: DshContext) {
       conflictState: { type: 'string', enum: ['none', 'candidate', 'unresolved', 'resolved'] },
       confirmationState: { type: 'string', enum: ['verified', 'missing', 'unverified'] },
       confirmation: string,
-      confirmationReference: string,
+      confirmationReference: { ...string, description: '本人明确确认指令的实际引用标识。同措辞的新确认使用新指令引用；重复旧依据不得编造新引用。' },
       scope: { type: 'object', properties: { kind: { type: 'string', enum: ['personal', 'company', 'project'] }, name: string }, required: ['kind'] },
       sourceCheck: { type: 'object', properties: { state: { type: 'string', enum: ['unchecked', 'current', 'changed', 'unavailable'] }, checkedAt: string, evidence: string, version: string }, required: ['state'] },
       conflict: { type: 'object', properties: { state: { type: 'string', enum: ['unresolved', 'resolved'] }, relatedIds: { type: 'array', items: string }, reason: string }, required: ['state', 'relatedIds', 'reason'] },
