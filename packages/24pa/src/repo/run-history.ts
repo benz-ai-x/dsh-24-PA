@@ -78,9 +78,13 @@ export class RunHistoryRepo {
     if (dates.length) clauses.push(`((${dates.join(' and ')})${filter.includeUnresolved ? ` or ${unresolved}` : ''})`);
     const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
     const total = Number((await this.db.query<{ count: string }>(`select count(*) as count from ${table} ${where}`, values)).rows[0]!.count);
+    // Only an empty match needs a separate inventory check. Filters can hide
+    // records, so zero matches alone cannot establish an empty ledger.
+    const empty = total ? false : !(await this.db.query(`select r.id from ${table}
+      ${filter.kind === 'runs' ? `where ${EXECUTION_RECORD}` : filter.kind === 'events' ? "where r.status in ('skipped', 'rejected', 'expired')" : ''} limit 1`)).rowCount;
     const rows = (await this.db.query<Record<string, unknown>>(`select ${fields} from ${table} ${where}
       order by r.created_at desc, r.id limit ${bind(filter.limit)} offset ${bind(filter.offset)}`, values)).rows;
-    return { kind: filter.kind, rows, total, offset: filter.offset, limit: filter.limit };
+    return { kind: filter.kind, rows, total, empty, offset: filter.offset, limit: filter.limit };
   }
   async summary(now = new Date()) {
     const since = new Date(now.getTime() - 86400000);

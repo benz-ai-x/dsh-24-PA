@@ -219,6 +219,7 @@ export class DigestService {
       const occurrences = await this.deps.repos().digests.occurrencesOf(plan.id, 3);
       view.push({
         planId: plan.id,
+        managed: !!('task_config' in plan && plan.task_config),
         kind: plan.kind,
         title: plan.title,
         status: plan.status,

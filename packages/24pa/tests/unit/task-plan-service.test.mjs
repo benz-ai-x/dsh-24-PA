@@ -50,7 +50,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
       verifyPlan: run => access.verify(run.snapshot.plan.authorization),
       template: async () => '结果', lease: work => work(), control: work => work(), detached: work => work() });
     native = {
-      create: async (sessionId, request) => { const id = ScheduleId(`native-${++creates}`);
+      create: async (sessionId, request) => { creates++; const id = ScheduleId(`native-${randomUUID()}`);
         const record = request.every_seconds ? createEveryScheduleRecord(id, request.prompt, request.every_seconds, Date.now(), request.title)
           : request.at ? createAtScheduleRecord(id, request.prompt, request.at, Date.now(), request.title)
           : createDailyScheduleRecord(id, request.prompt, request.daily, Date.now(), request.title);
@@ -82,6 +82,25 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
       timeContext: digestPeriod(row.kind, 'Asia/Tokyo', at, 'schedule'), skill: { ...version.definition,
         metadata: { ...version.definition.metadata, pa24Identity: { versionId: version.id } } } });
   };
+  it('管理摘要和筛选按全部计划一致计算，旧启用与受阻计划不混入暂停或下次运行', async () => {
+    const before = await repos.taskPlans.summary(), prefix = '管理全量-' + randomUUID();
+    for (let i = 0; i < 21; i++) await create({ title: prefix + '-' + i });
+    const old = await legacy(), active = await enable(await create({ title: prefix + '-active' }));
+    const blocked = await enable(await create({ title: prefix + '-blocked' }));
+    await repos.taskPlans.block(blocked.id, { key: 'attention', kind: 'manual', reason: '需核对' });
+    const overview = await service.summary({ workspaceBinding: 'binding' });
+    expect(overview).toMatchObject({ total: before.total + 24, enabled: before.enabled + 2, paused: before.paused + 22, blocked: before.blocked + 1 });
+    expect(overview.next).not.toBeNull(); expect(overview.next.id).not.toBe(blocked.id);
+    expect((await service.list({ workspaceBinding: 'binding', query: prefix })).total).toBe(23);
+    expect((await service.list({ workspaceBinding: 'binding', query: prefix, offset: 20 })).rows).toHaveLength(3);
+    const query = state => service.list({ workspaceBinding: 'binding', query: prefix, state });
+    expect((await query('enabled')).rows.map(row => row.id)).toEqual([active.id]);
+    expect((await query('paused')).total).toBe(22);
+    expect((await query('blocked')).rows[0]).toMatchObject({ id: blocked.id, nextTimes: [] });
+    expect((await service.list({ workspaceBinding: 'binding', query: old.id, state: 'enabled' })).total).toBe(1);
+    expect((await service.list({ workspaceBinding: 'binding', query: old.id, state: 'paused' })).total).toBe(0);
+    await expect(service.list({ workspaceBinding: 'binding', offset: -1 })).rejects.toThrow(/页码/);
+  });
   it('迁移保留原身份、时间、语音和成功结果；旧触发重放不再执行，最新未消费触发正常准入', async () => {
     let row = await legacy(); const at = new Date(Date.now() - 7200000);
     const original = await oldClaim(row, at);

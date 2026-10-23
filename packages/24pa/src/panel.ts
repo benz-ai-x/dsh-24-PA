@@ -37,6 +37,7 @@ export const PANEL_RPC = {
     skillsRuns: 'skills.runs',
     skillsRun: 'skills.run',
     plans: 'plans',
+    planSummary: 'plans.summary',
     plan: 'plans.inspect',
     planDraft: 'plans.draft',
     planPreview: 'plans.preview',
@@ -111,6 +112,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.skillsRuns) return respond({ ok: true, value: await runtime.skillRuns.list(payload) });
             if (endpoint === E.skillsRun) return respond({ ok: true, value: await runtime.skillRuns.inspect(payload) });
             if (endpoint === E.plans) return respond({ ok: true, value: await runtime.taskPlans.list(payload) });
+            if (endpoint === E.planSummary) return respond({ ok: true, value: await runtime.taskPlans.summary(payload) });
             if (endpoint === E.plan) return respond({ ok: true, value: await runtime.taskPlans.inspect(payload) });
             if (endpoint === E.planDraft) return respond({ ok: true, value: await runtime.taskPlans.draft(payload) });
             if (endpoint === E.planPreview) return respond({ ok: true, value: await runtime.taskPlans.preview(payload) });

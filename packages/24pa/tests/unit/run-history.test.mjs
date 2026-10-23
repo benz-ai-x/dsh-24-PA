@@ -44,6 +44,13 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     expect((await list({ query: '%_' })).rows.map(row => row.id).sort()).toEqual(['r0', 'r1']);
     expect((await list({ range: '30', offset: 20 })).rows).toHaveLength(12);
   });
+  it('空档案与筛选无匹配分别提供依据，取消的占位运行不冒充执行档案', async () => {
+    expect(await list({ query: 'does-not-exist' })).toMatchObject({ total: 0, empty: false });
+    expect(await list({ kind: 'events' })).toMatchObject({ total: 0, empty: true });
+    await db.query('delete from pa24.skill_run');
+    expect(await list({})).toMatchObject({ total: 0, empty: true });
+    expect(await list({ kind: 'work', query: 'does-not-exist' })).toMatchObject({ total: 0, empty: false });
+  });
   it('来源、计划、版本、执行与投递状态组合筛选，不用仅最近记录推算', async () => {
     expect((await list({ source: 'trial' })).rows.map(row => row.id)).toEqual(['r3']);
     expect((await list({ source: 'rerun' })).rows.map(row => row.id)).toEqual(['r4']);

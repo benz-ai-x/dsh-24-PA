@@ -23,6 +23,9 @@ export interface TaskPlanMigrationRow {
   plan_id: string; original: DigestPlanRow; time_zone: string; request_id: string; migrated_at: Date;
 }
 const restored = (row: TaskPlanRow): TaskPlanRow => ({ ...row, created_at: new Date(row.created_at), updated_at: new Date(row.updated_at), recycled_at: row.recycled_at ? new Date(row.recycled_at) : null });
+const BLOCKED = '(exists (select 1 from pa24.task_plan_block b where b.plan_id = p.id) or exists (select 1 from pa24.skill_plan_block b where b.plan_id = p.id))';
+const ENABLED = `p.status = 'active' and (p.task_config is null or p.owner_enabled) and not p.delete_when_idle and not ${BLOCKED}`;
+const PAUSED = "(p.status <> 'active' or (p.task_config is not null and not p.owner_enabled))";
 
 /** Legacy controls and native lifecycle recovery share the new plan gates. */
 export async function assertTaskPlanEnabled(tx: PaQueryer, id: string): Promise<void> {
@@ -221,13 +224,31 @@ export class TaskPlanRepo {
     if (input.state === 'recycled') clauses.push('p.recycled_at is not null'); else clauses.push('p.recycled_at is null');
     if (input.query?.trim()) { const key = bind(`%${input.query.trim().toLowerCase().replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`); clauses.push(`(lower(p.title) like ${key} escape '\\' or lower(p.id) like ${key} escape '\\')`); }
     if (input.skillId) clauses.push(`p.task_config->>'skillId' = ${bind(input.skillId)}`);
-    if (input.state === 'enabled') clauses.push("p.owner_enabled = true and p.status = 'active'");
-    if (input.state === 'paused') clauses.push('p.owner_enabled = false');
-    if (input.state === 'blocked') clauses.push('(exists (select 1 from pa24.task_plan_block b where b.plan_id = p.id) or exists (select 1 from pa24.skill_plan_block b where b.plan_id = p.id))');
+    if (input.state === 'enabled') clauses.push(ENABLED);
+    if (input.state === 'paused') clauses.push(PAUSED);
+    if (input.state === 'blocked') clauses.push(BLOCKED);
     const where = clauses.join(' and ');
     const total = Number((await this.db.query<{ count: string }>(`select count(*) as count from pa24.digest_plan p where ${where}`, values)).rows[0]!.count);
     const limit = Math.min(100, Math.max(1, Math.floor(input.limit ?? 20))), offset = Math.max(0, Math.floor(input.offset ?? 0));
     const rows = (await this.db.query<TaskPlanRow>(`select p.* from pa24.digest_plan p where ${where} order by p.created_at desc, p.id limit ${bind(limit)} offset ${bind(offset)}`, values)).rows;
     return { rows, total, offset, limit };
+  }
+  async recentRun(id?: string) {
+    return (await this.db.query<{ id: string; plan_id: string; status: string; delivery_status: string; created_at: Date }>(`select r.id, r.plan_id, r.status, r.delivery_status, r.created_at
+      from pa24.skill_run r where ${id ? 'r.plan_id = $1' : 'r.plan_id is not null'}
+      and not exists (select 1 from pa24.plan_trigger t where t.run_id = r.id and t.status in ('skipped', 'expired', 'rejected'))
+      order by r.created_at desc, r.id limit 1`, id ? [id] : [])).rows[0] ?? null;
+  }
+  async summary() {
+    const row = (await this.db.query<Record<string, string | number | null>>(`select count(*) as total,
+      sum(case when ${ENABLED} then 1 else 0 end) as enabled,
+      sum(case when ${PAUSED} then 1 else 0 end) as paused,
+      sum(case when ${BLOCKED} then 1 else 0 end) as blocked,
+      sum(case when p.task_config is null then 1 else 0 end) as legacy
+      from pa24.digest_plan p where p.recycled_at is null`)).rows[0]!;
+    return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, Number(value ?? 0)]));
+  }
+  async scheduled(): Promise<TaskPlanRow[]> {
+    return (await this.db.query<TaskPlanRow>(`select p.* from pa24.digest_plan p where p.recycled_at is null and ${ENABLED}`)).rows;
   }
 }

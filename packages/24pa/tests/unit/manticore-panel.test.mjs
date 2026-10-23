@@ -1,0 +1,119 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { Window } from 'happy-dom';
+import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { taskPlanDraft } from '../../lib/task-plan.js';
+let React, act, createRoot, win, root, container, binding, requests, plan, run, fault, delayed, savedBlob, intervals;
+const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
+const form = () => ({ title: '项目晨报', skillId: 'builtin:digest-morning', parameters: { title: '项目晨报正文' }, timeZone: 'Asia/Shanghai', timing: { type: 'daily', time: '09:00:00' }, executionLimitMs: 900000, selectors: {}, delivery: { channel: 'none', mode: 'always', voice: false, overrideQuiet: false } });
+const auth = () => ({ skill: { name: 'digest-morning', versionId: 'builtin-v1', tools: [], resources: [] }, targets: [], delivery: null });
+beforeAll(async () => {
+  win = new Window({ url: 'http://localhost/' });
+  for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'Event', 'MouseEvent', 'localStorage']) vi.stubGlobal(key, key === 'window' ? win : win[key]);
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); React = await import('react'); ({ act } = React); ({ createRoot } = await import('react-dom/client'));
+});
+const button = text => [...container.querySelectorAll('button')].find(node => node.textContent === text);
+const managerButton = text => [...container.querySelectorAll('.pa24-manager button')].find(node => node.textContent === text);
+const field = label => [...container.querySelectorAll('label')].find(node => [...node.childNodes].some(child => child.nodeType === 3 && child.textContent === label))?.querySelector('input,select,textarea');
+const click = async node => { expect(node).toBeTruthy(); await act(async () => node.click()); };
+const change = async (node, value) => { expect(node).toBeTruthy(); await act(async () => {
+  if (node.tagName === 'SELECT') { node.value = value; node.dispatchEvent(new win.Event('change', { bubbles: true })); }
+  else { Object.getOwnPropertyDescriptor(node.tagName === 'TEXTAREA' ? win.HTMLTextAreaElement.prototype : win.HTMLInputElement.prototype, 'value').set.call(node, value); node.dispatchEvent(new win.Event('input', { bubbles: true })); }
+}); };
+const open = title => click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：' + title)));
+beforeEach(async () => {
+  binding = 'binding-a'; requests = []; fault = null; delayed = null; savedBlob = null; intervals = []; win.localStorage.clear();
+  const draft = taskPlanDraft(form(), 'Asia/Shanghai');
+  plan = { id: 'plan-a', kind: 'daily', title: '项目晨报', revision: 1, skill: 'digest-morning', status: 'paused', owner_enabled: false, task_config: draft.configuration, task_authorization: auth(), schedule_spec: draft.scheduleSpec, schedule_id: null, recycled_at: null, blocks: [], nextTimes: draft.nextTimes };
+  run = { run: { id: 'run-a', status: 'completed', delivery_status: 'partial', progress: '结果已保存', result: '完整结果', mode: 'template', work_item_id: 'work-a', skill_id: 'builtin:digest-morning', version_id: 'v1', created_at: new Date().toISOString() },
+    calls: [], inputs: [], native: [], reviews: [], unresolvedOperations: [], attempts: [], execution: { executionMs: 500, remainingMs: 899500, queuedMs: 10, waitingMs: 0, blocks: [] },
+    deliveries: [{ id: 'notice', deliveryStatus: 'partial', deliveries: [{ outbox_id: 12, fingerprint: 'delivery-fingerprint', component: 'audio', outbox: { status: 'failed', channel: 'feishu', target: 'owner', attempts: 1, last_error: '语音合成失败' } }] }] };
+  vi.spyOn(globalThis, 'setInterval').mockImplementation((fn, ms) => { intervals.push({ fn, ms }); return intervals.length; }); vi.spyOn(globalThis, 'clearInterval').mockImplementation(() => {});
+  vi.spyOn(URL, 'createObjectURL').mockImplementation(blob => { savedBlob = blob; return 'blob:export'; }); vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {}); vi.spyOn(win.HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
+    const request = JSON.parse(init.body); requests.push(request); const p = request.payload, endpoint = request.endpoint;
+    try {
+      if (fault === endpoint) throw new Error('离线读取失败'); if (delayed?.endpoint === endpoint) return await delayed.promise;
+      let value;
+      if (endpoint === 'snapshot') value = { workspace: { path: '/workspace', config: DEFAULT_CONFIG }, work: [], outbox: [], readiness: { items: [] } };
+      else if (endpoint === 'plans.summary') value = { total: 1, enabled: 0, paused: 1, blocked: 0 };
+      else if (endpoint === 'runs.summary') value = { runs24: 31, failed24: 2, delivery_failed24: 1, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: 2, failed_work: 3, observedAt: new Date().toISOString() };
+      else if (endpoint === 'skills.catalog') value = { entries: ['morning', 'evening', 'weekly'].map(kind => ({ id: 'builtin:digest-' + kind, name: 'digest-' + kind, type: 'template', source: 'builtin' })), discovery: 'complete' };
+      else if (endpoint === 'skills.inspect') value = { id: p.id, type: 'template', metadata: { track: 'template', pa24: true } };
+      else if (endpoint === 'plans') value = { rows: !p.query || plan.title.includes(p.query) ? [structuredClone(plan)] : [], total: p.query && !plan.title.includes(p.query) ? 0 : 1, offset: p.offset, limit: 20 };
+      else if (endpoint === 'plans.inspect') value = { plan: structuredClone(plan), form: { ...form(), title: plan.title }, blocks: plan.blocks, activeRuns: [] };
+      else if (endpoint === 'plans.draft') value = taskPlanDraft(p, 'Asia/Shanghai');
+      else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标' };
+      else if (endpoint === 'runs') value = { kind: p.kind, rows: p.kind === 'runs' && (!p.query || '项目晨报'.includes(p.query)) ? Array.from({ length: p.offset ? 11 : 20 }, (_, index) => ({ id: !index && !p.offset ? 'run-a' : 'run-' + (index + p.offset), title: '项目晨报', skill_id: 'builtin:digest-morning', status: 'completed', delivery_status: 'partial', summary: '结果摘要', source: 'schedule', created_at: new Date().toISOString() })) : [], total: p.query && !'项目晨报'.includes(p.query) ? 0 : p.kind === 'runs' ? 31 : 0, timeZone: 'Asia/Shanghai' };
+      else if (endpoint === 'skills.run') value = structuredClone(run);
+      else if (endpoint === 'runs.diagnostics') value = { filename: 'diagnostic.json', content: '{"runId":"run-a"}', message: '已脱敏，请预览' };
+      else if (endpoint === 'runs.export') value = { filename: 'runs.json', content: JSON.stringify({ total: 31, planId: p.planId }) };
+      else if (endpoint === 'work.inspect') value = { work: { id: 'work-a', title: '原交办目标', instruction: '原请求', status: 'completed', origin: 'local', delivery: 'local', result: '原交付物' }, runs: { rows: [{ ...run.run }], total: 1 } };
+      else if (endpoint === 'action') {
+        if (p.type === 'plan.change') {
+          if (p.op === 'save') { const draft = taskPlanDraft(p, 'Asia/Shanghai'); plan = { ...plan, title: p.title, task_config: draft.configuration, schedule_spec: draft.scheduleSpec, revision: plan.revision + 1, status: 'paused', owner_enabled: false }; }
+          if (p.op === 'enable') { expect(p.fingerprint).toBe('plan-fingerprint-' + plan.revision); plan.status = 'active'; plan.owner_enabled = true; plan.schedule_id = 'native'; plan.revision++; }
+          if (p.op === 'pause') { plan.status = 'paused'; plan.owner_enabled = false; plan.schedule_id = null; plan.revision++; }
+          value = p.op === 'run' ? { trigger: { status: 'queued' }, run: run.run } : { plan: structuredClone(plan) };
+        } else if (p.type === 'plan.delivery') value = { deliveries: run.deliveries };
+        else throw Error('unexpected action ' + p.type);
+      } else if (endpoint === 'digests') value = { plans: [], skills: [] };
+      else if (endpoint === 'health') value = { capabilities: [] };
+      else if (endpoint === 'memory') value = { items: [], total: 0, matched: 0 };
+      else value = {};
+      return { ok: true, json: async () => ({ ok: true, value: { ...value, workspaceBinding: binding } }) };
+    } catch (error) { return { ok: true, json: async () => ({ ok: false, error: { message: error.message } }) }; }
+  }));
+  let mod, Panel; win.__ModuleLoader__ = { load: value => { mod = value; } };
+  new Function('window', 'document', 'navigator', source)(win, win.document, win.navigator);
+  mod.factory(() => React).apply({ effect: fn => fn(), locale: { register: () => () => {}, bind: () => key => key, resolveText: ({ zh }) => zh, subscribe: () => () => {}, getSnapshot: () => 'zh' }, slots: { inject: (_name, fn) => fn(), register: (spec, view) => { if (spec.name === 'main') Panel = view; } }, uiWorkspace: { openSession: () => {} } });
+  container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container); await act(async () => root.render(React.createElement(Panel)));
+});
+afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.restoreAllMocks(); });
+
+describe('M02 管理界面', () => {
+  it('预设统一表单先预览后保存暂停；离页保留草稿，授权确认后启用', async () => {
+    await open('定时任务'); await click(button('晨报预设')); await change(field('名称'), '调整后的晨报'); expect(button('保存为暂停').disabled).toBe(true);
+    await change(field('日历公司'), '甲公司'); await change(field('日历项目'), 'Manticore');
+    await click(button('返回卡片')); await open('定时任务'); expect(field('名称').value).toBe('调整后的晨报'); expect(field('日历项目').value).toBe('Manticore');
+    await click(button('校验并预览时间')); expect(container.textContent).toContain('未来触发时间'); await click(button('保存为暂停')); expect(plan.status).toBe('paused'); expect(plan.task_config.selectors).toEqual({ calendar: { company: '甲公司', project: 'Manticore' } });
+    await click(button('核验并启用')); expect(button('确认执行此操作').disabled).toBe(true); await click(field('确认本计划的工具、资源、目标和此项操作')); await click(button('确认执行此操作'));
+    expect(plan.status).toBe('active'); expect(button('编辑配置').disabled).toBe(true); await click(button('暂停未来运行')); expect(plan.status).toBe('paused');
+    const actions = requests.filter(row => row.endpoint === 'action').map(row => row.payload); expect(actions.map(row => row.op)).toEqual(['save', 'enable', 'pause']); expect(actions.every(row => row.workspaceBinding === binding && row.requestId)).toBe(true);
+  });
+  it('跨卡进入运行记录保留计划筛选，准确分页和导出不执行业务', async () => {
+    await open('定时任务'); await click(button('项目晨报')); await click(button('查看全部运行'));
+    expect(field('计划标识').value).toBe('plan-a'); expect(field('时间范围').value).toBe('all'); expect(container.textContent).toContain('匹配记录 31');
+    await click(button('下一页')); expect(requests.filter(row => row.endpoint === 'runs').at(-1).payload).toMatchObject({ planId: 'plan-a', offset: 20, range: 'all' });
+    await click(button('导出全部筛选结果')); expect(JSON.parse(await savedBlob.text())).toMatchObject({ total: 31, planId: 'plan-a' }); expect(requests.some(row => row.endpoint === 'action')).toBe(false);
+  });
+  it('失败只补投，诊断先预览后下载，原交办可打开', async () => {
+    await open('运行记录'); await click(button('查看执行与投递')); expect(container.textContent).toContain('部分投递'); expect(container.textContent).not.toContain('结果投递：未请求');
+    await click(button('明确补投此结果')); expect(requests.filter(row => row.endpoint === 'action').map(row => row.payload.type)).toEqual(['plan.delivery']);
+    await click(button('预览脱敏诊断')); expect(savedBlob).toBeNull(); expect(container.textContent).toContain('已脱敏，请预览'); await click(button('确认下载这份诊断')); expect(await savedBlob.text()).toContain('run-a');
+    await click(button('查看原助理交办')); expect(container.textContent).toContain('原交办目标'); expect(container.textContent).toContain('原请求');
+  });
+  it('未知投递先填平台证据，未收到结论不自动补投', async () => {
+    run.deliveries[0].deliveries[0].outbox.status = 'unknown'; await open('运行记录'); await click(button('查看执行与投递'));
+    expect(button('明确补投此结果')).toBeUndefined(); await click(button('核对原平台是否收到')); expect(button('确认并保存投递核对').disabled).toBe(true);
+    await change(field('核对依据'), '已检查原平台无此消息'); await click(button('确认并保存投递核对'));
+    const actions = requests.filter(row => row.endpoint === 'action'); expect(actions).toHaveLength(1); expect(actions[0].payload).toMatchObject({ type: 'plan.delivery', op: 'review', outcome: 'not_sent', confirm: true });
+  });
+  it('同一筛选手动刷新失败保留旧结果；筛选改变后不冒充新匹配', async () => {
+    await open('运行记录'); expect(container.textContent).toContain('匹配记录 31');
+    fault = 'runs'; await click(managerButton('刷新')); expect(container.textContent).toContain('离线读取失败'); expect(container.textContent).toContain('匹配记录 31');
+    await change(field('标题、摘要或标识'), '新筛选'); expect(container.textContent).not.toContain('匹配记录 31');
+    fault = null; await click(button('返回卡片')); await open('定时任务'); expect(container.textContent).toContain('匹配计划 1');
+    fault = 'plans'; await click(managerButton('刷新')); expect(container.textContent).toContain('离线读取失败'); expect(container.textContent).toContain('匹配计划 1');
+    await change(field('搜索计划'), '新计划'); expect(container.textContent).not.toContain('匹配计划 1');
+    fault = 'snapshot'; await click(managerButton('刷新')); expect(container.textContent).toContain('连接暂时中断');
+  });
+  it('错误和无匹配分开，切换工作区不接纳旧列表', async () => {
+    fault = 'runs'; await open('运行记录'); expect(container.textContent).toContain('离线读取失败'); expect(container.textContent).not.toContain('匹配记录 0');
+    fault = null; await click(managerButton('刷新')); await change(field('标题、摘要或标识'), '无匹配'); expect(container.textContent).toContain('当前筛选没有记录');
+    let release; delayed = { endpoint: 'runs', promise: new Promise(resolve => { release = resolve; }) }; await change(field('标题、摘要或标识'), '项目');
+    binding = 'binding-b'; await act(async () => intervals.find(row => row.ms === 2500).fn());
+    await act(async () => release({ ok: true, json: async () => ({ ok: true, value: { rows: [{ id: 'old', title: '旧工作区敏感资料' }], total: 1, workspaceBinding: 'binding-a' } }) }));
+    expect(container.textContent).not.toContain('旧工作区敏感资料');
+  });
+});

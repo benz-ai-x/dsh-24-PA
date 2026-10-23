@@ -12,6 +12,7 @@ const draft = patch => taskPlanDraft({ title: '每日汇总', skillId: 'builtin:
 describe('通用定时任务的无副作用配置', () => {
   it.each([
     [{ type: 'once', at: '2026-10-24T09:00:00+08:00' }, '2026-10-24T01:00:00.000Z'],
+    [{ type: 'once', at: '2026-10-24T09:00' }, '2026-10-24T01:00:00.000Z'],
     [{ type: 'daily', time: '08:00:00' }, '2026-10-24T00:00:00.000Z'],
     [{ type: 'weekdays', time: '08:00:00' }, '2026-10-26T00:00:00.000Z'],
     [{ type: 'weekly', time: '08:00:00', weekdays: [1, 5] }, '2026-10-26T00:00:00.000Z'],
@@ -27,6 +28,7 @@ describe('通用定时任务的无副作用配置', () => {
     const monthly = draft({ timing: { type: 'monthly', day: 31, time: '09:00:00' } });
     expect(monthly.nextTimes.some(time => time.startsWith('2026-11'))).toBe(false);
     expect(() => draft({ timeZone: 'bad-zone' })).toThrow(/时区/);
+    expect(() => draft({ timeZone: 'America/New_York', timing: { type: 'once', at: '2026-11-01T01:30' } })).toThrow(/歧义/);
     expect(() => draft({ delivery: { channel: 'wecom', voice: true } })).toThrow(/语音/);
     expect(() => draft({ timing: { type: 'interval', seconds: 1 } })).toThrow();
     expect(() => draft({ selectors: { calendar: { sourceId: '' } } })).toThrow(/业务目标/);

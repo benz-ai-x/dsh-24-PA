@@ -52,14 +52,26 @@ export class TaskPlanService {
     const context = this.context(input.workspaceBinding);
     const states = ['enabled', 'paused', 'blocked', 'recycled'];
     if (input.state && !states.includes(String(input.state))) throw new Error('计划状态筛选无效。');
+    if (!Number.isSafeInteger(Number(input.offset ?? 0)) || Number(input.offset ?? 0) < 0) throw new Error('计划页码无效。');
     const result = await context.repos.taskPlans.list({ query: String(input.query ?? ''), skillId: input.skillId ? String(input.skillId) : undefined,
       state: input.state as 'enabled' | 'paused' | 'blocked' | 'recycled' | undefined, offset: Number(input.offset) || 0, limit: 20 });
-    const [timings, skillBlocks] = await Promise.all([this.deps.lifecycle.nextTimes(result.rows), context.repos.skills.planBlocks()]);
-    const rows = await Promise.all(result.rows.map(async row => {
-      return { ...row, ...(timings.get(row.id) ?? { nextTimes: [], timingError: null }), blocks: await context.repos.taskPlans.blocks(row.id),
+    const skillBlocks = await context.repos.skills.planBlocks();
+    const summaries = await Promise.all(result.rows.map(async row => {
+      return { ...row, blocks: await context.repos.taskPlans.blocks(row.id),
+        recentRun: await context.repos.taskPlans.recentRun(row.id),
         skillBlock: skillBlocks.find(block => block.plan_id === row.id) ?? null };
     }));
+    const timings = await this.deps.lifecycle.nextTimes(summaries.filter(row => !row.blocks.length && !row.skillBlock && !row.delete_when_idle && (!row.task_config || row.owner_enabled)));
+    const rows = summaries.map(row => ({ ...row, ...(timings.get(row.id) ?? { nextTimes: [], timingError: null }) }));
     return { ...result, rows, workspaceBinding: context.binding };
+  }
+  async summary(input: Record<string, unknown>) {
+    const context = this.context(input.workspaceBinding), plans = await context.repos.taskPlans.scheduled();
+    const times = await this.deps.lifecycle.nextTimes(plans), next = plans.flatMap(plan => {
+      const at = times.get(plan.id)?.nextTimes[0]; return at ? [{ id: plan.id, title: plan.title, at }] : [];
+    }).sort((a, b) => a.at.localeCompare(b.at))[0] ?? null;
+    return { ...await context.repos.taskPlans.summary(), next, recentRun: await context.repos.taskPlans.recentRun(),
+      timingError: [...times.values()].find(value => value.timingError)?.timingError ?? null, workspaceBinding: context.binding };
   }
   async inspect(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);

@@ -3,6 +3,7 @@ import { previewPlanTimes } from './plan-time.js';
 import type { SkillContract } from './skill-package.js';
 import type { SourceTarget, SourceCapability } from './source-registry.js';
 import type { SourceSelector } from './source-config.js';
+import { Temporal } from '@js-temporal/polyfill';
 
 export interface TaskPlanConfiguration {
   version: 1;
@@ -49,7 +50,14 @@ export function taskPlanDraft(input: Record<string, unknown>, defaultTimeZone: s
   const kind = String(timing.type ?? '');
   const time = String(timing.time ?? '09:00:00');
   let spec: Record<string, unknown>;
-  if (kind === 'once') spec = { at: timing.at, time_zone: timeZone };
+  if (kind === 'once') {
+    let at = timing.at;
+    if (typeof at === 'string' && !/(?:Z|[+-]\d\d:\d\d)$/.test(at)) {
+      try { at = Temporal.PlainDateTime.from(at).toZonedDateTime(timeZone, { disambiguation: 'reject' }).toInstant().toString(); }
+      catch { throw new Error('一次性时间无效或在该时区存在歧义，请明确时间或填写带偏移的 ISO 时间。'); }
+    }
+    spec = { at, time_zone: timeZone };
+  }
   else if (kind === 'daily') spec = { daily: { time, time_zone: timeZone } };
   else if (kind === 'weekdays') spec = { weekly: { time, time_zone: timeZone, weekdays: [1, 2, 3, 4, 5] } };
   else if (kind === 'weekly') spec = { weekly: { time, time_zone: timeZone, weekdays: timing.weekdays } };

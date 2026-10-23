@@ -190,3 +190,29 @@ it('尚未支持固定来源的旧待办写入在计划启用前拒绝，不回�
   expect((await inspect(row.id)).plan).toMatchObject({ owner_enabled: false, task_authorization: null, schedule_id: null });
   expect((await inspect(row.id)).triggers.total).toBe(0);
 }, 60000);
+
+it('公开管理查询与导出保留真实执行、交办和原投递，重启后读取不触发业务', async () => {
+  let row = await enable(await create('builtin:digest-morning', { title: '运行档案界面验收', timing: { type: 'daily', time: '09:00:00' } }));
+  row = (await change('pause', row)).plan;
+  const run = await runNow(row);
+  await until(() => detail(run.id), value => value.run.status === 'completed');
+  const read = async () => {
+    const summary = await host.api('plans.summary', { workspaceBinding: binding });
+    expect(summary.total).toBeGreaterThan(0); expect(summary.paused).toBeGreaterThan(0);
+    const plans = await host.api('plans', { workspaceBinding: binding, query: row.title });
+    expect(plans).toMatchObject({ total: 1 }); expect(plans.rows[0].recentRun).toMatchObject({ id: run.id, status: 'completed' });
+    const list = await host.api('runs', { workspaceBinding: binding, planId: row.id, range: 'all' });
+    expect(list).toMatchObject({ total: 1, empty: false }); expect(list.rows[0]).toMatchObject({ id: run.id, title: row.title, source: 'manual' });
+    const work = await host.api('work.inspect', { workspaceBinding: binding, workId: run.work_item_id });
+    expect(work.work.id).toBe(run.work_item_id); expect(work.runs.rows.map(item => item.id)).toEqual([run.id]);
+    const exported = JSON.parse((await host.api('runs.export', { workspaceBinding: binding, planId: row.id, range: 'all' })).content);
+    expect(exported.total).toBe(1); expect(exported.rows[0].id).toBe(run.id);
+    const diagnostic = JSON.parse((await host.api('runs.diagnostics', { workspaceBinding: binding, runId: run.id })).content);
+    expect(diagnostic.retentionDays).toBe(90); expect(JSON.stringify(diagnostic)).not.toContain(workspace);
+    expect(await host.api('runs', { workspaceBinding: binding, query: '没有这个档案' })).toMatchObject({ total: 0, empty: false });
+  };
+  const before = llm.requests.length;
+  await read(); const hostRoot = host.root; await host.stop({ keepRoot: true }); host = await bootHost({ env, root: hostRoot });
+  binding = (await host.waitUntil(value => !!value.workspaceBinding)).workspaceBinding;
+  await read(); expect(llm.requests.length).toBe(before);
+}, 300000);
