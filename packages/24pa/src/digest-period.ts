@@ -14,6 +14,14 @@ export interface DigestPeriod {
   source: 'schedule' | 'manual';
 }
 
+/** The legacy deduplication window is retained when adopting an old plan. */
+export function digestWindowKey(kind: string, timeZone: string, now = new Date()): string {
+  const day = localDay(now, timeZone);
+  if (kind !== 'weekly') return day.date;
+  const date = Temporal.PlainDate.from(day.date);
+  return `${date.yearOfWeek}-W${String(date.weekOfYear).padStart(2, '0')}`;
+}
+
 export function digestPeriod(kind: string, timeZone: string, anchor: Date, source: DigestPeriod['source']): DigestPeriod {
   const day = localDay(anchor, timeZone);
   const date = Temporal.PlainDate.from(day.date);

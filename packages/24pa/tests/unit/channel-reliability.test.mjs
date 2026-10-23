@@ -433,6 +433,17 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
   });
   const enqueue = (dedupKey = 'workitem:work-1:result:t1', channel = 'feishu') => repos.outbox.enqueue({ dedupKey, channel, target: 'original-owner', kind: 'text', content: { text: '已完成' } });
 
+  it('健康证据保存失败不覆盖已持久的送达回执，也不阻断回复关联', async () => {
+    await enqueue(); let sends = 0;
+    const worker = new OutboxDelivery({ repo: () => repos.outbox, routes: () => repos.messageRoutes,
+      sent: async () => { throw Error('health evidence unavailable'); },
+      adapters: { feishu: { available: () => true, supports: () => true, send: async () => ({ messageId: 'remote-' + ++sends }) } } });
+    await worker.drain(); await worker.drain();
+    expect((await repos.outbox.recent())[0]).toMatchObject({ status: 'sent', message_id: 'remote-1' });
+    expect((await repos.messageRoutes.lookup('remote-1')).work_item_id).toBe('work-1');
+    expect(sends).toBe(1);
+  });
+
   it('发送成功后回复关联失败：重启只补路由，不重新发送', async () => {
     let sends = 0;
     const row = (await enqueue()).row;

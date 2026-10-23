@@ -328,7 +328,7 @@ describe('F07 多页笔记与集中复核（真实 Loader + 隔离 PG）', () =>
     const vacationEnd = new Date(Date.now() + 30000).toISOString();
     await writeScript({
       mode: 'dispatch',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-f07', category: 'preference', topic: '休假', content: '本人休假中，暂停提醒推送', source: '本人指示', status: 'confirmed', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'vacation-f07', category: 'preference', topic: '休假', content: '本人休假中，暂停提醒推送', source: '本人指示', status: 'confirmed', confirmation: '本人明确要求记住此条内容', validUntil: vacationEnd, reason: '本人临时休假', expectedRevision: 0 } },
       leadReply: '已记录休假。',
     });
     await promptLocal('f07-vacation-1', '我要休假一会儿：接下来三十秒内不要提醒我');

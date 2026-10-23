@@ -6,7 +6,7 @@ import type { SourceTarget } from '../source-registry.js';
 import type { SourceRegistrationRow } from './source.js';
 import type { ActionOperationRow } from './work.js';
 
-export interface SourceRoles { complete: boolean; values: string[]; reason?: string }
+export interface SourceRoles { complete: boolean; values: string[]; reason?: string; unknown?: string[] }
 export interface ObservedSourceItem {
   /** Calendar IDs must be qualified with their native calendar/instance location. */
   nativeId: string;
@@ -83,10 +83,11 @@ export class SourceProjectionRepo {
       const original = operation?.params.sourceTarget as SourceTarget | undefined;
       if (!operation?.receipt || (!Object.hasOwn(operation.receipt, '_externalResult') && operation.status !== 'succeeded')
         || !original || !isDeepStrictEqual(original, target)) throw new Error('缺少原目标的持久平台回执，不能补写对象关联。');
-      const external = operation.receipt._externalResult as { data?: any } | undefined;
+      const external = operation.receipt._externalResult as { data?: any; guid?: string } | undefined;
       const eventId = operation.receipt.eventId ?? (operation.params.kind === 'create'
         ? external?.data?.event?.event_id ?? external?.data?.event_id ?? external?.data?.schedule_id : operation.params.eventId);
-      if (!eventId || item.locator.eventId !== eventId) throw new Error('补写对象与持久平台回执的标识不符。');
+      const guid = operation.receipt.guid ?? external?.guid ?? operation.params.guid;
+      if (target.domain === 'calendar' ? !eventId || item.locator.eventId !== eventId : !guid || item.nativeId !== guid || item.locator.guid !== guid) throw new Error('补写对象与持久平台回执的标识不符。');
       const source = (await tx.query<SourceRegistrationRow>('select * from pa24.source_registration where id = $1', [target.sourceId])).rows[0];
       const current = source && !source.removed && source.revision === target.registrationRevision && source.scope_hash === target.scopeHash && source.identity_key === target.identityKey;
       // Acceptance may follow an earlier failed attempt and a later full read.
@@ -96,7 +97,7 @@ export class SourceProjectionRepo {
       await this.upsert(tx, target, { ...item, active: item.active && !!current }, acceptedAt);
       await tx.query(`update pa24.source_observation set state = 'partial', reason = $4, observed_at = $5
         where source_id = $1 and registration_revision = $2 and scope_hash = $3 and observed_at <= $5`,
-        [target.sourceId, target.registrationRevision, target.scopeHash, '平台已接收日程变更，需重新查询核验范围', acceptedAt]);
+        [target.sourceId, target.registrationRevision, target.scopeHash, `平台已接收${target.domain === 'calendar' ? '日程' : '待办'}变更，需重新查询核验范围`, acceptedAt]);
     });
   }
 
@@ -183,6 +184,13 @@ export class SourceProjectionRepo {
     return (await this.db.query<SourceMembershipRow>(
       `select m.*, o.domain, o.platform, o.identity_key, o.native_id from pa24.source_membership m
        join pa24.source_object o on o.id = m.object_id where o.domain = 'calendar' and m.locator->>'eventId' = $1 order by m.source_id`, [eventId],
+    )).rows.map(hydrateJoinedBody);
+  }
+
+  async todoLocations(guid: string): Promise<SourceMembershipRow[]> {
+    return (await this.db.query<SourceMembershipRow>(
+      `select m.*, o.domain, o.platform, o.identity_key, o.native_id from pa24.source_membership m
+       join pa24.source_object o on o.id = m.object_id where o.domain = 'todo' and o.native_id = $1 order by m.source_id`, [guid],
     )).rows.map(hydrateJoinedBody);
   }
 }

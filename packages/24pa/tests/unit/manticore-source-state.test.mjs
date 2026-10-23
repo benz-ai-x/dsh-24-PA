@@ -93,6 +93,15 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore 来源、身�
     expect((await service.list()).entries[0].status).toBe('pending');
     await expect(service.verify(target, 'create')).rejects.toThrow(/重新登记/);
   });
+  it('允许明确创建尝试不冒充权限已核验，冻结证据保留区别且未知权限仍阻断', async () => {
+    probe = async source => ({ ...proof(source), capabilities: { ...unknownCapabilities(), read: 'allowed', create: 'attemptable' }, message: '写权限待核验' });
+    const target = await service.bind('calendar');
+    expect(target.permission).toEqual({ capability: 'create', verdict: 'attemptable' });
+    expect((await service.verify(target, 'create')).capabilities.create).toBe('attemptable');
+    await expect(service.bind('calendar', {}, 'update')).rejects.toThrow(/未核验/);
+    probe = async source => ({ ...proof(source), capabilities: { ...unknownCapabilities(), read: 'allowed' } });
+    await expect(service.verify(target, 'create')).rejects.toThrow(/未核验/);
+  });
   it('实际权限撤销使新写入失败，旧成功检查不能覆盖失败', async () => {
     const target = await service.bind('calendar');
     probe = async source => ({ ...proof(source), capabilities: { ...unknownCapabilities(), read: 'allowed', create: 'denied' }, message: '资源只读' });

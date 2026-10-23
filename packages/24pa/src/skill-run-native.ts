@@ -1,11 +1,12 @@
 import type { DshSession } from './host.js';
 import type { SkillRunRepo, SkillRunRow } from './repo/skill-run.js';
 import { SkillRunHost, type RunActivation, type RunInput, type RunToolCall, type RunToolResult } from './skill-run-host.js';
-import { consumedTurn } from './host-turn.js';
+import { consumedTurn, turnHasModelInput } from './host-turn.js';
 
 export const uncertainTool = (result: RunToolResult, aborted = false) =>
   ['ABORTED', 'TOOL_OUTCOME_UNKNOWN'].includes(result.error?.info?.code ?? '')
   || (aborted && result.error?.info?.code !== 'ABORTED_BEFORE_DISPATCH');
+const hostContext = (message: RunInput) => ['agent-instructions', 'runtime-context'].includes(message.source?.kind ?? '');
 
 /** Native notices, child activations and jobs belong to the initiating Run.
  * Observing never consumes job output, wakes a cold session or grants tools. */
@@ -52,6 +53,10 @@ export class SkillRunNative {
   }
 
   async ownsInput(repo: SkillRunRepo, run: SkillRunRow, owner: string, message: RunInput): Promise<boolean> {
+    // These source descriptors are emitted by the trusted host renderer,
+    // never selectable in a public user prompt. Updated workspace rules are
+    // context; every model/tool boundary still applies the frozen Run grants.
+    if (hostContext(message)) return true;
     if (owner === run.session_id && this.host.ownsInput(run, message)) return true;
     const sessions = await repo.sessions(run.id), own = sessions.find(row => row.session_id === owner);
     if (!own) return false;
@@ -93,18 +98,20 @@ export class SkillRunNative {
     }
   }
 
-  async observe(repo: SkillRunRepo, run: SkillRunRow, recovering = false): Promise<{ pending: boolean; root: DshSession | null }> {
+  async observe(repo: SkillRunRepo, run: SkillRunRow, recovering = false): Promise<{ pending: boolean; root: DshSession | null; histories: DshSession[] }> {
     await this.flush(run.id);
     const root = await this.host.history(run);
-    if (!root) return { pending: false, root: null };
+    if (!root) return { pending: false, root: null, histories: [] };
     const descendants = await this.host.descendants(run);
     const diagnostic = descendants.find(row => row.kind === 'diagnostic');
     if (diagnostic) throw new Error(`子任务 ${diagnostic.id} 的原生记录不可核验：${diagnostic.reason}`);
     const sessions = await repo.sessions(run.id);
     let pending = false;
+    const histories: DshSession[] = [];
     for (const row of sessions) {
       const session = row.session_id === run.session_id ? root : await this.host.history(run, row.session_id);
       if (!session) throw new Error(`原生会话 ${row.session_id} 的历史缺失。`);
+      histories.push(session);
       const parent = session.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
       if (session.id !== row.session_id || session.header.cwd !== row.workspace_path || (parentId ?? null) !== row.parent_session_id
         || (row.session_id !== run.session_id && session.header.origin !== 'subagent')) throw new Error('原生运行会话的身份或归属不符。');
@@ -112,20 +119,30 @@ export class SkillRunNative {
       if (this.host.busy(row.session_id)) pending = true;
       const turns = session.ownEvents().filter(event => event.type === 'turn/start');
       const ends = session.ownEvents().filter(event => event.type === 'turn/end');
-      if (turns.some(turn => !ends.some(end => end.data.turn === turn.data.turn))) {
+      if (turns.some(turn => !ends.some(end => end.data.turn === turn.data.turn) && turnHasModelInput(session, turn.data.turn))) {
         if (recovering || !this.host.resident(row.session_id)) throw new Error('原生回合缺少结束依据，不能重复执行原动作。');
         pending = true;
       }
       const inputs = (await repo.inputs(run.id)).filter(input => input.session_id === row.session_id);
+      const admissions = session.ownEvents().filter(event => event.type === 'agent/inbox/spliced').flatMap(event => event.data.inserted ?? []) as RunInput[];
+      // Host context middleware can splice its messages after our pre-step
+      // listener inspected the original batch. Preserve that trusted source
+      // evidence here; it is neither a foreign human prompt nor new authority.
+      for (const message of admissions) if (hostContext(message) && !inputs.some(input => input.message_id === message.id)) {
+        await repo.input(run.id, message, true, row.session_id);
+        inputs.push({ run_id: run.id, session_id: row.session_id, message_id: message.id, message, accepted: true });
+      }
       // user/message also contains host-rendered time/runtime/skill context.
       // Only inbox admissions are execution inputs; the host's context
       // renderers do not grant a second task or become a human instruction.
-      const admitted = new Set(session.ownEvents().filter(event => event.type === 'agent/inbox/spliced')
-        .flatMap(event => event.data.inserted ?? []).map(message => message.id));
+      const admitted = new Set(admissions.filter(message => {
+          const id = this.host.recoveryInputId(run, message);
+          return !id || !inputs.some(input => input.message_id === id && input.accepted && input.session_id === row.session_id);
+        }).map(message => message.id));
       for (const end of ends) {
         const consumed = consumedTurn(session, end.data.turn).messageIds;
         if ([...consumed].some(id => admitted.has(id) && !inputs.some(input => input.message_id === id && input.accepted))) throw new Error('原生回合包含尚未核验归属的输入。');
-        if (end.data.reason?.kind === 'interrupted') throw new Error('原生回合被中断，需先核对实际执行结果。');
+        if (end.data.reason?.kind === 'interrupted' && turnHasModelInput(session, end.data.turn)) throw new Error('原生回合被中断，需先核对实际执行结果。');
       }
       const knownJobs = (await repo.native(run.id)).filter(item => item.kind === 'job' && item.owner_id === row.session_id);
       if (this.host.ownedJobs(row.session_id).some(job => !knownJobs.some(item => item.native_id === job.id))) {
@@ -171,6 +188,6 @@ export class SkillRunNative {
     if ([...this.activations.values()].some(item => item.run.id === run.id)) {
       if (recovering || !pending) throw new Error('子任务生命周期与原生目录尚未对应，需核对原执行。');
     }
-    return { pending: pending || this.host.busy(run.session_id), root };
+    return { pending: pending || this.host.busy(run.session_id), root, histories };
   }
 }

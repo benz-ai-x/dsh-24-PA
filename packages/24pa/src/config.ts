@@ -57,6 +57,8 @@ export interface PaConfig {
   appSecretEnv: string;
   pgDsnEnv: string;
   maxWorkers: number;
+  /** Detailed technical traces only; snapshots, results and receipts persist. */
+  diagnosticRetentionDays: number;
   /** Role ids; runtime-registered roles are valid beyond the built-in set. */
   enabledWorkers: string[];
   workerModels: Partial<Record<string, WorkerModelRoute>>;
@@ -166,6 +168,7 @@ export const DEFAULT_CONFIG: PaConfig = {
   appSecretEnv: 'PA24_FEISHU_APP_SECRET',
   pgDsnEnv: 'PA24_PG_DSN',
   maxWorkers: 2,
+  diagnosticRetentionDays: 90,
   enabledWorkers: ['memo'],
   workerModels: {},
   extraLocalTools: [],
@@ -255,6 +258,10 @@ export function validateConfig(raw: unknown): PaConfig {
     throw new ConfigError('pgDsnEnv 应填写环境变量名称（大写字母、数字、下划线）。');
   }
   const maxWorkers = input.maxWorkers;
+  const diagnosticRetentionDays = input.diagnosticRetentionDays === undefined ? 90 : input.diagnosticRetentionDays;
+  if (!Number.isInteger(diagnosticRetentionDays) || Number(diagnosticRetentionDays) < 1 || Number(diagnosticRetentionDays) > 3650) {
+    throw new ConfigError('diagnosticRetentionDays 必须是 1–3650 的整数。');
+  }
   if (!Number.isInteger(maxWorkers) || (maxWorkers as number) < 1 || (maxWorkers as number) > 8) {
     throw new ConfigError('maxWorkers 必须是 1–8 的整数。');
   }
@@ -321,6 +328,7 @@ export function validateConfig(raw: unknown): PaConfig {
     appSecretEnv: (input.appSecretEnv || DEFAULT_CONFIG.appSecretEnv) as string,
     pgDsnEnv: (input.pgDsnEnv || DEFAULT_CONFIG.pgDsnEnv) as string,
     maxWorkers: maxWorkers as number,
+    diagnosticRetentionDays: diagnosticRetentionDays as number,
     enabledWorkers: enabledWorkers as string[],
     workerModels: workerModels as PaConfig['workerModels'],
     extraLocalTools: extraLocalTools as string[],
@@ -401,6 +409,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldDescriptor[] = [
   { name: 'sources', group: 'resources', label: '日历与待办来源（sources）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.sources },
   { name: 'timeZone', group: 'runtime', label: '时区（timeZone）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.timeZone },
   { name: 'maxWorkers', group: 'runtime', label: '并行上限（maxWorkers）', kind: 'number', formAllowed: true, default: DEFAULT_CONFIG.maxWorkers },
+  { name: 'diagnosticRetentionDays', group: 'runtime', label: '详细诊断保留天数（diagnosticRetentionDays）', kind: 'number', formAllowed: true, default: DEFAULT_CONFIG.diagnosticRetentionDays },
   { name: 'enabledWorkers', group: 'runtime', label: '启用角色（enabledWorkers）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.enabledWorkers },
   { name: 'workerModels', group: 'runtime', label: '模型路由（workerModels）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.workerModels },
   { name: 'extraLocalTools', group: 'runtime', label: '本地额外工具（extraLocalTools）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraLocalTools },

@@ -2,6 +2,7 @@ import { effectiveSources, selectSource, sourceScopeFingerprint, type LegacySour
 import type { SourceRegistry, SourceTarget } from './source-registry.js';
 import type { SourceProjectionRepo, SourceMembershipRow, SourceObservationQuery, SourceObservation, ObservedSourceItem } from './repo/source-projection.js';
 import { parseZonedRange } from './util.js';
+import { checkExecution } from './execution-cancellation.js';
 
 type CalendarRole = 'all' | 'involved' | 'organizer' | 'participant';
 interface SourceCalendarDeps {
@@ -90,6 +91,7 @@ export class SourceCalendar {
     const objects = new Map<string, { row: SourceMembershipRow; locations: ReturnType<SourceCalendar['location']>[]; stale: boolean }>();
     const sources = [];
     for (const source of selected) {
+      checkExecution();
       const stored = snapshot.entries.find(row => row.id === source.id);
       const scope = { sourceId: source.id, registrationRevision: stored?.revision ?? 0, scopeHash: sourceScopeFingerprint(source) };
       let failure: string | null = null, refreshed = false;
@@ -97,6 +99,7 @@ export class SourceCalendar {
         try {
           await this.deps.gate(`source-calendar:${source.id}`, async () => {
             const target = await this.deps.registry.bind('calendar', { sourceId: source.id }, 'read');
+            checkExecution();
             if (target.registrationRevision !== scope.registrationRevision || target.scopeHash !== scope.scopeHash) throw new Error('查询期间来源已改变，请重新查询。');
             await this.deps.projection().observe(target, await this.deps.read(target, query));
           });
@@ -104,6 +107,7 @@ export class SourceCalendar {
         } catch (error) { failure = (error as Error).message; }
       }
       const cache = await this.deps.projection().cached(scope, query);
+      checkExecution();
       const observation = cache.observation;
       const current = effectiveSources(this.deps.config()).entries.find(row => row.id === source.id);
       if (!current || sourceScopeFingerprint(current) !== scope.scopeHash) throw new Error('查询期间来源配置已改变，请重新查询。');

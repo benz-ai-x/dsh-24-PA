@@ -33,13 +33,13 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'materials', 'minutes', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'materials', 'minutes', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'plans.summary', 'runs', 'runs.summary', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
     expect(client).toContain("id: 'wecom', cat: 'setup', tone: 'amber', icon: 'bot'");
-    expect(client).toContain('function WecomView({ state, busy, button, openRobot })');
-    expect(client).toContain("type: 'connection.wecom-check'");
+    expect(client).toContain('function WecomView({ state, busy, button, openRobot, openRepair })');
+    expect(client).toContain("type: 'health.check', scopes: ['wecom']");
     for (const anchor of ['正常', '未授权', '已过期', '企业不可用', 's.helpMessage', '下一步（nextSteps）']) {
       expect(client).toContain(anchor);
     }
@@ -69,7 +69,7 @@ describe('client.js 挂载面', () => {
     expect(client).toContain("cat === 'setup' && !manage");
     // 二级详情：返回卡片导航＋原视图平移（飞书详情全量保留）
     expect(client).toContain("'返回卡片'");
-    expect(client).toContain('function FeishuDetail({ state, busy, button, openRobot })');
+    expect(client).toContain('function FeishuDetail({ state, busy, button, openRobot, openRepair })');
     expect(client).toContain('function WorkDetail({ state, extra, button, busy, workspace, openRobot })');
     expect(client).toContain('function ReadinessDetail({ state })');
     expect(client).toContain('function MinutesDetail({ state, extra, button, openRobot, openCard })');
@@ -115,7 +115,7 @@ describe('client.js 挂载面', () => {
     expect(client).not.toContain('.pa24-settings{');
     // 一屏一主按钮：页头对话＋工作/记忆/提醒/晨报空态 CTA＋工作区卡绑定＋全量健康检查；
     // 未开放的知识库不再提供误导性的主 CTA。
-    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(10); // 参数与来源分别保存
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(11); // 参数、来源与明确测试分别提交
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
     // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留
@@ -235,8 +235,8 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('function HealthBlock({ data: providedData, title })');
     expect(client).toContain('h(HealthBlock, { data: helpers.extra.health })');
     expect(client).toContain("h('summary', null, L('处理建议', 'Next steps'))");
-    // 空库与筛选无结果必须分开，无匹配分支在前。
-    expect(client.indexOf('data.matched === 0')).toBeLessThan(client.indexOf('data.total === 0'));
+    // 空库与无匹配现在由 memory-panel.test.mjs 的真实 React 交互区分。
+    expect(client).toContain('没有找到匹配的记忆');
     // 表单控件建立程序化标签，Worker 字段带角色上下文；变更可重置，离开有保护。
     expect(client).toContain('const withFieldId =');
     expect(client).toContain('htmlFor: id');

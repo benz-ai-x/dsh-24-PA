@@ -84,15 +84,15 @@ export function apply(ctx: DshContext) {
   register(
     'pa24_delegate',
     '将明确的本人委托交给专业 Worker（memo=备忘、tasks=待办、calendar=日程、reminders=提醒、handwriting=手写整理、skill=任务 skill；可用性以运行时校验为准，不可用会明确报错）。一段输入含多件事时分别委派。handwriting 必须携带 noteId（笔记编号 N-x）；skill 必须携带 skill 名且该名已在 extraBusinessSkills 放行。返回接纳编号；接纳不代表完成。',
-    { worker: string, title: string, instruction: string, noteId: string, skill: string },
+    { worker: string, title: string, instruction: string, noteId: string, skill: string, completionCriteria: string, acceptanceRequired: { type: 'boolean' }, parentWorkId: string },
     ['worker', 'title', 'instruction'],
     (args, exec) => runtime.delegate(args, exec.agent!),
   );
 
   register(
     'pa24_jobs',
-    '查询并行事项、读取进度、继续或停止指定事项。',
-    { action: { type: 'string', enum: ['list', 'inspect', 'continue', 'stop'] }, workId: string, instruction: string },
+    '查询助理交办及全部关联运行；补充未结束交办，明确接续已结束交办，停止、接受/退回需验收的交付物，或以本人选定的instruction建立关联新目标。停止不会撤销既有业务动作。',
+    { action: { type: 'string', enum: ['list', 'inspect', 'continue', 'stop', 'supplement', 'accept', 'return', 'new-goal'] }, workId: string, instruction: string, requestId: string, expectedRevision: { type: 'integer' }, title: string, worker: string, completionCriteria: string, acceptanceRequired: { type: 'boolean' } },
     ['action'],
     (args, exec) => runtime.control(args, exec.agent!),
   );
@@ -120,6 +120,14 @@ export function apply(ctx: DshContext) {
   );
 
   register(
+    'pa24_run',
+    '普通交办使用 progress 记录真实 stage、completed、next；缺少主人信息/外部结果时，使用 wait 保存需要补充的 reason，暂停原运行的新动作。主人补充后沿同一运行继续；不能用于增加业务授权。',
+    { action: { type: 'string', enum: ['wait', 'progress'] }, reason: string, kind: { type: 'string', enum: ['input', 'external'] }, stage: string, completed: string, next: string },
+    ['action'],
+    (args, exec) => runtime.runControl(args, exec.agent!),
+  );
+
+  register(
     'pa24_work',
     'Worker 按本人明确委托执行业务动作（按角色可用：memo_save/memo_find、task_*、calendar_*、meeting_schedule、reminder_*、note_submit）。动作是否可用由运行时按角色绑定校验，未绑定会被拒绝。',
     workToolProperties,
@@ -129,9 +137,23 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_memory',
-    '检索/维护本工作区 JSON 长期记忆。search/inspect/changesets 只读；put/delete/apply/undo 仅限 dsh 的24私助本地会话，必须携带查询得到的 revision 和本人的指令依据。',
+    '检索/维护本工作区 JSON 长期记忆。search 默认返回有效事实及待核实线索，effective.useAs 区分用途；facts 只返有确认依据的当前事实。manage/history/inspect/changesets 与所有维护仅限本地顶层会话。delete 是回收；restore 恢复，purge 永久清除回收正文及可恢复版本。单项修改需 revision 和本人依据；批量先 preview 展示选择，再 apply 携带返回的 changes/previewToken。confirmation 仅可引用本人的明确记住/确认指令，审核资料或模型推断不算；重复旧依据不会确认改写后的陈述，需本人明确确认当前内容。',
     {
-      action: { type: 'string', enum: ['search', 'put', 'delete', 'inspect', 'apply', 'undo', 'changesets'] },
+      action: { type: 'string', enum: ['search', 'put', 'delete', 'activate', 'deactivate', 'restore', 'purge', 'inspect', 'preview', 'apply', 'undo', 'changesets', 'history'] },
+      mode: { type: 'string', enum: ['business', 'facts', 'manage'] },
+      lifecycle: { type: 'string', enum: ['active', 'inactive', 'recycled'] },
+      freshness: { type: 'string', enum: ['current', 'expired', 'upcoming'] },
+      project: string,
+      sourceState: { type: 'string', enum: ['unchecked', 'current', 'changed', 'unavailable'] },
+      conflictState: { type: 'string', enum: ['none', 'candidate', 'unresolved', 'resolved'] },
+      confirmationState: { type: 'string', enum: ['verified', 'missing', 'unverified'] },
+      confirmation: string,
+      confirmationReference: { ...string, description: '本人明确确认指令的实际引用标识。同措辞的新确认使用新指令引用；重复旧依据不得编造新引用。' },
+      scope: { type: 'object', properties: { kind: { type: 'string', enum: ['personal', 'company', 'project'] }, name: string }, required: ['kind'] },
+      sourceCheck: { type: 'object', properties: { state: { type: 'string', enum: ['unchecked', 'current', 'changed', 'unavailable'] }, checkedAt: string, evidence: string, version: string }, required: ['state'] },
+      conflict: { type: 'object', properties: { state: { type: 'string', enum: ['unresolved', 'resolved'] }, relatedIds: { type: 'array', items: string }, reason: string }, required: ['state', 'relatedIds', 'reason'] },
+      validFrom: string,
+      previewToken: string,
       query: string,
       category: { type: 'string', enum: ['preference', 'fact', 'project', 'decision'] },
       topic: string,
@@ -181,7 +203,7 @@ export function apply(ctx: DshContext) {
         config: snapshot.workspace?.config ?? null,
         loadedAt: snapshot.workspace?.loadedAt ?? null,
         configError: snapshot.workspace?.configError ?? null,
-        memoryNote: '长期记忆与整理功能在后续功能组交付；当前版本先完成配置维护。',
+        memoryNote: '长期记忆通过 pa24_memory 查询与本地维护；面板可查全文和修订，批量修改先预览，永久删除前先回收。',
       };
     },
   );

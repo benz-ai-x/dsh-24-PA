@@ -119,7 +119,7 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     // 工作偏好：会议之间留 15 分钟（confirmed）
     await writeScript({
       mode: 'dispatch',
-      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'pref-buffer', category: 'preference', topic: '工作偏好', content: '会议之间留 15 分钟缓冲', source: '本人指示', status: 'confirmed', reason: '本人偏好', expectedRevision: 0 } },
+      leadTool: { name: 'pa24_memory', input: { action: 'put', id: 'pref-buffer', category: 'preference', topic: '工作偏好', content: '会议之间留 15 分钟缓冲', source: '本人指示', status: 'confirmed', confirmation: '本人明确要求记住此条内容', reason: '本人偏好', expectedRevision: 0 } },
       leadReply: '已记录偏好。',
     });
     await promptLocal('f09-pref-1', '记住：会议之间留 15 分钟');

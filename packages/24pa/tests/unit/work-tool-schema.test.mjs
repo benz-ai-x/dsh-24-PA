@@ -5,21 +5,21 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import { PaRuntime } from '../../lib/runtime.js';
 import { apply } from '../../lib/tools.js';
 
-function registeredWork(work = async args => args) {
+function registeredWork(work = async args => args, name = 'pa24_work') {
   const definitions = new Map();
   apply({
-    get: () => ({ workspaceRulesSection: () => '', work }), on: () => { }, effect: fn => fn(),
+    get: () => ({ workspaceRulesSection: () => '', work, runControl: work }), on: () => { }, effect: fn => fn(),
     tools: { register: definition => { definitions.set(definition.name, definition); return () => { }; } },
     systemPrompt: { section: () => () => { } }
   });
-  return definitions.get('pa24_work');
+  return definitions.get(name);
 }
 
 const minimal = {
   memo_save: { topic: '备忘', content: '内容' }, memo_find: { query: '备忘' }, digest_summarize: { topic: '资料', content: '摘要' },
   task_create: { summary: '待办' }, task_update: { taskId: 't1', summary: '更名' }, task_complete: { guid: 'g1' }, task_get: { taskId: 't1' }, task_cancel: { taskId: 't1', reason: '本人取消' }, task_list: { status: 'open' },
   project_create: { name: '项目' }, project_adopt: { projectId: 'p1', tasks: [{ summary: '步骤' }] }, project_progress: { projectId: 'p1' },
-  outreach_send: { openId: 'ou_1', content: '请查收', instruction: '发给甲' }, task_assign: { taskId: 't1', openId: 'ou_1', instruction: '交给甲' },
+  outreach_send: { openId: 'ou_1', content: '请查收', instruction: '发给甲' }, task_assign: { taskId: 't1', assigneeIds: ['ou_1'], instruction: '交给甲' },
   task_repeat_create: { title: '日报', kind: 'daily', time: '09:00:00' }, task_repeat_list: {}, task_repeat_skip: { templateId: 'tt1' }, task_repeat_stop: { templateId: 'tt1' }, task_repeat_update: { templateId: 'tt1', title: '新标题' },
   waiting_create: { title: '等材料', checkpointInSeconds: 60 }, waiting_list: {}, waiting_control: { waitingId: 'w1', op: 'received' },
   skill_run: { skill: 'authorized' }, digest_build: { kind: 'morning' }, digest_deliver: { report: '简报' },
@@ -35,6 +35,17 @@ const minimal = {
 };
 
 describe('真实注册的 Worker 模型接口', () => {
+  it('pa24_run progress 只要求进展字段，等待原因由运行时按 action 校验', async () => {
+    const ctx = new Context(); let received;
+    const args = { action: 'progress', stage: '整理资料', completed: '核对输入', next: '保存结果' };
+    expect(validateJsonSchemaValue(registeredWork(undefined, 'pa24_run').parameters, args)).toEqual([]);
+    try {
+      await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime);
+      ctx.tools.register(registeredWork(async value => { received = value; return value; }, 'pa24_run'));
+      const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: 'progress', name: 'pa24_run', arguments: args });
+      expect(result.isError).not.toBe(true); expect(received).toEqual(args);
+    } finally { await ctx.fiber.dispose(); }
+  });
   it('每个正式绑定动作都有模型 payload 契约，角色权限仍由 runtime 校验', () => {
     const runtime = new PaRuntime({ skills: null, get: () => null }, { env: {}, workspacePath: '' });
     const bound = runtime.roles.list().flatMap(role => Object.keys(role.actions));
@@ -54,6 +65,10 @@ describe('真实注册的 Worker 模型接口', () => {
   it('使用实装宿主支持的 schema 子集', () => { expect(() => assertSupportedJsonSchema(registeredWork().parameters)).not.toThrow(); });
   it.each([
     { action: 'task_get', taskId: 'task-1' },
+    { action: 'task_create', summary: '分派', description: '说明', assigneeIds: ['ou_1'], instruction: '分给甲' },
+    { action: 'task_assign', guid: 'g1', assigneeIds: ['ou_1'], instruction: '分给甲' },
+    ...['self', 'whole', 'whole_event', 'personal_reminder', 'leave'].map(effect => ({ action: 'task_complete', guid: 'g1', effect })),
+    ...['all', 'overdue', 'today', 'undated', 'upcoming'].map(deadline => ({ action: 'task_list', deadline, role: 'following' })),
     { action: 'task_update', guid: 'remote-1', summary: '更新', due: null, plannedAt: null, estimateMinutes: null },
     { action: 'task_create', summary: '准备材料', due: '2026-10-21', plannedAt: '2026-10-20T09:00:00+08:00', estimateMinutes: 30, projectId: 'p1' },
     { action: 'project_create', name: '项目', goal: '目标' },
@@ -70,6 +85,9 @@ describe('真实注册的 Worker 模型接口', () => {
     { action: 'note_adopt_actions', noteId: 'N-1', versionId: 'v1', indexes: [0], instruction: '采纳第一项' },
   ])('合法业务参数可被模型表达：$action', args => {
     expect(validateJsonSchemaValue(registeredWork().parameters, args)).toEqual([]);
+  });
+  it.each([{ assigneeIds: [1] }, { description: 2 }, { effect: 'guess' }, { deadline: 'tomorrow' }])('公共待办字段拒绝错误格式：%j', args => {
+    expect(validateJsonSchemaValue(registeredWork().parameters, { action: 'task_create', ...args }).length).toBeGreaterThan(0);
   });
   it.each(['_operationId', '_instruction', '_authorization', '__forceLedger', 'opSuffix'])('内部字段仍拒绝：%s', name => {
     expect(validateJsonSchemaValue(registeredWork().parameters, { action: 'task_create', [name]: 'bypass' }).length).toBeGreaterThan(0);
