@@ -37,7 +37,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`M07 ${backend}`, () => {
       wecom: async () => { calls++; return { cli: { state: 'ok' }, identity: { state: 'ok', message: '真人与机器人一致' }, services: [{ id: 'calendar', state: faults ? 'expired' : 'ok', message: faults ? '授权过期' : '可读' }, { id: 'push', state: 'unverified', message: '未发送' }], nextSteps: ['原账号续期'] }; } };
     health = new ConnectionHealth(deps);
     testDeps = { repo: () => repos.health, config: () => current, version: () => version, registry, gate: (_key, run) => run(),
-      assertBinding: value => { if (value !== 'binding-1') throw Error('工作区已切换'); }, feishuIdentity: async () => {}, wecomOwner: async () => ({ userid: 'owner', name: '本人' }),
+      assertBinding: value => { if (value !== 'binding-1') throw Error('工作区已切换'); }, feishuIdentity: async () => {}, wecomIdentity: async () => ({ platform: 'wecom', ownerId: 'owner', authority: 'bot:original' }),
       send: async (platform, target, body, key) => { attempts.push({ platform, target, body, key }); return { messageId: platform === 'wecom' ? 'wecom:local-key' : 'om-real' }; },
       lark: async args => { attempts.push(args); return { data: args.includes('create') ? { event: { event_id: 'event-1' } } : {} }; },
       wecom: async args => { attempts.push(args); throw Error('本测试不应调用'); } };
@@ -45,7 +45,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`M07 ${backend}`, () => {
   });
   it('刷新无探测，无活动不是故障，新配置不能沿用旧证据', async () => {
     expect((await health.snapshot()).evidence.find(row => row.scope === 'feishu.receive').state).toBe('no_activity'); expect(calls).toBe(0);
-    await health.check(['workspace', 'wecom']); expect(calls).toBe(1); expect((await health.snapshot()).evidence.find(row => row.scope === 'wecom.push').state).toBe('unverified');
+    await health.check(['workspace', 'wecom']); expect(calls).toBe(1); expect((await health.snapshot()).evidence.find(row => row.scope === 'wecom.push-authorization').state).toBe('unverified');
     version = 'config-2'; expect((await health.snapshot()).evidence.find(row => row.scope === 'workspace').state).toBe('stale'); expect(calls).toBe(1);
   });
   it('六小时巡检、静默、重启去重和每日限额；失败不改投', async () => {
@@ -61,6 +61,22 @@ for (const backend of ['sqlite', 'postgres']) describe(`M07 ${backend}`, () => {
     await expect(tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-000000001', ...preview })).rejects.toThrow(/明确确认/);
     expect(await tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-000000001', ...preview, confirm: true })).toMatchObject({ status: 'succeeded', result: { nativeMessageId: null, deliveryId: 'wecom:local-key' } });
     expect((await tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-000000001', ...preview, confirm: true })).replayed).toBe(true); expect(attempts).toHaveLength(1);
+  });
+  it('只读企微检查保留独立的平台推送回执', async () => {
+    await repos.health.save({ scope: 'wecom.push', state: 'verified', configVersion: version, checkedAt: now.toISOString(), coverage: '实际平台回执', message: '平台已接纳', impact: '', nextSteps: [], detail: { deliveryId: 'original-delivery' } });
+    await health.check(['wecom']);
+    const rows = (await health.snapshot()).evidence;
+    expect(rows.find(row => row.scope === 'wecom.push')).toMatchObject({ state: 'verified', detail: { deliveryId: 'original-delivery' } });
+    expect(rows.find(row => row.scope === 'wecom.push-authorization').state).toBe('unverified');
+  });
+  it('同真人更换已接受机器人后不能复用旧测试预览', async () => {
+    const old = await tests.preview({ workspaceBinding: 'binding-1', action: 'wecom.push' });
+    testDeps.wecomIdentity = async () => ({ platform: 'wecom', ownerId: 'owner', authority: 'bot:replacement' });
+    await expect(tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-changed-bot', ...old, confirm: true })).rejects.toThrow(/机器人/);
+    expect(attempts).toHaveLength(0);
+    const updated = await tests.preview({ workspaceBinding: 'binding-1', action: 'wecom.push' });
+    expect((await tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-new-bot-01', ...updated, confirm: true })).status).toBe('succeeded');
+    expect(attempts).toHaveLength(1);
   });
   it('中断的测试不重做，新配置必须重新预览，旧工作区拒绝写入', async () => {
     const preview = await tests.preview({ workspaceBinding: 'binding-1', action: 'feishu.send' });
@@ -82,6 +98,21 @@ for (const backend of ['sqlite', 'postgres']) describe(`M07 ${backend}`, () => {
     await repos.health.observeIdentity('wecom', original); await repos.health.save({ scope: 'wecom.push', state: 'verified', configVersion: version, checkedAt: '2026-10-22T00:00:00Z', coverage: '旧回执', message: '旧成功', impact: '', nextSteps: [] });
     expect(await repos.health.observeIdentity('wecom', changed)).toMatchObject({ accepted: original, observed: changed, changed: true }); expect((await health.snapshot()).evidence.find(row => row.scope === 'wecom.push').state).toBe('stale');
     await expect(repos.health.acceptIdentity('wecom', original)).rejects.toThrow(/已更新/); await repos.health.acceptIdentity('wecom', changed); expect((await health.snapshot()).evidence.find(row => row.scope === 'wecom.push').state).toBe('stale');
+  });
+  it('来源及汇总成功证据随对应身份失效，其他平台来源保持有效', async () => {
+    const entry = { ...current.sources.entries[0], id: 'wecom-calendar', platform: 'wecom', resourceKind: 'authorized_scope', resourceId: 'authorized' };
+    current.sources.entries.push(entry);
+    await health.check(['sources']);
+    expect((await health.snapshot()).evidence.find(row => row.scope === 'sources').state).toBe('verified');
+    await repos.health.observeIdentity('wecom', { ownerId: 'ou_owner', authority: 'bot:old' });
+    await repos.health.observeIdentity('wecom', { ownerId: 'ou_owner', authority: 'bot:new' });
+    let rows = (await health.snapshot()).evidence;
+    expect(rows.find(row => row.scope === 'source:wecom-calendar').state).toBe('stale');
+    expect(rows.find(row => row.scope === 'sources').state).toBe('stale');
+    expect(rows.find(row => row.scope === 'source:calendar-a').state).toBe('verified');
+    await repos.health.acceptIdentity('wecom', { ownerId: 'ou_owner', authority: 'bot:new' });
+    rows = (await health.snapshot()).evidence;
+    expect(rows.find(row => row.scope === 'source:wecom-calendar').state).toBe('stale');
   });
   it('次级证据写入失败保留平台成功回执，不降级或重做业务动作', async () => {
     const preview = await tests.preview({ workspaceBinding: 'binding-1', action: 'feishu.send' }), save = repos.health.save;

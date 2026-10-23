@@ -12,7 +12,7 @@ import { WorkspaceBackup } from './backup.js';
 import { ConnectionHealth, type HealthScope } from './connection-health.js';
 import { ConnectionTests } from './connection-tests.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
-import type { HealthState } from './repo/health.js';
+import type { HealthState, HealthIdentity, HealthIdentityRow } from './repo/health.js';
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -194,7 +194,7 @@ export class PaRuntime {
   private lastReceivedAt: string | null = null;
   private lastSentAt: string | null = null;
   private diagnostics: AccessDiagnostics | null = null;
-  private wecomIdentityGeneration = '';
+  private wecomIdentity: HealthIdentityRow | null = null;
   private checking: Promise<AccessDiagnostics> | null = null;
 
   private dispatchTimer: NodeJS.Timeout | null = null;
@@ -327,11 +327,7 @@ export class PaRuntime {
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
     sanitize: value => this.sanitizeDiagnostic(value),
-    checkIdentity: async identity => {
-      const row = await this.repos!.health.observeIdentity('wecom', identity);
-      this.wecomIdentityGeneration = hash(JSON.stringify(row.observed));
-      if (row.changed) throw new Error('企微真人或机器人绑定已改变；旧身份成功证据失效。请在接入卡核对原交办、待发与新身份后确认，未自动接受新绑定。');
-    },
+    checkIdentity: identity => this.observeWecomIdentity(identity),
   });
 
   /** Feishu channel module (round-3 arch-1): lark-cli writes, projection sync
@@ -350,19 +346,32 @@ export class PaRuntime {
     config: () => this.config!,
     lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
     wecom: args => this.wecomChannels.wecomRun(args),
+    observeWecomIdentity: identity => this.observeWecomIdentity(identity),
   });
   readonly sourceRegistry = new SourceRegistry({
     config: () => this.config!, repo: () => this.repos!.sources,
     connectionHash: platform => this.sourceConnectionHash(platform),
+    evidenceCurrent: evidence => evidence.identity?.platform !== 'wecom' || !this.wecomIdentity ||
+      !this.wecomIdentity.changed && evidence.identity.ownerId === this.wecomIdentity.observed.ownerId
+      && evidence.identity.authority === this.wecomIdentity.observed.authority
+      && Date.parse(evidence.checkedAt) >= Math.max(new Date(this.wecomIdentity.accepted_at).getTime(), new Date(this.wecomIdentity.observed_at).getTime()),
     probe: source => {
       if (this.config!.mode !== 'feishu') throw new Error('体验模式不核验真实平台来源；切换真实接入后由本人发起检查。');
       return this.sourceAccess.check(source);
     }, gate: (key, work) => this.gate(key, work),
   });
+  private async observeWecomIdentity(identity: HealthIdentity): Promise<void> {
+    const row = await this.repos!.health.observeIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
+    this.wecomIdentity = row;
+    if (row.changed) {
+      this.wecomChannels.invalidate();
+      throw new Error('企微真人或机器人绑定已改变；旧身份成功证据失效。请在接入卡核对原交办、待发与新身份后确认，未自动接受新绑定。');
+    }
+  }
   private sourceConnectionHash(platform: 'feishu' | 'wecom'): string {
     return hash(JSON.stringify(platform === 'feishu'
       ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.options.larkCliBin, this.transportIdentity(this.config, this.secretStore)]
-      : [this.config!.mode, this.options.wecomCliBin, this.wecomIdentityGeneration]));
+      : [this.config!.mode, this.options.wecomCliBin]));
   }
   private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry, owner: async channel => {
     if (this.config?.mode !== 'feishu') throw new Error('体验模式不能绑定真实主人投递身份。');
@@ -389,7 +398,7 @@ export class PaRuntime {
   readonly connectionTests = new ConnectionTests({
     repo: () => this.repos!.health, config: () => this.config!, version: () => this.connectionVersion(), registry: this.sourceRegistry,
     assertBinding: value => this.assertWorkspaceBinding(typeof value === 'string' ? value : null), gate: (key, work) => this.gate(key, work),
-    wecomOwner: () => this.wecomChannels.wecomOwnerUserid(true), feishuIdentity: async () => {
+    wecomIdentity: () => this.sourceAccess.identity('wecom'), feishuIdentity: async () => {
       const result = await this.checkAccess();
       if (result.auth.state !== 'ok' || result.auth.applicationMatched !== true) throw new Error('飞书主人与实际应用身份尚未核验一致。');
     },
@@ -1251,8 +1260,7 @@ export class PaRuntime {
     this.db = db;
     this.activePostgresDsn = postgresDsn;
     this.repos = repos;
-    const wecomIdentity = await repos.health.identity('wecom');
-    this.wecomIdentityGeneration = wecomIdentity ? hash(JSON.stringify(wecomIdentity.observed)) : '';
+    this.wecomIdentity = await repos.health.identity('wecom');
     this.workspace = next.workspace;
     this.workspaceBinding = randomUUID();
     this.skillPackages.refresh();
@@ -3929,6 +3937,7 @@ export class PaRuntime {
       const identity = input.identity as { ownerId?: unknown; authority?: unknown };
       if (!identity || typeof identity.ownerId !== 'string' || typeof identity.authority !== 'string') throw new Error('缺少核验得到的真人与机器人标识。');
       const row = await this.repos!.health.acceptIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
+      this.wecomIdentity = row;
       this.wecomChannels.invalidate();
       return { identity: row, message: '已确认新的企微绑定；旧来源和计划未迁移，请按原归属逐项重新登记与核验。' };
     });

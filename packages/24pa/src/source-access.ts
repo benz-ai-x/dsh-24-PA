@@ -7,6 +7,7 @@ interface SourceAccessDeps {
   config(): PaConfig;
   lark(args: string[]): Promise<{ data: any }>;
   wecom(args: string[]): Promise<{ data: any; raw: unknown }>;
+  observeWecomIdentity?(identity: SourceIdentity): Promise<void>;
 }
 
 /** Read-only, versioned adapter evidence. Resource roles never replace object-level checks. */
@@ -26,12 +27,15 @@ export class SourceAccess {
     const bot = /机器人身份：\s*名字：.+?\s*ID：([A-Za-z0-9_-]+)/.exec(context);
     const person = /授权真人用户身份：\s*名字：.+?\s*ID：([A-Za-z0-9_-]+)/.exec(context);
     if (!bot || !person) throw new Error('企微机器人和授权真人身份未核验一致，请重新检查接入。');
-    return { platform, ownerId: person[1]!, authority: `bot:${bot[1]}` };
+    const identity = { platform, ownerId: person[1]!, authority: `bot:${bot[1]}` };
+    await this.deps.observeWecomIdentity?.(identity);
+    return identity;
   }
   async check(source: SourceRegistration): Promise<SourceEvidence> {
     const result: SourceEvidence = { checkedAt: new Date().toISOString(), state: 'pending', identity: null, resource: null, capabilities: unknownCapabilities(), message: '尚未核验' };
     if (!source.resourceId) return { ...result, message: '请先补齐资源标识。' };
-    return source.platform === 'feishu' ? this.feishu(source, result) : this.wecom(source, result);
+    const evidence = await (source.platform === 'feishu' ? this.feishu(source, result) : this.wecom(source, result));
+    return { ...evidence, checkedAt: new Date().toISOString() };
   }
 
   private async feishu(source: SourceRegistration, result: SourceEvidence): Promise<SourceEvidence> {

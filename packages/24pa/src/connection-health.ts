@@ -29,18 +29,23 @@ export class ConnectionHealth {
     const version = this.deps.version(), records = await this.deps.repo().latest(), identity = await this.deps.repo().identity('wecom');
     const identities = { wecom: identity, feishu: await this.deps.repo().identity('feishu') };
     const current = (row: HealthEvidence) => {
-      const platform = row.scope.split('.')[0] as keyof typeof identities, owner = identities[platform];
-      return row.configVersion === version && (!owner || row.state === 'fault' || row.state === 'no_activity' || row.state === 'unchecked' ||
-        (!owner.changed && Date.parse(row.checkedAt) >= Math.max(new Date(owner.accepted_at).getTime(), new Date(owner.observed_at).getTime())));
+      const sources = effectiveSources(this.deps.config()).entries;
+      const platforms = row.scope === 'sources' ? [...new Set(sources.filter(source => source.enabled).map(source => source.platform))]
+        : [row.scope.startsWith('source:') ? sources.find(source => source.id === row.scope.slice(7))?.platform : row.scope.split('.')[0]];
+      return row.configVersion === version && platforms.every(platform => {
+        const owner = identities[platform as keyof typeof identities];
+        return !owner || ['fault', 'no_activity', 'unchecked', 'disabled'].includes(row.state) ||
+          (!owner.changed && Date.parse(row.checkedAt) >= Math.max(new Date(owner.accepted_at).getTime(), new Date(owner.observed_at).getTime()));
+      });
     };
-    for (const scope of ['feishu.receive', 'feishu.send', 'feishu.review-callback']) if (!records.some(row => row.scope === scope)) records.push({ scope, state: 'no_activity', configVersion: version,
+    for (const scope of ['feishu.receive', 'feishu.send', 'feishu.review-callback', 'wecom.push']) if (!records.some(row => row.scope === scope)) records.push({ scope, state: 'no_activity', configVersion: version,
       checkedAt: '', coverage: '当前工作区自证据功能启用后未留下合格事件', message: '尚无合格活动证据；无活动不等于故障。', impact: '尚不能证明此端到端链路可用。', nextSteps: [scope.endsWith('receive') ? '本人在飞书私聊发送 /24pa。' : scope.endsWith('callback') ? '在真实待审版本的飞书审核卡上完成一次批准或退回。' : '明确触发发送测试，或查看正常业务投递回执。'] });
     for (const scope of HEALTH_SCOPES) if (!records.some(row => row.scope === scope)) records.push({ scope, state: 'unchecked', configVersion: version, checkedAt: '',
       coverage: '尚未主动检查此范围', message: '未检查，不代表可用或故障。', impact: '尚无本范围的检查证据。', nextSteps: ['选择此范围执行只读检查。'] });
     const monitor = await this.deps.repo().monitor('wecom');
     return this.safe({ configVersion: version, readAt: this.now().toISOString(), scopes: HEALTH_SCOPES,
       evidence: records.map(row => current(row) ? row : { ...row, previousState: row.state, state: 'stale',
-        message: `旧配置证据已过期：${row.message}`, nextSteps: ['对当前生效配置重新核验。'] }),
+        message: `旧配置或身份的证据已过期：${row.message}`, nextSteps: ['对当前生效配置重新核验。'] }),
       traffic: { ...(await this.deps.repo().traffic()), coverage: '当前工作区完整持久账本，按渠道与状态分组；历史集合不证明当前配置可用，拒绝入站另列。' },
       monitor: monitor ? { ...monitor, delivery: monitor.notificationKey ? await this.deps.repo().monitorDelivery(monitor.notificationKey) : null } : null, identity,
       tests: await this.deps.repo().tests(), testCoverage: '最近 100 次明确触发的测试；不代表全部业务历史。' });
@@ -78,7 +83,7 @@ export class ConnectionHealth {
             const enabled = this.deps.config().mode === 'feishu' && (effectiveSources(this.deps.config()).entries.some(row => row.platform === 'wecom' && row.enabled) || this.deps.config().notifyChannel === 'wecom');
             if (!enabled) { await save(scope, { state: 'disabled', coverage: '已启用企微能力', message: '尚未启用企微来源或推送', impact: '企微不接收聊天消息。', nextSteps: [] }); continue; }
             const result = observed.wecom ?? await this.deps.wecom();
-            for (const service of result.services) await save(`wecom.${service.id}`, { state: service.state === 'ok' ? 'verified' : service.state === 'skipped' ? 'disabled' : service.state === 'unverified' ? 'unverified' : 'fault', coverage: service.id === 'push' ? '当前真人和机器人绑定；不包含实际发送' : `${service.id === 'calendar' ? '日程' : '待办'}服务授权只读接口`, message: service.message, impact: `仅 ${service.id} 域受此结果影响；不解除其他等待或暂停。`, nextSteps: service.helpMessage ? [service.helpMessage] : result.nextSteps });
+            for (const service of result.services) await save(`wecom.${service.id === 'push' ? 'push-authorization' : service.id}`, { state: service.state === 'ok' ? 'verified' : service.state === 'skipped' ? 'disabled' : service.state === 'unverified' ? 'unverified' : 'fault', coverage: service.id === 'push' ? '当前真人和机器人绑定；不包含实际发送' : `${service.id === 'calendar' ? '日程' : '待办'}服务授权只读接口`, message: service.message, impact: `仅 ${service.id} 域受此结果影响；不解除其他等待或暂停。`, nextSteps: service.helpMessage ? [service.helpMessage] : result.nextSteps });
             await save('wecom.identity', { state: result.identity.state === 'ok' ? 'verified' : 'fault', coverage: '授权真人与机器人实际标识', message: result.identity.message, impact: '身份不一致时阻断按旧身份的操作与投递。', nextSteps: result.nextSteps, detail: result.identity });
             const faults = result.services.filter(row => !['ok', 'skipped', 'unverified'].includes(row.state));
             await save(scope, { state: result.cli.state !== 'ok' || result.identity.state !== 'ok' ? 'fault' : faults.length || result.services.some(row => row.state === 'unverified') ? 'partial' : 'verified', coverage: 'CLI、绑定身份、已启用域的只读授权核验', message: '企微只读检查完成；推送与写入尚需各自回执。', impact: '各域独立；通知失败不切换渠道。', nextSteps: result.nextSteps });

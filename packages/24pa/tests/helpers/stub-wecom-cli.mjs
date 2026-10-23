@@ -87,7 +87,7 @@ if (plain[0] === 'identity' && plain[1] === 'whoami') {
       '<extra_identity_context>',
       '机器人身份：',
       '名字：stub bot',
-      'ID：bot-stub-1',
+      `ID：${state.botId ?? 'bot-stub-1'}`,
       '授权真人用户身份：',
       '名字：测试主人  ',
       `ID：${state.ownerUserid ?? 'wou_test_owner'}`,

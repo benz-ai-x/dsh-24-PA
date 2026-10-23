@@ -652,6 +652,7 @@ window.__ModuleLoader__.load({
           const tests = (data?.tests || []).filter(row => !platform || row.plan.platform === platform);
           const identityLabel = identity => identity ? `${identity.ownerId} · ${identity.authority}` : L('尚未核验', 'Not verified');
           const targetLabel = target => typeof target === 'string' ? target : `${target.platform} · ${target.sourceId} · ${target.resource?.id} · ${target.identity?.ownerId} · ${target.identity?.authority}`;
+          const testTargetLabel = plan => targetLabel(plan.target) + (plan.identity ? ` · ${plan.identity.authority}` : '');
           return h('section', { className: 'pa24-card pa24-health' },
             sectionHead('shield', L('检查证据与明确测试', 'Evidence and explicit tests'), L('刷新只读已保存证据。主动检查不发消息、不创建对象、不读听记正文、不启动模型。', 'Refresh reads saved evidence; checks create no objects, send no messages, read no minutes, and invoke no model.'),
               h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void run(async () => { await load(); return L('已读取保存证据。', 'Saved evidence read.'); }) }, icon('refresh'), L('刷新证据', 'Refresh evidence'))),
@@ -681,11 +682,11 @@ window.__ModuleLoader__.load({
                 (!platform || platform === 'feishu') && h('option', { value: 'feishu.send' }, L('发送飞书测试消息', 'Feishu test message')), (!platform || platform === 'wecom') && h('option', { value: 'wecom.push' }, L('发送企微测试消息', 'WeCom test message')), h('option', { value: 'source.create' }, L('创建来源测试对象', 'Create source test object')))),
               testAction === 'source.create' && h('label', null, L('登记来源 ', 'Registered source '), h('select', { value: sourceId, onChange: event => setSourceId(event.target.value), disabled: busy }, h('option', { value: '' }, L('请选择明确来源', 'Choose a source')), sources.filter(source => source.enabled && source.access === 'readwrite').map(source => h('option', { key: source.id, value: source.id }, `${source.name} · ${source.domain} · ${source.platform}`)))),
               h('button', { type: 'button', disabled: busy || testAction === 'source.create' && !sourceId, onClick: () => void run(async () => { const next = await rpc('health.test.preview', { workspaceBinding: binding, action: testAction, sourceId }); if (current.current === binding) { setPreview(next); setApproved(false); requestId.current = globalThis.crypto.randomUUID(); } return L('已生成测试预览，尚未执行。', 'Preview ready; no test executed.'); }) }, L('预览测试目标', 'Preview test target')),
-              preview && h('div', { className: 'pa24-example' }, fields([[L('目标', 'Target'), targetLabel(preview.plan.target)], [L('动作', 'Action'), preview.plan.description], [L('费用', 'Cost'), preview.plan.cost], [L('残留与清理', 'Residue and cleanup'), preview.plan.residue]]),
+              preview && h('div', { className: 'pa24-example' }, fields([[L('目标', 'Target'), testTargetLabel(preview.plan)], [L('动作', 'Action'), preview.plan.description], [L('费用', 'Cost'), preview.plan.cost], [L('残留与清理', 'Residue and cleanup'), preview.plan.residue]]),
                 h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: approved, onChange: event => setApproved(event.target.checked) }), L('确认对以上目标执行这一次测试', 'Confirm one test against this target')),
                 h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !approved, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.test', workspaceBinding: binding, requestId: requestId.current, ...preview, confirm: true }); setApproved(false); return `${L('测试状态：', 'Test status: ')}${result.status} · ${result.result?.message || result.message || ''}`; }) }, L('执行已确认测试', 'Execute confirmed test')))),
             tests.length > 0 && h('details', null, h('summary', null, L('测试记录、结果与清理', 'Test results and cleanup')), h('p', { className: 'pa24-meta' }, data.testCoverage), tests.map(test => h('div', { key: test.id, className: 'pa24-resource' }, h('strong', null, test.plan.parameters?.title || test.id),
-              h('p', null, `${test.plan.action} · ${test.status} · ${targetLabel(test.plan.target)}`), h('p', null, test.result?.message || L('尚无确认回执；请先核对原目标。', 'No confirmed receipt; reconcile the original target first.')),
+              h('p', null, `${test.plan.action} · ${test.status} · ${testTargetLabel(test.plan)}`), h('p', null, test.result?.message || L('尚无确认回执；请先核对原目标。', 'No confirmed receipt; reconcile the original target first.')),
               test.result?.nativeId && h('p', { className: 'pa24-meta' }, L('原生对象：', 'Native object: ') + test.result.nativeId),
               test.result?.deliveryId && h('p', { className: 'pa24-meta' }, L('投递标识：', 'Delivery ID: ') + test.result.deliveryId + ' · ' + L('原生消息：', 'Native message: ') + (test.result.nativeMessageId || L('平台未返回', 'Not returned'))),
               h('p', { className: 'pa24-meta' }, test.cleanup?.message || test.result?.residue || test.plan.residue),
@@ -2623,8 +2624,8 @@ window.__ModuleLoader__.load({
             if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: 'start' }), 0);
           };
           const openRepair = row => {
-            const fields = { 'feishu.application': 'feishuAppId', 'feishu.resource:folder': 'folderToken', 'feishu.resource:wiki': 'wikiNodeToken', 'feishu.resource:tasklist': 'tasklistId', 'feishu.resource:calendar': 'calendarId', 'wecom.push': 'notifyChannel', voice: 'tts.engine', models: 'workerModels', materials: 'extraLocalTools' };
-            const field = row.scope.startsWith('source:') || row.scope === 'sources' || row.scope.startsWith('wecom.') && row.scope !== 'wecom.push' ? 'sources' : fields[row.scope] || (row.scope.startsWith('feishu') ? 'larkProfile' : 'mode');
+            const fields = { 'feishu.application': 'feishuAppId', 'feishu.resource:folder': 'folderToken', 'feishu.resource:wiki': 'wikiNodeToken', 'feishu.resource:tasklist': 'tasklistId', 'feishu.resource:calendar': 'calendarId', 'wecom.push': 'notifyChannel', 'wecom.push-authorization': 'notifyChannel', voice: 'tts.engine', models: 'workerModels', materials: 'extraLocalTools' };
+            const field = row.scope.startsWith('source:') || row.scope === 'sources' || row.scope.startsWith('wecom.') && !row.scope.startsWith('wecom.push') ? 'sources' : fields[row.scope] || (row.scope.startsWith('feishu') ? 'larkProfile' : 'mode');
             setRepairContext({ ...row, field, binding: state.workspaceBinding }); openCard('config');
           };
           const toggleManage = () => {

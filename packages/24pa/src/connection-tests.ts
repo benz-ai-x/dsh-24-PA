@@ -1,5 +1,5 @@
 import type { PaConfig } from './config.js';
-import type { SourceRegistry, SourceTarget } from './source-registry.js';
+import type { SourceRegistry, SourceTarget, SourceIdentity } from './source-registry.js';
 import { effectiveSources } from './source-config.js';
 import type { HealthRepo } from './repo/health.js';
 import { hash } from './util.js';
@@ -9,7 +9,7 @@ import { redactDiagnostic } from './diagnostic-redaction.js';
 interface TestDeps {
   config(): PaConfig; version(): string; repo(): HealthRepo; registry: SourceRegistry;
   assertBinding(value: unknown): void; gate<T>(key: string, work: () => Promise<T>): Promise<T>;
-  wecomOwner(): Promise<{ userid: string; name: string }>; feishuIdentity(): Promise<void>;
+  wecomIdentity(): Promise<SourceIdentity>; feishuIdentity(): Promise<void>;
   send(platform: 'feishu' | 'wecom', target: string, body: string, key: string): Promise<{ messageId: string }>;
   lark(args: string[]): Promise<{ data: any }>; wecom(args: string[]): Promise<{ data: any }>;
   sanitize?<T>(value: T): T;
@@ -30,7 +30,7 @@ export class ConnectionTests {
     if (this.deps.config().mode !== 'feishu') throw new Error('体验模式不执行真实平台测试。');
     const action = String(input.action ?? '');
     if (!['feishu.send', 'wecom.push', 'source.create'].includes(action)) throw new Error('未知接入测试动作。');
-    let target: string | SourceTarget, platform: 'feishu' | 'wecom', domain: string;
+    let target: string | SourceTarget, platform: 'feishu' | 'wecom', domain: string, identity: SourceIdentity | undefined;
     if (action === 'source.create') {
       const source = effectiveSources(this.deps.config()).entries.find(row => row.id === input.sourceId);
       if (!source || !source.enabled || source.access !== 'readwrite') throw new Error('请选择已启用、本人允许写入的登记来源。');
@@ -38,13 +38,13 @@ export class ConnectionTests {
       platform = source.platform; domain = source.domain;
     } else if (action === 'wecom.push') {
       if (this.deps.config().notifyChannel !== 'wecom') throw new Error('企微推送尚未启用。');
-      target = (await this.deps.wecomOwner()).userid; platform = 'wecom'; domain = 'push';
+      identity = await this.deps.wecomIdentity(); target = identity.ownerId; platform = 'wecom'; domain = 'push';
     } else {
       await this.deps.feishuIdentity();
       target = this.deps.config().ownerOpenId; platform = 'feishu'; domain = 'send';
       if (!target) throw new Error('尚未核验主人目标。');
     }
-    const plan = { action, platform, domain, target, configVersion: this.deps.version(),
+    const plan = { action, platform, domain, target, ...(identity ? { identity } : {}), configVersion: this.deps.version(),
       description: action === 'source.create' ? domain === 'calendar' ? '创建一条带唯一测试标识的五分钟个人日程，不邀请他人、不设置提醒；不改变已有日程。' : '创建一项带唯一测试标识的本人测试待办，无截止提醒；不修改已有待办。' : '只向已核验主人发送一条明确标为测试的文字消息。',
       cost: '不调用模型；平台或网络可能按账号套餐收费，本地不掌握账单。',
       residue: action === 'source.create' ? '平台会留下测试对象；创建成功后可单独确认清理，未知结果先到原平台核对。' : '聊天中保留测试消息；本版本不提供撤回，请在原平台手工处理。' };
@@ -121,7 +121,8 @@ export class ConnectionTests {
       if (creating && ['denied', 'adapter_unavailable'].includes(proof.capabilities.create)) throw new Error('已知该来源不允许创建或适配器尚未提供创建能力，不能执行写入测试。');
     } else if (plan.action === 'wecom.push') {
       if (plan.platform !== 'wecom' || plan.domain !== 'push' || this.deps.config().notifyChannel !== 'wecom') throw new Error('企微推送测试范围无效。');
-      if ((await this.deps.wecomOwner()).userid !== plan.target) throw new Error('企微当前真人与原测试目标不符。');
+      const identity = await this.deps.wecomIdentity();
+      if (identity.ownerId !== plan.target || !plan.identity || fingerprint(identity) !== fingerprint(plan.identity)) throw new Error('企微当前真人或机器人与原测试目标不符，请重新预览。');
     } else if (plan.action === 'feishu.send') {
       if (plan.platform !== 'feishu' || plan.domain !== 'send') throw new Error('飞书发送测试范围无效。');
       await this.deps.feishuIdentity();

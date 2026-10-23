@@ -35,6 +35,7 @@ beforeEach(async () => {
       { id: 'personal', name: '个人日历', platform: 'feishu', domain: 'calendar', enabled: true, access: 'readwrite' },
       { id: 'read-only', name: '公司日历', platform: 'feishu', domain: 'calendar', enabled: true, access: 'read' },
     ] };
+    else if (req.endpoint === 'health.test.preview' && req.payload.action === 'wecom.push') value = { fingerprint: 'wecom-preview', plan: { action: 'wecom.push', platform: 'wecom', domain: 'push', target: 'wou-owner', identity: { ownerId: 'wou-owner', authority: 'bot:specific-bot' }, description: '单次测试消息', cost: '不调用模型', residue: '保留测试消息' } };
     else if (req.endpoint === 'health.test.preview') value = { fingerprint: 'preview-1', plan: { action: req.payload.action, platform: 'feishu', domain: 'calendar', target: { sourceId: 'personal', platform: 'feishu', resource: { id: 'cal-real' }, identity: { ownerId: 'ou-owner', authority: 'app-one' } }, description: '创建唯一测试日程，无邀请无提醒', cost: '不调用模型', residue: '平台会留测试对象，可确认清理', configVersion: 'config-1' } };
     else if (req.endpoint === 'action' && req.payload.type === 'health.test') {
       value = { id: req.payload.requestId, status: 'succeeded', plan: req.payload.plan, result: { nativeId: 'event-native', message: '平台已接纳，不代表设备通知已送达' } }; health = { ...health, tests: [value] };
@@ -78,6 +79,12 @@ describe('M07 接入与配置：真实 React DOM 操作', () => {
     expect(button('清理测试对象').disabled).toBe(true); await click(checkbox('确认清理此测试对象')); await click(button('清理测试对象'));
     expect(container.textContent).toContain('清理已接纳，原回执保留'); expect(button('清理测试对象')).toBeUndefined();
     expect(requests.filter(row => row.payload.type === 'health.test.cleanup')).toHaveLength(1);
+  });
+  it('企微发送预览明确显示真人和具体机器人，未确认不发送', async () => {
+    await openCard('企业微信'); await click(button('预览测试目标'));
+    expect(container.textContent).toContain('wou-owner · bot:specific-bot');
+    expect(button('执行已确认测试').disabled).toBe(true);
+    expect(requests.some(row => row.payload.type === 'health.test')).toBe(false);
   });
   it('CLI 可用但身份变化时不显示总体正常，旧新身份可读且需要另行确认', async () => {
     wecom = { checkedAt: '2026-10-23T01:00:00Z', cli: { state: 'ok', message: 'CLI 可执行' }, identity: { state: 'error', message: '原身份已变化，待本人确认' }, services: [], nextSteps: [] };

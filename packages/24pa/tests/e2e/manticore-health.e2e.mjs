@@ -15,13 +15,16 @@ describe('M07 真实 Loader 接入健康', () => {
     const retained = await api('health.snapshot', { workspaceBinding: await binding() });
     expect(retained.evidence.find(row => row.scope === 'feishu.identity').checkedAt >= legacy.checkedAt).toBe(true);
     const created = await api('action', { type: 'plan.change', op: 'save', workspaceBinding: await binding(), requestId: randomUUID(), title: '健康只读计划',
-      skillId: 'builtin:digest-morning', timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'none' } });
+      skillId: 'builtin:digest-morning', timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'wecom' } });
+    const authorized = await api('plans.preview', { id: created.plan.id, workspaceBinding: await binding() });
     const report = await api('action', { type: 'health.check', workspaceBinding: await binding() });
     expect(report.evidence.find(row => row.scope === 'plans').detail.taskPlans).toMatchObject({ total: 1, paused: 1, enabled: 0 });
     const inspected = await api('plans.inspect', { id: created.plan.id, workspaceBinding: await binding() });
     expect(inspected.triggers.total).toBe(0);
+    const enabled = await api('action', { type: 'plan.change', op: 'enable', id: created.plan.id, workspaceBinding: await binding(), expectedRevision: created.plan.revision, confirm: true, fingerprint: authorized.fingerprint, requestId: randomUUID() });
+    await api('action', { type: 'plan.change', op: 'pause', id: created.plan.id, workspaceBinding: await binding(), expectedRevision: enabled.plan.revision, requestId: randomUUID() });
 
-    expect(report.requestedScopes).toContain('memory'); expect(report.evidence.find(row => row.scope === 'wecom.push').state).toBe('disabled');
+    expect(report.requestedScopes).toContain('memory'); expect(report.evidence.find(row => row.scope === 'wecom.push-authorization').state).toBe('disabled');
     expect(report.evidence.find(row => row.scope === 'feishu.identity').state).toBe('verified');
     expect(report.evidence.find(row => row.scope === 'workspace').state).toBe('verified');
     expect((await fixture.calls()).every(row => !row.args.includes('create') && !row.args.includes('send'))).toBe(true);
@@ -44,10 +47,33 @@ describe('M07 真实 Loader 接入健康', () => {
     await writeFile(fixture.wecomState, JSON.stringify({ ownerUserid: 'wou_different_person' }));
     const check = await api('action', { type: 'health.check', workspaceBinding: await binding(), scopes: ['wecom'] }); expect(check.evidence.find(row => row.scope === 'wecom.identity').state).toBe('fault');
     const snapshot = await api('health.snapshot', { workspaceBinding: await binding() }); expect(snapshot.identity.changed).toBe(true); expect(snapshot.identity.accepted.ownerId).toBe('wou_test_owner');
+    expect(snapshot.evidence.find(row => row.scope === 'source:wecom-calendar').state).toBe('stale');
+    expect(snapshot.evidence.find(row => row.scope === 'sources').state).toBe('stale');
+    await expect(api('health.test.preview', { workspaceBinding: await binding(), action: 'source.create', sourceId: 'wecom-calendar' })).rejects.toThrow(/绑定已改变/);
     const oldSources = (await api('sources')).entries;
     await api('action', { type: 'health.identity-accept', workspaceBinding: await binding(), configVersion: snapshot.configVersion, identity: snapshot.identity.observed, confirm: true });
     expect((await api('sources')).entries.map(row => row.ownerId)).toEqual(oldSources.map(row => row.ownerId));
     await writeFile(fixture.wecomState, JSON.stringify({ ownerUserid: 'wou_test_owner' }));
+  });
+  it('同真人换机器人后，旧发送预览失效，新预览只执行一次', async () => {
+    const local = await createHealthFixture();
+    try {
+      const api = local.host.api, snapshot = await api('snapshot'), workspaceBinding = snapshot.workspaceBinding;
+      await api('action', { type: 'workspace.config-update', workspaceBinding, expectedConfigHash: snapshot.workspace.sourceHash, config: { notifyChannel: 'wecom' } });
+      const old = await api('health.test.preview', { workspaceBinding, action: 'wecom.push' });
+      await writeFile(local.wecomState, JSON.stringify({ ownerUserid: 'wou_test_owner', botId: 'new-test-bot' }));
+      await api('action', { type: 'health.check', workspaceBinding, scopes: ['wecom'] });
+      const health = await api('health.snapshot', { workspaceBinding });
+      await api('action', { type: 'health.identity-accept', workspaceBinding, configVersion: health.configVersion, identity: health.identity.observed, confirm: true });
+      await expect(api('action', { type: 'health.test', workspaceBinding, requestId: randomUUID(), ...old, confirm: true })).rejects.toThrow(/机器人/);
+      const sends = async () => (await local.calls()).filter(row => row.args.includes('aibot') && row.args.includes('send'));
+      expect(await sends()).toHaveLength(0);
+      const preview = await api('health.test.preview', { workspaceBinding, action: 'wecom.push' }), requestId = randomUUID();
+      expect(preview.plan.identity.authority).toBe('bot:new-test-bot');
+      expect((await api('action', { type: 'health.test', workspaceBinding, requestId, ...preview, confirm: true })).status).toBe('succeeded');
+      await api('action', { type: 'health.test', workspaceBinding, requestId, ...preview, confirm: true });
+      expect(await sends()).toHaveLength(1);
+    } finally { await local.stop(); }
   });
   it('配置保存与生效版本、冲突及工作规则有真实结果', async () => {
     const snap = await api('snapshot'), path = join(fixture.workspace, 'AGENTS.md'), before = await readFile(path, 'utf8');
