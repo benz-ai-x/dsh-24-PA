@@ -303,9 +303,9 @@ export class ActionOperationRepo {
       and action in ('task.create', 'task.update', 'task.complete', 'task.delete', 'task.assign', 'wecom_todo.create', 'wecom_todo.update', 'wecom_todo.finish', 'wecom_todo.delete', 'wecom_todo.assign')`, [workItemId])).rows;
   }
 
-  async todoAssignments(): Promise<ActionOperationRow[]> {
+  async todoRelations(): Promise<ActionOperationRow[]> {
     return (await this.db.query<ActionOperationRow>(`select * from pa24.action_operation where status = 'succeeded'
-      and action in ('task.create', 'task.assign', 'wecom_todo.create', 'wecom_todo.assign')`)).rows;
+      and action in ('task.create', 'task.update', 'task.complete', 'task.delete', 'task.assign', 'wecom_todo.create', 'wecom_todo.update', 'wecom_todo.finish', 'wecom_todo.delete', 'wecom_todo.assign')`)).rows;
   }
 
   async calendarRemindersForWork(workItemId: string): Promise<ActionOperationRow[]> {

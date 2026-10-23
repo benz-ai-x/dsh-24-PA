@@ -44,13 +44,14 @@ for (const storage of ['sqlite', 'postgres']) describe(`candidate recovery / ${s
     await f.rt.stop(); config = { ...config, todoChannel: channel, calendarChannel: channel, tasklistId: keepTargets ? config.tasklistId : 'new-list', calendarId: keepTargets ? config.calendarId : 'new-calendar', timeZone: 'UTC' };
     await f.workspace('a', config); f.rt = f.make(); await f.rt.bind(f.path); f.rt.transport = new FakeFeishuTransport('test'); f.parent = f.agents.get(await f.rt.openLocalSession());
   }
-  it.each(['feishu:task', 'wecom:task', 'feishu:calendar', 'wecom:calendar', 'feishu:task:container', 'feishu:calendar:container', 'feishu:task:unchanged'])('%s preserves original receipt, target and owner after restart', async mode => {
+  it.each(['feishu:task', 'wecom:task', 'feishu:calendar', 'wecom:calendar', 'feishu:task:container', 'feishu:calendar:container', 'feishu:task:unchanged', 'feishu:task:localtime'])('%s preserves original receipt, target and owner after restart', async mode => {
     const [channel, kind, container] = mode.split(':'), other = container ? channel : channel === 'feishu' ? 'wecom' : 'feishu'; await setup(channel); const child = await worker();
-    const built = await f.rt.work({ action: 'minutes_build', topic: '采纳恢复', content: '本人记录', candidates: [{ summary: '联系王工' }, { summary: '新的行动' }].map(row => ({ ...row, ...(kind === 'calendar' ? { start: '2026-11-01T02:00:00Z', end: '2026-11-01T03:00:00Z' } : { due: '2026-11-02' }) })) }, child);
+    const built = await f.rt.work({ action: 'minutes_build', topic: '采纳恢复', content: '本人记录', candidates: [{ summary: '联系王工' }, { summary: '新的行动' }].map(row => ({ ...row, ...(kind === 'calendar' ? { start: '2026-11-01T02:00:00Z', end: '2026-11-01T03:00:00Z' } : { due: container === 'localtime' ? '2026-11-02T09:00' : '2026-11-02' }) })) }, child);
     const action = { action: 'minutes_adopt_actions', minutesId: built.minutesId, indexes: [0], instruction: '本人批准第一项' };
     const remove = await blockProjection(kind);
     const failed = await f.rt.work(action, child); expect(failed.failed, JSON.stringify(failed)).toBe(1); expect(failed.results[0].error).toContain('CANDIDATE_SQL_DOWN');
     await remove(); const id = `minutes.action:${built.minutesId}:0`, original = await f.rt.repos.operations.get(id);
+    if (container === 'localtime') expect(original.params.values.due.dueAt).toBe('2026-11-02T01:00:00.000Z');
     expect(original.receipt._externalResult).toBeTruthy(); expect(await journal(channel, kind)).toHaveLength(1);
     await restart(other, container === 'unchanged'); const next = await worker(), repaired = await f.rt.work({ ...action, instruction: '恢复第一项' }, next);
     expect(repaired).toMatchObject({ executed: 1, failed: 0 });

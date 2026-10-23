@@ -117,7 +117,7 @@ export class SourceTodoWrites {
       || target.identity.platform !== target.platform || target.identityKey !== sourceIdentityKey(target.identity)
       || !present(target.resource?.id) || !['tasklist', 'authorized_scope'].includes(target.resource.kind)
       || p.channel !== target.platform || p.tasklistId !== target.resource.id
-      || !p.values || !p.request || !present(p.requestHash)
+      || !p.values || !p.request || !present(p.requestHash) || !present(p.timeZone)
       || (p.receiptFormat !== undefined && p.receiptFormat !== `${target.platform}-task-v1`)) {
       throw unknown('原待办操作的来源、目标或恢复格式不足，需核对原回执，不能重建。');
     }
@@ -146,7 +146,7 @@ export class SourceTodoWrites {
     if ((args.tasklistId ?? args._tasklistId) !== undefined && (args.tasklistId ?? args._tasklistId) !== target.resource.id) return false;
     if (saved.kind !== 'create' && String(args.guid ?? args.taskId ?? args.objectId ?? '') !== String(saved.request.guid ?? saved.request.taskId ?? saved.request.objectId ?? '')) return false;
     try {
-      const normalized = this.values(saved.kind, args, target);
+      const normalized = this.values(saved.kind, args, target, saved.timeZone);
       const original = { ...saved.values };
       // Added wording is not a new business operation or permission to replay
       // an uncertain write. Explicit candidate authorization is checked above.
@@ -155,11 +155,11 @@ export class SourceTodoWrites {
     } catch { return false; }
   }
 
-  private values(kind: TodoMutation, args: Record<string, unknown>, target: SourceTarget): Record<string, any> {
+  private values(kind: TodoMutation, args: Record<string, unknown>, target: SourceTarget, timeZone: string): Record<string, any> {
     const result: Record<string, any> = {};
     if (kind === 'create' || args.summary !== undefined) result.summary = text(args.summary, 500);
     if (args.description !== undefined) result.description = String(args.description).slice(0, 3000);
-    if (kind === 'create' || args.due !== undefined) result.due = due(args.due, this.deps.config().timeZone);
+    if (kind === 'create' || args.due !== undefined) result.due = due(args.due, timeZone);
     if (kind === 'create' || kind === 'assign') {
       const ids = args.assigneeIds === undefined && kind === 'create' ? [target.identity.ownerId] : args.assigneeIds;
       if (!Array.isArray(ids) || !ids.length || ids.length > 50 || ids.some(id => typeof id !== 'string' || !id.trim() || !/^[A-Za-z0-9_-]+$/.test(id))) throw new Error('负责人需提供 1–50 个已确定的用户 ID，不以关注人代替。');
@@ -190,11 +190,12 @@ export class SourceTodoWrites {
     }
     const source = effectiveSources(this.deps.config()).entries.find(row => row.id === target.sourceId)!;
     if (source.access !== 'readwrite') throw new Error('原来源仅登记为读取，不能变更待办。');
-    const values = this.values(kind, args, target);
+    const timeZone = this.deps.config().timeZone;
+    const values = this.values(kind, args, target, timeZone);
     if (kind === 'update' && !Object.keys(values).length) throw new Error('请明确要修改的内容、截止时间或投入计划。');
     const params = { kind, sourceTarget: target, sourceName: source.name, channel: target.platform,
       tasklistId: target.resource.id, guid: resolved?.guid ?? null, before: resolved?.item ?? null,
-      values, ...values, timeZone: this.deps.config().timeZone, instruction: String(args.instruction ?? args._instruction ?? ''),
+      values, ...values, timeZone, instruction: String(args.instruction ?? args._instruction ?? ''),
       projectId: args.projectId ?? null };
     if (resolved) this.checkEffect(kind, target, params, resolved.item);
     return params;
