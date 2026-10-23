@@ -52,6 +52,12 @@ export class SourceAccess {
         capabilities: { ...result.capabilities, read: 'allowed', create: writable ? 'allowed' : 'unknown' },
         message: '清单详情可读；清单协作权限与每项待办的负责人、完成和删除权限分别核验。' };
     }
+    if (source.domain === 'todo' && source.resourceKind === 'authorized_scope' && source.resourceId === 'authorized') {
+      await this.deps.lark(['task', '+get-related-tasks', '--as', 'user', '--include-complete', '--page-limit', '1']);
+      return { ...result, state: 'verified', identity, resource: { kind: 'authorized_scope', id: 'authorized' }, role: 'related_tasks',
+        capabilities: { ...result.capabilities, read: 'allowed', create: 'allowed' },
+        message: '本人相关待办接口可读；以实际返回的创建、负责和关注关系为准，不等同于企业全部待办。' };
+    }
     return { ...result, identity, capabilities: { ...result.capabilities, read: 'adapter_unavailable' }, message: '当前飞书适配器尚未接通该授权范围类型，请登记具体日历或清单。' };
   }
 

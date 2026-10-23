@@ -212,6 +212,40 @@ if (plain[0] === 'docs' && plain[1] === '+media-download') {
   await writeFile(argOf('--output'), Buffer.from(bytes, 'base64'));
   ok({ path: argOf('--output') });
 }
+const nativeTask = task => ({ ...task,
+  due: typeof task.due === 'string' ? { timestamp: String(Date.parse(task.due)), is_all_day: !/[:T]/.test(task.due) } : task.due ?? null,
+  completed_at: task.status === 'completed' ? '1790000000000' : '0',
+  creator: task.creator ?? { id: state.ownerOpenId ?? 'ou_test_owner', type: 'user' },
+  members: task.members ?? [{ id: state.ownerOpenId ?? 'ou_test_owner', type: 'user', role: 'assignee' }],
+  tasklists: task.tasklists ?? [{ tasklist_guid: task.tasklistId ?? 'tl_test' }], mode: task.mode ?? 2 });
+if (plain[0] === 'task' && ((plain[1] === 'tasklists' && plain[2] === 'tasks') || plain[1] === '+get-related-tasks')) {
+  if (state.todoListFailure === argOf('--tasklist-guid')) fail('task list unavailable');
+  const all = tasks.filter(task => !task.deleted && (!argOf('--tasklist-guid') || nativeTask(task).tasklists.some(row => row.tasklist_guid === argOf('--tasklist-guid'))));
+  const offset = Number(argOf('--page-token') ?? 0), size = state.todoPageSize ?? Number(argOf('--page-size') ?? 100);
+  ok({ items: all.slice(offset, offset + size).map(nativeTask), has_more: offset + size < all.length, page_token: offset + size < all.length ? String(offset + size) : '' });
+}
+if (plain[0] === 'task' && plain[1] === 'tasks' && plain[2] === 'create') {
+  if (state.failNext?.command === 'task.create') { await writeState({ ...state, failNext: null }); fail(state.failNext.error ?? 'task create injected failure'); }
+  const body = JSON.parse(argOf('--data') ?? '{}');
+  const existing = body.client_token ? tasks.find(task => task.idempotencyKey === body.client_token) : null;
+  if (existing) ok({ task: nativeTask(existing) });
+  const guid = `tskstub-${tasks.length + 1}`;
+  const record = { ...body, guid, url: `https://example.feishu.cn/task/${guid}`, status: 'open', idempotencyKey: body.client_token ?? null,
+    creator: { id: state.ownerOpenId ?? 'ou_test_owner', type: 'user' }, members: state.todoMissingAssignee ? [] : body.members };
+  await appendFile(tasksPath, JSON.stringify(record) + '\n'); ok({ task: nativeTask(record) });
+}
+if (plain[0] === 'task' && ((plain[1] === 'tasks' && ['patch', 'delete'].includes(plain[2])) || (plain[1] === 'members' && plain[2] === 'add'))) {
+  const guid = argOf('--task-guid'), old = tasks.find(task => task.guid === guid);
+  if (!old) fail('task not found');
+  const record = { ...old }, body = JSON.parse(argOf('--data') ?? '{}');
+  if (plain[2] === 'delete') record.deleted = true;
+  else if (plain[1] === 'members') record.members = [...(nativeTask(record).members), ...body.members];
+  else for (const field of body.update_fields) {
+    if (field === 'completed_at') record.status = Number(body.task.completed_at) > 0 ? 'completed' : 'open';
+    else if (Object.hasOwn(body.task, field)) record[field] = body.task[field]; else delete record[field];
+  }
+  await appendFile(tasksPath, JSON.stringify(record) + '\n'); ok({ task: nativeTask(record) });
+}
 if (plain[0] === 'task' && plain[1] === '+create') {
   if (state.failNext?.command === 'task.create') {
     await writeState({ ...state, failNext: null });
@@ -225,7 +259,7 @@ if (plain[0] === 'task' && plain[1] === '+create') {
     ok({ task: { guid: existing.guid, url: existing.url, idempotent: true } });
   }
   const guid = `tskstub-${tasks.length + 1}`;
-  const record = { guid, url: `https://example.feishu.cn/task/${guid}`, summary, due: due ?? null, status: 'open', idempotencyKey: idempotencyKey ?? null };
+  const record = { guid, url: `https://example.feishu.cn/task/${guid}`, summary, due: due ?? null, status: 'open', tasklistId: argOf('--tasklist-id') ?? 'tl_test', idempotencyKey: idempotencyKey ?? null };
   await appendFile(tasksPath, JSON.stringify(record) + '\n');
   ok({ task: { guid, url: record.url } });
 }
@@ -250,8 +284,8 @@ if (plain[0] === 'task' && plain[1] === 'tasks' && plain[2] === 'get') {
   if (state.taskGetOverride) ok({ task: state.taskGetOverride });
   const task = [...tasks].reverse().find(t => t.guid === argOf('--task-guid'));
   if (!task) fail('task not found');
-  const due = task.due ? { timestamp: String(Date.parse(task.due)), is_all_day: !/[:T]/.test(task.due) } : null;
-  ok({ task: { ...task, due, completed_at: task.status === 'completed' ? '1790000000000' : '0' } });
+  if (task.deleted) fail('task deleted');
+  ok({ task: nativeTask(task) });
 }
 if (plain[0] === 'task' && plain[1] === '+search') {
   const query = argOf('--query') ?? '';
@@ -356,6 +390,6 @@ if (plain[0] === 'wiki' && plain[1] === '+node-get') {
 if (plain[0] === 'wiki' && plain[1] === '+space-list') {
   ok({ spaces: [{ space_id: 'spw_test', name: '工作笔记', space_type: 'team' }, { space_id: 'spw_other', name: '另一个空间', space_type: 'team' }] });
 }
-if (plain[0] === 'task' && plain[1] === 'tasklists' && plain[2] === 'get') ok({ tasklist: { guid: 'tl_test', name: '体验清单' } });
+if (plain[0] === 'task' && plain[1] === 'tasklists' && plain[2] === 'get') ok({ tasklist: { guid: argOf('--tasklist-guid') ?? 'tl_test', name: '体验清单', owner: { type: 'user', id: state.ownerOpenId ?? 'ou_test_owner' } } });
 if (plain[0] === 'calendar') ok({ calendar: { calendar_id: 'cal_test', summary: '测试主人' } });
 fail(`stub-lark-cli 未实现的命令：${args.join(' ')}`);

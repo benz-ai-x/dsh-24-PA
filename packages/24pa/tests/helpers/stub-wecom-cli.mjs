@@ -104,7 +104,7 @@ if (plain[0] === 'todo' && plain[1] === 'create') {
   const items = JSON.parse(argOf('--items') ?? '[]');
   const results = items.map((item, index) => {
     const todo_id = `tdstub-${todos.size + index + 1}`;
-    return { success: true, todo_id, title: item.title, deadline: item.deadline ?? null, followers: [{ userid: state.ownerUserid ?? 'wou_test_owner', user_name: '测试主人' }] };
+    return { success: true, todo_id, title: item.title, deadline: item.deadline ?? null, creator: { userid: state.ownerUserid ?? 'wou_test_owner', user_name: '测试主人' }, user_status: 'accept', followers: (item.follower_ids ?? [state.ownerUserid ?? 'wou_test_owner']).map(userid => ({ userid, user_name: userid, user_status: 'accept' })) };
   });
   for (const r of results) {
     todos.set(r.todo_id, { ...r, status: 'proceed' });
@@ -128,8 +128,9 @@ if (plain[0] === 'todo' && plain[1] === 'list') {
     failErrcode(850003, 'authorization expired', '当前机器人「待办」使用权限已过期…[点击这里](https://work.weixin.qq.com/…)授权');
   }
   if (state.todoUnauthorized) failErrcode(850002, 'no authorization', '当前机器人未被授权「待办」…');
-  const items = [...todos.values()].map(t => ({ todo_id: t.todo_id, title: t.title, status: t.status }));
-  ok({ items, items_count: items.length });
+  const statuses = JSON.parse(argOf('--status-filter') ?? '["proceed"]'), all = [...todos.values()].filter(t => !t.deleted && statuses.includes(t.status));
+  const offset = Number(argOf('--cursor') ?? 0), size = Number(argOf('--limit') ?? 10), items = all.slice(offset, offset + size);
+  ok({ items, items_count: items.length, has_more: offset + size < all.length, next_cursor: offset + size < all.length ? String(offset + size) : '' });
 }
 
 if (plain[0] === 'todo' && plain[1] === 'finish') {
@@ -140,11 +141,23 @@ if (plain[0] === 'todo' && plain[1] === 'finish') {
     if (!todo) return { success: false, todo_id, errmsg: `非法的 'todo_id': ${todo_id}` };
     return { success: true, todo_id, ask_finish_all: !!state.todoFinishPartial };
   });
-  for (const { todo_id } of items) {
+  for (const { todo_id, finished_all } of items) {
     const todo = todos.get(todo_id);
-    if (todo) await appendFile(todosPath, JSON.stringify({ ...todo, status: state.todoFinishPartial ? 'proceed' : 'finished' }) + '\n').catch(() => {});
+    const partial = state.todoFinishPartial || (finished_all === false && (todo?.followers?.length ?? 0) > 1);
+    if (todo) await appendFile(todosPath, JSON.stringify({ ...todo, user_status: 'finished', status: partial ? 'proceed' : 'finished', followers: (todo.followers ?? []).map(person => ({ ...person, user_status: person.userid === (state.ownerUserid ?? 'wou_test_owner') ? 'finished' : person.user_status })) }) + '\n').catch(() => {});
   }
   ok({ items: results, items_count: results.length });
+}
+
+if (plain[0] === 'todo' && plain[1] === 'update') {
+  const items = JSON.parse(argOf('--items') ?? '[]'), results = [];
+  for (const item of items) {
+    const prior = todos.get(item.todo_id);
+    if (!prior) { results.push({ todo_id: item.todo_id, success: false, errmsg: 'not found' }); continue; }
+    const row = { ...prior, ...item, ...(item.followers ? { followers: item.followers.map(person => ({ ...person, user_status: 'accept' })) } : {}) };
+    await appendFile(todosPath, JSON.stringify(row) + '\n'); results.push({ todo_id: item.todo_id, title: row.title, success: true });
+  }
+  ok({ items: results });
 }
 
 if (plain[0] === 'todo' && plain[1] === 'delete') {
@@ -156,7 +169,7 @@ if (plain[0] === 'todo' && plain[1] === 'delete') {
   });
   for (const { todo_id } of items) {
     const todo = todos.get(todo_id);
-    if (todo) await appendFile(todosPath, JSON.stringify({ ...todo, deleted: true }) + '\n').catch(() => {});
+    if (todo) await appendFile(todosPath, JSON.stringify({ ...todo, deleted: todo.creator?.userid === (state.ownerUserid ?? 'wou_test_owner'), user_status: todo.creator?.userid === (state.ownerUserid ?? 'wou_test_owner') ? todo.user_status : 'removed' }) + '\n').catch(() => {});
   }
   ok({ items: results, items_count: results.length });
 }

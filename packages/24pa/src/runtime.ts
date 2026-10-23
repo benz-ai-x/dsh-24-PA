@@ -45,6 +45,9 @@ import { SourceRegistry, type SourceTarget } from './source-registry.js';
 import type { ObservedSourceItem } from './repo/source-projection.js';
 import { SourceAccess } from './source-access.js';
 import { SourceCalendarReader } from './source-calendar-reader.js';
+import { SourceTodoReader } from './source-todo-reader.js';
+import { SourceTodo } from './source-todo.js';
+import { SourceTodoWrites } from './source-todo-writes.js';
 import { SourceCalendar } from './source-calendar.js';
 import { SourceCalendarWrites } from './source-calendar-writes.js';
 import { effectiveSources, sourceConfigurationFingerprint } from './source-config.js';
@@ -247,7 +250,7 @@ export class PaRuntime {
       },
       wecom: {
         create: (item, args) => this.wecomChannels.wecomTaskCreate(item, args),
-        update: async () => { throw new Error('企微待办首版不支持修改（F16 范围：创建/完成/删除）；如需调整，可删除后重建。'); },
+        update: async () => { throw new Error('旧投影请先经登记来源核验，再修改原企微待办。'); },
         complete: (item, task) => this.wecomChannels.wecomTaskFinish(item, task),
         refresh: task => this.wecomChannels.refreshWecomTaskFromRemote(task),
         cancel: (item, task, reason) => this.wecomChannels.wecomTaskDelete(item, task, reason),
@@ -356,6 +359,39 @@ export class PaRuntime {
       }
     },
   });
+
+  private readonly sourceTodoReader = new SourceTodoReader({
+    timeZone: () => this.config!.timeZone,
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args),
+  });
+  readonly sourceTodo = new SourceTodo({
+    config: () => this.config!, registry: this.sourceRegistry, projection: () => this.repos!.sourceProjection,
+    read: target => this.sourceTodoReader.read(target), object: (target, guid) => this.sourceTodoReader.object(target, guid),
+    localTasks: () => this.repos!.tasks.all(), relations: () => this.repos!.operations.todoAssignments(),
+    projectTasks: id => this.repos!.projects.tasksOf(id), gate: (key, work) => this.gate(key, work),
+  });
+  readonly sourceTodoWrites = new SourceTodoWrites({
+    config: () => this.config!, registry: this.sourceRegistry, todos: this.sourceTodo, reader: this.sourceTodoReader,
+    repos: () => this.repos!, external: this.externalOperations,
+    lark: args => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), args),
+    wecom: args => this.wecomChannels.wecomRun(args), gate: (key, work) => this.gate(key, work),
+    notify: (guid, fingerprint) => this.notifySourceChanged('task', guid, fingerprint),
+  });
+
+  async todoSnapshot(input: Record<string, unknown> = {}): Promise<unknown> {
+    if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
+    return { ...await this.sourceTodo.query(input, false), workspaceBinding: this.workspaceBinding };
+  }
+
+  async verifyTodos(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+      return { ...await this.sourceTodo.query(input, true), workspaceBinding: this.workspaceBinding };
+    });
+  }
 
   async checkSource(input: Record<string, unknown>): Promise<unknown> {
     return this.executions.run(async () => {
@@ -627,7 +663,7 @@ export class PaRuntime {
         task_update: async (args, item) => this.taskUpdate(item, args),
         task_complete: async (args, item) => this.taskComplete(item, args),
         task_get: async args => this.taskGet(args),
-        task_cancel: async (args, item) => this.taskLifecycle.cancel(item, args),
+        task_cancel: async (args, item) => this.sourceTodoWrites.write(item, 'cancel', args),
         task_list: async args => this.taskList(args),
         project_create: async args => this.projectCreate(args),
         project_adopt: async (args, item) => this.projectAdopt(item, args),
@@ -2292,29 +2328,42 @@ export class PaRuntime {
 
   private async taskCreate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     const id = String(args._operationId ?? '');
-    if (!isCandidateOperation(id)) return this.taskLifecycle.create(item, args);
-    return this.gate(`candidate:${id}`, async () => {
-      const original = await this.externalOperations.candidateCreation(id, 'task', args);
-      return this.taskLifecycle.create(item, original?.args ?? args, original?.channel);
-    });
+    const previous = id ? await this.repos!.operations.get(id) : null;
+    if (previous && previous.params.sourceContract !== 1 && isCandidateOperation(id)) {
+      return this.gate(`candidate:${id}`, async () => {
+        const original = await this.externalOperations.candidateCreation(id, 'task', args);
+        return this.taskLifecycle.create(item, original!.args, original!.channel);
+      });
+    }
+    // Pre-Manticore writes lack a verified source contract. Find them before
+    // considering the current default, so an upgrade cannot recreate a task.
+    if (!id) {
+      const old = (await this.repos!.operations.todoWritesForWork(item.id)).filter(row => row.params.sourceContract !== 1
+        && ['task.create', 'wecom_todo.create'].includes(row.action) && row.params.summary === text(args.summary, 500));
+      if (old.length) {
+        const row = old[0]!, error = () => Object.assign(new Error('已有旧待办操作，请先核对原回执和来源；不能按当前默认重建。'), { outcome: 'unknown' });
+        if (old.length !== 1 || String(row.params.due ?? '') !== String(args.due ?? '')) throw error();
+        if (row.status === 'succeeded' && typeof row.receipt?.guid === 'string') return { operationId: row.id, reused: true, ...row.receipt,
+          channel: row.action === 'task.create' ? 'feishu' : 'wecom', verification: { state: 'pending', message: '旧回执缺少来源与负责人核验，请在登记来源中核对原对象。' } };
+        if (row.receipt && Object.hasOwn(row.receipt, '_externalResult') && (row.action === 'wecom_todo.create' || typeof row.params.tasklistId === 'string')) {
+          return this.taskLifecycle.create(item, { ...args, _operationId: row.id, summary: row.params.summary, due: row.params.due,
+            _tasklistId: row.params.tasklistId, timeZone: row.params.timeZone, _instruction: row.params.instruction }, row.action === 'task.create' ? 'feishu' : 'wecom');
+        }
+        throw error();
+      }
+    }
+    return this.sourceTodoWrites.write(item, 'create', args);
   }
 
   private async resolveTask(args: Record<string, unknown>) { return this.taskLifecycle.resolve(args); }
 
-  private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.update(item, args); }
+  private async taskUpdate(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.sourceTodoWrites.write(item, 'update', args); }
 
-  private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.complete(item, args); }
+  private async taskComplete(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> { return this.sourceTodoWrites.write(item, 'complete', args); }
 
-  private async taskGet(args: Record<string, unknown>): Promise<unknown> { return this.taskLifecycle.get(args); }
+  private async taskGet(args: Record<string, unknown>): Promise<unknown> { return this.sourceTodo.get(args); }
 
-  private async taskList(args: Record<string, unknown>): Promise<unknown> {
-    const projectId = args.projectId ? String(args.projectId) : null;
-    const tasks = projectId ? await this.repos!.projects.tasksOf(projectId) : await this.repos!.tasks.list(args.status ? String(args.status) : undefined);
-    return {
-      count: tasks.length,
-      tasks: tasks.map(t => ({ id: t.id, guid: t.task_guid, summary: t.summary, url: t.url, status: t.status, channel: t.channel, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes })),
-    };
-  }
+  private async taskList(args: Record<string, unknown>): Promise<unknown> { return this.sourceTodo.query(args); }
 
   private async projectCreate(args: Record<string, unknown>): Promise<unknown> {
     const name = text(args.name, 200);
@@ -2524,45 +2573,12 @@ export class PaRuntime {
 
   /** Assign an existing task to a collaborator under an explicit instruction (P13). */
   private async taskAssign(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    const taskRef = await this.resolveTask(args);
-    if (taskRef.channel !== 'feishu') throw new Error('当前分派能力只支持飞书任务；企微待办未执行分派。');
-    const instruction = String(args.instruction ?? '').trim();
-    if (!instruction) throw new Error('分派任务必须携带本人明确的指令依据（instruction）；未执行任何分派。');
+    if (Array.isArray(args.assigneeIds)) return this.sourceTodoWrites.write(item, 'assign', args);
+    const original = await this.sourceTodo.resolve(args);
+    if (original.target.platform !== 'feishu') throw new Error('企微分派请提供已确认的 userid（assigneeIds），不会把飞书 open_id 当作企微身份。');
     const resolved = await this.resolveCollaborator(args);
-    if ('clarify' in resolved) {
-      throw new Error(`被分派人无法唯一确定（${resolved.clarify}）；请先与本人澄清，未执行任何分派。`);
-    }
-    this.assertFeishuLive('任务分派');
-    const id = `assign:${item.id}:${hash(`${taskRef.task_guid}\n${resolved.openId}`)}`;
-    const staged = await this.stagedOperation(item, 'task.assign', id, {
-      taskGuid: taskRef.task_guid,
-      assignee: resolved.openId,
-    });
-    if (!staged.created && staged.row.status === 'succeeded') {
-      return { operationId: staged.row.id, reused: true, guid: taskRef.task_guid, message: '此分派此前已提交，未重复执行。' };
-    }
-    try {
-      await this.externalOperations.perform(staged.row.id, () => runLarkCli(cliOptions(this.config!, this.options.larkCliBin, this.options.cliTimeoutMs), [
-        'task', '+assign', '--as', 'user', '--task-id', taskRef.task_guid, '--add', resolved.openId, '--idempotency-key', staged.row.id,
-      ]));
-      await this.repos!.outreach.insert({
-        id: staged.row.id,
-        work_item_id: item.id,
-        kind: 'assign',
-        target_open_id: resolved.openId,
-        target_name: resolved.name,
-        content: `分派任务 ${taskRef.task_guid}`,
-        instruction,
-        status: 'pending',
-      });
-      await this.repos!.outreach.mark(staged.row.id, { status: 'succeeded', taskGuid: taskRef.task_guid });
-      await this.repos!.operations.update(staged.row.id, { status: 'succeeded', receipt: { guid: taskRef.task_guid, assignee: resolved.openId } });
-      return { operationId: staged.row.id, guid: taskRef.task_guid, assignee: resolved, message: `已把任务分派给 ${resolved.name}（以平台回执为准）。` };
-    } catch (error) {
-      await this.failStaged(staged.row.id, error);
-      await this.repos!.outreach.mark(staged.row.id, { status: (error as any)?.outcome === 'unknown' ? 'unknown' : 'failed', error: (error as Error).message, taskGuid: taskRef.task_guid });
-      throw error;
-    }
+    if ('clarify' in resolved) throw new Error(`被分派人无法唯一确定（${resolved.clarify}）；请先澄清。`);
+    return this.sourceTodoWrites.write(item, 'assign', { ...args, sourceId: original.target.sourceId, assigneeIds: [resolved.openId] });
   }
 
   /** Current fingerprint of a followed source, or null when it cannot be read. */

@@ -90,6 +90,6 @@ export class TaskLifecycle {
     if (!reason) throw new Error('取消需要说明本人的理由，用于记录与后续核对。');
     const adapter = this.deps.adapters[task.channel];
     if (adapter.cancel) return adapter.cancel(item, task, reason);
-    return { guid: task.task_guid, url: task.url, message: '飞书任务平台不提供删除/取消接口。按平台真实能力：可用 task_update 在标题中标注取消原因，或 task_complete 归档；未执行任何写入。' };
+    return { guid: task.task_guid, url: task.url, message: '旧投影缺少当前来源与影响范围，请先通过待办来源核验后取消；未执行任何写入。' };
   }
 }
