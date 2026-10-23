@@ -433,6 +433,7 @@ window.__ModuleLoader__.load({
               capture('roles', rpc('roles', {}, abort.signal)),
               capture('reminders', rpc('reminders', {}, abort.signal)),
               capture('calendar', rpc('calendar', { workspaceBinding }, abort.signal)),
+              capture('todos', rpc('todos', { workspaceBinding }, abort.signal)),
               capture('digests', rpc('digests', {}, abort.signal)),
               capture('plans', rpc('plans.summary', { workspaceBinding }, abort.signal)),
               capture('runs', rpc('runs.summary', { workspaceBinding }, abort.signal)),
@@ -679,6 +680,90 @@ window.__ModuleLoader__.load({
 
         // F19：tts 引擎是否启用（多卡判断收敛一处；none/未配置都按关闭）。
         const voiceOn = config => !!config?.tts?.engine && config.tts.engine !== 'none';
+
+        const todoModels = new Map();
+        function TodoDetail(helpers) {
+          const { state, tz, button, openRobot, openCard } = helpers, binding = state.workspaceBinding;
+          if (!todoModels.has(binding)) todoModels.set(binding, { source: '', role: '', status: 'open', deadline: 'all', query: '', offset: 0, draft: '' });
+          const model = todoModels.get(binding), [, redraw] = React.useReducer(n => n + 1, 0);
+          const [view, setView] = React.useState({ key: '', data: null, busy: false, error: '' }), [sources, setSources] = React.useState([]), [notice, setNotice] = React.useState('');
+          const [sourceError, setSourceError] = React.useState(''), [sourceBusy, setSourceBusy] = React.useState(false), [sourceEpoch, reloadSources] = React.useReducer(n => n + 1, 0);
+          const sequence = React.useRef(0), limit = 20;
+          const args = JSON.stringify({ ...(model.source ? { sourceId: model.source } : {}), ...(model.role ? { role: model.role } : {}), status: model.status, deadline: model.deadline, query: model.query, offset: model.offset, limit, workspaceBinding: binding });
+          const validate = result => {
+            if (result.workspaceBinding !== binding || !Array.isArray(result.tasks) || !Array.isArray(result.sources) || !result.counts) throw new Error(L('待办响应或工作区不匹配，请刷新重试。', 'Todo response or workspace changed. Refresh and retry.'));
+            return result;
+          };
+          React.useEffect(() => {
+            const abort = new AbortController();
+            setSourceBusy(true);
+            void rpc('sources', { workspaceBinding: binding }, abort.signal).then(result => {
+              if (!Array.isArray(result.entries)) throw new Error(L('待办来源响应不完整。', 'Incomplete todo source response.'));
+              if (!abort.signal.aborted) { setSources(result.entries.filter(row => row.domain === 'todo')); setSourceError(''); }
+            }).catch(error => { if (!abort.signal.aborted) setSourceError(error.message); }).finally(() => { if (!abort.signal.aborted) setSourceBusy(false); });
+            return () => abort.abort();
+          }, [binding, sourceEpoch]);
+          React.useEffect(() => {
+            const abort = new AbortController(), epoch = ++sequence.current;
+            setView(old => ({ key: args, data: old.key === args ? old.data : null, busy: true, error: '' }));
+            void rpc('todos', JSON.parse(args), abort.signal).then(result => {
+              if (!abort.signal.aborted && epoch === sequence.current) setView({ key: args, data: validate(result), busy: false, error: '' });
+            }).catch(error => { if (!abort.signal.aborted && epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.message })); });
+            return () => { abort.abort(); sequence.current++; };
+          }, [args]);
+          const verify = async () => {
+            reloadSources();
+            const epoch = ++sequence.current;
+            setView(old => ({ ...old, busy: true, error: '' }));
+            try {
+              const data = validate(await rpc('action', { type: 'todos.verify', ...JSON.parse(args) }));
+              if (epoch === sequence.current) { setView({ key: args, data, busy: false, error: '' }); await helpers.refresh(); }
+            } catch (error) { if (epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.message })); }
+          };
+          const change = (key, value) => { model[key] = value; if (key !== 'offset' && key !== 'draft') model.offset = 0; redraw(); };
+          const select = (label, key, options) => h('label', { className: 'pa24-field' }, label, h('select', { value: model[key], onChange: event => change(key, event.target.value) }, options.map(([value, title]) => h('option', { key: value, value }, title))));
+          const roleLabel = value => ({ all: L('全部授权可见', 'All authorized'), responsible: L('我负责的', 'Assigned to me'), following: L('我关注的', 'Following'), assigned: L('我交办的', 'Assigned by me'), creator: L('我创建的', 'Created by me') }[value] || value);
+          const stateLabel = value => ({ complete: L('范围已核验', 'Range verified'), partial: L('范围不完整', 'Incomplete scope'), failed: L('核验失败', 'Verification failed'), disabled: L('已停用', 'Disabled'), unverified: L('待核验', 'Unverified') }[value] || value);
+          const prepare = (action, task, location) => {
+            model.draft = `请帮我${action}。${task ? `原待办：${task.summary}，guid=${task.guid}，objectId=${task.objectId}。来源：${location.sourceName}（sourceId=${location.sourceId}）。` : `${model.source ? `sourceId=${model.source}。` : ''}内容：请补充。负责人默认我本人，未给截止时请保留未设置。`}${action === '延期或修改' ? '新内容或截止：请补充。' : action === '完成待办' || action === '取消待办' ? '请按原平台核对本人份额与整项影响，有歧义时先确认。' : ''}`;
+            setNotice(''); redraw();
+          };
+          const data = view.key === args ? view.data : null;
+          return h('section', { className: 'pa24-sources', 'data-testid': 'todo-detail' },
+            sectionHead('tasks', L('待办', 'Todos'), L('原平台业务工作。记录待办与交办助理执行分别办理。', 'Platform business tasks. Recording a todo is separate from asking the assistant to execute it.'),
+              h('div', { className: 'pa24-row' }, button('refresh', view.busy ? L('核验中…', 'Verifying…') : L('核验待办', 'Verify todos'), verify, { disabled: view.busy }), button('plus', L('记录待办', 'Record todo'), () => prepare('记录待办')), button('settings', L('配置待办来源', 'Configure sources'), () => openCard('config', 'pa24-sources'), { className: 'pa24-quiet' })), 'blue'),
+            h('div', { className: 'pa24-source-fields' },
+              select(L('待办来源', 'Todo source'), 'source', [['', L('全部已登记来源', 'All registered sources')], ...(model.source && !sources.some(row => row.id === model.source) ? [[model.source, model.source + L('（来源待加载）', ' (source pending)')]] : []), ...sources.map(row => [row.id, row.name])]),
+              select(L('本人角色', 'My role'), 'role', [['', L('按来源默认', 'Source defaults')], ...['all', 'responsible', 'following', 'assigned', 'creator'].map(value => [value, roleLabel(value)])]),
+              select(L('业务状态', 'Business status'), 'status', [['open', L('未完成', 'Open')], ['completed', L('已完成', 'Completed')], ['all', L('全部可见状态', 'All visible states')]]),
+              select(L('截止范围', 'Deadline'), 'deadline', [['all', L('全部', 'All')], ['overdue', L('已逾期', 'Overdue')], ['today', L('今日尚未到期', 'Due later today')], ['undated', L('未设置截止', 'No deadline')], ['upcoming', L('以后到期', 'Upcoming')]]),
+              h('label', { className: 'pa24-field' }, L('搜索待办', 'Search todos'), h('input', { value: model.query, onChange: event => change('query', event.target.value) }))),
+            sourceError && h('div', { role: 'alert', className: 'pa24-error' }, L('待办来源加载失败：', 'Todo source loading failed: ') + sourceError, button('refresh', sourceBusy ? L('来源加载中…', 'Loading sources…') : L('重试加载来源', 'Retry sources'), reloadSources, { disabled: sourceBusy })),
+            view.error && h('div', { role: 'alert', className: 'pa24-error' }, view.error, button('refresh', L('重试核验', 'Retry verification'), verify, { disabled: view.busy })),
+            view.busy && h('p', { role: 'status', className: 'pa24-meta' }, L('正在读取待办；普通浏览不访问原平台。', 'Reading saved todos; browsing does not access the platforms.')),
+            data && h('div', null,
+              h('p', { role: 'status', className: data.fresh ? 'pa24-notice' : 'pa24-warning' }, data.message),
+              capKpi([[data.counts.overdue, L('逾期', 'Overdue')], [data.counts.today, L('今日到期', 'Due today')], [data.counts.open, L('未完成', 'Open')]]),
+              h('p', { className: 'pa24-meta' }, data.total === null ? L('计数来自当前可展示的筛选结果，未完整核验时不是全部待办总数。', 'Counts reflect currently available matches; incomplete verification is not a complete total.') : L('计数来自完整筛选结果，分页不会改变总数。', 'Counts cover all matches, regardless of page.')),
+              h('details', { className: 'pa24-card' }, h('summary', null, L('来源、查询范围与核验时间', 'Sources, scope and verification')),
+                data.sources.length ? data.sources.map(row => h('div', { className: 'pa24-job', key: row.sourceId }, h('strong', null, row.name), ' · ', badge(stateLabel(row.state), row.state === 'complete' ? 'blue' : 'amber'),
+                  h('p', { className: 'pa24-meta' }, roleLabel(row.filter) + ' · ' + (row.checkedAt ? date(row.checkedAt, tz) : L('尚无核验记录', 'Never verified'))), row.reason && h('p', { className: 'pa24-warning' }, row.reason))) : h('p', null, L('尚未登记来源。', 'No registered sources.'))),
+              data.tasks.length === 0 && h('div', { className: 'pa24-card' }, data.total === 0 ? L('没有符合当前筛选的待办。', 'No todos match the current filters.') : L('没有可展示的结果；请核验来源，不能据此判断全部完成。', 'No results available. Verify sources; this does not prove everything is complete.')),
+              data.tasks.map(task => h('article', { key: task.objectId, className: 'pa24-card' },
+                h('div', { className: 'pa24-row pa24-between' }, h('h3', null, task.summary), badge(task.status === 'completed' ? L('业务已完成', 'Business completed') : task.status === 'open' ? L('业务未完成', 'Business open') : L('业务状态待核验', 'Status unverified'), task.status === 'completed' ? 'green' : 'amber')),
+                h('p', { className: 'pa24-meta' }, L('负责人：', 'Assignees: ') + ((task.assignees || []).map(person => person.name || person.id).join('、') || L('尚未核实', 'Unverified'))),
+                h('p', { className: 'pa24-meta' }, L('截止：', 'Due: ') + (task.dueDate || (task.dueAt ? date(task.dueAt, tz) : L('未设置', 'Not set'))) + (task.stale ? L(' · 保存的观察结果', ' · Saved observation') : '')),
+                task.description && h('p', null, task.description),
+                (task.locations || []).map(location => h('div', { className: 'pa24-job', key: location.sourceId },
+                  h('p', { className: 'pa24-meta' }, location.sourceName + ' · ' + (location.platform === 'wecom' ? '企业微信' : '飞书') + ' · ' + (location.roles.values.map(roleLabel).join('、') || L('本人角色待核验', 'Role unverified'))),
+                  h('div', { className: 'pa24-row' }, button('check', L('完成待办', 'Complete todo'), () => prepare('完成待办', task, location)), button('edit', L('延期或修改', 'Reschedule or edit'), () => prepare('延期或修改', task, location)), button('close', L('取消待办', 'Cancel todo'), () => prepare('取消待办', task, location), { className: 'pa24-quiet' })))),
+                h('div', { className: 'pa24-row' }, task.url && h('a', { className: 'pa24-btn', href: task.url, target: '_blank', rel: 'noreferrer' }, icon('external'), L('打开原待办', 'Open original todo')),
+                  (task.workItemIds || []).map(id => button('pulse', L('查看关联交办', 'View linked work'), () => helpers.openRuns ? helpers.openRuns({ kind: 'work', workId: id, range: 'all' }) : openCard('activity'), { key: id, className: 'pa24-quiet' }))))),
+              h('div', { className: 'pa24-row' }, button('arrow-left', L('上一页', 'Previous'), () => change('offset', Math.max(0, model.offset - limit)), { disabled: model.offset === 0 || view.busy }), h('span', { className: 'pa24-meta' }, `${data.tasks.length ? model.offset + 1 : 0}–${Math.min(model.offset + data.tasks.length, data.count)} / ${data.count}`), button('arrow-right', L('下一页', 'Next'), () => change('offset', model.offset + limit), { disabled: !data.hasMore || view.busy }))),
+            model.draft && h('section', { className: 'pa24-card' }, h('h3', null, L('对话办理草稿', 'Chat request draft')), h('label', { className: 'pa24-field' }, L('请求内容', 'Request'), h('textarea', { rows: 5, value: model.draft, onChange: event => change('draft', event.target.value) })),
+              h('p', { className: 'pa24-meta' }, L('补充后复制到24私助对话，由你发送；此处不会自动发起业务变更。', 'Complete and copy this into your 24PA chat to send. This draft does not change business data.')),
+              h('div', { className: 'pa24-row' }, button('copy', L('复制草稿', 'Copy draft'), async () => { try { await navigator.clipboard.writeText(model.draft); setNotice(L('草稿已复制。', 'Draft copied.')); } catch { setNotice(L('复制失败，请选中文字手动复制。', 'Copy failed; select the draft and copy it.')); } }), button('chat', L('打开24私助对话', 'Open 24PA chat'), openRobot)), notice && h('p', { role: 'status' }, notice)));
+        }
 
         function CalendarDetail(helpers) {
           const { state, config, tz, button, openRobot, openCard } = helpers;
@@ -1694,17 +1779,15 @@ window.__ModuleLoader__.load({
             detail: helpers => h(SkillsDetail, { key: helpers.state.workspaceBinding, binding: helpers.state.workspaceBinding ?? null }),
           },
           {
-            id: 'work', cat: 'work', tone: 'blue', icon: 'grid', title: ['事项', 'Items'], sub: ['进行中的委派与等待', 'Delegations in flight and waiting'], action: ['查看事项', 'Open items'],
-            tier: ({ state }) => (state.work || []).some(j => j.status === 'failed') ? 'warn' : 'ok',
-            body: ({ state }) => {
-              const items = state.work || [];
-              return capKpi([
-                [String(items.filter(j => ['accepted', 'queued', 'running'].includes(j.status)).length), L('进行中', 'Active')],
-                [String(items.filter(j => j.status === 'waiting_input').length), L('等待本人', 'Waiting on you')],
-                [String(items.filter(j => j.status === 'failed').length), L('未完成', 'Failed')],
-              ]);
+            id: 'work', cat: 'work', tone: 'blue', icon: 'tasks', title: ['待办', 'Todos'], sub: ['原平台业务工作与截止', 'Platform tasks and deadlines'], action: ['查看待办', 'View todos'],
+            tier: ({ extra }) => extra.todos?.counts ? extra.todos.complete ? 'ok' : 'warn' : 'unchecked',
+            body: ({ extra }) => {
+              const data = extra.todos;
+              return data?.counts ? h('div', null, capKpi([[data.counts.overdue, L('逾期', 'Overdue')], [data.counts.today, L('今日到期', 'Due today')], [data.counts.open, L('未完成', 'Open')]]),
+                h('p', { className: 'pa24-meta' }, data.complete ? L('已保存的完整来源观察', 'Saved complete source observations') : L('来源未完整核验，以上为当前可展示计数', 'Sources incomplete; counts reflect available observations')))
+                : h('p', { className: 'pa24-meta' }, extra._errors?.todos || L('正在读取待办…', 'Reading todos…'));
             },
-            detail: helpers => h(WorkDetail, helpers),
+            detail: helpers => h(TodoDetail, { key: helpers.state.workspaceBinding, ...helpers }),
           },
           {
             id: 'activity', cat: 'work', tone: 'blue', icon: 'pulse', title: ['运行记录', 'Run history'], sub: ['执行 · 投递 · 助理交办', 'Execution · delivery · work items'], action: ['查看运行档案', 'Open run history'],
@@ -1934,7 +2017,7 @@ window.__ModuleLoader__.load({
             h('select', { value, onChange: event => change(event.target.value) }, options.map(([key, title]) => h('option', { key, value: key }, title))));
           const platformLabel = value => value === 'wecom' ? L('企业微信', 'WeCom') : L('飞书', 'Feishu');
           const domainLabel = value => value === 'calendar' ? L('日历', 'Calendar') : L('待办', 'Todo');
-          const capabilityLabel = value => ({ allowed: L('当前范围允许，实际结果看回执', 'Allowed in current scope; result needs receipt'), denied: L('无权', 'Denied'), adapter_unavailable: L('接入方式待完善', 'Adapter unavailable'), unknown: L('待核验', 'Unverified') })[value] || L('待核验', 'Unverified');
+          const capabilityLabel = value => ({ allowed: L('当前范围允许，实际结果看回执', 'Allowed in current scope; result needs receipt'), attemptable: L('可按明确授权尝试，写权限待核验', 'May attempt an authorized request; write permission unverified'), denied: L('无权', 'Denied'), adapter_unavailable: L('接入方式待完善', 'Adapter unavailable'), unknown: L('待核验', 'Unverified') })[value] || L('待核验', 'Unverified');
           const add = domain => {
             const id = 'source-' + crypto.randomUUID();
             update({ entries: [...draft.entries, { id, domain, platform: 'feishu', name: '', purpose: 'personal', ownerId: helpers.config?.ownerOpenId || '', resourceKind: domain === 'calendar' ? 'calendar' : 'tasklist', resourceId: '', filter: domain === 'calendar' ? 'all' : 'responsible', access: 'readwrite', enabled: true }] });
@@ -1959,7 +2042,7 @@ window.__ModuleLoader__.load({
           });
           return h('section', { id: 'pa24-sources', className: 'pa24-card pa24-sources' },
             sectionHead('calendar', L('日历与待办来源', 'Calendar & todo sources'), L('登记需要查询和使用的资源。默认来源仅用于创建；查询覆盖全部启用来源。', 'Register the resources you use. Defaults select creation targets; queries cover all enabled sources.')),
-            h('p', { className: 'pa24-helper' }, L('日历来源已用于查询和办理。待办来源目前可登记与检查；待办办理仍使用“待办渠道”和“任务清单”配置。', 'Calendar sources apply to queries and changes. Todo sources currently support registration and checks; todo operations still use the Todo channel and Task list settings.')),
+            h('p', { className: 'pa24-helper' }, L('日历和待办均按已登记来源查询与办理。创建时使用明确指定或唯一匹配的来源；修改、完成和取消沿原对象办理。', 'Calendars and todos use registered sources. Creation uses the explicitly selected or uniquely matched source; changes, completion and cancellation retain the original object.')),
             failure && h('div', { role: 'alert', className: 'pa24-error' }, failure, h('button', { type: 'button', onClick: () => load(!draft) }, L('重试读取', 'Retry'))),
             !draft && !failure && h('p', { role: 'status' }, L('正在读取来源…', 'Loading sources…')),
             draft && h('fieldset', { disabled: busy, style: { border: 0, padding: 0, margin: 0, minWidth: 0 } },

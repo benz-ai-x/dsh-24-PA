@@ -85,12 +85,12 @@ beforeAll(async () => {
     end_time: wall(seededEnd),
     attendees: [{ userid: 'wou_test_owner', name: '测试主人' }],
   }) + '\n');
-  // demo 模式：无飞书传输；三渠道全走企微，验证 wecom 出口可独立投递。
+  // 正式业务模式但不配置飞书传输；三渠道全走桩企微。体验模式不能授权真实来源。
   await writeFile(
     join(workspace, 'AGENTS.md'),
     `# 24私助工作区\n\n\`\`\`json\n${JSON.stringify({
-      version: 1, mode: 'demo', larkProfile: 'default', ownerOpenId: 'ou_test_owner',
-      folderToken: '', tasklistId: '', calendarId: 'primary',
+      version: 1, mode: 'feishu', larkProfile: 'default', ownerOpenId: 'ou_test_owner',
+      folderToken: 'unused-fixture-folder', tasklistId: 'unused-fixture-tasklist', calendarId: 'primary',
       calendarChannel: 'wecom', todoChannel: 'wecom', notifyChannel: 'wecom',
       timeZone: 'Asia/Shanghai',
       appIdEnv: 'PA24_FEISHU_APP_ID', appSecretEnv: 'PA24_FEISHU_APP_SECRET', pgDsnEnv: 'PA24_PG_DSN',
@@ -147,8 +147,8 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     });
     await prompt('查一下本周的企微日程');
     await waitWork(items => items.some(w => w.role === 'calendar' && w.status === 'completed'), '查询事项完成');
-    await waitToolResult('共 1 个企微日程', '查询回执');
-    expect((await cluster.query(`select channel, summary from pa24.calendar_event where event_id='schstub-seed'`))).toContain('wecom');
+    await waitToolResult('共 1 个日程', '查询回执');
+    expect((await cluster.query(`select platform, body from pa24.source_object where domain='calendar' and platform='wecom' and native_id like '%schstub-seed%'`))).toContain('wecom');
 
     await writeScript({
       mode: 'dispatch',
@@ -159,7 +159,7 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     });
     await prompt('帮我建一条明后天的渠道验收测试日程，十五分钟');
     await waitWork(items => items.filter(w => w.role === 'calendar').length === 2 && items.every(w => w.status === 'completed'), '创建事项完成');
-    const created = await waitToolResult('企微日程已创建', '创建回执');
+    const created = await waitToolResult('企微已接收创建', '创建回执');
     const eventId = /(schstub-\d+)/.exec(created)?.[1];
     expect(eventId).toBeTruthy();
     expect((await readJournal('schedules', 'schedule_id')).length).toBe(2);
@@ -174,8 +174,9 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     });
     await prompt('把刚才那条测试日程取消掉');
     await waitWork(items => items.filter(w => w.role === 'calendar').length === 3 && items.every(w => w.status === 'completed'), '取消事项完成');
-    await waitToolResult('企微日程已取消', '取消回执');
-    expect((await cluster.query(`select status from pa24.calendar_event where event_id='${eventId}'`))).toContain('canceled');
+    await waitToolResult('企微已接收取消', '取消回执');
+    expect((await readJournal('schedules', 'schedule_id')).find(row => row.schedule_id === eventId).canceled).toBe(true);
+    expect((await cluster.query(`select status from pa24.action_operation where action='wecom_calendar.cancel' and params->>'eventId'='${eventId}'`)).trim()).toBe('succeeded');
   });
 
   it('待办域：创建/幂等（无平台幂等键，靠操作账）/完成；失败如实上报不盲重试', async () => {
@@ -241,7 +242,7 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
       workerAction: { action: 'reminder_create', kind: 'once', afterSeconds: 3, text: '企微日历提醒验收' }, workerReply: '提醒已创建。',
     });
     await prompt('三秒后用企微日历提醒我：企微日历提醒验收');
-    await waitToolResult('由对应 App 原生日程提醒', '原生日历回执');
+    await waitToolResult('由对应 App 原生提醒', '原生日历回执');
     expect((await readJournal('schedules', 'schedule_id')).some(row => row.subject.includes('提醒：企微日历提醒验收'))).toBe(true);
     expect((await cluster.query("select count(*) from pa24.reminder_occurrence")).trim()).toBe('0');
 

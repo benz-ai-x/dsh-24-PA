@@ -33,7 +33,7 @@ function reminderReadback(receipt: CalendarReceipt) {
   const observed = verification.state !== 'unverified';
   const raw = verification.reminders;
   const minutes = !observed ? null : Array.isArray(raw) ? raw.map(row => row.minutes)
-    : raw?.is_remind === false ? [] : raw?.reminder_time?.map(seconds => -seconds / 60) ?? null;
+    : raw?.is_remind === false ? [] : raw?.reminder_time?.map(seconds => seconds === 0 ? 0 : -seconds / 60) ?? null;
   const start = observed && Number.isFinite(Date.parse(verification.start ?? '')) ? verification.start! : null;
   const reminderAt = start && minutes?.length && verification.active !== false
     ? new Date(Date.parse(start) - Math.max(...minutes) * 60000).toISOString() : null;
