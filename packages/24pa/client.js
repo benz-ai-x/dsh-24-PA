@@ -494,8 +494,8 @@ window.__ModuleLoader__.load({
           React.useEffect(() => { setOffset(0); }, [data?.period?.from, data?.records?.length]);
           const limit = value => value == null ? L('不限', 'Unlimited') : budgetValue(value);
           const prepare = row => { setGrant({ ...row, requestId: crypto.randomUUID() }); setConfirm(false); setMessage(''); };
-          const release = async () => {
-            const result = await rpc('action', { type: 'budget.release', workspaceBinding: binding, requestId: grant.requestId, runId: grant.run_id, workId: grant.work_item_id, sessionId: grant.session_id, scope: 'next-model-request', confirm: true });
+          const release = async (selected = grant) => {
+            const result = await rpc('action', { type: 'budget.release', workspaceBinding: binding, requestId: selected.requestId ?? selected.id, runId: selected.run_id, workId: selected.work_item_id, sessionId: selected.session_id, scope: 'next-model-request', confirm: true });
             setMessage(result.message); setGrant(null); setConfirm(false); reload(); await helpers.refresh();
           };
           const records = [...(data?.records || [])].reverse();
@@ -522,7 +522,7 @@ window.__ModuleLoader__.load({
                 h('p', null, L('仅放行此运行的下一次受管模型请求；重试也占一次。其他阻断保持，已停止或结束的运行不会复活。', 'Allow only the next managed model request for this run; a retry also consumes it. Other blockers remain, and ended runs cannot be revived.')),
                 fields([[L('运行', 'Run'), grant.run_id], [L('会话', 'Session'), grant.session_id]]),
                 h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: confirm, onChange: event => setConfirm(event.target.checked) }), L('确认仅放行以上范围一次', 'Confirm one request in this scope')),
-                h('div', { className: 'pa24-row' }, button('check', L('确认放行一次', 'Allow one request'), release, { disabled: busy || !confirm, className: 'pa24-primary' }), button('close', L('取消放行', 'Cancel release'), () => setGrant(null)))),
+                h('div', { className: 'pa24-row' }, button('check', L('确认放行一次', 'Allow one request'), () => release(), { disabled: busy || !confirm, className: 'pa24-primary' }), button('close', L('取消放行', 'Cancel release'), () => setGrant(null)))),
               h('section', { className: 'pa24-card' }, h('h3', null, L('实际模型与用量依据', 'Actual models and usage evidence')),
                 records.length ? records.slice(offset, offset + 20).map(row => h('article', { key: row.id, className: 'pa24-resource' },
                   h('strong', null, row.record.actual ? row.record.actual.provider + ' / ' + row.record.actual.model : L('实际模型尚未回报', 'Actual model not yet reported')),
@@ -530,8 +530,11 @@ window.__ModuleLoader__.load({
                     [L('Token', 'Tokens'), row.record.usage ? budgetValue(row.record.usage.totalTokens ?? row.record.usage.inputTokens + row.record.usage.outputTokens + (row.record.usage.cacheReadTokens ?? 0) + (row.record.usage.cacheWriteTokens ?? 0)) : L('未知', 'Unknown')], [L('估算费用', 'Estimated cost'), budgetValue(row.record.estimate) + ' ' + row.record.currency], [L('价格依据', 'Price source'), row.record.price?.basis || L('缺少可核对价格', 'No verified price')]]),
                   button('clock', L('查看关联运行', 'View linked run'), () => helpers.openRuns({ query: row.run_id })), h('details', null, h('summary', null, L('完整计量记录', 'Full measurement record')), h('pre', null, JSON.stringify(row, null, 2))))) : h('p', { className: 'pa24-meta' }, L('本周期尚无受管请求；未记录不代表供应商没有费用。', 'No managed requests recorded this period; providers may still have charges.')),
                 records.length > 20 && h('nav', { className: 'pa24-page-nav', 'aria-label': L('用量分页', 'Usage pagination') }, button('chevron', L('上一页', 'Previous'), () => setOffset(Math.max(0,offset-20)), { disabled: !offset }), h('span', null, `${offset+1}–${Math.min(offset+20,records.length)} / ${records.length}`), button('chevron', L('下一页', 'Next'), () => setOffset(offset+20), { disabled: offset+20 >= records.length }))),
-              data.releases.length > 0 && h('details', null, h('summary', null, L('一次放行记录', 'One-time release history')), data.releases.map(row => h('div', { key: row.id, className: 'pa24-resource' },
-                h('p', null, (row.status === 'used' ? L('已消费', 'Used') : L('等待可执行条件', 'Waiting for execution conditions')) + ' · ' + date(row.created_at, data.period.timeZone)), h('p', { className: 'pa24-meta' }, row.run_id), row.record.error && h('p', { role: 'status' }, row.record.error))))));
+              data.releases.length > 0 && h('details', { open: data.releases.some(row => row.status === 'ready' && row.record.error) }, h('summary', null, L('一次放行记录', 'One-time release history')), data.releases.map(row => h('div', { key: row.id, className: 'pa24-resource' },
+                h('p', null, (row.status === 'used' ? L('已消费', 'Used') : L('等待可执行条件', 'Waiting for execution conditions')) + ' · ' + date(row.created_at, data.period.timeZone)), h('p', { className: 'pa24-meta' }, row.run_id), row.record.error && h('p', { role: 'status' }, row.record.error),
+                row.status === 'ready' && row.record.error && h('div', { className: 'pa24-row' },
+                  row.record.wake ? h('p', { className: 'pa24-helper' }, L('接纳状态未知，请先核对原运行。', 'Acceptance is unknown; reconcile the original run first.')) : button('refresh', L('重试原许可续办', 'Retry the existing permit'), () => release(row)),
+                  button('clock', L('查看原运行', 'View original run'), () => helpers.openRuns({ query: row.run_id }))))))));
         }
 
         function HealthBlock({ data: providedData, title }) {

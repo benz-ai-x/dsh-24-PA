@@ -78,3 +78,11 @@ it('工作区切换后的迟到用量不覆盖新范围', async () => {
   await act(async()=>{await poll();});expect(container.textContent).toContain('新工作区的用量');
   await act(async()=>resolve({...fixture(),workspaceBinding:'binding-a',coverage:'旧工作区迟到内容'}));expect(container.textContent).not.toContain('旧工作区迟到内容');
 });
+
+it('失败许可显示原范围并复用原标识续办；接纳未知只引导核对', async () => {
+  budget.releases = [{ id: 'existing-permit-123456', run_id: 'run-1', work_item_id: 'work-1', session_id: 'session-1', status: 'ready', record: { error: 'native rejected' }, created_at: '2026-10-23T00:00:00Z' }];
+  await click(button('刷新用量')); expect(button('重试原许可续办').closest('details').open).toBe(true);
+  await click(button('重试原许可续办')); expect(requests.filter(row => row.payload.type === 'budget.release').at(-1).payload).toMatchObject({ requestId: 'existing-permit-123456', runId: 'run-1', workId: 'work-1', sessionId: 'session-1' });
+  budget.releases[0].record.wake = 'sending'; await click(button('刷新用量'));
+  expect(button('重试原许可续办')).toBeUndefined(); expect(container.textContent).toContain('接纳状态未知，请先核对原运行');
+});

@@ -71,11 +71,14 @@ export class ModelBudgetRepo {
       return { allowed: true };
     });
   }
-  private async state(tx: PaQueryer, owner: BudgetOwner, status: 'waiting' | 'running', reason: string) {
+  private async state(tx: PaQueryer, owner: BudgetOwner, status: 'waiting' | 'running' | 'needs_reconciliation', reason: string) {
     // Table names are fixed domain branches, never user input.
-    if (owner.kind === 'skill') await tx.query('update pa24.skill_run set status = $2, progress = $3, updated_at = now() where id = $1', [owner.runId, status, reason]);
-    else await tx.query('update pa24.worker_run set status = $2, progress = $3, updated_at = now() where id = $1', [owner.runId, status, reason]);
-    await tx.query('update pa24.work_item set status = $2, progress = $3, revision = revision + 1, updated_at = now() where id = $1', [owner.workId, status === 'waiting' ? 'waiting_input' : status, reason]);
+    const changed = owner.kind === 'skill'
+      ? await tx.query("update pa24.skill_run set status = $2, progress = $3, updated_at = now() where id = $1 and status in ('running','waiting') returning id", [owner.runId, status, reason])
+      : await tx.query("update pa24.worker_run set status = $2, progress = $3, updated_at = now() where id = $1 and status in ('running','waiting') returning id", [owner.runId, status, reason]);
+    if (!changed.rowCount) return; // A late failed wake cannot undo a stop.
+    const active = owner.kind === 'skill' ? 'active_skill_run_id' : 'active_worker_run_id';
+    await tx.query(`update pa24.work_item set status = $2, progress = $3, revision = revision + 1, updated_at = now() where id = $1 and ${active} = $4 and status in ('running','waiting_input')`, [owner.workId, status === 'waiting' ? 'waiting_input' : status, reason, owner.runId]);
   }
   async event(owner: BudgetOwner, input: { id: string; turn: number; step: number; at: string; actual: BudgetMeasurement['actual']; usage: BudgetUsage | null; type: string; interrupted: boolean }, config: BudgetConfig): Promise<void> {
     await this.db.withTransaction(async tx => {
@@ -92,10 +95,21 @@ export class ModelBudgetRepo {
   async grant(input: { id: string; hash: string; runId: string; workId: string; sessionId: string }): Promise<BudgetReleaseRow> {
     return this.db.withTransaction(async tx => {
       await this.lock(tx);
+      const previous = (await tx.query<BudgetReleaseRow>('select * from pa24.budget_release where id = $1', [input.id])).rows[0];
+      if (previous) {
+        if (previous.request_hash !== input.hash || previous.run_id !== input.runId || previous.work_item_id !== input.workId || previous.session_id !== input.sessionId) throw new Error('放行标识已用于其他范围。');
+        // Receipt replay remains readable after completion. Only an explicit
+        // retry of a definitely unsubmitted wake may reuse the unused permit.
+        if (previous.status === 'ready' && previous.record.error && !previous.record.wake) {
+          const owner = await this.owner(input.runId, tx); if (!owner) throw new Error('原运行不存在。');
+          await this.current(tx, owner);
+          delete previous.record.error;
+          await tx.query('update pa24.budget_release set record = $2 where id = $1', [previous.id, JSON.stringify(previous.record)]);
+        }
+        return previous;
+      }
       const owner = await this.owner(input.runId, tx); if (!owner) throw new Error('原运行不存在。');
       const control = await this.current(tx, owner);
-      const previous = (await tx.query<BudgetReleaseRow>('select * from pa24.budget_release where id = $1', [input.id])).rows[0];
-      if (previous) { if (previous.request_hash !== input.hash) throw new Error('放行标识已用于其他范围。'); return previous; }
       const waiting = (await tx.query<{ session_id: string; work_item_id: string }>('select * from pa24.budget_wait where run_id = $1 and session_id = $2', [input.runId, input.sessionId])).rows[0];
       if (!control.state.blocks.some(block => block.key === budgetBlockKey(input.sessionId) && block.kind === 'budget') || waiting?.work_item_id !== input.workId || waiting.session_id !== input.sessionId || owner.workId !== input.workId) throw new Error('预算等待范围已变化，请刷新后核对原交办、运行和会话。');
       if ((await tx.query("select id from pa24.budget_release where run_id = $1 and status = 'ready'", [owner.runId])).rowCount) throw new Error('原运行已有尚未消费的一次放行。');
@@ -111,17 +125,21 @@ export class ModelBudgetRepo {
       const owner = await this.owner(release.run_id, tx); if (!owner) return false;
       const control = await this.current(tx, owner);
       const row = (await tx.query<BudgetReleaseRow>('select * from pa24.budget_release where id = $1 for update', [release.id])).rows[0];
-      if (!row || row.status !== 'ready' || row.record.wake || !canFinishDispatchedStep(control.state)) return false;
-      await tx.query('update pa24.budget_release set record = $2 where id = $1', [row.id, JSON.stringify({ ...row.record, originals, wake: 'sending' })]);
+      if (!row || row.status !== 'ready' || row.record.error || !canFinishDispatchedStep(control.state)) return false;
+      await tx.query('update pa24.budget_release set record = $2 where id = $1', [row.id, JSON.stringify({ ...row.record, originals: row.record.originals ?? originals, wake: 'sending' })]);
       await this.state(tx, owner, control.state.blocks.length ? 'waiting' : 'running', '预算一次放行已保存，沿原运行继续；其他会话等待保留');
       return true;
     });
   }
-  async wakeError(id: string, error: string): Promise<void> {
+  async wakeError(id: string, error: string, mayHaveDispatched = true): Promise<void> {
     await this.db.withTransaction(async tx => {
       await this.lock(tx);
       const row = (await tx.query<BudgetReleaseRow>('select * from pa24.budget_release where id = $1', [id])).rows[0];
-      if (row?.status === 'ready') await tx.query('update pa24.budget_release set record = $2 where id = $1', [id, JSON.stringify({ ...row.record, error })]);
+      if (row?.status !== 'ready') return; // The model already consumed it.
+      await tx.query('update pa24.budget_release set record = $2 where id = $1', [id, JSON.stringify({ ...row.record, error, wake: mayHaveDispatched ? row.record.wake : undefined })]);
+      const owner = await this.owner(row.run_id, tx);
+      if (owner && ['running', 'waiting'].includes(owner.status)) await this.state(tx, owner, mayHaveDispatched ? 'needs_reconciliation' : 'waiting',
+        mayHaveDispatched ? `预算续办是否接纳未知，须先核对原运行：${error}` : `预算续办未接纳，可重试原许可：${error}`);
     });
   }
   async acceptedWake(id: string, message: RunInput): Promise<void> {

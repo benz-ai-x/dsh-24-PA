@@ -92,8 +92,10 @@ export class ModelBudgets {
     if (typeof input.workspaceBinding !== 'string' || !input.workspaceBinding) throw new Error('缺少预算所属工作区标识。');
     const ctx = this.context(input.workspaceBinding);
     if (input.confirm !== true || typeof input.requestId !== 'string' || !/^[a-zA-Z0-9-]{16,100}$/.test(input.requestId) || input.scope !== 'next-model-request') throw new Error('请确认仅放行原交办／运行指定会话的下一次模型请求。');
-    const release = await ctx.repos.modelBudget.grant({ id: input.requestId, hash: budgetHash(input), runId: String(input.runId), workId: String(input.workId), sessionId: String(input.sessionId) });
-    await this.poll(); return { release: await ctx.repos.modelBudget.release(release.id), message: '一次放行已保存，只解除预算阻断；其他阻断、授权与时限继续生效。' };
+    const release = await ctx.repos.modelBudget.grant({ id: input.requestId, hash: budgetHash({ runId: input.runId, workId: input.workId, sessionId: input.sessionId, scope: input.scope }), runId: String(input.runId), workId: String(input.workId), sessionId: String(input.sessionId) });
+    await this.poll();
+    const saved = await ctx.repos.modelBudget.release(release.id);
+    return { release: saved, message: saved?.record.error ? `一次放行已保存，续办失败：${saved.record.error}。${saved.record.wake ? '接纳状态未知，请先核对原运行。' : '可重试原许可，不会新增放行。'}` : '一次放行已保存，只解除预算阻断；其他阻断、授权与时限继续生效。' };
   }
   private async history(id: string): Promise<DshSession | null> {
     const live = this.deps.host().sessions.get?.(id);
@@ -111,8 +113,9 @@ export class ModelBudgets {
       const history = await this.history(sessionId); if (history) await this.observe(history);
     }
     for (const release of await ctx.repos.modelBudget.releases()) {
-      if (release.status !== 'ready' || this.waking.has(release.id) || this.sent.has(release.id)) continue;
+      if (release.status !== 'ready' || release.record.error || this.waking.has(release.id) || this.sent.has(release.id)) continue;
       this.waking.add(release.id);
+      let mayHaveDispatched = false;
       try {
         const owner = await ctx.repos.modelBudget.owner(release.run_id), control = await ctx.repos.runControls.get(release.run_id);
         if (!owner || !['running','waiting'].includes(owner.status) || !control || !canFinishDispatchedStep(control.state) || control.state.stop) continue;
@@ -135,20 +138,22 @@ export class ModelBudgets {
         if (originals.some(row => canceled.has(row.id))) throw new Error('原输入已取消，不能预算恢复。');
         const alreadyAdoptedWake = release.native_message_id && adoptedIds.has(release.native_message_id);
         if (alreadyAdoptedWake) continue;
-        if (!release.record.wake && !await ctx.repos.modelBudget.claimWake(release, originals, ctx.maxWorkers)) continue;
+        if (!await ctx.repos.modelBudget.claimWake(release, originals, ctx.maxWorkers)) continue;
         this.deps.activate(owner.runId);
         const parent = history.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
         if (parentId) {
           const parentAgent = await this.deps.host().sessionController.resolveAgent(parentId); if ('error' in parentAgent) throw parentAgent.error;
           const children = await this.deps.host().subagents.listChildren(parentId) as Array<{ id: string }>;
           if (!children.some(child => child.id === release.session_id)) throw new Error('预算恢复不能改变原父子会话。');
+          mayHaveDispatched = true;
           await this.deps.detached(() => this.deps.host().subagents.sendMessage(parentAgent.agent, release.session_id, [{ type: 'text', text: wakeMarker(release.id) }], { signal: new AbortController().signal }));
         } else {
+          mayHaveDispatched = true;
           const response = await this.deps.detached(() => this.deps.host().sessionController.prompt({ sessionId: release.session_id, requestId: `pa24-budget:${release.id}`, mode: 'queue', content: [{ type: 'text', text: wakeMarker(release.id) }] }, new AbortController().signal));
-          if ('error' in response || !response.accepted) throw 'error' in response ? response.error : new Error('宿主未接纳预算恢复信号。');
+          if ('error' in response || !response.accepted) { mayHaveDispatched = false; throw 'error' in response ? response.error : new Error('宿主未接纳预算恢复信号。'); }
         }
         this.sent.add(release.id);
-      } catch (error) { await ctx.repos.modelBudget.wakeError(release.id, (error as Error).message); }
+      } catch (error) { await ctx.repos.modelBudget.wakeError(release.id, (error as Error).message, mayHaveDispatched); }
       finally { this.waking.delete(release.id); }
     }
   }

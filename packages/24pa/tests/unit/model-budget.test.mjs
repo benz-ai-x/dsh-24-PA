@@ -73,7 +73,9 @@ for (const backend of ['sqlite','postgres']) describe('durable model budget / ' 
     await life.stop(owner.workId);
     await expect(repos.modelBudget.grant(release())).rejects.toThrow('迟到');
     await expect(repos.modelBudget.gate(owner, config({}), 'Asia/Shanghai', request)).rejects.toThrow('迟到');
+    await repos.modelBudget.wakeError(input.id, 'late rejection', false);
     expect((await repos.workerRuns.get(owner.runId)).status).toBe('stopped');
+    expect((await repos.workItems.get(owner.workId)).status).toBe('stopped');
   });
   it('主子会话各自保留预算等待，另一会话的阻断不覆盖指定的一次放行', async () => {
     const child = { ...owner, sessionId: 'native-child' };
@@ -89,6 +91,72 @@ for (const backend of ['sqlite','postgres']) describe('durable model budget / ' 
     expect((await budget.snapshot()).waiting.map(row => row.session_id)).toEqual([owner.sessionId]);
     expect(await repos.modelBudget.gate(child, config({ maxRequests: 0 }), 'Asia/Shanghai', request)).toMatchObject({ allowed: false });
     expect((await budget.snapshot()).waiting).toHaveLength(2);
+  });
+  const queueOther = async () => {
+    const id = randomUUID(); await repos.workItems.insert({ id, title: '其他交办', role: 'memo', instruction: '其他工作', origin: 'local', parent_session_id: 'other-parent', child_session_id: id, delivery: 'local:other-parent', status: 'queued' }); return id;
+  };
+  it('子会话预算续办预留共享名额；同运行其他会话仍等待且不能归还该名额', async () => {
+    const child = { ...owner, sessionId: 'native-child' };
+    await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai');
+    await repos.modelBudget.gate(child, config({ maxRequests: 0 }), 'Asia/Shanghai');
+    const permit = await repos.modelBudget.grant({ ...release(), sessionId: child.sessionId });
+    expect(await repos.modelBudget.claimWake(permit, [], 1)).toBe(true);
+    expect((await repos.workerRuns.get(owner.runId)).status).toBe('waiting');
+    await queueOther(); expect(await repos.workItems.claimNext(1)).toBeNull();
+    expect(await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai', request)).toMatchObject({ allowed: false });
+    expect(await repos.workItems.claimNext(1)).toBeNull();
+    expect(await repos.modelBudget.gate(child, config({ maxRequests: 0 }), 'Asia/Shanghai', request)).toMatchObject({ allowed: true });
+    expect((await repos.runControls.get(owner.runId)).state.blocks).toMatchObject([{ key: 'budget:' + owner.sessionId }]);
+  });
+  it('停止尚未派发的预算续办归还预留名额；迟到失败不会覆盖停止', async () => {
+    await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai');
+    const permit = await repos.modelBudget.grant(release());
+    expect(await repos.modelBudget.claimWake(permit, [], 1)).toBe(true);
+    await life.stop(owner.workId); const other = await queueOther();
+    expect((await repos.workItems.claimNext(1)).id).toBe(other);
+    await repos.modelBudget.wakeError(permit.id, 'late', false);
+    expect((await repos.workerRuns.get(owner.runId)).status).toBe('stopped');
+  });
+  const wakeFixture = () => {
+    session.header.parentSession = undefined;
+    let attempts = 0, response = 'rejected', binding = 'binding';
+    const host = { get: () => null, sessions: { get: id => id === session.id ? session : undefined, flush: async () => true }, sessionController: { prompt: async () => {
+      attempts++; if (response === 'unknown') throw new Error('connection lost after sending');
+      return response === 'rejected' ? { error: new Error('native prompt explicitly rejected') } : { accepted: true };
+    } } };
+    const service = new ModelBudgets({ host: () => host, context: () => ({ repos, path: '/workspace', binding, config: config({ maxRequests: 0 }), timeZone: 'Asia/Shanghai', maxWorkers: 1 }), activate() {}, detached: fn => fn() });
+    const input = { workspaceBinding: 'binding', requestId: randomUUID(), runId: owner.runId, workId: owner.workId, sessionId: owner.sessionId, scope: 'next-model-request', confirm: true };
+    return { service, input, attempts: () => attempts, rebind: () => { binding = 'binding-after-restart'; input.workspaceBinding = binding; }, respond: value => { response = value; } };
+  };
+  it('宿主明确拒绝续办归还名额且不无界重试；显式重试原许可重新竞争容量', async () => {
+    await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai');
+    const fixture = wakeFixture(); await fixture.service.grant(fixture.input);
+    for (let i = 0; i < 4; i++) await fixture.service.poll();
+    expect(fixture.attempts()).toBe(1);
+    expect(await repos.modelBudget.release(fixture.input.requestId)).toMatchObject({ status: 'ready', record: { error: 'native prompt explicitly rejected' } });
+    expect((await repos.modelBudget.release(fixture.input.requestId)).record.wake).toBeUndefined();
+    expect((await repos.workerRuns.get(owner.runId)).status).toBe('waiting');
+    const other = await queueOther(); expect((await repos.workItems.claimNext(1)).id).toBe(other);
+    fixture.respond('accepted'); fixture.rebind(); await fixture.service.grant(fixture.input);
+    expect(fixture.attempts()).toBe(1); // Capacity was not bypassed by the retry.
+    await repos.workItems.update(other, { status: 'completed' }); await fixture.service.poll();
+    expect(fixture.attempts()).toBe(2);
+    expect(await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai', request)).toMatchObject({ allowed: true });
+    await life.finish(owner.workId, { output: '完成', delivery: () => ({ dedupKey: 'budget-retry-fixed', channel: 'local', target: 'parent', kind: 'text', content: { text: '完成' } }) });
+    expect((await fixture.service.grant(fixture.input)).release.status).toBe('used');
+    expect(await repos.modelBudget.releases()).toHaveLength(1);
+    await expect(fixture.service.grant({ ...fixture.input, sessionId: 'different' })).rejects.toThrow('其他范围');
+  });
+  it('接纳未知需要核对，不自动重发，迟到模型不能消费许可或复活运行', async () => {
+    await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai');
+    const fixture = wakeFixture(); fixture.respond('unknown'); await fixture.service.grant(fixture.input);
+    for (let i = 0; i < 4; i++) await fixture.service.poll();
+    expect(fixture.attempts()).toBe(1);
+    expect((await repos.workerRuns.get(owner.runId)).status).toBe('needs_reconciliation');
+    expect((await repos.workItems.get(owner.workId)).status).toBe('needs_reconciliation');
+    expect((await repos.modelBudget.release(fixture.input.requestId)).record.wake).toBe('sending');
+    await fixture.service.grant(fixture.input); expect(fixture.attempts()).toBe(1);
+    await expect(repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai', request)).rejects.toThrow('迟到');
   });
   it('预算恢复保留多个原生消息的身份、来源和完整内容；已有结果仍固定投递', async () => {
     await repos.modelBudget.gate(owner, config({ maxRequests: 0 }), 'Asia/Shanghai');
