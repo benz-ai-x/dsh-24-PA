@@ -235,8 +235,8 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('function HealthBlock({ data: providedData, title })');
     expect(client).toContain('h(HealthBlock, { data: helpers.extra.health })');
     expect(client).toContain("h('summary', null, L('处理建议', 'Next steps'))");
-    // 空库与筛选无结果必须分开，无匹配分支在前。
-    expect(client.indexOf('data.matched === 0')).toBeLessThan(client.indexOf('data.total === 0'));
+    // 空库与无匹配现在由 memory-panel.test.mjs 的真实 React 交互区分。
+    expect(client).toContain('没有找到匹配的记忆');
     // 表单控件建立程序化标签，Worker 字段带角色上下文；变更可重置，离开有保护。
     expect(client).toContain('const withFieldId =');
     expect(client).toContain('htmlFor: id');

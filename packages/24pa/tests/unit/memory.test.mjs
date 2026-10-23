@@ -172,6 +172,7 @@ describe('R3-04 记忆批次边界与故障恢复', () => {
       { op: 'put', record: record(undefined, { content: '自动' }), reason: 'new' },
       { op: 'put', record: record('same', { content: 'B' }), reason: 'edit' },
       { op: 'delete', id: 'same', reason: 'delete' },
+      { op: 'restore', id: 'same', reason: 'restore' },
       { op: 'put', record: record('same', { content: 'C' }), reason: 'recreate' },
     ], options(1));
     expect((await store.search({})).records).toHaveLength(2);
