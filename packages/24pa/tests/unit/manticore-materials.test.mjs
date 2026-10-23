@@ -72,7 +72,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`M05 资料草稿、来�
     const result = await mutation('adopt_actions', { versionId: next.versionId, candidateIds: [candidateId] });
     expect(result.results[0]).toMatchObject({ ok: true, reused: true, changeProposal: { proposed: { summary: '准备修订报告' } } });
     expect((await f.rt.repos.tasks.list()).map(t => t.summary)).toEqual(['准备报告']);
-    expect((await calls()).filter(row => row.args.includes('+create') && row.args.includes('task'))).toHaveLength(1);
+    expect((await calls()).filter(row => row.args.includes('create') && row.args.includes('task'))).toHaveLength(1);
     expect((await f.rt.repos.notes.actionLinks('N-1'))[0]).toMatchObject({ version_id: first.versionId, candidate_id: candidateId, authorization_record: { owner: 'owner', versionId: first.versionId } });
     await expect(mutation('adopt_actions', { versionId: first.versionId, candidateIds: [candidateId] })).rejects.toThrow(/修改|不一致/);
   });
@@ -141,6 +141,56 @@ for (const backend of ['sqlite', 'postgres']) describe(`M05 资料草稿、来�
     const next = await f.rt.notesTool({ action: 'republish', noteId: 'N-1' }, local);
     expect(await submit({ transcript: '新模型识别' })).toMatchObject({ protectedDraft: true, published: false });
     const current = await detail(); expect(current.selected.id).toBe(next.versionId); expect(current.selected.doc_snapshot).toContain('主人远端手工修订');
+  });
+
+  it('直接资料操作有真实运行档案，重复请求和失败重放不再执行，不能启动 Worker 接续', async () => {
+    const first = await submit(), view = await detail(), agents = f.agents.size;
+    const input = { expectedRevision: view.material.revision, requestId: 'direct-publish-once' };
+    const result = await mutation('publish_draft', input);
+    expect(await mutation('publish_draft', input)).toEqual(result);
+    const run = await f.rt.workerRuns.inspect({ workspaceBinding: binding, runId: result.runId });
+    expect(run).toMatchObject({ run: { status: 'completed', session_id: local.id, snapshot: { executor: 'material-action', modelRequested: false } }, execution: null });
+    expect(run.inputs).toEqual([]); expect(run.calls).toHaveLength(1); expect(run.calls[0].status).toBe('succeeded');
+    expect((await f.rt.runHistory.list({ workspaceBinding: binding, workId: result.workId, range: 'all' })).rows).toHaveLength(1);
+    expect(f.agents.size).toBe(agents);
+    for (const action of ['continue', 'stop']) await expect(f.rt.control({ action, workId: result.workId }, local)).rejects.toThrow('原资料');
+    await expect(f.rt.changeWork({ workspaceBinding: binding, workId: result.workId, expectedRevision: run.work.revision, requestId: crypto.randomUUID(), op: 'continue', confirm: true, instruction: '继续' })).rejects.toThrow('原资料');
+    const adopt = { versionId: result.versionId, candidateIds: [view.material.draft.candidates[0].id], requestId: 'failed-before-approval' };
+    await expect(mutation('adopt_actions', adopt)).rejects.toThrow('审核');
+    await approve(result.versionId);
+    await expect(mutation('adopt_actions', adopt)).rejects.toThrow('审核');
+    expect(await f.rt.repos.tasks.list()).toHaveLength(0);
+    expect(await mutation('adopt_actions', { ...adopt, requestId: 'new-explicit-approved-request' })).toMatchObject({ executed: 1, failed: 0 });
+    expect(f.agents.size).toBe(agents);
+  });
+
+  it('面板显式操作在空白会话被切到其他预设后建立正确入口，不修改原会话也不请求模型', async () => {
+    await submit(); const view = await detail(), previous = local.id, prompts = f.prompts.length;
+    local.session.header.agentPreset = 'standard';
+    const result = await mutation('publish_draft', { expectedRevision: view.material.revision });
+    const run = await f.rt.workerRuns.inspect({ workspaceBinding: binding, runId: result.runId });
+    expect(run.run.session_id).not.toBe(previous);
+    expect(f.agents.get(run.run.session_id).session.header.agentPreset).toBe('pa24');
+    expect(f.agents.get(previous).session.header.agentPreset).toBe('standard');
+    expect(f.prompts).toHaveLength(prompts); expect(run.inputs).toEqual([]);
+  });
+
+  it('部分失败返回原回执，重启中断保留未知动作且不覆盖历史成功或自动接续', async () => {
+    const first = await submit(); await approve(first.versionId); const view = await detail();
+    const original = f.rt.taskCreate.bind(f.rt), summaries = [];
+    f.rt.taskCreate = async (item, args) => { summaries.push(args.summary); if (args.summary === '准备资料') throw new Error('该候选暂时失败'); return original(item, args); };
+    const input = { versionId: first.versionId, candidateIds: view.material.draft.candidates.map(c => c.id), requestId: 'partial-once' };
+    const result = await mutation('adopt_actions', input); expect(result).toMatchObject({ executed: 1, failed: 1 });
+    expect(await mutation('adopt_actions', input)).toEqual(result); expect(summaries).toHaveLength(2);
+    expect((await f.rt.workerRuns.inspect({ workspaceBinding: binding, runId: result.runId })).run.status).toBe('failed');
+    const item = await f.rt.repos.workItems.insert({ id: 'pa24-material-interrupted', title: '中断资料操作', role: 'handwriting', instruction: '{}', origin: 'local', parent_session_id: local.id, delivery: `local:${local.id}`, status: 'running' });
+    const run = await f.rt.repos.workerRuns.beginMaterial(item, { path: workspace, id: f.rt.workspace.id }, 'publish_draft');
+    const agents = f.agents.size; await f.rt.repos.workerRuns.recoverMaterials(); await f.rt.repos.workerRuns.recoverMaterials();
+    const recovered = await f.rt.workerRuns.inspect({ workspaceBinding: binding, runId: run.id });
+    expect(recovered).toMatchObject({ run: { status: 'failed' }, work: { status: 'failed' }, execution: null });
+    expect(recovered.calls[0].status).toBe('unknown'); expect(recovered.inputs).toEqual([]); expect(f.agents.size).toBe(agents);
+    await expect(f.rt.repos.workerRuns.finishMaterial(item.id, '迟到结果', {})).rejects.toThrow('不能覆盖');
+    expect(await mutation('adopt_actions', input)).toEqual(result); expect(await f.rt.repos.tasks.list()).toHaveLength(1);
   });
 
   it('完整计数与分页不受最近记录上限影响；原稿按工作区与摘要校验，不接受旧绑定', async () => {

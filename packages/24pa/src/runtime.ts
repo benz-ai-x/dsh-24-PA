@@ -1160,6 +1160,7 @@ export class PaRuntime {
   private async reconcileAfterRestart(): Promise<void> {
     if (!this.repos) return;
     await this.outboxDelivery.recover();
+    await this.repos!.workerRuns.recoverMaterials();
     await this.workLifecycle.recover();
     await this.skillRuns.recover();
   }
@@ -2318,6 +2319,7 @@ export class PaRuntime {
       return this.gate(`work-control:${id}`, async () => {
         const controls = this.repos!.workControls, item = await this.repos!.workItems.get(id);
         if (!item) throw new Error('原交办不存在。');
+        if (item.id.startsWith('pa24-material-') && !['review', 'new-goal'].includes(String(input.op))) throw new Error('资料直接操作请在原资料详情核对回执并明确重试；不能启动或接续模型 Worker。');
         const { workspaceBinding: _binding, ...stable } = input;
         const hash = createHash('sha256').update(JSON.stringify(stable)).digest('hex');
         const claimed = await controls.prepare(requestId, hash, id, Number(input.expectedRevision), stable);
@@ -2373,6 +2375,7 @@ export class PaRuntime {
         return this.runHistory.work({ workId: id, workspaceBinding: this.workspaceBinding });
       }
       if (['supplement', 'accept', 'return', 'new-goal'].includes(args.action)) return this.changeWork({ ...args, op: args.action, confirm: true, requestId: args.requestId ?? randomUUID(), expectedRevision: args.expectedRevision ?? item.revision, workspaceBinding: this.workspaceBinding }, agent);
+      if (item.id.startsWith('pa24-material-')) throw new Error('资料直接操作请回原资料核对回执后明确重试，不能作为模型 Worker 接续或停止。');
       if (item.execution_mode === 'skill') {
         const run = await repos.skillRuns.latestForWork(id);
         if (!run) throw new Error('此 Skill 交办缺少运行记录，请先核对。');
@@ -3362,8 +3365,11 @@ export class PaRuntime {
         } else results.push({ index, candidateId, ok: false, operationId, error: '旧版本行动尚未明确完成；请先按原授权核对或恢复，不以新版本重建对象。' });
         continue;
       }
-      const authorization = { noteId, versionId, candidateId, index, instruction, owner: this.config!.ownerOpenId,
-        sourceSessionId: item.parent_session_id, sourceQuote: candidate.sourceQuote, parametersFingerprint: materialFingerprint(parameters), ...(clarification ? { clarification } : {}) };
+      // Recovering the same candidate keeps the original grant and entry.
+      // Current content, version and owner are still verified above; new wording
+      // is a request to recover its receipt, not a replacement authorization.
+      const authorization = { noteId, versionId, candidateId, index, instruction: previous?.params.instruction ?? instruction, owner: this.config!.ownerOpenId,
+        sourceSessionId: previous?.params.sourceSessionId ?? item.parent_session_id, sourceQuote: candidate.sourceQuote, parametersFingerprint: materialFingerprint(parameters), ...(clarification ? { clarification } : {}) };
       try {
         if (!linked) await this.repos!.notes.linkAction({ note_id: noteId, candidate_id: candidateId, operation_id: operationId, version_id: versionId, parameters, authorization_record: authorization });
         if (candidate.start && candidate.end) {
@@ -3796,18 +3802,11 @@ export class PaRuntime {
       if (action === 'save_draft') return this.handwriting.saveDraft(noteId, Number(input.expectedRevision), input.draft, 'local-panel');
       if (action === 'verify') return this.handwriting.verifyNote(noteId);
       if (action === 'resend') return this.handwriting.resendReview(noteId, String(input.versionId ?? ''), text(input.requestId, 200));
-      const id = await this.ensureActionLocalSession();
+      const id = await this.openLocalSession();
       const resolved = await this.ctx.sessionController.resolveAgent(id);
       if ('error' in resolved) throw resolved.error;
       return this.materialMutation(input, resolved.agent);
     });
-  }
-
-  private async ensureActionLocalSession(): Promise<string> {
-    // Unlike panel reads, an explicit action may establish its local owner
-    // session. It never submits a model prompt or spawns a worker.
-    if (!this.localSessionId) await this.establishSessions();
-    return this.localSessionId!;
   }
 
   private async materialMutation(input: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
@@ -3825,16 +3824,20 @@ export class PaRuntime {
       if (item && item.instruction !== intent) throw new Error('请求标识已绑定其他资料操作，请重新核对后提交。');
       if (!item) item = await this.repos!.workItems.insert({ id, title: `${action === 'publish_draft' ? '发布资料' : '执行资料候选'} ${noteId}`, role: 'handwriting', instruction: intent,
         origin: agent.id === this.accessSessionId ? 'feishu' : 'local', parent_session_id: agent.id, delivery: agent.id === this.accessSessionId ? `feishu:${this.config!.ownerOpenId}` : `local:${agent.id}`, status: 'running' });
-      if (item.status === 'completed' && item.result_ref?.materialResult) return item.result_ref.materialResult;
+      if (['completed', 'failed'].includes(item.status) && item.result_ref?.materialResult) return item.result_ref.materialResult;
+      if (['failed', 'needs_reconciliation'].includes(item.status)) throw new Error(item.progress || '原资料操作已经失败或中断，请核对后以新请求明确重试。');
+      const run = await this.repos!.workerRuns.beginMaterial(item, { path: this.workspace!.path, id: this.workspace!.id }, action);
+      let outcome: unknown;
       try {
-        const result = action === 'publish_draft' ? await this.handwriting.publishDraft(item, noteId, Number(input.expectedRevision)) : await this.noteAdoptActions(item, input);
-        const failed = Number((result as { failed?: number }).failed ?? 0);
-        await this.repos!.workItems.update(id, { status: failed ? 'failed' : 'completed', progress: failed ? `${failed} 项候选未执行，详见逐项结果` : '资料操作已完成，详见逐项结果', result_ref: { materialResult: result } });
-        return result;
+        outcome = action === 'publish_draft' ? await this.handwriting.publishDraft(item, noteId, Number(input.expectedRevision)) : await this.noteAdoptActions(item, input);
       } catch (error) {
-        await this.repos!.workItems.update(id, { status: 'failed', progress: (error as Error).message });
+        await this.repos!.workerRuns.finishMaterial(id, (error as Error).message, { message: (error as Error).message }, true);
         throw error;
       }
+      const result = { ...outcome as object, workId: id, runId: run.id };
+      const failed = Number((result as { failed?: number }).failed ?? 0);
+      await this.repos!.workerRuns.finishMaterial(id, failed ? `${failed} 项候选未执行，详见逐项结果` : '资料操作已完成，详见逐项结果', result);
+      return result;
     });
   }
 

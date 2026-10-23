@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { bootHost } from '../helpers/host.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
-let root, host, hostRoot, cluster, workspace, env, binding, noteId, revision, versionId, candidateId, operationId;
+let root, host, hostRoot, cluster, workspace, env, binding, noteId, revision, versionId, candidateId, operationId, firstRunId, firstWorkId;
 const owner = 'ou_material_owner';
 const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=';
 const read = (kind, extra = {}) => host.api('materials', { workspaceBinding: binding, kind, noteId, ...extra });
@@ -39,7 +39,12 @@ describe('M05 实际 Loader 的资料公开操作与持久恢复', () => {
     const saved = await change('save_draft',{expectedRevision:0,draft:{...initial.material.draft,transcript:'主人核对后的项目记录',summary:'项目记录',candidates:[{summary:'准备资料',sourceQuote:'会议要求准备资料'}]}});
     revision=saved.revision; expect(saved.published).toBe(false); expect((await read('detail')).versions).toEqual([]);
     expect((await rows("select count(*)::int as count from pa24.action_operation where action='note.publish'"))[0].count).toBe(0);
-    const published = await change('publish_draft',{expectedRevision:revision}); versionId=published.versionId;
+    const published = await change('publish_draft',{expectedRevision:revision,requestId:'publish-exact-once'}); versionId=published.versionId; firstRunId=published.runId; firstWorkId=published.workId;
+    expect(await change('publish_draft',{expectedRevision:revision,requestId:'publish-exact-once'})).toEqual(published);
+    const archive = await host.api('worker.run',{workspaceBinding:binding,runId:firstRunId});
+    expect(archive).toMatchObject({run:{status:'completed',snapshot:{executor:'material-action',modelRequested:false}},execution:null});
+    expect(archive.inputs).toEqual([]); expect(archive.calls).toHaveLength(1);
+    expect((await host.api('runs',{workspaceBinding:binding,workId:firstWorkId,range:'all'})).rows).toHaveLength(1);
     const again = await change('publish_draft',{expectedRevision:revision}); expect(again).toMatchObject({reused:true,versionId});
     const detail = await read('detail'); candidateId=detail.selected.content.candidates[0].id;
     expect(detail.selected.status).toBe('pending_review'); expect(detail.selected.content.transcript).toBe('主人核对后的项目记录');
@@ -59,6 +64,7 @@ describe('M05 实际 Loader 的资料公开操作与持久恢复', () => {
 
   it('Host 重启后原稿、草稿、历史凭证、候选关联和执行回执仍可查询；新版本只能提出变更', async () => {
     await host.stop({keepRoot:true}); host=await bootHost({env,root:hostRoot}); binding=(await host.waitUntil(s=>s.workspace&&s.transport?.connected,{label:'重启后绑定就绪'})).workspaceBinding;
+    const archived=await host.api('worker.run',{workspaceBinding:binding,runId:firstRunId}); expect(archived.run.status).toBe('completed'); expect(archived.calls[0].status).toBe('succeeded');
     const before=await read('detail'); expect(before.material.revision).toBe(revision); expect(before.selected.status).toBe('approved'); expect(before.decisions).toHaveLength(1);
     expect(before.actions[0].operation.id).toBe(operationId); expect(before.actions[0].operation.status).toBe('succeeded');
     const saved=await change('save_draft',{expectedRevision:revision,draft:{...before.material.draft,candidates:[{...before.material.draft.candidates[0],summary:'准备修订资料'}]}});
@@ -66,7 +72,7 @@ describe('M05 实际 Loader 的资料公开操作与持久恢复', () => {
     const result=await change('adopt_actions',{versionId,candidateIds:[candidateId]}); expect(result.results[0]).toMatchObject({reused:true,operationId,changeProposal:{proposed:{summary:'准备修订资料'}}});
     expect((await rows('select count(*)::int as count from pa24.task'))[0].count).toBe(1);
     const current=await read('detail'); expect(current.versions).toHaveLength(2); expect(current.decisions).toHaveLength(2); expect(current.actions[0].parameters.summary).toBe('准备资料');
-    const calls=(await readFile(env.PA24_LARK_STUB_STATE+'.calls.jsonl','utf8')).trim().split('\n').map(JSON.parse); expect(calls.filter(row=>row.args.includes('task')&&row.args.includes('+create'))).toHaveLength(1);
+    const calls=(await readFile(env.PA24_LARK_STUB_STATE+'.calls.jsonl','utf8')).trim().split('\n').map(JSON.parse); expect(calls.filter(row=>row.args.includes('task')&&row.args.includes('create'))).toHaveLength(1);
     expect(await host.api('minutes')).toMatchObject({configured:false,mounted:false,lastRead:null});
   });
 });
