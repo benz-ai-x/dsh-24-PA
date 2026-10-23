@@ -40,6 +40,7 @@ import { writeSecretStore, secretStatus, resolveSecret, secretRefs, secretEnviro
 import { readWorkspaceConfiguration, writeWorkspaceConfiguration, type WorkspaceConfiguration } from './workspace-config.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
+import { candidateParameters, materialFingerprint } from './material-draft.js';
 import { WecomChannels, WECOM_CALENDAR_ID, wecomRepeatRule, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
@@ -1159,6 +1160,7 @@ export class PaRuntime {
   private async reconcileAfterRestart(): Promise<void> {
     if (!this.repos) return;
     await this.outboxDelivery.recover();
+    await this.repos!.workerRuns.recoverMaterials();
     await this.workLifecycle.recover();
     await this.skillRuns.recover();
   }
@@ -2053,6 +2055,17 @@ export class PaRuntime {
   // ---- session events: committed results become deliveries -----------------
 
   onSessionEvent(session: DshSession, event: { type: string; data: Record<string, any> }): void {
+    if (!this.closed && event.type === 'tool/result') {
+      const binding = this.workspaceBinding;
+      void this.executions.afterTransition(async () => {
+        if (binding !== this.workspaceBinding || !this.repos || !this.config || session.header.cwd !== this.workspace?.statePath || session.header.parentSession || session.header.origin === 'subagent' || session.header.agentPreset !== 'pa24' || session.id === this.accessSessionId) return;
+        const callId = event.data.message?.toolCallId;
+        const call = session.ownEvents().find(e => e.type === 'tool/call' && e.data.callId === callId && String(e.data.name).startsWith('mcp__qwennote__'));
+        if (!call || !this.config.extraLocalTools.some(name => name === call.data.name || name === 'mcp__qwennote__*')) return;
+        const readable = !event.data.message?.isError && !event.data.error && event.data.message?.content?.some((b: any) => b.type === 'text' && b.text?.trim());
+        await this.repos.notes.recordReadEvidence({ sessionId: session.id, callId: String(callId), toolName: String(call.data.name), configuration: this.minutesConfiguration(), state: readable ? 'succeeded' : 'failed' });
+      }).catch(error => { if (!this.closed) console.warn(`[pa24] 听记读取证据保存失败：${(error as Error).message}`); });
+    }
     if (this.closed || event.type !== 'turn/end') return;
     const binding = this.workspaceBinding;
     void this.executions.afterTransition(async () => {
@@ -2306,6 +2319,7 @@ export class PaRuntime {
       return this.gate(`work-control:${id}`, async () => {
         const controls = this.repos!.workControls, item = await this.repos!.workItems.get(id);
         if (!item) throw new Error('原交办不存在。');
+        if (item.id.startsWith('pa24-material-') && !['review', 'new-goal'].includes(String(input.op))) throw new Error('资料直接操作请在原资料详情核对回执并明确重试；不能启动或接续模型 Worker。');
         const { workspaceBinding: _binding, ...stable } = input;
         const hash = createHash('sha256').update(JSON.stringify(stable)).digest('hex');
         const claimed = await controls.prepare(requestId, hash, id, Number(input.expectedRevision), stable);
@@ -2361,6 +2375,7 @@ export class PaRuntime {
         return this.runHistory.work({ workId: id, workspaceBinding: this.workspaceBinding });
       }
       if (['supplement', 'accept', 'return', 'new-goal'].includes(args.action)) return this.changeWork({ ...args, op: args.action, confirm: true, requestId: args.requestId ?? randomUUID(), expectedRevision: args.expectedRevision ?? item.revision, workspaceBinding: this.workspaceBinding }, agent);
+      if (item.id.startsWith('pa24-material-')) throw new Error('资料直接操作请回原资料核对回执后明确重试，不能作为模型 Worker 接续或停止。');
       if (item.execution_mode === 'skill') {
         const run = await repos.skillRuns.latestForWork(id);
         if (!run) throw new Error('此 Skill 交办缺少运行记录，请先核对。');
@@ -3274,7 +3289,7 @@ export class PaRuntime {
    * version must be approved AND still match the live document.
    */
   private noteAdoptActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
-    return this.gate(`note-actions:${String(args.noteId ?? '')}`, () => this.adoptNoteActions(item, args));
+    return this.handwriting.withCurrentMaterial(String(args.noteId ?? ''), () => this.gate(`note-actions:${String(args.noteId ?? '')}`, () => this.adoptNoteActions(item, args)));
   }
 
   private async adoptNoteActions(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
@@ -3289,6 +3304,8 @@ export class PaRuntime {
     if (version.status !== 'approved') {
       throw new Error(`只有本人已审核通过的版本才能执行行动（当前 ${version.status}）；请先在飞书审核卡批准具体版本。`);
     }
+    const approval = (await this.repos!.notes.decisionsOf(noteId)).find(decision => decision.version_id === versionId && decision.decision === 'approve' && decision.fingerprint === version.fingerprint);
+    if (!approval || approval.reviewer_open_id !== this.config!.ownerOpenId) throw new Error('此版本没有当前主人对确切内容的审核凭证；请重新发布并由当前主人审核。');
     // Re-verify the live document still matches the approved fingerprint:
     // edited or unverifiable content never silently becomes execution params.
     if (trust.currentValidity === 'unknown') throw new Error(`无法核验文档当前内容（${trust.reason}）；暂不执行，请稍后再试。`);
@@ -3298,8 +3315,10 @@ export class PaRuntime {
     const derived = noteDerivedContent(version);
     if (derived.derivedStatus === 'needs_rebuild') throw new Error('当前版本的结构化候选尚未重建或缺少同源证明；请重新整理当前文档并审核新候选，不能执行旧版本行动。');
     const candidates = (Array.isArray(derived.candidates) ? derived.candidates : []) as NoteCandidate[];
-    const wanted = Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [];
-    if (wanted.length === 0) throw new Error('需要提供选择的候选编号（indexes[]）。');
+    const requestedIds = Array.isArray(args.candidateIds) ? args.candidateIds.map(String) : [];
+    const wanted = [...new Set(requestedIds.length ? requestedIds.map(id => candidates.findIndex((candidate, index) => (candidate.id ?? `legacy-${version.version}-${index}`) === id)) : Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [])];
+    if (wanted.length === 0) throw new Error('需要提供所选 candidateIds 或 indexes。');
+    const links = await this.repos!.notes.actionLinks(noteId);
     const results = [];
     for (const index of wanted) {
       let candidate = candidates[index];
@@ -3307,7 +3326,10 @@ export class PaRuntime {
         results.push({ index, ok: false, error: `候选 ${index} 不存在或无摘要。` });
         continue;
       }
-      const operationId = `note.action:${noteId}:v${version.version}:${index}`;
+      const candidateId = candidate.id ?? `legacy-${version.version}-${index}`;
+      let linked = links.find(link => link.candidate_id === candidateId);
+      const legacy = /^legacy-(\d+)-(\d+)$/.exec(candidateId);
+      const operationId = linked?.operation_id ?? (legacy ? `note.action:${noteId}:v${legacy[1]}:${legacy[2]}` : `note.action:${noteId}:v${version.version}:${index}`);
       const previous = await this.repos!.operations.get(operationId);
       const unknowns = candidateUnknowns(candidate, index, Array.isArray(derived.unknowns) ? derived.unknowns : []);
       const requestedClarification = Array.isArray(args.clarifications) ? args.clarifications.find((entry: any) => entry?.index === index) as Record<string, any> | undefined : undefined;
@@ -3332,38 +3354,69 @@ export class PaRuntime {
           end: resolved.end == null ? undefined : text(resolved.end, 100) };
         if (!!candidate.start !== !!candidate.end) { results.push({ index, ok: false, error: '澄清后的时间块需要完整开始和结束时间。' }); continue; }
       }
-      // Action identity = (note, version, index): repeats from any session
-      // return the existing object (P27 contract reused for notes). The
-      // owner's instruction is persisted with the operation so authorization
-      // and content approval stay separate records (P34).
+      const parameters = candidateParameters(candidate);
+      // Upgraded notes may have an operation but no material relationship yet.
+      // Recover the link from its original version and grant, never this version.
+      if (!linked && previous) {
+        try {
+          const original = await this.repos!.notes.getVersion(String(previous.params.versionId ?? ''));
+          const originalIndex = previous.params.index;
+          const originalCandidate = original && noteDerivedContent(original).candidates?.[originalIndex];
+          if (!original || original.note_id !== noteId || previous.params.noteId !== noteId || !Number.isInteger(originalIndex)
+            || !originalCandidate || (originalCandidate.id ?? `legacy-${original.version}-${originalIndex}`) !== candidateId) {
+            throw new Error('原行动缺少一致的资料版本及候选依据；请先核对原回执，不建立新授权。');
+          }
+          const family = ['calendar.create', 'wecom_calendar.create'].includes(previous.action) ? 'calendar' : 'task';
+          const recovered = await this.externalOperations.candidateCreation(operationId, family, { _authorization: { noteId, versionId: original.id, index: originalIndex } });
+          if (!recovered) throw new Error('原行动记录已变化，请重新核对。');
+          linked = await this.repos!.notes.linkAction({ note_id: noteId, candidate_id: candidateId, operation_id: operationId, version_id: original.id,
+            parameters: candidateParameters(previous.params.request ?? { ...originalCandidate, ...previous.params.clarification?.resolved }),
+            authorization_record: (previous.params.request?._authorization ?? recovered.args._authorization) as Record<string, unknown> });
+        } catch (error) { results.push({ index, candidateId, ok: false, operationId, error: (error as Error).message }); continue; }
+      }
+      // Cross-version identity only links the object. It does not carry an
+      // old grant onto new text, a new sort order, or different parameters.
+      if (linked && linked.version_id !== versionId && previous) {
+        if (previous.status === 'succeeded') {
+          results.push({ index, candidateId, ok: true, reused: true, operationId, receipt: previous.receipt,
+            changeProposal: materialFingerprint(linked.parameters) === materialFingerprint(parameters) ? null : { previous: linked.parameters, proposed: parameters },
+            message: '此候选已有成功对象；已保留关联。参数变化仅作为建议，需要另行明确授权修改原对象。' });
+        } else results.push({ index, candidateId, ok: false, operationId, error: '旧版本行动尚未明确完成；请先按原授权核对或恢复，不以新版本重建对象。' });
+        continue;
+      }
+      // Recovering the same candidate keeps the original grant and entry.
+      // Current content, version and owner are still verified above; new wording
+      // is a request to recover its receipt, not a replacement authorization.
+      const authorization = previous?.params.request?._authorization ?? { noteId, versionId, candidateId, index, instruction: previous?.params.instruction ?? instruction, owner: this.config!.ownerOpenId,
+        sourceSessionId: previous?.params.sourceSessionId ?? item.parent_session_id, sourceQuote: candidate.sourceQuote, parametersFingerprint: materialFingerprint(parameters), ...(clarification ? { clarification } : {}) };
       try {
+        if (!linked) await this.repos!.notes.linkAction({ note_id: noteId, candidate_id: candidateId, operation_id: operationId, version_id: versionId, parameters, authorization_record: authorization });
         if (candidate.start && candidate.end) {
-          const created = (await this.calendarWrite(item, 'create', { summary: candidate.summary, start: candidate.start, end: candidate.end, timeZone: previous?.params.timeZone, _authorization: { noteId, versionId, index, instruction, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) } }, operationId)) as { eventId?: string; url?: string | null };
-          results.push({ index, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
+          const created = (await this.calendarWrite(item, 'create', { ...parameters, timeZone: previous?.params.timeZone, _authorization: authorization }, operationId)) as { eventId?: string; url?: string | null };
+          results.push({ index, candidateId, ok: true, kind: 'calendar', sourceQuote: candidate.sourceQuote ?? null, ...(created as object) });
         } else {
           const created = await this.taskCreate(item, {
-            summary: candidate.summary,
-            due: candidate.due ?? undefined,
+            ...parameters,
             _operationId: operationId,
             _instruction: instruction,
-            _authorization: { noteId, versionId, index, sourceQuote: candidate.sourceQuote, ...(clarification ? { clarification } : {}) },
+            _authorization: authorization,
           });
-          results.push({ index, ok: true, kind: 'task', sourceQuote: candidate.sourceQuote ?? null, dueRaw: candidate.due ?? null, ...(created as object) });
+          results.push({ index, candidateId, ok: true, kind: 'task', sourceQuote: candidate.sourceQuote ?? null, dueRaw: candidate.due ?? null, ...(created as object) });
         }
       } catch (error) {
         results.push({ index, ok: false, error: (error as Error).message });
       }
     }
     const failed = results.filter(r => !r.ok).length;
+    const reused = results.filter(r => r.ok && 'reused' in r && r.reused).length;
+    const proposals = results.filter(r => 'changeProposal' in r && r.changeProposal).length;
     return {
       noteId,
       versionId,
       executed: results.length - failed,
-      failed,
+      failed, reused, proposals,
       results,
-      message: failed === 0
-        ? `已按你的选择执行 ${results.length} 项（依据已审核的 ${noteId} v${version.version}；重复选择返回已有对象）。`
-        : `执行 ${results.length - failed} 项，${failed} 项未执行（见明细）；审核通过不等于全部行动已执行。`,
+      message: `已处理 ${results.length - failed} 项：${reused} 项返回已有对象，${proposals} 项仅提出参数变更建议；${failed} 项未执行。变更建议需要另行明确授权修改原对象，详见逐项回执。`,
     };
   }
 
@@ -3641,7 +3694,7 @@ export class PaRuntime {
             mounted,
             tokenCache: await this.qwennoteTokenCache(),
           });
-          const nextSteps = mounted ? channel.nextSteps : [...channel.nextSteps, '宿主重启后 mcp 工具注册约需半分钟——听记通道显示正常后再打开本地会话，该会话才会带上听记工具。'];
+          const nextSteps = mounted ? channel.nextSteps : [...channel.nextSteps, '宿主重启后工具注册可能尚未完成；确认工具已挂载后重新打开本地会话，再验证实际读取。'];
           capabilities.push({ id: 'qwennote-channel', state: channel.state, message: channel.message, detail: { nextSteps } });
         }
       }
@@ -3718,7 +3771,92 @@ export class PaRuntime {
 
   async notesTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
+      const action = String(args.action ?? '');
+      if (['detail', 'save_draft', 'publish_draft', 'resend', 'import_minutes', 'adopt_actions'].includes(action)) {
+        const role = this.roleFor(agent);
+        if (role !== 'local-robot' && role !== 'feishu-access') throw new Error('资料操作只向绑定工作区的24私助会话开放。');
+        if (action === 'detail') return this.handwriting.materialDetail(String(args.noteId ?? ''), args.versionId ? String(args.versionId) : undefined);
+        if (action === 'import_minutes') {
+          if (!this.config?.extraLocalTools.some(name => name.startsWith('mcp__qwennote__'))) throw new Error('当前工作区没有放行听记工具，请先在本地配置并实际读取资料。');
+          return this.handwriting.importMinutes(args, agent);
+        }
+        return this.materialMutation({ ...args, action }, agent);
+      }
       return this.handwriting.notesTool(args, agent);
+    });
+  }
+
+  private minutesConfiguration(): string {
+    return hash(JSON.stringify([this.workspace?.id, this.config?.ownerOpenId, this.config?.extraLocalTools, this.extraToolResolution?.active]));
+  }
+
+  async minutesSnapshot(): Promise<unknown> {
+    if (!this.repos || !this.config) throw new Error('尚未绑定工作区。');
+    const requested = this.config.extraLocalTools.filter(name => name.startsWith('mcp__qwennote__'));
+    const tools = (this.extraToolResolution?.active ?? []).filter(tool => tool.startsWith('mcp__qwennote__') && requested.some(name => name === 'mcp__qwennote__*' || name === tool));
+    return { workspaceBinding: this.workspaceBinding, configured: requested.length > 0, mounted: requested.length && !this.extraToolResolution ? null : tools.length > 0,
+      tools: tools.map(name => ({ name })),
+      authorization: tools.length ? 'mounted' : 'unknown', lastRead: await this.repos.notes.latestReadEvidence(this.minutesConfiguration()),
+      message: '配置、工具挂载与实际读取分别记录；一次成功回执只证明该次请求。按需查询和读取请进入本地对话，普通刷新不访问听记。' };
+  }
+
+  async materialSnapshot(input: Record<string, unknown>): Promise<unknown> {
+    this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+    if (!this.repos) throw new Error('业务账本未就绪。');
+    const kind = String(input.kind ?? 'list');
+    if (kind === 'detail') return { workspaceBinding: this.workspaceBinding, ...await this.handwriting.materialDetail(String(input.noteId ?? ''), input.versionId ? String(input.versionId) : undefined) as object };
+    if (kind === 'original') return { workspaceBinding: this.workspaceBinding, ...await this.handwriting.original(String(input.noteId ?? ''), Number(input.pageNo)) as object };
+    const limit = Number(input.limit ?? 20), offset = Number(input.offset ?? 0);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) throw new Error('资料分页参数无效。');
+    const result = await this.repos.notes.materialList({ query: input.query ? text(input.query, 300) : undefined, status: input.status ? String(input.status) : undefined, limit, offset });
+    return { workspaceBinding: this.workspaceBinding, ...result, items: result.items.map(row => ({ id: row.id, title: row.title, status: row.status, origin: row.origin, pages: row.pages,
+      updatedAt: row.updated_at, draftRevision: row.material?.revision ?? 0, materialType: row.material?.source.type ?? 'images',
+      latest: row.latest ? { id: row.latest.id, version: row.latest.version, status: row.latest.status, docUrl: row.latest.doc_url, verifiedAt: row.latest.verified_at, verifyResult: row.latest.verify_result } : null })) };
+  }
+
+  async changeMaterial(input: Record<string, unknown>): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      const action = String(input.action ?? ''), noteId = String(input.noteId ?? '');
+      if (action === 'save_draft') return this.handwriting.saveDraft(noteId, Number(input.expectedRevision), input.draft, 'local-panel');
+      if (action === 'verify') return this.handwriting.verifyNote(noteId);
+      if (action === 'resend') return this.handwriting.resendReview(noteId, String(input.versionId ?? ''), text(input.requestId, 200));
+      const id = await this.openLocalSession();
+      const resolved = await this.ctx.sessionController.resolveAgent(id);
+      if ('error' in resolved) throw resolved.error;
+      return this.materialMutation(input, resolved.agent);
+    });
+  }
+
+  private async materialMutation(input: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
+    if (!['local-robot', 'feishu-access'].includes(this.roleFor(agent) ?? '')) throw new Error('资料操作需要当前工作区的24私助会话。');
+    const action = String(input.action ?? ''), noteId = String(input.noteId ?? '');
+    if (action === 'save_draft') return this.handwriting.saveDraft(noteId, Number(input.expectedRevision), input.draft, agent.id);
+    if (action === 'resend') return this.handwriting.resendReview(noteId, String(input.versionId ?? ''), text(input.requestId, 200));
+    if (!['publish_draft', 'adopt_actions'].includes(action)) throw new Error('未知资料操作。');
+    const instruction = text(input.instruction, 2000).trim(), requestId = text(input.requestId, 200).trim();
+    if (!instruction || !requestId) throw new Error('发布或执行行动需要明确指令和唯一请求标识。');
+    const intent = JSON.stringify({ action, noteId, expectedRevision: input.expectedRevision, versionId: input.versionId, candidateIds: input.candidateIds, indexes: input.indexes, clarifications: input.clarifications, instruction });
+    const id = `pa24-material-${hash(`${agent.id}:${requestId}`)}`;
+    return this.gate(`material-action:${id}`, async () => {
+      let item = await this.repos!.workItems.get(id);
+      if (item && item.instruction !== intent) throw new Error('请求标识已绑定其他资料操作，请重新核对后提交。');
+      if (!item) item = await this.repos!.workItems.insert({ id, title: `${action === 'publish_draft' ? '发布资料' : '执行资料候选'} ${noteId}`, role: 'handwriting', instruction: intent,
+        origin: agent.id === this.accessSessionId ? 'feishu' : 'local', parent_session_id: agent.id, delivery: agent.id === this.accessSessionId ? `feishu:${this.config!.ownerOpenId}` : `local:${agent.id}`, status: 'running' });
+      if (['completed', 'failed'].includes(item.status) && item.result_ref?.materialResult) return item.result_ref.materialResult;
+      if (['failed', 'needs_reconciliation'].includes(item.status)) throw new Error(item.progress || '原资料操作已经失败或中断，请核对后以新请求明确重试。');
+      const run = await this.repos!.workerRuns.beginMaterial(item, { path: this.workspace!.path, id: this.workspace!.id }, action);
+      let outcome: unknown;
+      try {
+        outcome = action === 'publish_draft' ? await this.handwriting.publishDraft(item, noteId, Number(input.expectedRevision)) : await this.noteAdoptActions(item, input);
+      } catch (error) {
+        await this.repos!.workerRuns.finishMaterial(id, (error as Error).message, { message: (error as Error).message }, true);
+        throw error;
+      }
+      const result = { ...outcome as object, workId: id, runId: run.id };
+      const failed = Number((result as { failed?: number }).failed ?? 0);
+      await this.repos!.workerRuns.finishMaterial(id, failed ? `${failed} 项候选未执行，详见逐项结果` : '资料操作已完成，详见逐项结果', result);
+      return result;
     });
   }
 
@@ -3829,10 +3967,12 @@ export class PaRuntime {
     return this.executions.run(async () => {
       if (!this.repos) throw new Error('业务账本未就绪。');
       const queue = await this.repos.notes.reviewQueue();
+      const counts = await this.repos.notes.materialCounts();
       const reminders = await this.repos.reviewReminders.activeAll();
       const history = await this.repos.notes.versionsWithDecisions(30);
       return {
-        count: queue.length,
+        count: (counts.awaiting_review ?? 0) + (counts.needs_rereview ?? 0) + (counts.returned ?? 0),
+        counts,
         items: queue.map(note => ({
           noteId: note.id,
           noteStatus: note.status,

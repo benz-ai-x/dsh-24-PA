@@ -33,7 +33,7 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'plans.summary', 'runs', 'runs.summary', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'materials', 'minutes', 'health', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'plans.summary', 'runs', 'runs.summary', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
@@ -224,7 +224,7 @@ describe('client.js 挂载面', () => {
 
   it('UI/UX 全量走查修复：真实数据详情、状态诚实与可访问性', () => {
     // 运行记录、提醒、周期计划、审核历史、备份说明均接到实际只读数据面。
-    for (const anchor of ["id: 'activity', cat: 'work'", 'function ActivityDetail', 'function ReminderDetail', 'function DigestDetail', 'function BackupDetail', '备份与恢复', '审核记录', 'Worker 可用状态']) {
+    for (const anchor of ["id: 'activity', cat: 'work'", 'function ActivityDetail', 'function ReminderDetail', 'function DigestDetail', 'function BackupDetail', '备份与恢复', '审核凭证与状态同步', 'Worker 可用状态']) {
       expect(client).toContain(anchor);
     }
     expect(client).toContain("capture('roles', rpc('roles'");

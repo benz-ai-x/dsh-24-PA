@@ -841,4 +841,24 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 29,
+    statements: [
+      `create table if not exists pa24.note_material (
+        note_id text primary key, revision integer not null, draft jsonb not null, recognition jsonb,
+        source jsonb not null, edited_by text not null, published_revision integer,
+        updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.note_action_link (
+        note_id text not null, candidate_id text not null, operation_id text not null,
+        version_id text not null, parameters jsonb not null, authorization_record jsonb not null,
+        created_at timestamptz not null default now(), primary key (note_id, candidate_id)
+      )`,
+      `create table if not exists pa24.material_read_evidence (
+        session_id text not null, call_id text not null, tool_name text not null,
+        configuration text not null, state text not null, read_at timestamptz not null default now(),
+        primary key (session_id, call_id)
+      )`,
+    ],
+  },
 ];

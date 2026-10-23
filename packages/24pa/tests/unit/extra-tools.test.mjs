@@ -74,17 +74,18 @@ describe('extraLocalTools 解析（F18）', () => {
 });
 
 describe('F18 WP3：听记通道三态诊断（qwennoteChannelState）', () => {
-  it('配置＋挂载＝正常', () => {
+  it('配置＋挂载仍不能证明资料可读', () => {
     const out = qwennoteChannelState({ configured: true, mounted: true, tokenCache: { exists: true, updatedAt: new Date() } });
-    expect(out.state).toBe('ok');
-    expect(out.nextSteps).toEqual([]);
+    expect(out.state).toBe('info');
+    expect(out.message).toContain('不能据此证明资料可读');
+    expect(out.nextSteps[0]).toContain('本地');
   });
 
-  it('配置＋未挂载＋无缓存＝未授权（首次授权未完成）', () => {
+  it('配置＋未挂载＋无缓存＝未核实，不能断言身份未授权', () => {
     const out = qwennoteChannelState({ configured: true, mounted: false, tokenCache: { exists: false, updatedAt: null } });
     expect(out.state).toBe('error');
-    expect(out.message).toContain('未授权');
-    expect(out.nextSteps[0]).toContain('首次授权');
+    expect(out.message).toContain('尚未核实');
+    expect(out.nextSteps[0]).toContain('本人浏览器核对授权');
   });
 
   it('配置＋未挂载＋有缓存＝连接失败或 token 过期（携带缓存时间）', () => {

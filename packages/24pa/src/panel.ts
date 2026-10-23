@@ -29,6 +29,8 @@ export const PANEL_RPC = {
     healthTestPreview: 'health.test.preview',
     configEvidence: 'workspace.evidence',
     notesQueue: 'notes.queue',
+    materials: 'materials',
+    minutes: 'minutes',
     roles: 'roles',
     reminders: 'reminders',
     digests: 'digests',
@@ -69,6 +71,7 @@ export const PANEL_RPC = {
     healthTestCleanup: 'health.test.cleanup',
     healthIdentityAccept: 'health.identity-accept',
     notesPoll: 'notes.poll',
+    materialChange: 'material.change',
     notesRemindPoll: 'notes.remind-poll',
     digestSupervise: 'digest.supervise',
     digestReschedule: 'digest.reschedule',
@@ -151,6 +154,8 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.notesQueue) {
               return respond({ ok: true, value: await runtime.reviewQueue() });
             }
+            if (endpoint === E.materials) return respond({ ok: true, value: await runtime.materialSnapshot(payload) });
+            if (endpoint === E.minutes) return respond({ ok: true, value: await runtime.minutesSnapshot() });
             if (endpoint === E.roles) {
               return respond({ ok: true, value: { roles: runtime.listRoles() } });
             }
@@ -208,6 +213,7 @@ function requiredBinding(payload: PanelAction): string {
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
+  [PANEL_RPC.actions.materialChange]: (runtime, payload) => runtime.changeMaterial(payload),
   [PANEL_RPC.actions.healthCheck]: (runtime, payload) => runtime.checkHealth(payload),
   [PANEL_RPC.actions.healthTest]: (runtime, payload) => runtime.connectionTest(payload, 'execute'),
   [PANEL_RPC.actions.healthTestCleanup]: (runtime, payload) => runtime.connectionTest(payload, 'cleanup'),

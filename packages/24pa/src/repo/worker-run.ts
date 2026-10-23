@@ -52,6 +52,50 @@ export class WorkerRunRepo {
     await tx.query("update pa24.worker_run set status = 'running', updated_at = now() where id = $1", [run.id]);
     return run.id;
   }
+  /** Explicit material actions share the run archive, without a native Worker or model input. */
+  async beginMaterial(item: WorkItemRow, workspace: { path: string; id: string }, action: string): Promise<WorkerRunRow> {
+    return this.db.withTransaction(async tx => {
+      const current = await this.current(item.id, tx); if (current) return current;
+      const id = `material-run-${randomUUID()}`;
+      const snapshot = { title: item.title, role: item.role, origin: item.origin, delivery: item.delivery,
+        workspacePath: workspace.path, workspaceId: workspace.id, parentSessionId: item.parent_session_id,
+        startedAt: Date.now(), completionCriteria: null, skill: null, fromRunId: null, executor: 'material-action', modelRequested: false };
+      const run = (await tx.query<WorkerRunRow>(`insert into pa24.worker_run (id,work_item_id,session_id,source,status,instruction,snapshot)
+        values ($1,$2,$3,'manual','running',$4,$5) returning *`, [id, item.id, item.parent_session_id, item.instruction, JSON.stringify(snapshot)])).rows[0]!;
+      await tx.query('update pa24.work_item set active_worker_run_id=$2 where id=$1', [item.id, id]);
+      await tx.query("insert into pa24.worker_run_call (id,run_id,tool,args,status) values ($1,$2,$3,$4,'running')",
+        [id + ':action', id, 'pa24_notes.' + action, item.instruction]);
+      return run;
+    });
+  }
+  async finishMaterial(workId: string, progress: string, result: unknown, error = false): Promise<void> {
+    await this.db.withTransaction(async tx => {
+      const run = await this.current(workId, tx);
+      if (!run || run.snapshot.executor !== 'material-action' || run.status !== 'running') throw new Error('资料运行已经结束或待核对，不能覆盖原结果。');
+      const unknown = (await tx.query("select id from pa24.action_operation where work_item_id=$1 and status in ('running','unknown')", [workId])).rowCount > 0;
+      const failed = error || Number((result as { failed?: number })?.failed ?? 0) > 0;
+      const status = failed || unknown ? 'failed' : 'completed', ref = error ? { materialError: progress } : { materialResult: result };
+      await tx.query('update pa24.worker_run_call set status=$2,result=$3,updated_at=now() where id=$1',
+        [run.id + ':action', unknown ? 'unknown' : failed ? 'failed' : 'succeeded', JSON.stringify(result)]);
+      const item = (await tx.query<WorkItemRow>('update pa24.work_item set status=$2,progress=$3,result=$4,result_ref=$5,revision=revision+1,updated_at=now() where id=$1 returning *',
+        [workId, status, progress, JSON.stringify(result), JSON.stringify(ref)])).rows[0]!;
+      await this.updateForWork(tx, item);
+    });
+  }
+  async recoverMaterials(): Promise<void> {
+    await this.db.withTransaction(async tx => {
+      const message = '资料直接操作被重启中断；请在原资料核对发布和行动回执后明确重试，不自动启动模型或重复写入。';
+      const rows = (await tx.query<WorkerRunRow>("select * from pa24.worker_run where snapshot->>'executor'='material-action' and status='running'")).rows;
+      for (const run of rows) {
+        await tx.query("update pa24.worker_run_call set status='unknown',updated_at=now() where run_id=$1 and status='running'", [run.id]);
+        const item = (await tx.query<WorkItemRow>("update pa24.work_item set status='failed',progress=$2,result_ref=$3,revision=revision+1,updated_at=now() where id=$1 and active_worker_run_id=$4 returning *",
+          [run.work_item_id, message, JSON.stringify({ materialError: message }), run.id])).rows[0];
+        if (item) await this.updateForWork(tx, item);
+      }
+      // A crash before recording any execution has no fabricated run or effect.
+      await tx.query("update pa24.work_item set status='failed',progress=$1,revision=revision+1,updated_at=now() where id like 'pa24-material-%' and status='running' and active_worker_run_id is null", [message]);
+    });
+  }
   async inputReceipt(executionId: string, status: WorkerInputRow['status'], nativeId?: string, turn?: number, reason?: string, tx: PaQueryer = this.db): Promise<void> {
     await tx.query(`update pa24.worker_run_input set status = $2, native_message_id = coalesce($3, native_message_id),
       adopted_turn = coalesce($4, adopted_turn), reason = $5, updated_at = now()
