@@ -1,0 +1,24 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-materials/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/client.test.mjs (14 tests) 13ms
+ ✓ tests/unit/manticore-materials.test.mjs (15 tests) 22939ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 保存与发布分开、CAS 冲突、重识别不覆盖人工修订，旧按钮无法批准新草稿 1374ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 跨版本重排和改文保留候选关系；已成功对象返回变化建议，不重做 1980ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 同版本重发只增加通知意图，重复 requestId 去重，不重复识别/发布；主体变化拒绝旧卡 968ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 听记依真实本地工具回执导入，无虚构原稿；明确保存后可走同一冻结审核流程 928ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 发布回读失败后换请求恢复同一文档；候选执行锁定当前资料，草稿保存不穿过执行边界 1641ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 批准凭证绑定当前主人；远端人工修订后的重识别只提供对照 1553ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 保存与发布分开、CAS 冲突、重识别不覆盖人工修订，旧按钮无法批准新草稿 2181ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 跨版本重排和改文保留候选关系；已成功对象返回变化建议，不重做 2920ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 同版本重发只增加通知意图，重复 requestId 去重，不重复识别/发布；主体变化拒绝旧卡 1789ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 听记依真实本地工具回执导入，无虚构原稿；明确保存后可走同一冻结审核流程 1841ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 发布回读失败后换请求恢复同一文档；候选执行锁定当前资料，草稿保存不穿过执行边界 2669ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 批准凭证绑定当前主人；远端人工修订后的重识别只提供对照 2316ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 完整计数与分页不受最近记录上限影响；原稿按工作区与摘要校验，不接受旧绑定 758ms
+ ✓ tests/unit/material-panel.test.mjs (7 tests) 227ms
+
+ Test Files  3 passed (3)
+      Tests  36 passed (36)
+   Start at  09:25:15
+   Duration  23.99s (transform 225ms, setup 0ms, collect 543ms, tests 23.18s, environment 0ms, prepare 59ms)

@@ -1,0 +1,11 @@
+F06 passing section from the real Loader run; subsequent M05-only fixture failures were corrected and rerun in loader-postgres.log.
+
+ ✓ tests/e2e/f06.e2e.mjs (8 tests) 28532ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P28：批次收集三页、重复页识别、损坏资源反馈，重启后原稿与页序仍在 6576ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P29：视觉路由缺失时明确报错；配置重载后识别请求真的携带图片并发布待审文档 2791ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31：非主人点击被拒绝，主人批准指定版本，重复点击返回原结果 2702ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31：退回指定版本并记录凭证 1602ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P32：文档修改后旧批准仅覆盖旧快照，重发候选 v2 再批准，历史凭证保留 4246ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31/P32：状态同步失败时凭证仍保存，核验后补同步；结束批次后不再追加页 5757ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P29：媒体插入失败不发送待审链接，操作保留可恢复回执 1574ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31/P29：识别 Worker 没有任何批准或外部行动工具 1048ms

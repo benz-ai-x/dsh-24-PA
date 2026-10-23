@@ -130,6 +130,7 @@ window.__ModuleLoader__.load({
       .pa24-chip.show{display:inline-flex}.pa24-chip.error{background:var(--pa-danger-bg);color:var(--pa-danger)}
       .pa24-detail-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
       .pa24-skills label.pa24-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;max-width:100%;font-size:13px}.pa24-skills label.pa24-field:has(input[type=checkbox]){flex-direction:row;align-items:flex-start}.pa24-skills label.pa24-field input:not([type=checkbox]),.pa24-skills label.pa24-field textarea,.pa24-skills label.pa24-field select{width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--pa-line);border-radius:8px;background:var(--pa-soft);color:var(--pa-ink);font:inherit}.pa24-skills label.pa24-field textarea{resize:vertical}.pa24-skills label.pa24-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px;margin:2px 0;padding:0}.pa24-skills fieldset{min-width:0;border:1px solid var(--pa-line);border-radius:10px;padding:12px}.pa24-skills legend{font-size:12px;overflow-wrap:anywhere}
+      .pa24-materials{min-width:0;overflow-wrap:anywhere}.pa24-material-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;font-size:13px}.pa24-material-field:has(input[type=checkbox]){flex-direction:row;align-items:center}.pa24-material-field input:not([type=checkbox]),.pa24-material-field textarea,.pa24-material-field select{width:100%;min-width:0;max-width:100%;box-sizing:border-box;background:var(--pa-soft);color:var(--pa-ink);border:1px solid var(--pa-line);border-radius:8px;padding:8px;font:inherit}.pa24-material-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px}.pa24-material-text{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;max-width:100%}.pa24-original{max-width:100%;height:auto;display:block;margin:12px auto}.pa24-material-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:16px;margin-top:16px}.pa24-material-main{min-width:0}.pa24-materials fieldset{min-width:0;padding:12px;border:1px solid var(--pa-line);border-radius:8px;margin:12px 0}.pa24-materials button{white-space:normal}.pa24-materials .pa24-note{white-space:pre-wrap}.pa24-materials .pa24-row{flex-wrap:wrap}@container(max-width:760px){.pa24-material-compare{display:block}.pa24-original-side{display:none}}
       .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
       .pa24-source-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}.pa24-source-fields label{display:flex;flex-direction:column;gap:5px;min-width:0}.pa24-sources input,.pa24-sources select{max-width:100%;box-sizing:border-box}.pa24-sources .pa24-check input{width:18px;flex:0 0 18px}.pa24-source-save{position:sticky;bottom:72px;background:var(--pa-surface);border-top:1px solid var(--pa-line);padding:12px 0;margin-top:16px;z-index:2}.pa24-source-save p{margin:6px 0 0}.pa24-sources .pa24-job{overflow-wrap:anywhere}
@@ -222,67 +223,113 @@ window.__ModuleLoader__.load({
             h('details', null, h('summary', null, L('存储位置与维护方式', 'Storage & maintenance')), h('p', { className: 'pa24-meta' }, (workspace.path || '') + '/.24pa/memory.json'), h('p', { className: 'pa24-meta' }, L('通过 dsh 的24私助会话新增、更正、删除和整理（变更集可撤销）；整理仅由你发起。', 'Add, correct, remove, and tidy through the 24PA dsh session (changesets are undoable); tidying is always owner-initiated.'))));
         }
 
-        function ReviewView({ workspace, openRobot }) {
-          const [view, retryFetch] = useRpc('notes.queue', {}, [workspace.path]);
-          const [mode, setMode] = React.useState('pending');
-          const [historyFilter, setHistoryFilter] = React.useState('all');
-          const button = (name, label, onClick, props = {}) => h('button', { type: 'button', onClick, ...props }, icon(name), label);
-          const tz = workspace.config?.timeZone || 'Asia/Shanghai';
-          const verifyBadge = v => {
-            if (!v || !v.verifyResult) return badge(L('尚未核验', 'Not verified'), 'neutral', 'info');
-            if (v.verifyResult === 'matches') return badge(L('内容一致', 'Content matches'), 'blue', 'check');
-            if (v.verifyResult === 'changed') return badge(L('文档已修改', 'Document changed'), 'amber', 'alert');
-            return badge(L('核验异常', 'Verification failed'), 'danger', 'alert');
+        const materialEditors = new Map();
+        const materialStatus = value => ({ collecting: ['收集中', 'Collecting'], collected: ['草稿待发布', 'Draft'], awaiting_review: ['待审核', 'Pending review'], pending_review: ['待审核', 'Pending review'], approved: ['已审核', 'Approved'], returned: ['已退回', 'Returned'], needs_rereview: ['需重新审核', 'Needs review'], stale: ['已失效', 'Stale'], superseded: ['历史版本', 'Historical'] }[value] || [value, value]);
+        function ReviewView({ workspace, binding, openRobot }) {
+          const [query, setQuery] = React.useState(''), [status, setStatus] = React.useState('pending'), [offset, setOffset] = React.useState(0);
+          const [list, setList] = React.useState({ data: null, key: '', error: '', busy: false }), [selected, setSelected] = React.useState(''), [versionId, setVersionId] = React.useState('');
+          const [detail, setDetail] = React.useState(null), [detailError, setDetailError] = React.useState(''), [tick, setTick] = React.useState(0), [busy, setBusy] = React.useState(false), [feedback, setFeedback] = React.useState('');
+          const [mode, setMode] = React.useState('draft'), [image, setImage] = React.useState(null), [imageError, setImageError] = React.useState(''), [preview, setPreview] = React.useState(false), [confirmed, setConfirmed] = React.useState(false);
+          const [selection, setSelection] = React.useState([]), [instruction, setInstruction] = React.useState(''), [editTick, redraw] = React.useState(0);
+          const epoch = React.useRef(0), detailEpoch = React.useRef(0), mounted = React.useRef(true);
+          React.useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+          const limit = 20, key = JSON.stringify([binding, query, status, offset]);
+          const editorKey = binding + ':' + selected, editor = materialEditors.get(editorKey);
+          const button = (name, label, action, props = {}) => h('button', { type: 'button', disabled: busy, onClick: action, ...props }, icon(name), label);
+          React.useEffect(() => {
+            const abort = new AbortController(), seq = ++epoch.current;
+            setList(old => ({ data: old.key === key ? old.data : null, key, error: '', busy: true }));
+            rpc('materials', { workspaceBinding: binding, query, status, offset, limit }, abort.signal).then(data => {
+              if (abort.signal.aborted || seq !== epoch.current) return;
+              if (data.workspaceBinding !== binding || !Array.isArray(data.items)) throw new Error(L('资料响应与工作区不符。', 'Material response does not match this workspace.'));
+              setList({ data, key, error: '', busy: false });
+            }).catch(e => { if (!abort.signal.aborted && seq === epoch.current) setList(old => ({ ...old, error: e.message, busy: false })); });
+            return () => abort.abort();
+          }, [key, tick]);
+          React.useEffect(() => {
+            const abort = new AbortController(), seq = ++detailEpoch.current;
+            if (!selected) { setDetail(null); return () => abort.abort(); }
+            setDetailError('');
+            setDetail(old => old?.note.id === selected && old.workspaceBinding === binding ? old : null);
+            rpc('materials', { workspaceBinding: binding, kind: 'detail', noteId: selected, ...(versionId ? { versionId } : {}) }, abort.signal).then(data => {
+              if (abort.signal.aborted || seq !== detailEpoch.current) return;
+              if (data.workspaceBinding !== binding || data.note?.id !== selected) throw new Error(L('资料归属已变化，请重新选择。', 'Material ownership changed. Select it again.'));
+              const old = materialEditors.get(editorKey);
+              if (!old?.dirty) materialEditors.set(editorKey, { draft: data.material.draft, revision: data.material.revision, dirty: false });
+              setDetail(data);
+            }).catch(e => { if (!abort.signal.aborted && seq === detailEpoch.current) setDetailError(e.message); });
+            return () => abort.abort();
+          }, [binding, selected, versionId, tick]);
+          const choose = id => { setSelected(id); setVersionId(''); setImage(null); setImageError(''); setPreview(false); setConfirmed(false); setSelection([]); setFeedback(''); };
+          const updateDraft = patch => { if (!editor) return; materialEditors.set(editorKey, { ...editor, draft: { ...editor.draft, ...patch }, dirty: true }); setPreview(false); setConfirmed(false); redraw(editTick + 1); };
+          const perform = async (action, payload = {}) => {
+            const seq = detailEpoch.current, id = selected; setBusy(true); setFeedback('');
+            try {
+              const value = await rpc('action', { type: 'material.change', action, workspaceBinding: binding, noteId: id, requestId: crypto.randomUUID(), ...payload });
+              if (!mounted.current || seq !== detailEpoch.current || selected !== id) return;
+              if (action === 'save_draft') { const old = materialEditors.get(editorKey); materialEditors.set(editorKey, { ...old, dirty: false, revision: value.revision }); }
+              setFeedback(value.results ? (value.message || '') + '\n' + JSON.stringify(value.results, null, 2) : value.message || JSON.stringify(value, null, 2)); setPreview(false); setConfirmed(false); setTick(v => v + 1);
+            } catch (e) { if (mounted.current && seq === detailEpoch.current) setFeedback(e.message); }
+            finally { if (mounted.current) setBusy(false); }
           };
-          const reviewStatus = (status, decision) => {
-            const key = decision || status;
-            const meta = {
-              approve: [L('已通过', 'Approved'), 'blue', 'check'], approved: [L('已通过', 'Approved'), 'blue', 'check'],
-              return: [L('已退回', 'Returned'), 'amber', 'pen'], returned: [L('已退回', 'Returned'), 'amber', 'pen'],
-              pending_review: [L('待审核', 'Pending review'), 'amber', 'clock'], awaiting_review: [L('待审核', 'Pending review'), 'amber', 'clock'],
-              needs_rereview: [L('需重新审核', 'Needs re-review'), 'danger', 'alert'], superseded: [L('已取代', 'Superseded'), 'neutral', 'close'], stale: [L('已失效', 'Stale'), 'neutral', 'close'],
-            }[key] || [key, 'neutral', 'info'];
-            return badge(...meta);
-          };
-          const history = view.data?.history ?? [];
-          const visibleHistory = historyFilter === 'all' ? history : historyFilter === 'unverified'
-            ? history.filter(row => !row.verifyResult)
-            : history.filter(row => (row.decision || row.status) === historyFilter);
-          const pending = view.status === 'ready' && (view.data.count === 0
-            ? h('div', { className: 'pa24-card' }, empty('check', 'blue', L('没有等待审核的笔记', 'No notes awaiting review'), L('拍照整理后的待审版本会出现在这里；审核完成或退回后自动移入审核记录。', 'Pending versions from photographed notes appear here and move into review history once reviewed or returned.'), button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot)))
-            : view.data.items.map(item => h('article', { key: item.noteId, className: 'pa24-job' },
-                h('div', { className: 'pa24-row pa24-between' }, h('h3', null, item.title || item.noteId), reviewStatus(item.noteStatus)),
-                item.latestVersion && h('div', { className: 'pa24-row' }, badge('v' + item.latestVersion.version + ' ' + (t(item.latestVersion.status) || item.latestVersion.status), item.latestVersion.status === 'pending_review' ? 'amber' : 'neutral', 'shield'), verifyBadge(item.latestVersion)),
-                h('p', { className: 'pa24-meta' }, item.pages + L(' 页原稿 · 指纹 ', ' pages · fingerprint ') + (item.latestVersion ? item.latestVersion.fingerprint : '—') + (item.latestVersion && item.latestVersion.verifiedAt ? L(' · 上次核验 ', ' · last verified ') + date(item.latestVersion.verifiedAt, tz) : '')),
-                item.reminders.length > 0 && h('p', { className: 'pa24-meta' }, L('催办：', 'Reminders: ') + item.reminders.map(r => (t('reminder' + (r.kind === 'daily' ? 'Daily' : 'Once')) || r.kind) + ' ' + (t('reminder' + r.status.charAt(0).toUpperCase() + r.status.slice(1)) || r.status) + (r.status === 'pending' ? L('，下次 ', ', next ') + date(r.remindAt, tz) : '')).join(L('；', '; '))),
-                item.latestVersion && item.latestVersion.docUrl && h('a', { className: 'pa24-link-button', href: item.latestVersion.docUrl, target: '_blank', rel: 'noreferrer' }, icon('external'), L('打开飞书文档', 'Open Feishu doc')),
-                h('p', { className: 'pa24-meta' }, L('需要稍后提醒、暂停催办或重新发布候选时，直接告诉24私助。', 'For a later nudge, pausing follow-ups, or republishing a candidate, just tell 24PA.')))));
-          return h('section', null,
-            sectionHead('pen', null, L('拍照笔记的待审版本、审核记录与版本核验都在这里；批准或退回请在飞书审核卡上完成。', 'Pending versions, review history, and verification; approve or return on the Feishu review card.'),
-              button('refresh', L('刷新队列', 'Refresh queue'), retryFetch, { disabled: view.status === 'loading', className: 'pa24-quiet' }), 'danger'),
-            h('div', { className: 'pa24-example' }, icon('shield', { width: 16, height: 16 }), L('审核裁决只由你在飞书卡片上作出；本页面为只读查阅，不提供网页批准按钮。', 'Review verdicts are made by you on the Feishu card only; this page is read-only and has no approve button.')),
-            h('div', { className: 'pa24-row', role: 'group', 'aria-label': L('审核视图', 'Review views'), style: { margin: '14px 0' } },
-              button('tasks', L('待处理 ' + (view.data?.count ?? 0), 'Pending ' + (view.data?.count ?? 0)), () => setMode('pending'), { className: mode === 'pending' ? 'pa24-filter-active' : 'pa24-quiet', 'aria-pressed': mode === 'pending' }),
-              button('clock', L('审核记录 ' + history.length, 'History ' + history.length), () => setMode('history'), { className: mode === 'history' ? 'pa24-filter-active' : 'pa24-quiet', 'aria-pressed': mode === 'history' })),
-            view.status === 'loading' && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取审核队列…', 'Reading the review queue…')),
-            view.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('div', { className: 'pa24-row' }, icon('alert'), h('strong', null, L('审核队列读取失败', 'Failed to read the review queue'))), h('p', null, view.error), button('refresh', L('重试读取', 'Retry read'), retryFetch)),
-            view.status === 'ready' && mode === 'pending' && pending,
-            view.status === 'ready' && mode === 'history' && h('section', { className: 'pa24-card' },
-              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('审核记录', 'Review history')),
-                h('select', { value: historyFilter, onChange: e => setHistoryFilter(e.target.value), 'aria-label': L('筛选审核记录', 'Filter review history'), style: { maxWidth: 220 } },
-                  h('option', { value: 'all' }, L('全部状态', 'All statuses')),
-                  h('option', { value: 'pending_review' }, L('待审核', 'Pending review')),
-                  h('option', { value: 'return' }, L('已退回', 'Returned')),
-                  h('option', { value: 'approve' }, L('已通过', 'Approved')),
-                  h('option', { value: 'unverified' }, L('待核验', 'Needs verification')))),
-              visibleHistory.length === 0
-                ? empty('search', 'neutral', L('没有符合条件的审核记录', 'No matching review history'), L('调整状态筛选，或等待新的审核版本。', 'Change the filter or wait for a new review version.'))
-                : visibleHistory.map(row => h('article', { key: row.noteId + ':v' + row.version, className: 'pa24-job' },
-                    h('div', { className: 'pa24-row pa24-between' }, h('h3', null, row.title || row.noteId), reviewStatus(row.status, row.decision)),
-                    h('div', { className: 'pa24-row' }, badge('v' + row.version, 'neutral', 'shield'), verifyBadge(row)),
-                    row.summary && h('p', { className: 'pa24-note' }, row.summary),
-                    h('p', { className: 'pa24-meta' }, L('版本创建 ', 'Created ') + date(row.createdAt, tz) + (row.decidedAt ? L(' · 审核 ', ' · Reviewed ') + date(row.decidedAt, tz) : '') + L(' · 指纹 ', ' · Fingerprint ') + row.fingerprint),
-                    row.docUrl && h('a', { className: 'pa24-link-button', href: row.docUrl, target: '_blank', rel: 'noreferrer' }, icon('external'), L('打开飞书文档', 'Open Feishu doc'))))));
+          const field = (label, control) => h('label', { key: label, className: 'pa24-material-field' }, h('span', null, label), control);
+          const input = (key, label, multiline = false) => field(label, h(multiline ? 'textarea' : 'input', { value: editor?.draft[key] ?? '', rows: multiline ? key === 'transcript' ? 14 : 4 : undefined, disabled: busy, onChange: e => updateDraft({ [key]: e.target.value }) }));
+          const diffNames = { title: '标题', transcript: '正文', summary: '摘要', pageOrder: '原稿页序', pages: '逐页转写', doubts: '定位疑点', unknowns: '待确认项', suggestions: 'AI 建议', relativeDates: '日期依据', diagrams: '图示说明' };
+          const diffView = data => data && h('div', { className: 'pa24-note' }, h('p', null, L('与最新冻结版本比较：', 'Compared with the latest frozen version: ') + (data.fields.map(key => diffNames[key] || key).join('、') || L('正文与页序未变化', 'Body and page order unchanged'))),
+            h('p', null, L('候选行动：', 'Candidate actions: ') + data.candidates.filter(c => c.change !== 'unchanged').map(c => (c.change === 'added' ? '+ ' : '↻ ') + c.summary).join('；')),
+            data.reordered && h('p', null, L('候选行动顺序已调整，关联标识保留。', 'Candidate order changed; identities are preserved.')),
+            data.removed.length > 0 && h('p', null, L('移除候选（不会删除外部对象）：', 'Removed candidates (external objects remain): ') + data.removed.map(c => c.summary).join('；')));
+          const detailReady = detail?.note.id === selected && editor;
+          const version = detailReady ? detail.selected : null;
+          const frozenCandidates = version?.content?.derivedStatus === 'ready' ? version.content.candidates || [] : [];
+          const source = detail?.material.source;
+          const originalView = detailReady && h('section', { className: 'pa24-card' }, h('h3', null, source?.kind === 'qwennote' ? L('听记来源原文', 'Original minutes') : L('保存的原稿', 'Saved originals')),
+            source?.kind === 'qwennote' ? h(React.Fragment, null, fields([[L('类型', 'Type'), source.type], [L('来源', 'Source'), source.title], [L('引用', 'Reference'), source.reference || '—'], [L('读取工具', 'Read tool'), source.toolName || '—']]), h('pre', { className: 'pa24-material-text' }, detail.sourceText))
+              : h(React.Fragment, null, h('div', { className: 'pa24-row' }, detail.pages.map(page => button('image', L('第 ' + page.pageNo + ' 页', 'Page ' + page.pageNo), async () => {
+                const seq = detailEpoch.current; setImageError('');
+                try { const data = await rpc('materials', { kind: 'original', noteId: selected, pageNo: page.pageNo, workspaceBinding: binding }); if (seq === detailEpoch.current && mounted.current) { if (data.workspaceBinding !== binding) throw new Error('工作区已变化'); setImage(data); } }
+                catch (e) { if (seq === detailEpoch.current && mounted.current) setImageError(e.message); }
+              }, { key: page.pageNo, disabled: page.status !== 'saved' || busy }))), imageError && h('p', { role: 'alert', className: 'pa24-error' }, imageError), image && h('img', { src: image.data, alt: L('已核验原稿第 ' + image.pageNo + ' 页', 'Verified original page ' + image.pageNo), className: 'pa24-original' }), !image && h('p', { className: 'pa24-meta' }, L('选择页码读取已保存原稿；显示前核对原件摘要。', 'Choose a page to read the saved original; its digest is checked first.'))));
+          return h('section', { className: 'pa24-materials' },
+            sectionHead('pen', null, L('对照原稿、识别结果、草稿和冻结版本。保存与发布分开，批准或退回仍在飞书。', 'Compare originals, recognition, drafts, and frozen versions. Save and publish separately; approve or return in Feishu.'), button('refresh', L('刷新资料', 'Refresh materials'), () => setTick(v => v + 1), { disabled: busy || list.busy }), 'danger'),
+            list.data && capKpi([[list.data.counts.awaiting_review || 0, L('待审笔记', 'Pending notes')], [list.data.counts.returned || 0, L('退回笔记', 'Returned notes')], [list.data.counts.needs_rereview || 0, L('需重审笔记', 'Notes needing review')], [list.data.counts.verificationUnknown || 0, L('核验异常', 'Verification errors')]]),
+            h('div', { className: 'pa24-source-fields' }, field(L('标题或资料编号', 'Title or material ID'), h('input', { value: query, onChange: e => { setQuery(e.target.value); setOffset(0); } })), field(L('资料状态', 'Material status'), h('select', { value: status, onChange: e => { setStatus(e.target.value); setOffset(0); } }, [['pending','待处理','Pending'],['','全部资料','All materials'],['collected','草稿待发布','Draft'],['approved','已审核','Approved'],['returned','已退回','Returned'],['needs_rereview','需重审','Needs review']].map(([value, zh, en]) => h('option', { key: value, value }, L(zh, en)))))),
+            list.busy && h('p', { role: 'status' }, L('正在读取资料…', 'Reading materials…')),
+            list.error && h('div', { role: 'alert', className: 'pa24-error' }, list.error, list.data && h('p', null, L('当前显示上次读取的内容。', 'Showing the last successful read.')), button('refresh', L('重试读取', 'Retry read'), () => setTick(v => v + 1))),
+            list.data && h(React.Fragment, null, h('p', { className: 'pa24-meta' }, list.data.matched + L(' 条匹配 / ', ' matching / ') + list.data.total + L(' 份资料', ' total materials')),
+              list.data.items.length ? list.data.items.map(row => h('article', { key: row.id, className: 'pa24-job' }, h('div', { className: 'pa24-row pa24-between' }, button('note', row.title || row.id, () => choose(row.id), { 'aria-pressed': selected === row.id }), badge(L(...materialStatus(row.status)), row.status === 'approved' ? 'blue' : 'amber')),
+                h('p', { className: 'pa24-meta' }, `${row.id} · ${row.materialType} · ` + (row.latest ? 'v' + row.latest.version + ' · ' : '') + date(row.updatedAt, workspace.config?.timeZone))))
+                : !list.busy && empty('note', 'neutral', list.data.total ? L('没有匹配资料', 'No matching materials') : L('尚无资料记录', 'No materials yet'), L('在飞书提交手写原稿，或在本地对话选择听记资料。', 'Submit originals in Feishu or select minutes in local chat.'), button('chat', L('打开本地对话', 'Open local chat'), openRobot)),
+              list.data.matched > limit && h('nav', { className: 'pa24-row', 'aria-label': L('资料分页', 'Material pages') }, button('chevron', L('上一页', 'Previous'), () => setOffset(Math.max(0, offset - limit)), { disabled: offset === 0 }), h('span', null, Math.floor(offset / limit) + 1), button('chevron', L('下一页', 'Next'), () => setOffset(offset + limit), { disabled: offset + limit >= list.data.matched }))),
+            selected && !detailReady && !detailError && h('p', { role: 'status' }, L('正在读取资料详情…', 'Reading material details…')), detailError && h('p', { role: 'alert', className: 'pa24-error' }, detailError),
+            detailReady && h('section', { className: 'pa24-card' }, h('h2', null, detail.note.title),
+              h('div', { className: 'pa24-row', role: 'group', 'aria-label': L('资料对照视图', 'Material comparison views') }, [['original','原稿与来源','Originals & source'],['recognition','识别结果','Recognition'],['draft','编辑草稿','Edit draft'],['version','冻结版本','Frozen version'],['actions','候选行动','Candidate actions']].map(([value, zh, en]) => button('note', L(zh, en), () => setMode(value), { key: value, 'aria-pressed': mode === value, className: mode === value ? 'pa24-filter-active' : 'pa24-quiet' }))),
+              h('div', { className: 'pa24-material-compare' }, h('div', { className: mode === 'original' ? '' : 'pa24-original-side' }, originalView), mode !== 'original' && h('div', { className: 'pa24-material-main' },
+                mode === 'recognition' && h(React.Fragment, null, h('h3', null, L('最近一次识别（未自动覆盖人工草稿）', 'Latest recognition (manual draft preserved)')), detail.material.recognition ? h(React.Fragment, null, h('pre', { className: 'pa24-material-text' }, detail.material.recognition.transcript), h('details', null, h('summary', null, L('疑点、页码与 AI 推断', 'Doubts, pages, and AI inferences')), h('pre', { className: 'pa24-material-text' }, JSON.stringify(detail.material.recognition, null, 2)))) : h('p', null, L('没有独立的图像识别结果；听记请对照来源文字。', 'No separate image recognition; compare minutes with their source text.'))),
+                mode === 'draft' && h(React.Fragment, null, h('p', { className: 'pa24-meta' }, L('草稿修订 ', 'Draft revision ') + editor.revision + (editor.dirty ? L(' · 有未保存修改', ' · Unsaved changes') : L(' · 已保存', ' · Saved'))), input('title', L('标题', 'Title')), input('summary', L('整理摘要', 'Summary'), true), input('transcript', L('整理正文', 'Body'), true),
+                  field(L('原稿页序（逗号分隔）', 'Original page order (comma separated)'), h('input', { value: editor.draft.pageOrder.join(','), disabled: busy || !detail.pages.length, onChange: e => updateDraft({ pageOrder: e.target.value.split(',').filter(Boolean).map(Number) }) })),
+                  field(L('待确认项（每行一项）', 'Uncertainties (one per line)'), h('textarea', { value: editor.draft.unknowns.join('\n'), rows: 3, disabled: busy, onChange: e => updateDraft({ unknowns: e.target.value.split('\n').filter(Boolean) }) })),
+                  h('h3', null, L('草稿候选行动（尚未授权）', 'Draft candidate actions (not authorized)')),
+                  editor.draft.candidates.map((candidate, index) => h('fieldset', { key: candidate.id || 'new-' + index }, h('legend', null, L('候选 ', 'Candidate ') + (index + 1)),
+                    [['summary','行动摘要','Action'],['sourceQuote','来源原话','Source quote'],['due','截止日期（可空）','Due date (optional)'],['start','日程开始（可空）','Event start (optional)'],['end','日程结束（可空）','Event end (optional)'],['sourceId','目标来源 ID（可空）','Source ID (optional)'],['company','公司（可空）','Company (optional)'],['project','项目（可空）','Project (optional)']].map(([key, zh, en]) => field(L(zh, en), h('input', { value: candidate[key] || '', disabled: busy, onChange: e => updateDraft({ candidates: editor.draft.candidates.map((c, i) => i === index ? { ...c, [key]: e.target.value } : c) }) }))),
+                    field(L('负责人 ID（逗号分隔；空为本人）', 'Assignee IDs (comma separated; default owner)'), h('input', { value: (candidate.assigneeIds || []).join(','), disabled: busy, onChange: e => updateDraft({ candidates: editor.draft.candidates.map((c, i) => i === index ? { ...c, assigneeIds: e.target.value ? e.target.value.split(',').map(x => x.trim()).filter(Boolean) : undefined } : c) }) })),
+                    h('div', { className: 'pa24-row' }, button('chevron', L('上移', 'Move up'), () => { const rows = [...editor.draft.candidates]; [rows[index-1], rows[index]] = [rows[index], rows[index-1]]; updateDraft({ candidates: rows }); }, { disabled: index === 0 || busy }), button('close', L('移除候选', 'Remove candidate'), () => updateDraft({ candidates: editor.draft.candidates.filter((_, i) => i !== index) }))))),
+                  button('plus', L('添加候选', 'Add candidate'), () => updateDraft({ candidates: [...editor.draft.candidates, { summary: '' }] })),
+                  h('details', null, h('summary', null, L('逐页转写、疑点定位与 AI 建议', 'Page transcripts, doubt locations, and AI suggestions')), field(L('高级草稿字段 JSON', 'Advanced draft JSON'), h('textarea', { rows: 12, defaultValue: JSON.stringify({ pages: editor.draft.pages || [], doubts: editor.draft.doubts || [], diagrams: editor.draft.diagrams || [], suggestions: editor.draft.suggestions, relativeDates: editor.draft.relativeDates }, null, 2), onBlur: e => { try { const value = JSON.parse(e.target.value); updateDraft(Object.fromEntries(['pages','doubts','diagrams','suggestions','relativeDates'].filter(key => key in value).map(key => [key, value[key]]))); } catch { setFeedback(L('高级字段 JSON 无效，未应用。', 'Invalid advanced JSON; not applied.')); } } }))),
+                  h('div', { className: 'pa24-row pa24-material-actions' }, button('check', L('保存草稿', 'Save draft'), () => perform('save_draft', { expectedRevision: editor.revision, draft: editor.draft }), { disabled: busy || !editor.dirty }), button('external', L('预览发布', 'Preview publication'), () => { setPreview(true); setConfirmed(false); }, { disabled: busy || editor.dirty || editor.revision === 0 })),
+                  preview && h('section', { className: 'pa24-card' }, h('h3', null, L('发布这份草稿为新的待审版本', 'Publish this draft for review')), diffView(detail.diff), h('p', null, L('将创建飞书文档并发审核卡；内容审核不执行候选行动。', 'Creates a Feishu document and review card; review does not execute actions.')), field(L('已核对正文、原稿顺序与候选参数', 'I checked the body, original order, and candidate parameters'), h('input', { type: 'checkbox', checked: confirmed, onChange: e => setConfirmed(e.target.checked) })), button('external', L('确认发布', 'Confirm publication'), () => perform('publish_draft', { expectedRevision: editor.revision, instruction: '主人在资料面板核对差异后明确发布此修订为待审版本' }), { disabled: busy || !confirmed || editor.dirty }))),
+                mode === 'version' && h(React.Fragment, null, field(L('冻结版本', 'Frozen version'), h('select', { value: version?.id || '', onChange: e => { setVersionId(e.target.value); setSelection([]); } }, detail.versions.map(v => h('option', { key: v.id, value: v.id }, 'v' + v.version + ' · ' + L(...materialStatus(v.status)))))),
+                  version ? h(React.Fragment, null, badge(L(...materialStatus(version.status)), version.status === 'approved' ? 'blue' : 'amber'), h('pre', { className: 'pa24-material-text' }, version.content.transcript || version.doc_snapshot), h('p', { className: 'pa24-meta' }, L('指纹：', 'Fingerprint: ') + version.fingerprint),
+                    h('details', null, h('summary', null, L('查看冻结文档及完整派生字段', 'Frozen document and derived fields')), h('pre', { className: 'pa24-material-text' }, version.doc_snapshot), h('pre', { className: 'pa24-material-text' }, JSON.stringify(version.content, null, 2))),
+                    version.doc_url && h('a', { className: 'pa24-link-button', href: version.doc_url, target: '_blank', rel: 'noreferrer' }, icon('external'), L('前往飞书版本文档', 'Open Feishu version document')),
+                    h('div', { className: 'pa24-row' }, button('shield', L('核验当前内容', 'Verify current content'), () => perform('verify')), button('chat', L('重发审核入口', 'Resend review entry'), () => perform('resend', { versionId: version.id }), { disabled: busy || version.id !== detail.versions.at(-1)?.id || version.status !== 'pending_review' })),
+                    h('h3', null, L('审核凭证与状态同步', 'Review decisions and status sync')), detail.decisions.map(d => h('p', { key: d.id, className: 'pa24-note' }, `${d.version_id} · ${d.decision} · ${d.reviewer_open_id} · ${date(d.decided_at, workspace.config?.timeZone)} · ${d.doc_sync_status}${d.doc_sync_error ? ' · ' + d.doc_sync_error : ''}`))) : h('p', null, L('尚未发布待审版本。', 'No published review version.'))),
+                mode === 'actions' && h(React.Fragment, null, h('h3', null, L('冻结版本的候选行动', 'Candidate actions from the frozen version')), h('p', null, L('仅当前已审且内容仍一致的版本可执行。旧对象保留关联；变化先形成建议。', 'Only the current approved, unchanged version can execute. Existing objects remain linked; changes become proposals.')),
+                  frozenCandidates.length ? frozenCandidates.map((c, index) => { const id = c.id || `legacy-${version.version}-${index}`; return h('article', { key: id, className: 'pa24-job' }, field(c.summary, h('input', { type: 'checkbox', checked: selection.includes(id), disabled: busy || version.status !== 'approved' || version.id !== detail.versions.at(-1)?.id, onChange: e => setSelection(e.target.checked ? [...selection, id] : selection.filter(x => x !== id)) })), h('p', { className: 'pa24-note' }, c.sourceQuote || L('来源原话未单列，请核对正文。', 'Source quote is not separate; check the body.')), h('pre', { className: 'pa24-material-text' }, JSON.stringify(c, null, 2))); }) : h('p', null, L('没有可执行的同源候选；请整理草稿并发布审核。', 'No proven candidate actions; edit and publish a draft.')),
+                  field(L('本次明确授权', 'Authorization for this action'), h('textarea', { value: instruction, rows: 3, onChange: e => setInstruction(e.target.value), placeholder: L('例如：按以上最终参数执行选中的行动', 'Execute the selected actions with the shown parameters') })),
+                  button('check', L('授权执行所选行动', 'Authorize selected actions'), () => perform('adopt_actions', { versionId: version.id, candidateIds: selection, instruction }), { disabled: busy || !selection.length || !instruction.trim() || version?.status !== 'approved' || editor.dirty }),
+                  h('h3', null, L('已有对象与执行回执', 'Linked objects and receipts')), detail.actions.map(link => h('article', { key: link.candidate_id, className: 'pa24-job' }, h('p', null, link.parameters.summary + ' · ' + (link.operation?.status || L('尚未执行', 'Not executed'))), h('details', null, h('summary', null, L('授权版本、最终参数与回执', 'Authorized version, parameters, and receipt')), h('pre', { className: 'pa24-material-text' }, JSON.stringify(link, null, 2))))))))),
+              feedback && h('pre', { role: 'status', className: 'pa24-material-text pa24-note', style: { marginTop: 12 } }, feedback), busy && h('p', { role: 'status' }, L('正在处理，请等待回执…', 'Working; waiting for the receipt…')));
         }
 
         // 面板动作外壳（busy/error/run/button）。reloadAfter 曾服务设置分区
@@ -426,6 +473,7 @@ window.__ModuleLoader__.load({
             const capture = (key, request) => request.then(result => { out[key] = result; }).catch(error => { errors[key] = error.message; });
             void Promise.all([
               capture('review', rpc('notes.queue', {}, abort.signal)),
+              capture('minutes', rpc('minutes', {}, abort.signal)),
               capture('memory', rpc('memory', { query: '', offset: 0 }, abort.signal)),
               capture('health', rpc('health', {}, abort.signal)),
               capture('roles', rpc('roles', {}, abort.signal)),
@@ -656,21 +704,28 @@ window.__ModuleLoader__.load({
         // 二级详情：QwenNote 听记（F18 WP3 的面板落点，状态来自维护健康）。
         function MinutesDetail({ state, extra, button, openRobot, openCard }) {
           const config = state.workspace ? state.workspace.config : null;
-          const cap = extraToolCap(extra);
+          const cap = extra.health?.capabilities?.find(row => row.id === 'qwennote-channel');
           const configured = qwennoteConfigured(config);
+          const [view, refresh] = useRpc('minutes', {}, [state.workspaceBinding]);
+          const minutes = view.data;
           return h('div', null,
             sectionHead('note', L('QwenNote 听记', 'QwenNote minutes'), L('录音卡转写/纪要/速记经 mcp__qwennote__* 工具进入本地24私助会话（仅本地会话；飞书入口与 Worker 不放行）。', 'Recorder transcripts, minutes, and quick notes reach the local 24PA session via mcp__qwennote__* tools (local session only; the Feishu entry and workers stay excluded).'),
               h('div', { className: 'pa24-row' },
                 button('code', L('打开本地工具配置', 'Open local tool config'), () => openCard('config', 'pa24-extra-tools'), { className: 'pa24-quiet' }),
-                button('chat', L('通过对话配置', 'Configure in chat'), openRobot, { className: 'pa24-quiet' })), 'amber'),
+                button('chat', L('在本地查询或读取听记', 'Query or read minutes in local chat'), openRobot, { className: 'pa24-quiet' }),
+                button('refresh', L('刷新接入记录', 'Refresh connection records'), refresh, { disabled: view.status === 'loading' })), 'amber'),
+            view.status === 'error' && h('p', { role: 'alert', className: 'pa24-error' }, view.error),
             h('section', { className: 'pa24-card' },
               fields([
                 [L('工作区放行', 'Workspace allowance'), configured ? (config.extraLocalTools || []).join(L('、', ', ')) : L('尚未放行（可在参数表单的高级工具区配置）', 'Not allowed yet (configure in the advanced tools section)')],
                 [L('通道健康', 'Channel health'), cap ? cap.message : L('尚无健康结论；在运行与维护读取健康状态后显示', 'No health verdict yet — shows after reading health under Operations & maintenance')],
-                [L('工具状态', 'Tool status'), cap ? statusBadge(['ok', 'warn', 'error'].includes(cap.state) ? cap.state : 'unchecked') : statusBadge('unchecked')],
+                [L('工具挂载', 'Tool mount'), minutes ? minutes.mounted == null ? L('尚未核验本地会话挂载', 'Local session mount not checked') : minutes.mounted ? L('已挂载（不等于可读）', 'Mounted (readability unproven)') : L('未挂载', 'Not mounted') : L('正在读取…', 'Loading…')],
+                [L('实际调用证据', 'Actual call evidence'), minutes?.lastRead ? (minutes.lastRead.state === 'succeeded' ? L('最近一次调用成功', 'Last call succeeded') : L('最近一次调用失败', 'Last call failed')) + ' · ' + date(minutes.lastRead.read_at, config?.timeZone) + ' · ' + minutes.lastRead.tool_name : L('尚无本工作区当前配置的实际读取回执', 'No actual read receipt for the current workspace configuration')],
               ]),
               nextStrip(L('首次接入：profile 配置 dsh-mcp-client 条目（serverName qwennote）→ 本人浏览器完成一次授权 → 参数表单的高级工具区放行 mcp__qwennote__*。', 'First-time setup: add the dsh-mcp-client entry (serverName qwennote) to the profile → authorize once from your browser → allow mcp__qwennote__* in the advanced tools section of the config form.')),
-              h('div', { className: 'pa24-helper' }, L('听记是按需读取的外部资料，不落业务账本；从中提炼的候选行动走既有审核与行动授权，不因来源是听记跳过确认。', 'Minutes are external material read on demand and never land in the ledger; candidate actions go through the existing review and action authorization — the source never skips confirmation.'))));
+              h('div', { className: 'pa24-helper' }, L('普通刷新不读取听记。请在本地对话先查询、读取，再明确选择保存哪份资料；所选文字可整理成草稿并进入审核，候选行动另行授权。不自动改源、同步全库或写记忆。', 'Refresh does not read minutes. Query and read in local chat, then explicitly choose material to save as a draft for review. Actions need separate authorization; no automatic source edits, library sync, or memory writes.')),
+              button('pen', L('查看资料审核与候选行动', 'Open material review and actions'), () => openCard('review')),
+              minutes?.tools?.length > 0 && h('details', null, h('summary', null, L('本地已挂载工具', 'Mounted local tools')), h('ul', null, minutes.tools.map(tool => h('li', { key: tool.name }, tool.name + (tool.description ? ' · ' + tool.description : '')))))));
         }
 
         // F19：tts 引擎是否启用（多卡判断收敛一处；none/未配置都按关闭）。
@@ -1297,9 +1352,9 @@ window.__ModuleLoader__.load({
             tier: ({ extra }) => (extra.review ? (extra.review.count > 0 ? 'warn' : 'ok') : 'unchecked'),
             label: ({ extra }) => (extra.review && extra.review.count > 0 ? L('待审 ' + extra.review.count, extra.review.count + ' to review') : null),
             body: ({ extra }) => (extra.review && extra.review.count > 0
-              ? h('div', null, capLine(L('待审版本', 'Awaiting review'), extra.review.count + L(' 份', '')), h('p', { className: 'pa24-meta' }, L('批准/退回在飞书审核卡上完成', 'Approve/return happens on the Feishu review card')))
+              ? h('div', null, capKpi([[String(extra.review.count), L('待处理', 'To review')], [String(extra.review.counts?.returned ?? 0), L('已退回', 'Returned')], [String(extra.review.counts?.needs_rereview ?? 0), L('需重审', 'Needs review')], [String(extra.review.counts?.verificationUnknown ?? 0), L('核验未知', 'Unverified')]]), h('p', { className: 'pa24-meta' }, L('批准/退回在飞书审核卡上完成', 'Approve/return happens on the Feishu review card')))
               : h('p', { className: 'pa24-meta' }, L('拍照整理后的待审版本会出现在这里', 'Pending versions from photographed notes appear here'))),
-            detail: helpers => (helpers.workspace ? h(ReviewView, { key: helpers.workspace.path, workspace: helpers.workspace, openRobot: helpers.openRobot }) : empty('pen', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在接入与设置的「工作区与配置」绑定工作区后，手写审核队列会显示在这里。', 'Bind a workspace via Workspace & config under Connections & setup and the review queue will show up here.'))),
+            detail: helpers => (helpers.workspace ? h(ReviewView, { key: helpers.state.workspaceBinding, workspace: helpers.workspace, binding: helpers.state.workspaceBinding, openRobot: helpers.openRobot }) : empty('pen', 'blue', L('尚未绑定工作区', 'No workspace bound'), L('在接入与设置的「工作区与配置」绑定工作区后，手写审核队列会显示在这里。', 'Bind a workspace via Workspace & config under Connections & setup and the review queue will show up here.'))),
           },
           {
             id: 'memory', cat: 'knowledge', tone: 'violet', icon: 'memory', title: ['结构化记忆', 'Structured memory'], sub: ['偏好 · 事实 · 项目背景', 'Preferences · facts · project background'], action: ['检索记忆', 'Search memories'],
@@ -1360,16 +1415,18 @@ window.__ModuleLoader__.load({
             id: 'qwennote', cat: 'setup', tone: 'amber', icon: 'note', title: ['QwenNote 听记', 'QwenNote minutes'], sub: ['录音卡转写 · 纪要 · 速记', 'Recorder transcripts · minutes · quick notes'], action: ['接入详情', 'Access details'],
             tier: ({ state, extra }) => {
               if (!qwennoteConfigured(state.workspace ? state.workspace.config : null)) return 'missing';
-              const cap = extraToolCap(extra);
+              if (extra.minutes?.lastRead) return extra.minutes.lastRead.state === 'succeeded' ? 'ok' : 'warn';
+              const cap = extra.health?.capabilities?.find(row => row.id === 'qwennote-channel');
               if (!cap) return 'unchecked';
-              return ['ok', 'warn', 'error'].includes(cap.state) ? cap.state : 'unchecked';
+              return ['warn', 'error'].includes(cap.state) ? cap.state : 'unchecked';
             },
-            label: ({ state }) => (qwennoteConfigured(state.workspace ? state.workspace.config : null) ? null : L('待配置', 'Not configured')),
+            label: ({ state, extra }) => !qwennoteConfigured(state.workspace ? state.workspace.config : null) ? L('待配置', 'Not configured') : extra.minutes?.lastRead ? extra.minutes.lastRead.state === 'succeeded' ? L('最近调用成功', 'Last call succeeded') : L('最近调用失败', 'Last call failed') : L('读取未验证', 'Read unverified'),
             body: ({ extra }) => {
-              const cap = extraToolCap(extra);
+              const cap = extra.health?.capabilities?.find(row => row.id === 'qwennote-channel');
               return h('div', null,
                 capLine(L('放行结论', 'Allowance'), cap ? cap.message : L('尚未检查', 'Not checked')),
-                nextStrip(L('首次接入需本人浏览器完成一次授权；完成后本卡转「正常」。', 'First-time setup needs a one-time authorization from your browser; the card turns OK once it lands.')));
+                capLine(L('最近实际调用', 'Latest actual call'), extra.minutes?.lastRead ? date(extra.minutes.lastRead.read_at) : L('尚无回执', 'No receipt yet')),
+                nextStrip(L('本人完成授权后，仍需在本地对话实际读取资料；工具挂载不代表可读。', 'After browser authorization, verify a real read in local chat. Mounted tools do not prove readability.')));
             },
             detail: helpers => h(MinutesDetail, helpers),
           },

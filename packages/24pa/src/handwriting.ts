@@ -74,7 +74,12 @@ export function advanceReminder(kind: 'once' | 'daily', sentCount: number, now: 
 }
 
 export interface NoteCandidate {
+  id?: string;
   summary: string;
+  sourceId?: string;
+  company?: string;
+  project?: string;
+  assigneeIds?: string[];
   /** Only doubts attributable to this candidate block its execution. */
   unknowns?: string[];
   /** Verbatim quote from the original note proving the action (P34 出处). */
@@ -103,6 +108,9 @@ export function candidateUnknowns(candidate: NoteCandidate, index: number, docum
 
 
 export interface RecognizedNote {
+  title?: string;
+  pageOrder?: number[];
+  materialSource?: { kind: string; type: string; title: string; reference?: string; digest?: string };
   transcript: string;
   summary: string;
   suggestions: string[];
@@ -213,7 +221,7 @@ export function noteDocumentXml(
   const status = pendingReviewLine(noteId, version);
   const lines = (items: string[], tag = 'p') => items.map(item => `<${tag}>${xml(item)}</${tag}>`).join('\n');
   const candidateText = (candidate: NoteCandidate) =>
-    `${candidate.summary}${candidate.sourceQuote ? `（原文：${candidate.sourceQuote}）` : ''}${candidate.due ? `（日期原话：${candidate.due}）` : ''}${candidate.start && candidate.end ? `（时间块 ${candidate.start} → ${candidate.end}）` : ''}${candidate.unknowns?.length ? `（本候选疑点：${candidate.unknowns.join('；')}）` : ''}`;
+    `${candidate.summary}${candidate.sourceQuote ? `（原文：${candidate.sourceQuote}）` : ''}${candidate.due ? `（日期原话：${candidate.due}）` : ''}${candidate.start && candidate.end ? `（时间块 ${candidate.start} → ${candidate.end}）` : ''}${candidate.sourceId ? `（来源：${candidate.sourceId}）` : ''}${candidate.company ? `（公司：${candidate.company}）` : ''}${candidate.project ? `（项目：${candidate.project}）` : ''}${candidate.assigneeIds ? `（负责人：${candidate.assigneeIds.join('、')}）` : ''}${candidate.unknowns?.length ? `（本候选疑点：${candidate.unknowns.join('；')}）` : ''}`;
   const pages = recognized.pages?.length
     ? recognized.pages
         .map(p => `<h2>第 ${p.pageNo} 页 转写</h2>\n<p>${xml(p.transcript)}</p>`)
@@ -262,9 +270,12 @@ export function noteDocumentXml(
   if ((recognized.pages?.length ?? 0) > 1) {
     sections.push(`<h1>逐页转写</h1>\n${pages}`);
   }
-  sections.push(`<h1>原稿索引</h1>\n${pageInfos.map(p => `<p>第 ${p.pageNo} 页：${p.mediaType}，${p.byteSize} 字节，sha256 ${p.sha256.slice(0, 16)}…，${p.sourceType === 'file' ? '文件原图' : '平台图片（可能已压缩）'}（原件已保存，识别内容为派生副本）</p>`).join('\n')}`);
+  if (recognized.materialSource?.kind === 'qwennote') {
+    const source = recognized.materialSource;
+    sections.push(`<h1>听记来源</h1>\n<p>${xml(source.title)}；类型 ${xml(source.type)}；引用 ${xml(source.reference ?? '见本地读取记录')}；来源摘要 ${xml(source.digest ?? '')}。本资料为文字听记，没有手写图像原稿。</p>`);
+  } else sections.push(`<h1>原稿索引</h1>\n${pageInfos.map(p => `<p>第 ${p.pageNo} 页：${p.mediaType}，${p.byteSize} 字节，sha256 ${p.sha256.slice(0, 16)}…，${p.sourceType === 'file' ? '文件原图' : '平台图片（可能已压缩）'}（原件已保存，识别内容为派生副本）</p>`).join('\n')}`);
   sections.push(`<h1>发布说明</h1>\n<p>本候选版本尚未经人工审核；批准/退回请使用24私助发送的审核卡按钮，按钮仅对本版本内容指纹有效。模型自报的置信度不作为概率使用；无法辨认的内容保持未知。</p>`);
-  return `<title>${xml(`[24PA] 手写笔记 ${noteId} v${version}`)}</title>\n${sections.join('\n')}`;
+  return `<title>${xml(recognized.title ? `[24PA] ${recognized.title} ${noteId} v${version}` : `[24PA] 手写笔记 ${noteId} v${version}`)}</title>\n${sections.join('\n')}`;
 }
 
 /**

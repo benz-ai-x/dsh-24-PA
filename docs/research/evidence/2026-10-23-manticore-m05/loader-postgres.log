@@ -1,0 +1,12 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-materials/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/manticore-materials.e2e.mjs (3 tests) 6714ms
+   ✓ M05 实际 Loader 的资料公开操作与持久恢复 > 从真实原稿保存人工草稿，普通刷新不调模型/发文档，发布冻结版本且重复请求不复制 1048ms
+   ✓ M05 实际 Loader 的资料公开操作与持久恢复 > 本人审核后明确授权生成对象；重发与重复候选保持唯一对象，直接事项均结算 965ms
+   ✓ M05 实际 Loader 的资料公开操作与持久恢复 > Host 重启后原稿、草稿、历史凭证、候选关联和执行回执仍可查询；新版本只能提出变更 2472ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  09:25:27
+   Duration  6.87s (transform 32ms, setup 0ms, collect 46ms, tests 6.71s, environment 0ms, prepare 28ms)

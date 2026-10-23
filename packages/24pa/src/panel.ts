@@ -25,6 +25,8 @@ export const PANEL_RPC = {
     memory: 'memory',
     health: 'health',
     notesQueue: 'notes.queue',
+    materials: 'materials',
+    minutes: 'minutes',
     roles: 'roles',
     reminders: 'reminders',
     digests: 'digests',
@@ -47,6 +49,7 @@ export const PANEL_RPC = {
     connectionCheck: 'connection.check',
     connectionWecomCheck: 'connection.wecom-check',
     notesPoll: 'notes.poll',
+    materialChange: 'material.change',
     notesRemindPoll: 'notes.remind-poll',
     digestSupervise: 'digest.supervise',
     digestReschedule: 'digest.reschedule',
@@ -120,6 +123,8 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.notesQueue) {
               return respond({ ok: true, value: await runtime.reviewQueue() });
             }
+            if (endpoint === E.materials) return respond({ ok: true, value: await runtime.materialSnapshot(payload) });
+            if (endpoint === E.minutes) return respond({ ok: true, value: await runtime.minutesSnapshot() });
             if (endpoint === E.roles) {
               return respond({ ok: true, value: { roles: runtime.listRoles() } });
             }
@@ -177,6 +182,7 @@ function requiredBinding(payload: PanelAction): string {
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
+  [PANEL_RPC.actions.materialChange]: (runtime, payload) => runtime.changeMaterial(payload),
   [PANEL_RPC.actions.skillChange]: (runtime, payload) => runtime.changeSkill(payload),
   [PANEL_RPC.actions.skillRun]: (runtime, payload) => runtime.runSkill(payload),
   [PANEL_RPC.actions.sourceCheck]: (runtime, payload) => runtime.checkSource(payload),

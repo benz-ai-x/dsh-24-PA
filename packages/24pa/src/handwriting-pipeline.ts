@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { freezeNoteDerivation, noteDerivedContent } from './note-derivation.js';
 import { parseNoteDocument, registeredStatus, documentText } from './note-document.js';
 import { mkdir, writeFile, readFile, rm } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import type { DshAgent } from './host.js';
 import { noteParentToken, type PaConfig } from './config.js';
 import type { ChannelContextDeps } from './channel-deps.js';
@@ -24,6 +24,8 @@ import type { Repos, NoteRow, NotePageRow, NoteVersionRow, WorkItemRow, ActionOp
 import { text, nowIso, isoDate, hash } from './util.js';
 import type { RuntimeRole } from './runtime.js';
 import { LarkNoteDocumentReader, TrustedNotes, type NoteDocumentReader, type NoteTrustResult, type NoteDocumentSnapshot } from './note-trust.js';
+import { parseMaterialDraft, materialDiff, materialFingerprint, materialSourceReference, qwenReadEvidence, type MaterialDraft, type MaterialSource } from './material-draft.js';
+import type { NoteMaterialRow } from './repo/notes.js';
 
 export interface HandwritingDeps extends ChannelContextDeps {
   /** F44：工作流口径参数（handwriting-review-flow 的 frontmatter params）。 */
@@ -54,8 +56,126 @@ export class HandwritingPipeline {
     return next;
   }
 
+  withCurrentMaterial<T>(noteId: string, work: () => Promise<T>): Promise<T> {
+    return this.serial(`note:${noteId}`, work);
+  }
+
   inspectTrust(noteId: string, versionId?: string): Promise<NoteTrustResult> {
     return this.trust.inspect(noteId, versionId);
+  }
+
+  /** Read-only detail preserves historical snapshots and never fetches a remote
+   * document. Draft initialization is deferred until an explicit write. */
+  async materialDetail(noteId: string, versionId?: string): Promise<unknown> {
+    const notes = this.deps.repos().notes, note = await notes.getNote(noteId);
+    if (!note) throw new Error('资料不存在。');
+    const [material, pages, versions, decisions, links] = await Promise.all([notes.material(noteId), notes.pagesOf(noteId), notes.versionsOf(noteId), notes.decisionsOf(noteId), notes.actionLinks(noteId)]);
+    const latest = versions.at(-1) ?? null;
+    const selected = versionId ? versions.find(v => v.id === versionId) : latest;
+    if (versionId && !selected) throw new Error('版本不属于这份资料。');
+    const draft = material?.draft ?? this.legacyDraft(note, latest, pages);
+    const prior = latest ? this.versionDraft(note, latest, pages) : null;
+    return { note, material: material ? { ...material, source: { ...material.source, originalText: undefined } } : { note_id: noteId, revision: 0, draft, recognition: null, source: { kind: 'handwriting', type: 'images', title: note.title }, edited_by: 'legacy', published_revision: null },
+      sourceText: material?.source.originalText ?? null,
+      pages: pages.map(p => ({ pageNo: p.page_no, mediaType: p.media_type, byteSize: p.byte_size, sha256: p.sha256, sourceType: p.source_type, status: p.status, quality: p.quality })),
+      versions: versions.map(v => ({ id: v.id, version: v.version, status: v.status, fingerprint: v.fingerprint, docUrl: v.doc_url, createdAt: v.created_at, verifiedAt: v.verified_at, verifyResult: v.verify_result })),
+      selected: selected ? { ...selected, content: { ...selected.content, crops: (selected.content?.crops ?? []).map(({ path: _path, ...crop }: CropSpec) => crop) } } : null,
+      decisions, diff: materialDiff(prior, draft),
+      actions: await Promise.all(links.map(async link => ({ ...link, operation: await this.deps.repos().operations.get(link.operation_id) }))) };
+  }
+
+  private versionDraft(note: NoteRow, version: NoteVersionRow, pages: NotePageRow[]): MaterialDraft {
+    const derived = noteDerivedContent(version), content = derived.derivedStatus === 'ready' ? derived : { transcript: documentText(parseNoteDocument(version.doc_snapshot)), candidates: [] };
+    const candidateIds = (content.candidates ?? []).map((c: any, index: number) => ({ ...c, id: c.id ?? `legacy-${version.version}-${index}` }));
+    const seed = { ...content, title: content.title ?? note.title, candidates: candidateIds, pageOrder: content.pageOrder ?? pages.filter(p => p.status === 'saved').map(p => p.page_no) } as MaterialDraft;
+    return parseMaterialDraft(seed, seed, pages.filter(p => p.status === 'saved').map(p => p.page_no), note.title);
+  }
+  private legacyDraft(note: NoteRow, version: NoteVersionRow | null, pages: NotePageRow[]): MaterialDraft {
+    return version ? this.versionDraft(note, version, pages) : parseMaterialDraft({ transcript: '', candidates: [] }, null, pages.filter(p => p.status === 'saved').map(p => p.page_no), note.title);
+  }
+  private async ensureMaterial(note: NoteRow): Promise<NoteMaterialRow> {
+    const notes = this.deps.repos().notes, existing = await notes.material(note.id);
+    if (existing) return existing;
+    const latest = await notes.latestVersion(note.id), draft = this.legacyDraft(note, latest, await notes.pagesOf(note.id));
+    return notes.initializeMaterial(note.id, draft, { kind: 'handwriting', type: 'images', title: note.title });
+  }
+
+  async saveDraft(noteId: string, expectedRevision: number, value: unknown, editor: string): Promise<unknown> {
+    return this.serial(`note:${noteId}`, async () => {
+      const notes = this.deps.repos().notes, note = await notes.getNote(noteId);
+      if (!note) throw new Error('资料不存在。');
+      const before = await notes.material(noteId);
+      if ((before?.revision ?? 0) !== expectedRevision) throw new Error('草稿版本已变化，请重新读取后保存。');
+      const current = await this.ensureMaterial(note);
+      const pages = (await notes.pagesOf(noteId)).filter(p => p.status === 'saved');
+      const draft = parseMaterialDraft(value, current.draft, pages.map(p => p.page_no), note.title);
+      const result = await notes.saveMaterial(noteId, current.revision, draft, editor);
+      return { noteId, revision: result.revision, saved: true, published: false, message: '草稿已保存；尚未发布新待审版本，也未执行候选行动。' };
+    });
+  }
+
+  async publishDraft(item: WorkItemRow, noteId: string, expectedRevision: number): Promise<unknown> {
+    return this.serial(`note:${noteId}`, async () => {
+      const notes = this.deps.repos().notes, note = await notes.getNote(noteId), material = await notes.material(noteId);
+      if (!note || !material || material.revision !== expectedRevision) throw new Error('草稿已变化或尚未保存，请重新核对差异后发布。');
+      const pages = (await notes.pagesOf(noteId)).filter(p => p.status === 'saved');
+      const draft = parseMaterialDraft(material.draft, material.draft, pages.map(p => p.page_no), note.title);
+      if (!draft.transcript.trim()) throw new Error('草稿正文不能为空。');
+      const crops = await this.generateCrops(noteId, pages, draft.doubts ?? [], draft.diagrams ?? []);
+      return this.publishNoteVersion(item, note, { ...draft, materialSource: materialSourceReference(material.source) }, null, crops, undefined, expectedRevision);
+    });
+  }
+
+  async resendReview(noteId: string, versionId: string, requestId: string): Promise<unknown> {
+    if (!requestId.trim()) throw new Error('重发审核入口需要唯一请求标识。');
+    return this.serial(`note:${noteId}`, async () => {
+      const version = await this.deps.repos().notes.latestVersion(noteId);
+      if (!version || version.id !== versionId || version.status !== 'pending_review') throw new Error('只能重发当前待审版本的审核入口。');
+      const trust = await this.inspectTrust(noteId, versionId);
+      if (trust.contentValidity !== 'matches' || !trust.current) throw new Error('当前内容已变化或无法核验，请先核对资料并发布新版本。');
+      await this.sendReviewCard(noteId, versionId, requestId);
+      return { noteId, versionId, queued: true, message: '已登记重发审核入口；沿用同一版本，没有重新识别或生成内容。' };
+    });
+  }
+
+  async original(noteId: string, pageNo: number): Promise<unknown> {
+    const page = await this.deps.repos().notes.getPage(noteId, pageNo);
+    if (!page || page.status !== 'saved') throw new Error('原稿页不存在。');
+    const { realpath, stat } = await import('node:fs/promises');
+    const root = await realpath(join(this.deps.workspace()!.statePath, '.24pa', 'originals'));
+    const file = await realpath(page.storage_path), part = relative(root, file);
+    if (part.startsWith('..') || resolve(root, part) !== file || (await stat(file)).size > MAX_PAGE_BYTES) throw new Error('原稿路径不属于当前工作区或超过读取上限。');
+    const bytes = await readFile(file);
+    if (sha256Hex(bytes) !== page.sha256 || detectImageMediaType(bytes) !== page.media_type) throw new Error('原稿摘要或类型不匹配，不能显示为已核验原稿。');
+    return { noteId, pageNo, mediaType: page.media_type, sha256: page.sha256, data: `data:${page.media_type};base64,${bytes.toString('base64')}` };
+  }
+
+  async importMinutes(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
+    if (this.deps.roleFor(agent) !== 'local-robot') throw new Error('听记资料只能由本地24私助会话按需保存。');
+    const callId = String(args.callId ?? ''), evidence = qwenReadEvidence(agent.session, callId);
+    if (!this.deps.config().extraLocalTools.some(name => name === 'mcp__qwennote__*' || name === evidence.toolName)) throw new Error('本次来源工具未在当前工作区放行，不能沿用旧配置导入。');
+    const sourceType = String(args.materialType ?? '');
+    if (!['transcript', 'minutes', 'quick-note'].includes(sourceType)) throw new Error('听记需明确真实类型：transcript/minutes/quick-note。');
+    const title = text(args.title, 300), instruction = text(args.instruction, 2000);
+    if (!title.trim() || !instruction.trim()) throw new Error('保存听记草稿需要资料标题和主人的明确指令。');
+    // The exact selected excerpt must exist in the actual response. An agent
+    // may organize the draft later, but cannot fabricate its source text.
+    const originalText = typeof args.sourceText === 'string' ? args.sourceText : evidence.content;
+    if (!originalText.trim() || originalText.length > 100000 || !evidence.content.includes(originalText)) throw new Error('所选资料文字不在实际读取回执中。');
+    const reference = args.reference ? text(args.reference, 2000) : undefined;
+    if (reference && !evidence.content.includes(reference) && !evidence.arguments.includes(reference)) throw new Error('资料引用不在实际读取参数或回执中。');
+    const id = `N-Q${hash(`${agent.id}:${callId}:${materialFingerprint(originalText)}`).slice(0, 20)}`;
+    return this.serial(`note:${id}`, async () => {
+      const notes = this.deps.repos().notes;
+      if (await notes.material(id)) return { noteId: id, reused: true, message: '这份已选听记已有草稿，未重复导入。' };
+      if (!await notes.getNote(id)) await notes.insertNote({ id, title, origin: 'qwennote' });
+      const source: MaterialSource = { kind: 'qwennote', type: sourceType as MaterialSource['type'], title, reference,
+        sessionId: agent.id, callId, toolName: evidence.toolName, readAt: new Date().toISOString(), digest: sha256Hex(originalText), originalText };
+      const draft = parseMaterialDraft({ title, transcript: originalText, candidates: [] }, null, [], title);
+      const material = await notes.initializeMaterial(id, draft, source);
+      await notes.updateNote(id, { status: 'collected' });
+      return { noteId: id, revision: material.revision, source: { ...source, originalText: undefined }, published: false, message: '所选听记已保存为本地草稿；尚未发布审核或执行行动，没有同步资料库或写入记忆。' };
+    });
   }
 
   /** CLI invocation options resolved once per call (config may reload). */
@@ -232,6 +352,7 @@ export class HandwritingPipeline {
       return list;
     };
     const savedPages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
+    if (!savedPages.length) throw new Error('这份笔记还没有已保存的原稿页。');
     const savedPageNos = new Set(savedPages.map(p => p.page_no));
     const region = (value: unknown): Region | undefined => {
       if (!value || typeof value !== 'object') return undefined;
@@ -280,11 +401,14 @@ export class HandwritingPipeline {
       if (typeof entry === 'string') return { summary: text(entry, 500) };
       const record = entry as Record<string, unknown>;
       return {
+        ...(record.id ? { id: text(record.id, 100) } : {}),
         summary: text(String(record.summary ?? ''), 500),
         ...(record.sourceQuote ? { sourceQuote: text(record.sourceQuote, 300) } : {}),
         ...(record.due != null && record.due !== '' ? { due: String(record.due) } : {}),
         ...(record.start ? { start: String(record.start) } : {}),
         ...(record.end ? { end: String(record.end) } : {}),
+        ...Object.fromEntries(['sourceId', 'company', 'project'].filter(key => record[key] != null && record[key] !== '').map(key => [key, text(record[key], 300)])),
+        ...(record.assigneeIds !== undefined ? { assigneeIds: boundedStringList(record.assigneeIds, 300, 50) } : {}),
         ...((Array.isArray(record.unknowns) && record.unknowns.length) || record.unknown ? { unknowns: boundedStringList([...(Array.isArray(record.unknowns) ? record.unknowns : []), ...(record.unknown ? [record.unknown] : [])], 300, 20) } : {}),
       };
     }).filter(c => c.summary);
@@ -308,7 +432,18 @@ export class HandwritingPipeline {
     };
     // Regioned doubts/diagrams become durable crops before publishing (P30).
     const crops = await this.generateCrops(note.id, savedPages, doubts, diagrams);
-    return this.publishNoteVersion(item, note, recognized, null, crops);
+    const existingMaterial = await notes.material(note.id);
+    const latest = await notes.latestVersion(note.id);
+    const previous = existingMaterial?.draft ?? this.legacyDraft(note, latest, savedPages);
+    const draft = parseMaterialDraft(recognized, previous, savedPages.map(p => p.page_no), note.title);
+    const material = existingMaterial ?? await notes.initializeMaterial(note.id, draft, { kind: 'handwriting', type: 'images', title: note.title }, draft);
+    await notes.saveRecognition(note.id, draft);
+    if (existingMaterial && (existingMaterial.edited_by !== 'recognition' || latest?.content?.republishedFromDoc)) {
+      return { noteId: note.id, revision: material.revision, recognized: true, protectedDraft: true, published: false,
+        diff: materialDiff(material.draft, draft), message: '新的识别结果已保存供对照；人工草稿未被覆盖。请选取修订后保存并单独发布。' };
+    }
+    if (existingMaterial && materialFingerprint(existingMaterial.draft) !== materialFingerprint(draft)) await notes.saveMaterial(note.id, material.revision, draft, 'recognition');
+    return this.publishNoteVersion(item, note, draft, null, crops, sha256Hex(JSON.stringify(recognized)));
   }
 
   /**
@@ -367,10 +502,16 @@ export class HandwritingPipeline {
     recognized: RecognizedNote | null,
     republishFromDoc: { docId: string; docUrl: string | null; normalized: string; snapshot: string; revision: string | null; mediaHashes?: string[]; referenceMap?: Record<string, any> } | null,
     crops: CropSpec[] = [],
+    legacyParamsKey?: string,
+    materialRevision?: number,
   ): Promise<unknown> {
     const notes = this.deps.repos().notes;
-    const pages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
-    if (pages.length === 0) throw new Error('这份笔记还没有已保存的原稿页。');
+    const material = await notes.material(note.id);
+    if (recognized && material) recognized = { ...recognized, materialSource: materialSourceReference(material.source) };
+    const savedPages = (await notes.pagesOf(note.id)).filter(p => p.status === 'saved');
+    const order = recognized?.pageOrder ?? material?.draft.pageOrder ?? savedPages.map(p => p.page_no);
+    const pages = order.map(no => savedPages.find(p => p.page_no === no)!).filter(Boolean);
+    if (pages.length === 0 && material?.source.kind !== 'qwennote') throw new Error('这份笔记还没有已保存的原稿页。');
     this.deps.assertLive('手写笔记发布需要 feishu 模式与飞书连接');
     const visionRoute = this.deps.config().workerModels.handwriting;
     const paramsKey = republishFromDoc ? `republish:${republishFromDoc.docId}:${sha256Hex(republishFromDoc.normalized)}` : sha256Hex(JSON.stringify(recognized));
@@ -380,8 +521,9 @@ export class HandwritingPipeline {
       noteId: note.id,
       workItemId: item.id,
       contentKey: hash(JSON.stringify([note.id, paramsKey, pages.map(p => [p.page_no, p.sha256]), crops.map(c => c.sha256)])),
-      legacyParamsKey: paramsKey,
+      legacyParamsKey: legacyParamsKey ?? paramsKey,
       republish: !!republishFromDoc,
+      materialRevision,
     });
     const version = Number(operation.params.version);
     const versionId = `${note.id}:v${version}`;
@@ -446,6 +588,7 @@ export class HandwritingPipeline {
       const fingerprint = fingerprintOf(normalized, pages.map(p => p.sha256), crops.map(c => c.sha256));
       const snapshot = republishFromDoc?.snapshot ?? readback.content;
       const finalRecognized = { ...freezeNoteDerivation(recognized, generatedXml, snapshot, fingerprint), crops,
+        ...(material ? { materialRevision: material.revision, materialSource: { ...material.source, originalText: undefined }, originals: pages.map(p => ({ pageNo: p.page_no, sha256: p.sha256 })) } : {}),
         ...(republishFromDoc ? { republishedFromDoc: true, previousVersion: latest?.version ?? null }
           : { model: visionRoute ? { provider: visionRoute.provider, model: visionRoute.model } : null }) };
       const published = await notes.insertVersion({
@@ -472,6 +615,7 @@ export class HandwritingPipeline {
     const notes = this.deps.repos().notes;
     const { note_id: noteId, version, id: versionId, doc_id: docId, doc_url: docUrl, fingerprint, normalized_text: normalized } = published;
     const latest = (await notes.versionsOf(noteId)).filter(row => row.version < version).at(-1) ?? null;
+    if (published.content?.materialRevision) await notes.markMaterialPublished(noteId, published.content.materialRevision);
     await notes.supersedeOlder(noteId, version);
     // A new candidate supersedes the old version: its nags must stop (P33).
     if (latest) {
@@ -522,7 +666,7 @@ export class HandwritingPipeline {
   }
 
   /** Enqueue the durable review card with opaque, server-verified tokens (P31). */
-  private async sendReviewCard(noteId: string, versionId: string): Promise<void> {
+  private async sendReviewCard(noteId: string, versionId: string, resendId?: string): Promise<void> {
     const notes = this.deps.repos().notes;
     const version = await notes.getVersion(versionId);
     if (!version) throw new Error('版本不存在，无法发送审核卡。');
@@ -543,7 +687,7 @@ export class HandwritingPipeline {
     const card = reviewCard(noteId, version.version, version.doc_url, summary, version.fingerprint.slice(0, 12), approveToken, returnToken,
       typeof flowParams.cardHeader === 'string' ? flowParams.cardHeader : undefined, bodyOnly);
     await this.deps.repos().outbox.enqueue({
-      dedupKey: `notereview:${noteId}:v${version.version}:${hash(approveToken)}`,
+      dedupKey: `notereview:${noteId}:v${version.version}:${hash(approveToken)}${resendId ? `:resend:${hash(resendId)}` : ''}`,
       channel: 'feishu',
       target: this.deps.config().ownerOpenId,
       kind: 'card',
@@ -588,7 +732,7 @@ export class HandwritingPipeline {
       await finish('rejected', '审核令牌过期');
       return;
     }
-    if (this.deps.config().ownerOpenId && event.senderOpenId !== row.owner_open_id) {
+    if (!this.deps.config().ownerOpenId || event.senderOpenId !== row.owner_open_id || row.owner_open_id !== this.deps.config().ownerOpenId) {
       await notify('审核按钮只对绑定的主人有效；其他成员的操作已被拒绝。');
       await finish('rejected', '非主人操作');
       return;
