@@ -1,4 +1,5 @@
 import type { OutboxRepo, OutboxRow, MessageRouteRepo } from './repo.js';
+import { redactDiagnostic } from './diagnostic-redaction.js';
 
 export interface DeliveryAdapter {
   available(): boolean;
@@ -15,8 +16,10 @@ export class OutboxDelivery {
     repo(): OutboxRepo;
     routes(): MessageRouteRepo;
     adapters: Partial<Record<OutboxRow['channel'], DeliveryAdapter>>;
-    sent(): void;
+    sent(row: OutboxRow, messageId: string): void | Promise<void>;
+    sanitizeError?(error: unknown): string;
   }) {}
+  private error(error: unknown): string { return this.deps.sanitizeError?.(error) ?? redactDiagnostic(String((error as Error)?.message ?? error)); }
 
   recover(): Promise<void> { return this.deps.repo().recoverInterrupted(); }
 
@@ -54,16 +57,16 @@ export class OutboxDelivery {
             if (!messageId) throw Object.assign(new Error('平台未返回消息回执；请先核对。'), { outcome: 'unknown' });
           } catch (error) {
             const unknown = (error as { outcome?: string })?.outcome !== 'failed';
-            await repo.mark(row.id, { status: unknown ? 'unknown' : row.attempts >= 3 ? 'failed' : 'pending', error: (error as Error).message, ...(!unknown && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
+            await repo.mark(row.id, { status: unknown ? 'unknown' : row.attempts >= 3 ? 'failed' : 'pending', error: this.error(error), ...(!unknown && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
             continue;
           }
           try {
             // Keep sending until routing is durable. Crash recovery sees this
             // receipt and repairs the local step without invoking the adapter.
             await repo.mark(row.id, { status: 'sending', messageId });
-            this.deps.sent();
+            await this.deps.sent(row, messageId);
           } catch (error) {
-            await repo.mark(row.id, { status: 'unknown', messageId, error: `平台已确认，本地回执保存失败：${(error as Error).message}` }).catch(() => {});
+            await repo.mark(row.id, { status: 'unknown', messageId, error: `平台已确认，本地回执保存失败：${this.error(error)}` }).catch(() => {});
             continue;
           }
         }
@@ -72,7 +75,7 @@ export class OutboxDelivery {
           await repo.mark(row.id, { status: 'sent', messageId });
         } catch (error) {
           // Retrying this row means routing only because message_id survives.
-          await repo.mark(row.id, { status: 'pending', messageId, error: `已送达，回复关联待补记：${(error as Error).message}`, retryInMs: Math.min(60_000, 2000 * row.attempts) }).catch(() => {});
+          await repo.mark(row.id, { status: 'pending', messageId, error: `已送达，回复关联待补记：${this.error(error)}`, retryInMs: Math.min(60_000, 2000 * row.attempts) }).catch(() => {});
         }
       }
     }

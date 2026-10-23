@@ -684,4 +684,28 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 28,
+    statements: [
+      `create table if not exists pa24.health_evidence (
+        id text primary key, scope text not null, config_version text not null, state text not null,
+        record jsonb not null, checked_at timestamptz not null
+      )`,
+      `create index if not exists health_evidence_scope_idx on pa24.health_evidence (scope, checked_at)`,
+      `create table if not exists pa24.health_test (
+        id text primary key, request_hash text not null, config_version text not null, status text not null,
+        plan jsonb not null, result jsonb, cleanup jsonb,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.health_monitor (
+        id text primary key, record jsonb not null, updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.health_identity (
+        platform text primary key, accepted jsonb not null, observed jsonb not null,
+        changed boolean not null default false, accepted_at timestamptz not null default now(),
+        observed_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      )`,
+    ],
+  },
 ];
