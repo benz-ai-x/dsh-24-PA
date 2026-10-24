@@ -140,11 +140,14 @@ On start the host plugin takes a single-writer lock on `$DSH_HOME/24pa`, opens t
 
 Read these pages when the package-level contract is not enough. They move from this bundle to the product it implements and the platform it plugs into.
 
-- [Product spec](docs/24PA-v1-SPEC.md) — stories, scenarios, and test groups behind every delivered feature.
+- [Agent guide](AGENTS.md) — task-specific reading paths and repository conventions.
+- [Product baseline](docs/agents/product.md) — how the approved Manticore targets relate to the v1 spec and delivery evidence.
+- [Product spec](docs/24PA-v1-SPEC.md) — v1 stories, scenarios, and test groups.
 - [Overall design](docs/24PA-整体设计方案.md) — flows, session topology, and confirmed trade-offs.
 - [ADR-0001](docs/adr/0001-workspace-session-boundaries.md) — the workspace/session permission boundary this preset enforces.
 - [Research records](docs/research/) — per-feature verified contracts, including the dual-baseline and access-wizard studies.
-- [Delivery plan](docs/planning/24PA-v1-PR交付计划.md) — feature groups, dependencies, and merge criteria.
+- [Delivery plan](docs/planning/24PA-v1-PR交付计划.md) — feature groups and their dependencies.
+- [Delivery workflow](docs/agents/delivery.md) — branch reuse, dependency checks, acceptance evidence, and merge criteria.
 
 -----
 
