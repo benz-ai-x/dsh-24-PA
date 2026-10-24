@@ -15,7 +15,8 @@ import type { ResolvedTaskSkill, SkillDefinitionLike } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
 import { localDay } from './calendar-time.js';
-import { digestPeriod, type DigestPeriod } from './digest-period.js';
+import { checkExecution } from './execution-cancellation.js';
+import { digestPeriod, digestWindowKey, type DigestPeriod } from './digest-period.js';
 import { captureDigestTrigger } from './digest-trigger.js';
 import { skillContract } from './skill-package.js';
 import type { SourceCalendar } from './source-calendar.js';
@@ -40,37 +41,8 @@ export interface DigestDeps extends ChannelContextDeps {
 
 export const DIGEST_UNCONFIRMED_GRACE_MS = 10 * 60 * 1000;
 
-/** 口播正文上限（spec 2.2）：超限截断并在语音内播报提示。 */
-export const DIGEST_SPOKEN_MAX_CHARS = 1200;
-
-/**
- * 口播变体（F19）：剥离只对阅读有意义的元数据——同步时间戳、来源括注、
- * 文档链接、数据缺失清单与页脚——再截断到上限并播报提示。纯文本变换，
- * 不依赖 facts 结构，对 renderDigest 的最终输出做稳定降维。
- */
-export function buildSpokenVariant(report: string): string {
-  const spoken: string[] = [];
-  let dropping = false;
-  for (const raw of report.split('\n')) {
-    const line = raw.trim();
-    if (line === '三、数据缺失') {
-      dropping = true; // 缺失清单与页脚是给主人核对的元数据，不进语音（缺失节后即报告结尾）
-      continue;
-    }
-    if (dropping) continue;
-    if (line.startsWith('来源：')) continue; // 页脚
-    const out = line
-      .replace(/（日历同步于[^）]*）/g, '')
-      .replace(/（审核于[^）]*）/g, '')
-      .replace(/（来源：[^）]*）/g, '')
-      .replace(/https?:\/\/\S+/g, '')
-      .trimEnd();
-    spoken.push(out);
-  }
-  const text = spoken.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  if (text.length <= DIGEST_SPOKEN_MAX_CHARS) return text;
-  return `${text.slice(0, DIGEST_SPOKEN_MAX_CHARS)}\n……正文较长，语音版到此截断，完整内容请看随后的文字版。`;
-}
+import { buildSpokenVariant } from './spoken-result.js';
+export { buildSpokenVariant, DIGEST_SPOKEN_MAX_CHARS } from './spoken-result.js';
 
 export type DigestFacts = {
     period?: DigestPeriod & { observedAt: string; late: boolean; snapshotNote: string; completionTimeNote: string };
@@ -121,13 +93,7 @@ export class DigestService {
 
   /** Local-date window key for a plan kind (morning/evening share the date, weekly uses ISO week). */
   digestWindowKey(kind: string, timeZone: string, now = new Date()): string {
-    const day = localDay(now, timeZone);
-    if (kind !== 'weekly') return day.date;
-    const date = new Date(`${day.date}T00:00:00Z`);
-    date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-    const jan1 = Date.UTC(date.getUTCFullYear(), 0, 1);
-    const week = Math.ceil(((date.getTime() - jan1) / 86400000 + 1) / 7);
-    return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+    return digestWindowKey(kind, timeZone, now);
   }
 
   /**
@@ -193,6 +159,7 @@ export class DigestService {
   private async controlPlan(args: Record<string, unknown>): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(String(args.planId ?? ''));
     if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
+    if ('task_config' in plan && plan.task_config) throw new Error('此计划使用通用定时任务配置，请从定时任务管理入口操作。');
     const op = String(args.op ?? '');
     if (plan.kind === 'waiting_followup' && !['pause', 'stop'].includes(op)) throw new Error('等待检查点请用 waiting_control 管理，不能更换任务 skill 或执行规则。');
     const schedule = this.deps.nativeSchedule();
@@ -252,6 +219,7 @@ export class DigestService {
       const occurrences = await this.deps.repos().digests.occurrencesOf(plan.id, 3);
       view.push({
         planId: plan.id,
+        managed: !!('task_config' in plan && plan.task_config),
         kind: plan.kind,
         title: plan.title,
         status: plan.status,
@@ -269,16 +237,20 @@ export class DigestService {
 
   /** Gather planning facts once: calendar (with freshness), tasks, waiting, review queue, preferences. */
   private async planningFacts(now: Date, context = digestPeriod('morning', this.deps.config().timeZone, now, 'manual')): Promise<DigestFacts> {
+    checkExecution();
     const dayStart = new Date(context.from), dayEnd = new Date(context.to);
     const missing: string[] = [];
     const observe = async (from: Date, to: Date) => {
+      checkExecution();
       const observation = await this.planning.observeRange(from, to);
+      checkExecution();
       if (!observation.sync.ok) missing.push(`日历同步失败或范围不完整（${from.toISOString()} 至 ${to.toISOString()}，${observation.sync.error ?? '未知'}）：以下为投影，可能过期`);
       return { fresh: observation.sync.ok, syncedAt: observation.syncedAt, sources: observation.sources, events: observation.events.map(e => ({ summary: e.summary,
         start: new Date(Math.max(e.start_time.getTime(), from.getTime())).toISOString(), end: new Date(Math.min(e.end_time.getTime(), to.getTime())).toISOString(), allDay: e.is_all_day, sources: e.sources })) };
     };
     const calendar = await observe(dayStart, dayEnd);
     const tasks = await this.deps.repos().tasks.all();
+    checkExecution();
     const mapTask = (t: typeof tasks[number]) => ({ guid: t.task_guid, summary: t.summary, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes,
       overdue: !!(t.due_at && new Date(t.due_at).getTime() < new Date(context.anchorAt).getTime()) });
     const todayTasks = tasks.filter(t => t.status === 'open' && ((t.due_at && t.due_at < dayEnd) || (t.planned_at && t.planned_at >= dayStart && t.planned_at < dayEnd)));
@@ -290,11 +262,14 @@ export class DigestService {
         ((t.due_at && t.due_at >= dayEnd && t.due_at < nextEnd) || (t.planned_at && t.planned_at >= dayEnd && t.planned_at < nextEnd))).map(mapTask) };
     }
     const waiting = await this.deps.repos().waiting.list('waiting');
+    checkExecution();
     const reviewQueueCount = await this.deps.reviewQueueCount().catch(() => -1);
+    checkExecution();
     const reviewedNotes: { noteId: string; version: number; summary: string; docUrl: string | null; reviewedAt: string | null }[] = [];
     try {
       const recent = await this.deps.repos().notes.recentApproved(5);
       for (const row of recent) {
+        checkExecution();
         if (reviewedNotes.length >= 3) break;
         const derived = noteDerivedContent(row);
         if (derived.derivedStatus === 'needs_rebuild') { missing.push(`笔记 ${row.note_id} v${row.version} 摘要/候选尚未重建或缺少同源证明，未引用旧派生资料`); continue; }
@@ -302,6 +277,7 @@ export class DigestService {
         // so an externally edited note stops being presented as confirmed (P35).
         try {
           const trust = await this.deps.inspectNoteTrust(row.note_id, row.id);
+          checkExecution();
           if (trust.currentValidity === 'unknown') throw new Error(trust.reason ?? '核验结果未知');
           if (trust.currentValidity !== 'matches') continue;
         } catch (error) {
@@ -320,14 +296,17 @@ export class DigestService {
       missing.push('已审笔记列表读取失败；概览未包含该部分，不按零处理');
     }
     const projects: { id: string; name: string; completed: number; total: number }[] = [];
+    checkExecution();
     try {
       for (const project of await this.deps.repos().projects.listIdNames()) {
+        checkExecution();
         try {
           const projectTasks = await this.deps.repos().projects.tasksOf(project.id);
           projects.push({ id: project.id, name: project.name, completed: projectTasks.filter(task => task.status === 'completed').length, total: projectTasks.length });
         } catch { missing.push(`项目「${project.name}」任务读取失败，未按零处理`); }
       }
     } catch { missing.push('项目列表读取失败，概览未包含该部分，不按零处理'); }
+    checkExecution();
     return {
       period: { ...context, observedAt: now.toISOString(), late: now >= dayEnd, snapshotNote: '任务、等待、项目与笔记反映查询时的当前投影，并非原发生时刻的完整历史快照。', completionTimeNote: '完成任务按投影最后同步时间筛选，不能作为精确完成时间。' },
       calendar, nextWeek,
@@ -442,10 +421,10 @@ export class DigestService {
 
   /** Manual template runs save their result directly; they neither enable a
    * plan nor send a local prompt that would accidentally invoke a model. */
-  async manualTemplate(def: SkillDefinitionLike, parameters: Record<string, unknown>): Promise<string> {
+  async manualTemplate(def: SkillDefinitionLike, parameters: Record<string, unknown>, plan?: import('./repo/skill-run.js').SkillRunSnapshot['plan']): Promise<string> {
     this.checkTemplate(def);
     const kind = String(def.metadata?.kind ?? '');
-    const now = new Date(), period = digestPeriod(kind, this.deps.config().timeZone, now, 'manual');
+    const now = new Date(), period = digestPeriod(kind, plan?.configuration.timeZone ?? this.deps.config().timeZone, plan ? new Date(plan.triggeredAt) : now, plan?.source ?? 'manual');
     return this.renderDigest({ kind, title: typeof parameters.title === 'string' ? parameters.title : def.description ?? '手工简报' }, period.localFrom, await this.planningFacts(now, period));
   }
 

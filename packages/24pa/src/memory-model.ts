@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 
+type MemoryConfirmation = { kind: 'owner_instruction'; text: string; at: string; by: string; reference?: string; statementHash?: string };
 export interface MemoryRecord {
   id: string;
   category: 'preference' | 'fact' | 'project' | 'decision';
@@ -10,7 +11,8 @@ export interface MemoryRecord {
   status: 'confirmed' | 'unverified';
   lifecycle?: 'active' | 'inactive' | 'recycled';
   recycledFrom?: 'active' | 'inactive';
-  confirmation?: { kind: 'owner_instruction'; text: string; at: string; by: string; reference?: string; statementHash?: string };
+  confirmation?: MemoryConfirmation;
+  confirmationHistory?: MemoryConfirmation[];
   scope?: { kind: 'personal' | 'company' | 'project'; name?: string };
   validFrom?: string | null;
   validUntil?: string | null;
@@ -77,10 +79,11 @@ export function validateRecord(record: MemoryRecord): void {
   if (record.validUntil != null) date(record.validUntil, 'validUntil');
   if (record.validFrom && record.validUntil && Date.parse(record.validFrom) > Date.parse(record.validUntil)) throw new MemoryError('记忆有效开始时间不能晚于结束时间。');
   if (record.sourceVersion !== undefined && typeof record.sourceVersion !== 'string') throw new MemoryError('sourceVersion 必须为字符串。');
-  if (record.confirmation !== undefined) {
-    object(record.confirmation, '确认依据'); member(record.confirmation.kind, ['owner_instruction'], '确认依据类型');
-    text(record.confirmation.text, '本人确认指令'); text(record.confirmation.by, '确认会话'); date(record.confirmation.at, '确认时间');
-    if (record.confirmation.reference !== undefined) text(record.confirmation.reference, '确认引用');
+  if (record.confirmationHistory !== undefined && !Array.isArray(record.confirmationHistory)) throw new MemoryError('历史确认依据必须是数组。');
+  for (const confirmation of [...record.confirmationHistory ?? [], ...record.confirmation ? [record.confirmation] : []]) {
+    object(confirmation, '确认依据'); member(confirmation.kind, ['owner_instruction'], '确认依据类型');
+    text(confirmation.text, '本人确认指令'); text(confirmation.by, '确认会话'); date(confirmation.at, '确认时间');
+    if (confirmation.reference !== undefined) text(confirmation.reference, '确认引用');
   }
   if (record.scope !== undefined) {
     object(record.scope, '记忆范围'); member(record.scope.kind, ['personal', 'company', 'project'], '记忆范围');
@@ -196,20 +199,25 @@ export function stageMemoryChanges(file: MemoryFile, changes: MemoryChange[], ac
       if (!current || current.lifecycle !== 'recycled') throw new MemoryError('永久删除前必须先回收该记忆并核对当前版本。');
       next.records.splice(index, 1); next.tombstones!.push({ id, deletedAt: at, revision: next.revision, mutationId }); after[id] = null; before[id] = null;
     } else if (change.op === 'put') {
-      const { effective: _, ...input } = change.record as MemoryRecord & { effective?: unknown };
+      const { effective: _, confirmationHistory: _history, ...input } = change.record as MemoryRecord & { effective?: unknown };
       const entry: MemoryRecord = { ...input, id, validUntil: input.validUntil ?? null, lifecycle: input.lifecycle ?? current?.lifecycle ?? 'active', updatedAt: at, updatedBy: actor, reason: change.reason };
+      const evidence = [...current?.confirmationHistory ?? []];
+      if (current?.confirmation && !evidence.some(row => canonical(row) === canonical(current.confirmation))) evidence.push(current.confirmation);
       if (current?.lifecycle === 'recycled' && entry.lifecycle !== 'recycled') throw new MemoryError('回收项必须先明确恢复，不能以修改绕过恢复。');
       if (entry.lifecycle === 'recycled' && entry.recycledFrom === undefined && current?.recycledFrom) entry.recycledFrom = current.recycledFrom;
-      if (entry.confirmation && current?.confirmation && (entry.confirmation.reference?.trim()
-        ? entry.confirmation.reference.trim() === current.confirmation.reference?.trim()
-        : entry.confirmation.text.trim() === current.confirmation.text.trim())) {
-        // A new instruction reference can carry the same wording. Reusing an
-        // existing reference, or only repeating its text, preserves the evidence.
-        entry.confirmation = { ...current.confirmation };
+      const previousEvidence = entry.confirmation && evidence.find(row => entry.confirmation!.reference?.trim()
+        ? entry.confirmation!.reference.trim() === row.reference?.trim()
+        : entry.confirmation!.text.trim() === row.text.trim());
+      if (previousEvidence) {
+        // Evidence remains bound to its first statement even after later
+        // confirmations, clearing the current evidence, or undoing a revision.
+        entry.confirmation = { ...previousEvidence };
         if (entry.confirmation.statementHash !== memoryStatementHash(entry)) entry.status = 'unverified';
       } else if (entry.confirmation && !entry.confirmation.statementHash) {
         entry.confirmation = { ...entry.confirmation, statementHash: memoryStatementHash(entry) };
       }
+      if (entry.confirmation && !evidence.some(row => canonical(row) === canonical(entry.confirmation))) evidence.push(entry.confirmation);
+      if (evidence.length) entry.confirmationHistory = evidence;
       validateRecord(entry);
       if (index < 0) next.records.push(entry); else next.records[index] = entry;
       after[id] = entry;

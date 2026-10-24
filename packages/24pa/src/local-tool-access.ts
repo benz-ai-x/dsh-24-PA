@@ -35,10 +35,10 @@ const ROLE_TOOLS: Record<string, string[]> = {
   // already uses. Config writes stay local-only (ADR-0001) via pa24_workspace.
   'feishu-access': ['pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_connection'],
   'local-robot': [
-    'pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_workspace', 'pa24_connection',
+    'pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance', 'pa24_workspace', 'pa24_connection', 'pa24_run',
     ...STANDARD_CODING_TOOLS,
   ],
-  worker: ['pa24_work', 'pa24_memory'],
+  worker: ['pa24_work', 'pa24_memory', 'pa24_run'],
 };
 
 /** Native local Skill subtasks get only explicitly declared standard coding
@@ -66,15 +66,15 @@ export interface QwennoteChannelSignals {
   tokenCache: { exists: boolean; updatedAt: Date | null };
 }
 
-export function qwennoteChannelState(signals: QwennoteChannelSignals): { state: 'ok' | 'warn' | 'error'; message: string; nextSteps: string[] } {
+export function qwennoteChannelState(signals: QwennoteChannelSignals): { state: 'info' | 'warn' | 'error'; message: string; nextSteps: string[] } {
   if (signals.configured && signals.mounted) {
-    return { state: 'ok', message: '听记通道正常：工具已挂载，可用 mcp__qwennote__ 工具读取听记。', nextSteps: [] };
+    return { state: 'info', message: '听记工具已挂载；授权与实际资料读取仍以本次调用回执为准，尚不能据此证明资料可读。', nextSteps: ['在本地24私助对话按需查询或读取所选听记；面板保留最近一次实际调用状态。'] };
   }
   if (!signals.configured) {
     return { state: 'warn', message: '未配置：AGENTS.md 的 extraLocalTools 未包含 mcp__qwennote__ 条目。', nextSteps: ['在 AGENTS.md 的 extraLocalTools 中加入 "mcp__qwennote__*"，并确认 profile 配置了 dsh-mcp-client 条目（见初始化指南「听记接入」）。'] };
   }
   if (!signals.tokenCache.exists) {
-    return { state: 'error', message: '未授权：通道已配置但首次 OAuth 授权未完成，工具未挂载。', nextSteps: ['由本人浏览器完成首次授权（初始化指南「听记接入」节：重启宿主触发 mcp-remote 发起，授权链接约 5 分钟轮换，需重新触发取新链接）。'] };
+    return { state: 'error', message: '工具未挂载，未发现授权缓存；授权状态尚未核实。', nextSteps: ['由本人浏览器核对授权（初始化指南「听记接入」节：重启宿主触发 mcp-remote 发起，授权链接约 5 分钟轮换，需重新触发取新链接）。'] };
   }
   return {
     state: 'warn',

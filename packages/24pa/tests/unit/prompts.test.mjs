@@ -63,8 +63,9 @@ describe('PROMPTS_VERSION 与 Lead 分节（A1/B1）', () => {
     }
     // tasks persona 渠道中立：不得再写死单一渠道权威。
     const persona = personaOf('tasks');
-    expect(persona).toContain('todoChannel');
-    expect(persona).toContain('企微待办不支持修改');
+    expect(persona).toContain('sourceId');
+    expect(persona).toContain('不删除重建');
+    expect(persona).toContain('effect=self/whole');
     // F24: handwriting persona 输出分级与长度纪律锚点（快照守护）。
     const handwriting = WORKER_PROMPTS.handwriting;
     expect(handwriting.version).toBeGreaterThanOrEqual(2);

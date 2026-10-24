@@ -54,7 +54,11 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false }
 
     const script = await readJson(scriptPath, {});
     let step;
-    if (script.mode === 'native-run') {
+    if (script.onlySkillRuns && !(body.messages ?? []).some(message => (message.content ?? []).some(part => part.type === 'text' && /^\[24PA skill run: [^\]]+\]$/.test(part.text)))) {
+      // The real manager may notify a parent independently of the owned Run.
+      // Parent acknowledgement must not consume that Run's scripted sequence.
+      step = { text: '已收到原生运行通知。' };
+    } else if (script.mode === 'native-run') {
       const last = (body.messages ?? []).at(-1);
       const continuation = last?.role === 'user' && (last.content ?? []).some(block => block.type === 'tool_result');
       const notice = /background (subagent|job)/i.test(lastUserText);
@@ -104,6 +108,11 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false }
       await writeFile(scriptPath, JSON.stringify(script, null, 2)).catch(() => {});
     }
     const turn = requests.length;
+    if (step.httpError) {
+      res.writeHead(step.httpError.status, { 'content-type': 'application/json', 'retry-after': '0.01' });
+      res.end(JSON.stringify({ error: { type: step.httpError.type, message: step.httpError.message ?? '隔离模型暂时拒绝请求' } }));
+      return;
+    }
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
     const send = payload => res.write(`event: ${payload.type}\ndata: ${JSON.stringify(payload)}\n\n`);
     send({ type: 'message_start', message: { id: `msg_mock_${turn}`, type: 'message', role: 'assistant', model: body.model ?? 'mock', content: [], stop_reason: null, usage: { input_tokens: 10, output_tokens: 1 } } });

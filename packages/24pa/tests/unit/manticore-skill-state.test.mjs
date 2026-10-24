@@ -127,7 +127,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     const [one, two] = await Promise.all([repos.skillRuns.admit(input), repos.skillRuns.admit(input)]);
     expect(one.id).toBe(two.id);
     expect((await repos.skillRuns.list()).total).toBe(1);
-    expect(await repos.workItems.get(one.work_item_id)).toMatchObject({ execution_mode: 'skill', child_session_id: null, status: 'running' });
+    expect(await repos.workItems.get(one.work_item_id)).toMatchObject({ execution_mode: 'skill', child_session_id: null, status: 'queued' });
     await change({ op: 'save', id: entry.id, expectedRevision: entry.revision, version: version('替换版本') });
     expect((await repos.skillRuns.get(one.id)).snapshot.package).toEqual(input.snapshot.package);
     await expect(repos.skillRuns.repeated(input.request_id, 'other-input')).rejects.toThrow(/不同/);
@@ -163,6 +163,42 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     expect((await repos.skillRuns.get(original.id)).result).toBe('原结果');
   });
 
+  it('超时停止未确认及后台作业未结束时，接续与全新同 Skill 运行均不能绕过', async () => {
+    const entry = await publish(await create()), input = await admission(entry), run = await repos.skillRuns.admit(input);
+    await repos.skillRuns.transition(run.id, 'running', '执行中');
+    await repos.skillRuns.beginCall(run.id, 'spawn-job', 'bash', { background: true });
+    await repos.skillRuns.finishCall(run.id, 'spawn-job', { jobId: 'job-1' }, 'returned');
+    await repos.skillRuns.nativeReceipt(run.id, 'job', run.session_id, 'job-1', 'start', { id: 'job-1' });
+    await repos.runControls.change(run.id, state => { state.stop = { requestedAt: Date.now(), settledAt: null, error: '停止尚未确认' }; });
+    await repos.skillRuns.transition(run.id, 'timed_out', '累计执行达到时限');
+    const blocked = async () => {
+      await expect(repos.skillRuns.continuation(run.id)).rejects.toThrow(/核对/);
+      await expect(repos.skillRuns.admit({ ...input, request_id: randomUUID(), workItemId: run.work_item_id })).rejects.toThrow(/核对/);
+      await expect(repos.skillRuns.admit({ ...input, request_id: randomUUID() })).rejects.toThrow(/全新运行/);
+    };
+    await blocked();
+    await repos.runControls.change(run.id, state => { state.stop.settledAt = Date.now(); });
+    await blocked();
+    await repos.skillRuns.nativeReceipt(run.id, 'job', run.session_id, 'job-1', 'end', { id: 'job-1', producerReported: true });
+    expect(await repos.skillRuns.continuation(run.id)).toHaveLength(1);
+    await repos.skillRuns.admit({ ...input, request_id: randomUUID(), workItemId: run.work_item_id });
+  });
+
+  it('原生结束依据人工留档可解除未决证据，但不能代替尚未确认的停止动作', async () => {
+    const entry = await publish(await create()), input = await admission(entry), run = await repos.skillRuns.admit(input);
+    await repos.skillRuns.nativeReceipt(run.id, 'activation', run.session_id, 'child-1', 'start', { id: 'child-1' });
+    await repos.runControls.change(run.id, state => { state.stop = { requestedAt: Date.now(), settledAt: null, error: null }; });
+    await repos.skillRuns.transition(run.id, 'timed_out', '超时');
+    await repos.skillRuns.review({ runId: run.id, requestId: randomUUID(), requestHash: randomUUID(), fingerprint: (await repos.skillRuns.evidence(run.id)).fingerprint,
+      record: { actor: 'source', summary: '已核对原生会话', completed: '子任务已结束', remaining: '等待停止控制回执', calls: [],
+        native: [{ kind: 'activation', ownerId: run.session_id, nativeId: 'child-1', evidence: '宿主历史显示子任务终止' }] } });
+    await expect(repos.skillRuns.continuation(run.id)).rejects.toThrow(/核对/);
+    await expect(repos.skillRuns.checkNewWork(entry.id)).rejects.toThrow(/全新运行/);
+    await repos.runControls.change(run.id, state => { state.stop.settledAt = Date.now(); });
+    expect(await repos.skillRuns.continuation(run.id)).toHaveLength(1);
+    await repos.skillRuns.checkNewWork(entry.id);
+  });
+
   it('人工核对逐项留档，不改原始未知回执；新证据使旧核对失效，不能接续绕过', async () => {
     const entry = await publish(await create()), input = await admission(entry), run = await repos.skillRuns.admit(input);
     await repos.skillRuns.transition(run.id, 'running', '执行中');
@@ -194,7 +230,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     let executions = 0;
     const runs = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'binding', repos }), packages,
       sourceSession: async () => 'source', tools: async () => [], permissionHash: () => 'permission', checkBusiness() {}, startBusiness: async () => {}, checkTemplate() {},
-      template: async () => { executions++; await new Promise(resolve => setTimeout(resolve, 100)); return '仅执行一次'; }, lease: work => work(), detached: work => work() });
+      template: async () => { executions++; await new Promise(resolve => setTimeout(resolve, 100)); return '仅执行一次'; }, lease: work => work(), control: work => work(), detached: work => work() });
     const base = { id: 'managed:' + entry.id, workspaceBinding: 'binding' }, preview = await runs.preview(base);
     const command = { ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint };
     const results = await Promise.all([runs.start(command), runs.start(command)]);

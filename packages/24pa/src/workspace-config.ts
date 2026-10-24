@@ -1,5 +1,6 @@
 import { readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { hash } from './util.js';
 import { ConfigError, CONFIG_UPDATE_ALLOWED, parseAgentsMd, rawAgentsMdConfig, replaceAgentsMdConfig, validateConfig, type ParsedAgentsMd, type PaConfig } from './config.js';
 import { readSecretStore, type SecretStore } from './secrets.js';
 import { effectiveSources, sourceConfigurationFingerprint, migrateLegacySourceChange } from './source-config.js';
@@ -13,12 +14,13 @@ export async function readWorkspaceConfiguration(path: string): Promise<Workspac
 }
 
 /** The caller owns the serial gate; validation and prose-preserving publication stay together. */
-export async function writeWorkspaceConfiguration(path: string, patch: Record<string, unknown>, check: (config: PaConfig, secrets: SecretStore) => Promise<void>, options: { expectedSourcesHash?: string } = {}): Promise<void> {
+export async function writeWorkspaceConfiguration(path: string, patch: Record<string, unknown>, check: (config: PaConfig, secrets: SecretStore) => Promise<void>, options: { expectedSourcesHash?: string; expectedConfigHash?: string } = {}): Promise<void> {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new ConfigError('配置补丁必须是对象。');
   const rejected = Object.keys(patch).filter(key => !CONFIG_UPDATE_ALLOWED.has(key));
   if (rejected.length) throw new ConfigError(`不接受从表单更新的字段：${rejected.join('、')}（storage 切换走迁移流程；version 固定；密钥值走「密钥」组，进工作区密钥库）。`);
   const target = join(path, 'AGENTS.md');
   const source = await readFile(target, 'utf8');
+  if (options.expectedConfigHash && options.expectedConfigHash !== hash(source)) throw new ConfigError('配置源文件已被修改，请重新读取并核对差异后保存；当前输入保留，未覆盖其他修改。');
   const current = rawAgentsMdConfig(source);
   if (Object.hasOwn(patch, 'sources') && (!options.expectedSourcesHash || options.expectedSourcesHash !== sourceConfigurationFingerprint(effectiveSources(validateConfig(current))))) throw new ConfigError('来源配置已变更或缺少编辑基线，请刷新核对后重新保存；草稿未覆盖其他修改。');
   const merged = { ...current, ...patch };

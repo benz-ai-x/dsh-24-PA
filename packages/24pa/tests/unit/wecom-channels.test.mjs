@@ -35,11 +35,11 @@ describe('F30：WecomChannels 接口直测', () => {
     await expect(channels.wecomCheck()).rejects.toThrow('尚未绑定工作区。');
   });
 
-  it('authTick：已关停或未绑定时不做任何探测（静默短路）', async () => {
-    let probeRan = false;
-    const channels = new WecomChannels(makeDeps({ isClosed: () => true }));
-    channels.wecomCheck = async () => { probeRan = true; return null; };
-    await channels.authTick();
-    expect(probeRan).toBe(false);
+  it('invalidate：旧检查快照失效，不触发新的平台探测', async () => {
+    const channels = new WecomChannels(makeDeps());
+    await channels.wecomCheck();
+    expect(channels.diagnostics).not.toBeNull();
+    channels.invalidate();
+    expect(channels.diagnostics).toBeNull();
   });
 });

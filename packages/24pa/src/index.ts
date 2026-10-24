@@ -40,7 +40,8 @@ export function apply(ctx: DshContext, config: any) {
   });
   ctx.reflect.provide('pa24', runtime);
   ctx.effect(() => runtime.skillPackages.register());
-  ctx.on('agent/created', ({ agent }) => runtime.skillRuns.attach(agent));
+  ctx.on('agent/created', async ({ agent }) => { await runtime.skillRuns.attach(agent); await runtime.workerRuns.attach(agent); });
+  ctx.on('agent/pre-step', ({ agent, messages }, next) => runtime.planStep(agent, messages, next));
   ctx.on('session/event', (session, event) => runtime.onSessionEvent(session, event));
   registerPanel(ctx, runtime);
   ctx.effect(() => {

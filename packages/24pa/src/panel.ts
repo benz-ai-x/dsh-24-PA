@@ -25,7 +25,13 @@ export const PANEL_RPC = {
     memory: 'memory',
     memoryHistory: 'memory.history',
     health: 'health',
+    budget: 'budget',
+    healthSnapshot: 'health.snapshot',
+    healthTestPreview: 'health.test.preview',
+    configEvidence: 'workspace.evidence',
     notesQueue: 'notes.queue',
+    materials: 'materials',
+    minutes: 'minutes',
     roles: 'roles',
     reminders: 'reminders',
     digests: 'digests',
@@ -37,10 +43,24 @@ export const PANEL_RPC = {
     skillsPreview: 'skills.preview',
     skillsRuns: 'skills.runs',
     skillsRun: 'skills.run',
+    plans: 'plans',
+    planSummary: 'plans.summary',
+    plan: 'plans.inspect',
+    planDraft: 'plans.draft',
+    planPreview: 'plans.preview',
+    planRunPreview: 'plans.run-preview',
+    planMigrationPreview: 'plans.migration-preview',
+    runHistory: 'runs',
+    runSummary: 'runs.summary',
+    runExport: 'runs.export',
+    runDiagnostics: 'runs.diagnostics',
+    workInspect: 'work.inspect',
+    workerRun: 'worker.run',
     sources: 'sources',
     calendar: 'calendar',
     backups: 'backups',
     backupDetail: 'backups.detail',
+    todos: 'todos',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -49,7 +69,12 @@ export const PANEL_RPC = {
     workspaceSecretUpdate: 'workspace.secret-update',
     connectionCheck: 'connection.check',
     connectionWecomCheck: 'connection.wecom-check',
+    healthCheck: 'health.check',
+    healthTest: 'health.test',
+    healthTestCleanup: 'health.test.cleanup',
+    healthIdentityAccept: 'health.identity-accept',
     notesPoll: 'notes.poll',
+    materialChange: 'material.change',
     notesRemindPoll: 'notes.remind-poll',
     digestSupervise: 'digest.supervise',
     digestReschedule: 'digest.reschedule',
@@ -61,10 +86,15 @@ export const PANEL_RPC = {
     robotOpen: 'robot.open',
     roleRegister: 'role.register',
     workList: 'work.list',
+    workChange: 'work.change',
     skillChange: 'skill.change',
     skillRun: 'skill.run',
+    budgetRelease: 'budget.release',
+    planChange: 'plan.change',
+    planDelivery: 'plan.delivery',
     sourceCheck: 'source.check',
     calendarVerify: 'calendar.verify',
+    todosVerify: 'todos.verify',
     testInject: 'test.inject',
   },
 } as const;
@@ -90,6 +120,9 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           if (endpoint === E.action) return respond({ ok: true, value: await action(runtime, payload) });
           if (endpoint === E.snapshot && runtime.closed) return respond({ ok: true, value: { ...runtime.snapshot(), work: [], outbox: [], configMeta: { fields: CONFIG_FIELDS } } });
           return await runtime.inspectWorkspace(async () => {
+            if (endpoint === E.healthSnapshot) return respond({ ok: true, value: await runtime.healthSnapshot(payload.workspaceBinding) });
+            if (endpoint === E.healthTestPreview) return respond({ ok: true, value: await runtime.connectionTest(payload, 'preview') });
+            if (endpoint === E.configEvidence) return respond({ ok: true, value: await runtime.configurationEvidence(payload.workspaceBinding) });
             if (endpoint === E.skillsCatalog) return respond({ ok: true, value: await runtime.skillManagement.list(payload.workspaceBinding) });
             if (endpoint === E.skillsInspect) return respond({ ok: true, value: await runtime.skillManagement.inspect(payload.id, payload.workspaceBinding) });
             if (endpoint === E.skillsExport) return respond({ ok: true, value: await runtime.skillManagement.exportMarkdown(payload.id, payload.fingerprint, payload.workspaceBinding, typeof payload.versionId === 'string' ? payload.versionId : undefined) });
@@ -102,17 +135,34 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.skillsRun) return respond({ ok: true, value: await runtime.skillRuns.inspect(payload) });
             if (endpoint === E.backups) return respond({ ok: true, value: await runtime.backups.list(payload) });
             if (endpoint === E.backupDetail) return respond({ ok: true, value: await runtime.backups.detail(payload) });
+            if (endpoint === E.plans) return respond({ ok: true, value: await runtime.taskPlans.list(payload) });
+            if (endpoint === E.planSummary) return respond({ ok: true, value: await runtime.taskPlans.summary(payload) });
+            if (endpoint === E.plan) return respond({ ok: true, value: await runtime.taskPlans.inspect(payload) });
+            if (endpoint === E.planDraft) return respond({ ok: true, value: await runtime.taskPlans.draft(payload) });
+            if (endpoint === E.planPreview) return respond({ ok: true, value: await runtime.taskPlans.preview(payload) });
+            if (endpoint === E.planMigrationPreview) return respond({ ok: true, value: await runtime.taskPlans.migrationPreview(payload) });
+            if (endpoint === E.runHistory) return respond({ ok: true, value: await runtime.runHistory.list(payload) });
+            if (endpoint === E.runSummary) return respond({ ok: true, value: await runtime.runHistory.summary(payload) });
+            if (endpoint === E.runExport) return respond({ ok: true, value: await runtime.runHistory.export(payload) });
+            if (endpoint === E.runDiagnostics) return respond({ ok: true, value: await runtime.runHistory.diagnostics(payload) });
+            if (endpoint === E.workerRun) return respond({ ok: true, value: await runtime.workerRuns.inspect(payload) });
+            if (endpoint === E.workInspect) return respond({ ok: true, value: await runtime.runHistory.work(payload) });
+            if (endpoint === E.planRunPreview) return respond({ ok: true, value: await runtime.planEngine.previewRun(payload) });
             if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
             if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });
+            if (endpoint === E.todos) return respond({ ok: true, value: await runtime.todoSnapshot(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
             if (endpoint === E.memoryHistory) return respond({ ok: true, value: await runtime.memorySnapshot(payload, true) });
             if (endpoint === E.memory) return respond({ ok: true, value: await runtime.memorySnapshot(payload) });
+            if (endpoint === E.budget) return respond({ ok: true, value: await runtime.modelBudgets.snapshot(payload) });
             if (endpoint === E.health) {
               return respond({ ok: true, value: await runtime.maintenanceHealth() });
             }
             if (endpoint === E.notesQueue) {
               return respond({ ok: true, value: await runtime.reviewQueue() });
             }
+            if (endpoint === E.materials) return respond({ ok: true, value: await runtime.materialSnapshot(payload) });
+            if (endpoint === E.minutes) return respond({ ok: true, value: await runtime.minutesSnapshot() });
             if (endpoint === E.roles) {
               return respond({ ok: true, value: { roles: runtime.listRoles() } });
             }
@@ -170,10 +220,17 @@ function requiredBinding(payload: PanelAction): string {
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
+  [PANEL_RPC.actions.budgetRelease]: (runtime, payload) => runtime.releaseBudget(payload),
+  [PANEL_RPC.actions.materialChange]: (runtime, payload) => runtime.changeMaterial(payload),
+  [PANEL_RPC.actions.healthCheck]: (runtime, payload) => runtime.checkHealth(payload),
+  [PANEL_RPC.actions.healthTest]: (runtime, payload) => runtime.connectionTest(payload, 'execute'),
+  [PANEL_RPC.actions.healthTestCleanup]: (runtime, payload) => runtime.connectionTest(payload, 'cleanup'),
+  [PANEL_RPC.actions.healthIdentityAccept]: (runtime, payload) => runtime.acceptWecomIdentity(payload),
   [PANEL_RPC.actions.skillChange]: (runtime, payload) => runtime.changeSkill(payload),
   [PANEL_RPC.actions.skillRun]: (runtime, payload) => runtime.runSkill(payload),
   [PANEL_RPC.actions.sourceCheck]: (runtime, payload) => runtime.checkSource(payload),
   [PANEL_RPC.actions.calendarVerify]: (runtime, payload) => runtime.verifyCalendar(payload),
+  [PANEL_RPC.actions.todosVerify]: (runtime, payload) => runtime.verifyTodos(payload),
   [PANEL_RPC.actions.workspaceBind]: async (runtime, payload) => {
     const path = String(payload.path ?? '');
     return runtime.bind(path, true).then(() => snapshot(runtime));
@@ -182,7 +239,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.workspaceConfigUpdate]: (runtime, payload) => {
     const config = payload.config as Record<string, unknown> | undefined;
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ConfigError('缺少配置补丁。');
-    return runtime.updateWorkspaceConfig(config, requiredBinding(payload), str(payload.expectedSourcesHash)).then(() => snapshot(runtime));
+    return runtime.updateWorkspaceConfig(config, requiredBinding(payload), str(payload.expectedSourcesHash), str(payload.expectedConfigHash)).then(() => snapshot(runtime));
   },
   // F36: 密钥值进工作区密钥库（.24pa/secrets.json，0600），与 AGENTS.md 解耦。
   [PANEL_RPC.actions.workspaceSecretUpdate]: (runtime, payload) => {
@@ -198,6 +255,8 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
     const graceMs = Number(payload.graceMs);
     return runtime.superviseDigests(Number.isFinite(graceMs) && graceMs >= 0 ? graceMs : DIGEST_UNCONFIRMED_GRACE_MS);
   },
+  [PANEL_RPC.actions.planChange]: (runtime, payload) => runtime.changeTaskPlan(payload),
+  [PANEL_RPC.actions.planDelivery]: (runtime, payload) => runtime.changePlanDelivery(payload),
   [PANEL_RPC.actions.digestReschedule]: (runtime, payload) => runtime.digestReschedule(payload as Record<string, unknown>),
   [PANEL_RPC.actions.digestSetSkill]: (runtime, payload) => runtime.digestSetSkill(payload as Record<string, unknown>),
   [PANEL_RPC.actions.digestSetVoice]: (runtime, payload) => runtime.digestSetVoice(payload as Record<string, unknown>),
@@ -221,6 +280,7 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
     );
     return { roles: runtime.listRoles() };
   },
+  [PANEL_RPC.actions.workChange]: (runtime, payload) => runtime.changeWork(payload),
   [PANEL_RPC.actions.workList]: runtime => runtime.inspectWorkspace(async () => ({ items: runtime.repos ? await runtime.repos.workItems.list(undefined, 100) : [] })),
   [PANEL_RPC.actions.testInject]: async (runtime, payload) => {
     const transport = runtime.getTransport();

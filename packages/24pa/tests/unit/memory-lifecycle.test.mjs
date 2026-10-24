@@ -209,6 +209,17 @@ it('实际维护入口同措辞新引用确认当前内容，同引用或缺失�
     await f.rt.memoryTool({ ...command, content: '我喜欢绿色', confirmation: '改写引用文字也不能改变原指令', confirmationReference: 'message-2', expectedRevision: 4 }, owner);
     expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
     expect((await f.rt.memoryTool({ action: 'search', mode: 'manage' }, owner)).records[0].confirmation).toEqual(facts[0].confirmation);
+    await f.rt.memoryTool({ ...command, content: '我喜欢绿色', expectedRevision: 5 }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'manage' }, owner)).records[0].confirmation).toEqual(original);
+    await f.rt.memoryTool({ ...command, confirmation: undefined, confirmationReference: undefined, content: '我喜欢绿色', status: 'unverified', expectedRevision: 6 }, owner);
+    const changes = [{ op: 'put', record: { ...command, id: 'colour', content: '我喜欢绿色', confirmation: { ...original, statementHash: undefined }, confirmationHistory: [] }, reason: '旧消息不能为新正文授信' }];
+    const preview = await f.rt.memoryTool({ action: 'preview', expectedRevision: 7, changes }, owner);
+    expect(preview.after.colour.status).toBe('unverified');
+    await f.rt.memoryTool({ action: 'apply', expectedRevision: 7, changes: preview.changes, previewToken: preview.previewToken, reason: '保存待核实线索' }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toEqual([]);
+    await f.rt.memoryTool({ ...command, content: '我喜欢绿色', confirmationReference: 'message-3', expectedRevision: 8 }, owner);
+    expect((await f.rt.memoryTool({ action: 'search', mode: 'facts' }, owner)).records).toMatchObject([{ content: '我喜欢绿色', confirmation: { reference: 'message-3' } }]);
   } finally { await f.cleanup(); }
 });
 

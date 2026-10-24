@@ -132,6 +132,16 @@ describe('Manticore M06 真实 Loader / Session / 条件文件写入', () => {
     expect(await tool({ ...command, expectedRevision: 4, content: '我喜欢绿色', confirmation: '改写引用文字也不能改变原指令', confirmationReference: 'message-2' })).toMatchObject({ revision: 5 });
     expect((await tool({ action: 'search', mode: 'facts' })).records).toEqual([]);
     expect((await current()).records[0].confirmation).toEqual(facts[0].confirmation);
+    expect(await tool({ ...command, expectedRevision: 5, content: '我喜欢绿色' })).toMatchObject({ revision: 6 });
+    expect((await tool({ action: 'search', mode: 'facts' })).records).toEqual([]);
+    expect((await current()).records[0].confirmation).toEqual(original);
+    const fresh = await tool({ ...command, expectedRevision: 6, content: '我喜欢绿色', confirmationReference: 'message-3' });
+    expect(fresh).toMatchObject({ revision: 7 });
+    const history = await tool({ action: 'history', id: 'colour' });
+    expect(await tool({ action: 'undo', changesetId: history.revisions[0].id, expectedRevision: 7, reason: '撤销本次新确认' })).toMatchObject({ revision: 8 });
+    expect(await tool({ ...command, expectedRevision: 8, content: '我喜欢黄色', confirmationReference: 'message-3' })).toMatchObject({ revision: 9 });
+    expect((await tool({ action: 'search', mode: 'facts' })).records).toEqual([]);
+    expect((await current()).records[0].confirmationHistory.map(row => row.reference)).toEqual(['message-1', 'message-2', 'message-3']);
   });
 
   it('旧 schema 1 记录经真实本地工具停用再撤销，恢复默认 active 和业务可检索状态', async () => {

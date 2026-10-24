@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "reports": [
+    {
+      "case": "pre-step wait + restart",
+      "preservedMessageId": "09618231-f3bd-46e3-b2dd-09a525d463b1",
+      "blockedTurns": 1,
+      "completedTurns": 1,
+      "modelCalls": 1
+    },
+    {
+      "case": "mid-run wait + restart",
+      "steps": 2,
+      "activeMs": 594,
+      "wallMs": 3218,
+      "sameSession": true
+    },
+    {
+      "case": "native wake",
+      "actualScheduleId": "schedule-9c5cbc7d-a60a-42b7-8f30-69769483837d",
+      "messageId": "36913645-2b25-4c3a-842c-3369a8466a97",
+      "scheduledAt": "2026-10-22T19:06:08.898Z",
+      "blockedBeforeModel": true,
+      "deletedCatalogKeepsDeliveredInput": true
+    }
+  ]
+}

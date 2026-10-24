@@ -17,8 +17,9 @@ export type WorkCompletion =
 
 /** Read-only host adapter. No Agent resolution, model input, or private log
  * writes are permitted here. Live flush and cold reads share one verifier. */
+export interface WorkContinuation { messageId?: string | null; consumedAt: string }
 export class WorkCompletionHistory {
-  constructor(private readonly ctx: DshContext) {}
+  constructor(private readonly ctx: DshContext, private readonly continuations: (item: WorkItemRow) => Promise<WorkContinuation[]> = async () => []) {}
 
   async checkpoint(session: DshSession): Promise<void> {
     if (!await this.ctx.sessions.flush(session)) throw new Error('宿主没有持久化监听者，原回合结算等待持久化确认。');
@@ -29,7 +30,7 @@ export class WorkCompletionHistory {
     const live = this.ctx.sessions.get?.(childId);
     if (live) {
       await this.checkpoint(live);
-      return verifyWorkCompletion(item, live);
+      return verifyWorkCompletion(item, live, await this.continuations(item));
     }
     const persistence = this.ctx.get('sessionPersistence') as {
       open?(id: string, access: 'read'): Promise<{ header: SessionHeader & { id: string }; inheritedEventCount: number;
@@ -42,7 +43,7 @@ export class WorkCompletionHistory {
       const { events } = await handle.read(0);
       const inheritedEventCount = handle.inheritedEventCount;
       return verifyWorkCompletion(item, { id: handle.header.id, header: handle.header,
-        ownEvents: () => events.slice(inheritedEventCount) });
+        ownEvents: () => events.slice(inheritedEventCount) }, await this.continuations(item));
     } catch (error) {
       if (['SessionPersistenceNotFoundError', 'SessionPersistenceCorruptionError', 'SessionFormatUnsupportedError'].includes((error as Error).name)) {
         return { kind: 'unproven', reason: '原生持久历史缺失、损坏或格式无法核验，请先核对原事项结果。' };
@@ -52,7 +53,7 @@ export class WorkCompletionHistory {
   }
 }
 
-function verifyWorkCompletion(item: WorkItemRow, session: DshSession): WorkCompletion {
+function verifyWorkCompletion(item: WorkItemRow, session: DshSession, continuations: WorkContinuation[]): WorkCompletion {
   const scope = item.execution_scope;
   const parent = session.header.parentSession;
   const parentId = typeof parent === 'string' ? parent : parent?.id;
@@ -77,8 +78,17 @@ function verifyWorkCompletion(item: WorkItemRow, session: DshSession): WorkCompl
   }
   if (accepted.size > 1) return { kind: 'unproven', reason: '同一执行标识对应多个宿主输入，需核对实际执行结果。' };
   if (!accepted.size) return { kind: 'pending' };
+  const continuationIds = new Set(continuations.map(row => row.messageId).filter(Boolean));
   const completed = events.filter(event => event.type === 'turn/end' && Number.isInteger(event.data.turn)
-    && [...consumedTurn(session, event.data.turn).messageIds].some(id => accepted.has(id)));
+    && [...consumedTurn(session, event.data.turn).messageIds].some(id => accepted.has(id) || continuationIds.has(id)))
+    .filter(event => {
+      // A durable consumed budget grant proves a later request belongs to this
+      // same execution. Earlier rejected/error turns remain history, not a
+      // second completion. Never replace an earlier successful completion.
+      const kind = event.data.reason?.kind, endedAt = event.time;
+      return !(['blocked', 'error'].includes(kind) && typeof endedAt === 'number'
+        && continuations.some(row => Date.parse(row.consumedAt) > endedAt));
+    });
   if (!completed.length) return { kind: 'pending' };
   if (completed.length !== 1) return { kind: 'unproven', reason: '同一输入的完成回合不唯一，请核对实际执行结果。' };
   const terminal = completed[0]!;

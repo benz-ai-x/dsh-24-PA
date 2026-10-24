@@ -4,6 +4,7 @@
 // factory so the shared failures reject as their own error classes.
 
 import { spawn } from 'node:child_process';
+import { executionSignal } from './execution-cancellation.js';
 
 export type CliFailKind = 'argv' | 'spawn' | 'timeout' | 'limit';
 
@@ -37,7 +38,9 @@ const STDERR_KEEP_CHARS = 65536;
  *  (SIGTERM, outcome unknown to the caller), output-limit breach, or close. */
 export function runCliProcess(options: CliProcessOptions): Promise<CliProcessResult> {
   const { bin, argv, timeoutMs, env, cwd, stdinContent, fail } = options;
+  const abort = executionSignal();
   return new Promise((resolve, reject) => {
+    if (abort?.aborted) { reject(abort.reason); return; }
     if (argv.some(a => typeof a !== 'string')) { reject(fail('argv')); return; }
     const grouped = process.platform !== 'win32';
     const child = spawn(bin, argv, { cwd, shell: false, detached: grouped, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } });
@@ -47,6 +50,7 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
     const finish = (error?: Error, code: number | null = null) => {
       if (settled) return;
       settled = true; clearTimeout(timer); clearTimeout(killTimer); clearTimeout(settleTimer);
+      abort?.removeEventListener('abort', cancel);
       child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
       if (error) reject(error);
       else {
@@ -68,6 +72,8 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
       settleTimer = setTimeout(() => { signal('SIGKILL'); child.unref(); finish(limitError!); }, 1000);
     };
     const timer = setTimeout(() => terminate(fail('timeout')), timeoutMs);
+    const cancel = () => terminate(fail('timeout', abort?.reason));
+    abort?.addEventListener('abort', cancel, { once: true });
     child.stdout.on('data', (chunk: Buffer) => {
       if (limitError) return;
       bytes += chunk.length;

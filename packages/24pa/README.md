@@ -337,3 +337,22 @@ Open **Work & plans → Skill management** to browse built-in originals and disc
 Downloads contain frontmatter and instructions only, not `scripts`, `references`, `assets`, plan parameters or run history. A changed definition/source or stale workspace binding requires a refresh before download. The content fingerprint is not a managed version number. Full package import/export, editing, versions and direct execution are tracked separately in [M01b / #214](https://github.com/benz-ai-x/dsh-24-PA/issues/214).
 
 Discovery reports its actual completeness. Files ignored by the host parser and non-workspace providers are outside this catalog view; a loaded definition does not prove dependencies or execution readiness. Existing plan links are by name and resolve their winning source at execution.
+
+## Manticore schedules and run history (M02)
+
+Open **Work & plans → Scheduled tasks** to create a blank plan or use a morning/evening/weekly preset. Enter a skill, parameters, a time rule and a fixed time zone; preview future occurrences before saving the plan paused. **Verify and enable** shows the tools, package resources, business targets and owner delivery being authorized. Changing defaults does not rebind an existing plan. Pause before editing; in-flight runs retain their input snapshots. A verified plan can run once while paused without enabling future occurrences.
+
+Pause cancels future and not-yet-started work. Stop and delete are separate choices; deletion offers waiting for active runs or stopping them first, and preserves history. Restoring a recycled plan leaves it paused pending verification. Existing digest plans have an explicit migration preview; their original schedule identity and historical reports remain intact.
+
+**Run history** separates executions, work items, unexecuted trigger events and legacy reports. Filters and pagination use the full ledger; unresolved records can remain visible outside the selected date range. Execution and delivery statuses are independent. Retry delivery sends the original result without rerunning the skill; unknown delivery requires a recorded platform check first. Download a single result or all filtered records. Diagnostic downloads require a preview and omit input, result text, recipient details, workspace paths and credentials. Detailed diagnostics default to 90 days (`diagnosticRetentionDays`, 1–3650); business snapshots, results and receipts do not expire under that setting.
+
+
+### Manticore：模型与预算
+
+在「运行与维护 → 模型与预算」查看本工作区受管 Skill 和普通交办的实际模型、统计周期、Token、未结算请求及估算依据。打开或刷新只读账本，不请求模型；自由对话、外部 CLI、TTS 和升级前请求不在此覆盖范围。缺用量或价格显示「未知」，进程计数和估算均不等于供应商账单。
+
+「设置预算与模型」定位参数表单中的预算区。按工作区时区选择日/月，配置请求次数、Token、估算费用限额及预警比例；留空表示不限，0 表示暂停新的受管请求。价格可选，按实际 provider/model 填每百万 Token 的非缓存输入、输出、缓存读取/写入单价和可核对来源。费用按请求时保存的价格计算，不用新价格改写历史。
+
+到限的原输入、进度和独立阻断保留。先查看对应会话与原运行，选择「准备放行一次」，勾选范围后确认；仅允许该会话下一次模型请求，重试也占一次。多个原生子会话各自显示等待；输入、授权、依赖、停止与时限继续生效，未来计划的主人暂停保持。已派发请求可能继续计费，原生日历提醒、结果保存和投递继续。
+
+迁移 30 为追加预算账本及完整输入字段，默认不限额。保留迁移后的账本可回退应用代码；不要手工删除预算行来解除限额或恢复原运行。预算证据、恢复流程和验收边界见 `docs/research/2026-10-23-Manticore-M08预算与输入恢复契约.md`。

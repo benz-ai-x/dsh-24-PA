@@ -78,17 +78,23 @@ export class TrustedNotes {
     try {
       if (!version.doc_id) throw new Error('版本缺少可核验的文档标识。');
       const pages = (await notes.pagesOf(noteId)).filter(page => page.status === 'saved');
-      if (!pages.length) throw new Error('原稿依据缺失，不能核验完整版本。');
+      const material = await notes.material(noteId);
+      if (!pages.length && !(version.content?.materialSource?.kind === 'qwennote' && material?.source.kind === 'qwennote' && material.source.digest === version.content.materialSource.digest)) throw new Error('原稿依据缺失，不能核验完整版本。');
+      if (material && ((version.content?.materialRevision && material.revision !== version.content.materialRevision) || (!version.content?.materialRevision && material.edited_by !== 'recognition'))) return changed('草稿在发布后已修改；旧审核不覆盖新草稿，请单独发布并审核。');
+      const originals = Array.isArray(version.content?.originals) ? version.content.originals : pages.map(page => ({ pageNo: page.page_no, sha256: page.sha256 }));
+      if (originals.some((original: { pageNo: number; sha256: string }) => !pages.some(page => page.page_no === original.pageNo && page.sha256 === original.sha256))) return changed('保存的原稿依据已变化。');
       const crops = Array.isArray(version.content?.crops) ? version.content.crops : [];
       const readback = await this.reader.read(version.doc_id);
       if (!readback.content.trim()) throw new Error('文档回读为空，不能核验完整版本。');
-      fingerprint = fingerprintOf(readback.normalized ?? normalizeDocument(readback.content), pages.map(page => page.sha256), crops.map((crop: { sha256: string }) => crop.sha256));
+      fingerprint = fingerprintOf(readback.normalized ?? normalizeDocument(readback.content), originals.map((original: { sha256: string }) => original.sha256), crops.map((crop: { sha256: string }) => crop.sha256));
       // A new candidate or changed decision may arrive while remote I/O runs.
       latest = await notes.latestVersion(noteId);
       version = await notes.getVersion(version.id);
       if (!version || version.note_id !== noteId) throw new Error('核验期间版本记录已变化。');
       if (latest?.id !== version.id) return changed('核验期间已发布新版本，历史批准不覆盖当前版本。');
       if (version.status === 'superseded' || version.status === 'stale') return changed('核验期间版本已失效。');
+      const currentMaterial = await notes.material(noteId);
+      if (material && currentMaterial?.revision !== material.revision) return changed('核验期间草稿已变化。');
     } catch (error) {
       if (!version) throw error;
       return { version, current: latest?.id === version.id, contentValidity: 'unknown', currentValidity: 'unknown', fingerprint: null, reason: (error as Error).message };

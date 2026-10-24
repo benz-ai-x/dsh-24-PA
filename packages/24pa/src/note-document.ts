@@ -32,7 +32,7 @@ export function registeredStatus(root: DocumentNode): DocumentNode | null {
   const first = root.children.find(child => typeof child !== 'string' && child.name !== 'title');
   if (typeof first === 'string' || first?.name !== 'p' || first.children.some(child => typeof child !== 'string')) return null;
   const value = documentText(first);
-  const identity = 'N-\\d+ v\\d+';
+  const identity = 'N-(?:\\d+|Q[a-f0-9]{20}) v\\d+';
   const instant = '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z';
   const registered = [
     `待本人审核 ${identity}（尚未经人工审核）`,

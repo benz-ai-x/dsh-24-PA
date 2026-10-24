@@ -55,7 +55,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`手写发布恢复 (${ba
   afterAll(async () => { await db?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true }); });
   beforeEach(async () => {
     failProjection = false;
-    for (const table of ['review_decision', 'review_token', 'outbox', 'note_version', 'note_page', 'note', 'action_operation', 'work_item']) await db.query(`delete from pa24.${table}`);
+    for (const table of ['note_action_link', 'note_material', 'material_read_evidence', 'review_decision', 'review_token', 'outbox', 'note_version', 'note_page', 'note', 'action_operation', 'work_item']) await db.query(`delete from pa24.${table}`);
     for (const suffix of ['.docs.jsonl', '.calls.jsonl']) await rm(`${statePath}${suffix}`, { force: true });
     await writeFile(statePath, '{}');
     item = await repos.workItems.insert({ id: 'work', title: '整理笔记', role: 'handwriting', instruction: '整理', origin: 'local', parent_session_id: 'access', delivery: 'owner', status: 'running' });

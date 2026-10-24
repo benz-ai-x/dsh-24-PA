@@ -175,7 +175,7 @@ export class SkillManagement {
       if (!context.allowed.includes(def.name)) restrictions.push('此 Skill 尚未列入工作区业务放行范围。');
     }
     if (!['agent', 'template'].includes(track)) restrictions.push('执行轨无效，需修正 Skill 声明。');
-    try { assertToolDeclaration(metadata, ['pa24_work', 'pa24_memory'], def.name); }
+    try { assertToolDeclaration(metadata, ['pa24_work', 'pa24_memory', 'pa24_run'], def.name); }
     catch (error) { restrictions.push(message(error)); }
     restrictions.push('当前仅核对定义和配置；依赖与实际执行环境尚未验证，运行时仍须检查获胜来源和权限。');
     return {

@@ -3,6 +3,16 @@
 import type { PaDb, PaQueryer } from '../db.js';
 import type { ActionOperationRow } from './work.js';
 import { hash } from '../util.js';
+import type { MaterialDraft, MaterialSource } from '../material-draft.js';
+
+export interface NoteMaterialRow {
+  note_id: string; revision: number; draft: MaterialDraft; recognition: MaterialDraft | null;
+  source: MaterialSource; edited_by: string; published_revision: number | null; updated_at: Date;
+}
+export interface NoteActionLink {
+  note_id: string; candidate_id: string; operation_id: string; version_id: string;
+  parameters: Record<string, unknown>; authorization_record: Record<string, unknown>; created_at: Date;
+}
 
 export type NoteStatus = 'collecting' | 'awaiting_review' | 'approved' | 'returned' | 'needs_rereview';
 export type NoteVersionStatus = 'pending_review' | 'approved' | 'returned' | 'stale' | 'superseded';
@@ -88,6 +98,72 @@ export interface ReviewDecisionRow {
 
 export class NoteRepo {
   constructor(private readonly db: PaDb) {}
+
+  async material(noteId: string): Promise<NoteMaterialRow | null> {
+    return (await this.db.query<NoteMaterialRow>('select * from pa24.note_material where note_id = $1', [noteId])).rows[0] ?? null;
+  }
+
+  async initializeMaterial(noteId: string, draft: MaterialDraft, source: MaterialSource, recognition: MaterialDraft | null = null): Promise<NoteMaterialRow> {
+    await this.db.query(`insert into pa24.note_material (note_id, revision, draft, recognition, source, edited_by)
+      values ($1, 1, $2, $3, $4, 'recognition') on conflict (note_id) do nothing`, [noteId, JSON.stringify(draft), recognition ? JSON.stringify(recognition) : null, JSON.stringify(source)]);
+    return (await this.material(noteId))!;
+  }
+
+  async saveMaterial(noteId: string, expectedRevision: number, draft: MaterialDraft, editor: string): Promise<NoteMaterialRow> {
+    return this.db.withTransaction(async client => {
+      await client.query('select id from pa24.note where id = $1 for update', [noteId]);
+      const row = (await client.query<NoteMaterialRow>(`update pa24.note_material set draft = $3, revision = revision + 1, edited_by = $4, updated_at = now()
+        where note_id = $1 and revision = $2 returning *`, [noteId, expectedRevision, JSON.stringify(draft), editor])).rows[0];
+      if (!row) throw new Error('草稿已由其他操作更新；请重新读取并保留你的修改后再保存。');
+      await client.query("update pa24.note set title = $2, status = case when status = 'collecting' or status = 'collected' then status else 'needs_rereview' end, updated_at = now() where id = $1", [noteId, draft.title]);
+      return row;
+    });
+  }
+
+  async saveRecognition(noteId: string, recognition: MaterialDraft): Promise<void> {
+    await this.db.query('update pa24.note_material set recognition = $2, updated_at = now() where note_id = $1', [noteId, JSON.stringify(recognition)]);
+  }
+  async markMaterialPublished(noteId: string, revision: number): Promise<void> {
+    await this.db.query('update pa24.note_material set published_revision = $2 where note_id = $1 and revision = $2', [noteId, revision]);
+  }
+  async actionLinks(noteId: string): Promise<NoteActionLink[]> {
+    return (await this.db.query<NoteActionLink>('select * from pa24.note_action_link where note_id = $1 order by created_at', [noteId])).rows;
+  }
+  async linkAction(row: Omit<NoteActionLink, 'created_at'>): Promise<NoteActionLink> {
+    await this.db.query(`insert into pa24.note_action_link (note_id, candidate_id, operation_id, version_id, parameters, authorization_record)
+      values ($1,$2,$3,$4,$5,$6) on conflict (note_id, candidate_id) do nothing`, [row.note_id, row.candidate_id, row.operation_id, row.version_id, JSON.stringify(row.parameters), JSON.stringify(row.authorization_record)]);
+    return (await this.actionLinks(row.note_id)).find(link => link.candidate_id === row.candidate_id)!;
+  }
+  async recordReadEvidence(input: { sessionId: string; callId: string; toolName: string; configuration: string; state: string }): Promise<void> {
+    await this.db.query(`insert into pa24.material_read_evidence (session_id, call_id, tool_name, configuration, state)
+      values ($1,$2,$3,$4,$5) on conflict (session_id, call_id) do nothing`, [input.sessionId, input.callId, input.toolName, input.configuration, input.state]);
+  }
+  async latestReadEvidence(configuration: string): Promise<Record<string, any> | null> {
+    return (await this.db.query('select * from pa24.material_read_evidence where configuration = $1 order by read_at desc limit 1', [configuration])).rows[0] ?? null;
+  }
+
+  async materialCounts(): Promise<Record<string, number>> {
+    const all = (await this.db.query<{ status: string; count: number }>('select status, count(*) as count from pa24.note group by status')).rows;
+    const verification = Number((await this.db.query<{ count: number }>(`select count(*) as count from pa24.note n join pa24.note_version v on v.note_id = n.id
+      where v.version = (select max(v2.version) from pa24.note_version v2 where v2.note_id = n.id) and v.verify_result = 'unknown'`)).rows[0]!.count);
+    return { ...Object.fromEntries(all.map(row => [row.status, Number(row.count)])), verificationUnknown: verification };
+  }
+
+  async materialList(input: { query?: string; status?: string; offset: number; limit: number }) {
+    const values: unknown[] = [], clauses: string[] = [];
+    if (input.query) { values.push(`%${input.query.replace(/[\\%_]/g, '\\$&')}%`); clauses.push(`(n.title like $${values.length} escape '\\' or n.id like $${values.length} escape '\\')`); }
+    if (input.status) {
+      if (input.status === 'pending') clauses.push("n.status in ('awaiting_review', 'needs_rereview', 'returned')");
+      else { values.push(input.status); clauses.push(`n.status = $${values.length}`); }
+    }
+    const where = clauses.length ? ` where ${clauses.join(' and ')}` : '';
+    const count = Number((await this.db.query<{ count: number }>(`select count(*) as count from pa24.note n${where}`, values)).rows[0]!.count);
+    const counts = await this.materialCounts();
+    const rows = (await this.db.query<NoteRow>(`select n.* from pa24.note n${where} order by n.updated_at desc, n.id limit $${values.length + 1} offset $${values.length + 2}`, [...values, input.limit, input.offset])).rows;
+    const items = await Promise.all(rows.map(async note => ({ ...note, latest: await this.latestVersion(note.id), material: await this.material(note.id), pages: (await this.pagesOf(note.id)).filter(p => p.status === 'saved').length })));
+    return { items, matched: count, total: Object.entries(counts).reduce((sum, [key, value]) => sum + (key === 'verificationUnknown' ? 0 : value), 0), offset: input.offset, limit: input.limit,
+      counts };
+  }
 
   async nextNoteId(): Promise<string> {
     return `N-${await this.db.nextNoteSeq()}`;
@@ -186,21 +262,21 @@ export class NoteRepo {
 
   /** Reserve the candidate number once, before any document write. The input
    * identity survives version insertion and a restarted publication attempt. */
-  async beginPublication(input: { noteId: string; workItemId: string; contentKey: string; legacyParamsKey: string; republish: boolean }): Promise<ActionOperationRow> {
+  async beginPublication(input: { noteId: string; workItemId: string; contentKey: string; legacyParamsKey: string; republish: boolean; materialRevision?: number }): Promise<ActionOperationRow> {
     return this.db.withTransaction(async client => {
       await client.query('select id from pa24.note where id = $1 for update', [input.noteId]);
       const attempts = (await client.query<ActionOperationRow>(
         "select * from pa24.action_operation where action = 'note.publish' and params->>'noteId' = $1", [input.noteId],
       )).rows.sort((a, b) => Number(a.params?.version) - Number(b.params?.version));
       const id = `note.publish:${input.workItemId}:content:${input.contentKey}`;
-      const existing = attempts.find(row => row.id === id) ?? attempts.find(row =>
+      const existing = attempts.find(row => row.id === id) ?? (input.materialRevision ? attempts.find(row => row.params.materialRevision === input.materialRevision && row.params.contentKey === input.contentKey) : undefined) ?? attempts.find(row =>
         row.work_item_id === input.workItemId && Number.isInteger(row.params?.version) &&
         row.id === `note.publish:${input.workItemId}:${hash(`${input.noteId}:v${row.params.version}\n${input.legacyParamsKey}`)}`,
       );
       if (existing) return existing;
       const latest = (await client.query<{ version: number }>('select version from pa24.note_version where note_id = $1 order by version desc limit 1', [input.noteId])).rows[0];
       const version = Math.max(latest?.version ?? 0, ...attempts.map(row => Number(row.params?.version) || 0)) + 1;
-      const params = { noteId: input.noteId, version, republish: input.republish, contentKey: input.contentKey };
+      const params = { noteId: input.noteId, version, republish: input.republish, contentKey: input.contentKey, ...(input.materialRevision ? { materialRevision: input.materialRevision } : {}) };
       return (await client.query<ActionOperationRow>(
         `insert into pa24.action_operation (id, work_item_id, action, params, status)
          values ($1, $2, 'note.publish', $3, 'pending') returning *`,
