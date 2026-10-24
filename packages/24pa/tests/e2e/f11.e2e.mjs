@@ -166,8 +166,8 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     await changeWorker(host, waiting.work, 'supplement', 'v1 已审核，明确授权执行第一条和第三条。');
     const resumed = await waitWorkItem('未审先执行', '原运行执行两项完成');
     expect(resumed.work.find(work => work.id === waiting.work.id).active_worker_run_id).toBe(waiting.run.id);
-    const adopted = await waitToolResult('pa24_work', '已按你的选择执行 2 项', '两项回执', 60_000, before);
-    expect(adopted).toContain('tskstub');
+    const adopted = await waitToolResult('pa24_work', '"executed":2', '两项回执', 60_000, before);
+    expect(adopted).toContain('tskstub'); expect(adopted).toContain('"failed":0');
     expect((await rows(`select count(*)::int as n from pa24.task where summary like '%王工%' or summary like '%标签纸%'`))[0].n).toBe(2);
     expect((await rows(`select count(*)::int as n from pa24.task where summary like '%会议室%'`))[0].n).toBe(0);
 
@@ -176,7 +176,7 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     before = llm.log.length;
     await inject(ownerEvent('evt-a6', { text: '再执行一次第一条' }));
     await waitWorkItem('重复执行', '重复执行完成');
-    await waitToolResult('pa24_work', '重复选择返回已有对象', '幂等回执', 60_000, before);
+    await waitToolResult('pa24_work', '"reused":1', '幂等回执', 60_000, before);
     expect((await rows(`select count(*)::int as n from pa24.task where summary like '%王工%'`))[0].n).toBe(1);
 
     // 过期审核：编辑文档 → 版本 stale → 拒绝执行
