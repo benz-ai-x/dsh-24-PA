@@ -1465,19 +1465,19 @@ window.__ModuleLoader__.load({
             } catch (error) { if (!abort.signal.aborted) setList(previous => ({ ...previous, loading: false, error: error.message })); } finally { pending = false; } };
             setDetail(previous => previous?.workspaceBinding === binding && previous?.plan.id === view.selected ? previous : null); void load(); const timer = setInterval(load, 5000); return () => { abort.abort(); clearInterval(timer); };
           }, [binding, query, filter, skillFilter, offset, view.tick, view.selected]);
-          const update = patch => model.update({ ...patch, error: '', preview: null, approved: false });
-          const change = async payload => {
+          const update = patch => model.update({ ...patch, error: '', draftError: '', preview: null, approved: false });
+          const change = async (payload, errorScope = 'detail') => {
             if (model.getSnapshot().busy) return;
             const selection = model.getSnapshot();
             const body = { type: 'plan.change', workspaceBinding: binding, ...payload }, key = JSON.stringify(body), prior = model.getSnapshot().request;
-            const request = prior?.key === key ? prior : { key, id: crypto.randomUUID() }; model.update({ request, busy: true, error: '', note: '' });
+            const request = prior?.key === key ? prior : { key, id: crypto.randomUUID() }; model.update({ request, busy: true, ...(errorScope === 'form' ? { draftError: '' } : { error: '' }), note: '' });
             try {
               const result = await rpc('action', { ...body, requestId: request.id });
               const current = model.getSnapshot(), sameSelection = current.selected === selection.selected && current.form === selection.form;
               model.update({ ...(sameSelection ? { selected: result.plan?.id || selection.selected, form: null, preview: null, approved: false } : {}), request: null, tick: (model.getSnapshot().tick || 0) + 1,
                 note: result.trigger ? (result.trigger.reason || L('已接纳本次触发；执行状态见运行记录。', 'Trigger accepted; see run history for execution.')) : L('操作已保存，原历史保留。', 'Saved; original history retained.') });
               await refresh().catch(() => {});
-            } catch (error) { model.update({ error: error.message }); }
+            } catch (error) { model.update(errorScope === 'form' ? { draftError: error.message } : { error: error.message }); }
             finally { model.update({ busy: false }); }
           };
           const preview = async (endpoint, op, extra = {}) => {
@@ -1491,8 +1491,8 @@ window.__ModuleLoader__.load({
             executionLimitMs: 900000, parameters: {}, selectors: {}, delivery: { channel: config?.ownerOpenId ? config.notifyChannel : config?.notifyChannel === 'wecom' ? 'wecom' : 'none', mode: 'always', voice: false, overrideQuiet: false } });
           const formPayload = () => { const { parametersText, ...form } = view.form; return { ...form, parameters: JSON.parse(parametersText) }; };
           const saveDraft = async save => { try {
-            const form = formPayload(); if (save) await change({ ...form, op: 'save' }); else { model.update({ busy: true, error: '', draft: null }); const draft = await rpc('plans.draft', { ...form, workspaceBinding: binding }); if (draft.workspaceBinding === binding && model.getSnapshot().form === view.form) model.update({ draft }); }
-          } catch (error) { model.update({ error: error.message }); } finally { if (!save) model.update({ busy: false }); } };
+            const form = formPayload(); if (save) await change({ ...form, op: 'save' }, 'form'); else { model.update({ busy: true, draft: null, draftError: '' }); const draft = await rpc('plans.draft', { ...form, workspaceBinding: binding }); if (draft.workspaceBinding === binding && model.getSnapshot().form === view.form) model.update({ draft }); }
+          } catch (error) { model.update({ draftError: error.message }); } finally { if (!save) model.update({ busy: false }); } };
           const p = detail?.plan, selectedRow = list.data?.rows.find(row => row.id === p?.id), disabled = view.busy;
           const button = (label, fn, { name, ...extra } = {}) => h('button', { key: label, type: 'button', disabled, onClick: () => void fn(), ...extra }, name && icon(name), label);
           const summary = extra.plans, summaryMetrics = summary ? [
@@ -1509,8 +1509,8 @@ window.__ModuleLoader__.load({
             h('div', { className: 'pa24-row' }, ['morning', 'evening', 'weekly'].map(preset => button(({ morning: L('晨报预设', 'Morning preset'), evening: L('复盘预设', 'Evening preset'), weekly: L('周回顾预设', 'Weekly preset') })[preset], () => fresh(preset), { name: preset === 'morning' ? 'sunrise' : preset === 'evening' ? 'sunset' : 'calendarRange' })), button(L('刷新', 'Refresh'), async () => { model.update({ tick: (view.tick || 0) + 1 }); await refresh().catch(() => {}); }, { name: 'refresh' })),
             catalogError && h('p', { role: 'alert', className: 'pa24-error' }, catalogError),
             catalog && catalog.discovery !== 'complete' && h('p', { role: 'alert' }, catalog.discoveryError || L('Skill 目录读取不完整，请核验接入后刷新。', 'Skill discovery is incomplete; check access and refresh.')),
-            view.error && !view.form && h('p', { role: 'alert', className: 'pa24-error' }, view.error), view.note && h('p', { role: 'status' }, view.note),
-            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), onDiscard: () => update({ form: null, draft: null }), draft: view.draft, formError: view.error }),
+            view.error && h('p', { role: 'alert', className: 'pa24-error' }, view.error), view.note && h('p', { role: 'status' }, view.note),
+            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), onDiscard: () => update({ form: null, draft: null }), draft: view.draft, formError: view.draftError }),
             h('div', { className: 'pa24-row' }, h('label', { className: 'pa24-field' }, L('搜索计划', 'Search plans'), h('input', { value: query, onChange: event => update({ query: event.target.value, offset: 0 }) })),
               h('label', { className: 'pa24-field' }, L('计划状态', 'Plan status'), h('select', { value: filter, onChange: event => update({ filter: event.target.value, offset: 0 }) }, [['', L('全部未回收', 'All unrecycled')], ['enabled', L('启用', 'Enabled')], ['paused', L('暂停', 'Paused')], ['blocked', L('需处理', 'Needs attention')], ['recycled', L('回收站', 'Recycle bin')]].map(([value, label]) => h('option', { key: value, value }, label)))),
               h('label', { className: 'pa24-field' }, L('按 Skill 筛选', 'Filter by skill'), h('select', { value: skillFilter, onChange: event => update({ skillFilter: event.target.value, offset: 0 }) }, h('option', { value: '' }, L('全部 Skill', 'All skills')), (catalog?.entries || []).map(entry => h('option', { key: entry.id, value: entry.id }, entry.name + ' · ' + entry.source))))),

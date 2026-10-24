@@ -251,6 +251,12 @@ describe('M02 管理界面', () => {
     expect(actions.textContent).toContain('请先校验并预览时间');
     expect(button('保存为暂停').disabled).toBe(true);
   });
+  it('编辑计划时，详情启用错误不归入表单固定栏', async () => {
+    await open('定时任务'); await click(button('项目晨报')); await click(button('编辑配置'));
+    fault = 'plans.preview'; await click(button('核验并启用'));
+    expect(container.querySelector('.pa24-form-actions [role="alert"]')).toBeNull();
+    expect(container.querySelector('.pa24-manager > [role="alert"]').textContent).toContain('离线读取失败');
+  });
   it('旧简报只进入兼容与历史，不形成第二套计划空态', async () => {
     await open('定时任务');
     expect(container.textContent).toContain('兼容与历史');
