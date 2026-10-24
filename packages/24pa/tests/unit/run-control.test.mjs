@@ -225,6 +225,27 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
       await runs.poll(); expect((await repos.skillRuns.get(run.id)).status).toBe('completed');
     } finally { proceed(); runs.dispose(); }
   });
+  it('停止意图落盘后重启，预算等待不阻止无在途动作的停止收口', async () => {
+    const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原任务' }] };
+    await repos.skillRuns.input(run.id, message, true, run.session_id);
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
+      { type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: message },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'blocked' } } },
+    ] };
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    const owner = { runId: run.id, workId: run.work_item_id, sessionId: run.session_id, kind: 'skill' };
+    await repos.modelBudget.gate(owner, { ...DEFAULT_BUDGET, maxRequests: 0 }, 'Asia/Shanghai');
+    await repos.skillRuns.transition(run.id, 'stopping', '停止意图已落盘');
+    try {
+      await runs.recover(); await runs.poll();
+      expect((await repos.skillRuns.get(run.id)).status).toBe('stopped');
+      expect((await repos.runControls.get(run.id)).state.terminal.status).toBe('stopped');
+      await expect(repos.modelBudget.grant({ id: randomUUID(), hash: randomUUID(), ...owner })).rejects.toThrow(/停止|结束/);
+    } finally { runs.dispose(); }
+  });
+
   it('另一会话预算等待不拒绝已派发工具，独立人工阻断仍拒绝', async () => {
     await repos.runControls.change(run.id, state => blockRun(state, { key: 'budget:sibling', kind: 'budget', reason: '另一会话到限' }));
     await repos.skillRuns.transition(run.id, 'waiting', '另一会话等待');

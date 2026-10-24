@@ -612,7 +612,7 @@ export class SkillRuns {
     catch (error) { await this.diagnostic(run.id, 'execution-clock', error); return this.block(run, `执行计时依据待核对：${errorText(error)}`); }
     if (control && control.executionMs >= control.limitMs) { await this.expire(run.id); return; }
     if (await this.dispatchResumes(run)) return;
-    if (control?.blocks.length) {
+    if (fresh.status !== 'stopping' && control?.blocks.length) {
       // Resuming reserves the Run's capacity until native work takes over.
       // Remaining child waits become authoritative again after input adoption.
       await repo.transition(run.id, 'waiting', control.blocks.map(block => block.reason).join('；'), undefined, observedRequests);
