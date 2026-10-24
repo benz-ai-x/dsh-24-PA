@@ -28,7 +28,7 @@ const waitToolResult = async (toolName, substr, label, timeoutMs = 60_000, since
     await new Promise(r => setTimeout(r, 500));
   }
   const last = llm.log.slice(since).filter(r => r.tools.includes(toolName) && r.toolResults.length > 0).at(-1);
-  throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后工具结果：${last ? unescapeJsonish(last.toolResults.join('')).slice(0, 500) : '无'}`);
+  throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后工具结果：${last ? unescapeJsonish(last.toolResults.at(-1)).slice(-4000) : '无'}`);
 };
 const waitWorkItem = async (title, label, timeoutMs = 180_000) =>
   host.waitUntil(s => (s.work ?? []).some(w => w.title === title && w.status === 'completed'), { timeoutMs, label });

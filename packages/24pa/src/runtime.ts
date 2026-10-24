@@ -3751,7 +3751,9 @@ export class PaRuntime {
       const retryTotals = await this.repos!.maintenance.attemptTotals().catch(() => null);
       const retries = retryTotals ? retryTotals.operations + retryTotals.outbox : null;
       const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
-      return {
+      // Match the public JSON report: database timestamps must be ISO strings
+      // before the host validates and persists the tool result.
+      return JSON.parse(JSON.stringify({
         connectionEvidence: this.repos ? await this.connectionHealth.snapshot() : null,
         readiness: ready,
         capabilities,
@@ -3779,7 +3781,7 @@ export class PaRuntime {
           pgDown: '业务账本不可用时停止接纳/写入相关业务并保留可恢复状态。',
           offlineAlert: '完全离线告警依赖独立服务器监控（声明边界）。',
         },
-      };
+      }));
     });
   }
 
