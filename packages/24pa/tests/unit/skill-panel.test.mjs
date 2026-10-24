@@ -63,6 +63,30 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.restoreAllMocks(); });
 
 describe('Skill 管理面板的用户操作', () => {
+  it('总览卡保留中性检查状态，不用健康徽章展示能力描述', async () => {
+    await click(button('返回卡片'));
+    const card = [...container.querySelectorAll('.pa24-cap')].find(node => node.textContent.includes('创建与导入 Skill'));
+    expect(card.textContent).toContain('status.unchecked');
+    expect(card.textContent).not.toContain('包、版本与运行');
+  });
+
+  it('目录保留禁用与删除状态，不以正常类型标签覆盖异常状态', async () => {
+    const original = manager.list.bind(manager);
+    vi.spyOn(manager, 'list').mockImplementation(async expected => {
+      const base = await original(expected);
+      return { ...base, entries: [...base.entries,
+        { id: 'managed:disabled', name: '停用能力', description: '已停用', source: 'managed', type: 'task', status: 'loaded', managedStatus: 'disabled' },
+        { id: 'managed:deleted', name: '删除能力', description: '仅历史可查', source: 'managed', type: 'task', status: 'loaded', managedStatus: 'deleted' },
+      ] };
+    });
+    await click(button('刷新目录'));
+    for (const [name, label] of [['停用能力', '已禁用'], ['删除能力', '已删除']]) {
+      const row = [...container.querySelectorAll('.pa24-skill-row')].find(node => node.querySelector('strong')?.textContent === name);
+      expect(row.textContent).toContain(label);
+      expect(row.querySelectorAll('.pa24-skill-tag')).toHaveLength(2);
+    }
+  });
+
   it('按来源选择、纯文本展示并下载所选指令，浏览不发送执行动作', async () => {
     await click(skillRow('内置原件'));
     expect(win.document.activeElement.textContent).toBe('my-skill');

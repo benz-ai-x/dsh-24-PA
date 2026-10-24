@@ -2244,7 +2244,9 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'pa24-skill-list' }, rows.map(entry => h('button', { type: 'button', key: entry.id, onClick: () => selectSkill(entry.id), 'aria-pressed': selected === entry.id, className: 'pa24-skill-row' },
                   h('span', { className: 'pa24-skill-row-head' },
                     h('span', { className: 'pa24-skill-row-title' }, h('strong', null, entry.name), h('span', { className: 'pa24-skill-row-id' }, entry.internalName || entry.name)),
-                    h('span', { className: 'pa24-skill-row-tags' }, h('span', { className: 'pa24-skill-tag' }, sourceLabel(entry.source)), entry.type && h('span', { className: 'pa24-skill-tag' }, typeLabel(entry.type)))),
+                    h('span', { className: 'pa24-skill-row-tags' }, h('span', { className: 'pa24-skill-tag' }, sourceLabel(entry.source)), entry.managedStatus && entry.managedStatus !== 'enabled'
+                      ? h('span', { className: 'pa24-skill-tag' }, ({ draft: L('草稿', 'Draft'), disabled: L('已禁用', 'Disabled'), deleted: L('已删除', 'Deleted') })[entry.managedStatus] || entry.managedStatus)
+                      : entry.type && h('span', { className: 'pa24-skill-tag' }, typeLabel(entry.type)))),
                   h('span', { className: 'pa24-skill-row-desc' }, entry.description || L('尚无说明', 'No description')),
                   entry.status === 'error' && h('span', { className: 'pa24-skill-row-error' }, entry.error || L('待修正', 'Needs correction'))))),
                 matches.length > 20 && h('div', { className: 'pa24-row pa24-skill-pagination' },
@@ -2309,7 +2311,6 @@ window.__ModuleLoader__.load({
           {
             id: 'skills', cat: 'work', tone: 'violet', icon: 'blocks', title: ['Skill 管理', 'Skill management'], sub: ['能力、版本与手工运行', 'Capabilities, versions and manual runs'], action: ['查看 Skill', 'Browse skills'],
             tier: () => 'unchecked',
-            label: () => L('包、版本与运行', 'Packages, versions & runs'),
             body: () => h('p', { className: 'pa24-meta' }, L('创建与导入 Skill、管理版本和关联计划，预览并执行任务，查看实际结果。', 'Create and import skills, manage versions and linked plans, preview and run tasks, and inspect actual results.')),
             detail: helpers => h(SkillsDetail, { key: helpers.state.workspaceBinding, binding: helpers.state.workspaceBinding ?? null }),
           },
