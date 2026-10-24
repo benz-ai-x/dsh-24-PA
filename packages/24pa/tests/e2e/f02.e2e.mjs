@@ -157,7 +157,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     expect((await cluster.query(`select status from pa24.inbox where event_id='evt-followup-1'`)).trim()).toBe('rejected');
 
     await writeScript({ mode: 'dispatch', leadReply: '按明确指令接续原事项。',
-      leadTool: { name: 'pa24_control', input: { action: 'continue', workId: item.id, instruction: '仅核对并报告原备忘，不重做已经完成的文档保存。' } },
+      leadTool: { name: 'pa24_jobs', input: { action: 'continue', workId: item.id, instruction: '仅核对并报告原备忘，不重做已经完成的文档保存。' } },
       workerTool: { name: 'pa24_run', input: { action: 'wait', kind: 'input', reason: '请确认仅核对原文档' } },
       workerReply: '等待确认范围。' });
     await inject(ownerEvent('evt-explicit-continue-1', '明确继续备忘1，仅核对并报告原备忘，不重做文档保存'));

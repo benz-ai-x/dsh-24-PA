@@ -12,7 +12,7 @@
 //   - feishu access session (feishu-access): business whitelist plus the
 //     read-only access wizard pa24_connection (guide/check/wecom_guide/
 //     wecom_check); config writes stay local via pa24_workspace (ADR-0001);
-//   - worker: pa24_work + read-only pa24_memory only.
+//   - worker: pa24_work + pa24_run progress/wait + read-only pa24_memory only.
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -201,7 +201,7 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
     expect(result).not.toContain('请在 dsh 的24私助会话中操作');
   });
 
-  it('Worker 子会话仍只有 pa24_work 与只读记忆', async () => {
+  it('Worker 子会话仅有业务、运行进展/等待与只读记忆', async () => {
     let request;
     for (let i = 0; i < 120 && !request; i++) {
       request = workerRequest();
@@ -209,6 +209,6 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
     }
     expect(request).toBeTruthy();
     // Strict closed surface: exactly the worker whitelist, nothing else.
-    expect(request.tools.slice().sort()).toEqual(['pa24_memory', 'pa24_work']);
+    expect(request.tools.slice().sort()).toEqual(['pa24_memory', 'pa24_run', 'pa24_work']);
   });
 });

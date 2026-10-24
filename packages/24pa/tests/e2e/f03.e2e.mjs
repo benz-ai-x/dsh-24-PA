@@ -110,11 +110,21 @@ describe('F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任�
     expect((await cluster.query(`select count(*) from pa24.task`)).trim()).toBe('1');
     expect((await cluster.query(`select count(*) from pa24.action_operation where action='task.create' and status='succeeded'`)).trim()).toBe('1');
 
-    // 同一事项补充同一创建请求：操作键幂等，不重复写飞书
+    // 已结束事项不因引用补充复活；明确接续仍复用原操作，不重复写飞书。
     const resultRow = snap.outbox.find(o => o.dedup_key.startsWith(`workitem:${item.id}:result`) && o.status === 'sent');
+    const firstRunId = item.active_worker_run_id;
+    const beforeRepeat = await readFile(`${stubStatePath}.tasks.jsonl`, 'utf8');
     await inject(ownerEvent('evt-task-1-dup', '再创建一次同样的任务', { parentMessageId: resultRow.message_id }));
-    await waitWork(items => items.filter(w => w.role === 'tasks').length === 1 && items[0].status === 'completed', '重复请求处理完');
-    await waitToolResult('未重复', '幂等复用回执');
+    await waitWork((items, state) => state.outbox.some(row => row.dedup_key === 'route-rejected:evt-task-1-dup' && row.status === 'sent'), '已结束补充明确拒绝');
+    expect((await host.api('snapshot')).work.find(work => work.id === item.id).active_worker_run_id).toBe(firstRunId);
+    await writeScript({ mode: 'dispatch', leadTool: { name: 'pa24_jobs', input: { action: 'continue', workId: item.id, instruction: '明确接续，仅核对原任务操作；已完成创建不可重复。' } }, leadReply: '核对原操作。',
+      workerAction: { action: 'task_create', summary: '周五前交预算', due: '2026-10-09' }, workerReply: '已核对原任务回执。' });
+    await inject(ownerEvent('evt-task-1-continue', '明确继续原任务，只核对原操作回执，不重复创建'));
+    const repeated = await waitWork(items => items.length === 1 && items[0].active_worker_run_id !== firstRunId && items[0].status === 'completed', '原事项接续并复用');
+    const detail = await host.api('worker.run', { runId: repeated.work[0].active_worker_run_id, workspaceBinding: repeated.workspaceBinding });
+    expect(detail.run.snapshot.fromRunId).toBe(firstRunId);
+    expect(detail.calls.some(call => call.tool === 'pa24_work' && call.result?.value?.reused === true)).toBe(true);
+    expect(await readFile(`${stubStatePath}.tasks.jsonl`, 'utf8')).toBe(beforeRepeat);
     expect((await readTasks())).toHaveLength(1);
     expect((await cluster.query(`select count(*) from pa24.action_operation where action='task.create'`)).trim()).toBe('1');
   });

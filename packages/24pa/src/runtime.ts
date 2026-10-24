@@ -2067,9 +2067,13 @@ export class PaRuntime {
       });
     } catch (error) {
       if ((error as { outcome?: string }).outcome !== 'rejected') throw error;
-      const message = (error as Error).message;
-      await this.notifyOwner(`route-rejected:${inboxEventId}`, `「${item.title}」未接纳这次补充：${message}`);
-      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: message });
+      let message = (error as Error).message;
+      try { await this.notifyOwner(`route-rejected:${inboxEventId}`, `「${item.title}」未接纳这次补充：${message}`); }
+      catch (notificationError) { message += `；拒绝提示未能入队：${(notificationError as Error).message}`; }
+      try { await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: message }); }
+      catch (recordError) {
+        throw Object.assign(new Error(`${message}；拒绝状态写入失败：${(recordError as Error).message}`), { outcome: 'rejected' });
+      }
     }
   }
 
