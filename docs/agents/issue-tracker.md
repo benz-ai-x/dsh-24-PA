@@ -1,4 +1,4 @@
-# GitHub 事项操作
+# GitHub 事项约定
 
 本项目的事项与规格使用 GitHub Issues，通过 `gh` CLI 操作。
 
