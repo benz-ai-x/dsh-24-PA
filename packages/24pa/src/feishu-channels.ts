@@ -1,3 +1,4 @@
+import { SourcePreparationError } from './source-config.js';
 import { observeCalendar } from './calendar-observation.js';
 import { localDay } from './calendar-time.js';
 // Feishu channel module (round-3 arch-1): the calendar/task/memo operations
@@ -247,10 +248,10 @@ export class FeishuChannels {
     const title = text(args.title, 200);
     const start = new Date(String(args.start ?? ''));
     const end = new Date(String(args.end ?? ''));
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) throw new Error('会议需要明确的开始/结束时间（ISO，含时区）。');
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) throw new SourcePreparationError('会议需要明确的开始/结束时间（ISO，含时区）。');
     const attendeeInputs = Array.isArray(args.attendees) ? (args.attendees as Record<string, unknown>[]) : [];
-    if (attendeeInputs.length === 0) throw new Error('需要提供参会人；没有参会人时用 calendar_create 建个人日程。');
-    if (!String(args.instruction ?? '').trim()) throw new Error('缺少本人明确的邀请指令依据（instruction）。');
+    if (attendeeInputs.length === 0) throw new SourcePreparationError('需要提供参会人；没有参会人时用 calendar_create 建个人日程。');
+    if (!String(args.instruction ?? '').trim()) throw new SourcePreparationError('缺少本人明确的邀请指令依据（instruction）。');
     const resolved: { name: string; openId: string }[] = [];
     const unresolved: string[] = [];
     for (const attendee of attendeeInputs) {
@@ -274,7 +275,7 @@ export class FeishuChannels {
       else unresolved.push(`${name}（${ids.length === 0 ? '记忆中没有对应 open_id' : `记忆中有 ${ids.length} 位候选`}）`);
     }
     if (unresolved.length > 0) {
-      throw new Error(`以下参会人无法唯一确定，请先澄清后再邀请：${unresolved.join('；')}。未发出任何邀请。`);
+      throw new SourcePreparationError(`以下参会人无法唯一确定，请先澄清后再邀请：${unresolved.join('；')}。未发出任何邀请。`);
     }
     const create = this.deps.createCalendar ?? ((item: WorkItemRow, input: Record<string, unknown>) => this.calendarWrite(item, 'create', input));
     const result = (await create(item, {

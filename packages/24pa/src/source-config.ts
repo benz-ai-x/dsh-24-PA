@@ -35,8 +35,8 @@ export class SourceError extends Error {
   constructor(message: string) { super(message); this.name = 'SourceError'; }
 }
 
-/** Raised only while preparing a new source write, before any business
- * operation is staged or dispatched. Existing/unknown operations never use it. */
+/** Explicitly proven validation failure before this call stages or dispatches
+ * a business action. Unknown execution/transport failures must never use it. */
 export class SourcePreparationError extends Error {
   constructor(cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });

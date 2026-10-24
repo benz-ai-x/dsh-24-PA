@@ -9,6 +9,7 @@ import { deflateSync } from 'node:zlib';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { waitWorkerInput, changeWorker } from '../helpers/worker-run.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -150,8 +151,8 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     await writeScript(hwScript('未审先执行', { action: 'note_adopt_actions', noteId, versionId: `${noteId}:v1`, indexes: [0], instruction: '本人选择第 0 项' }, noteId));
     before = llm.log.length;
     await inject(ownerEvent('evt-a3', { text: '先执行联系王工那条' }));
-    await waitWorkItem('未审先执行', '未审拒绝完成');
-    await waitToolResult('pa24_work', '只有本人已审核通过的版本', '未审拒绝', 60_000, before);
+    const waiting = await waitWorkerInput(host, '未审先执行', '只有本人已审核通过的版本');
+    expect((await rows('select count(*)::int as n from pa24.task'))[0].n).toBe(0);
 
     // 批准 v1
     const [approveToken] = (await rows(`select token from pa24.review_token where version_id='${noteId}:v1' and action='approve'`)).map(r => r.token);
@@ -159,10 +160,12 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     await waitOutbox(`review:${approveToken.slice(0, 12)}:`, '批准通知', 30_000);
 
     // 只选两项（0、2）
-    await writeScript(hwScript('执行两项', { action: 'note_adopt_actions', noteId, versionId: `${noteId}:v1`, indexes: [0, 2], instruction: '本人选择第 0 和第 2 项执行' }, noteId));
+    const selected = { action: 'note_adopt_actions', noteId, versionId: `${noteId}:v1`, indexes: [0, 2], instruction: '本人选择第 0 和第 2 项执行' };
+    await writeScript({ ...hwScript('未审先执行', selected, noteId), workerAfterPreparation: selected });
     before = llm.log.length;
-    await inject(ownerEvent('evt-a5', { text: '执行第一条和第三条' }));
-    await waitWorkItem('执行两项', '两项执行完成');
+    await changeWorker(host, waiting.work, 'supplement', 'v1 已审核，明确授权执行第一条和第三条。');
+    const resumed = await waitWorkItem('未审先执行', '原运行执行两项完成');
+    expect(resumed.work.find(work => work.id === waiting.work.id).active_worker_run_id).toBe(waiting.run.id);
     const adopted = await waitToolResult('pa24_work', '已按你的选择执行 2 项', '两项回执', 60_000, before);
     expect(adopted).toContain('tskstub');
     expect((await rows(`select count(*)::int as n from pa24.task where summary like '%王工%' or summary like '%标签纸%'`))[0].n).toBe(2);
@@ -182,8 +185,8 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     await writeScript(hwScript('核验过期', { action: 'note_adopt_actions', noteId, versionId: `${noteId}:v1`, indexes: [1], instruction: '本人试试第二条' }, noteId));
     before = llm.log.length;
     await inject(ownerEvent('evt-a7', { text: '第二条也执行试试' }));
-    await waitWorkItem('核验过期', '过期拒绝完成');
-    await waitToolResult('pa24_work', '文档内容与已审核版本不一致', '过期拒绝', 60_000, before);
+    const stale = await waitWorkerInput(host, '核验过期', '文档内容与已审核版本不一致');
+    await changeWorker(host, stale.work, 'stop');
     expect((await rows(`select count(*)::int as n from pa24.task where summary like '%会议室%'`))[0].n).toBe(0);
   });
 
@@ -270,10 +273,9 @@ describe('F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG�
     expect(notice.content.text).toContain('仅批准正文');
     const count = (await rows('select count(*)::int as n from pa24.task'))[0].n;
     await writeScript(hwScript('V01阻断旧行动', { action: 'note_adopt_actions', noteId, versionId: `${noteId}:v1`, indexes: [0], instruction: '执行第0项' }, noteId));
-    const before = llm.log.length;
     await inject(ownerEvent('evt-v01-adopt', { text: '执行第一项' }));
-    await waitWorkItem('V01阻断旧行动', '旧候选拒绝完成');
-    await waitToolResult('pa24_work', '缺少同源证明', '同源拒绝', 60_000, before);
+    const waiting = await waitWorkerInput(host, 'V01阻断旧行动', '缺少同源证明');
+    await changeWorker(host, waiting.work, 'stop');
     expect((await rows('select count(*)::int as n from pa24.task'))[0].n).toBe(count);
   });
 

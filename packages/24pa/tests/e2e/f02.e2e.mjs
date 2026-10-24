@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { waitWorkerToolError } from '../helpers/worker-run.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -228,13 +229,7 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
       workerReply: '写入被拒绝。',
     });
     await inject(ownerEvent('evt-memsearch-1', '查一下会议偏好的记忆'));
-    for (let i = 0; i < 60; i++) {
-      const attempt = llm.log.filter(r => r.tools.includes('pa24_work') && r.toolResults.length > 0).at(-1);
-      if (attempt && attempt.toolResults.join('').includes('仅限')) break;
-      await new Promise(r => setTimeout(r, 500));
-    }
-    const denied = llm.log.filter(r => r.tools.includes('pa24_work') && r.toolResults.length > 0).at(-1);
-    expect(denied.toolResults.join('')).toContain('仅限');
+    await waitWorkerToolError(host, '检索会议偏好', '仅限', 'pa24_memory');
     expect((await host.api('memory', { query: '越权' })).matched).toBe(0);
   });
 

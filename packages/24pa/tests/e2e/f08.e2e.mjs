@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { waitWorkerToolError, waitWorkerInput, changeWorker } from '../helpers/worker-run.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -136,22 +137,26 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
 
     // 草稿请求：无 instruction → 拒绝发送
     await writeScript(tasksScript('草拟问候', { action: 'outreach_send', name: '李雷', content: '你好，本周预算请尽快确认。' }));
-    let before = llm.log.length;
     await inject(ownerEvent('evt-ot-0', { text: '帮我给李雷拟一条催预算的消息' }));
-    await waitWorkItem('草拟问候', '草拟完成');
-    await waitToolResult('pa24_work', '草稿不发送', '草稿拒绝', 60_000, before);
+    const draft = await waitWorkerInput(host, '草拟问候', '草稿不发送');
+    expect((await stubCalls()).filter(c => c.args.includes('+messages-send'))).toHaveLength(0);
+    await changeWorker(host, draft.work, 'stop');
 
     // 目标不清：王不明 无记忆 → 澄清，未发送
     await writeScript(tasksScript('发给王不明', { action: 'outreach_send', name: '王不明', content: '你好', instruction: '本人明确要求发送' }));
-    before = llm.log.length;
     await inject(ownerEvent('evt-ot-1', { text: '给王不明发消息说你好' }));
-    await waitWorkItem('发给王不明', '目标不清完成');
-    await waitToolResult('pa24_work', '无法唯一确定', '目标澄清', 60_000, before);
+    const waiting = await waitWorkerInput(host, '发给王不明', '无法唯一确定');
     expect((await stubCalls()).filter(c => c.args.includes('+messages-send'))).toHaveLength(0);
+    await writeScript({ ...tasksScript('发给王不明', { action: 'outreach_send', name: '王不明', content: '你好', instruction: '本人明确要求发送' }),
+      workerAfterPreparation: { action: 'outreach_send', name: '王不明', openId: 'ou_collab_2', content: '你好', instruction: '本人确认王不明身份并要求发送你好' } });
+    await changeWorker(host, waiting.work, 'supplement', '王不明的 open_id 是 ou_collab_2，确认给他发送你好。');
+    const resumed = await waitWorkItem('发给王不明', '补充后发送完成');
+    expect(resumed.work.find(work => work.id === waiting.work.id).active_worker_run_id).toBe(waiting.run.id);
+    expect((await stubCalls()).filter(c => c.args.includes('+messages-send'))).toHaveLength(1);
 
     // 正式发送：带指令依据
     await writeScript(tasksScript('正式发信', { action: 'outreach_send', name: '李雷', content: '李雷你好，请在本周五前确认预算数字。', instruction: '本人明确要求今天发给李雷' }));
-    before = llm.log.length;
+    const before = llm.log.length;
     await inject(ownerEvent('evt-ot-2', { text: '按我刚才确认的内容正式发给李雷' }));
     await waitWorkItem('正式发信', '发信完成');
     const sent = await waitToolResult('pa24_work', '已按本人明确指令发送', '发送回执', 60_000, before);
@@ -161,16 +166,15 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     expect(row.target_name).toBe('李雷');
     expect(row.message_id).toMatch(/^omstub-/);
     const sends = (await stubCalls()).filter(c => c.args.includes('+messages-send'));
-    expect(sends).toHaveLength(1);
-    expect(sends[0].args).toContain('ou_collab_1');
+    expect(sends).toHaveLength(2);
+    expect(sends[0].args).toContain('ou_collab_2');
+    expect(sends[1].args).toContain('ou_collab_1');
 
     // 发送失败如实记录（不伪造成功）
     await writeFile(stubStatePath, JSON.stringify({ ownerOpenId: 'ou_test_owner', failNext: { command: 'im.send', error: '注入的发送失败' } }));
     await writeScript(tasksScript('发信失败', { action: 'outreach_send', name: '李雷', content: '第二条：附件见邮件。', instruction: '本人明确要求发送第二条' }));
-    before = llm.log.length;
     await inject(ownerEvent('evt-ot-3', { text: '再发一条附件说明给李雷' }));
-    await waitWorkItem('发信失败', '发信失败完成');
-    await waitToolResult('pa24_work', '注入的发送失败', '失败如实', 60_000, before);
+    await waitWorkerToolError(host, '发信失败', '注入的发送失败');
   });
 
   it('P13：按明确指令把任务分派给联系人，操作留痕', async () => {
@@ -198,8 +202,8 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
   it.each(['linkTaskGuid', 'linkEventId'])('P19/F45：%s 旧来源跟随入口明确拒绝，保持智能 skill 归属', async field => {
     const title = `拒绝旧跟随-${field}`;
     await writeScript(tasksScript(title, { action: 'reminder_create', kind: 'once', afterSeconds: 60, text: title, [field]: 'historical-source' }, 'reminders'));
-    const before = llm.log.length; await inject(ownerEvent(title, { text: title })); await waitWorkItem(title, '拒绝完成');
-    await waitToolResult('pa24_work', '智能任务 skill', '跟进归属', 60000, before);
+    await inject(ownerEvent(title, { text: title }));
+    await waitWorkerToolError(host, title, '智能任务 skill');
     expect((await rows(`select count(*)::int as n from pa24.reminder_rule where text='${title}'`))[0].n).toBe(0);
   });
 

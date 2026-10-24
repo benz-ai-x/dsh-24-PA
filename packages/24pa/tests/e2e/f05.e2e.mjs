@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { waitWorkerToolError } from '../helpers/worker-run.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -165,8 +166,8 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
 
   it('P20/F45：旧 every 新入口明确拒绝，不能静默回退计时', async () => {
     await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '要求旧间隔规则', instruction: '每分钟提醒缴费' }, workerAction: { action: 'reminder_create', kind: 'every', everySeconds: 60, text: '缴费' }, workerReply: '按实际拒因汇报。' });
-    await inject(ownerEvent('legacy-every', '每分钟提醒缴费')); await waitWorkItem('要求旧间隔规则', '完成拒绝');
-    await waitToolResult('已退役', '不启用旧引擎');
+    await inject(ownerEvent('legacy-every', '每分钟提醒缴费'));
+    await waitWorkerToolError(host, '要求旧间隔规则', '已退役');
     expect((await cluster.query("select count(*) from pa24.reminder_rule where text='缴费'")).trim()).toBe('0');
   });
 
