@@ -2060,10 +2060,17 @@ export class PaRuntime {
       await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
       return;
     }
-    await this.inboxLifecycle.admit(item.child_session_id, inboxEventId, `followup:${inboxEventId}`, async () => {
-      const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
-      return resumed.acceptedMessageId;
-    });
+    try {
+      await this.inboxLifecycle.admit(item.child_session_id, inboxEventId, `followup:${inboxEventId}`, async () => {
+        const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
+        return resumed.acceptedMessageId;
+      });
+    } catch (error) {
+      if ((error as { outcome?: string }).outcome !== 'rejected') throw error;
+      const message = (error as Error).message;
+      await this.notifyOwner(`route-rejected:${inboxEventId}`, `「${item.title}」未接纳这次补充：${message}`);
+      await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: message });
+    }
   }
 
   private async submitToSession(sessionId: string, requestId: string, content: ContentBlock[], timeZone: string, inboxId: string): Promise<void> {

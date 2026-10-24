@@ -135,14 +135,37 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     expect(results.every(r => r.message_id?.startsWith('fake-'))).toBe(true);
   });
 
-  it('P05：回复旧结果消息固定路由到原事项续办；未知引用明确拒绝', async () => {
+  it('P05：引用补充不复活已结束事项；明确接续新增原事项运行，未知引用拒绝', async () => {
     const snap = await host.api('snapshot');
     const item = snap.work.find(w => w.title === '备忘1');
     const resultRow = snap.outbox.find(o => o.dedup_key.startsWith(`workitem:${item.id}:result`) && o.status === 'sent');
     expect(resultRow.message_id).toMatch(/^fake-/);
     const before = (await host.api('snapshot')).work.length;
+    const binding = snap.workspaceBinding;
+    const original = await host.api('work.inspect', { workspaceBinding: binding, workId: item.id });
+    const originalRunId = original.work.active_worker_run_id;
+    const originalDocs = await readDocs();
 
     await inject(ownerEvent('evt-followup-1', '补充：这条备忘再加上日期标注', { parentMessageId: resultRow.message_id }));
+    const rejected = await host.waitUntil(s => (s.outbox ?? []).some(o => o.dedup_key === 'route-rejected:evt-followup-1' && o.status === 'sent'), { label: '已结束补充明确反馈' });
+    expect(rejected.outbox.find(o => o.dedup_key === 'route-rejected:evt-followup-1').content.text).toContain('补充不会复活');
+    const unchanged = await host.api('work.inspect', { workspaceBinding: binding, workId: item.id });
+    expect(unchanged.work.status).toBe('completed');
+    expect(unchanged.work.active_worker_run_id).toBe(originalRunId);
+    expect(unchanged.runs.total).toBe(original.runs.total);
+    expect(await readDocs()).toEqual(originalDocs);
+    expect((await cluster.query(`select status from pa24.inbox where event_id='evt-followup-1'`)).trim()).toBe('rejected');
+
+    await writeScript({ mode: 'dispatch', leadReply: '按明确指令接续原事项。',
+      leadTool: { name: 'pa24_control', input: { action: 'continue', workId: item.id, instruction: '仅核对并报告原备忘，不重做已经完成的文档保存。' } },
+      workerTool: { name: 'pa24_run', input: { action: 'wait', kind: 'input', reason: '请确认仅核对原文档' } },
+      workerReply: '等待确认范围。' });
+    await inject(ownerEvent('evt-explicit-continue-1', '明确继续备忘1，仅核对并报告原备忘，不重做文档保存'));
+    const waiting = await host.waitUntil(s => s.work.some(w => w.id === item.id && w.status === 'waiting_input'), { label: '明确接续建立新运行并等待' });
+    const continuedRunId = waiting.work.find(w => w.id === item.id).active_worker_run_id;
+    expect(continuedRunId).not.toBe(originalRunId);
+    await writeScript({ mode: 'dispatch', workerTool: { name: 'pa24_run', input: { action: 'progress', stage: '核对原结果', completed: '已有文档保存与回读', next: '报告原备忘出处' } }, workerReply: '已核对原备忘，未重复创建文档。' });
+    await inject(ownerEvent('evt-followup-2', '确认：仅核对原文档，不新建文档', { parentMessageId: resultRow.message_id }));
     await host.waitUntil(
       s => {
         const it = (s.work ?? []).find(w => w.id === item.id);
@@ -154,6 +177,14 @@ describe('F02 并行事项与记忆维护（真实 Loader + 隔离 PG）', () =>
     const after = await host.api('snapshot');
     expect(after.work.length).toBe(before);
     expect(after.work.filter(w => w.title.startsWith('备忘') && w.status === 'completed')).toHaveLength(5);
+    const continued = await host.api('work.inspect', { workspaceBinding: binding, workId: item.id });
+    expect(continued.runs.total).toBe(original.runs.total + 1);
+    expect(continued.work.active_worker_run_id).toBe(continuedRunId);
+    const originalRun = await host.api('worker.run', { workspaceBinding: binding, runId: originalRunId });
+    const newRun = await host.api('worker.run', { workspaceBinding: binding, runId: continued.work.active_worker_run_id });
+    expect(originalRun.run.status).toBe('completed');
+    expect(newRun.run.snapshot.fromRunId).toBe(originalRunId);
+    expect(await readDocs()).toEqual(originalDocs);
 
     await inject(ownerEvent('evt-unknownref-1', '继续这件事', { parentMessageId: 'om_nonexistent' }));
     await host.waitUntil(s => (s.outbox ?? []).some(o => o.dedup_key === 'route-unknown:evt-unknownref-1' && o.status === 'sent'), { label: '未知引用回复' });

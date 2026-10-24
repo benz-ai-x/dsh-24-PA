@@ -1,7 +1,7 @@
 // F10 end-to-end: meeting prep packages bound to a calendar event, and
 // post-meeting minutes with selectively adopted candidate actions.
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, readFile, writeFile, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -269,13 +269,14 @@ describe('F10 会议资料与纪要行动（真实 Loader + 隔离 PG）', () =>
     expect(calAdopted).toContain('kind');
     const firstCount = (await rows(`select count(*)::int as n from pa24.calendar_event where summary like '%复盘会时间块%'`))[0].n;
     expect(firstCount).toBe(1);
+    const beforeRepeatCalendar = await readFile(`${stubStatePath}.events.jsonl`, 'utf8');
     await writeScript(memoScript('重复日历候选', { action: 'minutes_adopt_actions', minutesId: calMinutesId, indexes: [0], instruction: '本人再次确认' }));
     before = llm.log.length;
     await inject(ownerEvent('evt-mn7', { text: '复盘会再执行一遍试试' }));
     await waitWorkItem('重复日历候选', '重复日历执行完成');
     const reusedCalendar = await waitToolResult('pa24_work', '"reused":true', '日历幂等回执', 60_000, before);
     expect(reusedCalendar).toContain('"channel":"feishu"');
-    expect(reusedCalendar).toContain('未重复写入');
+    expect(await readFile(`${stubStatePath}.events.jsonl`, 'utf8')).toBe(beforeRepeatCalendar);
     expect((await rows(`select count(*)::int as n from pa24.calendar_event where summary like '%复盘会时间块%'`))[0].n).toBe(1);
 
     // 信息不足候选 → 明确拒绝执行
