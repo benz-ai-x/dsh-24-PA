@@ -3,7 +3,7 @@ import type { TaskPlanRow } from './repo/task-plan.js';
 import type { SkillManagement } from './skill-management.js';
 import type { SkillRuns } from './skill-runs.js';
 import type { PlanLifecycle } from './plan-lifecycle.js';
-import { taskPlanDraft } from './task-plan.js';
+import { taskPlanDraft, taskPlanTimeZone } from './task-plan.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { previewPlanTimes } from './plan-time.js';
 import { TaskPlanMigration, type PlanMigrationContext } from './task-plan-migration.js';
@@ -68,7 +68,7 @@ export class TaskPlanService {
   async summary(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), plans = await context.repos.taskPlans.scheduled();
     const times = await this.deps.lifecycle.nextTimes(plans), next = plans.flatMap(plan => {
-      const at = times.get(plan.id)?.nextTimes[0]; return at ? [{ id: plan.id, title: plan.title, at, timeZone: plan.task_config?.timeZone ?? context.timeZone }] : [];
+      const at = times.get(plan.id)?.nextTimes[0]; return at ? [{ id: plan.id, title: plan.title, at, timeZone: taskPlanTimeZone(plan, context.timeZone) }] : [];
     }).sort((a, b) => a.at.localeCompare(b.at))[0] ?? null;
     return { ...await context.repos.taskPlans.summary(), next, recentRun: await context.repos.taskPlans.recentRun(),
       timingError: [...times.values()].find(value => value.timingError)?.timingError ?? null, workspaceBinding: context.binding };

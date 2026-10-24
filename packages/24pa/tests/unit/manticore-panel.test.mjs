@@ -219,6 +219,13 @@ describe('M02 管理界面', () => {
     expect(cells[3].textContent).toContain('投递：');
     expect(cells[3].textContent).toContain('2001');
   });
+  it('旧启用计划列表使用 schedule_spec 的固定时区', async () => {
+    plan.task_config = null; plan.schedule_spec = { daily: { time: '08:30:00', time_zone: 'Asia/Tokyo' } };
+    plan.status = 'active'; plan.owner_enabled = true; plan.nextTimes = ['2001-01-01T00:00:00.000Z'];
+    await open('定时任务');
+    const expected = new Date(plan.nextTimes[0]).toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo', hour12: false });
+    expect(container.querySelector('.pa24-plan-row:not(.pa24-plan-header)').textContent).toContain(expected);
+  });
   it('无匹配和回收站空态不渲染无意义分页', async () => {
     await open('定时任务'); await change(field('搜索计划'), '不存在的计划');
     expect(container.textContent).toContain('没有匹配的计划');

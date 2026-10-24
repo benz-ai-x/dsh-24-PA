@@ -1,6 +1,6 @@
 import type { Repos } from './repo.js';
 import type { TaskPlanRow } from './repo/task-plan.js';
-import type { TaskPlanConfiguration } from './task-plan.js';
+import { taskPlanTimeZone, type TaskPlanConfiguration } from './task-plan.js';
 import type { SkillManagement } from './skill-management.js';
 import type { SkillRuns } from './skill-runs.js';
 import type { PlanLifecycle } from './plan-lifecycle.js';
@@ -28,7 +28,7 @@ export class TaskPlanMigration {
     const selected = input.skillId ? candidates.find(entry => entry.id === input.skillId) : candidates.length === 1 ? candidates[0] : undefined;
     if (!selected) throw new Error('原 Skill 来源缺失或有同名项，请在目录核对并明确选择原来源，不自动替换。');
     if (!input.skillId && selected.source !== 'managed' && catalog.discovery !== 'complete') throw new Error('Skill 文件目录尚未完整核验，请明确选择原来源后重试。');
-    const timeZone = String(row.schedule_spec.daily?.time_zone ?? row.schedule_spec.weekly?.time_zone ?? row.schedule_spec.cron?.time_zone ?? row.schedule_spec.time_zone ?? context.timeZone);
+    const timeZone = taskPlanTimeZone(row, context.timeZone);
     try { new Intl.DateTimeFormat('en', { timeZone }).format(0); } catch { throw new Error('原计划时区无效，请先核对。'); }
     const parameters = input.parameters ?? ('type' in selected && selected.type === 'template' ? { title: row.title } : {});
     if (!parameters || typeof parameters !== 'object' || Array.isArray(parameters)) throw new Error('迁移参数须为对象。');

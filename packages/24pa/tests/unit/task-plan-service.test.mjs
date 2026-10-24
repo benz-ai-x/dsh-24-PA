@@ -100,6 +100,11 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     const overview = await service.summary({ workspaceBinding: 'binding' });
     expect(overview.next).toMatchObject({ id: row.id, timeZone: 'America/New_York' });
   });
+  it('旧启用计划摘要沿用 schedule_spec 的固定时区', async () => {
+    const row = await legacy();
+    const overview = await service.summary({ workspaceBinding: 'binding' });
+    expect(overview.next).toMatchObject({ id: row.id, timeZone: 'Asia/Tokyo' });
+  });
   it('管理摘要和筛选按全部计划一致计算，旧启用与受阻计划不混入暂停或下次运行', async () => {
     const before = await repos.taskPlans.summary(), prefix = '管理全量-' + randomUUID();
     for (let i = 0; i < 21; i++) await create({ title: prefix + '-' + i });

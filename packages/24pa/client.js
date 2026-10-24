@@ -1353,8 +1353,9 @@ window.__ModuleLoader__.load({
 
         const planStateLabel = plan => plan.recycled_at ? L('已回收', 'Recycled') : plan.delete_when_idle ? L('等待结束后删除', 'Deleting after completion')
           : plan.blocks?.length || plan.skillBlock ? L('需处理', 'Needs attention') : plan.status === 'active' && (!plan.task_config || plan.owner_enabled) ? L('已启用', 'Enabled') : L('已暂停', 'Paused');
+        const planTimeZone = (plan, fallback) => plan.task_config?.timeZone ?? plan.schedule_spec?.daily?.time_zone ?? plan.schedule_spec?.weekly?.time_zone ?? plan.schedule_spec?.cron?.time_zone ?? plan.schedule_spec?.time_zone ?? fallback;
         const planTimingLabel = plan => {
-          const spec = plan.schedule_spec || {}, zone = plan.task_config?.timeZone || spec.daily?.time_zone || spec.weekly?.time_zone || spec.cron?.time_zone;
+          const spec = plan.schedule_spec || {}, zone = planTimeZone(plan);
           if (spec.at) return L('一次性 · ', 'Once · ') + date(spec.at, zone);
           if (spec.daily) return L('每天 ', 'Daily ') + spec.daily.time + ' · ' + zone;
           if (spec.weekly) return (plan.kind === 'weekdays' ? L('周一至周五（不含法定工作日判断）', 'Monday–Friday (no holiday calendar)')
@@ -1519,7 +1520,7 @@ window.__ModuleLoader__.load({
               list.data.rows.map(row => h('article', { key: row.id, className: 'pa24-plan-row' },
                 h('div', { className: 'pa24-plan-main' }, button(row.title, () => update({ selected: row.id, form: null, draft: null }), { 'aria-pressed': row.id === view.selected }), h('p', { className: 'pa24-meta' }, row.skill)),
                 h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('时间规则', 'Timing')), planTimingLabel(row)),
-                h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('下次运行', 'Next run')), row.nextTimes?.[0] ? date(row.nextTimes[0], row.task_config?.timeZone || tz) : L('暂无已核验触发时间', 'No verified occurrence')),
+                h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('下次运行', 'Next run')), row.nextTimes?.[0] ? date(row.nextTimes[0], planTimeZone(row, tz)) : L('暂无已核验触发时间', 'No verified occurrence')),
                 h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('状态', 'Status')), planStateLabel(row),
                   row.timingError && h('p', { role: 'alert', className: 'pa24-error' }, row.timingError),
                   !row.task_config && h('p', { className: 'pa24-meta' }, L('旧计划：核验后沿原关联升级', 'Legacy plan: verify before adoption'))),
