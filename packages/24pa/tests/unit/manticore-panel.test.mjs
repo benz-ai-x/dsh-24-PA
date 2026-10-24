@@ -37,7 +37,7 @@ beforeEach(async () => {
       if (fault === endpoint) throw new Error('离线读取失败'); if (delayed?.endpoint === endpoint) return await delayed.promise;
       let value;
       if (endpoint === 'snapshot') value = { workspace: { path: '/workspace', config: DEFAULT_CONFIG }, work: [], outbox: [], readiness: { items: [] } };
-      else if (endpoint === 'plans.summary') value = { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config.timeZone } };
+      else if (endpoint === 'plans.summary') value = plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config.timeZone } };
       else if (endpoint === 'runs.summary') value = { runs24: 31, failed24: 2, delivery_failed24: 1, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, observedAt: new Date().toISOString() };
       else if (endpoint === 'skills.catalog') value = { entries: ['morning', 'evening', 'weekly'].map(kind => ({ id: 'builtin:digest-' + kind, name: 'digest-' + kind, type: 'template', source: 'builtin' })), discovery: 'complete' };
       else if (endpoint === 'skills.inspect') value = { id: p.id, type: 'template', metadata: { track: 'template', pa24: true } };
@@ -233,6 +233,29 @@ describe('M02 管理界面', () => {
     await change(field('搜索计划'), ''); await change(field('计划状态'), 'recycled');
     expect(container.textContent).toContain('回收站为空');
     expect(button('上一页')).toBeUndefined();
+  });
+  it('空计划总览使用专用图标和中性空态，不冒充健康', async () => {
+    plan.empty = true; await click(button('刷新'));
+    const card = [...container.querySelectorAll('.pa24-cap')].find(node => node.textContent.includes('时间 + Skill'));
+    expect(card.textContent).toContain('暂无计划');
+    expect(card.textContent).not.toContain('正常');
+    expect(card.textContent).not.toContain('暂无已核验触发时间');
+    expect(card.querySelector('svg path').getAttribute('d')).toContain('M8 2v4m8-4v4');
+  });
+  it('预览错误进入固定操作栏，失败后不能沿用旧预览保存', async () => {
+    await open('定时任务'); await click(button('晨报预设')); await click(button('校验并预览时间'));
+    expect(button('保存为暂停').disabled).toBe(false);
+    fault = 'plans.draft'; await click(button('校验并预览时间'));
+    const actions = container.querySelector('.pa24-form-actions');
+    expect(actions.querySelector('[role="alert"]').textContent).toContain('离线读取失败');
+    expect(actions.textContent).toContain('请先校验并预览时间');
+    expect(button('保存为暂停').disabled).toBe(true);
+  });
+  it('旧简报只进入兼容与历史，不形成第二套计划空态', async () => {
+    await open('定时任务');
+    expect(container.textContent).toContain('兼容与历史');
+    expect(container.textContent).not.toContain('还没有周期服务计划');
+    expect(container.textContent).not.toContain('对24私助说「开启晨报」');
   });
   it('旧简报历史沿原计划进入旧档案', async () => {
     plan.legacyHistory = [{ id: 'occurrence-a', report: '历史完整结果' }];

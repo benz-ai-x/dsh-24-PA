@@ -1333,11 +1333,11 @@ window.__ModuleLoader__.load({
             ? L('语音版未启用：可在参数表单的「语音 TTS」分组选择引擎。', 'Voice is off: choose an engine in the Voice TTS section of the config form.')
             : L(`语音引擎：${config.tts.engine}${tts?.voice ? ' · ' + tts.voice : ''}`, `Voice engine: ${config.tts.engine}${tts?.voice ? ' · ' + tts.voice : ''}`);
           return h('section', null,
-            sectionHead('pulse', L('周期服务计划', 'Scheduled service plans'), L('按计划直接改时间、语音与任务 skill，并可立即运行一次；复杂变更仍通过24私助会话。', 'Edit time, voice, and task skill per plan and run once on demand; complex changes stay in chat.'),
+            sectionHead('history', L('旧计划兼容控制', 'Legacy plan controls'), L('与上方相同的旧计划；保留原时间、语音、Skill 和运行控制，复杂变更仍通过24私助会话。', 'The same legacy plans as above, with their original timing, voice, skill and run controls; complex changes stay in chat.'),
               h('div', { className: 'pa24-row' }, button('refresh', L('刷新', 'Refresh'), refresh, { className: 'pa24-quiet' }), button('chat', L('通过对话调整', 'Adjust in chat'), openRobot)), 'green'),
             extra._errors?.digests && h('div', { role: 'alert', className: 'pa24-error' }, h('strong', null, L('计划读取失败', 'Failed to read plans')), h('p', null, extra._errors.digests)),
-            !extra.digests && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取周期计划…', 'Reading digest plans…')),
-            extra.digests && plans.length === 0 && h('div', { className: 'pa24-card' }, empty('pulse', 'green', L('还没有周期服务计划', 'No digest plans yet'), L('对24私助说「开启晨报」或「开启每周回顾」即可建立计划。', 'Ask 24PA to enable the morning digest or weekly retrospective.'), button('chat', L('与24私助对话', 'Chat with 24PA'), openRobot, { className: 'pa24-primary' }))),
+            !extra.digests && !extra._errors?.digests && h('div', { className: 'pa24-card pa24-row', role: 'status' }, icon('refresh', { className: 'pa24-spin' }), L('正在读取周期计划…', 'Reading digest plans…')),
+            extra.digests && plans.length === 0 && !extra._errors?.digests && h('p', { className: 'pa24-meta' }, L('当前没有旧周期服务记录。上方定时任务使用同一计划账本，不在此新建另一套计划。', 'No legacy digest plans. The scheduled tasks above use the same plan ledger; no second plan type is created here.')),
             plans.length > 0 && h('section', { className: 'pa24-card' }, plans.map(p => h(PlanCard, { key: p.planId, plan: p, skills, tz, config, refresh, planStates, workspaceKey: state.workspace?.path ?? '' }))),
             h('section', { className: 'pa24-card' },
               sectionHead('bot', L('语音 TTS', 'Voice TTS'), L('语音版到点先送达语音，随后紧跟全文文本。', 'Voice plans deliver audio first, then the full text.'),
@@ -1383,7 +1383,7 @@ window.__ModuleLoader__.load({
               h('p', null, auth.delivery ? L('固定投递给主人：', 'Fixed owner delivery: ') + auth.delivery.channel + ' · ' + auth.delivery.target : L('结果仅保存', 'Save results only'))),
             value.nextTimes?.length > 0 && h('div', null, h('strong', null, L('未来触发时间', 'Upcoming occurrences') + (timeZone ? ' · ' + timeZone : '')), value.nextTimes.map(at => h('p', { key: at, className: 'pa24-meta' }, date(at, timeZone || 'UTC')))));
         }
-        function TaskPlanForm({ form, setForm, catalog, binding, config, busy, onPreview, onSave, onDiscard, draft, refreshTick }) {
+        function TaskPlanForm({ form, setForm, catalog, binding, config, busy, onPreview, onSave, onDiscard, draft, refreshTick, formError }) {
           const [skill, setSkill] = React.useState(null), [error, setError] = React.useState('');
           React.useEffect(() => {
             const abort = new AbortController(); setSkill(null); setError('');
@@ -1440,7 +1440,9 @@ window.__ModuleLoader__.load({
             h('div', { className: 'pa24-form-actions' },
               h('button', { type: 'button', onClick: onPreview }, icon('calendarClock'), L('校验并预览时间', 'Validate and preview')),
               h('button', { type: 'button', className: 'pa24-primary', disabled: !draft, onClick: onSave }, icon('check'), L('保存为暂停', 'Save paused')),
-              h('button', { type: 'button', className: 'pa24-quiet', onClick: onDiscard }, icon('close'), L('放弃草稿', 'Discard draft'))));
+              h('button', { type: 'button', className: 'pa24-quiet', onClick: onDiscard }, icon('close'), L('放弃草稿', 'Discard draft')),
+              formError && h('p', { role: 'alert', className: 'pa24-error' }, formError),
+              h('p', { className: 'pa24-meta' }, draft ? L('预览已通过，可保存为暂停；不会触发运行。', 'Preview passed. Save paused without running.') : L('请先校验并预览时间；通过后才能保存为暂停。', 'Validate and preview first; saving paused unlocks after a valid preview.'))));
         }
         function TaskPlansDetail(helpers) {
           const { state, extra, config, tz, planStates, openCard, refresh } = helpers, binding = state.workspaceBinding;
@@ -1489,7 +1491,7 @@ window.__ModuleLoader__.load({
             executionLimitMs: 900000, parameters: {}, selectors: {}, delivery: { channel: config?.ownerOpenId ? config.notifyChannel : config?.notifyChannel === 'wecom' ? 'wecom' : 'none', mode: 'always', voice: false, overrideQuiet: false } });
           const formPayload = () => { const { parametersText, ...form } = view.form; return { ...form, parameters: JSON.parse(parametersText) }; };
           const saveDraft = async save => { try {
-            const form = formPayload(); if (save) await change({ ...form, op: 'save' }); else { model.update({ busy: true, error: '' }); const draft = await rpc('plans.draft', { ...form, workspaceBinding: binding }); if (draft.workspaceBinding === binding && model.getSnapshot().form === view.form) model.update({ draft }); }
+            const form = formPayload(); if (save) await change({ ...form, op: 'save' }); else { model.update({ busy: true, error: '', draft: null }); const draft = await rpc('plans.draft', { ...form, workspaceBinding: binding }); if (draft.workspaceBinding === binding && model.getSnapshot().form === view.form) model.update({ draft }); }
           } catch (error) { model.update({ error: error.message }); } finally { if (!save) model.update({ busy: false }); } };
           const p = detail?.plan, selectedRow = list.data?.rows.find(row => row.id === p?.id), disabled = view.busy;
           const button = (label, fn, { name, ...extra } = {}) => h('button', { key: label, type: 'button', disabled, onClick: () => void fn(), ...extra }, name && icon(name), label);
@@ -1507,8 +1509,8 @@ window.__ModuleLoader__.load({
             h('div', { className: 'pa24-row' }, ['morning', 'evening', 'weekly'].map(preset => button(({ morning: L('晨报预设', 'Morning preset'), evening: L('复盘预设', 'Evening preset'), weekly: L('周回顾预设', 'Weekly preset') })[preset], () => fresh(preset), { name: preset === 'morning' ? 'sunrise' : preset === 'evening' ? 'sunset' : 'calendarRange' })), button(L('刷新', 'Refresh'), async () => { model.update({ tick: (view.tick || 0) + 1 }); await refresh().catch(() => {}); }, { name: 'refresh' })),
             catalogError && h('p', { role: 'alert', className: 'pa24-error' }, catalogError),
             catalog && catalog.discovery !== 'complete' && h('p', { role: 'alert' }, catalog.discoveryError || L('Skill 目录读取不完整，请核验接入后刷新。', 'Skill discovery is incomplete; check access and refresh.')),
-            view.error && h('p', { role: 'alert', className: 'pa24-error' }, view.error), view.note && h('p', { role: 'status' }, view.note),
-            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), onDiscard: () => update({ form: null, draft: null }), draft: view.draft }),
+            view.error && !view.form && h('p', { role: 'alert', className: 'pa24-error' }, view.error), view.note && h('p', { role: 'status' }, view.note),
+            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), onDiscard: () => update({ form: null, draft: null }), draft: view.draft, formError: view.error }),
             h('div', { className: 'pa24-row' }, h('label', { className: 'pa24-field' }, L('搜索计划', 'Search plans'), h('input', { value: query, onChange: event => update({ query: event.target.value, offset: 0 }) })),
               h('label', { className: 'pa24-field' }, L('计划状态', 'Plan status'), h('select', { value: filter, onChange: event => update({ filter: event.target.value, offset: 0 }) }, [['', L('全部未回收', 'All unrecycled')], ['enabled', L('启用', 'Enabled')], ['paused', L('暂停', 'Paused')], ['blocked', L('需处理', 'Needs attention')], ['recycled', L('回收站', 'Recycle bin')]].map(([value, label]) => h('option', { key: value, value }, label)))),
               h('label', { className: 'pa24-field' }, L('按 Skill 筛选', 'Filter by skill'), h('select', { value: skillFilter, onChange: event => update({ skillFilter: event.target.value, offset: 0 }) }, h('option', { value: '' }, L('全部 Skill', 'All skills')), (catalog?.entries || []).map(entry => h('option', { key: entry.id, value: entry.id }, entry.name + ' · ' + entry.source))))),
@@ -1559,7 +1561,7 @@ window.__ModuleLoader__.load({
               view.preview?.planId === p.id && h('section', { className: 'pa24-note' }, h(PlanAuthorization, { value: view.preview, config }),
                 h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: !!view.approved, onChange: event => model.update({ approved: event.target.checked }) }), L('确认本计划的工具、资源、目标和此项操作', 'Confirm tools, resources, targets and this action')),
                 button(L('确认执行此操作', 'Confirm action'), () => change({ op: view.preview.op, id: p.id, expectedRevision: view.preview.revision, fingerprint: view.preview.fingerprint, confirm: true, ...view.preview.extra }), { disabled: disabled || !view.approved }))),
-            h('details', null, h('summary', null, L('旧简报入口与语音引擎', 'Legacy digest controls and voice engine')), h(DigestDetail, helpers)));
+            h('details', null, h('summary', null, icon('history'), L('兼容与历史', 'Compatibility and history')), h(DigestDetail, helpers)));
         }
 
         function PlanDeliveryControls({ detail, binding, onChanged }) {
@@ -2204,10 +2206,12 @@ window.__ModuleLoader__.load({
             detail: helpers => (helpers.workspace ? h(MemoryView, { key: helpers.state.workspaceBinding + helpers.workspace.path, workspace: helpers.workspace, binding: helpers.state.workspaceBinding, openRobot: helpers.openRobot }) : empty('memory', 'violet', L('尚未绑定工作区', 'No workspace bound'), L('绑定工作区后，记忆会按确认状态显示在这里。', 'Once a workspace is bound, memories show up here with their confirmation status.'))),
           },
           {
-            id: 'digest', cat: 'work', tone: 'green', icon: 'pulse', title: ['定时任务', 'Scheduled tasks'], sub: ['时间 + Skill · 晨报与复盘预设', 'Time + skill · digest presets'], action: ['管理定时任务', 'Manage plans'],
-            tier: ({ extra }) => extra._errors?.plans ? 'error' : extra.plans?.total === undefined ? 'unchecked' : extra.plans.blocked || extra.plans.timingError ? 'warn' : 'ok',
+            id: 'digest', cat: 'work', tone: 'green', icon: 'calendarClock', title: ['定时任务', 'Scheduled tasks'], sub: ['时间 + Skill · 晨报与复盘预设', 'Time + skill · digest presets'], action: ['管理定时任务', 'Manage plans'],
+            tier: ({ extra }) => extra._errors?.plans ? 'error' : extra.plans?.total === undefined || extra.plans.total === 0 ? 'unchecked' : extra.plans.blocked || extra.plans.timingError ? 'warn' : 'ok',
+            label: ({ extra }) => extra.plans?.total === 0 ? L('暂无计划', 'No plans') : undefined,
             body: ({ extra, tz }) => {
               const plans = extra.plans;
+              if (plans?.total === 0) return h('p', { className: 'pa24-meta' }, L('暂无计划；可新建或选择预设。', 'No plans yet. Create one or choose a preset.'));
               return plans?.total !== undefined ? h('div', null, capKpi([[plans.enabled, L('启用', 'Enabled')], [plans.paused, L('暂停', 'Paused')], [plans.blocked, L('需处理', 'Needs attention')]]),
                 capLine(L('下次运行', 'Next run'), plans.next ? plans.next.title + ' · ' + date(plans.next.at, plans.next.timeZone || tz) : L('暂无已核验触发时间', 'No verified occurrence')))
                 : h('p', { className: 'pa24-meta' }, extra._errors?.plans || L('正在读取计划统计…', 'Reading plan statistics…'));
