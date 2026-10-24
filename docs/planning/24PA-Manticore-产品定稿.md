@@ -16,13 +16,15 @@
 
 ### 五卡交互开发基线
 
-| 工单与卡片 | 已批准的交互方向 | 原型（只读证据） |
+下表原型文件位于本地 `prototypes/pa24-card-panel/manticore-prototype/`，仅作已评审的只读证据，不纳入生产提交；评审口径与交付追溯以对应 Issue 为准，不把本地文件路径写成仓库链接。
+
+| 工单与卡片 | 已批准的交互方向 | 原型（本地只读证据） |
 |---|---|---|
-| [#240 · Skill 管理](https://github.com/benz-ai-x/dsh-24-PA/issues/240) | 桌面目录—详情主从布局；目录搜索、来源筛选和分页保留状态；详情含概览、版本、关联计划、包内容与指令正文，既有操作不缩水 | [skill.html](../../prototypes/pa24-card-panel/manticore-prototype/skill.html) |
-| [#241 · 定时任务](https://github.com/benz-ai-x/dsh-24-PA/issues/241) | 下一次运行及其固定时区优先；计划列表突出时间、状态、最近执行与投递；空白／预设／复制／编辑共用分组表单和固定操作条，旧简报归入兼容与历史 | [schedules.html](../../prototypes/pa24-card-panel/manticore-prototype/schedules.html) |
-| [#242 · 日程](https://github.com/benz-ai-x/dsh-24-PA/issues/242) | 当前筛选的下一场、今日安排和查询完整性优先；日期导航与时间线配合来源证据侧栏，区分真实空、无匹配、保存的完整观察、部分失败、读取失败与旧缓存 | [calendar.html](../../prototypes/pa24-card-panel/manticore-prototype/calendar.html) |
-| [#243 · 待办](https://github.com/benz-ai-x/dsh-24-PA/issues/243) | 逾期、今日到期和真实业务状态优先；来源与范围侧栏及配置抽屉展示默认目标、默认角色、能力证据和失败原因；记录待办与交办助理执行保持分流 | [todos.html](../../prototypes/pa24-card-panel/manticore-prototype/todos.html) |
-| [#244 · 运行记录](https://github.com/benz-ai-x/dsh-24-PA/issues/244) | 执行记录、助理交办、未执行事件三个主视图分别统计与筛选；执行和投递分列，桌面 Drawer 组织概览、投递、诊断，关闭详情不改变运行状态 | [runs.html](../../prototypes/pa24-card-panel/manticore-prototype/runs.html) |
+| [#240 · Skill 管理](https://github.com/benz-ai-x/dsh-24-PA/issues/240) | 桌面目录—详情主从布局；目录搜索、来源筛选和分页保留状态；详情含概览、版本、关联计划、包内容与指令正文，既有操作不缩水 | `skill.html` |
+| [#241 · 定时任务](https://github.com/benz-ai-x/dsh-24-PA/issues/241) | 下一次运行及其固定时区优先；计划列表突出时间、状态、最近执行与投递；空白／预设／复制／编辑共用分组表单和固定操作条，旧简报归入兼容与历史 | `schedules.html` |
+| [#242 · 日程](https://github.com/benz-ai-x/dsh-24-PA/issues/242) | 当前筛选的下一场、今日安排和查询完整性优先；日期导航与时间线配合来源证据侧栏，区分真实空、无匹配、保存的完整观察、部分失败、读取失败与旧缓存 | `calendar.html` |
+| [#243 · 待办](https://github.com/benz-ai-x/dsh-24-PA/issues/243) | 逾期、今日到期和真实业务状态优先；来源与范围侧栏及配置抽屉展示默认目标、默认角色、能力证据和失败原因；记录待办与交办助理执行保持分流 | `todos.html` |
+| [#244 · 运行记录](https://github.com/benz-ai-x/dsh-24-PA/issues/244) | 执行记录、助理交办、未执行事件三个主视图分别统计与筛选；执行和投递分列，桌面 Drawer 组织概览、投递、诊断，关闭详情不改变运行状态 | `runs.html` |
 
 ### Skill 完整包目录树与只读文件预览（#240）
 
