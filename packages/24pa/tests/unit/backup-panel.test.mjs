@@ -82,3 +82,17 @@ it('工作区切换清除旧列表、详情和维护草稿，旧请求不能覆�
   await act(async () => resolve({ ok: true, json: async () => ({ ok: true, value: { workspaceBinding: 'binding-a', total: 1, rows: [record('late-old')] } }) }));
   expect(container.textContent).not.toContain('late-old'); expect(container.textContent).toContain('/new-workspace');
 });
+
+it('列表完成事实变化后自动刷新已打开详情，并支持手动重试详情', async () => {
+  rows = [{ ...record('progress'), status: 'running', finished_at: null, result: null }];
+  await act(async () => button('刷新记录').click());
+  await act(async () => button('备份产物 · 进行中').click());
+  expect(container.textContent).toContain('尚未保存完成凭据');
+  rows = [{ ...record('progress'), result: { message: '新增完成凭据已可读' } }];
+  await act(async () => button('刷新记录').click());
+  expect(container.textContent).toContain('新增完成凭据已可读');
+  expect(container.textContent).not.toContain('尚未保存完成凭据');
+  rows = [{ ...rows[0], result: { message: '人工刷新核对结果' } }];
+  await act(async () => button('刷新详情').click());
+  expect(container.textContent).toContain('人工刷新核对结果');
+});

@@ -8,6 +8,7 @@ import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { startPgCluster } from '../helpers/pg.mjs';
+import { assertLiveWorkspace } from '../../lib/backup.js';
 import { parseMemoryFile } from '../../lib/memory.js';
 let root, workspace, cluster, llm, host, scriptPath, bootEnv, localId, accessId, binding, created;
 const pause = () => new Promise(resolve => setTimeout(resolve, 50));
@@ -151,7 +152,8 @@ it('真实 Loader / Session：联合备份、校验、隔离恢复保护及重�
   expect(await readFile(join(workspace, '.24pa/memory.json'))).toEqual(before);
   await host.api('action', { type: 'skill.run', op: 'stop', runId: waiting.id, workspaceBinding: binding, confirm: true });
   const calls = llm.log.length;
-  await expect(host.api('action', { type: 'workspace.bind', path: join(restored.targetDir, 'workspace') })).rejects.toThrow('恢复隔离');
+  await expect(assertLiveWorkspace(join(restored.targetDir, 'workspace'))).rejects.toThrow('恢复隔离');
+  await expect(host.api('action', { type: 'workspace.bind', path: join(restored.targetDir, 'workspace') })).rejects.toThrow(/恢复隔离|进行中的事项/);
   expect((await host.api('snapshot')).workspace.path).toBe(await realpath(workspace)); expect(llm.log.length).toBe(calls);
   const hostRoot = host.root; await host.stop({ keepRoot: true }); host = await bootHost({ root: hostRoot, env: bootEnv });
   binding = (await host.waitUntil(row => Boolean(row.workspaceBinding))).workspaceBinding;

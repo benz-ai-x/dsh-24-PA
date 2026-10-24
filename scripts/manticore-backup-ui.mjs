@@ -15,7 +15,7 @@ try {
   root = await mkdtemp(join(tmpdir(), 'pa24-backup-ui-')); const workspace = join(root, 'workspace'); await mkdir(workspace);
   await writeFile(join(workspace, 'AGENTS.md'), '# Isolated backup UI fixture\n\n```json\n' + JSON.stringify({ ...DEFAULT_CONFIG, storage: 'sqlite', enabledWorkers: ['memo'] }) + '\n```\n');
   const scriptPath = join(root, 'script.json'); await writeFile(scriptPath, JSON.stringify({ steps: [] }));
-  llm = await startMockLlm({ scriptPath });
+  llm = await startMockLlm({ scriptPath, logPath: join(root, 'model.json') });
   host = await bootHost({ env: { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url } });
   const snapshot = await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId);
   const decode = value => { if (typeof value === 'string') { try { return decode(JSON.parse(value)); } catch { return value; } } if (Array.isArray(value)) return value.map(decode).find(value => value && typeof value === 'object' && !Array.isArray(value)) ?? value; if (value?.type === 'text') return decode(value.text); return value; };
@@ -24,7 +24,7 @@ try {
     await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_maintenance', input }, leadReply: '已完成本次隔离操作。' }));
     await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: '主人发起隔离验收 ' + JSON.stringify(input) }], clientTimeZone: 'Asia/Shanghai' } });
     for (let i = 0; i < 600; i++) { const requests = llm.log.slice(start); if (requests.length >= 2 && requests.at(-1).toolResults?.at(-1)) return decode(requests.at(-1).toolResults.at(-1)); await new Promise(resolve => setTimeout(resolve, 50)); }
-    throw Error('Maintenance timed out');
+    throw Error('Maintenance timed out: ' + JSON.stringify(llm.log) + JSON.stringify(host.logs()));
   };
   // Start empty, then create real success / failure / drill records on demand.
   console.log(JSON.stringify({ url: host.url, root, workspace, commandFile: join(root, 'command') }, null, 2));

@@ -86,6 +86,19 @@ for (const kind of ['sqlite', 'postgres']) describe(`M09 ${kind} durable records
     expect(failed.steps.find(step => step.id === 'ledger').message).toContain('交办归属不符');
     expect(failed.steps.find(step => step.id === 'remote-reconciliation').evidence).toBeUndefined();
   }, 180_000);
+  it('schema stamps do not certify a ledger with a missing required table or column', async () => {
+    const f = await fixture(kind);
+    for (const ddl of ['alter table pa24.outbox drop column target', 'drop table pa24.outbox']) {
+      await f.db.query(ddl);
+      const created = await f.create();
+      const result = await inspectRecovery(f.context, created.backupDir, join(f.root, randomUUID()), false);
+      expect(result.steps.find(step => step.id === 'files').status).toBe('passed');
+      expect(result.steps.find(step => step.id === 'ledger')).toMatchObject({ status: 'failed' });
+      expect(result.steps.find(step => step.id === 'ledger').message).toContain('outbox');
+      expect(result.steps.find(step => step.id === 'remote-reconciliation').evidence).toBeUndefined();
+      expect(result.complete).toBe(false);
+    }
+  }, 180_000);
   it('actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity', async () => {
     const f = await fixture(kind);
     await f.db.query("insert into pa24.note (id,title,status,origin) values ('n1','actual note','collecting','feishu')");

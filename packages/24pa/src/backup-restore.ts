@@ -228,11 +228,13 @@ export async function inspectRecovery(context: RestoreContext, backupDir: string
   try {
     ledger = await openBackupLedger(target, manifest.storage);
     const errors = await ledger.integrity();
-    snapshot = await new BackupInspectionRepo(ledger, ledger.kind).read();
+    const inspection = new BackupInspectionRepo(ledger, ledger.kind);
+    snapshot = await inspection.read();
     const versions = snapshot.records.schema_migrations?.map(row => Number(row.version)) ?? [];
     const schema = Math.max(0, ...versions);
     const supported = Math.max(...MIGRATIONS.map(row => row.version));
     if (!schema || schema > supported || schema !== manifest.schemaVersion || MIGRATIONS.some(row => row.version <= schema && !versions.includes(row.version))) errors.push('账本实际 schema 与清单或当前插件不兼容');
+    errors.push(...await inspection.schemaErrors(schema));
     const owners = snapshot.records.ledger_owner ?? [];
     if (owners.length !== 1 || Number(owners[0]?.id) !== 1 || owners[0]?.workspace_id !== context.workspaceId || owners[0]?.workspace_id !== manifest.ledgerWorkspaceId || owners[0]?.owner_open_id !== context.ownerOpenId) errors.push('账本实际归属与当前工作区/主人不符');
     const identity = parseWorkspaceIdentity((await safeRead(join(target, 'workspace'), '.24pa/ledger-identity.json')).toString());

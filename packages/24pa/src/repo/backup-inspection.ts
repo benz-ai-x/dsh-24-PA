@@ -1,4 +1,5 @@
 import type { PaQueryer } from '../db.js';
+import { migrationColumns } from '../db-schema.js';
 
 const CONTENT_TABLES = [
   'ledger_owner', 'schema_migrations', 'workspace_state', 'work_item', 'task', 'calendar_event',
@@ -13,6 +14,16 @@ const CONTENT_TABLES = [
 /** Queries only a restored isolated ledger; does not run migrations or claim it. */
 export class BackupInspectionRepo {
   constructor(private readonly db: PaQueryer, private readonly kind: 'sqlite' | 'postgres') {}
+  async schemaErrors(version: number): Promise<string[]> {
+    const errors: string[] = [];
+    const tables = { schema_migrations: { version: 'integer', applied_at: 'timestamptz' }, ...migrationColumns(version) };
+    // Resolve every required column without reading or repairing its data.
+    // Migration stamps alone cannot prove that a damaged schema still exists.
+    for (const [table, columns] of Object.entries(tables)) try {
+      await this.db.query(`select ${Object.keys(columns).join(',')} from pa24.${table} limit 0`);
+    } catch { errors.push(`账本 schema 缺失或不兼容：${table} 必需表/列不可读取`); }
+    return errors;
+  }
   async read() {
     const tables = this.kind === 'sqlite'
       ? (await this.db.query<{ name: string }>("select name from sqlite_master where type='table' and name like 'pa24_%'")).rows.map(row => row.name.replace(/^pa24_/, ''))
