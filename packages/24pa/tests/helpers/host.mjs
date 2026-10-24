@@ -7,6 +7,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { redactString } from '../../scripts/secrets/redact.mjs';
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -148,7 +149,9 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
     },
     waitUntil,
     child,
-    logs: () => ({ stdout, stderr }),
+    // Startup stdout carries the one-time launch token; redact before the
+    // captured logs can be written into evidence files (#228).
+    logs: () => ({ stdout: redactString(stdout), stderr: redactString(stderr) }),
     async stop({ keepRoot = false } = {}) {
       if (stopped) return;
       stopped = true;
