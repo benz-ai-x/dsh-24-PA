@@ -137,15 +137,18 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
   });
 
   it('P18/F45：稍后交给 App，取消整条日历规则且不生成 ledger 实例', async () => {
-    const run = async (title, action) => {
+    const run = async (title, action, error) => {
       await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title, instruction: title }, workerAction: action, workerReply: '按工具实际结果汇报。' });
-      await inject(ownerEvent(title, title)); await waitWorkItem(title, title);
+      await inject(ownerEvent(title, title));
+      if (error) await waitWorkerToolError(host, title, error);
+      else await waitWorkItem(title, title);
     };
     await run('创建待改期提醒', { action: 'reminder_create', kind: 'once', afterSeconds: 600, text: '复盘' });
     const created = unescapeJsonish(await waitToolResult('ruleId', '创建'));
     const ruleId = created.match(/"ruleId":"([^"]+)"/)[1];
-    await run('要求稍后提醒', { action: 'reminder_snooze', ruleId, seconds: 60, reason: '本人要求稍后' });
-    await waitToolResult('App 原生提醒', '原生稍后说明');
+    const beforeSnooze = await readEvents();
+    await run('要求稍后提醒', { action: 'reminder_snooze', ruleId, seconds: 60, reason: '本人要求稍后' }, 'App 原生提醒');
+    expect(await readEvents()).toEqual(beforeSnooze);
     expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}'`)).trim()).toBe('0');
     await run('取消待改期提醒', { action: 'reminder_cancel', ruleId, reason: '本人取消整条规则' });
     await waitToolResult('已停止', '取消');
