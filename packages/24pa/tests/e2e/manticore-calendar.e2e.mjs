@@ -77,16 +77,39 @@ it('旧配置生成稳定登记；普通浏览不调用模型或日历平台，�
 
 it('查询非助理创建日程、分来源角色与冲突；计数先筛选再分页，全部筛选含外部会议', async () => {
   for (const event of [
-    { event_id: 'external-personal_0', calendar_id: 'personal-cal', summary: '个人既有安排', start: at('09:00'), end: at('10:00') },
+    { event_id: 'external-personal_0', calendar_id: 'personal-cal', summary: '个人既有安排｜跨日项目联合评审与后续行动核对（一段足够长的真实主题，用于验证时间线不会改变对象身份或截断服务端数据）', start: at('09:00'), end: new Date(day.to.getTime() + 10 * 3600_000).toISOString() },
     { event_id: 'external-project_0', calendar_id: 'project-cal', summary: '项目参与会议', start: at('09:30'), end: at('10:30'), organizer: 'ou_colleague', attendees: [{ user_id: 'ou_test_owner' }] },
     { event_id: 'external-other_0', calendar_id: 'project-cal', summary: '其他成员安排', start: at('15:00'), end: at('16:00'), organizer: 'ou_colleague' },
   ]) await appendFile(larkState + '.events.jsonl', JSON.stringify({ ...event, url: 'https://calendar.example/event', status: 'active' }) + '\n');
   await appendFile(wecomState + '.schedules.jsonl', JSON.stringify({ schedule_id: 'outside-wecom', subject: '企微既有安排', begin_time: `${day.date} 13:00:00`, end_time: `${day.date} 13:30:00`, attendees: [], timezone: { timezone_id: zone } }) + '\n');
   const checked = await host.api('action', { type: 'calendar.verify', ...range, limit: 1, workspaceBinding: binding });
   expect(checked.fresh, JSON.stringify(checked)).toBe(true); expect(checked.total).toBe(3); expect(checked.events).toHaveLength(1); expect(checked.hasMore).toBe(true); expect(checked.conflicts.length).toBeGreaterThan(0);
+  expect(checked.next).toMatchObject({ eventId: 'external-personal_0' });
   const all = await host.api('action', { type: 'calendar.verify', ...range, role: 'all', workspaceBinding: binding });
   expect(all.total).toBe(4); expect(all.events.some(event => event.summary === '其他成员安排')).toBe(true);
+  const crossDay = all.events.find(event => event.eventId === 'external-personal_0');
+  expect(crossDay.summary.length).toBeGreaterThan(50); expect(Date.parse(crossDay.end)).toBeGreaterThan(day.to.getTime());
+  const before = (await journal(larkState + '.calls.jsonl')).length, saved = await host.api('calendar', { ...range, limit: 1, workspaceBinding: binding });
+  expect(saved).toMatchObject({ fresh: false, complete: true, total: 3, next: { eventId: 'external-personal_0' } });
+  expect((await journal(larkState + '.calls.jsonl')).length).toBe(before);
   expect((await host.api('sources')).config.entries.find(row => row.id === 'project').filter).toBe('involved');
+});
+
+it('下一场越过已结束和分页对象，角色筛选后仍正确，普通重读不访问平台', async () => {
+  const now = Date.now(), atOffset = minutes => new Date(now + minutes * 60_000).toISOString();
+  for (const event of [
+    { event_id: 'next-past_0', calendar_id: 'personal-cal', summary: '已结束安排', start: atOffset(-50), end: atOffset(-40) },
+    { event_id: 'next-current_0', calendar_id: 'project-cal', summary: '进行中安排', start: atOffset(-10), end: atOffset(20), organizer: 'ou_colleague', attendees: [{ user_id: 'ou_test_owner' }] },
+    { event_id: 'next-future_0', calendar_id: 'project-cal', summary: '本人组织的未来安排', start: atOffset(60), end: atOffset(90), organizer: 'ou_test_owner' },
+  ]) await appendFile(larkState + '.events.jsonl', JSON.stringify({ ...event, status: 'active' }) + '\n');
+  const span = { from: atOffset(-60), to: atOffset(180) };
+  const checked = await host.api('action', { type: 'calendar.verify', ...span, limit: 1, workspaceBinding: binding });
+  expect(checked.events[0]).toMatchObject({ eventId: 'next-past_0' }); expect(checked.next).toMatchObject({ eventId: 'next-current_0' });
+  const organizer = await host.api('action', { type: 'calendar.verify', ...span, sourceId: 'project', role: 'organizer', workspaceBinding: binding });
+  expect(organizer.next).toMatchObject({ eventId: 'next-future_0' });
+  const before = (await journal(larkState + '.calls.jsonl')).length, saved = await host.api('calendar', { ...span, workspaceBinding: binding });
+  expect(saved.next).toMatchObject({ eventId: 'next-current_0' }); expect(saved.fresh).toBe(false);
+  expect((await journal(larkState + '.calls.jsonl')).length).toBe(before);
 });
 
 it('宿主将空白本地会话改用标准预设后，办理入口保留原会话并打开新的24私助入口', async () => {
@@ -166,7 +189,7 @@ it('重复日程取消范围未明确时保留原输入，主人补充后沿同�
   expect((await journal(larkState + '.events.jsonl')).filter(row => row.event_id === eventId && row.status === 'canceled')).toHaveLength(1);
 });
 
-it('单来源失败保留缓存并报告未完整，重启后普通浏览仍保留逐来源证据', async () => {
+it('单来源失败保留缓存，恢复后普通全来源阅读保留证据且不访问平台', async () => {
   await writeFile(larkState, JSON.stringify({ ownerOpenId: 'ou_test_owner', appId: 'cli_test_app', calendarFailures: ['project-cal'] }));
   const partial = await host.api('action', { type: 'calendar.verify', ...range, workspaceBinding: binding });
   expect(partial.fresh).toBe(false); expect(partial.total).toBeNull();
@@ -177,4 +200,13 @@ it('单来源失败保留缓存并报告未完整，重启后普通浏览仍保�
   const restored = await host.api('calendar', { ...range, workspaceBinding: binding });
   expect(restored.events.length).toBeGreaterThan(0); expect(restored.fresh).toBe(false); expect(restored.total).toBeNull();
   expect((await journal(larkState + '.calls.jsonl')).length).toBe(count);
+  await writeFile(larkState, JSON.stringify({ ownerOpenId: 'ou_test_owner', appId: 'cli_test_app' }));
+  const retried = await host.api('action', { type: 'calendar.verify', ...range, sourceId: 'project', workspaceBinding: binding });
+  expect(retried.sources).toHaveLength(1); expect(retried.sources[0]).toMatchObject({ sourceId: 'project', state: 'complete', fresh: true });
+  expect(retried.events.some(event => event.summary === '项目参与会议')).toBe(true); expect(retried.events.some(event => event.eventId === 'external-personal_0')).toBe(false);
+  const verifiedCalls = (await journal(larkState + '.calls.jsonl')).length, recovered = await host.api('calendar', { ...range, workspaceBinding: binding });
+  expect(recovered.sources.map(row => row.sourceId).sort()).toEqual(['personal', 'project', 'wecom']); expect(recovered).toMatchObject({ complete: true, fresh: false });
+  expect(recovered.events.some(event => event.summary === '项目参与会议')).toBe(true); expect(recovered.events.some(event => event.eventId === 'external-personal_0')).toBe(true);
+  expect(recovered.events.some(event => event.summary === '企微既有安排')).toBe(true);
+  expect((await journal(larkState + '.calls.jsonl')).length).toBe(verifiedCalls);
 });

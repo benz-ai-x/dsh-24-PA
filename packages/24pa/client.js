@@ -147,6 +147,7 @@ window.__ModuleLoader__.load({
       .pa24-health{min-width:0;overflow-wrap:anywhere}.pa24-health .pa24-example{display:block}.pa24-health .pa24-example .pa24-check{display:flex;margin:12px 0}.pa24-health .pa24-check input{flex:0 0 18px;width:18px;height:18px}.pa24-health select{max-width:100%}
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
       .pa24-source-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}.pa24-source-fields label{display:flex;flex-direction:column;gap:5px;min-width:0}.pa24-sources input,.pa24-sources select{max-width:100%;box-sizing:border-box}.pa24-sources .pa24-check input{width:18px;flex:0 0 18px}.pa24-source-save{position:sticky;bottom:72px;background:var(--pa-surface);border-top:1px solid var(--pa-line);padding:12px 0;margin-top:16px;z-index:2}.pa24-source-save p{margin:6px 0 0}.pa24-sources .pa24-job{overflow-wrap:anywhere}
+      .pa24-calendar-detail{min-width:0;overflow-wrap:anywhere}.pa24-calendar-detail>.pa24-section-head{flex-wrap:wrap}.pa24-calendar-detail>.pa24-section-head>div{min-width:0}.pa24-calendar-detail .pa24-notice{margin:12px 0 16px}.pa24-calendar-detail .pa24-notice button{margin-top:10px}.pa24-calendar-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 16px}.pa24-calendar-metric{min-width:0;padding:13px 14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface)}.pa24-calendar-metric>span,.pa24-calendar-metric>small{display:block;color:var(--pa-muted);font-size:11px}.pa24-calendar-metric>strong{display:block;margin:4px 0;font-size:22px;line-height:1.25;font-variant-numeric:tabular-nums}.pa24-calendar-next{display:flex;align-items:center;gap:16px;min-width:0;margin:0 0 16px;padding:16px 18px;border:1px solid var(--pa-line);border-left:3px solid var(--pa-blue);border-radius:14px;background:var(--pa-surface)}.pa24-calendar-next-time{display:flex;align-items:center;gap:8px;min-width:78px;color:var(--pa-blue);font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}.pa24-calendar-next-body{flex:1;min-width:0}.pa24-calendar-next-body h3{margin:7px 0 4px;font-size:17px;overflow-wrap:anywhere}.pa24-calendar-next-empty{color:var(--pa-muted);border-left-color:var(--pa-line)}.pa24-calendar-next-empty h3{margin-bottom:4px}.pa24-calendar-layout{display:grid;grid-template-columns:minmax(0,1fr) 292px;gap:16px;align-items:start}.pa24-calendar-main{min-width:0}.pa24-calendar-timeline{padding:14px 16px}.pa24-calendar-toolbar{border-bottom:1px solid var(--pa-line);margin-bottom:2px}.pa24-calendar-toolbar .pa24-source-fields{grid-template-columns:repeat(2,minmax(0,1fr));margin:8px 0 12px}.pa24-date-navigation{display:grid;grid-template-columns:auto minmax(150px,1fr) auto auto;gap:8px;align-items:end}.pa24-date-navigation>button:first-child svg{transform:rotate(180deg)}.pa24-date-navigation label{display:flex;flex-direction:column;gap:5px;min-width:0;color:var(--pa-muted);font-size:12px}.pa24-agenda-row{display:grid;grid-template-columns:68px minmax(0,1fr);gap:14px;padding:15px 0;border-bottom:1px solid var(--pa-line)}.pa24-agenda-row:last-child{border-bottom:0}.pa24-agenda-time{padding-top:10px;text-align:right;font-size:13px;font-weight:650;font-variant-numeric:tabular-nums}.pa24-agenda-time small{display:block;margin-top:3px;color:var(--pa-muted);font-size:10px;font-weight:400}.pa24-event-card{min-width:0;padding:12px 14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-soft)}.pa24-event-card>.pa24-row{align-items:flex-start}.pa24-event-card h3{min-width:0;overflow-wrap:anywhere}.pa24-event-card>.pa24-meta{margin-top:5px}.pa24-event-location{padding:10px 0 0;margin-top:10px;border-top:1px solid var(--pa-line)}.pa24-event-location>.pa24-row{gap:6px}.pa24-event-location .pa24-row:last-child{margin-top:7px}.pa24-event-location button,.pa24-event-location .pa24-link-button{min-height:32px;padding:5px 9px;font-size:12px}.pa24-calendar-page-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:14px}.pa24-calendar-page-footer button:first-child svg{transform:rotate(180deg)}.pa24-source-scope{margin:0;padding:15px 16px}.pa24-source-scope>div:first-child h3{display:flex;align-items:center;gap:7px}.pa24-source-scope>div:first-child svg{width:17px;height:17px}.pa24-source-evidence{padding:13px 0;border-top:1px solid var(--pa-line)}.pa24-source-evidence:first-of-type{margin-top:10px}.pa24-source-evidence:last-child{padding-bottom:0}.pa24-source-evidence .pa24-row{align-items:flex-start;gap:6px}.pa24-source-evidence strong{min-width:0;overflow-wrap:anywhere}.pa24-source-evidence p{margin-top:5px}.pa24-source-evidence button{min-height:32px;margin:5px 0 0 -8px;padding:4px 8px;font-size:12px}.pa24-source-reason{color:var(--pa-amber);font-size:12px;overflow-wrap:anywhere}.pa24-source-catalog-error{margin:12px 0;padding:10px;border:1px solid var(--pa-danger);border-radius:10px;color:var(--pa-danger);font-size:12px}.pa24-source-catalog-error button{margin-top:8px;min-height:32px;padding:4px 8px}.pa24-calendar-draft textarea{display:block;width:100%;max-width:100%;min-height:120px;margin:12px 0;padding:12px;resize:vertical;border:1px solid var(--pa-line);border-radius:10px;background:var(--pa-soft);color:var(--pa-ink);font:inherit;line-height:1.65}@container(max-width:880px){.pa24-calendar-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-calendar-layout{grid-template-columns:minmax(0,1fr)}.pa24-source-scope{margin-bottom:16px}.pa24-source-evidence{display:inline-block;vertical-align:top;width:calc(50% - 12px);margin-right:20px}.pa24-source-evidence:nth-of-type(even){margin-right:0}}
       .pa24-form-actions{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-top:16px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);box-shadow:0 -4px 14px color-mix(in srgb,var(--pa-ink) 9%,transparent)}
       .pa24-plan-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.pa24-plan-metric{display:flex;align-items:flex-start;gap:10px;min-width:0;padding:12px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface)}.pa24-plan-metric strong{display:block;font-size:17px;line-height:1.35;font-variant-numeric:tabular-nums}.pa24-plan-metric small{display:block;margin-top:4px;color:var(--pa-muted);font-size:11px;line-height:1.5}.pa24-plan-metric .pa24-icon-tile{width:32px;height:32px;border-radius:9px}.pa24-plan-metric .pa24-icon-tile svg{width:16px;height:16px}
       .pa24-plan-list{padding:0 14px}.pa24-plan-row{display:grid;grid-template-columns:minmax(190px,1.4fr) minmax(145px,1fr) minmax(155px,1fr) minmax(92px,.55fr) minmax(170px,1.1fr);gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--pa-line)}.pa24-plan-row:last-child{border-bottom:0}.pa24-plan-row.pa24-plan-header{padding:8px 0;color:var(--pa-muted);font-size:11px}.pa24-plan-main{min-width:0}.pa24-plan-main>button{padding:0;min-height:0;border:0;background:transparent;color:var(--pa-blue);font-weight:650;text-align:left}.pa24-plan-cell{min-width:0;font-size:12px;overflow-wrap:anywhere}.pa24-plan-cell-label{display:block;margin-bottom:2px;color:var(--pa-muted);font-size:11px}
@@ -1116,84 +1117,189 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-row' }, button('copy', L('复制草稿', 'Copy draft'), async () => { try { await navigator.clipboard.writeText(model.draft); setNotice(L('草稿已复制。', 'Draft copied.')); } catch { setNotice(L('复制失败，请选中文字手动复制。', 'Copy failed; select the draft and copy it.')); } }), button('chat', L('打开24私助对话', 'Open 24PA chat'), openRobot)), notice && h('p', { role: 'status' }, notice)));
         }
 
+        const sourceRoleLabel = value => ({ all: L('全部授权可见', 'All authorized'), involved: L('本人参与或组织', 'Participating or organizing'), organizer: L('本人组织', 'Organizing'), participant: L('本人参与', 'Participating'), responsible: L('我负责的', 'Assigned to me'), following: L('我关注的', 'Following'), assigned: L('我交办的', 'Assigned by me'), creator: L('我创建的', 'Created by me') }[value] || value);
+        const latestSourceTime = (rows, key) => rows.map(row => row[key]).filter(value => value && Number.isFinite(Date.parse(value))).sort().at(-1) || null;
+
+        function SourceQueryState({ data, error, busy, verifying, onRetry, tz, domain = 'calendar' }) {
+          const todo = domain === 'todo', itemName = todo ? L('待办', 'todos') : L('日程', 'events'), sourceName = todo ? L('待办来源', 'todo sources') : L('日历来源', 'calendar sources');
+          const conclusion = todo ? L('全部完成', 'everything is complete') : L('全部空闲', 'complete availability');
+          if (error) return h('div', { className: 'pa24-notice pa24-tone-danger', role: 'alert', 'data-testid': 'source-query-state' }, icon('alert'), h('div', null,
+            h('strong', null, data ? L('读取失败，以下保留旧观察', 'Read failed; saved observations remain below') : L(`${itemName}读取失败`, `${itemName} read failed`)),
+            h('p', null, error), h('p', { className: 'pa24-meta' }, data ? L('当前筛选尚未重新读取，旧结果不代表现时平台状态。', 'This filter has not been read again; old results do not prove current platform state.') : L(`尚未取得可展示的${itemName}，读取失败不会替换为空结果。`, `No displayable ${itemName} were obtained; a failed read is not an empty result.`)),
+            h('button', { type: 'button', onClick: onRetry, disabled: busy }, icon('refresh'), L('重试读取', 'Retry read'))));
+          if (!data) return busy ? h('div', { className: 'pa24-notice pa24-tone-neutral', role: 'status', 'data-testid': 'source-query-state' }, icon('refresh', { className: 'pa24-spin' }), h('div', null, verifying ? L('正在按明确操作核验原平台；完成前不把旧观察当作本次结果。', 'Verifying the platforms after an explicit request; old observations are not presented as this result.') : L('正在读取保存的来源观察；普通查阅不访问原平台。', 'Reading saved source observations; ordinary browsing does not access the platforms.'))) : null;
+          const enabled = data.sources.filter(row => row.state !== 'disabled'), failed = enabled.some(row => row.state === 'failed');
+          const completeAt = latestSourceTime(data.sources, 'lastCompleteAt'), checkedAt = latestSourceTime(data.sources, 'checkedAt');
+          const title = !data.sources.length ? L(`尚未登记${sourceName}`, `No ${sourceName} registered`)
+            : data.fresh ? L('本次已核验', 'Verified in this request') : data.complete ? L('保存的完整观察', 'Saved complete observations')
+              : failed ? L('部分来源核验失败', 'Some source checks failed') : L('来源范围未完整核验', 'Source coverage is incomplete');
+          const description = !data.sources.length ? L(`请在参数配置登记来源；不能据此判断没有${itemName}。`, `Register sources in configuration; this does not prove there are no ${itemName}.`)
+            : data.fresh ? L(`当前筛选的 ${enabled.length} 个启用来源已完整读取。`, `${enabled.length} enabled sources were read completely for this filter.`)
+              : data.complete ? L('本次为普通查阅，未发起原平台核验。', 'This is an ordinary read; no platform verification was started.')
+                : L(`当前可展示 ${data.count} 个${itemName}；缺失范围与原因见逐来源证据，不能据此判断${conclusion}。`, `${data.count} ${itemName} are available; inspect per-source gaps and reasons. This does not prove ${conclusion}.`);
+          return h('div', { className: 'pa24-notice ' + (data.complete ? 'pa24-tone-blue' : data.sources.length ? 'pa24-tone-amber' : 'pa24-tone-neutral'), role: 'status', 'data-testid': 'source-query-state' }, icon(data.complete ? 'check' : 'info'), h('div', null,
+            h('strong', null, title), h('p', null, description),
+            h('p', { className: 'pa24-meta' }, (completeAt ? L('最新一笔完整观察 ', 'Latest complete source observation ') + date(completeAt, tz) : L('尚无全来源完整观察', 'No complete all-source observation yet')) + (checkedAt ? L(' · 最近观察 ', ' · Latest observation ') + date(checkedAt, tz) : '')),
+            busy && h('p', { className: 'pa24-meta' }, L('正在更新，现有结果保留到新响应通过校验。', 'Updating; current results remain until a new response passes validation.'))));
+        }
+
+        function SourceScopePanel({ sources, tz, onRetry, busy, catalogError, catalogBusy, onReload, onConfigure, loading, unavailable, roleLabel = sourceRoleLabel, domain = 'calendar' }) {
+          const todo = domain === 'todo', itemName = todo ? L('待办', 'todos') : L('日程', 'events');
+          const stateLabel = row => row.state === 'complete' ? row.fresh ? L('本次已核验', 'Verified now') : L('完整观察', 'Complete observation')
+            : ({ partial: L('范围不完整', 'Incomplete scope'), failed: L('核验失败', 'Verification failed'), disabled: L('已停用', 'Disabled'), unverified: L('未核验', 'Unverified') }[row.state] || row.state);
+          return h('aside', { className: 'pa24-card pa24-source-scope', 'aria-label': L('来源与范围', 'Sources and scope'), 'data-testid': 'source-scope-panel' },
+            h('div', { className: 'pa24-row pa24-between' }, h('h3', null, icon(todo ? 'tasks' : 'calendar'), L('来源与范围', 'Sources & scope')), onConfigure && h('button', { type: 'button', className: 'pa24-quiet', onClick: onConfigure }, icon('settings'), L('配置', 'Configure'))),
+            catalogError && h('div', { className: 'pa24-source-catalog-error', role: 'alert' }, h('p', null, L('来源目录加载失败：', 'Source directory failed: ') + catalogError), h('button', { type: 'button', onClick: onReload, disabled: catalogBusy }, icon('refresh'), catalogBusy ? L('来源加载中…', 'Loading sources…') : L('重试加载来源', 'Retry sources'))),
+            catalogBusy && !catalogError && h('p', { className: 'pa24-meta', role: 'status' }, L('正在读取来源目录…', 'Reading source directory…')),
+            loading ? h('p', { className: 'pa24-meta' }, L('正在读取来源证据…', 'Reading source evidence…')) : unavailable ? h('p', { className: 'pa24-meta' }, L('来源查询证据尚未取得；读取失败不会替换为无来源或无结果。', 'Source query evidence is unavailable; a failed read is not replaced by no sources or an empty result.')) : sources.length === 0 && !catalogError ? h('p', { className: 'pa24-meta' }, L(`尚未登记来源，不能据此判断没有${itemName}。`, `No registered sources; this does not prove there are no ${itemName}.`)) : null,
+            sources.map(row => h('section', { className: 'pa24-source-evidence', key: row.sourceId },
+              h('div', { className: 'pa24-row pa24-between' }, h('strong', null, row.name), badge(stateLabel(row), row.state === 'complete' ? 'blue' : row.state === 'unverified' || row.state === 'disabled' ? 'neutral' : 'amber', row.state === 'complete' ? 'check' : row.state === 'failed' ? 'alert' : 'info')),
+              h('p', { className: 'pa24-meta' }, (row.platform === 'wecom' ? L('企业微信', 'WeCom') : L('飞书', 'Feishu')) + L(' · 角色条件：', ' · Role filter: ') + roleLabel(row.filter)),
+              h('p', { className: 'pa24-meta' }, L('最近完整：', 'Last complete: ') + (row.lastCompleteAt ? date(row.lastCompleteAt, tz) : L('尚无完整观察', 'No complete observation'))),
+              h('p', { className: 'pa24-meta' }, L('最近观察：', 'Latest observation: ') + (row.checkedAt ? date(row.checkedAt, tz) : L('尚无观察', 'No observation'))),
+              row.reason && h('p', { className: row.state === 'failed' || row.state === 'partial' ? 'pa24-source-reason' : 'pa24-meta' }, row.reason),
+              row.state !== 'disabled' && h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => onRetry(row.sourceId) }, icon('refresh'), L(`重试${row.name}`, `Retry ${row.name}`)))));
+        }
+
+        const calendarDay = (value, timeZone) => new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value));
+        const calendarTime = (value, timeZone) => new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(value));
+        const shiftCalendarDay = (value, amount) => {
+          const [year, month, day] = value.split('-').map(Number), shifted = new Date(Date.UTC(year, month - 1, day + amount));
+          return shifted.toISOString().slice(0, 10);
+        };
+        const calendarRange = (event, fallbackZone) => {
+          const zone = event.timezone || fallbackZone || 'Asia/Shanghai', startDay = calendarDay(event.start, zone);
+          if (event.allDay) {
+            const endDay = calendarDay(new Date(Date.parse(event.end) - 1).toISOString(), zone), days = startDay === endDay ? startDay : L(`${startDay} 至 ${endDay}`, `${startDay} to ${endDay}`);
+            return { zone, allDay: true, short: L('全天', 'All day'), detail: days + L(' · 全天', ' · All day') };
+          }
+          const endDay = calendarDay(event.end, zone), startTime = calendarTime(event.start, zone), endTime = calendarTime(event.end, zone);
+          return { zone, allDay: false, startDay, endDay, startTime, endTime, short: startTime, detail: startDay === endDay ? `${startDay} · ${startTime}–${endTime}` : `${startDay} ${startTime} → ${endDay} ${endTime}` };
+        };
+        const originalLink = location => /^https?:\/\//.test(location.locator?.url || '') && h('a', { className: 'pa24-link-button', href: location.locator.url, target: '_blank', rel: 'noreferrer' }, icon('external'), L('打开原日程', 'Open original event'));
+
+        function CalendarNext({ data, tz }) {
+          const next = data.next;
+          if (!next) return h('section', { className: 'pa24-calendar-next pa24-calendar-next-empty', 'data-testid': 'calendar-next' }, icon('clock'), h('div', null,
+            h('h3', null, L('当前筛选没有下一场', 'No next event in this filter')),
+            h('p', { className: 'pa24-meta' }, data.fresh ? L('本次完整筛选中没有结束时间晚于现在的日程。', 'This complete verification found no event ending after now.') : data.complete ? L('保存的完整筛选中没有结束时间晚于现在的日程；本次未访问原平台。', 'Saved complete observations contain no event ending after now; this read did not access the platforms.') : L('当前可展示结果未提供下一场；查询不完整，不能据此判断全部空闲。', 'Available observations have no next event; incomplete coverage does not prove availability.'))));
+          const range = calendarRange(next, tz), ongoing = Date.parse(next.start) <= Date.now() && Date.parse(next.end) > Date.now();
+          const conflict = data.conflicts.some(pair => pair.a === next.objectId || pair.b === next.objectId);
+          return h('section', { className: 'pa24-calendar-next', 'data-testid': 'calendar-next' },
+            h('div', { className: 'pa24-calendar-next-time' }, icon(ongoing ? 'pulse' : 'clock'), range.allDay ? L('全天', 'All day') : range.startTime),
+            h('div', { className: 'pa24-calendar-next-body' }, h('div', { className: 'pa24-row' }, badge(ongoing ? L('进行中', 'In progress') : L('下一场', 'Next event'), ongoing ? 'green' : 'blue', ongoing ? 'pulse' : 'clock'), conflict && badge(L('已知时间冲突', 'Known conflict'), 'amber', 'alert'), next.stale && badge(L('保存观察', 'Saved observation'), data.complete ? 'neutral' : 'amber')),
+              h('h3', null, next.summary || L('无标题', 'Untitled')), h('p', { className: 'pa24-meta' }, range.detail + ' · ' + range.zone),
+              h('div', null, next.locations.map(row => h('p', { key: row.sourceId, className: 'pa24-meta' }, row.sourceName + (row.roles?.complete === false ? L(' · 本人关系未完整核验', ' · Personal role evidence incomplete') : row.roles?.values?.length ? L(' · ', ' · ') + row.roles.values.map(sourceRoleLabel).join(L('、', ', ')) : ''))))),
+            h('div', { className: 'pa24-row' }, next.locations.map(row => h('span', { key: row.sourceId }, originalLink(row)))));
+        }
+
+        function CalendarEventRow({ event, data, tz, onPrepare, button }) {
+          const range = calendarRange(event, tz), conflict = data.conflicts.some(pair => pair.a === event.objectId || pair.b === event.objectId);
+          return h('div', { className: 'pa24-agenda-row', 'data-testid': 'calendar-event' },
+            h('div', { className: 'pa24-agenda-time' }, range.allDay ? L('全天', 'All day') : range.startTime, h('small', null, range.allDay ? calendarDay(event.start, range.zone) : range.endDay === range.startDay ? range.endTime : range.endDay + ' ' + range.endTime)),
+            h('article', { className: 'pa24-event-card' },
+              h('div', { className: 'pa24-row pa24-between' }, h('h3', null, event.summary || L('无标题', 'Untitled')), h('div', { className: 'pa24-row' }, conflict && badge(L('已知时间冲突', 'Known conflict'), 'amber', 'alert'), event.stale && badge(L('保存观察', 'Saved observation'), data.complete ? 'neutral' : 'amber', 'clock'))),
+              h('p', { className: 'pa24-meta' }, range.detail + ' · ' + range.zone),
+              event.recurring && h('p', { className: 'pa24-meta' }, L('重复日程 · 变更前需明确本次、以后或全系列', 'Recurring event · specify this instance, future instances, or the series before changing')),
+              event.locations.map(location => h('div', { key: location.sourceId, className: 'pa24-event-location' },
+                h('div', { className: 'pa24-row' }, h('p', { className: 'pa24-meta' }, location.sourceName + ' · ' + (location.platform === 'wecom' ? L('企业微信', 'WeCom') : L('飞书', 'Feishu'))),
+                  location.capabilities?.update === 'denied' && location.capabilities?.cancel === 'denied' && badge(L('只读来源', 'Read-only source'), 'neutral')),
+                h('p', { className: 'pa24-meta' }, location.roles.complete ? location.roles.values.length ? location.roles.values.map(sourceRoleLabel).join(L('、', ', ')) : L('未确认本人参与或组织', 'No confirmed personal participation or organization') : L('本人关系未完整核验', 'Personal role evidence is incomplete')),
+                location.roles.reason && h('p', { className: 'pa24-meta' }, location.roles.reason),
+                h('div', { className: 'pa24-row' }, originalLink(location), button('chat', L('改期', 'Reschedule'), () => onPrepare('改期', event, location), { className: 'pa24-quiet' }),
+                  button('chat', L('取消日程', 'Cancel event'), () => onPrepare('取消日程，先核验原来源与影响范围', event, location), { className: 'pa24-quiet' }),
+                  button('chat', L('仅取消本人提醒', 'Remove my reminder only'), () => onPrepare('仅取消本人提醒，保留会议', event, location), { className: 'pa24-quiet' }))))));
+        }
+
         function CalendarDetail(helpers) {
-          const { state, config, tz, button, openRobot, openCard } = helpers;
-          const binding = state.workspaceBinding;
-          const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+          const { state, tz, button, openRobot, openCard } = helpers, binding = state.workspaceBinding;
+          const today = () => calendarDay(new Date(), tz || 'Asia/Shanghai');
           const [day, setDay] = React.useState(today), [period, setPeriod] = React.useState('day'), [source, setSource] = React.useState(''), [role, setRole] = React.useState('');
-          const [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0), [view, setView] = React.useState({ data: null, error: '', busy: false });
-          const [sources, setSources] = React.useState([]), [draft, setDraft] = React.useState(''), [note, setNote] = React.useState('');
-          const sequence = React.useRef(0), limit = 20;
-          const validateView = data => {
-            if (data.workspaceBinding !== binding) throw new Error(L('工作区已变化，请刷新后重试。', 'Workspace changed. Refresh and retry.'));
-            if (!Array.isArray(data.events) || !Array.isArray(data.sources) || !Array.isArray(data.conflicts)) throw new Error(L('日程响应不完整，请重新读取。', 'Incomplete calendar response. Retry reading.'));
-            return data;
-          };
+          const [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0), [readEpoch, retryRead] = React.useReducer(n => n + 1, 0);
+          const [view, setView] = React.useState({ key: '', data: null, error: '', busy: false, mode: 'read' });
+          const [catalog, setCatalog] = React.useState({ key: '', entries: [], error: '', busy: false }), [sourceEpoch, reloadSources] = React.useReducer(n => n + 1, 0);
+          const [draft, setDraft] = React.useState(''), [draftFocus, setDraftFocus] = React.useState(0), [note, setNote] = React.useState('');
+          const sequence = React.useRef(0), catalogSequence = React.useRef(0), draftRef = React.useRef(null), limit = 20;
           const args = JSON.stringify({ date: day, period, ...(source ? { sourceId: source } : {}), ...(role ? { role } : {}), query, offset, limit, workspaceBinding: binding });
+          const validateView = result => {
+            if (result.workspaceBinding !== binding) throw new Error(L('工作区已变化，请刷新后重试。', 'Workspace changed. Refresh and retry.'));
+            const validEvent = row => row && typeof row.objectId === 'string' && Number.isFinite(Date.parse(row.start)) && Number.isFinite(Date.parse(row.end)) && Array.isArray(row.locations);
+            if (!Array.isArray(result.events) || !result.events.every(validEvent) || (result.next != null && !validEvent(result.next)) || !Array.isArray(result.sources) || !Array.isArray(result.conflicts)) throw new Error(L('日程响应不完整，请重新读取。', 'Incomplete calendar response. Retry reading.'));
+            return result;
+          };
           React.useEffect(() => {
-            const abort = new AbortController();
-            void rpc('sources', { workspaceBinding: binding }, abort.signal).then(result => { if (!abort.signal.aborted) setSources(result.entries.filter(row => row.domain === 'calendar')); }).catch(() => {});
-            return () => abort.abort();
-          }, [binding]);
+            const abort = new AbortController(), epoch = ++catalogSequence.current;
+            setCatalog(old => ({ key: binding, entries: old.key === binding ? old.entries : [], busy: true, error: '' }));
+            void rpc('sources', { workspaceBinding: binding }, abort.signal).then(result => {
+              if (!Array.isArray(result.entries) || !result.entries.every(row => row && typeof row.id === 'string' && typeof row.domain === 'string' && typeof row.name === 'string')) throw new Error(L('日历来源响应不完整。', 'Incomplete calendar source response.'));
+              if (!abort.signal.aborted && epoch === catalogSequence.current) setCatalog({ key: binding, entries: result.entries.filter(row => row.domain === 'calendar'), busy: false, error: '' });
+            }).catch(error => { if (!abort.signal.aborted && epoch === catalogSequence.current) setCatalog(old => ({ ...old, busy: false, error: error.message })); });
+            return () => { abort.abort(); catalogSequence.current++; };
+          }, [binding, sourceEpoch]);
           React.useEffect(() => {
             const abort = new AbortController(), epoch = ++sequence.current;
-            setView(v => ({ ...v, error: '', busy: true }));
-            void rpc('calendar', JSON.parse(args), abort.signal).then(data => {
-              if (!abort.signal.aborted && epoch === sequence.current) setView({ data: validateView(data), error: '', busy: false });
-            }).catch(error => { if (!abort.signal.aborted && epoch === sequence.current) setView(v => ({ ...v, error: error.message, busy: false })); });
+            setView(old => ({ key: args, data: old.key === args ? old.data : null, busy: true, error: '', mode: 'read' }));
+            void rpc('calendar', JSON.parse(args), abort.signal).then(result => {
+              if (!abort.signal.aborted && epoch === sequence.current) setView({ key: args, data: validateView(result), busy: false, error: '', mode: 'read' });
+            }).catch(error => { if (!abort.signal.aborted && epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.message, mode: 'read' })); });
             return () => { abort.abort(); sequence.current++; };
-          }, [args]);
-          const verify = async () => {
-            const epoch = ++sequence.current;
-            setView(v => ({ ...v, error: '', busy: true }));
+          }, [args, readEpoch]);
+          React.useEffect(() => { if (draftFocus && draft) { draftRef.current?.focus(); draftRef.current?.scrollIntoView?.({ block: 'nearest' }); } }, [draftFocus]);
+          const verify = async sourceId => {
+            const epoch = ++sequence.current, request = JSON.parse(args);
+            setView(old => ({ key: args, data: old.key === args ? old.data : null, busy: true, error: '', mode: 'verify' }));
             try {
-              const data = await rpc('action', { type: 'calendar.verify', ...JSON.parse(args) });
-              if (epoch === sequence.current) { setView({ data: validateView(data), error: '', busy: false }); await helpers.refresh(); }
-            } catch (error) { if (epoch === sequence.current) setView(v => ({ ...v, error: error.message, busy: false })); }
+              const verified = validateView(await rpc('action', { type: 'calendar.verify', ...request, ...(sourceId ? { sourceId } : {}) }));
+              if (epoch !== sequence.current) return;
+              const result = sourceId ? validateView(await rpc('calendar', request)) : verified;
+              if (epoch === sequence.current) { setView({ key: args, data: result, busy: false, error: '', mode: 'read' }); reloadSources(); await helpers.refresh(); }
+            } catch (error) { if (epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.message, mode: 'verify' })); }
           };
           const change = setter => value => { setter(value); setOffset(0); };
-          const status = row => ({ complete: L('范围已核验', 'Range verified'), partial: L('部分结果', 'Partial'), failed: L('核验失败', 'Check failed'), disabled: L('已停用', 'Disabled'), unverified: L('待核验', 'Unverified') }[row.state] || row.state);
-          const select = (label, value, setter, choices) => h('label', { className: 'pa24-field' }, label, h('select', { value, disabled: view.busy, onChange: e => change(setter)(e.target.value) }, choices.map(([value, title]) => h('option', { key: value, value }, title))));
+          const changeDay = value => { if (/^\d{4}-\d{2}-\d{2}$/.test(value)) change(setDay)(value); };
+          const select = (label, value, setter, choices) => h('label', { className: 'pa24-field' }, label, h('select', { value, onChange: event => change(setter)(event.target.value) }, choices.map(([value, title]) => h('option', { key: value, value }, title))));
           const prepare = (action, event, location) => {
             const scope = location ? `来源：${location.sourceName}（sourceId=${location.sourceId}），原日程 ${event.summary}，${event.start} 至 ${event.end}，eventId=${location.locator.eventId}，objectId=${event.objectId}。` : `日期：${day}，时区：${tz}。${source ? `sourceId=${source}。` : ''}`;
             setDraft(`请帮我${action}。${scope}${action === '改期' ? '新时间：请补充。' : action === '创建日程' ? '主题和起止时间：请补充。' : ''}${event?.recurring ? '这是重复日程，请先确认本次、以后或全系列范围。' : ''}`);
-            setNote('');
+            setNote(''); setDraftFocus(value => value + 1);
           };
-          const data = view.data;
-          return h('section', { 'data-testid': 'calendar-detail' },
-            sectionHead('calendar', L('日程', 'Calendar'), L('汇总全部已登记日历。普通查看读取已保存结果；“核验日历”只读取原平台。', 'Aggregate registered calendars. Browsing reads saved observations; Verify calendars reads the platforms.'),
-              h('div', { className: 'pa24-row' }, button('refresh', view.busy ? L('读取中…', 'Reading…') : L('核验日历', 'Verify calendars'), verify, { disabled: view.busy }), button('plus', L('创建日程', 'Create event'), () => prepare('创建日程')), button('settings', L('配置日历来源', 'Configure sources'), () => openCard('config', 'pa24-sources'), { className: 'pa24-quiet' })), 'amber'),
-            h('div', { className: 'pa24-source-fields' },
-              h('label', { className: 'pa24-field' }, L('日期', 'Date'), h('input', { type: 'date', value: day, disabled: view.busy, onChange: e => change(setDay)(e.target.value) })),
-              select(L('时段', 'Period'), period, setPeriod, [['day', L('全天', 'Whole day')], ['morning', L('上午', 'Morning')], ['afternoon', L('下午', 'Afternoon')], ['evening', L('晚间', 'Evening')]]),
-              select(L('日历来源', 'Calendar source'), source, setSource, [['', L('全部已登记来源', 'All registered sources')], ...sources.map(row => [row.id, row.name])]),
-              select(L('参与范围', 'Role filter'), role, setRole, [['', L('按各来源默认', 'Source defaults')], ['all', L('全部授权可见', 'All authorized events')], ['involved', L('本人参与或组织', 'Participating or organizing')], ['organizer', L('本人组织', 'Organizing')], ['participant', L('本人参与', 'Participating')]]),
-              h('label', { className: 'pa24-field' }, L('搜索日程', 'Search events'), h('input', { value: query, onChange: e => change(setQuery)(e.target.value) }))),
-            view.error && h('div', { role: 'alert', className: 'pa24-error' }, view.error, button('refresh', L('重试核验', 'Retry verification'), verify, { disabled: view.busy })),
-            view.busy && h('p', { role: 'status', className: 'pa24-meta' }, L('正在读取，现有结果保留到新请求完成。', 'Reading; previous results stay visible until this request finishes.')),
-            data && h('div', null,
-              h('p', { className: data.fresh ? 'pa24-notice' : 'pa24-warning', role: 'status' }, data.message),
-              capKpi([[data.total === null ? L('未确认', 'Unconfirmed') : data.total, L('筛选后的完整总数', 'Complete filtered count')], [data.count, L('当前可展示', 'Currently available')], [data.conflicts.length, L('冲突', 'Conflicts')]]),
-              h('section', { className: 'pa24-card' }, h('h3', null, L('逐来源范围与核验时间', 'Scope and verification by source')),
-                data.sources.length === 0 ? h('p', null, L('尚未登记来源，不能据此判断没有日程。', 'No sources registered; this does not mean no events.')) : data.sources.map(row => h('div', { className: 'pa24-job', key: row.sourceId },
-                  h('div', { className: 'pa24-row pa24-between' }, h('strong', null, row.name), badge(status(row), row.state === 'complete' ? 'blue' : 'amber')),
-                  h('p', { className: 'pa24-meta' }, (row.platform === 'wecom' ? '企业微信' : '飞书') + ' · ' + L('筛选 ', 'Filter ') + ({ all: L('全部', 'All'), involved: L('本人参与或组织', 'Involved'), organizer: L('本人组织', 'Organizer'), participant: L('本人参与', 'Participant') }[row.filter] || row.filter) + ' · ' + L('核验 ', 'Checked ') + (row.checkedAt ? date(row.checkedAt, tz) : L('尚无记录', 'Never'))),
-                  row.lastCompleteAt && h('p', { className: 'pa24-meta' }, L('最近完整核验 ', 'Last complete check ') + date(row.lastCompleteAt, tz)),
-                  row.reason && h('p', { className: 'pa24-warning' }, row.reason), row.unknownRoles > 0 && h('p', { className: 'pa24-warning' }, L('参与关系未完整核实：', 'Incomplete role evidence: ') + row.unknownRoles)))),
-              data.events.length === 0 ? h('div', { className: 'pa24-card' }, h('p', null, data.fresh ? L('该范围没有符合筛选的日程。', 'No matching events in this verified range.') : L('当前没有可展示的结果，请先核验来源；不能认定全部空闲。', 'No displayable result yet. Verify sources before concluding availability.'))) :
-                data.events.map(event => h('article', { key: event.objectId, className: 'pa24-card' }, h('div', { className: 'pa24-row pa24-between' }, h('h3', null, event.summary || L('无标题', 'Untitled')), event.stale && badge(L('已保存观察', 'Saved observation'), 'amber')),
-                  h('p', null, date(event.start, tz) + ' — ' + date(event.end, tz) + ' · ' + (event.timezone || tz)),
-                  event.recurring && h('p', { className: 'pa24-meta' }, L('重复日程 · 变更前需明确影响范围', 'Recurring event · specify the change scope')),
-                  data.conflicts.some(pair => pair.a === event.objectId || pair.b === event.objectId) && h('p', { className: 'pa24-warning' }, L('与其他安排重叠，尚未调整。', 'Overlaps another event; no changes made.')),
-                  event.locations.map(location => h('div', { key: location.sourceId, className: 'pa24-job' }, h('p', { className: 'pa24-meta' }, location.sourceName + ' · ' + (location.roles.values.length ? location.roles.values.map(value => ({ organizer: '组织者', participant: '参与人', creator: '创建者' }[value] || value)).join('、') : L('无已确认的本人关系', 'No confirmed personal role'))),
-                    h('div', { className: 'pa24-row' }, /^https?:\/\//.test(location.locator.url || '') && h('a', { className: 'pa24-link-button', href: location.locator.url, target: '_blank', rel: 'noreferrer' }, icon('external'), L('打开原日程', 'Open original event')),
-                      button('chat', L('改期', 'Reschedule'), () => prepare('改期', event, location), { className: 'pa24-quiet' }),
-                      button('chat', L('取消日程', 'Cancel event'), () => prepare('取消日程，先核验原来源与影响范围', event, location), { className: 'pa24-quiet' }),
-                      button('chat', L('仅取消本人提醒', 'Remove my reminder only'), () => prepare('仅取消本人提醒，保留会议', event, location), { className: 'pa24-quiet' })))))),
-              h('div', { className: 'pa24-row' }, button('arrow', L('上一页', 'Previous'), () => setOffset(Math.max(0, offset - limit)), { disabled: view.busy || offset === 0 }), h('span', null, L('第 ', 'Page ') + (Math.floor(offset / limit) + 1) + L(' 页', '')), button('arrow', L('下一页', 'Next'), () => setOffset(offset + limit), { disabled: view.busy || !data.hasMore }))),
-            draft && h('section', { className: 'pa24-card' }, h('h3', null, L('带上下文继续对话', 'Continue with context')), h('p', { className: 'pa24-meta' }, L('补充需求后复制到对话，发送后由24私助核验办理。', 'Complete the request, copy it into chat, and send it for 24PA to verify and handle.')),
-              h('textarea', { 'aria-label': L('日程对话内容', 'Calendar chat draft'), rows: 5, value: draft, onChange: e => setDraft(e.target.value) }),
-              button('chat', L('复制并打开对话', 'Copy and open chat'), async () => { try { await navigator.clipboard.writeText(draft); } catch { setNote(L('无法自动复制，请手动复制上方内容后打开对话。', 'Copy the text manually, then open chat.')); return; } await openRobot(); setNote(L('已复制，请粘贴到对话并检查后发送。', 'Copied. Paste into chat, review, and send.')); }), button('chat', L('打开对话', 'Open chat'), openRobot, { className: 'pa24-quiet' }), note && h('p', { role: 'status' }, note)),
+          const data = view.key === args ? view.data : null, sources = catalog.key === binding ? catalog.entries : [];
+          const filtered = Boolean(source || role || query.trim() || period !== 'day'), enabled = data?.sources.filter(row => row.state !== 'disabled') || [];
+          const emptyState = () => {
+            if (data.count > 0) return empty('calendar', 'neutral', L('当前页没有日程', 'No events on this page'), L('完整筛选结果仍在其他页，请返回上一页。', 'Other pages still contain filtered results; return to the previous page.'), button('arrow', L('上一页', 'Previous'), () => setOffset(Math.max(0, offset - limit))));
+            if (!data.sources.length) return empty('calendar', 'neutral', L('尚未登记日历来源', 'No calendar sources'), L('登记并核验来源后才能查阅日程；当前状态不代表没有日程。', 'Register and verify sources to read events; this state does not mean there are no events.'), button('settings', L('配置日历来源', 'Configure sources'), () => openCard('config', 'pa24-sources')));
+            if (!data.complete) return empty('calendar', 'amber', L('当前没有可展示日程', 'No displayable events'), L('可查看逐来源原因并重试；未完整核验不等于没有日程。', 'Inspect per-source reasons and retry; incomplete coverage does not mean no events.'), button('refresh', L('核验日历', 'Verify calendars'), () => verify(), { disabled: view.busy }));
+            if (data.fresh) return empty('calendar', 'neutral', filtered ? L('当前筛选没有匹配日程', 'No events match this filter') : L('该日没有日程', 'No events on this day'), filtered ? L('可以调整日期、时段、来源、参与范围或搜索词。', 'Adjust the date, period, source, role, or search text.') : L('本次完整核验未发现与当前日期和时段重叠的日程。', 'This complete check found no events overlapping the selected date and period.'), button('plus', L('创建日程', 'Create event'), () => prepare('创建日程')));
+            return empty('calendar', 'neutral', filtered ? L('保存的完整观察中没有匹配', 'No match in saved complete observations') : L('保存的完整观察为空', 'Saved complete observations are empty'), L('这是普通查阅结果，未在本次访问原平台；需要最新状态时再明确核验。', 'This ordinary read did not access the platforms; explicitly verify when current state is needed.'), button('refresh', L('核验日历', 'Verify calendars'), () => verify(), { disabled: view.busy }));
+          };
+          return h('section', { className: 'pa24-calendar-detail', 'data-testid': 'calendar-detail' },
+            sectionHead('calendar', L('日程', 'Calendar'), L('当前筛选的下一场、今日安排与查询完整性。普通查看只读保存观察。', 'Next event, today’s schedule, and query completeness for the current filter. Ordinary browsing only reads saved observations.'),
+              h('div', { className: 'pa24-row' }, button('refresh', L('刷新', 'Refresh'), retryRead, { disabled: view.busy, className: 'pa24-quiet', title: L('刷新保存观察', 'Refresh saved observations') }),
+                button('check', view.busy && view.mode === 'verify' ? L('核验中…', 'Verifying…') : L('核验日历', 'Verify calendars'), () => verify(), { disabled: view.busy }),
+                button('plus', L('创建日程', 'Create event'), () => prepare('创建日程'), { className: 'pa24-primary' }), button('settings', L('配置日历来源', 'Configure sources'), () => openCard('config', 'pa24-sources'), { className: 'pa24-quiet' })), 'amber'),
+            h(SourceQueryState, { data, error: view.key === args ? view.error : '', busy: view.busy, verifying: view.busy && view.mode === 'verify', onRetry: retryRead, tz }),
+            data && h('div', { className: 'pa24-calendar-metrics', 'data-testid': 'calendar-metrics' },
+              [[data.count, data.complete ? day === today() ? L('今日安排', 'Today’s events') : L('当日安排', 'Events on this day') : day === today() ? L('今日可展示', 'Available today') : L('当前可展示', 'Currently available'), data.complete ? L('完整筛选结果', 'Complete filtered result') : L('保存观察，不是完整总数', 'Saved observations, not a complete total')],
+                [data.events.length, L('本页日程', 'Events on this page'), L(`第 ${Math.floor(offset / limit) + 1} 页`, `Page ${Math.floor(offset / limit) + 1}`)],
+                [data.conflicts.length, L('已知冲突', 'Known conflicts'), data.complete ? L('当前完整筛选，不自动改期', 'Complete filter; no automatic changes') : L('仅当前可展示证据，不自动改期', 'Available evidence only; no automatic changes')],
+                [`${enabled.filter(row => row.state === 'complete').length} / ${enabled.length}`, L('完整来源', 'Complete sources'), data.fresh ? L('本次核验', 'This verification') : L('逐来源证据见侧栏', 'Per-source evidence in the sidebar')]].map(([value, label, meta]) => h('div', { className: 'pa24-calendar-metric', key: label }, h('span', null, label), h('strong', null, value), h('small', null, meta)))),
+            data && h(CalendarNext, { data, tz }),
+            h('div', { className: 'pa24-calendar-layout' }, h('div', { className: 'pa24-calendar-main' }, h('section', { className: 'pa24-card pa24-calendar-timeline' },
+              h('div', { className: 'pa24-calendar-toolbar' },
+                h('div', { className: 'pa24-date-navigation' }, button('arrow', L('前一天', 'Previous day'), () => changeDay(shiftCalendarDay(day, -1)), { className: 'pa24-quiet' }),
+                  h('label', { className: 'pa24-field' }, L('日期', 'Date'), h('input', { type: 'date', value: day, onChange: event => changeDay(event.target.value) })), button('arrow', L('后一天', 'Next day'), () => changeDay(shiftCalendarDay(day, 1)), { className: 'pa24-quiet' }), button('clock', L('今天', 'Today'), () => changeDay(today()), { className: 'pa24-quiet' })),
+                h('div', { className: 'pa24-source-fields' }, select(L('时段', 'Period'), period, setPeriod, [['day', L('全天', 'Whole day')], ['morning', L('上午', 'Morning')], ['afternoon', L('下午', 'Afternoon')], ['evening', L('晚间', 'Evening')]]),
+                  select(L('日历来源', 'Calendar source'), source, setSource, [['', L('全部已登记来源', 'All registered sources')], ...(source && !sources.some(row => row.id === source) ? [[source, source + L('（来源待加载）', ' (source pending)')]] : []), ...sources.map(row => [row.id, row.name])]),
+                  select(L('参与范围', 'Role filter'), role, setRole, [['', L('按各来源默认', 'Source defaults')], ['all', L('全部授权可见', 'All authorized events')], ['involved', L('本人参与或组织', 'Participating or organizing')], ['organizer', L('本人组织', 'Organizing')], ['participant', L('本人参与', 'Participating')]]),
+                  h('label', { className: 'pa24-field' }, L('搜索日程', 'Search events'), h('input', { type: 'search', value: query, onChange: event => change(setQuery)(event.target.value) })))),
+              data && h('div', { className: 'pa24-calendar-agenda', 'aria-label': L('日程时间线', 'Calendar timeline') }, data.events.length === 0 ? emptyState() : data.events.map(event => h(CalendarEventRow, { key: event.objectId, event, data, tz, onPrepare: prepare, button }))),
+              data && h('div', { className: 'pa24-calendar-page-footer' }, button('arrow', L('上一页', 'Previous'), () => setOffset(Math.max(0, offset - limit)), { disabled: view.busy || offset === 0 }),
+                h('span', { className: 'pa24-meta' }, L(`第 ${Math.floor(offset / limit) + 1} 页 · 本页 ${data.events.length} / 可展示 ${data.count}`, `Page ${Math.floor(offset / limit) + 1} · ${data.events.length} on this page / ${data.count} available`)),
+                button('arrow', L('下一页', 'Next'), () => setOffset(offset + limit), { disabled: view.busy || !data.hasMore })))),
+            h(SourceScopePanel, { sources: data?.sources || [], tz, onRetry: verify, busy: view.busy, catalogError: catalog.key === binding ? catalog.error : '', catalogBusy: catalog.busy, onReload: reloadSources, onConfigure: () => openCard('config', 'pa24-sources'), loading: !data && view.busy, unavailable: !data && !view.busy })),
+            draft && h('section', { className: 'pa24-card pa24-calendar-draft' }, h('h3', null, L('带上下文继续对话', 'Continue with context')), h('p', { className: 'pa24-meta' }, L('草稿已生成并聚焦。补充后复制到对话，由你检查并发送；不会自动发送或直接写入。', 'The draft is visible and focused. Copy it into chat, review, and send; nothing is sent or written automatically.')),
+              h('textarea', { ref: draftRef, 'aria-label': L('日程对话内容', 'Calendar chat draft'), rows: 5, value: draft, onChange: event => setDraft(event.target.value) }),
+              h('div', { className: 'pa24-row' }, button('chat', L('复制并打开对话', 'Copy and open chat'), async () => { try { await navigator.clipboard.writeText(draft); } catch { setNote(L('无法自动复制，请手动复制上方内容后打开对话。', 'Copy the text manually, then open chat.')); return; } await openRobot(); setNote(L('已复制，请粘贴到对话并检查后发送。', 'Copied. Paste into chat, review, and send.')); }), button('chat', L('打开对话', 'Open chat'), openRobot, { className: 'pa24-quiet' })), note && h('p', { role: 'status' }, note)),
             h('details', { className: 'pa24-card' }, h('summary', null, L('提醒备份与历史', 'Reminder backups and history')), h(ReminderDetail, helpers)));
         }
 
@@ -2184,9 +2290,11 @@ window.__ModuleLoader__.load({
             tier: ({ extra }) => Array.isArray(extra.calendar?.sources) ? extra.calendar.complete ? 'ok' : 'warn' : 'unchecked',
             body: ({ extra, tz }) => {
               const data = Array.isArray(extra.calendar?.sources) ? extra.calendar : null;
-              return h('div', null, capLine(L('今日日程', 'Today’s events'), data ? data.total === null ? L('范围未完整核验', 'Coverage unverified') : data.total + L(' 项（已保存）', ' (saved)') : L('读取中…', 'Loading…')),
-                capLine(L('下一场', 'Next event'), data?.next ? data.next.summary + ' · ' + date(data.next.start, tz) : L('尚无已核验安排', 'No verified event')),
-                data && capLine(L('已知冲突', 'Known conflicts'), data.conflicts.length + L(' 处', '')));
+              const ongoing = data?.next && Date.parse(data.next.start) <= Date.now() && Date.parse(data.next.end) > Date.now(), nextRange = data?.next ? calendarRange(data.next, tz) : null;
+              return h('div', null, capLine(L('今日日程', 'Today’s events'), data ? data.count + (data.complete ? L(' 项（完整观察）', ' (complete observations)') : L(' 项（当前可展示）', ' (currently available)')) : extra._errors?.calendar || L('读取中…', 'Loading…')),
+                capLine(ongoing ? L('进行中', 'In progress') : L('下一场', 'Next event'), data?.next ? data.next.summary + ' · ' + nextRange.detail + ' · ' + nextRange.zone : data?.complete ? L('当前筛选无下一场', 'No next event in this filter') : L('当前可展示结果无下一场', 'No next event in available observations')),
+                data && capLine(L('已知冲突', 'Known conflicts'), data.conflicts.length + L(' 处', '')),
+                data && capLine(L('查询完整性', 'Query completeness'), data.complete ? L('保存的完整观察', 'Saved complete observations') : L('范围不完整', 'Incomplete coverage')));
             },
             detail: helpers => h(CalendarDetail, { key: helpers.state.workspaceBinding, ...helpers }),
           },

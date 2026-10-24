@@ -216,6 +216,23 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore 来源、身�
     expect((await calendar.query(window)).total).toBe(2); expect(calls).toBe(6);
     const cached = await calendar.query(window, false); expect(cached.fresh).toBe(false); expect(cached.total).toBe(2); expect(calls).toBe(6);
   });
+  it('下一场来自分页前完整筛选，并区分本次核验与保存的完整观察', async () => {
+    current.sources.entries[1] = entry('b', { purpose: 'project', filter: 'involved' }); await service.synchronize();
+    const now = Date.now(), at = hours => new Date(now + hours * 3600_000), range = { from: at(-3).toISOString(), to: at(6).toISOString() };
+    const timed = (id, summary, from, to, values = ['participant']) => event(id, { body: { summary }, roles: { complete: true, values }, startTime: at(from), endTime: at(to) });
+    const calendar = new SourceCalendar({ registry: service, config: () => current, projection: () => repos.sourceProjection, gate: (_k, run) => run(),
+      read: async target => observation(target.sourceId === 'a' ? [timed('past', '已结束', -2, -1), timed('current', '进行中', -0.5, 0.5), timed('future-a', '未来 A', 1, 2)] : [timed('future-b', '未来 B', 3, 4, ['organizer'])], { query: range }) });
+    const first = await calendar.query({ ...range, limit: 1 });
+    expect(first.events).toHaveLength(1); expect(first.events[0].summary).toBe('已结束'); expect(first.hasMore).toBe(true);
+    expect(first.next).toMatchObject({ summary: '进行中', eventId: 'current' });
+    expect(first.fresh, JSON.stringify(first.sources)).toBe(true); expect(first.complete, JSON.stringify(first.sources)).toBe(true);
+    const saved = await calendar.query({ ...range, limit: 1 }, false);
+    expect(saved.next).toMatchObject({ summary: '进行中' }); expect(saved.fresh).toBe(false); expect(saved.complete).toBe(true); expect(saved.total).toBe(4);
+    expect(saved.sources.every(row => row.checkedAt && row.lastCompleteAt)).toBe(true); expect(saved.events.every(row => row.stale)).toBe(true);
+    expect((await calendar.query({ ...range, query: '未来' }, false)).next).toMatchObject({ summary: '未来 A', eventId: 'future-a' });
+    expect((await calendar.query({ ...range, role: 'organizer' }, false)).next).toMatchObject({ summary: '未来 B', eventId: 'future-b' });
+    expect((await calendar.query({ ...range, query: '没有匹配' }, false)).next).toBeNull();
+  });
   it('完整对象范围与角色覆盖分开；全部可见不遗漏未知关系，忙闲读取全部页', async () => {
     await service.synchronize();
     const calendar = new SourceCalendar({ registry: service, config: () => current, projection: () => repos.sourceProjection, gate: (_k, run) => run(),
