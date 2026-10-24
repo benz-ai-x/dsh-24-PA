@@ -75,8 +75,9 @@ describe('宿主版本三串一致性（#114/#118 守卫）', () => {
     const engines = pkg.engines.dsh;
     expect(pkg.peerDependencies['@deepseek-ai/dsh']).toBe(engines);
     expect(pkg.peerDependencies['@deepseek-ai/dsh-schedule']).toBe(engines);
-    // 兼容清单只增不减地覆盖已发布宿主基线；出现新基线时三处必须同扩
-    for (const baseline of ['0.2.0-rc.2', '0.2.1-alpha.1', '0.2.1-alpha.2', '0.2.1-rc.1', '0.2.1-rc.2']) {
+    // 兼容清单只增不减地覆盖已发布宿主基线；出现新基线时三处必须同扩。
+    // alpha.3–5 不单列：preset 生成物与 alpha.2 逐字一致（PR #114/#118 核验），三串由 engines 整体覆盖
+    for (const baseline of ['0.2.0-rc.2', '0.2.1-alpha.1', '0.2.1-alpha.2', '0.2.1-rc.1', '0.2.1-rc.2', '0.2.1-rc.3']) {
       expect(engines).toContain(baseline);
     }
   });
