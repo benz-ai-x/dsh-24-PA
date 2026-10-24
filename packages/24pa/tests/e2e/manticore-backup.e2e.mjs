@@ -149,7 +149,7 @@ it('真实 Loader / Session：联合备份、校验、隔离恢复保护及重�
   const candidate = parseMemoryFile(await readFile(join(restored.targetDir, 'workspace/.24pa/memory.json'), 'utf8'));
   expect(candidate.records).toMatchObject([{ id: 'keep-me', content: '目前应保留的新正文' }]); expect(candidate.tombstones[0].id).toBe('remove-me');
   expect(await readFile(join(workspace, '.24pa/memory.json'))).toEqual(before);
-  await host.api('action', { type: 'skill.stop', runId: waiting.id, workspaceBinding: binding, confirm: true });
+  await host.api('action', { type: 'skill.run', op: 'stop', runId: waiting.id, workspaceBinding: binding, confirm: true });
   const calls = llm.log.length;
   await expect(host.api('action', { type: 'workspace.bind', path: join(restored.targetDir, 'workspace') })).rejects.toThrow('恢复隔离');
   expect((await host.api('snapshot')).workspace.path).toBe(await realpath(workspace)); expect(llm.log.length).toBe(calls);

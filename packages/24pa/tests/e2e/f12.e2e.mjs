@@ -245,7 +245,8 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     // 必须报 info「尚未执行」而不是假红「不可读取」。
     const cal = panelHealth.capabilities.find(c => c.id === 'calendar-sync');
     expect(cal.state).toBe('info');
-    expect(cal.message).toContain('尚未执行日历投影同步');
+    expect(cal.message).toContain('逐来源范围和时间');
+    expect(cal.message).toContain('不能据此断言没有日程或全部空闲');
     expect(cal.message).not.toContain('不可读取');
   });
 });
