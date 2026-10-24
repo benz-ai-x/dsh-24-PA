@@ -153,7 +153,7 @@ describe('F10 会议资料与纪要行动（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-mp3', { text: '评审会改到一小时后' }));
     await waitWorkItem('改期评审会', '改期完成');
-    await waitToolResult('pa24_work', '日程已修改', '改期回执', 60_000, before);
+    await waitToolResult('pa24_work', '已读取原平台对象并核对本次变更', '改期回执', 60_000, before);
     expect((await rows(`select status from pa24.digest_plan where id='${planId}'`))[0].status).toBe('stopped');
     await writeScript(calScript('停止后再build', { action: 'meeting_prep_build', planId }));
     before = llm.log.length;

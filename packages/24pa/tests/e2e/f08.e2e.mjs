@@ -185,12 +185,14 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-as-1', { text: '把准备预算表这个任务分派给李雷' }));
     await waitWorkItem('分派给李雷', '分派完成');
-    await waitToolResult('pa24_work', '已把任务分派给', '分派回执', 60_000, before);
-    const assigns = (await stubCalls()).filter(c => c.args.includes('+assign'));
+    const receipt = await waitToolResult('pa24_work', '已读回原待办并核验负责人', '分派回执', 60_000, before);
+    expect(receipt).toContain('ou_collab_1'); expect(receipt).toContain('\"kind\":\"assign\"');
+    const assigns = (await stubCalls()).filter(c => c.args.includes('members') && c.args.includes('add'));
     expect(assigns).toHaveLength(1);
     expect(assigns[0].args).toContain(guid);
-    expect(assigns[0].args).toContain('ou_collab_1');
-    expect((await rows(`select count(*)::int as n from pa24.outreach where kind='assign' and status='succeeded'`))[0].n).toBe(1);
+    const sent = JSON.parse(assigns[0].args[assigns[0].args.indexOf('--data') + 1]);
+    expect(sent.members).toContainEqual({ id: 'ou_collab_1', type: 'user', role: 'assignee' });
+    expect((await rows(`select count(*)::int as n from pa24.action_operation where action='task.assign' and status='succeeded' and params->>'guid'='${guid}'`))[0].n).toBe(1);
   });
 
   it.each(['linkTaskGuid', 'linkEventId'])('P19/F45：%s 旧来源跟随入口明确拒绝，保持智能 skill 归属', async field => {
