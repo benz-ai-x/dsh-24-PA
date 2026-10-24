@@ -87,6 +87,12 @@ describe('Skill 管理面板的用户操作', () => {
     }
   });
 
+  it('同名内部 ID 不重复占用目录空间，完整名称仍可回查', async () => {
+    const row = skillRow('内置原件');
+    expect(row.querySelector('.pa24-skill-row-id')).toBeNull();
+    expect(row.querySelector('strong').title).toBe('my-skill');
+  });
+
   it('按来源选择、纯文本展示并下载所选指令，浏览不发送执行动作', async () => {
     await click(skillRow('内置原件'));
     expect(win.document.activeElement.textContent).toBe('my-skill');
