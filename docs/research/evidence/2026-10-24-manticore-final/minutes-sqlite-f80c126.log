@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f10.e2e.mjs (3 tests | 2 skipped) 9657ms
+   ✓ F10 会议资料与纪要行动（真实 Loader + 隔离 PG） > P27：会后纪要保存文档＋候选行动分离；选择性采纳幂等、信息不足不执行 7705ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 2 skipped (3)
+   Start at  12:41:56
+   Duration  9.78s (transform 22ms, setup 0ms, collect 30ms, tests 9.66s, environment 0ms, prepare 21ms)

@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { chmod } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fixture, join, readFile, writeFile } from '../helpers/runtime.mjs';
 import { FakeFeishuTransport } from '../../lib/feishu.js';
 import { sha256Hex } from '../../lib/handwriting.js';
@@ -34,6 +35,15 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   });
   afterEach(async () => { await f?.cleanup(); await cluster?.stop(); cluster = null; });
   const worker = async role => ({ id: (await f.rt.delegate({ worker: role, title: role, instruction: '本人交办' }, local)).workId });
+  const resumeForRead = async child => {
+    const work = await f.rt.repos.workItems.get(child.id);
+    await f.rt.changeWork({ op: 'supplement', workId: child.id, expectedRevision: work.revision, workspaceBinding: f.rt.workspaceBinding,
+      requestId: randomUUID(), confirm: true, instruction: '仅查询原笔记，不执行候选行动。' }, local);
+    // The fixture has no model event loop; apply the accepted input's pre-step
+    // transition. Actual Loader cases separately prove same-run resumption.
+    await f.rt.workerRuns.clearWait(child.id);
+    return child;
+  };
   const note = async () => {
     const path = join(f.root, 'original.png'); await writeFile(path, original);
     await f.rt.repos.notes.insertNote({ id: 'N-1', title: '记录', origin: 'feishu' });
@@ -49,7 +59,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   it.each(['first', 'republish'].flatMap(phase => edits.map(edit => ({ phase, ...edit }))))('V01 $phase 的$name变化不能沿用旧派生内容', async sample => {
     await note();
     if (sample.phase === 'first') await writeFile(join(f.root, 'lark.json'), JSON.stringify({ ownerOpenId: 'owner', docCreateEdits: [sample] }));
-    const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    const child = f.agents.get((await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId);
     let published = await f.rt.work({ action: 'note_submit', transcript: '联系王工，2026-11-02交付', summary: '联系王工', unknowns: ['人名原稿不清'],
       suggestions: ['优先联系王工'], relativeDates: [{ original: '周一', interpretation: '2026-11-02' }],
       candidates: [{ summary: '联系王工', due: '2026-11-02' }, { summary: '备份材料' }] }, child);
@@ -73,9 +83,10 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     expect(JSON.stringify(card.content)).toContain('仅批准正文');
     await approve(published.versionId);
     expect((await f.rt.repos.notes.getVersion(published.versionId)).status).toBe('approved');
-    await expect(f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: published.versionId, indexes: [0], instruction: '执行第一项' }, child)).rejects.toThrow(/同源|重建/);
+    const waiting = await f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: published.versionId, indexes: [0], instruction: '执行第一项' }, child);
+    expect(waiting).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(waiting.reason).toMatch(/同源|重建/);
     expect(version.content).toMatchObject({ derivedStatus: 'needs_rebuild', summary: '', transcript: '', candidates: [], unknowns: [], suggestions: [], relativeDates: [], pages: [], doubts: [], diagrams: [] });
-    const search = await f.rt.work({ action: 'notes_search', query: 'N-1' }, child);
+    const search = await f.rt.work({ action: 'notes_search', query: 'N-1' }, await resumeForRead(child));
     expect(search.items.find(row => row.version === version.version)).toMatchObject({ summary: '', candidates: [], derivedStatus: 'needs_rebuild' });
     const overview = await f.rt.work({ action: 'overview_today' }, await worker('calendar'));
     expect(overview.reviewedNotes).toEqual([]); expect(overview.missing.join('')).toContain('摘要/候选尚未重建');
@@ -89,7 +100,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   it.each([false, true])('V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=%s）', async metadata => {
     await note();
     if (metadata) await writeFile(join(f.root, 'lark.json'), JSON.stringify({ ownerOpenId: 'owner', docCreateEdits: [{ from: '<p>', to: '<p block-id="platform-id" render-time="now">' }] }));
-    const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    const child = f.agents.get((await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId);
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王工', summary: '联系王工', candidates: [{ summary: '联系王工' }] }, child);
     const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
     await f.rt.handwriting.processReviewCard('approve', { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });
@@ -102,7 +113,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   });
 
   it.each(['refresh', 'click'])('V01 升级前待审卡在 %s 时换发正文卡，旧按钮不能批准', async mode => {
-    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    await note(); const child = f.agents.get((await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId);
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王工', summary: '联系王工', candidates: [{ summary: '联系王工' }] }, child);
     const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
     const oldToken = token.replace(/:(body|derived)$/, '');
@@ -121,11 +132,12 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     const current = (await f.rt.repos.notes.tokensOf(version.id)).find(row => row.action === 'approve' && row.token !== oldToken);
     await click(current.token);
     expect((await f.rt.repos.notes.getVersion(version.id)).status).toBe('approved');
-    await expect(f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: version.id, indexes: [0], instruction: '执行第一项' }, child)).rejects.toThrow(/同源|重建/);
+    const waiting = await f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: version.id, indexes: [0], instruction: '执行第一项' }, child);
+    expect(waiting).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(waiting.reason).toMatch(/同源|重建/);
   });
 
   it.each(['legacy', 'changed-derived'])('V01 %s 已批准版本不能继承未证实的候选，历史凭证保留', async mode => {
-    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    await note(); const child = f.agents.get((await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId);
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王工', summary: '联系王工', candidates: [{ summary: '联系王工' }] }, child);
     const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
     await f.rt.handwriting.processReviewCard('approve', { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });
@@ -133,8 +145,9 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     if (mode === 'legacy') { delete version.content.derivation; delete version.content.derivedStatus; }
     else version.content.candidates[0].summary = '联系李工';
     await f.rt.db.query('update pa24.note_version set content = $2 where id = $1', [version.id, JSON.stringify(version.content)]);
-    await expect(f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: version.id, indexes: [0], instruction: '执行第一项' }, child)).rejects.toThrow(/同源|重建/);
-    expect((await f.rt.work({ action: 'notes_search', query: 'N-1' }, child)).items[0]).toMatchObject({ summary: '', candidates: [], derivedStatus: 'needs_rebuild' });
+    const waiting = await f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: version.id, indexes: [0], instruction: '执行第一项' }, child);
+    expect(waiting).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(waiting.reason).toMatch(/同源|重建/);
+    expect((await f.rt.work({ action: 'notes_search', query: 'N-1' }, await resumeForRead(child))).items[0]).toMatchObject({ summary: '', candidates: [], derivedStatus: 'needs_rebuild' });
     expect(await f.rt.repos.tasks.list()).toEqual([]);
     expect(await f.rt.repos.notes.decisionsOf('N-1')).toEqual(before);
     expect((await f.rt.repos.notes.getVersion(version.id)).status).toBe('approved');
@@ -221,7 +234,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     { unknown: '联系人原稿不清', summary: '联系王工', quote: '联系王或李', resolved: { summary: '联系李工' } },
     { unknown: '日期原稿不清', summary: '提交预算', due: '2026-11-02', quote: '下周交', resolved: { summary: '提交预算', due: '2026-11-03' } },
   ])('顶层行动疑点关联且无关候选不受阻，修改派生后阻断：$unknown', async sample => {
-    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    await note(); const child = f.agents.get((await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId);
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王或李，原稿不清', summary: '联系负责人', unknowns: [sample.unknown, '会议背景备注不清'], candidates: [{ summary: sample.summary, sourceQuote: sample.quote, ...(sample.due ? { due: sample.due } : {}) }, { summary: '备份确认材料', sourceQuote: '备份材料' }] }, child);
     const version = await f.rt.repos.notes.getVersion(published.versionId);
     expect(version.content.candidates[0].unknowns).toEqual([sample.unknown]); expect(version.content.candidates[1].unknowns).toBeUndefined();
@@ -236,12 +249,13 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     // bound to a different payload, even when their body approval survives.
     delete version.content.candidates[0].unknowns;
     await f.rt.db.query('update pa24.note_version set content = $2 where id = $1', [published.versionId, JSON.stringify(version.content)]);
-    await expect(f.rt.work(action, child)).rejects.toThrow(/同源|重建/);
+    const waiting = await f.rt.work(action, child);
+    expect(waiting).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(waiting.reason).toMatch(/同源|重建/);
     expect((await f.rt.repos.notes.getVersion(published.versionId)).content.candidates[0].unknowns).toBeUndefined();
   });
 
   it('混合联系人与日期疑点独立关联，派生变更后不能沿用原批准', async () => {
-    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    await note(); const child = f.agents.get((await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId);
     const unknown = '联系人和日期原稿不清';
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王或李，下周交预算', summary: '整理', unknowns: [unknown], candidates: [
       { summary: '联系王工', sourceQuote: '联系王或李' }, { summary: '提交预算', due: '2026-11-02', sourceQuote: '下周交' }, { summary: '备份确认材料' },
@@ -254,13 +268,14 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     expect(await f.rt.work(action, child)).toMatchObject({ executed: 1, failed: 2 });
     for (const row of version.content.candidates) delete row.unknowns;
     await f.rt.db.query('update pa24.note_version set content = $2 where id = $1', [published.versionId, JSON.stringify(version.content)]);
-    await expect(f.rt.work(action, child)).rejects.toThrow(/同源|重建/);
+    const waiting = await f.rt.work(action, child);
+    expect(waiting).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(waiting.reason).toMatch(/同源|重建/);
     expect((await f.rt.repos.tasks.list()).map(row => row.summary)).toEqual(['备份确认材料']);
   });
 
   it.each(['feishu:task', 'wecom:task', 'feishu:calendar', 'wecom:calendar'])('%s 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复', async mode => {
     const [channel, kind] = mode.split(':'); f.rt.config.todoChannel = channel; f.rt.config.calendarChannel = channel;
-    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    await note(); const child = f.agents.get((await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId);
     const published = await f.rt.work({ action: 'note_submit', transcript: '联系王或李，下周安排', summary: '整理', candidates: [{ summary: '联系某人', unknowns: ['人名和日期不清'] }] }, child);
     const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
     await f.rt.handwriting.processReviewCard('approve', { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });
@@ -292,7 +307,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   });
 
   it('候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果', async () => {
-    await note(); const child = { id: (await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId };
+    await note(); const child = f.agents.get((await f.rt.delegate({ worker: 'handwriting', noteId: 'N-1', title: '整理', instruction: '整理原稿' }, local)).workId);
     const published = await f.rt.work({ action: 'note_submit', transcript: '有不清楚的人名和日期', summary: '整理', unknowns: ['会议备注不清'], candidates: [{ summary: '联系某人', unknowns: ['人名不清'] }, { summary: '备份确认材料' }] }, child);
     const token = (await f.rt.repos.notes.tokensOf(published.versionId)).find(row => row.action === 'approve').token;
     await f.rt.handwriting.processReviewCard('approve', { senderOpenId: 'owner', cardAction: { value: { pa24: 'review', token } } });

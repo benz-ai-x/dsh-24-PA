@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { waitWorkerToolError } from '../helpers/worker-run.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -136,15 +137,18 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
   });
 
   it('P18/F45：稍后交给 App，取消整条日历规则且不生成 ledger 实例', async () => {
-    const run = async (title, action) => {
+    const run = async (title, action, error) => {
       await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title, instruction: title }, workerAction: action, workerReply: '按工具实际结果汇报。' });
-      await inject(ownerEvent(title, title)); await waitWorkItem(title, title);
+      await inject(ownerEvent(title, title));
+      if (error) await waitWorkerToolError(host, title, error);
+      else await waitWorkItem(title, title);
     };
     await run('创建待改期提醒', { action: 'reminder_create', kind: 'once', afterSeconds: 600, text: '复盘' });
     const created = unescapeJsonish(await waitToolResult('ruleId', '创建'));
     const ruleId = created.match(/"ruleId":"([^"]+)"/)[1];
-    await run('要求稍后提醒', { action: 'reminder_snooze', ruleId, seconds: 60, reason: '本人要求稍后' });
-    await waitToolResult('App 原生提醒', '原生稍后说明');
+    const beforeSnooze = await readEvents();
+    await run('要求稍后提醒', { action: 'reminder_snooze', ruleId, seconds: 60, reason: '本人要求稍后' }, 'App 原生提醒');
+    expect(await readEvents()).toEqual(beforeSnooze);
     expect((await cluster.query(`select count(*) from pa24.reminder_occurrence where rule_id='${ruleId}'`)).trim()).toBe('0');
     await run('取消待改期提醒', { action: 'reminder_cancel', ruleId, reason: '本人取消整条规则' });
     await waitToolResult('已停止', '取消');
@@ -165,8 +169,8 @@ describe('F05 个人提醒与免打扰（真实 Loader + 隔离 PG）', () => {
 
   it('P20/F45：旧 every 新入口明确拒绝，不能静默回退计时', async () => {
     await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '要求旧间隔规则', instruction: '每分钟提醒缴费' }, workerAction: { action: 'reminder_create', kind: 'every', everySeconds: 60, text: '缴费' }, workerReply: '按实际拒因汇报。' });
-    await inject(ownerEvent('legacy-every', '每分钟提醒缴费')); await waitWorkItem('要求旧间隔规则', '完成拒绝');
-    await waitToolResult('已退役', '不启用旧引擎');
+    await inject(ownerEvent('legacy-every', '每分钟提醒缴费'));
+    await waitWorkerToolError(host, '要求旧间隔规则', '已退役');
     expect((await cluster.query("select count(*) from pa24.reminder_rule where text='缴费'")).trim()).toBe('0');
   });
 

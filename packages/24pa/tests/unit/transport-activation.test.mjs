@@ -256,3 +256,28 @@ it('Lead 已回传而 Worker 仍在途时，参数与磁盘重载都不能换机
   expect(rt.secretValue('feishuAppId')).toBe('app');
   await rt.repos.workItems.update('running-work', { status: 'stopped' });
 });
+
+
+it.each(['enqueue', 'identity'])('已结束交办拒绝引用补充，即使 %s 通知失败也释放入站归属', async failure => {
+  const { rt, workspace, ctx } = await fixture();
+  await rt.bind(await workspace(`ended-followup-${failure}`, 'feishu'));
+  const accessId = (await rt.openLocalSession()).replace(/-local$/, '-feishu');
+  const repos = rt.repos;
+  await repos.workItems.insert({ id: 'finished-work', child_session_id: 'finished-child', title: '已结束事项', role: 'memo', instruction: '已完成目标', origin: 'feishu', parent_session_id: accessId, delivery: 'feishu:owner', status: 'completed' });
+  await repos.messageRoutes.record('finished-message', { kind: 'workitem', workItemId: 'finished-work' });
+  ctx.subagents = { sendMessage: vi.fn() };
+  if (failure === 'identity') {
+    rt.config.notifyChannel = 'wecom';
+    vi.spyOn(rt.wecomChannels, 'wecomOwnerUserid').mockRejectedValueOnce(new Error('owner identity unavailable'));
+  } else vi.spyOn(repos.outbox, 'enqueue').mockRejectedValueOnce(new Error('outbox unavailable'));
+  await rt.getTransport().inject({ ...event('late-followup'), senderOpenId: 'owner', parentMessageId: 'finished-message' });
+  await vi.waitFor(async () => expect((await repos.inbox.get('late-followup')).status).toBe('rejected'));
+  const row = await repos.inbox.get('late-followup');
+  expect(row.error).toContain('补充不会复活');
+  expect(row.error).toContain('拒绝提示未能入队');
+  expect(row.error).toContain(failure === 'identity' ? 'owner identity unavailable' : 'outbox unavailable');
+  expect(ctx.subagents.sendMessage).not.toHaveBeenCalled();
+  expect((await repos.workItems.get('finished-work')).status).toBe('completed');
+  expect(await repos.outbox.recent(10)).toEqual([]);
+  await rt.bind(await workspace(`after-ended-${failure}`));
+});

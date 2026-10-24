@@ -1,0 +1,93 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ❯ tests/e2e/f08.e2e.mjs (6 tests | 1 failed) 87863ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P13：联系人入库后按明确指令发信；草稿不发送、目标不清先澄清 4737ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P13：按明确指令把任务分派给联系人，操作留痕 2562ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P19/F45：linkTaskGuid 旧来源跟随入口明确拒绝，保持智能 skill 归属 530ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P19/F45：linkEventId 旧来源跟随入口明确拒绝，保持智能 skill 归属 527ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P22：周期任务模板生成真实任务，支持跳过本次与停止以后（含重启） 66400ms
+   × F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P23：等待事项到点只询问本人；收到后停止；同源去重 11173ms
+     → expected [ { …(3) }, { …(3) } ] to have a length of 1 but got 2
+ ❯ tests/e2e/f11.e2e.mjs (4 tests | 3 failed) 133139ms
+   × F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：批准后只执行选定行动，重复幂等；过期审核拒绝 65878ms
+     → 等待工具结果（两项回执，含 "已按你的选择执行 2 项"）超时；最后工具结果：[{"type":"text","text":"{"runId":"worker-run-0903a82b-cbb3-4adb-a9a4-d4bef666c969","status":"waiting","message":"已保存等待；补充须绑定原交办，未结束运行沿原档案继续。","businessExecuted":false,"reason":"本次尚未提交平台写入，需补充或修复后继续：只有本人已审核通过的版本才能执行行动（当前 pending_review）；请先在飞书审核卡批准具体版本。","requested":{"action":"note_adopt_actions","noteId":"N-1","versionId":"N-1:v1","indexes":[0],"instruction":"本人选择第 0 项"}}"}][{"type":"text","text":"{"noteId":"N-1","versionId":"N-1:v1","executed":2,"failed":0,"reused":0,"proposals":0,"results":[{"i
+   × F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：修订产生变更建议且不重复打扰；P35：多版本可信检索 60169ms
+     → 等待工具结果（重发 v2，含 "addedLines"）超时；最后工具结果：[{"type":"text","text":"{"workId":"pa24-work-handwriting-e43d8d20-32e9-447c-a134-20d69d0d22e3","worker":"handwriting","status":"running","message":"事项已接纳；接纳不代表完成。"}"}][{"type":"text","text":"{"workId":"pa24-work-handwriting-cb570c80-e375-4ec9-b543-9685c6d840b0","worker":"handwriting","status":"running","message":"事项已接纳；接纳不代表完成。"}"}][{"type":"text","text":"{"noteId":"N-1","result":"unchanged","message":"当前文档与 v1 一致；仍待审时已确保可用审核卡，不新建内容版本。"}"}]
+   × F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P35：晨报/概览包含已审核笔记与等待/待审（缺数据明示） 1ms
+     → Cannot read properties of undefined (reading 'note_id')
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > V01：首次回读已修改正文，真实审核卡只批准正文且不能执行旧候选 5167ms
+ ✓ tests/e2e/f16.e2e.mjs (4 tests) 14835ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > wecom_guide/wecom_check：指南随包分发，检查通过并含 nextSteps 1537ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 日程域：查询同步投影（channel=wecom）、创建、取消均有 staged 回执 4105ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 待办域：创建/幂等（无平台幂等键，靠操作账）/完成；失败如实上报不盲重试 4624ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 时钟提醒归企微日历；智能简报独立经企微投递；授权过期给出续期指引 2549ms
+ ✓ tests/e2e/f04.e2e.mjs (4 tests) 16356ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P11：创建、改期、取消本人日程，均有 staged 回执且投影一致 4617ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P10：查询返回日程、冲突与新鲜度；取消后不再计入 3069ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P10：同步失败时明确报告投影可能过期，不冒充空日历 1031ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P12：明确指令的会议邀请按记忆解析联系人；歧义拒绝且不发邀请 5704ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/f08.e2e.mjs > F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P23：等待事项到点只询问本人；收到后停止；同源去重
+AssertionError: expected [ { …(3) }, { …(3) } ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/e2e/f08.e2e.mjs:288:19
+    286|     expect(ask.content?.text ?? '').toContain('等李雷回预算数字');
+    287|     // 智能检查点只询问本人，不增加任何给联系人的消息。
+    288|     expect(await stubSends()).toEqual(priorSends);
+       |                   ^
+    289|
+    290|     // 同源重复事件不重复建立
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/e2e/f11.e2e.mjs > F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：批准后只执行选定行动，重复幂等；过期审核拒绝
+Error: 等待工具结果（两项回执，含 "已按你的选择执行 2 项"）超时；最后工具结果：[{"type":"text","text":"{"runId":"worker-run-0903a82b-cbb3-4adb-a9a4-d4bef666c969","status":"waiting","message":"已保存等待；补充须绑定原交办，未结束运行沿原档案继续。","businessExecuted":false,"reason":"本次尚未提交平台写入，需补充或修复后继续：只有本人已审核通过的版本才能执行行动（当前 pending_review）；请先在飞书审核卡批准具体版本。","requested":{"action":"note_adopt_actions","noteId":"N-1","versionId":"N-1:v1","indexes":[0],"instruction":"本人选择第 0 项"}}"}][{"type":"text","text":"{"noteId":"N-1","versionId":"N-1:v1","executed":2,"failed":0,"reused":0,"proposals":0,"results":[{"i
+ ❯ waitToolResult tests/e2e/f11.e2e.mjs:31:9
+     29|   }
+     30|   const last = llm.log.slice(since).filter(r => r.tools.includes(toolN…
+     31|   throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后…
+       |         ^
+     32| };
+     33| const waitOutbox = async (prefix, label, timeoutMs = 60_000) => {
+ ❯ tests/e2e/f11.e2e.mjs:169:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tests/e2e/f11.e2e.mjs > F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：修订产生变更建议且不重复打扰；P35：多版本可信检索
+Error: 等待工具结果（重发 v2，含 "addedLines"）超时；最后工具结果：[{"type":"text","text":"{"workId":"pa24-work-handwriting-e43d8d20-32e9-447c-a134-20d69d0d22e3","worker":"handwriting","status":"running","message":"事项已接纳；接纳不代表完成。"}"}][{"type":"text","text":"{"workId":"pa24-work-handwriting-cb570c80-e375-4ec9-b543-9685c6d840b0","worker":"handwriting","status":"running","message":"事项已接纳；接纳不代表完成。"}"}][{"type":"text","text":"{"noteId":"N-1","result":"unchanged","message":"当前文档与 v1 一致；仍待审时已确保可用审核卡，不新建内容版本。"}"}]
+ ❯ waitToolResult tests/e2e/f11.e2e.mjs:31:9
+     29|   }
+     30|   const last = llm.log.slice(since).filter(r => r.tools.includes(toolN…
+     31|   throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后…
+       |         ^
+     32| };
+     33| const waitOutbox = async (prefix, label, timeoutMs = 60_000) => {
+ ❯ tests/e2e/f11.e2e.mjs:201:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/e2e/f11.e2e.mjs > F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P35：晨报/概览包含已审核笔记与等待/待审（缺数据明示）
+TypeError: Cannot read properties of undefined (reading 'note_id')
+ ❯ tests/e2e/f11.e2e.mjs:232:102
+    230|   it('P35：晨报/概览包含已审核笔记与等待/待审（缺数据明示）', async ()…
+    231|     // 批准当前候选 v3（v2 已被 v3 修订取代，旧批准按设计不再当作当前…
+    232|     const noteId2 = (await rows(`select note_id from pa24.note_version…
+       |                                                                                                      ^
+    233|     const [v3Token] = (await rows(`select token from pa24.review_token…
+    234|     await clickCard('evt-b3', v3Token);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+ Test Files  2 failed | 2 passed (4)
+      Tests  4 failed | 14 passed (18)
+   Start at  12:09:38
+   Duration  252.62s (transform 31ms, setup 0ms, collect 75ms, tests 252.19s, environment 0ms, prepare 75ms)

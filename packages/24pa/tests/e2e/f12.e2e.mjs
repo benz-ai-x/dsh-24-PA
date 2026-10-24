@@ -28,7 +28,7 @@ const waitToolResult = async (toolName, substr, label, timeoutMs = 60_000, since
     await new Promise(r => setTimeout(r, 500));
   }
   const last = llm.log.slice(since).filter(r => r.tools.includes(toolName) && r.toolResults.length > 0).at(-1);
-  throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后工具结果：${last ? unescapeJsonish(last.toolResults.join('')).slice(0, 500) : '无'}`);
+  throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后工具结果：${last ? unescapeJsonish(last.toolResults.at(-1)).slice(-4000) : '无'}`);
 };
 const waitWorkItem = async (title, label, timeoutMs = 180_000) =>
   host.waitUntil(s => (s.work ?? []).some(w => w.title === title && w.status === 'completed'), { timeoutMs, label });
@@ -245,7 +245,8 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     // 必须报 info「尚未执行」而不是假红「不可读取」。
     const cal = panelHealth.capabilities.find(c => c.id === 'calendar-sync');
     expect(cal.state).toBe('info');
-    expect(cal.message).toContain('尚未执行日历投影同步');
+    expect(cal.message).toContain('逐来源范围和时间');
+    expect(cal.message).toContain('不能据此断言没有日程或全部空闲');
     expect(cal.message).not.toContain('不可读取');
   });
 });

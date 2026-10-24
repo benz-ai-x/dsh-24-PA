@@ -1,0 +1,22 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f12.e2e.mjs (3 tests) 8186ms
+   ✓ F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P37：归档检查列出原生计划与外部提醒；执行需确认、外部提醒默认保留；取消零副作用 4643ms
+   ✓ F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P38：联合备份创建→校验→恢复到全新 cluster→迁移→代表性数据可读、旧 Outbox 不重放 1076ms
+   ✓ F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P39：健康报告含能力状态/投入统计/数据流披露；PG 异常时如实报错不假成功 517ms
+ ✓ tests/e2e/manticore-work-run.e2e.mjs (5 tests) 11128ms
+   ✓ 真实交办有阶段、原请求、完成依据与固定投递；验收重复请求只写一次 1064ms
+   ✓ 等待期间重启后补充沿原交办原运行采用，累计执行时限与历史保留 2852ms
+   ✓ 等待停止得到宿主确认；迟到补充不能复活，明确接续新增关联运行 1162ms
+   ✓ 新目标建立独立关联交办，只带显式选择的上下文 1590ms
+   ✓ 真实工具写入后回执丢失阻断后续模型，重启和迟到补充不重做，核对后接续新运行 2818ms
+ ✓ tests/e2e/manticore-health.e2e.mjs (5 tests) 7852ms
+   ✓ M07 真实 Loader 接入健康 > 普通刷新无外部动作，全量只读检查列实际覆盖，未用推送不伪装通过 1371ms
+   ✓ M07 真实 Loader 接入健康 > 明确测试经平台边界返回真实对象，重复与重启不重复创建，清理可追溯 1443ms
+   ✓ M07 真实 Loader 接入健康 > 同真人换机器人后，旧发送预览失效，新预览只执行一次 2825ms
+
+ Test Files  3 passed (3)
+      Tests  13 passed (13)
+   Start at  13:08:28
+   Duration  27.52s (transform 51ms, setup 0ms, collect 98ms, tests 27.17s, environment 0ms, prepare 58ms)

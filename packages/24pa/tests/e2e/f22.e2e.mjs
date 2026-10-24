@@ -81,7 +81,7 @@ beforeAll(async () => {
   const binDir = join(root, 'bin');
   await mkdir(binDir);
   stubStatePath = join(root, 'lark-stub-state.json');
-  await writeFile(stubStatePath, JSON.stringify({ docs: [], calls: [], ownerOpenId: 'ou_test_owner' }));
+  await writeFile(stubStatePath, JSON.stringify({ docs: [], calls: [], ownerOpenId: 'ou_test_owner', appId: 'cli_test_app' }));
   const stubSource = resolve(here, '../helpers/stub-lark-cli.mjs');
   await writeFile(join(binDir, 'lark-cli'), `#!/bin/sh\nexec ${process.execPath} ${stubSource} "$@"\n`);
   await chmod(join(binDir, 'lark-cli'), 0o755);

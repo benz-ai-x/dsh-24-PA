@@ -1,0 +1,18 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f02.e2e.mjs (5 tests) 13645ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P04：一段话拆五项备忘，五路 Worker 并行完成并分别回传 3209ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P05：引用补充不复活已结束事项；明确接续新增原事项运行，未知引用拒绝 3138ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P42/P36/P43：本地会话维护 JSON 记忆，冲突拒绝、变更集应用与撤销、越权写入被拒 3161ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P07：重启后恢复未完成事项（恢复代次）、processing 收件重派、停止事项不复活 1178ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P44：注册「资料摘要」职责并沿用统一委派边界 2218ms
+ ✓ tests/e2e/f03.e2e.mjs (3 tests) 9698ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P08：一句话创建真实任务并返回链接；重复委派不重复建任务 3112ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P09：修改截止（区分计划/估时）、完成与远端刷新查询 1570ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P17：目标拆解采纳后建立真实任务与项目关联，进展来自实际状态 3073ms
+
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+   Start at  12:40:55
+   Duration  23.56s (transform 25ms, setup 0ms, collect 46ms, tests 23.34s, environment 0ms, prepare 38ms)

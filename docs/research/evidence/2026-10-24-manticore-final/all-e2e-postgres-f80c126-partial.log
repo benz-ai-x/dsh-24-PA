@@ -1,0 +1,219 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f09.e2e.mjs (8 tests) 52169ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P16：plan_today 给出重点/容量/冲突与偏好缓冲；过载如实提示不自动延期 2595ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P16：plan_preview 插单只影响重叠项；plan_adopt 选择性采纳并回执 5168ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P25：晚间回顾呈现完成/等待/逾期，不自动延期、不写记忆 4693ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24/P25：once 晨报经原生 Schedule 唤醒 Lead→digest Worker→Outbox，事实与建议分离 3640ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24：同窗重复投递不重复发布；投递无法归属时监督暂停（delivery_unconfirmed） 8184ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24：重启后原生 Schedule 续跑，业务状态按账本恢复，不补发过期窗口 10924ms
+   ✓ F41：agent 轨任务 skill > 自定义 skill 交接→Worker 生成→digest_deliver 交付 2126ms
+   ✓ F44：任务 skill 受控接入（双门） > 未放行拒绝且不留事项；放行后 skill 执行 Worker 载入正文执行 12585ms
+ ✓ tests/e2e/manticore-skill-run.e2e.mjs (19 tests) 14441ms
+   ✓ 真实 Loader：保存、发布、独立本地运行、相同请求不重跑、重启回读原结果 1306ms
+   ✓ 真实工具回执落账；禁用 Skill 阻止新运行，不截断已开始的版本 1242ms
+   ✓ 专用运行混入其他用户输入会保留输入并停止新模型步骤 1200ms
+   ✓ 后台作业继续归属原运行，结束通知推动第二回合再结算 2175ms
+   ✓ 主会话结束后等待原生子任务的实际工具完成，并记下子任务回执 2249ms
+   ✓ 本地 Skill 通过原生业务交办执行，Worker 保留业务门禁并结算自己的交办 866ms
+   ✓ 宿主硬中断后未决后台作业保留原记录、阻止新运行且不自动重投 1193ms
+ ✓ tests/e2e/f06.e2e.mjs (8 tests) 26707ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P28：批次收集三页、重复页识别、损坏资源反馈，重启后原稿与页序仍在 6323ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P29：视觉路由缺失时明确报错；配置重载后识别请求真的携带图片并发布待审文档 2808ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31：非主人点击被拒绝，主人批准指定版本，重复点击返回原结果 2196ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31：退回指定版本并记录凭证 2124ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P32：文档修改后旧批准仅覆盖旧快照，重发候选 v2 再批准，历史凭证保留 4310ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31/P32：状态同步失败时凭证仍保存，核验后补同步；结束批次后不再追加页 4779ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P29：媒体插入失败不发送待审链接，操作保留可恢复回执 1353ms
+   ✓ F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG） > P31/P29：识别 Worker 没有任何批准或外部行动工具 838ms
+ ✓ tests/e2e/manticore-run-control.e2e.mjs (17 tests) 18545ms
+   ✓ local 补充已被接纳但尚未采用时崩溃，重启采用原消息一次 1647ms
+   ✓ business 补充已被接纳但尚未采用时崩溃，重启采用原消息一次 1720ms
+   ✓ local 补充提交后、采用前权限阻断，修复后保留原补充 371ms
+   ✓ business 补充提交后、采用前权限阻断，修复后保留原补充 454ms
+   ✓ business 首条输入在模型前阻断，重新检查采用原请求而非空泛接续 328ms
+   ✓ 在原生会话取消已接纳但未采用的本地输入，重启也不自动复活 1554ms
+   ✓ local SQL 恢复已认领、原生采用前取消，不执行也不清除取消证据 1673ms
+   ✓ business SQL 恢复已认领、原生采用前取消，不执行也不清除取消证据 1776ms
+   ✓ 真实宿主 local：等待并重启后在原运行继续，补充双击只消费一次 1698ms
+   ✓ 真实宿主 business：等待并重启后在原运行继续，补充双击只消费一次 1715ms
+   ✓ 累计执行时限会停止正在执行的工具；已完成动作与未知结果仍保存 1161ms
+   ✓ 配置变更等待长工具时，累计时限仍终止实际执行并保存回执 1104ms
+ ✓ tests/e2e/f07.e2e.mjs (6 tests) 64066ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P30：三页笔记逐页识别，区域疑点生成裁片并进入同一审核管线 4723ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P30：单页基线与多页增强共用同一视觉路由与审核管线（无第二套模型运行时） 1057ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P33：队列集中列出待审对象；批准后移出并自动取消催办 1628ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P33：催办到期经 Outbox 发出；暂停不再发送；稍后改时间仍绑定原版本 7672ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P33：重启后未到期催办按账本继续；旧版本不催审 13904ms
+   ✓ F07 多页笔记与集中复核（真实 Loader + 隔离 PG） > P33：免打扰窗口把到期催办扣住，窗口结束后补发 33092ms
+ ✓ tests/e2e/f02.e2e.mjs (5 tests) 12513ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P04：一段话拆五项备忘，五路 Worker 并行完成并分别回传 2801ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P05：引用补充不复活已结束事项；明确接续新增原事项运行，未知引用拒绝 2665ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P42/P36/P43：本地会话维护 JSON 记忆，冲突拒绝、变更集应用与撤销、越权写入被拒 3160ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P07：重启后恢复未完成事项（恢复代次）、processing 收件重派、停止事项不复活 1363ms
+   ✓ F02 并行事项与记忆维护（真实 Loader + 隔离 PG） > P44：注册「资料摘要」职责并沿用统一委派边界 1754ms
+ ✓ tests/e2e/f08.e2e.mjs (6 tests) 87816ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P13：联系人入库后按明确指令发信；草稿不发送、目标不清先澄清 3253ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P13：按明确指令把任务分派给联系人，操作留痕 1576ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P19/F45：linkTaskGuid 旧来源跟随入口明确拒绝，保持智能 skill 归属 562ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P19/F45：linkEventId 旧来源跟随入口明确拒绝，保持智能 skill 归属 565ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P22：周期任务模板生成真实任务，支持跳过本次与停止以后（含重启） 64010ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P23：等待事项到点只询问本人；收到后停止；同源去重 15842ms
+ ✓ tests/e2e/manticore-budget.e2e.mjs (9 tests) 15432ms
+   ✓ 真实 Loader local：首输入预算拦截、重启同 Run 放行、计量重启去重 2560ms
+   ✓ 真实 Loader business：首输入预算拦截、重启同 Run 放行、计量重启去重 2577ms
+   ✓ 一次放行仅派发一次，后续步骤再次等待；停止后迟到放行不复活 929ms
+   ✓ 预算和主人等待同时存在时，放行保留主人等待；补充后同运行完成 442ms
+   ✓ 普通交办预算等待冷恢复保留原执行身份，两次放行分别覆盖两次请求 1973ms
+   ✓ 计划主人暂停保持；预算放行只继续在途原运行，确定性模板不经过模型预算 571ms
+   ✓ 原生子任务的模型也受预算控制，主子同时等待后冷恢复=false仍回原运行 610ms
+   ✓ 原生子任务的模型也受预算控制，主子同时等待后冷恢复=true仍回原运行 2916ms
+   ✓ 子会话等待时主会话补充和预算放行不互锁，保持原输入与范围 873ms
+ ✓ tests/e2e/manticore-task-plan.e2e.mjs (8 tests) 24286ms
+   ✓ 公开旧计划迁移沿用原生调度，重启后只生成一份模板结果 12527ms
+   ✓ 真实原生时钟触发模板，读取列表不执行，结果保存且零模型请求 4345ms
+   ✓ 暂停后立即运行保持暂停；业务子会话不唤醒父模型，结果与参数留档 505ms
+   ✓ 等待时暂停计划并重启，修改全局渠道后原运行仍能沿固定快照继续 1993ms
+   ✓ 全局名额占用时另一计划保持排队；暂停取消未启动运行且不影响在途任务 530ms
+   ✓ 计划原快照重跑保留时间范围、参数和原交办；当前配置预览读取已确认的新参数 410ms
+   ✓ 公开管理查询与导出保留真实执行、交办和原投递，重启后读取不触发业务 1679ms
+ ✓ tests/e2e/f10.e2e.mjs (3 tests) 82249ms
+   ✓ F10 会议资料与纪要行动（真实 Loader + 隔离 PG） > P26：会前准备包绑定会议，发送前复查状态；资料缺失如实说明；会议取消联动停止 38758ms
+   ✓ F10 会议资料与纪要行动（真实 Loader + 隔离 PG） > P26：准备包含上次纪要与相关任务（带出处），范围可绑定 36669ms
+   ✓ F10 会议资料与纪要行动（真实 Loader + 隔离 PG） > P27：会后纪要保存文档＋候选行动分离；选择性采纳幂等、信息不足不执行 4844ms
+ ✓ tests/e2e/f11.e2e.mjs (4 tests) 14857ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：批准后只执行选定行动，重复幂等；过期审核拒绝 5386ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：修订产生变更建议且不重复打扰；P35：多版本可信检索 3106ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P35：晨报/概览包含已审核笔记与等待/待审（缺数据明示） 1074ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > V01：首次回读已修改正文，真实审核卡只批准正文且不能执行旧候选 3301ms
+ ✓ tests/e2e/manticore-backup.e2e.mjs (1 test) 9543ms
+   ✓ 真实 Loader / Session：联合备份、校验、隔离恢复保护及重启档案 7575ms
+ ✓ tests/e2e/f16.e2e.mjs (4 tests) 10433ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > wecom_guide/wecom_check：指南随包分发，检查通过并含 nextSteps 1530ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 日程域：查询同步投影（channel=wecom）、创建、取消均有 staged 回执 1621ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 待办域：创建/幂等（无平台幂等键，靠操作账）/完成；失败如实上报不盲重试 2650ms
+   ✓ F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-cli） > 时钟提醒归企微日历；智能简报独立经企微投递；授权过期给出续期指引 2617ms
+ ✓ tests/e2e/manticore-calendar.e2e.mjs (7 tests) 11620ms
+   ✓ 查询非助理创建日程、分来源角色与冲突；计数先筛选再分页，全部筛选含外部会议 2195ms
+   ✓ 本地和飞书两入口创建占位会议，默认时长可追溯，明确项目仅写一个目标 1543ms
+   ✓ 换默认后仍修改原日程；仅取消本人提醒保留会议，缺权限不转投 3185ms
+   ✓ 重复日程取消范围未明确时保留原输入，主人补充后沿同一运行仅取消一次 1067ms
+   ✓ 单来源失败保留缓存并报告未完整，重启后普通浏览仍保留逐来源证据 1600ms
+ ❯ tests/e2e/f12.e2e.mjs (3 tests | 1 failed) 67393ms
+   ✓ F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P37：归档检查列出原生计划与外部提醒；执行需确认、外部提醒默认保留；取消零副作用 3241ms
+   ✓ F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P38：联合备份创建→校验→恢复到全新 cluster→迁移→代表性数据可读、旧 Outbox 不重放 1926ms
+   × F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P39：健康报告含能力状态/投入统计/数据流披露；PG 异常时如实报错不假成功 60215ms
+     → 等待工具结果（健康回执，含 "capabilities"）超时；最后工具结果：[{"type":"text","text":"{"runningWork":[],"nativeSchedules":[{"id":"dig-evening-ce39e5fe","kind":"evening","status":"active","native":true}],"externalPgReminders":{"reminderRules":[{"id":"rmd-cal-372dd13c546477058ebaf50d26ea8e7759b14dfda0071a48b7c3d56b58ccc68c","kind":"daily","text":"晨间例行","status":"delegated","calendarChannel":"feishu","eventId":"evtstub-1_0","nextDueAt":null}],"reviewReminders":[]},"outboxPending":0,"blocking":true,"message":"存在运行中事项/原生计划/未确认发送：归档会被原生闸阻止。明确停止请用 archive_execute
+ ✓ tests/e2e/f04.e2e.mjs (4 tests) 12521ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P11：创建、改期、取消本人日程，均有 staged 回执且投影一致 3128ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P10：查询返回日程、冲突与新鲜度；取消后不再计入 2574ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P10：同步失败时明确报告投影可能过期，不冒充空日历 518ms
+   ✓ F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历） > P12：明确指令的会议邀请按记忆解析联系人；歧义拒绝且不发邀请 4180ms
+ ✓ tests/e2e/manticore-memory.e2e.mjs (4 tests) 12210ms
+   ✓ Manticore M06 真实 Loader / Session / 条件文件写入 > 完整维护旅程：确认、批次撤销、外部手改、回收永久删除与重启 4261ms
+   ✓ Manticore M06 真实 Loader / Session / 条件文件写入 > 实际工具入口重复旧确认不能确认新正文，凭证不改写，新的明确确认恢复事实资格 2517ms
+   ✓ Manticore M06 真实 Loader / Session / 条件文件写入 > 同措辞新引用经真实工具确认当前正文，重复原引用仍保留旧凭证 3005ms
+   ✓ Manticore M06 真实 Loader / Session / 条件文件写入 > 旧 schema 1 记录经真实本地工具停用再撤销，恢复默认 active 和业务可检索状态 2426ms
+ ✓ tests/e2e/f01.e2e.mjs (8 tests) 10594ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P02：/24pa 状态回复经持久 Outbox 回执；重复事件、他人与错应用不处理 3101ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P03+P14：飞书委托经 Lead 委派 memo Worker，保存真实文档并回传出处 563ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P03：本地24私助会话发起同一备忘流程，结果回到本地会话且不进飞书 522ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P14：memo_find 经真实工具执行，找回带出处的备忘 524ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P02：提交后重启，工作区/会话/账本从持久状态恢复，重复事件不重投 3713ms
+ ✓ tests/e2e/manticore-todo.e2e.mjs (7 tests) 11639ms
+   ✓ 读取非助理待办全部分页，角色覆盖按来源默认；企微范围缺口明确 1143ms
+   ✓ 本地和飞书两入口同次创建本人负责，明确项目只写一个来源，不另派执行 1564ms
+   ✓ 切换默认后延期、完成、删除仍变更原件，未新建对象 2581ms
+   ✓ 企微写后核验默认本人，延期不重建；完成本人份额保留整体业务状态 1543ms
+   ✓ 只读来源的创建请求保留原输入等待；权限修复后原运行仅创建一次 1110ms
+   ✓ 单来源失败保留缓存，双库重启后浏览保留核验缺口且不访问平台 1700ms
+ ✓ tests/e2e/f05.e2e.mjs (7 tests) 13196ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > F45：一次性时钟提醒写入日历渠道（App 原生提醒），账本只留 delegated 备份 1072ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P18/F45：稍后交给 App，取消整条日历规则且不生成 ledger 实例 2641ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P20/F45：重启保留原生事件和备份，不重建日历或启动 ledger 发送 2207ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P20/F45：旧 every 新入口明确拒绝，不能静默回退计时 565ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P15/P21/F45：本人休假偏好可记录；时钟免打扰归 App，不重新启动旧发送器 1583ms
+   ✓ F45 补充：delegated 取消与周期 rrule > 取消时钟型提醒＝同步删除日历事件＋备份行置 stopped 2091ms
+   ✓ F45 补充：delegated 取消与周期 rrule > daily 时钟提醒＝rrule 重复日程（FREQ=DAILY） 1024ms
+ ✓ tests/e2e/f03.e2e.mjs (3 tests) 8932ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P08：一句话创建真实任务并返回链接；重复委派不重复建任务 2688ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P09：修改截止（区分计划/估时）、完成与远端刷新查询 2103ms
+   ✓ F03 任务与项目清单（真实 Loader + 隔离 PG + 桩飞书任务） > P17：目标拆解采纳后建立真实任务与项目关联，进展来自实际状态 2168ms
+ ❯ tests/e2e/manticore-work-run.e2e.mjs (5 tests | 1 failed) 38847ms
+   ✓ 真实交办有阶段、原请求、完成依据与固定投递；验收重复请求只写一次 567ms
+   ✓ 等待期间重启后补充沿原交办原运行采用，累计执行时限与历史保留 2642ms
+   ✓ 等待停止得到宿主确认；迟到补充不能复活，明确接续新增关联运行 689ms
+   × 新目标建立独立关联交办，只带显式选择的上下文 30498ms
+     → 等待已有成果超时；最后状态：{"workspaceBinding":"104a5600-cc7a-4648-a2c8-62e21752fd5e","readiness":{"startedAt":"2026-10-24T04:58:37.906Z","items":[{"id":"host","state":"ok","message":"24私助 Host 运行中（Node v26.4.0，dsh 0.2.1-rc.1，24私助插件 0.2.1-rc.2.9，飞书 SDK 1.74.0）"},{"id":"config","state":"ok","message":"配置有效：模式=体验，profile=default，加载于 2026/10/24 12:58:37","detail":{"source":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-work-run-cLqglM/workspace/AGENTS.md","hash":"3179243f5eff1111"}},{"id":"postgres","state":"ok","message":"PostgreSQL 业务账本已连接"},{"id":"workspace","state":"ok","message":"工作区：/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-work-run-cLqglM/workspace"},{"id":"feishu","state":"warn","message":"demo：未连接飞书；业务账本按工作区配置运行。"},{"id":"sessions","state":"ok","message":"飞书接入会话 pa24-5bde192daf15-feishu；本地助理会话 pa24-5bde192daf15-local"}]},"workspace":{"path":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-work-run-cLqglM/workspace","config":{"version":1,"mode":"demo","storage":"postgres","larkProfile":"default","ownerOpenId":"","folderToken":"","wikiNodeToken":"","tasklistId":"","calendarId":"primary","sources":null,"calendarChannel":"feishu","todoChannel":"feishu","notifyChannel":"feishu","timeZone":"Asia/Shanghai","appIdEnv":"PA24_FEISHU_APP_ID","appSecretEnv":"PA24_FEISHU_APP_SECRET","pgDsnEnv":"PA24_PG_DSN","maxWorkers":2,"diagnosticRetentionDays":90,"enabledWorkers":["memo"],"budget":{"period":"month","warningRatio":0.8,"maxRequests":null,"maxTokens":null,"maxEstimatedCost":null,"currency":"CNY","prices":[]},"workerModels":{},"extraLocalTools":[],"extraBusinessSkills":[],"tts":{"engine":"none","voice":"","volcKeyEnv":"","meloDir":""}},"loadedAt":"2026-10-24T04:58:37.900Z","configError":null,"sourceHash":"3179243f5eff1111fd55ef4bf057983ea8cbc74c4926ebb641382a7953c99bdd","configVersion":"33528f57504525f5a54484af4b92727c70696c98d5690508f957ea822f2b9249","accessSessionId":"pa24-5bde192daf15-feishu","localSessionId":"pa24-5bde192daf15-local"},"availableWorkspaces":[{"id":"3375e663-8348-455a-8683-16dd72377942","title":"24私助","path":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-work-run-cLqglM/workspace"}],"transport":{"connected":false,"name":null,"message":"demo：未连接飞书；业务账本按工作区配置运行。","lastReceivedAt":null,"lastSentAt":null},"diagnostics":null,"wecom":null,"secrets":{"feishuAppId":{"set":false,"source":null},"feishuAppSecret":{"set":false,"source":null},"pgDsn":{"set":true,"source":"env"},"volcTtsKey":{"set":false,"source":null}},"tts":{"engine":"none","voice":"","probe":null},"work":[{"id":"pa24-work-memo-c1101fc2-207e-4b56-b333-b394aae8b731","title":"停止与接续","role":"memo","instruction":"只处理这项原目标","origin":"local","parent_session_id":"pa24-5bde192daf15-local","child_session_id":"pa24-work-memo-c1101fc2-207e-4b56-b333-b394aae8b731","delivery":"local:pa24-5bde192daf15-local","status":"completed","progress":"执行已结束，结果已保存","result":"WORK_RESULT：完成本次目标，出处为原请求；未完成项：无。","result_ref":null,"created_at":"2026-10-24T04:58:38.607Z",
+   ✓ 真实工具写入后回执丢失阻断后续模型，重启和迟到补充不重做，核对后接续新运行 2160ms
+ ✓ tests/e2e/f13.e2e.mjs (5 tests) 3542ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 本地会话工具面＝标准编程工具全集＋完整 pa24 工具；schedule 与外部 CLI 委派缺席 511ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 飞书接入会话维持业务白名单：无终端/文件/通用委派工具 514ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 飞书接入会话可实调 pa24_connection 只读动作（不被本地门禁拒绝） 512ms
+ ✓ tests/e2e/manticore-materials.e2e.mjs (3 tests) 6059ms
+   ✓ M05 实际 Loader 的资料公开操作与持久恢复 > 从真实原稿保存人工草稿，普通刷新不调模型/发文档，发布冻结版本且重复请求不复制 969ms
+   ✓ M05 实际 Loader 的资料公开操作与持久恢复 > 本人审核后明确授权生成对象；重发与重复候选保持唯一对象，直接事项均结算 1183ms
+   ✓ M05 实际 Loader 的资料公开操作与持久恢复 > Host 重启后原稿、草稿、历史凭证、候选关联和执行回执仍可查询；新版本只能提出变更 1940ms
+ ✓ tests/e2e/manticore-health.e2e.mjs (5 tests) 7532ms
+   ✓ M07 真实 Loader 接入健康 > 普通刷新无外部动作，全量只读检查列实际覆盖，未用推送不伪装通过 1443ms
+   ✓ M07 真实 Loader 接入健康 > 明确测试经平台边界返回真实对象，重复与重启不重复创建，清理可追溯 1434ms
+   ✓ M07 真实 Loader 接入健康 > 同真人换机器人后，旧发送预览失效，新预览只执行一次 2364ms
+ ✓ tests/e2e/f33.e2e.mjs (5 tests) 1313ms
+stdout | tests/e2e/work-settlement.e2e.mjs > V16: same Host retries without another event and releases both default slots
+{"recovery":"same-host","work":[{"title":"settle-3","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-2","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-1","generation":0,"acceptedInputs":1,"turns":1}],"workerModelRequests":6,"externalDocuments":3,"resultIntents":3}
+
+stdout | tests/e2e/work-settlement.e2e.mjs > V16: restart recovers durable original turns and releases both default slots
+{"recovery":"restart","work":[{"title":"settle-3","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-2","generation":0,"acceptedInputs":1,"turns":1},{"title":"settle-1","generation":0,"acceptedInputs":1,"turns":1}],"workerModelRequests":6,"externalDocuments":3,"resultIntents":3}
+
+ ✓ tests/e2e/work-settlement.e2e.mjs (2 tests) 8932ms
+   ✓ V16: same Host retries without another event and releases both default slots 3947ms
+   ✓ V16: restart recovers durable original turns and releases both default slots 4985ms
+ ✓ tests/e2e/manticore-plan-todo.e2e.mjs (4 tests) 38016ms
+   ✓ 原生计划按冻结来源 create 本人待办，改默认不改投；结果保留原交办运行 9464ms
+   ✓ 原生计划按冻结来源 update 本人待办，改默认不改投；结果保留原交办运行 9514ms
+   ✓ 原生计划按冻结来源 complete 本人待办，改默认不改投；结果保留原交办运行 9556ms
+   ✓ 原生计划按冻结来源 cancel 本人待办，改默认不改投；结果保留原交办运行 9482ms
+ ✓ tests/e2e/manticore-plan-delivery.e2e.mjs (2 tests) 24336ms
+   ✓ 保存完整结果再投递，重启后相同正文保持静默且不重复原通知 4087ms
+   ✓ 文本送达而语音失败显示部分成功，公开补投入口不新增 Run 或模型请求 18280ms
+ ✓ tests/e2e/f22.e2e.mjs (4 tests) 3581ms
+   ✓ F22 飞书知识库笔记落库（wiki 优先、folder 回退） > 配置 wikiNodeToken 后备忘文档以知识库节点为父级创建 527ms
+   ✓ F22 飞书知识库笔记落库（wiki 优先、folder 回退） > 移除 wikiNodeToken 重载后回退 folderToken，行为与存量一致 674ms
+ ✓ tests/e2e/f15.e2e.mjs (2 tests) 2511ms
+   ✓ F15 飞书接入配置向导（真实 Loader + 隔离 PG） > guide 返回随包分发的指南全文与版本 509ms
+ ✓ tests/e2e/manticore-skill-catalog.e2e.mjs (1 test) 1281ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/f12.e2e.mjs > F12 运行维护与数据恢复（真实 Loader + 隔离 PG） > P39：健康报告含能力状态/投入统计/数据流披露；PG 异常时如实报错不假成功
+Error: 等待工具结果（健康回执，含 "capabilities"）超时；最后工具结果：[{"type":"text","text":"{"runningWork":[],"nativeSchedules":[{"id":"dig-evening-ce39e5fe","kind":"evening","status":"active","native":true}],"externalPgReminders":{"reminderRules":[{"id":"rmd-cal-372dd13c546477058ebaf50d26ea8e7759b14dfda0071a48b7c3d56b58ccc68c","kind":"daily","text":"晨间例行","status":"delegated","calendarChannel":"feishu","eventId":"evtstub-1_0","nextDueAt":null}],"reviewReminders":[]},"outboxPending":0,"blocking":true,"message":"存在运行中事项/原生计划/未确认发送：归档会被原生闸阻止。明确停止请用 archive_execute
+ ❯ waitToolResult tests/e2e/f12.e2e.mjs:31:9
+     29|   }
+     30|   const last = llm.log.slice(since).filter(r => r.tools.includes(toolN…
+     31|   throw new Error(`等待工具结果（${label}，含 "${substr}"）超时；最后…
+       |         ^
+     32| };
+     33| const waitWorkItem = async (title, label, timeoutMs = 180_000) =>
+ ❯ tests/e2e/f12.e2e.mjs:233:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/e2e/manticore-work-run.e2e.mjs > 新目标建立独立关联交办，只带显式选择的上下文
+Error: 等待已有成果超时；最后状态：{"workspaceBinding":"104a5600-cc7a-4648-a2c8-62e21752fd5e","readiness":{"startedAt":"2026-10-24T04:58:37.906Z","items":[{"id":"host","state":"ok","message":"24私助 Host 运行中（Node v26.4.0，dsh 0.2.1-rc.1，24私助插件 0.2.1-rc.2.9，飞书 SDK 1.74.0）"},{"id":"config","state":"ok","message":"配置有效：模式=体验，profile=default，加载于 2026/10/24 12:58:37","detail":{"source":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-work-run-cLqglM/workspace/AGENTS.md","hash":"3179243f5eff1111"}},{"id":"postgres","state":"ok","message":"PostgreSQL 业务账本已连接"},{"id":"workspace","state":"ok","message":"工作区：/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-work-run-cLqglM/workspace"},{"id":"feishu","state":"warn","message":"demo：未连接飞书；业务账本按工作区配置运行。"},{"id":"sessions","state":"ok","message":"飞书接入会话 pa24-5bde192daf15-feishu；本地助理会话 pa24-5bde192daf15-local"}]},"workspace":{"path":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-work-run-cLqglM/workspace","config":{"version":1,"mode":"demo","storage":"postgres","larkProfile":"default","ownerOpenId":"","folderToken":"","wikiNodeToken":"","tasklistId":"","calendarId":"primary","sources":null,"calendarChannel":"feishu","todoChannel":"feishu","notifyChannel":"feishu","timeZone":"Asia/Shanghai","appIdEnv":"PA24_FEISHU_APP_ID","appSecretEnv":"PA24_FEISHU_APP_SECRET","pgDsnEnv":"PA24_PG_DSN","maxWorkers":2,"diagnosticRetentionDays":90,"enabledWorkers":["memo"],"budget":{"period":"month","warningRatio":0.8,"maxRequests":null,"maxTokens":null,"maxEstimatedCost":null,"currency":"CNY","prices":[]},"workerModels":{},"extraLocalTools":[],"extraBusinessSkills":[],"tts":{"engine":"none","voice":"","volcKeyEnv":"","meloDir":""}},"loadedAt":"2026-10-24T04:58:37.900Z","configError":null,"sourceHash":"3179243f5eff1111fd55ef4bf057983ea8cbc74c4926ebb641382a7953c99bdd","configVersion":"33528f57504525f5a54484af4b92727c70696c98d5690508f957ea822f2b9249","accessSessionId":"pa24-5bde192daf15-feishu","localSessionId":"pa24-5bde192daf15-local"},"availableWorkspaces":[{"id":"3375e663-8348-455a-8683-16dd72377942","title":"24私助","path":"/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-work-run-cLqglM/workspace"}],"transport":{"connected":false,"name":null,"message":"demo：未连接飞书；业务账本按工作区配置运行。","lastReceivedAt":null,"lastSentAt":null},"diagnostics":null,"wecom":null,"secrets":{"feishuAppId":{"set":false,"source":null},"feishuAppSecret":{"set":false,"source":null},"pgDsn":{"set":true,"source":"env"},"volcTtsKey":{"set":false,"source":null}},"tts":{"engine":"none","voice":"","probe":null},"work":[{"id":"pa24-work-memo-c1101fc2-207e-4b56-b333-b394aae8b731","title":"停止与接续","role":"memo","instruction":"只处理这项原目标","origin":"local","parent_session_id":"pa24-5bde192daf15-local","child_session_id":"pa24-work-memo-c1101fc2-207e-4b56-b333-b394aae8b731","delivery":"local:pa24-5bde192daf15-local","status":"completed","progress":"执行已结束，结果已保存","result":"WORK_RESULT：完成本次目标，出处为原请求；未完成项：无。","result_ref":null,"created_at":"2026-10-24T04:58:38.607Z",
+ ❯ Object.waitUntil tests/helpers/host.mjs:133:51
+    131|       const snapshot = await api('snapshot');
+    132|       if (predicate(snapshot)) return snapshot;
+    133|       if (Date.now() - started > timeoutMs) throw new Error(`等待${lab…
+       |                                                   ^
+    134|       await new Promise(r => setTimeout(r, intervalMs));
+    135|     }
+ ❯ create tests/e2e/manticore-work-run.e2e.mjs:39:17
+ ❯ tests/e2e/manticore-work-run.e2e.mjs:85:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  2 failed | 30 passed (32)
+      Tests  2 failed | 177 passed (179)
+   Start at  12:48:49
+   Duration  720.57s (transform 142ms, setup 0ms, collect 718ms, tests 717.11s, environment 2ms, prepare 578ms)

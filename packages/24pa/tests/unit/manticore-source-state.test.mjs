@@ -436,7 +436,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore 来源、身�
   });
   it('只取消本人提醒发送 reminders 空数组，不删会议；重复范围不明不写入', async () => {
     const { writer, item, writes } = await writerFixture({ recurring: true });
-    await expect(writer.write(item, 'cancel', { sourceId: 'a', eventId: 'series_0' })).rejects.toThrow(/重复日程/);
+    await expect(writer.write(item, 'cancel', { sourceId: 'a', eventId: 'series_0' })).rejects.toMatchObject({ name: 'SourcePreparationError', message: expect.stringMatching(/重复日程/) });
+    expect(writes).toHaveLength(0); expect(await repos.operations.calendarWritesForWork(item.id)).toHaveLength(0);
     const result = await writer.write(item, 'reminders', { sourceId: 'a', eventId: 'series_0', reminderMinutes: [], repeatScope: 'all' });
     expect(result.effect).toBe('personal_reminder'); expect(writes).toHaveLength(1); expect(writes[0]).toContain('patch');
     expect(JSON.parse(writes[0][writes[0].indexOf('--data') + 1])).toEqual({ reminders: [] });

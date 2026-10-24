@@ -135,6 +135,7 @@ window.__ModuleLoader__.load({
       :is(.pa24-skills,.pa24-manager) label.pa24-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;max-width:100%;font-size:13px}:is(.pa24-skills,.pa24-manager) label.pa24-field:has(input[type=checkbox]){flex-direction:row;align-items:flex-start}:is(.pa24-skills,.pa24-manager) label.pa24-field input:not([type=checkbox]),:is(.pa24-skills,.pa24-manager) label.pa24-field textarea,:is(.pa24-skills,.pa24-manager) label.pa24-field select{width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--pa-line);border-radius:8px;background:var(--pa-soft);color:var(--pa-ink);font:inherit}:is(.pa24-skills,.pa24-manager) label.pa24-field textarea{resize:vertical}:is(.pa24-skills,.pa24-manager) label.pa24-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px;margin:2px 0;padding:0}:is(.pa24-skills,.pa24-manager) fieldset{min-width:0;border:1px solid var(--pa-line);border-radius:10px;padding:12px}:is(.pa24-skills,.pa24-manager) legend{font-size:12px;overflow-wrap:anywhere}
       .pa24-materials{min-width:0;overflow-wrap:anywhere}.pa24-material-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;font-size:13px}.pa24-material-field:has(input[type=checkbox]){flex-direction:row;align-items:center}.pa24-material-field input:not([type=checkbox]),.pa24-material-field textarea,.pa24-material-field select{width:100%;min-width:0;max-width:100%;box-sizing:border-box;background:var(--pa-soft);color:var(--pa-ink);border:1px solid var(--pa-line);border-radius:8px;padding:8px;font:inherit}.pa24-material-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px}.pa24-material-text{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;max-width:100%}.pa24-original{max-width:100%;height:auto;display:block;margin:12px auto}.pa24-material-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:16px;margin-top:16px}.pa24-material-main{min-width:0}.pa24-materials fieldset{min-width:0;padding:12px;border:1px solid var(--pa-line);border-radius:8px;margin:12px 0}.pa24-materials button{white-space:normal}.pa24-materials>.pa24-section-head{flex-wrap:wrap}.pa24-materials>.pa24-section-head>button{flex-shrink:0;white-space:nowrap}.pa24-materials .pa24-note{white-space:pre-wrap}.pa24-materials .pa24-row{flex-wrap:wrap}@container(max-width:760px){.pa24-material-compare{display:block}.pa24-original-side{display:none}}
       .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
+      .pa24-backups>.pa24-section-head{flex-wrap:wrap}.pa24-backups>.pa24-section-head>button{flex-shrink:0;white-space:nowrap}
       .pa24-health{min-width:0;overflow-wrap:anywhere}.pa24-health .pa24-example{display:block}.pa24-health .pa24-example .pa24-check{display:flex;margin:12px 0}.pa24-health .pa24-check input{flex:0 0 18px;width:18px;height:18px}.pa24-health select{max-width:100%}
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
       .pa24-source-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}.pa24-source-fields label{display:flex;flex-direction:column;gap:5px;min-width:0}.pa24-sources input,.pa24-sources select{max-width:100%;box-sizing:border-box}.pa24-sources .pa24-check input{width:18px;flex:0 0 18px}.pa24-source-save{position:sticky;bottom:72px;background:var(--pa-surface);border-top:1px solid var(--pa-line);padding:12px 0;margin-top:16px;z-index:2}.pa24-source-save p{margin:6px 0 0}.pa24-sources .pa24-job{overflow-wrap:anywhere}
@@ -759,19 +760,67 @@ window.__ModuleLoader__.load({
             h('div', { className: 'pa24-ready' }, readyItems));
         }
 
+        const backupOperation = operation => ({ create: L('备份产物', 'Backup artifact'), verify: L('完整性校验', 'Integrity verification'), restore_check: L('隔离恢复演练', 'Isolated restore drill') }[operation] || operation);
+        const backupStatus = value => ({ running: L('进行中', 'Running'), succeeded: L('本项通过', 'This operation passed'), partial: L('部分检查未通过', 'Checks incomplete'), failed: L('失败', 'Failed'), interrupted: L('中断，待核对', 'Interrupted; check required') }[value] || value);
+        function BackupRecordDetail({ id, binding, tz, revision }) {
+          const [view, retry] = useRpc('backups.detail', { id, workspaceBinding: binding }, [id, binding, revision]);
+          if (view.status === 'loading') return h('p', { role: 'status' }, L('正在读取记录…', 'Reading record…'));
+          if (view.status === 'error') return h('div', { role: 'alert' }, view.error, h('button', { type: 'button', onClick: retry }, L('重试详情', 'Retry details')));
+          if (view.data?.workspaceBinding !== binding || view.data?.record?.id !== id) return null;
+          const record = view.data.record, result = record.result || {};
+          const stepState = value => ({ passed: L('通过', 'Passed'), failed: L('失败', 'Failed'), not_checked: L('未检查', 'Not checked'), required: L('后续必做', 'Still required') }[value] || value);
+          return h('section', { className: 'pa24-card pa24-backups' }, sectionHead('folder', backupOperation(record.operation), backupStatus(record.status), h('button', { type: 'button', onClick: retry }, L('刷新详情', 'Refresh details'))),
+            fields([[L('备份位置', 'Backup location'), record.backup_dir || '—'], [L('隔离副本', 'Isolated copy'), record.target_dir || L('无持久副本', 'No retained copy')], [L('开始时间', 'Started'), date(record.started_at, tz)], [L('完成时间', 'Finished'), record.finished_at ? date(record.finished_at, tz) : L('尚未保存完成凭据', 'No completion receipt')]]),
+            record.error && h('p', { role: 'alert' }, record.error), result.message !== record.error && h('p', null, result.message),
+            h('p', { className: 'pa24-helper' }, L('备份产物、校验、隔离演练分别留档；通过本项不代表现场已恢复。凭据、远端对象和旧待发仍需核对。', 'Artifact creation, verification and drills are separate facts. Passing one does not prove production recovery. Credentials, remote objects and old deliveries still need reconciliation.')),
+            (result.steps || []).map(step => h('details', { key: step.id, className: 'pa24-note', open: ['failed', 'not_checked'].includes(step.status) },
+              h('summary', null, stepState(step.status) + ' · ' + ({ files: L('备份清单与文件', 'Manifest and files'), isolation: L('执行隔离', 'Execution isolation'), ledger: L('实际账本', 'Restored ledger'), materials: L('原稿与审核快照', 'Originals and review snapshots'), skills: L('Skill 版本与资源', 'Skill versions and resources'), sessions: L('会话与附件', 'Sessions and attachments'), memory: L('记忆与删除保护', 'Memory and deletion protection'), 'remote-reconciliation': L('外部对象与旧待发', 'Remote objects and old deliveries'), credentials: L('凭据', 'Credentials'), cutover: L('人工切换', 'Manual cutover') }[step.id] || step.id)),
+              h('p', null, step.message), step.evidence && h('pre', { className: 'pa24-json' }, JSON.stringify(step.evidence, null, 2)))),
+            h('details', null, h('summary', null, L('范围、采集时间与版本', 'Scope, collection times and versions')), h('pre', { className: 'pa24-json' }, JSON.stringify({ coverage: result.coverage, capturedAt: result.capturedAt, sourceVersion: result.sourceVersion, manifestHash: record.manifest_hash, parts: result.parts }, null, 2))));
+        }
         function BackupDetail({ state, config, button, openRobot }) {
-          return h(React.Fragment, null,
-            h(ReadinessDetail, { state }),
-            h('section', { className: 'pa24-card' },
-              sectionHead('folder', L('备份与恢复', 'Backup and recovery'), L('联合备份覆盖业务账本、工作区文件与 dsh 状态，创建和校验由本地24私助会话执行。', 'Joint backups cover the ledger, workspace files, and dsh state. Create and verify them in the local 24PA session.'),
-                button('chat', L('通过对话管理备份', 'Manage backups in chat'), openRobot, { className: 'pa24-quiet' }), 'blue'),
-              fields([
-                [L('账本类型', 'Ledger type'), config?.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'],
-                [L('备份内容', 'Backup contents'), L('业务账本＋工作区文件＋dsh 状态及校验清单', 'Ledger + workspace + dsh state with a verification manifest')],
-                [L('凭据边界', 'Credential boundary'), L('凭据值不进入备份，只保留环境变量引用名', 'Secret values stay out; only environment reference names are kept')],
-                [L('最近备份结果', 'Latest backup'), L('面板不推断备份目录状态，以创建时的会话回报和校验结果为准', 'The panel does not guess; use the creation receipt and verification result')],
-              ]),
-              h('div', { className: 'pa24-helper' }, L('恢复前先执行备份校验；旧 Outbox 与远端对象先对账再继续发送，避免重复投递。', 'Verify a backup before restoring. Reconcile old outbox rows and remote objects before sending again.'))));
+          const binding = state.workspaceBinding, tz = tzOf(state);
+          const [operation, setOperation] = React.useState('all'), [offset, setOffset] = React.useState(0), [tick, setTick] = React.useState(0), [selected, setSelected] = React.useState(null);
+          const [view, setView] = React.useState({ key: '', status: 'loading', data: null, error: '' });
+          const [task, setTask] = React.useState('backup_create'), [backupDir, setBackupDir] = React.useState(''), [targetDir, setTargetDir] = React.useState(''), [instruction, setInstruction] = React.useState(''), [note, setNote] = React.useState('');
+          const key = JSON.stringify([binding, operation, offset]);
+          React.useEffect(() => {
+            const abort = new AbortController();
+            setView(previous => ({ key, status: 'loading', data: previous.key === key ? previous.data : null, error: '' }));
+            rpc('backups', { operation, offset, workspaceBinding: binding }, abort.signal).then(data => {
+              if (data.workspaceBinding !== binding) throw new Error(L('工作区已变化，请刷新。', 'Workspace changed; refresh.'));
+              if (!abort.signal.aborted) setView({ key, status: 'ready', data, error: '' });
+            }).catch(error => { if (!abort.signal.aborted) setView(previous => ({ key, status: 'error', data: previous.key === key ? previous.data : null, error: error.message })); });
+            return () => abort.abort();
+          }, [key, tick]);
+          React.useEffect(() => { const timer = setInterval(() => setTick(value => value + 1), 5000); return () => clearInterval(timer); }, []);
+          React.useEffect(() => { setSelected(null); setInstruction(''); setNote(''); }, [binding, operation]);
+          const current = view.key === key ? view : { status: 'loading', data: null, error: '' }, data = current.data;
+          const prepare = () => {
+            const requestId = 'backup-' + (globalThis.crypto?.randomUUID?.() || Date.now().toString(36));
+            const text = task === 'backup_create' ? `请为当前工作区创建一次联合备份，targetDir=${JSON.stringify(targetDir)}，requestId=${requestId}。备份形成后展示记录和实际覆盖范围。`
+              : task === 'backup_verify' ? `请校验当前工作区备份 ${JSON.stringify(backupDir)}，requestId=${requestId}。使用隔离副本核验实际账本、会话、原稿、Skill 和记忆，分别报告未检查项。`
+                : `请先调用 backup_preview 预览 ${JSON.stringify(backupDir)} 的恢复保护与冲突。展示结果后由我确认，再使用返回的 previewToken 与 confirm=true 在全新目录 ${JSON.stringify(targetDir)} 执行 backup_restore_check，requestId=${requestId}。保留现场、当前记忆和删除标记；保持执行隔离。`;
+            setInstruction(text); setNote('');
+          };
+          const copy = async () => { try { await navigator.clipboard.writeText(instruction); setNote(L('指令已复制；在本地会话发送后才开始执行。', 'Copied; execution begins only after sending in the local session.')); } catch { setNote(L('复制失败，请手工选中下方指令。', 'Copy failed; select the instruction below.')); } };
+          return h(React.Fragment, null, h(ReadinessDetail, { state }),
+            h('section', { className: 'pa24-card pa24-backups' }, sectionHead('folder', L('备份与恢复记录', 'Backup and recovery records'), L('持久展示三类独立事实；查询和刷新不会开始备份或恢复。', 'Three independent durable facts. Reading or refreshing starts no backup or restore.'), button('refresh', L('刷新记录', 'Refresh records'), () => setTick(value => value + 1), { className: 'pa24-quiet' }), 'blue'),
+              h('label', { className: 'pa24-field' }, L('记录类型', 'Record type'), h('select', { value: operation, onChange: event => { setOperation(event.target.value); setOffset(0); } }, ['all', 'create', 'verify', 'restore_check'].map(value => h('option', { value, key: value }, value === 'all' ? L('全部', 'All') : backupOperation(value))))),
+              current.status === 'loading' && h('p', { role: 'status' }, data ? L('正在刷新，暂时显示上次读取结果…', 'Refreshing; showing the previous result…') : L('正在读取备份记录…', 'Reading backup records…')),
+              current.error && h('p', { role: 'alert' }, current.error + (data ? L('；以下为上次读取缓存。', '; showing cached results.') : ''), h('button', { type: 'button', onClick: () => setTick(value => value + 1) }, L('重试记录', 'Retry records'))),
+              data && h('p', { className: 'pa24-meta' }, L('共 ', 'Total ') + data.total + L(' 条；账本：', ' records; ledger: ') + (config?.storage === 'postgres' ? 'PostgreSQL' : 'SQLite')),
+              data && !data.total && h('p', null, operation === 'all' ? L('尚无持久备份记录。历史对话回报不会被推断成已校验或已恢复。', 'No durable backup records. Historical chat receipts are not inferred as verified or restored.') : L('当前筛选无记录。', 'No records match this filter.')),
+              (data?.rows || []).map(row => h('div', { key: row.id, className: 'pa24-note' }, h('button', { type: 'button', onClick: () => { setSelected(row.id); setBackupDir(row.backup_dir || ''); } }, backupOperation(row.operation) + ' · ' + backupStatus(row.status)), h('p', { className: 'pa24-meta' }, date(row.started_at, tz)), h('p', { className: 'pa24-meta', style: { overflowWrap: 'anywhere' } }, row.backup_dir || row.target_dir || row.error))),
+              data?.total > 20 && h('div', { className: 'pa24-row' }, h('button', { type: 'button', disabled: offset === 0, onClick: () => setOffset(Math.max(0, offset - 20)) }, L('上一页', 'Previous')), h('button', { type: 'button', disabled: offset + 20 >= data.total, onClick: () => setOffset(offset + 20) }, L('下一页', 'Next')))),
+            selected && h(BackupRecordDetail, { key: binding + ':' + selected, id: selected, binding, tz, revision: JSON.stringify(data?.rows.find(row => row.id === selected)) }),
+            h('section', { className: 'pa24-card' }, sectionHead('chat', L('本地维护入口', 'Local maintenance'), L('准备可核对的操作指令，再到本地24私助会话执行。', 'Prepare a reviewable instruction, then execute it in the local 24PA session.')),
+              h('label', { className: 'pa24-field' }, L('操作', 'Operation'), h('select', { value: task, onChange: event => { setTask(event.target.value); setInstruction(''); } }, [['backup_create', L('创建备份', 'Create backup')], ['backup_verify', L('校验备份', 'Verify backup')], ['backup_restore_check', L('预览并引导恢复', 'Preview guided recovery')]].map(([value, label]) => h('option', { value, key: value }, label)))),
+              task !== 'backup_create' && h('label', { className: 'pa24-field' }, L('备份绝对路径', 'Absolute backup path'), h('input', { value: backupDir, onChange: event => { setBackupDir(event.target.value); setInstruction(''); } })),
+              task !== 'backup_verify' && h('label', { className: 'pa24-field' }, task === 'backup_create' ? L('备份目标父目录', 'Backup destination parent') : L('全新隔离目录（父目录须存在）', 'New isolated directory (parent must exist)'), h('input', { value: targetDir, onChange: event => { setTargetDir(event.target.value); setInstruction(''); } })),
+              h('button', { type: 'button', disabled: task !== 'backup_create' && !backupDir.trim() || task !== 'backup_verify' && !targetDir.trim(), onClick: prepare }, L('生成维护指令', 'Prepare instruction')),
+              instruction && h('div', null, h('textarea', { readOnly: true, value: instruction, rows: 5, 'aria-label': L('维护指令', 'Maintenance instruction') }), h('div', { className: 'pa24-row' }, h('button', { type: 'button', onClick: copy }, L('复制指令', 'Copy instruction')), button('chat', L('打开本地24私助会话', 'Open local 24PA session'), openRobot)), note && h('p', { role: 'status' }, note)),
+              h('p', { className: 'pa24-helper' }, L('密钥与授权缓存不进入备份；远端平台内容只保留本地快照与引用。隔离检查后仍需核对原身份、外部对象、旧待发及凭据，再人工切换。', 'Credentials are excluded. Remote platforms are represented by local snapshots and references. Reconcile identity, remote objects, old deliveries and credentials before manual cutover.'))));
         }
 
         // arch-4: timezone resolves once through this helper — the snapshot
@@ -2238,7 +2287,7 @@ window.__ModuleLoader__.load({
               const rows = (state.readiness?.items || []).filter(i => ['postgres', 'workspace'].includes(i.id));
               return h('div', null, rows.length ? rows.map(r => capLine(r.id === 'postgres' ? L('业务账本', 'Ledger') : L('工作区', 'Workspace'), r.state === 'ok' ? L('正常', 'OK') : r.message)) : h('p', { className: 'pa24-meta' }, L('读取中…', 'Loading…')));
             },
-            detail: helpers => h(BackupDetail, helpers),
+            detail: helpers => h(BackupDetail, { ...helpers, key: helpers.state.workspaceBinding }),
           },
           {
             id: 'config', cat: 'setup', tone: 'blue', icon: 'code', title: ['参数配置', 'Configuration'], sub: ['七组配置 · 校验写回', 'Seven sections · validated write-back'], action: ['打开表单', 'Open form'],

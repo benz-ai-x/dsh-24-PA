@@ -1,0 +1,23 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f09.e2e.mjs (8 tests) 64484ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P16：plan_today 给出重点/容量/冲突与偏好缓冲；过载如实提示不自动延期 4592ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P16：plan_preview 插单只影响重叠项；plan_adopt 选择性采纳并回执 8156ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P25：晚间回顾呈现完成/等待/逾期，不自动延期、不写记忆 8656ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24/P25：once 晨报经原生 Schedule 唤醒 Lead→digest Worker→Outbox，事实与建议分离 4584ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24：同窗重复投递不重复发布；投递无法归属时监督暂停（delivery_unconfirmed） 9101ms
+   ✓ F09 每日规划与定期回顾（真实 Loader + 隔离 PG） > P24：重启后原生 Schedule 续跑，业务状态按账本恢复，不补发过期窗口 11353ms
+   ✓ F41：agent 轨任务 skill > 自定义 skill 交接→Worker 生成→digest_deliver 交付 2637ms
+   ✓ F44：任务 skill 受控接入（双门） > 未放行拒绝且不留事项；放行后 skill 执行 Worker 载入正文执行 13096ms
+ ✓ tests/e2e/manticore-calendar.e2e.mjs (7 tests) 14412ms
+   ✓ 查询非助理创建日程、分来源角色与冲突；计数先筛选再分页，全部筛选含外部会议 1746ms
+   ✓ 本地和飞书两入口创建占位会议，默认时长可追溯，明确项目仅写一个目标 2569ms
+   ✓ 换默认后仍修改原日程；仅取消本人提醒保留会议，缺权限不转投 5211ms
+   ✓ 重复日程取消范围未明确时保留原输入，主人补充后沿同一运行仅取消一次 2073ms
+   ✓ 单来源失败保留缓存并报告未完整，重启后普通浏览仍保留逐来源证据 1557ms
+
+ Test Files  2 passed (2)
+      Tests  15 passed (15)
+   Start at  11:40:11
+   Duration  79.16s (transform 39ms, setup 0ms, collect 82ms, tests 78.90s, environment 0ms, prepare 40ms)

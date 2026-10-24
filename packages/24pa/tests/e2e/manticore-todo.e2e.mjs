@@ -30,15 +30,15 @@ const saveSources = async value => {
   await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, expectedSourcesHash: before.configHash, config: { sources: value } });
   await ready();
 };
-const work = async (action, entry = 'local', instruction = '本人明确委托办理本次待办') => {
+const work = async (action, entry = 'local', instruction = '本人明确委托办理本次待办', expectedStatus = 'completed') => {
   const title = `M04-${randomUUID()}`, before = llm.requests.length;
   await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker: 'tasks', title, instruction }, workerAction: action,
     workerReply: '本次工具返回已记录，请按实际回执汇报。', leadReply: '委托已接纳。' }));
   if (entry === 'local') await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: localSessionId, mode: 'queue', content: [{ type: 'text', text: instruction }], clientTimeZone: zone } });
   else await host.api('action', { type: 'test.inject', event: { eventId: randomUUID(), senderOpenId: 'ou_test_owner', appId: 'cli_test_app', chatType: 'p2p', text: instruction } });
-  const snapshot = await host.waitUntil(s => s.work.some(row => row.title === title && ['completed', 'failed', 'needs_reconciliation'].includes(row.status)), { label: title, timeoutMs: 60000 });
+  const snapshot = await host.waitUntil(s => s.work.some(row => row.title === title && ['completed', 'failed', 'needs_reconciliation', 'waiting_input'].includes(row.status)), { label: title, timeoutMs: 60000 });
   const row = snapshot.work.find(row => row.title === title);
-  expect(row.status, JSON.stringify(row)).toBe('completed');
+  expect(row.status, JSON.stringify(row)).toBe(expectedStatus);
   const receipt = llm.requests.slice(before).filter(r => r.tools.includes('pa24_work')).flatMap(r => r.toolResults).join('\n').replaceAll('\\"', '"');
   return { row, receipt };
 };
@@ -116,6 +116,31 @@ it('企微写后核验默认本人，延期不重建；完成本人份额保留�
   expect(finished.receipt).toContain('finished'); expect(finished.receipt).toContain('"status":"open"');
   const writeCalls = await journal(wecomState + '.calls.jsonl'); expect(writeCalls.filter(row => row.args[0] === 'todo' && row.args[1] === 'create')).toHaveLength(1);
 });
+it('只读来源的创建请求保留原输入等待；权限修复后原运行仅创建一次', async () => {
+  const config = (await host.api('sources')).config;
+  config.entries.find(row => row.id === 'personal').access = 'read'; await saveSources(config);
+  const count = (await latestTasks()).length;
+  const refused = await work({ action: 'task_create', sourceId: 'personal', summary: '修复权限后的原待办' }, 'local', '请在个人待办清单记录这项任务', 'waiting_input');
+  expect(refused.row.progress).toContain('仅登记为读取'); expect((await latestTasks()).length).toBe(count);
+  let detail;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    detail = await host.api('worker.run', { runId: refused.row.active_worker_run_id, workspaceBinding: binding });
+    if (detail.calls.length && detail.calls.every(call => call.status !== 'running')) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  expect(detail.calls).toHaveLength(1); expect(detail.calls[0].status).toBe('succeeded'); expect(detail.operations).toHaveLength(0);
+  config.entries.find(row => row.id === 'personal').access = 'readwrite'; await saveSources(config);
+  const continuationScript = JSON.parse(await readFile(scriptPath, 'utf8'));
+  continuationScript.workerAfterPreparation = continuationScript.workerAction;
+  await writeFile(scriptPath, JSON.stringify(continuationScript));
+  const latest = (await host.api('work.inspect', { workId: refused.row.id, workspaceBinding: binding })).work;
+  await host.api('action', { type: 'work.change', op: 'supplement', workspaceBinding: binding, workId: latest.id, expectedRevision: latest.revision,
+    requestId: randomUUID(), instruction: '个人待办写入权限已修复，请按原请求继续', confirm: true });
+  const resumed = await host.waitUntil(s => s.work.some(row => row.id === latest.id && row.status === 'completed'));
+  expect(resumed.work.find(row => row.id === latest.id).active_worker_run_id).toBe(refused.row.active_worker_run_id);
+  expect((await latestTasks()).length).toBe(count + 1);
+});
+
 it('单来源失败保留缓存，双库重启后浏览保留核验缺口且不访问平台', async () => {
   await writeFile(larkState, JSON.stringify({ ownerOpenId: 'ou_test_owner', appId: 'cli_test_app', todoListFailure: 'project-list' }));
   const partial = await host.api('action', { type: 'todos.verify', workspaceBinding: binding });

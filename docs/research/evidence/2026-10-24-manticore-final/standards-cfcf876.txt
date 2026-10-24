@@ -1,0 +1,14 @@
+M09 Standards 最终复审：通过，Standards findings 0；硬规则残留 0，代码异味判断 0。原发现全部清偿。
+
+固定 HEAD：cfcf876291fdd5ea5c0d0100074f79ca03d442ad
+完整基线：59f92f60d3874a791be5c7d98d395a683404dc81
+工作树：/Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA
+本轮只读审查 6a286e1...cfcf876，结合此前完整 M09 审查及修复复审。依据沿用根 AGENTS、product/domain 指引、GLOSSARY、ADR-0001、SPEC、PR 交付计划及完整异味基线。
+
+清偿结论：
+- 原 schema 发现：必需表/列已按备份声明版本核验；schema>=6 另查 note_seq。SQLite 必须存在 id=1 且 next 为正安全整数；PostgreSQL 核 relkind=S 并只读查询 last_value/is_called。缺对象/计数行进入失败，不生成空对账成功；未调用 nextval、推进或重置序号。新增双库损坏负例与此边界一致。
+- 原详情发现：独立“刷新详情”入口及列表记录变化驱动重新读取均保留，工作区和迟到响应隔离未撤销。
+- memory.verifyIntegrity 的隔离修订/审计/凭证检查、SourcePreparationError 的新操作写前范围保持此前复审结论。既有/未知 operation 及 stage/invoke 错误未改为补充等待。
+- plan_preview 两分支将缺省 missing 表示为 null，满足工具结果无损 JSON 契约，无新业务副作用。公共工具夹具改用原代理对象，等待清除仅在测试中模拟并有明确限制说明；实际 Loader 的原运行补充路径继续独立验收。
+
+本轮未构建、运行测试或启动 Loader，未修改源码/编译产物。只读确认了新增测试所覆盖的行为，未把测试代码存在当作执行通过。主代理汇总的106项相关测试及后续完整回归、真实 Loader、真实账号与生产切换结果须分别报告；本 Standards 结论不替代它们。

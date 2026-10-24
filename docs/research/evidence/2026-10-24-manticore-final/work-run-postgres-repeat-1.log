@@ -1,0 +1,14 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/manticore-work-run.e2e.mjs (5 tests) 9129ms
+   ✓ 真实交办有阶段、原请求、完成依据与固定投递；验收重复请求只写一次 568ms
+   ✓ 等待期间重启后补充沿原交办原运行采用，累计执行时限与历史保留 2136ms
+   ✓ 等待停止得到宿主确认；迟到补充不能复活，明确接续新增关联运行 696ms
+   ✓ 新目标建立独立关联交办，只带显式选择的上下文 1244ms
+   ✓ 真实工具写入后回执丢失阻断后续模型，重启和迟到补充不重做，核对后接续新运行 2178ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  13:06:46
+   Duration  9.28s (transform 30ms, setup 0ms, collect 56ms, tests 9.13s, environment 0ms, prepare 21ms)

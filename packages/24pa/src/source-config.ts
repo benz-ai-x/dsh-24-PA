@@ -35,6 +35,15 @@ export class SourceError extends Error {
   constructor(message: string) { super(message); this.name = 'SourceError'; }
 }
 
+/** Explicitly proven validation failure before this call stages or dispatches
+ * a business action. Unknown execution/transport failures must never use it. */
+export class SourcePreparationError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'SourcePreparationError';
+  }
+}
+
 function record(value: unknown, path: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SourceError(`${path} 必须为对象。`);
   return value as Record<string, unknown>;

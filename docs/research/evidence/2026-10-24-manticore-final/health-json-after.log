@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/connection-health.test.mjs (26 tests) 870ms
+ ✓ tests/unit/maintenance-health.test.mjs (2 tests) 800ms
+   ✓ 维护健康工具的公开回执 / postgres > 有实际投递、身份和测试记录时仍返回可持久化 JSON，保留时间和只读边界 770ms
+
+ Test Files  2 passed (2)
+      Tests  28 passed (28)
+   Start at  13:06:27
+   Duration  2.37s (transform 257ms, setup 0ms, collect 522ms, tests 1.67s, environment 0ms, prepare 38ms)

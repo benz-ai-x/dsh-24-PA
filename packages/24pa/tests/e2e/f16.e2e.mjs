@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { waitWorkerToolError } from '../helpers/worker-run.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -209,12 +210,12 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     const guid = (await readJournal('todos', 'todo_id'))[0].todo_id;
     await writeScript({
       mode: 'dispatch',
-      delegate: { worker: 'tasks', title: '完成企微待办', instruction: '完成验收记录待办' },
+      delegate: { worker: 'tasks', title: '完成企微待办', instruction: '本人明确要求整项完成验收记录待办' },
       leadReply: '已安排。',
-      workerAction: { action: 'task_complete', taskId: guid },
+      workerAction: { action: 'task_complete', taskId: guid, effect: 'whole' },
       workerReply: '已完成。',
     });
-    await prompt('渠道验收记录写完了，完成这条待办');
+    await prompt('渠道验收记录写完了，把这条待办整项完成');
     await waitWork(items => items.filter(w => w.role === 'tasks').length === 3 && items.every(w => w.status === 'completed'), '完成事项结束');
     await waitToolResult('企微待办整项已完成', '完成回执');
     expect((await readJournal('todos', 'todo_id'))[0].status).toBe('finished');
@@ -230,7 +231,7 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
       workerReply: '已处理。',
     });
     await prompt('再建一条：这条会失败');
-    await waitToolResult('40073', '失败如实上报');
+    await waitWorkerToolError(host, '失败的待办创建', '40073');
     expect((await readJournal('todos', 'todo_id'))).toHaveLength(1);
     expect((await cluster.query(`select status from pa24.action_operation where id like 'wecom_todo.create:%f16-todo-op-fail%' or id='f16-todo-op-fail'`)).trim()).toBe('failed');
     await writeStubState({ ownerUserid: 'wou_test_owner' });

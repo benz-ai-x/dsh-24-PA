@@ -136,7 +136,7 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-p2', { text: '建任务：任务甲，估时两小时' }));
     await waitWorkItem('建过载任务组', '任务甲完成');
-    await waitToolResult('pa24_work', '任务已创建', '任务甲回执', 60_000, before);
+    await waitToolResult('pa24_work', '"platformAccepted":true', '任务甲回执', 60_000, before);
 
     await writeScript(calScript('今日规划', { action: 'plan_today' }));
     before = llm.log.length;

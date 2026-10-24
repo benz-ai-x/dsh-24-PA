@@ -9,7 +9,9 @@ import { PlanResults } from './plan-results.js';
 import type { TaskPlanAuthorization } from './task-plan.js';
 import type { RunInput } from './skill-run-host.js';
 import { randomUUID, createHash } from 'node:crypto';
-import { WorkspaceBackup } from './backup.js';
+import { assertLiveWorkspace } from './backup.js';
+import { BackupService } from './backup-service.js';
+import { parseWorkspaceIdentity } from './ledger-identity.js';
 import { ConnectionHealth, type HealthScope } from './connection-health.js';
 import { ConnectionTests } from './connection-tests.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
@@ -65,7 +67,7 @@ import { SourceTodo } from './source-todo.js';
 import { SourceTodoWrites } from './source-todo-writes.js';
 import { SourceCalendar } from './source-calendar.js';
 import { SourceCalendarWrites } from './source-calendar-writes.js';
-import { effectiveSources, sourceConfigurationFingerprint } from './source-config.js';
+import { effectiveSources, sourceConfigurationFingerprint, SourcePreparationError } from './source-config.js';
 import { skillContract, skillHash, readSkillFile } from './skill-package.js';
 import { skillRequirements } from './skill-requirements.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
@@ -163,6 +165,17 @@ export class PaRuntime {
     execute: work => this.executions.detached(() => this.executions.run(work)),
   });
   private workspaceBinding: string | null = null;
+  private backupWorkspaceId: string | null = null;
+  readonly backups = new BackupService(() => {
+    if (!this.workspace || !this.repos || !this.config || !this.workspaceBinding || !this.backupWorkspaceId) throw new Error('尚未绑定工作区。');
+    const sources = { workspace: this.workspace.statePath, stateDirectory: this.options.stateDirectory,
+      sessions: this.options.backupSessionsRoot, storages: this.options.backupStoragesRoot, attachments: this.options.backupAttachmentsRoot };
+    return { workspace: this.workspace.statePath, workspaceId: this.backupWorkspaceId, ownerOpenId: this.config.ownerOpenId,
+      binding: this.workspaceBinding, host: this.ctx, sourceRoots: Object.values(sources).filter((path): path is string => !!path),
+      db: this.dbRef, repo: this.repos.backups, sources,
+      credentialReferences: [this.config.pgDsnEnv, this.config.appIdEnv, this.config.appSecretEnv, this.config.tts.volcKeyEnv],
+      watermarks: () => this.repos!.maintenance.watermarks() };
+  });
 
   private lock: HostLock | null = null;
   /** Best-effort usage counters since host start (P39 预算观测). */
@@ -1205,6 +1218,7 @@ export class PaRuntime {
       throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
     }
 
+    await assertLiveWorkspace(real);
     const agentsMd = join(real, 'AGENTS.md');
     if (initialize && !(await stat(agentsMd).catch(() => null))) {
       const target = await this.ctx.fs.resolve(agentsMd);
@@ -1220,6 +1234,7 @@ export class PaRuntime {
     let active: WorkItemRow[];
     let connection: Awaited<ReturnType<PaRuntime['prepareTransport']>> | undefined;
     try {
+      await repos.backups.interrupted();
       await repos.reminders.retireLegacy();
       await repos.waiting.retireLegacyNotifications();
       await repos.sources.synchronize(effectiveSources(candidate.config));
@@ -1261,12 +1276,14 @@ export class PaRuntime {
     const previousDb = this.db;
     const previousReminders = this.reminders;
     const previousTransport = this.transport;
+    const backupWorkspaceId = parseWorkspaceIdentity(await readFile(join(real, '.24pa/ledger-identity.json'), 'utf8'));
     // Activate synchronously, so callbacks cannot observe half a workspace.
     this.db = db;
     this.activePostgresDsn = postgresDsn;
     this.repos = repos;
     this.wecomIdentity = await repos.health.identity('wecom');
     this.workspace = next.workspace;
+    this.backupWorkspaceId = backupWorkspaceId;
     this.workspaceBinding = randomUUID();
     this.skillPackages.refresh();
     this.accessSessionId = next.accessSessionId;
@@ -1313,6 +1330,7 @@ export class PaRuntime {
   }
 
   private async openDatabaseFor(workspacePath: string, candidate: WorkspaceConfiguration): Promise<{ db: PaDb; postgresDsn: string | null }> {
+    await assertLiveWorkspace(workspacePath);
     const probe = candidate.config;
     // F25: default ledger is a SQLite file in the workspace; PostgreSQL runs
     // only by explicit workspace choice. No silent fallback either way.
@@ -2042,10 +2060,21 @@ export class PaRuntime {
       await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: '事项已停止，不因引用复活' });
       return;
     }
-    await this.inboxLifecycle.admit(item.child_session_id, inboxEventId, `followup:${inboxEventId}`, async () => {
-      const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
-      return resumed.acceptedMessageId;
-    });
+    try {
+      await this.inboxLifecycle.admit(item.child_session_id, inboxEventId, `followup:${inboxEventId}`, async () => {
+        const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
+        return resumed.acceptedMessageId;
+      });
+    } catch (error) {
+      if ((error as { outcome?: string }).outcome !== 'rejected') throw error;
+      let message = (error as Error).message;
+      try { await this.notifyOwner(`route-rejected:${inboxEventId}`, `「${item.title}」未接纳这次补充：${message}`); }
+      catch (notificationError) { message += `；拒绝提示未能入队：${(notificationError as Error).message}`; }
+      try { await this.repos!.inbox.mark(inboxEventId, { status: 'rejected', error: message }); }
+      catch (recordError) {
+        throw Object.assign(new Error(`${message}；拒绝状态写入失败：${(recordError as Error).message}`), { outcome: 'rejected' });
+      }
+    }
   }
 
   private async submitToSession(sessionId: string, requestId: string, content: ContentBlock[], timeZone: string, inboxId: string): Promise<void> {
@@ -2438,23 +2467,30 @@ export class PaRuntime {
       if (!item || (item.status !== 'running' && !budgetWaiting) || (run && (run.mode !== 'business' || (run.status !== 'running' && !(run.status === 'waiting' && budgetWaiting)) || item.child_session_id !== agent.id))) {
         throw new Error('此会话不是运行中的 Worker，或事项已停止。');
       }
-      if (run) {
-        const action = String(args.action ?? '');
-        if (action === 'skill_resource') {
-          const path = String(args.resourcePath ?? '');
-          const bytes = readSkillFile(run.snapshot.package, path);
-          if (bytes.length > 65536 || bytes.includes(0)) throw new Error('后台静态资源读取只支持不超过 64 KiB 的文本文件。');
-          return { path, versionId: run.version_id, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+      try {
+        if (run) {
+          const action = String(args.action ?? '');
+          if (action === 'skill_resource') {
+            const path = String(args.resourcePath ?? '');
+            const bytes = readSkillFile(run.snapshot.package, path);
+            if (bytes.length > 65536 || bytes.includes(0)) throw new Error('后台静态资源读取只支持不超过 64 KiB 的文本文件。');
+            return { path, versionId: run.version_id, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+          }
+          if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
+          if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
+          const authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
+          return await this.skillBusinessAction(action)(authorized, item, this);
         }
-        if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
-        if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
-        const authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
-        return this.skillBusinessAction(action)(authorized, item, this);
+        const role = this.roles.get(item.role);
+        const handler = role?.actions[String(args.action ?? '')];
+        if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
+        return await handler(args, item, this);
+      } catch (error) {
+        if (!(error instanceof SourcePreparationError)) throw error;
+        const reason = `本次尚未提交平台写入，需补充或修复后继续：${error.message}`.slice(0, 2000);
+        const waiting = run ? await this.skillRuns.waitForInput(run, reason) : await this.workerRuns.wait(agent, reason);
+        return { ...(waiting as Record<string, unknown>), businessExecuted: false, reason, requested: args };
       }
-      const role = this.roles.get(item.role);
-      const handler = role?.actions[String(args.action ?? '')];
-      if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
-      return handler(args, item, this);
     });
   }
 
@@ -2844,11 +2880,11 @@ export class PaRuntime {
     const content = text(args.content, 4000);
     const instruction = String(args.instruction ?? '').trim();
     if (!instruction) {
-      throw new Error('对外发信必须携带本人明确的指令依据（instruction）；当前请求看起来是草稿——草稿不发送，请向本人确认后再执行。');
+      throw new SourcePreparationError('对外发信必须携带本人明确的指令依据（instruction）；当前请求看起来是草稿——草稿不发送，请向本人确认后再执行。');
     }
     const resolved = await this.resolveCollaborator(args);
     if ('clarify' in resolved) {
-      throw new Error(`收件人无法唯一确定（${resolved.clarify}）；请先与本人澄清，未发送任何消息。`);
+      throw new SourcePreparationError(`收件人无法唯一确定（${resolved.clarify}）；请先与本人澄清，未发送任何消息。`);
     }
     this.assertFeishuLive('对外发信');
     const id = `out:${item.id}:${hash(`${resolved.openId}\n${content}`)}`;
@@ -2894,9 +2930,9 @@ export class PaRuntime {
   private async taskAssign(item: WorkItemRow, args: Record<string, unknown>): Promise<unknown> {
     if (Array.isArray(args.assigneeIds)) return this.sourceTodoWrites.write(item, 'assign', args);
     const original = await this.sourceTodo.resolve(args);
-    if (original.target.platform !== 'feishu') throw new Error('企微分派请提供已确认的 userid（assigneeIds），不会把飞书 open_id 当作企微身份。');
+    if (original.target.platform !== 'feishu') throw new SourcePreparationError('企微分派请提供已确认的 userid（assigneeIds），不会把飞书 open_id 当作企微身份。');
     const resolved = await this.resolveCollaborator(args);
-    if ('clarify' in resolved) throw new Error(`被分派人无法唯一确定（${resolved.clarify}）；请先澄清。`);
+    if ('clarify' in resolved) throw new SourcePreparationError(`被分派人无法唯一确定（${resolved.clarify}）；请先澄清。`);
     return this.sourceTodoWrites.write(item, 'assign', { ...args, sourceId: original.target.sourceId, assigneeIds: [resolved.openId] });
   }
 
@@ -3321,24 +3357,24 @@ export class PaRuntime {
     const version = trust.version;
     const versionId = version.id;
     const instruction = String(args.instruction ?? '').trim();
-    if (!instruction) throw new Error('执行笔记行动需要本人明确的指令依据（instruction）；审核通过不等于行动授权。');
+    if (!instruction) throw new SourcePreparationError('执行笔记行动需要本人明确的指令依据（instruction）；审核通过不等于行动授权。');
     if (version.status !== 'approved') {
-      throw new Error(`只有本人已审核通过的版本才能执行行动（当前 ${version.status}）；请先在飞书审核卡批准具体版本。`);
+      throw new SourcePreparationError(`只有本人已审核通过的版本才能执行行动（当前 ${version.status}）；请先在飞书审核卡批准具体版本。`);
     }
     const approval = (await this.repos!.notes.decisionsOf(noteId)).find(decision => decision.version_id === versionId && decision.decision === 'approve' && decision.fingerprint === version.fingerprint);
-    if (!approval || approval.reviewer_open_id !== this.config!.ownerOpenId) throw new Error('此版本没有当前主人对确切内容的审核凭证；请重新发布并由当前主人审核。');
+    if (!approval || approval.reviewer_open_id !== this.config!.ownerOpenId) throw new SourcePreparationError('此版本没有当前主人对确切内容的审核凭证；请重新发布并由当前主人审核。');
     // Re-verify the live document still matches the approved fingerprint:
     // edited or unverifiable content never silently becomes execution params.
-    if (trust.currentValidity === 'unknown') throw new Error(`无法核验文档当前内容（${trust.reason}）；暂不执行，请稍后再试。`);
+    if (trust.currentValidity === 'unknown') throw new SourcePreparationError(`无法核验文档当前内容（${trust.reason}）；暂不执行，请稍后再试。`);
     if (trust.currentValidity !== 'matches') {
-      throw new Error('文档内容与已审核版本不一致（已修改）；旧批准不覆盖新内容，请先重新发布候选并审核。');
+      throw new SourcePreparationError('文档内容与已审核版本不一致（已修改）；旧批准不覆盖新内容，请先重新发布候选并审核。');
     }
     const derived = noteDerivedContent(version);
-    if (derived.derivedStatus === 'needs_rebuild') throw new Error('当前版本的结构化候选尚未重建或缺少同源证明；请重新整理当前文档并审核新候选，不能执行旧版本行动。');
+    if (derived.derivedStatus === 'needs_rebuild') throw new SourcePreparationError('当前版本的结构化候选尚未重建或缺少同源证明；请重新整理当前文档并审核新候选，不能执行旧版本行动。');
     const candidates = (Array.isArray(derived.candidates) ? derived.candidates : []) as NoteCandidate[];
     const requestedIds = Array.isArray(args.candidateIds) ? args.candidateIds.map(String) : [];
     const wanted = [...new Set(requestedIds.length ? requestedIds.map(id => candidates.findIndex((candidate, index) => (candidate.id ?? `legacy-${version.version}-${index}`) === id)) : Array.isArray(args.indexes) ? (args.indexes as number[]).map(Number) : [])];
-    if (wanted.length === 0) throw new Error('需要提供所选 candidateIds 或 indexes。');
+    if (wanted.length === 0) throw new SourcePreparationError('需要提供所选 candidateIds 或 indexes。');
     const links = await this.repos!.notes.actionLinks(noteId);
     const results = [];
     for (const index of wanted) {
@@ -3593,23 +3629,11 @@ export class PaRuntime {
   }
 
   async maintenanceBackupCreate(args: Record<string, unknown>): Promise<unknown> {
-    return this.executions.run(async () => {
-      if (!this.repos || !this.workspace || !this.config) throw new Error('尚未绑定工作区。');
-      return new WorkspaceBackup({
-        workspace: this.workspace.statePath, stateDirectory: this.options.stateDirectory,
-        sessions: this.options.backupSessionsRoot, storages: this.options.backupStoragesRoot,
-        attachments: this.options.backupAttachmentsRoot
-      }, this.dbRef).create(String(args.targetDir ?? ''), {
-        credentialReferences: [this.config.pgDsnEnv, this.config.appIdEnv, this.config.appSecretEnv, this.config.tts.volcKeyEnv],
-        watermarks: await this.repos.maintenance.watermarks(),
-      });
-    });
+    return this.executions.run(() => this.backups.run('create', { ...args, workspaceBinding: args.workspaceBinding ?? this.workspaceBinding, requestId: args.requestId ?? randomUUID() }, String(args.actorSessionId ?? this.localSessionId)));
   }
 
   async maintenanceBackupVerify(args: Record<string, unknown>): Promise<unknown> {
-    return this.executions.run(async () => {
-      return WorkspaceBackup.verify(String(args.backupDir ?? ''));
-    });
+    return this.executions.run(() => this.backups.run('verify', { ...args, workspaceBinding: args.workspaceBinding ?? this.workspaceBinding, requestId: args.requestId ?? randomUUID() }, String(args.actorSessionId ?? this.localSessionId)));
   }
 
   /**
@@ -3727,7 +3751,9 @@ export class PaRuntime {
       const retryTotals = await this.repos!.maintenance.attemptTotals().catch(() => null);
       const retries = retryTotals ? retryTotals.operations + retryTotals.outbox : null;
       const pct = (p: number) => (latencies.length ? latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * p))] : null);
-      return {
+      // Match the public JSON report: database timestamps must be ISO strings
+      // before the host validates and persists the tool result.
+      return JSON.parse(JSON.stringify({
         connectionEvidence: this.repos ? await this.connectionHealth.snapshot() : null,
         readiness: ready,
         capabilities,
@@ -3755,7 +3781,7 @@ export class PaRuntime {
           pgDown: '业务账本不可用时停止接纳/写入相关业务并保留可恢复状态。',
           offlineAlert: '完全离线告警依赖独立服务器监控（声明边界）。',
         },
-      };
+      }));
     });
   }
 
@@ -3977,8 +4003,12 @@ export class PaRuntime {
       }
       if (role !== 'local-robot') throw new Error('归档执行、备份与恢复操作只在 dsh 的24私助本地会话进行。');
       if (action === 'archive_execute') return this.maintenanceArchiveExecute(args);
-      if (action === 'backup_create') return this.maintenanceBackupCreate(args);
-      if (action === 'backup_verify') return this.maintenanceBackupVerify(args);
+      if (action === 'backup_create') return this.maintenanceBackupCreate({ ...args, actorSessionId: agent.id });
+      if (action === 'backup_verify') return this.maintenanceBackupVerify({ ...args, actorSessionId: agent.id });
+      if (action === 'backup_list') return this.backups.list({ ...args, workspaceBinding: this.workspaceBinding });
+      if (action === 'backup_detail') return this.backups.detail({ ...args, workspaceBinding: this.workspaceBinding });
+      if (action === 'backup_preview') return this.backups.preview({ ...args, workspaceBinding: this.workspaceBinding });
+      if (action === 'backup_restore_check') return this.backups.run('restore_check', { ...args, workspaceBinding: this.workspaceBinding }, agent.id);
       throw new Error('未知维护操作。');
     });
   }

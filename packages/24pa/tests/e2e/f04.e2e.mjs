@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { waitWorkerInput, changeWorker } from '../helpers/worker-run.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -240,8 +241,14 @@ describe('F04 日程与会议安排（真实 Loader + 隔离 PG + 桩日历）',
       workerReply: '已安排。',
     });
     await inject(ownerEvent('evt-meet-2', '再约一个和小李的会'));
-    await waitWorkItem('约小李（歧义）', '歧义事项完成');
-    await waitToolResult('未发出任何邀请', '歧义拒绝');
+    const waiting = await waitWorkerInput(host, '约小李（歧义）', '未发出任何邀请');
     expect((await readEvents()).length).toBe(before);
+    const clarified = { action: 'meeting_schedule', title: '和小李对齐', start: '2026-10-07T16:00:00+08:00', end: '2026-10-07T16:30:00+08:00', instruction: '本人确认邀请销售小李', attendees: [{ name: '小李', openId: 'ou_xiaoli_1' }] };
+    await writeScript({ ...JSON.parse(await readFile(scriptPath, 'utf8')), workerAfterPreparation: clarified });
+    await changeWorker(host, waiting.work, 'supplement', '确认销售小李 ou_xiaoli_1，请按原时间邀请。');
+    const finished = await waitWorkItem('约小李（歧义）', '补充后沿原运行完成');
+    expect(finished.work.find(work => work.id === waiting.work.id).active_worker_run_id).toBe(waiting.run.id);
+    const after = await readEvents(); expect(after.length).toBe(before + 1);
+    expect(after.find(event => event.summary === '和小李对齐').attendees.map(person => person.user_id)).toEqual(['ou_xiaoli_1']);
   });
 });
