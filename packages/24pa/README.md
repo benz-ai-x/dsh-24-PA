@@ -150,31 +150,28 @@ continues to use `pg_dump`. The ledger is consistent; the other collections are
 copied live and do not share a transaction timestamp with it. A snapshot or
 target-write failure rejects backup creation and leaves the source unchanged.
 
-`backup_verify` checks the ledger, collection coverage, each listing's own
-hash, and every listed file. Missing required collections, modified listings,
-missing content, and old manifests without coverage evidence cannot pass as a
-complete joint backup. An absent, configured attachment directory is recorded
-explicitly when the host has not stored attachments yet.
-Format 3 records the ledger snapshot guarantee. Old format-2 SQLite DB/WAL
-bundles cannot prove it and no longer pass verification: keep those files for
-recovery investigation and create a fresh backup before an upgrade. Existing
-format-2 PostgreSQL dumps with complete collection coverage remain verifiable.
-Older plugin versions cannot verify format 3; use this version to verify a new
-bundle before any code rollback. The ledger schema is unchanged by this fix.
+Manticore adds durable `create`, `verify` and `restore_check` records (schema 31).
+`backup_verify` checks file coverage and hashes, then opens an isolated ledger
+and native Session provider to verify ownership, schema, relationships,
+attachments, material snapshots, Skill packages and memory. Missing capability
+is reported as unchecked. PostgreSQL uses a new local cluster and restricted
+import role, never the production DSN. It requires local PostgreSQL tools with
+`psql --restrict` support.
 
-To restore, stop the host and verify the backup. First restore the ledger and
-collections into isolated staging directories: load `pa24.sql` into a separate
-database with psql, or copy the snapshot `pa24.db` into an empty, separate
-`data/` directory, without a live or old `pa24.db-wal`/`pa24.db-shm` alongside it.
-Check the schema and each memory record's revision,
-source and expiry against the existing destination before replacing any files.
-Keep newer destination memory; resolve conflicts with the owner explicitly.
-Only then install the verified ledger and collections at their configured roots,
-retaining the previous directories for rollback, and re-enter credentials
-separately. Do not copy a live `host.lock`. Before resuming writes or sending old
-notifications, reconcile external objects and unknown Outbox rows. These are
-online file snapshots, not a cross-system transaction; check the restored
-ledger, sessions and attachments together before restarting.
+Format 4 fences backup workspaces against execution. Format 3 remains readable;
+format-2 SQLite DB/WAL bundles cannot prove snapshot consistency. Separate
+capture times are retained; verification does not certify a single global point
+in time or remote platform content.
+
+For guided recovery, call `backup_preview`, review memory conflicts and deletion
+protection, then explicitly confirm `backup_restore_check` with its preview token
+and a new isolated target. Current memory and the source backup remain unchanged.
+The copy stays blocked from normal activation, even if copying fails. A passed
+drill is **not production recovery**: credentials, remote objects, prior actions,
+pending deliveries, plans, budget permits and native runs must be reconciled
+before a separately authorized manual cutover. Follow the
+[Manticore recovery guide](../../docs/Manticore-备份恢复.md). Do not remove the
+isolation marker or downgrade the plugin to bypass reconciliation.
 
 ### Source map
 

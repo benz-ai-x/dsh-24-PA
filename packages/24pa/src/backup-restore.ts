@@ -67,6 +67,10 @@ async function newTarget(context: RestoreContext, backupDir: string, target: str
 }
 
 async function copyVerified(backupDir: string, target: string, manifest: any) {
+  // Fence the target before any source bytes arrive, including legacy backups
+  // and a failed copy. No partial workspace may become executable.
+  await mkdir(join(target, 'workspace', '.24pa'), { recursive: true });
+  await writeFile(join(target, 'workspace', RESTORE_ISOLATION_FILE), JSON.stringify({ version: 1, state: 'isolated', backupDir, createdAt: new Date().toISOString(), reason: '恢复演练副本；禁止业务执行。' }), { mode: 0o600, flag: 'wx' });
   for (const part of manifest.parts) {
     const bytes = await safeRead(backupDir, part.path);
     if (sha256Hex(bytes) !== part.sha256 || bytes.length !== part.bytes) throw new Error('预览后备份内容发生变化，请重新校验。');
@@ -82,6 +86,7 @@ async function copyVerified(backupDir: string, target: string, manifest: any) {
       for (const file of listing.files) {
         const data = await safeRead(join(backupDir, id), file.path);
         if (sha256Hex(data) !== file.sha256 || data.length !== file.bytes) throw new Error('复制期间备份文件发生变化，请重新校验。');
+        if (id === 'workspace' && file.path === RESTORE_ISOLATION_FILE) continue;
         await mkdir(dirname(join(target, id, file.path)), { recursive: true });
         await writeFile(join(target, id, file.path), data, { mode: 0o600, flag: 'wx' });
       }
@@ -90,7 +95,6 @@ async function copyVerified(backupDir: string, target: string, manifest: any) {
       await writeFile(join(target, part.path), bytes, { mode: 0o600, flag: 'wx' });
     }
   }
-  await writeFile(join(target, 'workspace', RESTORE_ISOLATION_FILE), JSON.stringify({ version: 1, state: 'isolated', backupDir, createdAt: new Date().toISOString(), reason: '恢复演练副本；禁止业务执行。' }), { mode: 0o600 });
   await writeFile(join(target, 'backup-manifest.json'), JSON.stringify(manifest, null, 2), { mode: 0o600 });
 }
 
@@ -108,15 +112,25 @@ function closure(records: Record<string, Record<string, any>[]>) {
   relation('skill_version', 'skill_id', 'skill_entry');
   relation('skill_entry', 'draft_version', 'skill_version'); relation('skill_entry', 'active_version', 'skill_version');
   relation('skill_run', 'work_item_id', 'work_item'); relation('worker_run', 'work_item_id', 'work_item');
-  for (const table of ['skill_run_session', 'skill_run_input', 'skill_run_call', 'skill_run_control', 'skill_run_resume']) relation(table, 'run_id', 'skill_run');
+  for (const table of ['skill_run_session', 'skill_run_input', 'skill_run_call', 'skill_run_resume', 'skill_run_native', 'skill_run_review']) relation(table, 'run_id', 'skill_run');
   for (const table of ['worker_run_input', 'worker_run_call']) relation(table, 'run_id', 'worker_run');
   relation('work_change', 'work_item_id', 'work_item');
   relation('work_item', 'parent_work_item_id', 'work_item');
   relation('work_item', 'active_skill_run_id', 'skill_run'); relation('work_item', 'active_worker_run_id', 'worker_run');
   for (const table of ['plan_trigger', 'task_plan_run_outcome', 'task_plan_notice', 'task_plan_delivery']) relation(table, 'run_id', 'skill_run');
-  for (const table of ['plan_trigger', 'task_plan_block', 'task_plan_run_outcome', 'task_plan_notice', 'task_plan_migration', 'skill_run']) relation(table, 'plan_id', 'digest_plan');
+  for (const table of ['plan_trigger', 'task_plan_block', 'task_plan_run_outcome', 'task_plan_notice', 'task_plan_migration', 'skill_run', 'skill_plan_block']) relation(table, 'plan_id', 'digest_plan');
   relation('task_plan_delivery', 'notice_id', 'task_plan_notice');
   for (const table of ['task_plan_delivery', 'task_plan_delivery_change']) relation(table, 'outbox_id', 'outbox');
+  const runs = new Map([...rows('skill_run'), ...rows('worker_run')].map(row => [row.id, row]));
+  for (const table of ['skill_run_control', 'run_diagnostic', 'budget_request', 'budget_wait', 'budget_release']) for (const row of rows(table)) {
+    const run = runs.get(row.run_id);
+    if (!run) { errors.push(`${table}.run_id 引用缺失：${row.run_id}`); continue; }
+    if (row.work_item_id && row.work_item_id !== run.work_item_id) errors.push(`${table} 交办归属不符：${row.run_id}`);
+    if (row.session_id && row.session_id !== run.session_id && !rows('skill_run_session').some(session => session.run_id === run.id && session.session_id === row.session_id)) errors.push(`${table} 会话归属不符：${row.run_id}`);
+  }
+  for (const work of rows('work_item')) for (const id of [work.active_skill_run_id, work.active_worker_run_id].filter(Boolean)) {
+    if (runs.get(id)?.work_item_id !== work.id) errors.push(`交办当前运行归属不符：${work.id}`);
+  }
   for (const decision of rows('review_decision')) {
     const version = rows('note_version').find(row => row.id === decision.version_id);
     if (version && (version.note_id !== decision.note_id || version.fingerprint !== decision.fingerprint)) errors.push(`审核凭证与版本不一致：${decision.id}`);
@@ -130,13 +144,34 @@ function closure(records: Record<string, Record<string, any>[]>) {
 
 function sessionReferences(records: Record<string, Record<string, any>[]>, sourceRoot: string) {
   const refs = new Map<string, BackupSessionReference>();
-  const add = (id: unknown, parent?: string) => { if (typeof id === 'string' && id) refs.set(id, { ...refs.get(id), id, ...(parent ? { parent } : {}), cwd: sourceRoot }); };
-  for (const row of records.workspace_state ?? []) { add(row.local_session_id); add(row.feishu_session_id); }
-  for (const row of records.work_item ?? []) { add(row.parent_session_id); if (row.child_session_id && row.status !== 'queued' && !row.active_skill_run_id) add(row.child_session_id, row.parent_session_id); }
-  for (const row of records.skill_run ?? []) { add(row.source_session_id); if (!['pending', 'rejected'].includes(row.status)) add(row.session_id, row.mode === 'business' ? row.source_session_id : undefined); }
-  for (const row of records.skill_run_session ?? []) add(row.session_id, row.parent_id);
+  const add = (id: unknown, parent?: string | null) => {
+    if (typeof id !== 'string' || !id) return;
+    const prior = refs.get(id);
+    if (prior?.parent !== undefined && parent !== undefined && prior.parent !== parent) throw new Error(`会话父子记录冲突：${id}`);
+    refs.set(id, { ...prior, id, ...(parent !== undefined ? { parent } : {}), cwd: sourceRoot });
+  };
+  const nativeSkill = (run: Record<string, any>) => run.mode !== 'template' && (
+    ['running', 'waiting', 'needs_reconciliation'].includes(run.status)
+    || (records.skill_run_input ?? []).some(row => row.run_id === run.id && row.accepted)
+    || (records.skill_run_call ?? []).some(row => row.run_id === run.id)
+    || (records.skill_run_native ?? []).some(row => row.run_id === run.id));
+  for (const row of records.workspace_state ?? []) { add(row.local_session_id, null); add(row.feishu_session_id, null); }
+  for (const row of records.work_item ?? []) {
+    add(row.parent_session_id);
+    if (row.child_session_id && row.status !== 'queued' && !row.active_skill_run_id && !row.active_worker_run_id) add(row.child_session_id, row.parent_session_id);
+  }
+  for (const run of records.skill_run ?? []) {
+    add(run.source_session_id);
+    if (nativeSkill(run)) add(run.session_id, run.mode === 'business' ? run.source_session_id : null);
+  }
+  for (const row of records.skill_run_session ?? []) {
+    const run = records.skill_run?.find(run => run.id === row.run_id);
+    if (run && run.mode !== 'template' && (row.session_id !== run.session_id || nativeSkill(run))) add(row.session_id, row.parent_session_id);
+  }
   for (const row of records.worker_run ?? []) if (row.status !== 'rejected') {
-    const work = records.work_item?.find(item => item.id === row.work_item_id); add(row.session_id, work?.parent_session_id);
+    const work = records.work_item?.find(item => item.id === row.work_item_id);
+    if (row.snapshot?.executor === 'material-action') add(row.session_id);
+    else add(row.session_id, work?.parent_session_id);
   }
   for (const row of records.material_read_evidence ?? []) add(row.session_id);
   for (const row of records.note_material ?? []) add(row.source?.sessionId);
@@ -149,6 +184,12 @@ function reconciliation(records: Record<string, Record<string, any>[]>) {
     outbox: (records.outbox ?? []).filter(row => !['sent', 'cancelled', 'expired'].includes(row.status)).map(row => choose(row, ['id', 'dedup_key', 'channel', 'target', 'kind', 'status', 'message_id'])),
     operations: (records.action_operation ?? []).map(row => ({ ...choose(row, ['id', 'work_item_id', 'action', 'status']), target: row.params?._sourceTarget ?? row.params?._channel ?? null, receiptRecorded: Boolean(row.receipt) })),
     runs: [...records.skill_run ?? [], ...records.worker_run ?? []].filter(row => !['completed', 'failed', 'stopped', 'timed_out', 'rejected'].includes(row.status)).map(row => choose(row, ['id', 'work_item_id', 'session_id', 'status'])),
+    controls: (records.skill_run_control ?? []).map(row => choose(row, ['run_id', 'revision', 'state'])),
+    pendingCalls: [...records.skill_run_call ?? [], ...records.worker_run_call ?? []].filter(row => ['running', 'unknown'].includes(row.status)).map(row => choose(row, ['run_id', 'call_id', 'id', 'session_id', 'tool', 'status'])),
+    native: (records.skill_run_native ?? []).map(row => choose(row, ['run_id', 'kind', 'owner_id', 'native_id', 'end_data', 'recovery_data'])),
+    budget: { waiting: records.budget_wait ?? [], releases: (records.budget_release ?? []).map(row => choose(row, ['id', 'run_id', 'work_item_id', 'session_id', 'status', 'native_message_id'])) },
+    health: { identities: records.health_identity ?? [], tests: (records.health_test ?? []).map(row => choose(row, ['id', 'status', 'plan', 'result', 'cleanup'])) },
+    sources: records.source_registration ?? [],
     plans: (records.digest_plan ?? []).filter(row => !['deleted', 'disabled'].includes(row.status)).map(row => choose(row, ['id', 'kind', 'status', 'schedule_id', 'session_id', 'owner_enabled', 'recycled_at'])),
     triggers: (records.plan_trigger ?? []).filter(row => !['completed', 'skipped', 'cancelled'].includes(row.status)).map(row => choose(row, ['id', 'plan_id', 'run_id', 'status', 'occurrence'])),
     remoteObjects: [

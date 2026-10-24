@@ -60,7 +60,7 @@ async function legacyLedger(storage, path, { paths = [path], owners = ['owner-a'
 }
 
 describe.each(['sqlite', 'postgres'])('%s 历史账本与身份恢复', storage => {
-  it('联合备份的账本和身份可一起恢复，通过公开绑定检索原资料', async () => {
+  it('联合备份保持隔离；空外部队列人工切换后可通过公开绑定检索原资料', async () => {
     const f = await fixture({ env: { PA24_PG_DSN: pg.dsn } }); cleanups.push(f.cleanup);
     const path = await f.workspace('backup-source', { storage, ownerOpenId: 'owner-a' });
     await f.rt.bind(path); await savePrivateMemo(f.rt, f.agents);
@@ -85,6 +85,10 @@ describe.each(['sqlite', 'postgres'])('%s 历史账本与身份恢复', storage 
       await promisify(execFile)(join(process.env.PA24_PG_BIN || '/opt/homebrew/bin', 'psql'), ['--dbname', restoreDsn, '-v', 'ON_ERROR_STOP=1', '-f', join(backup.backupDir, 'pa24.sql')]);
     }
     const restored = await fixture({ env: { PA24_PG_DSN: restoreDsn } }); cleanups.push(restored.cleanup);
+    await expect(restored.rt.bind(restoredPath)).rejects.toThrow('恢复隔离');
+    // This fixture has no pending remote actions, schedules or consumers.
+    // Simulate the separately authorized manual cutover after its checks.
+    await rm(join(restoredPath, '.24pa/restore-isolation.json'));
     await restored.rt.bind(restoredPath);
     expect(JSON.stringify(await findMemo(restored.rt, restored.agents))).toContain('只属于工作区 A');
   });

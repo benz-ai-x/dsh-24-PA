@@ -3,7 +3,7 @@ import { mkdir, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DshContext } from './host.js';
 
-export interface BackupSessionReference { id: string; parent?: string; cwd?: string }
+export interface BackupSessionReference { id: string; parent?: string | null; cwd?: string }
 
 /** Uses the installed native providers in an independent scope with no Agent,
  * controller, model, scheduler, transport or outbox consumer. */
@@ -38,7 +38,7 @@ export async function inspectBackupSessions(host: DshContext, directory: string,
         handle = await persistence.open(ref.id, 'read');
         if (handle.header.id !== ref.id || (ref.cwd && handle.header.cwd !== ref.cwd)) throw new Error('会话身份或原工作区路径不符');
         const parent = typeof handle.header.parentSession === 'string' ? handle.header.parentSession : handle.header.parentSession?.id;
-        if (ref.parent && parent !== ref.parent) throw new Error('父会话关系不符');
+        if (ref.parent !== undefined && (parent ?? null) !== ref.parent) throw new Error('父会话关系不符');
         formats.add(Number(handle.header.version));
         collect((await handle.read(0)).events);
         checked += 1;

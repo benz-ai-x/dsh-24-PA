@@ -69,6 +69,23 @@ for (const kind of ['sqlite', 'postgres']) describe(`M09 ${kind} durable records
     } finally { await native.close(); }
     expect((await f.db.query('select count(*) as n from pa24.memo')).rows[0].n).toBeTruthy();
   }, 180_000);
+  it('worker controls and budget ownership survive import; foreign owners fail even with valid file hashes', async () => {
+    const f = await fixture(kind);
+    await f.db.query("insert into pa24.work_item (id,title,role,instruction,origin,parent_session_id,delivery,status) values ('w','work','memo','do it','local','parent','local','waiting_input')");
+    await f.db.query("insert into pa24.worker_run (id,work_item_id,session_id,source,status,instruction,snapshot) values ('worker-r','w','child','manual','waiting','do it','{}')");
+    await f.db.query("insert into pa24.skill_run_control (run_id,state) values ('worker-r',$1)", [JSON.stringify({ blocks: [{ kind: 'budget', key: 'budget:child' }] })]);
+    await f.db.query("insert into pa24.budget_wait (run_id,work_item_id,session_id,reason) values ('worker-r','w','child','limit')");
+    const good = await f.create();
+    const result = await inspectRecovery(f.context, good.backupDir, join(f.root, 'valid-owner'), false);
+    expect(result.steps.find(step => step.id === 'ledger').status).toBe('passed');
+    expect(result.steps.find(step => step.id === 'remote-reconciliation').evidence.budget.waiting[0].run_id).toBe('worker-r');
+    await f.db.query("update pa24.budget_wait set work_item_id = 'foreign'");
+    const broken = await f.create();
+    const failed = await inspectRecovery(f.context, broken.backupDir, join(f.root, 'wrong-owner'), false);
+    expect(failed.steps.find(step => step.id === 'ledger')).toMatchObject({ status: 'failed' });
+    expect(failed.steps.find(step => step.id === 'ledger').message).toContain('交办归属不符');
+    expect(failed.steps.find(step => step.id === 'remote-reconciliation').evidence).toBeUndefined();
+  }, 180_000);
   it('actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity', async () => {
     const f = await fixture(kind);
     await f.db.query("insert into pa24.note (id,title,status,origin) values ('n1','actual note','collecting','feishu')");
