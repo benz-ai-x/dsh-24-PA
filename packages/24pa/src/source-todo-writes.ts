@@ -1,6 +1,6 @@
 import { Temporal } from '@js-temporal/polyfill';
 import type { PaConfig } from './config.js';
-import { effectiveSources, selectSource, sourceScopeFingerprint } from './source-config.js';
+import { effectiveSources, selectSource, sourceScopeFingerprint, SourcePreparationError } from './source-config.js';
 import { sourceIdentityKey, type SourceRegistry, type SourceTarget } from './source-registry.js';
 import type { SourceTodo } from './source-todo.js';
 import type { SourceTodoReader, TodoPerson } from './source-todo-reader.js';
@@ -101,8 +101,13 @@ export class SourceTodoWrites {
       if (previous && (previous.params.sourceContract !== 1 || !previous.params.sourceTarget || previous.params.kind !== kind)) throw unknown('原待办操作使用不同恢复契约，不能按当前默认重建。');
       if (previous) this.validateRecovery(previous, args);
       if (previous && previous.params.requestHash !== requestHash && !this.sameIntent(args, previous.params)) throw unknown('原待办操作参数或授权已变化，请沿原对象明确修改，不能覆盖原创建。');
-      const params = previous?.params ?? { ...await this.prepare(kind, args), sourceContract: 1, requestHash, request,
-        ...(args._authorization as Record<string, unknown> ?? {}) };
+      let params: Record<string, any>;
+      if (previous) params = previous.params;
+      else {
+        try { params = await this.prepare(kind, args); }
+        catch (error) { throw new SourcePreparationError(error); }
+        params = { ...params, sourceContract: 1, requestHash, request, ...(args._authorization as Record<string, unknown> ?? {}) };
+      }
       const target = params.sourceTarget as SourceTarget;
       return this.deps.gate(`source-todo-object:${JSON.stringify([target.platform, target.identityKey, params.guid ?? target.resource.id])}`,
         () => this.writeFrozen(item, kind, id, params, previous));

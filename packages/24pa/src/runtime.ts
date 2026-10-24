@@ -67,7 +67,7 @@ import { SourceTodo } from './source-todo.js';
 import { SourceTodoWrites } from './source-todo-writes.js';
 import { SourceCalendar } from './source-calendar.js';
 import { SourceCalendarWrites } from './source-calendar-writes.js';
-import { effectiveSources, sourceConfigurationFingerprint } from './source-config.js';
+import { effectiveSources, sourceConfigurationFingerprint, SourcePreparationError } from './source-config.js';
 import { skillContract, skillHash, readSkillFile } from './skill-package.js';
 import { skillRequirements } from './skill-requirements.js';
 import { FeishuChannels, mapRemoteEvent, taskExternal, taskFingerprint } from './feishu-channels.js';
@@ -2456,23 +2456,30 @@ export class PaRuntime {
       if (!item || (item.status !== 'running' && !budgetWaiting) || (run && (run.mode !== 'business' || (run.status !== 'running' && !(run.status === 'waiting' && budgetWaiting)) || item.child_session_id !== agent.id))) {
         throw new Error('此会话不是运行中的 Worker，或事项已停止。');
       }
-      if (run) {
-        const action = String(args.action ?? '');
-        if (action === 'skill_resource') {
-          const path = String(args.resourcePath ?? '');
-          const bytes = readSkillFile(run.snapshot.package, path);
-          if (bytes.length > 65536 || bytes.includes(0)) throw new Error('后台静态资源读取只支持不超过 64 KiB 的文本文件。');
-          return { path, versionId: run.version_id, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+      try {
+        if (run) {
+          const action = String(args.action ?? '');
+          if (action === 'skill_resource') {
+            const path = String(args.resourcePath ?? '');
+            const bytes = readSkillFile(run.snapshot.package, path);
+            if (bytes.length > 65536 || bytes.includes(0)) throw new Error('后台静态资源读取只支持不超过 64 KiB 的文本文件。');
+            return { path, versionId: run.version_id, content: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+          }
+          if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
+          if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
+          const authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
+          return await this.skillBusinessAction(action)(authorized, item, this);
         }
-        if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
-        if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
-        const authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
-        return this.skillBusinessAction(action)(authorized, item, this);
+        const role = this.roles.get(item.role);
+        const handler = role?.actions[String(args.action ?? '')];
+        if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
+        return await handler(args, item, this);
+      } catch (error) {
+        if (!(error instanceof SourcePreparationError)) throw error;
+        const reason = `本次尚未提交平台写入，需补充或修复后继续：${error.message}`.slice(0, 2000);
+        const waiting = run ? await this.skillRuns.waitForInput(run, reason) : await this.workerRuns.wait(agent, reason);
+        return { ...(waiting as Record<string, unknown>), businessExecuted: false, reason, requested: args };
       }
-      const role = this.roles.get(item.role);
-      const handler = role?.actions[String(args.action ?? '')];
-      if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
-      return handler(args, item, this);
     });
   }
 

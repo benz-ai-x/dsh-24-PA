@@ -108,6 +108,37 @@ export class MemoryStore {
     });
   }
 
+  /** Strict integrity read for isolated recovery. Ordinary browsing may keep
+   * valid records visible despite damaged derived files; a backup check cannot. */
+  async verifyIntegrity() {
+    return this.enqueue(async () => {
+      const { file } = await this.read();
+      const targets = await this.ensureTargets();
+      let changesets = 0, auditEntries = 0;
+      const object = (value: unknown) => !!value && typeof value === 'object' && !Array.isArray(value);
+      for (const name of (await readdir(targets.changesets)).filter(name => name.endsWith('.json'))) {
+        try {
+          const cs = JSON.parse(await readFile(join(targets.changesets, name), 'utf8')) as AppliedChangeset;
+          if (!object(cs) || typeof cs.id !== 'string' || !Array.isArray(cs.changes)
+            || !object(cs.before) || !object(cs.after) || !Number.isInteger(cs.resultingRevision)
+            || cs.changes.some(change => !object(change) || typeof change.op !== 'string')) throw new Error('invalid changeset');
+          changesets++;
+        } catch { throw new MemoryError(`记忆修订文件 ${name} 损坏或结构不完整。`); }
+      }
+      const raw = await readFile(targets.log, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+      for (const [index, line] of raw.split('\n').entries()) {
+        if (!line.trim()) continue;
+        try { if (!object(JSON.parse(line))) throw new Error('invalid audit'); }
+        catch { throw new MemoryError(`记忆审计第 ${index + 1} 行损坏或结构不完整。`); }
+        auditEntries++;
+      }
+      const tracked = await this.trackedRevision(file);
+      if (tracked === 'changed') throw new MemoryError('记忆 JSON 与已记录修订不一致；请核对手工变化。');
+      if (file.lastMutationId && tracked === 'untracked') throw new MemoryError('记忆最近修订的凭证缺失，不能确认完整性。');
+      return { revision: file.revision, changesets, auditEntries, trackedRevision: tracked };
+    });
+  }
+
   private async trackedRevision(file: MemoryFile): Promise<'tracked' | 'changed' | 'untracked'> {
     if (!file.lastMutationId) return 'untracked';
     const targets = await this.ensureTargets();

@@ -150,6 +150,27 @@ it('corrupt current JSON and pending audit block restoration; existing or source
   expect(await readFile(join(f.root, 'existing/keep'), 'utf8')).toBe('safe');
 });
 
+it.each(['changeset', 'audit', 'changed', 'missing-proof'])('memory integrity rejects %s even without tombstones; source and backup remain untouched', async damage => {
+  const f = await fixture(), store = new MemoryStore(f.sources.workspace, { fs });
+  await store.put(record('kept'), opts(0));
+  const dir = join(f.sources.workspace, '.24pa'), history = join(dir, 'changesets');
+  if (damage === 'changeset') await writeFile(join(history, (await readdir(history))[0]), '{broken');
+  if (damage === 'audit') await writeFile(join(dir, 'memory-log.jsonl'), '{broken');
+  if (damage === 'missing-proof') await rm(join(history, (await readdir(history))[0]));
+  if (damage === 'changed') {
+    const file = JSON.parse(await readFile(join(dir, 'memory.json'), 'utf8'));
+    file.records[0].content = 'manual change with unchanged revision';
+    await writeFile(join(dir, 'memory.json'), JSON.stringify(file));
+  }
+  const before = await readFile(join(dir, 'memory.json')), created = await f.create();
+  const result = await inspectRecovery(f.context, created.backupDir, join(f.root, 'corrupt-memory'), false);
+  expect(result.steps.find(step => step.id === 'files').status).toBe('passed');
+  expect(result.steps.find(step => step.id === 'memory')).toMatchObject({ status: 'failed' });
+  expect(result.complete).toBe(false); expect(result.productionReady).toBe(false);
+  expect(await readFile(join(dir, 'memory.json'))).toEqual(before);
+  expect(await readFile(join(created.backupDir, 'workspace/.24pa/memory.json'))).toEqual(before);
+});
+
 it('PG dump meta-command and server-program escape attempts fail in isolated restricted import', async () => {
   const f = await fixture('postgres'), created = await f.create();
   const file = join(created.backupDir, 'pa24.sql');

@@ -91,7 +91,13 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false }
       } else if (tools.includes('pa24_work')) {
         const handoff = isContinuation && script.workerFollowupAction &&
           (last.content ?? []).some(block => block.type === 'tool_result' && JSON.stringify(block.content).includes('agentTrack'));
-        step = handoff
+        // A waiting tool result reaches the model only after owner input.
+        // Script the deliberate retry after that input, not an automatic retry.
+        const sourceReady = isContinuation && script.workerAfterPreparation &&
+          (last.content ?? []).some(block => block.type === 'tool_result' && JSON.stringify(block.content).includes('businessExecuted'));
+        step = sourceReady
+          ? { tool: { name: 'pa24_work', input: script.workerAfterPreparation } }
+          : handoff
           ? { tool: { name: 'pa24_work', input: script.workerFollowupAction } }
           : isContinuation
           ? { text: script.workerReply ?? '已完成。' }

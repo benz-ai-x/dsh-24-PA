@@ -269,7 +269,8 @@ export async function inspectRecovery(context: RestoreContext, backupDir: string
     const before = await memoryAt(workspace);
     const checked = await store.search({});
     if (checked.auditWarning) throw new Error(checked.auditWarning);
-    let evidence: Record<string, unknown> = { backupRevision: before.file.revision, records: before.file.records.length, tombstones: before.file.tombstones?.length ?? 0 };
+    const integrity = await store.verifyIntegrity();
+    let evidence: Record<string, unknown> = { backupRevision: before.file.revision, records: before.file.records.length, tombstones: before.file.tombstones?.length ?? 0, integrity };
     if (mergeMemory) {
       const current = await currentMemoryEvidence(context.workspace);
       const currentPreview = await previewRestore(context, backupDir);
@@ -278,6 +279,7 @@ export async function inspectRecovery(context: RestoreContext, backupDir: string
       await writeFile(join(workspace, '.24pa/memory.json'), JSON.stringify(plan.file, null, 2) + '\n', { mode: 0o600 });
       const cleaned = await store.search({});
       if (cleaned.auditWarning) throw new Error(cleaned.auditWarning);
+      await store.verifyIntegrity();
       // Existing cleanup owns derived history. Reading every protected record
       // proves malformed history didn't silently bypass deletion protection.
       for (const row of plan.file.tombstones ?? []) await store.history(row.id);

@@ -35,6 +35,15 @@ export class SourceError extends Error {
   constructor(message: string) { super(message); this.name = 'SourceError'; }
 }
 
+/** Raised only while preparing a new source write, before any business
+ * operation is staged or dispatched. Existing/unknown operations never use it. */
+export class SourcePreparationError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'SourcePreparationError';
+  }
+}
+
 function record(value: unknown, path: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SourceError(`${path} 必须为对象。`);
   return value as Record<string, unknown>;

@@ -30,15 +30,15 @@ const saveSources = async value => {
   await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, expectedSourcesHash: before.configHash, config: { sources: value } });
   await ready();
 };
-const work = async (action, entry = 'local', instruction = '本人明确委托办理本次日程') => {
+const work = async (action, entry = 'local', instruction = '本人明确委托办理本次日程', expectedStatus = 'completed') => {
   const title = `M03-${randomUUID()}`, before = llm.requests.length;
   await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker: action.action.startsWith('reminder_') ? 'reminders' : 'calendar', title, instruction }, workerAction: action,
     workerReply: '本次工具返回已记录，请按实际回执汇报。', leadReply: '委托已接纳。' }));
   if (entry === 'local') await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: localSessionId, mode: 'queue', content: [{ type: 'text', text: instruction }], clientTimeZone: zone } });
   else await host.api('action', { type: 'test.inject', event: { eventId: randomUUID(), senderOpenId: 'ou_test_owner', appId: 'cli_test_app', chatType: 'p2p', text: instruction } });
-  const snapshot = await host.waitUntil(s => s.work.some(row => row.title === title && ['completed', 'failed', 'needs_reconciliation'].includes(row.status)), { label: title, timeoutMs: 60000 });
+  const snapshot = await host.waitUntil(s => s.work.some(row => row.title === title && ['completed', 'failed', 'needs_reconciliation', 'waiting_input'].includes(row.status)), { label: title, timeoutMs: 60000 });
   const row = snapshot.work.find(row => row.title === title);
-  expect(row.status, JSON.stringify(row)).toBe('completed');
+  expect(row.status, JSON.stringify(row)).toBe(expectedStatus);
   const receipt = llm.requests.slice(before).filter(r => r.tools.includes('pa24_work')).flatMap(r => r.toolResults).join('\n').replaceAll('\\"', '"');
   return { row, receipt };
 };
@@ -118,8 +118,26 @@ it('换默认后仍修改原日程；仅取消本人提醒保留会议，缺权�
   await work({ action: 'calendar_reminders', eventId: created.event_id, reminderMinutes: [] });
   expect((await latestEvents()).find(row => row.event_id === created.event_id)).toMatchObject({ status: 'active', reminders: [] });
   config.entries.find(row => row.id === 'personal').access = 'read'; await saveSources(config);
-  const before = (await latestEvents()).length, refused = await work({ action: 'calendar_create', sourceId: 'personal', start: at('17:00') });
-  expect(refused.receipt).toContain('仅登记为读取'); expect((await latestEvents()).length).toBe(before);
+  const before = (await latestEvents()).length, refused = await work({ action: 'calendar_create', sourceId: 'personal', start: at('17:00') }, 'local', '请在个人日历安排会议', 'waiting_input');
+  expect(refused.row.progress).toContain('仅登记为读取'); expect((await latestEvents()).length).toBe(before);
+  let detail;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    detail = await host.api('worker.run', { runId: refused.row.active_worker_run_id, workspaceBinding: binding });
+    if (detail.calls.length && detail.calls.every(call => call.status !== 'running')) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  expect(detail.calls).toHaveLength(1); expect(detail.calls[0].status).toBe('succeeded');
+  expect(JSON.stringify(detail.calls[0].result)).toContain('businessExecuted'); expect(detail.operations).toHaveLength(0);
+  config.entries.find(row => row.id === 'personal').access = 'readwrite'; await saveSources(config);
+  const continuationScript = JSON.parse(await readFile(scriptPath, 'utf8'));
+  continuationScript.workerAfterPreparation = continuationScript.workerAction;
+  await writeFile(scriptPath, JSON.stringify(continuationScript));
+  const latest = (await host.api('work.inspect', { workId: refused.row.id, workspaceBinding: binding })).work;
+  await host.api('action', { type: 'work.change', op: 'supplement', workspaceBinding: binding, workId: latest.id, expectedRevision: latest.revision,
+    requestId: randomUUID(), instruction: '个人日历写入权限已修复，请按原请求继续', confirm: true });
+  const resumed = await host.waitUntil(s => s.work.some(row => row.id === latest.id && row.status === 'completed'));
+  expect(resumed.work.find(row => row.id === latest.id).active_worker_run_id).toBe(refused.row.active_worker_run_id);
+  expect((await latestEvents()).length).toBe(before + 1);
 });
 
 it('单来源失败保留缓存并报告未完整，重启后普通浏览仍保留逐来源证据', async () => {

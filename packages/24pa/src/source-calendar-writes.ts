@@ -1,5 +1,5 @@
 import type { PaConfig } from './config.js';
-import { effectiveSources, selectSource, sourceScopeFingerprint } from './source-config.js';
+import { effectiveSources, selectSource, sourceScopeFingerprint, SourcePreparationError } from './source-config.js';
 import type { SourceRegistry, SourceTarget } from './source-registry.js';
 import type { SourceCalendarReader } from './source-calendar-reader.js';
 import type { Repos, WorkItemRow, ActionOperationRow } from './repo.js';
@@ -81,7 +81,8 @@ export class SourceCalendarWrites {
           || (!isCandidateOperation(id) && previous.params.requestHash !== requestHash && !this.sameIntent(args, previous.params))) throw unknown('原日程操作的参数或来源不一致，需先核对；不会改投当前默认来源。');
         params = previous.params;
       } else {
-        params = await this.prepare(kind, args);
+        try { params = await this.prepare(kind, args); }
+        catch (error) { throw new SourcePreparationError(error); }
         params = { ...params, sourceContract: 1, requestHash, request, ...(args._authorization as Record<string, unknown> ?? {}) };
       }
       const target = params.sourceTarget as SourceTarget;
