@@ -48,7 +48,7 @@ kind: "package-bundle"
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
 
 # dsh 0.2.1-alpha.2 – 0.2.1-rc.2 宿主（peer 覆盖这些基线；rc.2 为活跃发版线）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.2.9
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.3.1
 
 # alpha.2 – alpha.5 宿主也可固定停在 alpha 线（已冻结于 0.2.1-alpha.5.1；preset 内容相同，仅 engines/peer 扩围与文档差异）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
