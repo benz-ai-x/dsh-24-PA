@@ -54,6 +54,14 @@ window.__ModuleLoader__.load({
       tasks: ['M10 6h11M10 12h11M10 18h11', 'm2 5 2 2 3-4m-5 8 2 2 3-4m-5 8 2 2 3-4'],
       plug: ['M8 2v5m8-5v5M6 7h12v4a6 6 0 0 1-12 0ZM12 17v5'],
       pulse: ['M2 12h4l3-8 6 16 3-8h4'],
+      calendarClock: ['M8 2v4m8-4v4M3 9h13M5 4h14a2 2 0 0 1 2 2v6', 'M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', 'M17 14.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9ZM17 16v2l1.5 1.5'],
+      plus: ['M12 5v14M5 12h14'],
+      sunrise: ['M12 2v4M4.93 6.93l1.42 1.42M2 16h2m16 0h2M17.66 8.35l1.41-1.42M8 16a4 4 0 0 1 8 0M2 20h22'],
+      sunset: ['M12 6V2M4.93 10.93l1.42 1.42M2 16h2m16 0h2M17.66 12.35l1.41-1.42M8 16a4 4 0 0 1 8 0M2 20h22'],
+      calendarRange: ['M3 4h18v17H3ZM8 2v4m8-4v4M3 9h18M7 13h4m2 0h4M7 17h2m6 0h2'],
+      play: ['m8 5 11 7-11 7Z'],
+      pause: ['M9 5v14M15 5v14'],
+      history: ['M3 12a9 9 0 1 0 3-6.7L3 8', 'M3 3v5h5M12 7v5l3 2'],
       refresh: ['M20 7a8 8 0 0 0-14-2L3 8m0-5v5h5M4 17a8 8 0 0 0 14 2l3-3m0 5v-5h-5'],
       check: ['m5 12 4 4L19 6'],
       clock: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 7v5l3 2'],
@@ -140,6 +148,10 @@ window.__ModuleLoader__.load({
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
       .pa24-source-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}.pa24-source-fields label{display:flex;flex-direction:column;gap:5px;min-width:0}.pa24-sources input,.pa24-sources select{max-width:100%;box-sizing:border-box}.pa24-sources .pa24-check input{width:18px;flex:0 0 18px}.pa24-source-save{position:sticky;bottom:72px;background:var(--pa-surface);border-top:1px solid var(--pa-line);padding:12px 0;margin-top:16px;z-index:2}.pa24-source-save p{margin:6px 0 0}.pa24-sources .pa24-job{overflow-wrap:anywhere}
       .pa24-form-actions{position:sticky;bottom:0;z-index:2;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-top:16px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface);box-shadow:0 -4px 14px color-mix(in srgb,var(--pa-ink) 9%,transparent)}
+      .pa24-plan-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.pa24-plan-metric{display:flex;align-items:flex-start;gap:10px;min-width:0;padding:12px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface)}.pa24-plan-metric strong{display:block;font-size:17px;line-height:1.35;font-variant-numeric:tabular-nums}.pa24-plan-metric small{display:block;margin-top:4px;color:var(--pa-muted);font-size:11px;line-height:1.5}.pa24-plan-metric .pa24-icon-tile{width:32px;height:32px;border-radius:9px}.pa24-plan-metric .pa24-icon-tile svg{width:16px;height:16px}
+      .pa24-plan-list{padding:0 14px}.pa24-plan-row{display:grid;grid-template-columns:minmax(190px,1.4fr) minmax(145px,1fr) minmax(155px,1fr) minmax(92px,.55fr) minmax(170px,1.1fr);gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--pa-line)}.pa24-plan-row:last-child{border-bottom:0}.pa24-plan-row.pa24-plan-header{padding:8px 0;color:var(--pa-muted);font-size:11px}.pa24-plan-main{min-width:0}.pa24-plan-main>button{padding:0;min-height:0;border:0;background:transparent;color:var(--pa-blue);font-weight:650;text-align:left}.pa24-plan-cell{min-width:0;font-size:12px;overflow-wrap:anywhere}.pa24-plan-cell-label{display:block;margin-bottom:2px;color:var(--pa-muted);font-size:11px}
+      .pa24-form-section{padding:2px 0 14px;margin-bottom:16px;border-bottom:1px solid var(--pa-line)}.pa24-form-section-title{display:flex;align-items:center;gap:8px;margin-bottom:10px}.pa24-form-section-title>svg{color:var(--pa-blue)}
+      @container(max-width:880px){.pa24-plan-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-plan-row{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}.pa24-plan-row.pa24-plan-header{display:none}}
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
       @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24-form-row{grid-template-columns:1fr;gap:4px;padding:10px 0}.pa24 h1{font-size:19px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}.pa24-form-actions{gap:8px;padding:10px 12px}.pa24-form-actions>.pa24-meta{display:none}}
@@ -1370,7 +1382,7 @@ window.__ModuleLoader__.load({
               h('p', null, auth.delivery ? L('固定投递给主人：', 'Fixed owner delivery: ') + auth.delivery.channel + ' · ' + auth.delivery.target : L('结果仅保存', 'Save results only'))),
             value.nextTimes?.length > 0 && h('div', null, h('strong', null, L('未来触发时间', 'Upcoming occurrences') + (timeZone ? ' · ' + timeZone : '')), value.nextTimes.map(at => h('p', { key: at, className: 'pa24-meta' }, date(at, timeZone || 'UTC')))));
         }
-        function TaskPlanForm({ form, setForm, catalog, binding, config, busy, onPreview, onSave, draft, refreshTick }) {
+        function TaskPlanForm({ form, setForm, catalog, binding, config, busy, onPreview, onSave, onDiscard, draft, refreshTick }) {
           const [skill, setSkill] = React.useState(null), [error, setError] = React.useState('');
           React.useEffect(() => {
             const abort = new AbortController(); setSkill(null); setError('');
@@ -1387,44 +1399,50 @@ window.__ModuleLoader__.load({
           try { const parsed = JSON.parse(form.parametersText); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) parameters = parsed; } catch {}
           const parameterFields = skill?.metadata?.pa24?.parameters || (skill?.type === 'template' ? { title: { type: 'string', description: L('结果标题', 'Result title') } } : {});
           return h('fieldset', { className: 'pa24-card', disabled: busy }, h('legend', null, form.id ? L('编辑暂停的计划', 'Edit paused plan') : L('新建定时任务', 'New scheduled task')),
-            field(L('名称', 'Name'), text(form.title, value => set('title', value), { maxLength: 120 })),
-            field('Skill', options(form.skillId, value => setForm({ ...form, skillId: value, parametersText: '{}' }), [['', L('选择任务或模板', 'Choose a task or template')], ...(catalog?.entries || []).filter(entry => ['task', 'template'].includes(entry.type)).map(entry => [entry.id, entry.name + ' · ' + (entry.source === 'builtin' ? L('内置原件', 'Built-in') : entry.source === 'managed' ? L('受管', 'Managed') : L('工作区', 'Workspace'))])])),
-            error && h('p', { role: 'alert', className: 'pa24-error' }, error),
-            Object.entries(parameterFields).map(([name, definition]) => field(name + (definition.required ? ' *' : '') + (definition.description ? ' · ' + definition.description : ''),
-              h('input', { type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text',
-                ...(definition.type === 'boolean' ? { checked: parameters?.[name] ?? definition.default ?? false } : { value: parameters?.[name] ?? definition.default ?? '', step: definition.type === 'integer' ? 1 : 'any' }),
-                disabled: !parameters, onChange: event => { const value = definition.type === 'boolean' ? event.target.checked : ['integer', 'number'].includes(definition.type) ? Number(event.target.value) : event.target.value;
-                  set('parametersText', JSON.stringify({ ...parameters, [name]: value }, null, 2)); } }))),
-            !parameters && h('p', { role: 'alert' }, L('参数 JSON 必须是有效对象；修正后可继续编辑参数字段。', 'Parameters must be a valid JSON object before editing fields.')),
-            h('details', null, h('summary', null, L('全部参数 JSON', 'All parameters as JSON')), field(L('参数对象', 'Parameter object'), h('textarea', { rows: 4, value: form.parametersText, onChange: event => set('parametersText', event.target.value) }))),
-            field(L('时间规则', 'Timing rule'), options(form.timing.type, value => timing('type', value), [['once', L('一次性', 'Once')], ['daily', L('每天', 'Daily')], ['weekdays', L('周一至周五', 'Monday–Friday')], ['weekly', L('每周', 'Weekly')], ['monthly', L('每月', 'Monthly')], ['interval', L('间隔', 'Interval')], ['advanced', L('高级规则', 'Advanced')]])),
-            field(L('时区', 'Time zone'), text(form.timeZone, value => set('timeZone', value))),
-            form.timing.type === 'once' && field(L('日期时间（按上方时区，可输入 ISO 偏移）', 'Date and time (zone above, or ISO offset)'), text(form.timing.at, value => timing('at', value), { placeholder: '2026-11-01T09:00:00' })),
-            ['daily', 'weekdays', 'weekly', 'monthly'].includes(form.timing.type) && field(L('时刻', 'Time'), text(form.timing.time || '09:00:00', value => timing('time', value.length === 5 ? value + ':00' : value), { type: 'time', step: 60 })),
-            form.timing.type === 'weekly' && h('fieldset', { className: 'pa24-note' }, h('legend', null, L('每周哪些天', 'Weekdays')), [1, 2, 3, 4, 5, 6, 7].map(day => field(L('星期' + '一二三四五六日'[day - 1], ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][day - 1]), h('input', { type: 'checkbox', checked: (form.timing.weekdays || []).includes(day), onChange: event => timing('weekdays', event.target.checked ? [...(form.timing.weekdays || []), day].sort() : form.timing.weekdays.filter(value => value !== day)) })))),
-            form.timing.type === 'monthly' && field(L('每月几日（无该日则跳过）', 'Day of month (skip missing dates)'), text(form.timing.day || 1, value => timing('day', Number(value)), { type: 'number', min: 1, max: 31 })),
-            form.timing.type === 'interval' && field(L('间隔秒数（至少 60 秒）', 'Interval seconds (minimum 60)'), text(form.timing.seconds || 3600, value => timing('seconds', Number(value)), { type: 'number', min: 60 })),
-            form.timing.type === 'advanced' && field(L('Cron 表达式', 'Cron expression'), text(form.timing.expression, value => timing('expression', value), { placeholder: '0 9 * * 1-5' })),
-            field(L('累计执行时限（分钟，等待不计入）', 'Execution limit (minutes, waits excluded)'), text(form.executionLimitMs / 60000, value => set('executionLimitMs', Number(value) * 60000), { type: 'number', min: 1 / 60, max: 1440, step: 'any' })),
-            field(L('结果投递', 'Delivery'), options(form.delivery.channel, value => delivery('channel', value), [['none', L('仅保存', 'Save only')], ['feishu', L('飞书主人', 'Feishu owner')], ['wecom', L('企微主人', 'WeCom owner')]])),
-            field(L('通知条件', 'Notify when'), options(form.delivery.mode, value => delivery('mode', value), [['always', L('每次完成', 'Every completion')], ['changed', L('结果正文变化', 'Result text changes')], ['errors', L('仅异常或需处理', 'Errors or attention only')]])),
-            form.delivery.channel === 'feishu' && field(L('语音并附完整文本', 'Voice plus full text'), h('input', { type: 'checkbox', checked: form.delivery.voice, onChange: event => delivery('voice', event.target.checked) })),
-            field(L('我明确预约此时投递，可覆盖免打扰', 'Deliver at my reserved time, overriding quiet hours'), h('input', { type: 'checkbox', checked: form.delivery.overrideQuiet, onChange: event => delivery('overrideQuiet', event.target.checked) })),
-            h('details', null, h('summary', null, L('业务写入目标', 'Business write targets')), h('p', { className: 'pa24-meta' }, L('不填时在启用核验时使用默认选择；确认后固定资源。', 'Blank uses the default during verification; confirmation pins the resource.')),
-              ['calendar', 'todo'].map(domain => {
-                const label = domain === 'calendar' ? L('日历', 'Calendar') : L('待办', 'Task');
-                const selection = (key, value) => { const selectors = { ...form.selectors }, current = { ...selectors[domain] }; if (value.trim()) current[key] = value; else delete current[key];
-                  if (Object.keys(current).length) selectors[domain] = current; else delete selectors[domain]; set('selectors', selectors); };
-                return h('fieldset', { key: domain }, h('legend', null, label),
-                  field(label + L('来源', ' source'), options(form.selectors?.[domain]?.sourceId || '', value => selection('sourceId', value), [['', L('按公司／项目或默认来源', 'Use company/project or default')], ...(config?.sources?.entries || []).filter(entry => entry.domain === domain).map(entry => [entry.id, entry.name])])),
-                  field(label + L('公司', ' company'), text(form.selectors?.[domain]?.company, value => selection('company', value))),
-                  field(label + L('项目', ' project'), text(form.selectors?.[domain]?.project, value => selection('project', value))));
-              })),
+            h('section', { className: 'pa24-form-section' }, h('h3', { className: 'pa24-form-section-title' }, icon('note'), L('任务内容', 'Task content')),
+              field(L('名称', 'Name'), text(form.title, value => set('title', value), { maxLength: 120 })),
+              field('Skill', options(form.skillId, value => setForm({ ...form, skillId: value, parametersText: '{}' }), [['', L('选择任务或模板', 'Choose a task or template')], ...(catalog?.entries || []).filter(entry => ['task', 'template'].includes(entry.type)).map(entry => [entry.id, entry.name + ' · ' + (entry.source === 'builtin' ? L('内置原件', 'Built-in') : entry.source === 'managed' ? L('受管', 'Managed') : L('工作区', 'Workspace'))])])),
+              error && h('p', { role: 'alert', className: 'pa24-error' }, error),
+              Object.entries(parameterFields).map(([name, definition]) => field(name + (definition.required ? ' *' : '') + (definition.description ? ' · ' + definition.description : ''),
+                h('input', { type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text',
+                  ...(definition.type === 'boolean' ? { checked: parameters?.[name] ?? definition.default ?? false } : { value: parameters?.[name] ?? definition.default ?? '', step: definition.type === 'integer' ? 1 : 'any' }),
+                  disabled: !parameters, onChange: event => { const value = definition.type === 'boolean' ? event.target.checked : ['integer', 'number'].includes(definition.type) ? Number(event.target.value) : event.target.value;
+                    set('parametersText', JSON.stringify({ ...parameters, [name]: value }, null, 2)); } }))),
+              !parameters && h('p', { role: 'alert' }, L('参数 JSON 必须是有效对象；修正后可继续编辑参数字段。', 'Parameters must be a valid JSON object before editing fields.')),
+              h('details', null, h('summary', null, L('全部参数 JSON', 'All parameters as JSON')), field(L('参数对象', 'Parameter object'), h('textarea', { rows: 4, value: form.parametersText, onChange: event => set('parametersText', event.target.value) })))),
+            h('section', { className: 'pa24-form-section' }, h('h3', { className: 'pa24-form-section-title' }, icon('calendarClock'), L('时间规则', 'Timing')),
+              field(L('时间规则', 'Timing rule'), options(form.timing.type, value => timing('type', value), [['once', L('一次性', 'Once')], ['daily', L('每天', 'Daily')], ['weekdays', L('周一至周五', 'Monday–Friday')], ['weekly', L('每周', 'Weekly')], ['monthly', L('每月', 'Monthly')], ['interval', L('间隔', 'Interval')], ['advanced', L('高级规则', 'Advanced')]])),
+              field(L('时区', 'Time zone'), text(form.timeZone, value => set('timeZone', value))),
+              form.timing.type === 'once' && field(L('日期时间（按上方时区，可输入 ISO 偏移）', 'Date and time (zone above, or ISO offset)'), text(form.timing.at, value => timing('at', value), { placeholder: '2026-11-01T09:00:00' })),
+              ['daily', 'weekdays', 'weekly', 'monthly'].includes(form.timing.type) && field(L('时刻', 'Time'), text(form.timing.time || '09:00:00', value => timing('time', value.length === 5 ? value + ':00' : value), { type: 'time', step: 60 })),
+              form.timing.type === 'weekly' && h('fieldset', { className: 'pa24-note' }, h('legend', null, L('每周哪些天', 'Weekdays')), [1, 2, 3, 4, 5, 6, 7].map(day => field(L('星期' + '一二三四五六日'[day - 1], ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][day - 1]), h('input', { type: 'checkbox', checked: (form.timing.weekdays || []).includes(day), onChange: event => timing('weekdays', event.target.checked ? [...(form.timing.weekdays || []), day].sort() : form.timing.weekdays.filter(value => value !== day)) })))),
+              form.timing.type === 'monthly' && field(L('每月几日（无该日则跳过）', 'Day of month (skip missing dates)'), text(form.timing.day || 1, value => timing('day', Number(value)), { type: 'number', min: 1, max: 31 })),
+              form.timing.type === 'interval' && field(L('间隔秒数（至少 60 秒）', 'Interval seconds (minimum 60)'), text(form.timing.seconds || 3600, value => timing('seconds', Number(value)), { type: 'number', min: 60 })),
+              form.timing.type === 'advanced' && field(L('Cron 表达式', 'Cron expression'), text(form.timing.expression, value => timing('expression', value), { placeholder: '0 9 * * 1-5' })),
+              field(L('累计执行时限（分钟，等待不计入）', 'Execution limit (minutes, waits excluded)'), text(form.executionLimitMs / 60000, value => set('executionLimitMs', Number(value) * 60000), { type: 'number', min: 1 / 60, max: 1440, step: 'any' }))),
+            h('section', { className: 'pa24-form-section' }, h('h3', { className: 'pa24-form-section-title' }, icon('check'), L('结果、投递与授权', 'Results, delivery and authorization')),
+              field(L('结果投递', 'Delivery'), options(form.delivery.channel, value => delivery('channel', value), [['none', L('仅保存', 'Save only')], ['feishu', L('飞书主人', 'Feishu owner')], ['wecom', L('企微主人', 'WeCom owner')]])),
+              field(L('通知条件', 'Notify when'), options(form.delivery.mode, value => delivery('mode', value), [['always', L('每次完成', 'Every completion')], ['changed', L('结果正文变化', 'Result text changes')], ['errors', L('仅异常或需处理', 'Errors or attention only')]])),
+              form.delivery.channel === 'feishu' && field(L('语音并附完整文本', 'Voice plus full text'), h('input', { type: 'checkbox', checked: form.delivery.voice, onChange: event => delivery('voice', event.target.checked) })),
+              field(L('我明确预约此时投递，可覆盖免打扰', 'Deliver at my reserved time, overriding quiet hours'), h('input', { type: 'checkbox', checked: form.delivery.overrideQuiet, onChange: event => delivery('overrideQuiet', event.target.checked) })),
+              h('details', null, h('summary', null, L('业务写入目标', 'Business write targets')), h('p', { className: 'pa24-meta' }, L('不填时在启用核验时使用默认选择；确认后固定资源。', 'Blank uses the default during verification; confirmation pins the resource.')),
+                ['calendar', 'todo'].map(domain => {
+                  const label = domain === 'calendar' ? L('日历', 'Calendar') : L('待办', 'Task');
+                  const selection = (key, value) => { const selectors = { ...form.selectors }, current = { ...selectors[domain] }; if (value.trim()) current[key] = value; else delete current[key];
+                    if (Object.keys(current).length) selectors[domain] = current; else delete selectors[domain]; set('selectors', selectors); };
+                  return h('fieldset', { key: domain }, h('legend', null, label),
+                    field(label + L('来源', ' source'), options(form.selectors?.[domain]?.sourceId || '', value => selection('sourceId', value), [['', L('按公司／项目或默认来源', 'Use company/project or default')], ...(config?.sources?.entries || []).filter(entry => entry.domain === domain).map(entry => [entry.id, entry.name])])),
+                    field(label + L('公司', ' company'), text(form.selectors?.[domain]?.company, value => selection('company', value))),
+                    field(label + L('项目', ' project'), text(form.selectors?.[domain]?.project, value => selection('project', value))));
+                }))),
             draft && h(PlanAuthorization, { value: draft, config }),
-            h('div', { className: 'pa24-row' }, h('button', { type: 'button', onClick: onPreview }, L('校验并预览时间', 'Validate and preview')), h('button', { type: 'button', disabled: !draft, onClick: onSave }, L('保存为暂停', 'Save paused'))));
+            h('div', { className: 'pa24-form-actions' },
+              h('button', { type: 'button', onClick: onPreview }, icon('calendarClock'), L('校验并预览时间', 'Validate and preview')),
+              h('button', { type: 'button', className: 'pa24-primary', disabled: !draft, onClick: onSave }, icon('check'), L('保存为暂停', 'Save paused')),
+              h('button', { type: 'button', className: 'pa24-quiet', onClick: onDiscard }, icon('close'), L('放弃草稿', 'Discard draft'))));
         }
         function TaskPlansDetail(helpers) {
-          const { state, config, tz, planStates, openCard, refresh } = helpers, binding = state.workspaceBinding;
+          const { state, extra, config, tz, planStates, openCard, refresh } = helpers, binding = state.workspaceBinding;
           const model = planRowState(planStates, 'task-manager:' + binding, {}), view = React.useSyncExternalStore(model.subscribe, model.getSnapshot);
           const [catalog, setCatalog] = React.useState(null), [catalogError, setCatalogError] = React.useState(''), [list, setList] = React.useState({ loading: true }), [detail, setDetail] = React.useState(null);
           const query = view.query || '', filter = view.filter || '', skillFilter = view.skillFilter || '', offset = view.offset || 0;
@@ -1473,28 +1491,44 @@ window.__ModuleLoader__.load({
             const form = formPayload(); if (save) await change({ ...form, op: 'save' }); else { model.update({ busy: true, error: '' }); const draft = await rpc('plans.draft', { ...form, workspaceBinding: binding }); if (draft.workspaceBinding === binding && model.getSnapshot().form === view.form) model.update({ draft }); }
           } catch (error) { model.update({ error: error.message }); } finally { if (!save) model.update({ busy: false }); } };
           const p = detail?.plan, selectedRow = list.data?.rows.find(row => row.id === p?.id), disabled = view.busy;
-          const button = (label, fn, extra = {}) => h('button', { key: label, type: 'button', disabled, onClick: () => void fn(), ...extra }, label);
+          const button = (label, fn, { name, ...extra } = {}) => h('button', { key: label, type: 'button', disabled, onClick: () => void fn(), ...extra }, name && icon(name), label);
+          const summary = extra.plans, summaryMetrics = summary ? [
+            ['calendarClock', 'blue', L('下一次运行', 'Next run'), summary.next ? date(summary.next.at, summary.next.timeZone || tz) : L('暂无已核验触发时间', 'No verified occurrence'), summary.next ? summary.next.title + ' · ' + (summary.next.timeZone || tz) : L('当前没有可核验触发', 'No verified schedule')],
+            ['play', 'green', L('启用', 'Enabled'), summary.enabled ?? 0, L('当前启用的计划', 'Enabled plans')],
+            ['pause', 'neutral', L('暂停 / 未启用', 'Paused / inactive'), summary.paused ?? 0, L('不进入未来触发', 'No future occurrences')],
+            ['alert', 'amber', L('需处理', 'Needs attention'), summary.blocked ?? 0, L('依赖、权限、预算或其他阻断', 'Dependency, permission, budget or other blockers')],
+          ] : [];
           return h('section', { className: 'pa24-manager' },
-            sectionHead('pulse', L('定时任务', 'Scheduled tasks'), L('时间 + Skill。保存、启用、单次执行和投递分别留档。', 'Time + skill. Configuration, activation, execution and delivery have separate records.'), button(L('新建计划', 'New plan'), () => fresh(null)), 'green'),
-            h('div', { className: 'pa24-row' }, ['morning', 'evening', 'weekly'].map(preset => button(({ morning: L('晨报预设', 'Morning preset'), evening: L('复盘预设', 'Evening preset'), weekly: L('周回顾预设', 'Weekly preset') })[preset], () => fresh(preset))), button(L('刷新', 'Refresh'), async () => { model.update({ tick: (view.tick || 0) + 1 }); await refresh().catch(() => {}); })),
+            sectionHead('calendarClock', L('定时任务', 'Scheduled tasks'), L('时间 + Skill。保存、启用、单次执行和投递分别留档。', 'Time + skill. Configuration, activation, execution and delivery have separate records.'), button(L('新建计划', 'New plan'), () => fresh(null), { name: 'plus', className: 'pa24-primary' }), 'green'),
+            summary && h('div', { className: 'pa24-plan-metrics' }, summaryMetrics.map(([name, tone, label, value, hint]) => h('div', { key: label, className: 'pa24-plan-metric' }, tile(name, tone), h('div', null, h('div', { className: 'pa24-plan-cell-label' }, label), h('strong', null, value), h('small', null, hint))))),
+            summary?.timingError && h('p', { role: 'alert', className: 'pa24-error' }, summary.timingError),
+            extra._errors?.plans && h('p', { role: 'alert', className: 'pa24-error' }, extra._errors.plans),
+            h('div', { className: 'pa24-row' }, ['morning', 'evening', 'weekly'].map(preset => button(({ morning: L('晨报预设', 'Morning preset'), evening: L('复盘预设', 'Evening preset'), weekly: L('周回顾预设', 'Weekly preset') })[preset], () => fresh(preset), { name: preset === 'morning' ? 'sunrise' : preset === 'evening' ? 'sunset' : 'calendarRange' })), button(L('刷新', 'Refresh'), async () => { model.update({ tick: (view.tick || 0) + 1 }); await refresh().catch(() => {}); }, { name: 'refresh' })),
             catalogError && h('p', { role: 'alert', className: 'pa24-error' }, catalogError),
             catalog && catalog.discovery !== 'complete' && h('p', { role: 'alert' }, catalog.discoveryError || L('Skill 目录读取不完整，请核验接入后刷新。', 'Skill discovery is incomplete; check access and refresh.')),
             view.error && h('p', { role: 'alert', className: 'pa24-error' }, view.error), view.note && h('p', { role: 'status' }, view.note),
-            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), draft: view.draft }),
-            view.form && button(L('放弃草稿并关闭编辑', 'Discard draft and close'), () => update({ form: null, draft: null })),
+            view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), onDiscard: () => update({ form: null, draft: null }), draft: view.draft }),
             h('div', { className: 'pa24-row' }, h('label', { className: 'pa24-field' }, L('搜索计划', 'Search plans'), h('input', { value: query, onChange: event => update({ query: event.target.value, offset: 0 }) })),
               h('label', { className: 'pa24-field' }, L('计划状态', 'Plan status'), h('select', { value: filter, onChange: event => update({ filter: event.target.value, offset: 0 }) }, [['', L('全部未回收', 'All unrecycled')], ['enabled', L('启用', 'Enabled')], ['paused', L('暂停', 'Paused')], ['blocked', L('需处理', 'Needs attention')], ['recycled', L('回收站', 'Recycle bin')]].map(([value, label]) => h('option', { key: value, value }, label)))),
               h('label', { className: 'pa24-field' }, L('按 Skill 筛选', 'Filter by skill'), h('select', { value: skillFilter, onChange: event => update({ skillFilter: event.target.value, offset: 0 }) }, h('option', { value: '' }, L('全部 Skill', 'All skills')), (catalog?.entries || []).map(entry => h('option', { key: entry.id, value: entry.id }, entry.name + ' · ' + entry.source))))),
             list.error && h('p', { role: 'alert', className: 'pa24-error' }, L('读取失败；保留上次读取结果：', 'Read failed; last results retained: ') + list.error),
             list.loading && h('p', { role: 'status' }, L('正在读取计划…', 'Reading plans…')),
-            list.data && h('div', { className: 'pa24-card' }, h('p', { className: 'pa24-meta' }, L('匹配计划 ', 'Matching plans: ') + list.data.total),
-              !list.data.rows.length && h('p', null, query || filter || skillFilter ? L('没有匹配的计划', 'No matching plans') : L('尚无计划，可新建或选择预设。', 'No plans. Create one or choose a preset.')),
-              list.data.rows.map(row => h('article', { key: row.id, className: 'pa24-job' }, button(row.title, () => update({ selected: row.id, form: null, draft: null }), { 'aria-pressed': row.id === view.selected }),
-                h('p', null, planStateLabel(row) + ' · ' + row.skill), h('p', null, planTimingLabel(row)), h('p', { className: 'pa24-meta' }, L('下次：', 'Next: ') + (row.nextTimes?.[0] ? date(row.nextTimes[0], row.task_config?.timeZone || tz) : L('暂无已核验触发时间', 'No verified occurrence'))),
-                row.timingError && h('p', { role: 'alert', className: 'pa24-error' }, row.timingError),
-                row.recentRun && h('p', { className: 'pa24-meta' }, L('最近执行：', 'Last execution: ') + runStatusLabel(row.recentRun.status) + ' · ' + deliveryLabel(row.recentRun.delivery_status)),
-                !row.task_config && h('p', { className: 'pa24-meta' }, L('旧计划：核验后沿原关联升级', 'Legacy plan: verify before adoption')))),
-              h('div', { className: 'pa24-row' }, button(L('上一页', 'Previous'), () => update({ offset: Math.max(0, offset - 20) }), { disabled: disabled || !offset }), button(L('下一页', 'Next'), () => update({ offset: offset + 20 }), { disabled: disabled || offset + 20 >= list.data.total }))),
+            list.data && h('div', { className: 'pa24-card pa24-plan-list' }, h('p', { className: 'pa24-meta' }, L('匹配计划 ', 'Matching plans: ') + list.data.total),
+              list.data.rows.length > 0 && h('div', { className: 'pa24-plan-row pa24-plan-header' }, h('span', null, L('计划 / Skill', 'Plan / skill')), h('span', null, L('时间规则', 'Timing')), h('span', null, L('下次运行', 'Next run')), h('span', null, L('状态', 'Status')), h('span', null, L('最近执行', 'Last execution'))),
+              !list.data.rows.length && h('p', null, query || skillFilter || (filter && filter !== 'recycled') ? L('没有匹配的计划', 'No matching plans') : filter === 'recycled' ? L('回收站为空', 'The recycle bin is empty') : L('尚无计划，可新建或选择预设。', 'No plans. Create one or choose a preset.')),
+              list.data.rows.map(row => h('article', { key: row.id, className: 'pa24-plan-row' },
+                h('div', { className: 'pa24-plan-main' }, button(row.title, () => update({ selected: row.id, form: null, draft: null }), { 'aria-pressed': row.id === view.selected }), h('p', { className: 'pa24-meta' }, row.skill)),
+                h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('时间规则', 'Timing')), planTimingLabel(row)),
+                h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('下次运行', 'Next run')), row.nextTimes?.[0] ? date(row.nextTimes[0], row.task_config?.timeZone || tz) : L('暂无已核验触发时间', 'No verified occurrence')),
+                h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('状态', 'Status')), planStateLabel(row),
+                  row.timingError && h('p', { role: 'alert', className: 'pa24-error' }, row.timingError),
+                  !row.task_config && h('p', { className: 'pa24-meta' }, L('旧计划：核验后沿原关联升级', 'Legacy plan: verify before adoption'))),
+                h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('最近执行', 'Last execution')), row.recentRun
+                  ? h(React.Fragment, null, runStatusLabel(row.recentRun.status),
+                    h('p', { className: 'pa24-meta' }, L('投递：', 'Delivery: ') + deliveryLabel(row.recentRun.delivery_status)),
+                    h('p', { className: 'pa24-meta' }, row.recentRun.created_at ? date(row.recentRun.created_at, tz) : L('时间未记录', 'Time not recorded')))
+                  : h('span', { className: 'pa24-meta' }, L('暂无执行', 'No executions'))))),
+              (list.data.total > 20 || offset > 0) && h('div', { className: 'pa24-row' }, button(L('上一页', 'Previous'), () => update({ offset: Math.max(0, offset - 20) }), { disabled: disabled || !offset }), button(L('下一页', 'Next'), () => update({ offset: offset + 20 }), { disabled: disabled || offset + 20 >= list.data.total }))),
             view.selected && !detail && h('p', { role: 'status' }, L('正在读取所选计划…', 'Reading selected plan…')),
             p && h('section', { className: 'pa24-card' }, h('h3', null, p.title), h('p', null, planStateLabel({ ...p, blocks: detail.blocks, skillBlock: selectedRow?.skillBlock })),
               h('p', { className: 'pa24-meta' }, L('主人选择：', 'Owner choice: ') + ((!p.task_config ? p.status === 'active' : p.owner_enabled) ? L('启用', 'Enabled') : L('暂停', 'Paused'))),
@@ -1509,7 +1543,8 @@ window.__ModuleLoader__.load({
                 p.task_config && !p.recycled_at && button(L('编辑配置', 'Edit configuration'), () => edit({ ...detail.form, id: p.id, expectedRevision: p.revision }), { disabled: disabled || p.status === 'active' || !!p.schedule_id || !!p.lifecycle }),
                 p.task_config && button(L('复制为新计划', 'Copy plan'), () => edit({ ...detail.form, title: p.title + L(' 副本', ' copy') })),
                 p.recycled_at && button(L('还原为暂停', 'Restore paused'), () => change({ op: 'restore', id: p.id, expectedRevision: p.revision })),
-                button(L('查看全部运行', 'View all runs'), () => helpers.openRuns({ planId: p.id, range: 'all' }))),
+                button(L('查看全部运行', 'View all runs'), () => helpers.openRuns({ planId: p.id, range: 'all' })),
+                detail.legacyHistory?.length > 0 && button(L('查看旧简报历史', 'View legacy digest history'), () => helpers.openRuns({ kind: 'legacy', planId: p.id, range: 'all' }), { name: 'history' })),
               p.status === 'active' && p.task_config && h('p', { className: 'pa24-meta' }, L('修改配置前先暂停；当前运行继续使用原快照。', 'Pause before editing; in-flight runs keep their snapshot.')),
               !p.task_config && h('div', { className: 'pa24-note' }, h('p', null, L('保留原计划时间、状态和历史；核验当前身份与投递后升级。', 'Retain timing, state and history; verify current identity and delivery before adoption.')),
                 h('label', { className: 'pa24-field' }, L('原 Skill 来源', 'Original skill source'), h('select', { value: view.migrationSkill || '', onChange: event => update({ migrationSkill: event.target.value }) }, h('option', { value: '' }, L('请选择原来源', 'Select original source')), (catalog?.entries || []).filter(entry => (entry.internalName || entry.name) === p.skill).map(entry => h('option', { key: entry.id, value: entry.id }, entry.name + ' · ' + entry.source)))),
@@ -2173,7 +2208,7 @@ window.__ModuleLoader__.load({
             body: ({ extra, tz }) => {
               const plans = extra.plans;
               return plans?.total !== undefined ? h('div', null, capKpi([[plans.enabled, L('启用', 'Enabled')], [plans.paused, L('暂停', 'Paused')], [plans.blocked, L('需处理', 'Needs attention')]]),
-                capLine(L('下次运行', 'Next run'), plans.next ? plans.next.title + ' · ' + date(plans.next.at, tz) : L('暂无已核验触发时间', 'No verified occurrence')))
+                capLine(L('下次运行', 'Next run'), plans.next ? plans.next.title + ' · ' + date(plans.next.at, plans.next.timeZone || tz) : L('暂无已核验触发时间', 'No verified occurrence')))
                 : h('p', { className: 'pa24-meta' }, extra._errors?.plans || L('正在读取计划统计…', 'Reading plan statistics…'));
             },
             detail: helpers => h(TaskPlansDetail, { key: helpers.state.workspaceBinding, ...helpers }),

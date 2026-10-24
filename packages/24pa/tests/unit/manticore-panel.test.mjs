@@ -37,12 +37,12 @@ beforeEach(async () => {
       if (fault === endpoint) throw new Error('离线读取失败'); if (delayed?.endpoint === endpoint) return await delayed.promise;
       let value;
       if (endpoint === 'snapshot') value = { workspace: { path: '/workspace', config: DEFAULT_CONFIG }, work: [], outbox: [], readiness: { items: [] } };
-      else if (endpoint === 'plans.summary') value = { total: 1, enabled: 0, paused: 1, blocked: 0 };
+      else if (endpoint === 'plans.summary') value = { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config.timeZone } };
       else if (endpoint === 'runs.summary') value = { runs24: 31, failed24: 2, delivery_failed24: 1, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, observedAt: new Date().toISOString() };
       else if (endpoint === 'skills.catalog') value = { entries: ['morning', 'evening', 'weekly'].map(kind => ({ id: 'builtin:digest-' + kind, name: 'digest-' + kind, type: 'template', source: 'builtin' })), discovery: 'complete' };
       else if (endpoint === 'skills.inspect') value = { id: p.id, type: 'template', metadata: { track: 'template', pa24: true } };
-      else if (endpoint === 'plans') value = { rows: !p.query || plan.title.includes(p.query) ? [structuredClone(plan)] : [], total: p.query && !plan.title.includes(p.query) ? 0 : 1, offset: p.offset, limit: 20 };
-      else if (endpoint === 'plans.inspect') value = { plan: structuredClone(plan), form: { ...form(), title: plan.title }, blocks: plan.blocks, activeRuns: [] };
+      else if (endpoint === 'plans') { const empty = p.state === 'recycled' || (p.query && !plan.title.includes(p.query)); value = { rows: empty ? [] : [structuredClone(plan)], total: empty ? 0 : 1, offset: p.offset, limit: 20 }; }
+      else if (endpoint === 'plans.inspect') value = { plan: structuredClone(plan), form: { ...form(), title: plan.title }, blocks: plan.blocks, activeRuns: [], legacyHistory: plan.legacyHistory || [] };
       else if (endpoint === 'plans.draft') value = taskPlanDraft(p, 'Asia/Shanghai');
       else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, timeZone: plan.task_config.timeZone, fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标' };
       else if (endpoint === 'runs') value = { kind: p.kind, rows: p.kind === 'runs' && (!p.query || '项目晨报'.includes(p.query)) ? Array.from({ length: p.offset ? 11 : 20 }, (_, index) => ({ id: !index && !p.offset ? 'run-a' : 'run-' + (index + p.offset), title: '项目晨报', record_kind: run.run.record_kind, skill_id: 'builtin:digest-morning', status: 'completed', delivery_status: 'partial', summary: '结果摘要', source: 'schedule', created_at: new Date().toISOString() })) : [], total: p.query && !'项目晨报'.includes(p.query) ? 0 : p.kind === 'runs' ? 31 : 0, timeZone: 'Asia/Shanghai' };
@@ -191,5 +191,45 @@ describe('M02 管理界面', () => {
     binding = 'binding-b'; await act(async () => intervals.find(row => row.ms === 2500).fn());
     await act(async () => release({ ok: true, json: async () => ({ ok: true, value: { rows: [{ id: 'old', title: '旧工作区敏感资料' }], total: 1, workspaceBinding: 'binding-a' } }) }));
     expect(container.textContent).not.toContain('旧工作区敏感资料');
+  });
+  it('摘要与桌面计划行使用真实下次运行，分组表单和固定操作栏保留预览流程', async () => {
+    plan.task_config.timeZone = 'America/New_York';
+    await open('定时任务');
+    expect(container.querySelector('.pa24-plan-metrics')).toBeTruthy();
+    expect(container.querySelector('.pa24-plan-row.pa24-plan-header')).toBeTruthy();
+    expect(container.querySelector('.pa24-plan-metrics').textContent).toContain('下一次运行');
+    await click(managerButton('刷新'));
+    expect(container.textContent).toContain('America/New_York');
+    await click(button('晨报预设'));
+    expect(container.querySelectorAll('.pa24-form-section')).toHaveLength(3);
+    expect(container.querySelector('.pa24-form-actions')).toBeTruthy();
+    expect(button('保存为暂停').disabled).toBe(true);
+    await click(button('校验并预览时间'));
+    expect(container.textContent).toContain('未来触发时间');
+    expect(container.textContent).toContain('结果、投递与授权');
+  });
+  it('计划行分别呈现状态、执行、投递和执行时间', async () => {
+    plan.recentRun = { status: 'completed', delivery_status: 'partial', created_at: '2001-02-03T04:05:06.000Z' };
+    await open('定时任务');
+    const cells = container.querySelectorAll('.pa24-plan-row:not(.pa24-plan-header) .pa24-plan-cell');
+    expect(container.querySelector('.pa24-plan-header').textContent).toContain('最近执行');
+    expect(cells).toHaveLength(4);
+    expect(cells[2].textContent).toContain('已暂停');
+    expect(cells[3].textContent).toContain('最近执行');
+    expect(cells[3].textContent).toContain('投递：');
+    expect(cells[3].textContent).toContain('2001');
+  });
+  it('无匹配和回收站空态不渲染无意义分页', async () => {
+    await open('定时任务'); await change(field('搜索计划'), '不存在的计划');
+    expect(container.textContent).toContain('没有匹配的计划');
+    expect(button('上一页')).toBeUndefined();
+    await change(field('搜索计划'), ''); await change(field('计划状态'), 'recycled');
+    expect(container.textContent).toContain('回收站为空');
+    expect(button('上一页')).toBeUndefined();
+  });
+  it('旧简报历史沿原计划进入旧档案', async () => {
+    plan.legacyHistory = [{ id: 'occurrence-a', report: '历史完整结果' }];
+    await open('定时任务'); await click(button('项目晨报')); await click(button('查看旧简报历史'));
+    expect(requests.filter(row => row.endpoint === 'runs').at(-1).payload).toMatchObject({ kind: 'legacy', planId: 'plan-a', range: 'all' });
   });
 });
