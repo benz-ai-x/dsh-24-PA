@@ -1,6 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { chmod } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fixture, join, readFile, writeFile } from '../helpers/runtime.mjs';
 import { FakeFeishuTransport } from '../../lib/feishu.js';
 import { sha256Hex } from '../../lib/handwriting.js';
@@ -34,6 +35,15 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   });
   afterEach(async () => { await f?.cleanup(); await cluster?.stop(); cluster = null; });
   const worker = async role => ({ id: (await f.rt.delegate({ worker: role, title: role, instruction: '本人交办' }, local)).workId });
+  const resumeForRead = async child => {
+    const work = await f.rt.repos.workItems.get(child.id);
+    await f.rt.changeWork({ op: 'supplement', workId: child.id, expectedRevision: work.revision, workspaceBinding: f.rt.workspaceBinding,
+      requestId: randomUUID(), confirm: true, instruction: '仅查询原笔记，不执行候选行动。' }, local);
+    // The fixture has no model event loop; apply the accepted input's pre-step
+    // transition. Actual Loader cases separately prove same-run resumption.
+    await f.rt.workerRuns.clearWait(child.id);
+    return child;
+  };
   const note = async () => {
     const path = join(f.root, 'original.png'); await writeFile(path, original);
     await f.rt.repos.notes.insertNote({ id: 'N-1', title: '记录', origin: 'feishu' });
@@ -76,7 +86,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     const waiting = await f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: published.versionId, indexes: [0], instruction: '执行第一项' }, child);
     expect(waiting).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(waiting.reason).toMatch(/同源|重建/);
     expect(version.content).toMatchObject({ derivedStatus: 'needs_rebuild', summary: '', transcript: '', candidates: [], unknowns: [], suggestions: [], relativeDates: [], pages: [], doubts: [], diagrams: [] });
-    const search = await f.rt.work({ action: 'notes_search', query: 'N-1' }, await worker('handwriting'));
+    const search = await f.rt.work({ action: 'notes_search', query: 'N-1' }, await resumeForRead(child));
     expect(search.items.find(row => row.version === version.version)).toMatchObject({ summary: '', candidates: [], derivedStatus: 'needs_rebuild' });
     const overview = await f.rt.work({ action: 'overview_today' }, await worker('calendar'));
     expect(overview.reviewedNotes).toEqual([]); expect(overview.missing.join('')).toContain('摘要/候选尚未重建');
@@ -137,7 +147,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
     await f.rt.db.query('update pa24.note_version set content = $2 where id = $1', [version.id, JSON.stringify(version.content)]);
     const waiting = await f.rt.work({ action: 'note_adopt_actions', noteId: 'N-1', versionId: version.id, indexes: [0], instruction: '执行第一项' }, child);
     expect(waiting).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(waiting.reason).toMatch(/同源|重建/);
-    expect((await f.rt.work({ action: 'notes_search', query: 'N-1' }, await worker('handwriting'))).items[0]).toMatchObject({ summary: '', candidates: [], derivedStatus: 'needs_rebuild' });
+    expect((await f.rt.work({ action: 'notes_search', query: 'N-1' }, await resumeForRead(child))).items[0]).toMatchObject({ summary: '', candidates: [], derivedStatus: 'needs_rebuild' });
     expect(await f.rt.repos.tasks.list()).toEqual([]);
     expect(await f.rt.repos.notes.decisionsOf('N-1')).toEqual(before);
     expect((await f.rt.repos.notes.getVersion(version.id)).status).toBe('approved');
