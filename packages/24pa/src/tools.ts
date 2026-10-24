@@ -164,16 +164,23 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_maintenance',
-    '运行维护（本地24私助会话）：archive_check 盘点运行事项/原生计划/外部提醒/未确认发送（归档前的安全检查，只读）；archive_execute 需 confirmStop 明确停止并处置原生计划（外部 PG 提醒默认保留、stopRules 才停止，部分失败逐项说明，取消不产生副作用）；backup_create/backup_verify 联合备份与校验（PG＋工作区＋dsh 状态，清单带摘要水位，凭据只存引用名）；health 汇总能力健康、同步新鲜度、预算统计与数据流披露（任何入口可读）。',
+    '运行维护（本地24私助会话）：archive_check 盘点运行事项/原生计划/外部提醒/未确认发送（归档前的安全检查，只读）；archive_execute 需 confirmStop 明确停止并处置原生计划（外部 PG 提醒默认保留、stopRules 才停止，部分失败逐项说明，取消不产生副作用）；backup_create 形成联合备份产物，backup_verify 在隔离副本核实际账本/会话/资源，backup_list/detail 查询持久记录，backup_preview 预览记忆保护与冲突，backup_restore_check 需确认预览 token 后在全新 targetDir 做隔离演练（不覆盖现场、不启动旧运行/投递）；凭据另行恢复；health 汇总能力健康、同步新鲜度、预算统计与数据流披露（任何入口可读）。',
     {
-      action: { type: 'string', enum: ['archive_check', 'archive_execute', 'backup_create', 'backup_verify', 'health'] },
+      action: { type: 'string', enum: ['archive_check', 'archive_execute', 'backup_create', 'backup_verify', 'backup_list', 'backup_detail', 'backup_preview', 'backup_restore_check', 'health'] },
       confirmStop: { type: 'boolean' },
       stopRules: { type: 'boolean' },
       targetDir: string,
       backupDir: string,
+      requestId: string,
+      id: string,
+      operation: { type: 'string', enum: ['all', 'create', 'verify', 'restore_check'] },
+      offset: { type: 'integer', minimum: 0 },
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
+      previewToken: string,
+      confirm: { type: 'boolean' },
     },
     ['action'],
-    (args, exec) => runtime.maintenanceTool(args, exec.agent!),
+    (args, exec) => runtime.maintenanceTool({ ...args, requestId: args.requestId ?? (typeof exec.callId === 'string' ? `backup:${exec.agent!.id}:${exec.callId}` : undefined) }, exec.agent!),
   );
 
   register(

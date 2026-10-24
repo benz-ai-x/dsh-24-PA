@@ -39,6 +39,8 @@ export const PANEL_RPC = {
     skillsRun: 'skills.run',
     sources: 'sources',
     calendar: 'calendar',
+    backups: 'backups',
+    backupDetail: 'backups.detail',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -98,6 +100,8 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.skillsPreview) return respond({ ok: true, value: await runtime.skillRuns.preview(payload) });
             if (endpoint === E.skillsRuns) return respond({ ok: true, value: await runtime.skillRuns.list(payload) });
             if (endpoint === E.skillsRun) return respond({ ok: true, value: await runtime.skillRuns.inspect(payload) });
+            if (endpoint === E.backups) return respond({ ok: true, value: await runtime.backups.list(payload) });
+            if (endpoint === E.backupDetail) return respond({ ok: true, value: await runtime.backups.detail(payload) });
             if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
             if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });

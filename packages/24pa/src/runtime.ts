@@ -2,7 +2,9 @@ import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
 import { randomUUID, createHash } from 'node:crypto';
-import { WorkspaceBackup } from './backup.js';
+import { assertLiveWorkspace } from './backup.js';
+import { BackupService } from './backup-service.js';
+import { parseWorkspaceIdentity } from './ledger-identity.js';
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -145,6 +147,17 @@ export class PaRuntime {
     execute: work => this.executions.detached(() => this.executions.run(work)),
   });
   private workspaceBinding: string | null = null;
+  private backupWorkspaceId: string | null = null;
+  readonly backups = new BackupService(() => {
+    if (!this.workspace || !this.repos || !this.config || !this.workspaceBinding || !this.backupWorkspaceId) throw new Error('尚未绑定工作区。');
+    const sources = { workspace: this.workspace.statePath, stateDirectory: this.options.stateDirectory,
+      sessions: this.options.backupSessionsRoot, storages: this.options.backupStoragesRoot, attachments: this.options.backupAttachmentsRoot };
+    return { workspace: this.workspace.statePath, workspaceId: this.backupWorkspaceId, ownerOpenId: this.config.ownerOpenId,
+      binding: this.workspaceBinding, host: this.ctx, sourceRoots: Object.values(sources).filter((path): path is string => !!path),
+      db: this.dbRef, repo: this.repos.backups, sources,
+      credentialReferences: [this.config.pgDsnEnv, this.config.appIdEnv, this.config.appSecretEnv, this.config.tts.volcKeyEnv],
+      watermarks: () => this.repos!.maintenance.watermarks() };
+  });
 
   private lock: HostLock | null = null;
   /** Best-effort usage counters since host start (P39 预算观测). */
@@ -1021,6 +1034,7 @@ export class PaRuntime {
       throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
     }
 
+    await assertLiveWorkspace(real);
     const agentsMd = join(real, 'AGENTS.md');
     if (initialize && !(await stat(agentsMd).catch(() => null))) {
       const target = await this.ctx.fs.resolve(agentsMd);
@@ -1036,6 +1050,7 @@ export class PaRuntime {
     let active: WorkItemRow[];
     let connection: Awaited<ReturnType<PaRuntime['prepareTransport']>> | undefined;
     try {
+      await repos.backups.interrupted();
       await repos.reminders.retireLegacy();
       await repos.waiting.retireLegacyNotifications();
       await repos.sources.synchronize(effectiveSources(candidate.config));
@@ -1077,11 +1092,13 @@ export class PaRuntime {
     const previousDb = this.db;
     const previousReminders = this.reminders;
     const previousTransport = this.transport;
+    const backupWorkspaceId = parseWorkspaceIdentity(await readFile(join(real, '.24pa/ledger-identity.json'), 'utf8'));
     // Activate synchronously, so callbacks cannot observe half a workspace.
     this.db = db;
     this.activePostgresDsn = postgresDsn;
     this.repos = repos;
     this.workspace = next.workspace;
+    this.backupWorkspaceId = backupWorkspaceId;
     this.workspaceBinding = randomUUID();
     this.skillPackages.refresh();
     this.accessSessionId = next.accessSessionId;
@@ -1128,6 +1145,7 @@ export class PaRuntime {
   }
 
   private async openDatabaseFor(workspacePath: string, candidate: WorkspaceConfiguration): Promise<{ db: PaDb; postgresDsn: string | null }> {
+    await assertLiveWorkspace(workspacePath);
     const probe = candidate.config;
     // F25: default ledger is a SQLite file in the workspace; PostgreSQL runs
     // only by explicit workspace choice. No silent fallback either way.
@@ -3248,23 +3266,11 @@ export class PaRuntime {
   }
 
   async maintenanceBackupCreate(args: Record<string, unknown>): Promise<unknown> {
-    return this.executions.run(async () => {
-      if (!this.repos || !this.workspace || !this.config) throw new Error('尚未绑定工作区。');
-      return new WorkspaceBackup({
-        workspace: this.workspace.statePath, stateDirectory: this.options.stateDirectory,
-        sessions: this.options.backupSessionsRoot, storages: this.options.backupStoragesRoot,
-        attachments: this.options.backupAttachmentsRoot
-      }, this.dbRef).create(String(args.targetDir ?? ''), {
-        credentialReferences: [this.config.pgDsnEnv, this.config.appIdEnv, this.config.appSecretEnv, this.config.tts.volcKeyEnv],
-        watermarks: await this.repos.maintenance.watermarks(),
-      });
-    });
+    return this.executions.run(() => this.backups.run('create', { ...args, workspaceBinding: args.workspaceBinding ?? this.workspaceBinding, requestId: args.requestId ?? randomUUID() }, String(args.actorSessionId ?? this.localSessionId)));
   }
 
   async maintenanceBackupVerify(args: Record<string, unknown>): Promise<unknown> {
-    return this.executions.run(async () => {
-      return WorkspaceBackup.verify(String(args.backupDir ?? ''));
-    });
+    return this.executions.run(() => this.backups.run('verify', { ...args, workspaceBinding: args.workspaceBinding ?? this.workspaceBinding, requestId: args.requestId ?? randomUUID() }, String(args.actorSessionId ?? this.localSessionId)));
   }
 
   /**
@@ -3545,8 +3551,12 @@ export class PaRuntime {
       }
       if (role !== 'local-robot') throw new Error('归档执行、备份与恢复操作只在 dsh 的24私助本地会话进行。');
       if (action === 'archive_execute') return this.maintenanceArchiveExecute(args);
-      if (action === 'backup_create') return this.maintenanceBackupCreate(args);
-      if (action === 'backup_verify') return this.maintenanceBackupVerify(args);
+      if (action === 'backup_create') return this.maintenanceBackupCreate({ ...args, actorSessionId: agent.id });
+      if (action === 'backup_verify') return this.maintenanceBackupVerify({ ...args, actorSessionId: agent.id });
+      if (action === 'backup_list') return this.backups.list({ ...args, workspaceBinding: this.workspaceBinding });
+      if (action === 'backup_detail') return this.backups.detail({ ...args, workspaceBinding: this.workspaceBinding });
+      if (action === 'backup_preview') return this.backups.preview({ ...args, workspaceBinding: this.workspaceBinding });
+      if (action === 'backup_restore_check') return this.backups.run('restore_check', { ...args, workspaceBinding: this.workspaceBinding }, agent.id);
       throw new Error('未知维护操作。');
     });
   }
