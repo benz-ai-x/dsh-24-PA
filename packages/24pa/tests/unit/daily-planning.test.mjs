@@ -59,3 +59,10 @@ it('已取消和已完成任务不成为下一日时间块建议', async () => {
   const result = await f.service.planPreview({ date: '2026-10-20' });
   expect(result.candidateBlocks.map(b => b.task)).toEqual(['任务']);
 });
+
+it.each([null, { summary: '插单', start: '2026-10-20T01:00:00Z', end: '2026-10-20T02:00:00Z' }])('完整日历预览可作为宿主工具无损 JSON 返回（插单 %j）', async insert => {
+  const f = fixture();
+  const result = await f.service.planPreview({ date: '2026-10-20', ...(insert ? { insert } : {}) });
+  expect(result.missing).toBeNull();
+  expect(result).toEqual(JSON.parse(JSON.stringify(result)));
+});

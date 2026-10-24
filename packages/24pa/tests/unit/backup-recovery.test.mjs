@@ -99,6 +99,19 @@ for (const kind of ['sqlite', 'postgres']) describe(`M09 ${kind} durable records
       expect(result.complete).toBe(false);
     }
   }, 180_000);
+  it('missing note numbering object or counter row fails restore before claiming compatibility', async () => {
+    const f = await fixture(kind);
+    const damage = kind === 'sqlite' ? ['delete from pa24.note_seq', 'drop table pa24.note_seq'] : ['drop sequence pa24.note_seq'];
+    for (const sql of damage) {
+      await f.db.query(sql);
+      const created = await f.create();
+      const result = await inspectRecovery(f.context, created.backupDir, join(f.root, randomUUID()), false);
+      expect(result.steps.find(step => step.id === 'files').status).toBe('passed');
+      expect(result.steps.find(step => step.id === 'ledger')).toMatchObject({ status: 'failed' });
+      expect(result.steps.find(step => step.id === 'ledger').message).toContain('note_seq');
+      expect(result.complete).toBe(false);
+    }
+  }, 180_000);
   it('actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity', async () => {
     const f = await fixture(kind);
     await f.db.query("insert into pa24.note (id,title,status,origin) values ('n1','actual note','collecting','feishu')");

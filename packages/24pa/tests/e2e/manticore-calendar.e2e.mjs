@@ -140,6 +140,32 @@ it('换默认后仍修改原日程；仅取消本人提醒保留会议，缺权�
   expect((await latestEvents()).length).toBe(before + 1);
 });
 
+it('重复日程取消范围未明确时保留原输入，主人补充后沿同一运行仅取消一次', async () => {
+  const eventId = 'repeat-test_0';
+  await appendFile(larkState + '.events.jsonl', JSON.stringify({ event_id: eventId, calendar_id: 'personal-cal', summary: '重复评审',
+    start: at('18:00'), end: at('18:30'), rrule: 'FREQ=DAILY', status: 'active' }) + '\n');
+  const refused = await work({ action: 'calendar_cancel', sourceId: 'personal', eventId }, 'local', '取消重复评审', 'waiting_input');
+  expect(refused.row.progress).toContain('重复日程');
+  expect((await latestEvents()).find(row => row.event_id === eventId).status).toBe('active');
+  let detail;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    detail = await host.api('worker.run', { runId: refused.row.active_worker_run_id, workspaceBinding: binding });
+    if (detail.calls.length && detail.calls.every(call => call.status !== 'running')) break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  expect(detail.calls).toHaveLength(1); expect(detail.calls[0].status).toBe('succeeded'); expect(detail.operations).toHaveLength(0);
+  const script = JSON.parse(await readFile(scriptPath, 'utf8'));
+  script.workerAfterPreparation = { ...script.workerAction, repeatScope: 'all' };
+  await writeFile(scriptPath, JSON.stringify(script));
+  const latest = (await host.api('work.inspect', { workId: refused.row.id, workspaceBinding: binding })).work;
+  await host.api('action', { type: 'work.change', op: 'supplement', workspaceBinding: binding, workId: latest.id, expectedRevision: latest.revision,
+    requestId: randomUUID(), instruction: '明确取消整个重复系列', confirm: true });
+  const resumed = await host.waitUntil(s => s.work.some(row => row.id === latest.id && row.status === 'completed'));
+  expect(resumed.work.find(row => row.id === latest.id).active_worker_run_id).toBe(refused.row.active_worker_run_id);
+  expect((await latestEvents()).find(row => row.event_id === eventId).status).toBe('canceled');
+  expect((await journal(larkState + '.events.jsonl')).filter(row => row.event_id === eventId && row.status === 'canceled')).toHaveLength(1);
+});
+
 it('单来源失败保留缓存并报告未完整，重启后普通浏览仍保留逐来源证据', async () => {
   await writeFile(larkState, JSON.stringify({ ownerOpenId: 'ou_test_owner', appId: 'cli_test_app', calendarFailures: ['project-cal'] }));
   const partial = await host.api('action', { type: 'calendar.verify', ...range, workspaceBinding: binding });

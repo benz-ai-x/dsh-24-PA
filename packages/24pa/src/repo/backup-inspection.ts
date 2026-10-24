@@ -22,6 +22,16 @@ export class BackupInspectionRepo {
     for (const [table, columns] of Object.entries(tables)) try {
       await this.db.query(`select ${Object.keys(columns).join(',')} from pa24.${table} limit 0`);
     } catch { errors.push(`账本 schema 缺失或不兼容：${table} 必需表/列不可读取`); }
+    if (version >= 6) try {
+      if (this.kind === 'sqlite') {
+        const row = (await this.db.query<{ next: number }>('select next from pa24.note_seq where id=1')).rows[0];
+        if (!row || !Number.isSafeInteger(Number(row.next)) || Number(row.next) < 1) throw new Error('invalid counter');
+      } else {
+        const object = (await this.db.query<{ relkind: string }>("select relkind from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='pa24' and c.relname='note_seq'")).rows[0];
+        if (object?.relkind !== 'S') throw new Error('missing sequence');
+        await this.db.query('select last_value, is_called from pa24.note_seq');
+      }
+    } catch { errors.push('账本 schema 缺失或不兼容：note_seq 必需序号对象或计数行不可读取'); }
     return errors;
   }
   async read() {

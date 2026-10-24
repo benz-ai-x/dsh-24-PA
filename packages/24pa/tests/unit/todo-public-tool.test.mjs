@@ -1,6 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
 import { chmod } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import ToolRuntime, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools';
 import { Context } from '@deepseek-ai/cordis';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
@@ -21,7 +22,7 @@ async function setup(entry = source('first')) {
   await f.rt.bind(await f.workspace('workspace', { mode: 'feishu', ownerOpenId: 'owner', tasklistId: 'list', folderToken: 'folder', enabledWorkers: ['tasks'], sources: config(entry) }));
   const local = f.agents.get(await f.rt.openLocalSession());
   const delegated = await f.rt.delegate({ worker: 'tasks', title: '核对原待办', instruction: '本人明确办理待办与分派' }, local);
-  const child = { id: delegated.workId }, ctx = new Context();
+  const child = f.agents.get(delegated.workId), ctx = new Context();
   await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime); cleanups.push(() => ctx.fiber.dispose());
   let definition;
   apply({ get: () => f.rt, on: () => {}, effect: fn => fn(), tools: { register: value => { if (value.name === 'pa24_work') definition = value; return () => {}; } }, systemPrompt: { section: () => () => {} } });
@@ -33,7 +34,15 @@ async function setup(entry = source('first')) {
   };
   const run = async args => { const result = await execute(args); expect(result.isError, JSON.stringify(result)).toBe(false); return result.value; };
   const calls = async () => (await readFile(state + '.calls.jsonl', 'utf8')).trim().split('\n').map(JSON.parse);
-  return { ...f, state, auth, child, execute, run, calls };
+  const supplement = async instruction => {
+    const item = await f.rt.repos.workItems.get(child.id);
+    await f.rt.changeWork({ op: 'supplement', workId: child.id, expectedRevision: item.revision, workspaceBinding: f.rt.workspaceBinding,
+      requestId: randomUUID(), confirm: true, instruction }, local);
+    // This fixture has no agent event loop. Model the accepted continuation's
+    // pre-step wait removal; actual Loader coverage verifies this transition.
+    await f.rt.workerRuns.clearWait(child.id);
+  };
+  return { ...f, state, auth, child, execute, run, calls, supplement };
 }
 
 it('实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 GUID 不自动改绑或关联，新授权操作保留交办关联', async () => {
@@ -48,8 +57,9 @@ it('实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 G
   expect(listed.tasks[0].objectId).not.toBe(created.objectId);
   const patches = (await f.calls()).filter(row => row.args.includes('patch')).length;
   const rejected = await f.execute({ action: 'task_update', taskId: local.id, summary: '不可改绑' });
-  expect(rejected.isError).toBe(true); expect(JSON.stringify(rejected)).toMatch(/原目标|来源/);
+  expect(rejected.isError).toBe(false); expect(rejected.value).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(JSON.stringify(rejected)).toMatch(/原目标|来源/);
   expect((await f.calls()).filter(row => row.args.includes('patch'))).toHaveLength(patches);
+  await f.supplement('已核对身份变化；明确办理 second 来源的新对象，保留原对象关联。');
   const changed = await f.run({ action: 'task_update', sourceId: 'second', objectId: listed.tasks[0].objectId, guid: created.guid, description: '新身份对象的独立修改' });
   expect(changed.verification.state).toBe('pending'); expect(changed.verification.message).toMatch(/GUID.*冲突/);
   expect((await f.rt.repos.tasks.get(local.id)).id).toBe(local.id);
@@ -66,8 +76,9 @@ it('实际公共工具拒绝无来源证据的旧本地编号，即便指定了�
   await f.rt.repos.operations.update(local.id, { status: 'succeeded', receipt: { guid: created.guid } });
   const before = (await f.calls()).length;
   const result = await f.execute({ action: 'task_complete', taskId: local.id, sourceId: 'first', effect: 'whole' });
-  expect(result.isError).toBe(true); expect(JSON.stringify(result)).toMatch(/持久证据/);
+  expect(result.isError).toBe(false); expect(result.value).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(JSON.stringify(result)).toMatch(/持久证据/);
   expect(await f.calls()).toHaveLength(before);
+  await f.supplement('不再办理旧编号，仅查询当前来源待办。');
   expect((await f.run({ action: 'task_list', role: 'all' })).tasks[0].taskId).toBeNull();
 });
 
@@ -75,7 +86,8 @@ it('实际工具保留允许尝试的权限证据，平台明确拒绝创建不�
   const f = await setup(source('personal', { resourceKind: 'authorized_scope', resourceId: 'authorized' }));
   for (const assigneeIds of [[], Array(51).fill('owner')]) {
     const rejected = await f.execute({ action: 'task_create', summary: '不可创建', assigneeIds });
-    expect(rejected.isError).toBe(true); expect(JSON.stringify(rejected)).toMatch(/1–50/);
+    expect(rejected.isError).toBe(false); expect(rejected.value).toMatchObject({ status: 'waiting', businessExecuted: false }); expect(JSON.stringify(rejected)).toMatch(/1–50/);
+    await f.supplement('重新指定本次创建的负责人，未满足参数前不创建。');
   }
   expect((await f.calls()).some(row => row.args.includes('create'))).toBe(false);
   const created = await f.run({ action: 'task_create', summary: '本人记录', assigneeIds: ['owner'], description: '说明' });
