@@ -297,7 +297,8 @@ export class SkillRunRepo {
         if (current.length !== observedRequests.length || current.some((value, index) => value !== observedRequests[index])) return row;
         await tx.query('select id from pa24.work_item where id = $1 for update', [row.work_item_id]);
         const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];
-        if (control && !canFinishDispatchedStep(control.state)) return row;
+        if (control && (!canFinishDispatchedStep(control.state)
+          || (status === 'waiting' ? !control.state.blocks.length : !!control.state.blocks.length))) return row;
       }
       const next = (await tx.query<SkillRunRow>('update pa24.skill_run set status = $2, progress = $3, result = $4, updated_at = now() where id = $1 returning *',
         [id, status, progress, result ?? row.result])).rows[0]!;

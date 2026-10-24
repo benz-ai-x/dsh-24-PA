@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { PaDb, PaQueryer } from '../db.js';
-import { initialRunControl, canExecuteRun, type RunControl } from '../run-control.js';
+import { initialRunControl, canResumeSession, type RunControl } from '../run-control.js';
 import type { SkillRunRow } from './skill-run.js';
 import { hasExecutionCapacity } from './execution-capacity.js';
 
@@ -47,6 +47,10 @@ export class RunControlRepo {
   async resumes(id: string): Promise<RunResumeRow[]> {
     return (await this.db.query<RunResumeRow>('select * from pa24.skill_run_resume where run_id = $1 order by created_at, request_id', [id])).rows;
   }
+  async canResume(run: SkillRunRow, state: RunControl, tx: PaQueryer = this.db): Promise<boolean> {
+    const sessions = (await tx.query<{ session_id: string }>('select session_id from pa24.skill_run_session where run_id = $1', [run.id])).rows;
+    return canResumeSession(state, run.session_id, sessions.map(row => row.session_id));
+  }
   async claimResume(id: string, limit = 2): Promise<boolean> {
     return this.db.withTransaction(async tx => {
       const candidate = (await tx.query<RunResumeRow>('select * from pa24.skill_run_resume where request_id = $1', [id])).rows[0];
@@ -55,7 +59,7 @@ export class RunControlRepo {
       const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [candidate.run_id])).rows[0];
       if (!run || !['running', 'waiting'].includes(run.status)) return false;
       const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [run.id])).rows[0];
-      if (!control || !canExecuteRun(control.state)) return false;
+      if (!control || !await this.canResume(run, control.state, tx)) return false;
       const claimed = await tx.query("update pa24.skill_run_resume set status = 'calling' where request_id = $1 and status = 'prepared' returning request_id", [id]);
       if (!claimed.rowCount) return false;
       await tx.query("update pa24.skill_run set status = 'running', progress = '沿原运行继续', updated_at = now() where id = $1", [run.id]);
@@ -74,7 +78,7 @@ export class RunControlRepo {
       const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [id])).rows[0];
       if (!run || !['running', 'waiting'].includes(run.status)) return false;
       const control = (await tx.query<RunControlRow>('select * from pa24.skill_run_control where run_id = $1 for update', [id])).rows[0];
-      if (!control || !canExecuteRun(control.state)) return false;
+      if (!control || !await this.canResume(run, control.state, tx)) return false;
       await tx.query("update pa24.skill_run set status = 'running', recovery = $2, progress = '原输入已保存，等待执行采用', updated_at = now() where id = $1", [id, JSON.stringify({ message })]);
       await tx.query("update pa24.work_item set status = 'running', progress = '原输入已保存，等待执行采用', updated_at = now() where id = $1 and active_skill_run_id = $2", [run.work_item_id, id]);
       return true;

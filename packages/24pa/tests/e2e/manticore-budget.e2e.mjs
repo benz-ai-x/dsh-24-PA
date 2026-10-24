@@ -143,3 +143,34 @@ it.each([false, true])('原生子任务的模型也受预算控制，主子同�
     expect(preview.fingerprint).toBeTruthy(); // Paused old epochs do not become phantom unknown actions.
   }
 }, 600000);
+
+it('子会话等待时主会话补充和预算放行不互锁，保持原输入与范围', async () => {
+  const run = await start([], 'local', ['subagent', 'pa24_run']);
+  const native = { mode: 'native-run', rootStep: { tool: { name: 'subagent', input: { description: '等待中的子任务', prompt: '[NATIVE_CHILD] 返回子任务结果。' } } }, childStep: { text: 'CHILD_RESULT' } };
+  await writeFile(scriptPath, JSON.stringify(native));
+  await until(() => detail(run.id), value => value.run.status === 'waiting'); await grant(run);
+  await until(summary, value => value.waiting.filter(item => item.run_id === run.id).length === 2);
+  await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ tool: { name: 'pa24_run', input: { action: 'wait', reason: '请补充汇总格式' } } }] }));
+  await grant(run);
+  await until(() => detail(run.id), value => value.execution.blocks.some(block => block.kind === 'input') && value.calls.some(call => call.tool === 'pa24_run' && call.status === 'returned'));
+  await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ text: 'ROOT_SUPPLEMENT_DONE：已按表格汇总。' }] }));
+  await host.api('action', { type: 'skill.run', op: 'resume', runId: run.id, requestId: randomUUID(), workspaceBinding: binding, instruction: '请按表格汇总，保留原始内容', confirm: true });
+  await until(summary, value => value.waiting.filter(item => item.run_id === run.id).length === 2);
+  const released = await grant(run);
+  await until(summary, value => value.releases.some(row => row.id === released.release.id && row.status === 'used'));
+  const resumed = await until(() => detail(run.id), value => value.run.status === 'waiting');
+  expect(resumed.execution.blocks.some(block => block.key !== 'budget:' + run.session_id && block.kind === 'budget')).toBe(true);
+  expect(JSON.stringify(requestsFor(run).at(-1).inputs)).toContain('请按表格汇总，保留原始内容');
+  await writeFile(scriptPath, JSON.stringify(native));
+  for (let i = 0; i < 4; i++) {
+    const current = await detail(run.id); if (current.run.status === 'completed') break;
+    const state = await until(summary, value => value.waiting.some(item => item.run_id === run.id));
+    const waiter = state.waiting.find(item => item.run_id === run.id && item.session_id !== run.session_id) ?? state.waiting.find(item => item.run_id === run.id);
+    const requestId = randomUUID();
+    await host.api('action', { type: 'budget.release', workspaceBinding: binding, requestId, confirm: true, scope: 'next-model-request', runId: run.id, workId: run.work_item_id, sessionId: waiter.session_id });
+    await until(summary, value => value.releases.some(row => row.id === requestId && row.status === 'used'));
+    await until(() => detail(run.id), value => value.run.status === 'completed' || value.run.status === 'waiting');
+  }
+  const done = await detail(run.id); expect(done.run.status).toBe('completed'); expect(done.run.result).toContain('ROOT_RESULT');
+  expect(done.run.session_id).toBe(run.session_id); expect(done.run.work_item_id).toBe(run.work_item_id);
+}, 600000);

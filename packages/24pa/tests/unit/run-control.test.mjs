@@ -135,6 +135,63 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     } finally { proceed(); runs.dispose(); }
   });
 
+  it.each(['original', 'supplement'])('先放行主会话时保留子预算等待，%s 沿唯一入口消费许可', async kind => {
+    const owner = { runId: run.id, workId: run.work_item_id, sessionId: run.session_id, kind: 'skill' }, childId = randomUUID();
+    await repos.skillRuns.child(run.id, childId, run.session_id, '/workspace');
+    const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原始输入' }] };
+    await repos.skillRuns.input(run.id, message, true, run.session_id);
+    const events = kind === 'supplement' ? [{ type: 'user/message', data: message }] : [];
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => events };
+    let originalWakes = 0, supplementWakes = 0, genericWakes = 0;
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null,
+      sessionController: { prompt: async () => { genericWakes++; return { accepted: true }; } } };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      maxWorkers: () => 8, permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    const config = { ...DEFAULT_BUDGET, maxRequests: 0 };
+    const budget = new ModelBudgets({ host: () => host, context: () => ({ repos, path: '/workspace', binding: 'binding', config, timeZone: 'Asia/Shanghai', maxWorkers: 8 }),
+      activate: id => runs.activateBudget(id), resumeInput: (id, sessionId) => runs.resumeBudgetInput(id, sessionId), detached: fn => fn() });
+    const consume = async input => {
+      expect(await repos.modelBudget.gate(owner, config, 'Asia/Shanghai', { turn: 2, step: 1, route: { provider: 'test', model: 'test' } })).toMatchObject({ allowed: true });
+      events.push({ type: 'user/message', data: input });
+    };
+    runs.host.resumePending = async (_, original) => { expect(original).toEqual(message); originalWakes++; await consume(original); };
+    runs.host.submitResume = async (_, requestId, content) => {
+      expect(content[0].text).toContain('请按表格汇总'); supplementWakes++;
+      const input = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: requestId }, content };
+      await consume(input); return input.id;
+    };
+    try {
+      if (kind === 'supplement') await runs.waitForInput(run, '请补充格式');
+      await repos.modelBudget.gate(owner, config, 'Asia/Shanghai');
+      await repos.modelBudget.gate({ ...owner, sessionId: childId }, config, 'Asia/Shanghai');
+      if (kind === 'supplement') await runs.resume({ runId: run.id, requestId: randomUUID(), confirm: true, instruction: '请按表格汇总', workspaceBinding: 'binding' });
+      expect(originalWakes + supplementWakes).toBe(0);
+      const permit = await repos.modelBudget.grant({ id: randomUUID(), hash: randomUUID(), ...owner });
+      await budget.poll(); await budget.poll();
+      expect([originalWakes, supplementWakes, genericWakes]).toEqual(kind === 'original' ? [1, 0, 0] : [0, 1, 0]);
+      expect((await repos.modelBudget.release(permit.id)).status).toBe('used');
+      expect((await repos.runControls.get(run.id)).state.blocks.map(block => block.key)).toEqual(['budget:' + childId]);
+      if (kind === 'supplement') expect((await repos.runControls.resumes(run.id))[0].status).toBe('submitted');
+      expect(await repos.modelBudget.grant({ id: randomUUID(), hash: randomUUID(), ...owner, sessionId: childId })).toMatchObject({ status: 'ready' });
+    } finally { runs.dispose(); await repos.skillRuns.transition(run.id, 'stopped', '测试结束'); }
+  });
+  it.each(['own-budget', 'foreign-budget', 'input', 'authorization', 'dependency', 'stop', 'timeout'])('恢复事务不能越过独立边界：%s', async block => {
+    const childId = randomUUID(); await repos.skillRuns.child(run.id, childId, run.session_id, '/workspace');
+    await repos.runControls.change(run.id, state => {
+      blockRun(state, { key: 'budget:' + childId, kind: 'budget', reason: '子会话等待' });
+      if (block === 'stop') state.stop = { requestedAt: Date.now(), settledAt: null, error: null };
+      else if (block === 'timeout') state.executionMs = state.limitMs;
+      else blockRun(state, { key: block === 'own-budget' ? 'budget:' + run.session_id : block === 'foreign-budget' ? 'budget:unowned' : block,
+        kind: block.endsWith('budget') ? 'budget' : block, reason: '仍有独立阻断' });
+    });
+    const id = randomUUID();
+    await repos.runControls.prepareResume({ runId: run.id, requestId: id, hash: id, message: { content: [] }, change: () => {} });
+    expect(await repos.runControls.claimRecovery(run.id, { id: 'original' }, 8)).toBe(false);
+    expect(await repos.runControls.claimResume(id, 8)).toBe(false);
+    expect((await repos.runControls.resumes(run.id))[0].status).toBe('prepared');
+    await repos.skillRuns.transition(run.id, 'stopped', '测试结束');
+  });
+
   it.each(['ready', 'used'])('旧预算拒绝快照不结算新许可（%s），随后原请求完成', async permitState => {
     const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原输入' }] };
     await repos.skillRuns.input(run.id, message, true, run.session_id);

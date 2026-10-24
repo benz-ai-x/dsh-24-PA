@@ -387,7 +387,8 @@ export class SkillRuns {
     if (run.status !== 'waiting') throw new Error('只有等待中的原运行可以补充；已结束的运行请显式接续。');
     if (recheck) {
       await this.refreshBlocks(run);
-      if ((await context.repos.runControls.get(run.id))?.state.blocks.length) return this.inspect(input);
+      const control = await context.repos.runControls.get(run.id);
+      if (!control || !await context.repos.runControls.canResume(run, control.state)) return this.inspect(input);
       if ((await this.pendingInputs(run)).length || (await context.repos.runControls.resumes(run.id)).some(row => row.status !== 'submitted')) { await this.dispatchResumes(run); return this.inspect(input); }
     }
     const content = [{ type: 'text', text: `[24PA resume: ${id}]\n${recheck ? '主人已要求重新检查，原阻断已解除。' : `主人补充：${String(input.instruction).trim()}`}\n沿原运行继续剩余工作，不重做已有成功回执的步骤；原有权限和累计执行时限保持。` }];
@@ -415,7 +416,8 @@ export class SkillRuns {
     const current = await context.repos.skillRuns.get(run.id), control = await controls.get(run.id);
     if (!current || !['running', 'waiting'].includes(current.status) || !control || control.state.terminal) return false;
     await this.refreshBlocks(run);
-    if ((await controls.get(run.id))?.state.blocks.length || this.clockLive(run.session_id)) return true;
+    const refreshed = await controls.get(run.id);
+    if (!refreshed || !await controls.canResume(run, refreshed.state) || this.clockLive(run.session_id)) return true;
     await this.native.flush(run.id);
     if ((await context.repos.skillRuns.calls(run.id)).some(call => ['running', 'unknown'].includes(call.status)) || (await context.repos.skillRuns.unresolvedOperations(run.work_item_id)).length) {
       await this.block(run, '原运行仍有未决动作，不能用补充绕过核对。'); return true;
@@ -610,6 +612,12 @@ export class SkillRuns {
     catch (error) { await this.diagnostic(run.id, 'execution-clock', error); return this.block(run, `执行计时依据待核对：${errorText(error)}`); }
     if (control && control.executionMs >= control.limitMs) { await this.expire(run.id); return; }
     if (await this.dispatchResumes(run)) return;
+    if (control?.blocks.length) {
+      // Resuming reserves the Run's capacity until native work takes over.
+      // Remaining child waits become authoritative again after input adoption.
+      await repo.transition(run.id, 'waiting', control.blocks.map(block => block.reason).join('；'), undefined, observedRequests);
+      return;
+    }
     if ((await repo.get(run.id))?.status === 'waiting') return;
     if (!history) {
       if (recovering) await this.block(run, '没有可核验的原运行历史，请先核对实际结果。');
