@@ -28,3 +28,17 @@ v1 后续功能（规格 1.3–2.1）：F13＝[#60](https://github.com/benz-ai-x
 ## Manticore 增量（规格 2.13，2026-10-20）
 
 跟踪 [#212](https://github.com/benz-ai-x/dsh-24-PA/issues/212)。M01a–M09 共 10 张功能工单（M01 拆目录与完整管理两项）：[#213](https://github.com/benz-ai-x/dsh-24-PA/issues/213)–[#222](https://github.com/benz-ai-x/dsh-24-PA/issues/222)。逐票用户结果、故事／测试组、技术前置和交付顺序见 [Manticore 实施计划](24PA-Manticore-实施差距与交付计划.md#功能交付与依赖)。保留历史工单编号，整合验收沿用 P40 / #46。
+
+## 桌面五卡 UI/UX 增量（规格 2.14，2026-10-25）
+
+用户已批准「事务与计划」五卡原型，以下五票分别形成一个主交付 PR，不合并为一次性大 PR；原型只作交互证据，不代表功能已交付。
+
+| 工单 | 卡片与本轮范围 |
+|---|---|
+| [#240](https://github.com/benz-ai-x/dsh-24-PA/issues/240) | Skill 管理：桌面主从布局，以及同一真实包快照的完整目录树和只读文件预览 |
+| [#241](https://github.com/benz-ai-x/dsh-24-PA/issues/241) | 定时任务：下一次运行与固定时区、计划优先列表、分组表单和固定操作条 |
+| [#242](https://github.com/benz-ai-x/dsh-24-PA/issues/242) | 日程：下一场、时间线、多来源证据与查询状态分层；共享来源组件先于 #243 |
+| [#243](https://github.com/benz-ai-x/dsh-24-PA/issues/243) | 待办：业务对象列表、来源侧栏与配置抽屉；五档持久默认角色 `all / responsible / following / assigned / creator` |
+| [#244](https://github.com/benz-ai-x/dsh-24-PA/issues/244) | 运行记录：执行／交办／未执行三视图、执行与投递分列、桌面详情 Drawer；与 #241 的客户端修改串行 |
+
+五票只按电脑端验收，T20 使用 1280×800、1440×900、1920×1080 视口，不做手机断点或 390px 验收。逐票技术基线、真实数据要求与验收以工单正文及 [Manticore 补充修订](24PA-Manticore-产品定稿.md)为准，交付规则见 [PR 交付计划](24PA-v1-PR交付计划.md)。
