@@ -861,4 +861,27 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 30,
+    statements: [
+      `alter table pa24.worker_run_input add column if not exists message jsonb`,
+      `alter table pa24.skill_run_native add column if not exists recovery_data jsonb`,
+      `create table if not exists pa24.budget_request (
+        id text primary key, run_id text not null, work_item_id text not null, session_id text not null,
+        turn int not null, step int not null, event_id text unique, record jsonb not null,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists budget_request_session_idx on pa24.budget_request (session_id, turn, step)`,
+      `create table if not exists pa24.budget_wait (
+        run_id text not null, work_item_id text not null, session_id text not null, reason text not null,
+        created_at timestamptz not null default now(), primary key (run_id, session_id)
+      )`,
+      `create table if not exists pa24.budget_release (
+        id text primary key, request_hash text not null, run_id text not null, work_item_id text not null,
+        session_id text not null, status text not null, record jsonb not null, native_message_id text,
+        created_at timestamptz not null default now()
+      )`,
+      `create index if not exists budget_release_run_idx on pa24.budget_release (run_id, status)`,
+    ],
+  },
 ];

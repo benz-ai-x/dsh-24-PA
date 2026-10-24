@@ -25,6 +25,7 @@ export const PANEL_RPC = {
     memory: 'memory',
     memoryHistory: 'memory.history',
     health: 'health',
+    budget: 'budget',
     healthSnapshot: 'health.snapshot',
     healthTestPreview: 'health.test.preview',
     configEvidence: 'workspace.evidence',
@@ -86,6 +87,7 @@ export const PANEL_RPC = {
     workChange: 'work.change',
     skillChange: 'skill.change',
     skillRun: 'skill.run',
+    budgetRelease: 'budget.release',
     planChange: 'plan.change',
     planDelivery: 'plan.delivery',
     sourceCheck: 'source.check',
@@ -148,6 +150,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });
             if (endpoint === E.memoryHistory) return respond({ ok: true, value: await runtime.memorySnapshot(payload, true) });
             if (endpoint === E.memory) return respond({ ok: true, value: await runtime.memorySnapshot(payload) });
+            if (endpoint === E.budget) return respond({ ok: true, value: await runtime.modelBudgets.snapshot(payload) });
             if (endpoint === E.health) {
               return respond({ ok: true, value: await runtime.maintenanceHealth() });
             }
@@ -213,6 +216,7 @@ function requiredBinding(payload: PanelAction): string {
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
+  [PANEL_RPC.actions.budgetRelease]: (runtime, payload) => runtime.releaseBudget(payload),
   [PANEL_RPC.actions.materialChange]: (runtime, payload) => runtime.changeMaterial(payload),
   [PANEL_RPC.actions.healthCheck]: (runtime, payload) => runtime.checkHealth(payload),
   [PANEL_RPC.actions.healthTest]: (runtime, payload) => runtime.connectionTest(payload, 'execute'),

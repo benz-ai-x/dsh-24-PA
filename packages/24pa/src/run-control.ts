@@ -82,6 +82,19 @@ export function clearRunBlock(state: RunControl, key: string, now = Date.now()):
   state.blocks = state.blocks.filter(block => block.key !== key);
   if (!state.blocks.length) for (const wait of state.waits) if (wait.end === null) wait.end = Math.max(wait.start, now);
 }
+/** Budget limits gate the next model request. Already dispatched model/tool
+ * work may finish while another session of the same Run waits for budget. */
+export function canFinishDispatchedStep(state: RunControl): boolean {
+  return !state.terminal && !state.stop && !state.blocks.some(block => block.kind !== 'budget') && state.executionMs < state.limitMs;
+}
+export const budgetBlockKey = (sessionId: string): string => `budget:${sessionId}`;
+/** A resumed input may pass other owned sessions' budget waits. Its own
+ * next model request still passes the budget gate and consumes its permit. */
+export function canResumeSession(state: RunControl, sessionId: string, ownedSessions: readonly string[]): boolean {
+  const otherBudgets = new Set(ownedSessions.filter(id => id !== sessionId).map(budgetBlockKey));
+  return ownedSessions.includes(sessionId) && canFinishDispatchedStep(state)
+    && state.blocks.every(block => block.kind === 'budget' && otherBudgets.has(block.key));
+}
 export function canExecuteRun(state: RunControl): boolean {
   return !state.terminal && !state.blocks.length && state.executionMs < state.limitMs;
 }

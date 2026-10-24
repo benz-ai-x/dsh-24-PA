@@ -1,3 +1,4 @@
+import { canFinishDispatchedStep } from './run-control.js';
 import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
@@ -27,6 +28,7 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { workspaceLedgerIdentity } from './ledger-identity.js';
 import { InboxLifecycle } from './inbox-lifecycle.js';
+import { ModelBudgets } from './model-budgets.js';
 import { WorkerRuns } from './worker-runs.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
@@ -654,7 +656,7 @@ export class PaRuntime {
       packages: this.skillPackages,
     });
     this.skillRuns = new SkillRuns({
-      host: ctx, packages: this.skillPackages, management: this.skillManagement,
+      budget: this.modelBudgets, host: ctx, packages: this.skillPackages, management: this.skillManagement,
       maxWorkers: () => this.config?.maxWorkers ?? 2,
       context: () => this.workspace && this.workspaceBinding && this.repos
         ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repos: this.repos } : null,
@@ -1162,6 +1164,7 @@ export class PaRuntime {
     await this.outboxDelivery.recover();
     await this.repos!.workerRuns.recoverMaterials();
     await this.workLifecycle.recover();
+    await this.modelBudgets.poll();
     await this.skillRuns.recover();
   }
 
@@ -1671,7 +1674,15 @@ export class PaRuntime {
     }
   }
 
+  readonly modelBudgets = new ModelBudgets({
+    host: () => this.ctx,
+    context: () => this.repos && this.workspace && this.workspaceBinding && this.config ? { repos: this.repos, path: this.workspace.statePath, binding: this.workspaceBinding,
+      config: this.config.budget, timeZone: this.config.timeZone, maxWorkers: this.config.maxWorkers } : null,
+    activate: id => this.skillRuns.activateBudget(id), resumeInput: (id, sessionId) => this.skillRuns.resumeBudgetInput(id, sessionId), detached: work => this.executions.detached(work),
+  });
+  async releaseBudget(input: Record<string, unknown>) { return this.executions.run(() => this.modelBudgets.grant(input)); }
   readonly workerRuns = new WorkerRuns({
+    budget: this.modelBudgets,
     lease: work => this.executions.run(work),
     context: () => this.repos && this.workspace && this.workspaceBinding ? { repos: this.repos, path: this.workspace.statePath, binding: this.workspaceBinding } : null,
     allowed: role => this.config?.enabledWorkers.includes(role) === true && !this.closed && !this.workspaceChanging,
@@ -1720,7 +1731,9 @@ export class PaRuntime {
     interrupt: item => this.ctx.subagents.interrupt(item.child_session_id ?? item.id, { kind: 'user', parentSessionId: item.parent_session_id }),
     track: item => this.trackWorkItem(item),
     completion: { workspacePath: () => this.workspace!.statePath,
-      read: item => new WorkCompletionHistory(this.ctx).read(item),
+      read: item => new WorkCompletionHistory(this.ctx, async work => (await this.repos!.modelBudget.releases(work.active_worker_run_id ?? ''))
+        .filter(row => row.run_id === work.active_worker_run_id && row.work_item_id === work.id && row.session_id === (work.child_session_id ?? work.id) && row.status === 'used' && row.record.consumedAt && row.record.executionId === work.execution_id)
+        .map(row => ({ messageId: row.native_message_id, consumedAt: row.record.consumedAt! }))).read(item),
       delivered: () => { void this.kickOutbox(); }, warn: message => console.warn(`[pa24] ${message}`),
     },
   });
@@ -1904,6 +1917,7 @@ export class PaRuntime {
         await this.workLifecycle.retryStops();
         const session = this.accessSessionId ? this.ctx.sessions.get?.(this.accessSessionId) : undefined;
         if (session) await this.planEngine.recover(session).catch(error => console.warn(`[pa24] 定时触发恢复待核对：${(error as Error).message}`));
+        await this.modelBudgets.poll();
         await this.skillRuns.poll();
         await this.planResults.reconcile();
         await this.taskPlans.reconcile();
@@ -2077,6 +2091,7 @@ export class PaRuntime {
   private async onTurnEnd(session: DshSession, event: { data: Record<string, any> }): Promise<void> {
     if (!this.repos || !this.config) return;
     this.usage.modelRequests += 1;
+    await this.modelBudgets.observe(session).catch(error => console.warn(`[pa24] 模型用量等待持久事件补录：${(error as Error).message}`));
     if (await this.skillRuns.onSession(session)) return;
     if (session.id === this.accessSessionId) await this.ctx.sessions.flush(session).catch(() => { });
     const turn = event.data.turn;
@@ -2395,12 +2410,17 @@ export class PaRuntime {
     });
   }
 
+  private async finishingBudgetStep(runId?: string | null): Promise<boolean> {
+    const control = runId ? await this.repos?.runControls.get(runId) : null;
+    return !!control && control.state.blocks.some(block => block.kind === 'budget') && canFinishDispatchedStep(control.state);
+  }
+
   async runControl(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
       const run = await this.repos?.skillRuns.bySession(agent.id);
       if (!run && args.action === 'progress') return this.workerRuns.progress(agent, args);
       if (!run && args.action === 'wait') return this.workerRuns.wait(agent, args.reason, args.kind);
-      if (!run || run.session_id !== agent.id || run.status !== 'running' || args.action !== 'wait') throw new Error('此操作只用于当前受管 Skill 运行等待主人补充。');
+      if (!run || run.session_id !== agent.id || (run.status !== 'running' && !(run.status === 'waiting' && await this.finishingBudgetStep(run.id))) || args.action !== 'wait') throw new Error('此操作只用于当前受管 Skill 运行等待主人补充。');
       return this.skillRuns.waitForInput(run, args.reason);
     });
   }
@@ -2412,9 +2432,10 @@ export class PaRuntime {
       if (!this.repos) throw new Error('业务账本未就绪。');
       const ownedRun = await this.repos.skillRuns.bySession(agent.id);
       const run = ownedRun?.session_id === agent.id ? ownedRun : null;
-      if (run?.status === 'running' && args.action === 'skill_wait') return this.skillRuns.waitForInput(run, args.reason);
+      if (run && args.action === 'skill_wait' && (run.status === 'running' || (run.status === 'waiting' && await this.finishingBudgetStep(run.id)))) return this.skillRuns.waitForInput(run, args.reason);
       const item = await this.repos.workItems.get(run?.work_item_id ?? agent.id);
-      if (!item || item.status !== 'running' || (run && (run.mode !== 'business' || run.status !== 'running' || item.child_session_id !== agent.id))) {
+      const budgetWaiting = item?.status === 'waiting_input' && await this.finishingBudgetStep(run?.id ?? item.active_worker_run_id);
+      if (!item || (item.status !== 'running' && !budgetWaiting) || (run && (run.mode !== 'business' || (run.status !== 'running' && !(run.status === 'waiting' && budgetWaiting)) || item.child_session_id !== agent.id))) {
         throw new Error('此会话不是运行中的 Worker，或事项已停止。');
       }
       if (run) {
@@ -3720,7 +3741,7 @@ export class PaRuntime {
           operationsUnknown: unknownOps,
           outboxLatencyMs: { p50: pct(0.5), p95: pct(0.95) },
           ledgerRetries: retries,
-          quota: '未配置模型限额（当前版本无 quota 配置项；如需硬限额请在模型路由侧设置）',
+          quota: '受管模型的持久用量、限额及一次放行见「模型与预算」；此处仅为本 Host 观测。',
           note: '模型/笔记投入自本 Host 启动累计（重启清零）；发送队列与未知计数覆盖完整账本，各渠道明细另列；延迟仅抽样最近 200 条。ledgerRetries 来自账本，费用口径取决于模型计费。',
         },
         dataFlow: {

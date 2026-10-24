@@ -121,7 +121,7 @@ export class RunHistory {
         blockKinds: detail.execution.blocks.map(block => block.kind) } : null,
       attempts: detail.attempts.map(attempt => ({ number: attempt.number, startedAt: attempt.startedAt, endedAt: attempt.endedAt, retry: attempt.retry })),
       calls: detail.calls.map(call => ({ tool: call.tool, status: call.status })),
-      native: detail.native.map(row => ({ kind: row.kind, ended: !!row.end_data, status: row.end_data?.status ?? null })),
+      native: detail.native.map(row => ({ kind: row.kind, ended: !!row.end_data, recovery: row.recovery_data?.kind ?? null, status: row.end_data?.status ?? null })),
       retentionDays, traces: await context.repos.runDiagnostics.list(detail.run.id, retentionDays),
       notices: detail.deliveries.map(notice => ({ kind: notice.kind, status: notice.deliveryStatus,
         components: notice.deliveries.map(delivery => ({ component: delivery.component, status: delivery.outbox.status, attempts: delivery.outbox.attempts })) })) };

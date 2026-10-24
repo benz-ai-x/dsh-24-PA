@@ -1,3 +1,4 @@
+import type { ModelBudgets } from './model-budgets.js';
 import type { DshAgent, DshContext, DshSession, ContentBlock } from './host.js';
 import type { Repos, SkillRunRow, SkillRunSnapshot, SkillRunReview } from './repo.js';
 import type { SkillPackages } from './skill-packages.js';
@@ -13,12 +14,13 @@ import { skillDelegationTools } from './local-tool-access.js';
 import { skillRequirements } from './skill-requirements.js';
 import { SkillRunClock } from './skill-run-clock.js';
 import { SkillRunTemplates } from './skill-run-template.js';
-import { initialRunControl, beginRunAttempt, blockRun, clearRunBlock, runControlSummary, type RunBlockKind } from './run-control.js';
+import { initialRunControl, canFinishDispatchedStep, beginRunAttempt, blockRun, clearRunBlock, runControlSummary, type RunBlockKind } from './run-control.js';
 import { isDeepStrictEqual } from 'node:util';
 import { planTriggerId } from './repo/plan-trigger.js';
 
 interface RunContext { binding: string; cwd: string; repos: Repos }
 interface SkillRunsDeps {
+  budget?: ModelBudgets;
   host: DshContext;
   context(): RunContext | null;
   packages: SkillPackages;
@@ -61,6 +63,18 @@ export class SkillRuns {
     this.clock = new SkillRunClock(id => this.deps.control(() => this.expire(id)));
     this.templates = new SkillRunTemplates(deps.template, work => deps.control(work), (id, phase, error) => this.diagnostic(id, phase, error));
   }
+  async resumeBudgetInput(id: string, sessionId: string): Promise<boolean> {
+    const context = this.context(), run = await context.repos.skillRuns.get(id);
+    if (!run || sessionId !== run.session_id) return false;
+    // The original input and owner supplements have one recovery dispatcher.
+    // A budget wake cannot race its maintenance lease on the same Session;
+    // a separately permitted child still resumes within its own scope.
+    if (this.resuming.has(id)) return true;
+    if (!(await context.repos.runControls.resumes(id)).some(row => row.status !== 'submitted') && !(await this.pendingInputs(run)).length) return false;
+    await this.dispatchResumes(run);
+    return true;
+  }
+  activateBudget(id: string): void { const active = this.active.get(id); if (active) active.allowed = true; }
   dispose(): void { this.clock.dispose(); this.templates.dispose(); }
   private async diagnostic(id: string, phase: string, error: unknown): Promise<void> {
     // Technical logging must not replace the actual execution receipt.
@@ -260,7 +274,9 @@ export class SkillRuns {
     }
     let state = this.active.get(run.id);
     if (!state) {
-      state = { run, binding: context.binding, allowed: run.status === 'running' };
+      const control = await context.repos.runControls.get(run.id);
+      const budgetOnly = control && control.state.blocks.some(block => block.kind === 'budget') && canFinishDispatchedStep(control.state);
+      state = { run, binding: context.binding, allowed: run.status === 'running' || (run.status === 'waiting' && !!budgetOnly) };
       this.active.set(run.id, state);
       const unknown = (await repo.calls(run.id)).some(call => ['running', 'unknown'].includes(call.status));
       if (unknown) { state.allowed = false; await this.block(run, '上次工具执行缺少确定回执，须先核对实际结果。'); }
@@ -273,6 +289,10 @@ export class SkillRuns {
     await this.host.mount(agent, run, {
       allowed: () => owner.allowed && this.deps.context()?.binding === owner.binding && this.deps.permissionHash(run.snapshot.plan?.authorization) === run.snapshot.permissionHash,
       authorize: () => this.authorize(run, owner.binding),
+      prepareInput: (session, messages) => this.deps.budget?.inputs(run.id, session, messages) ?? Promise.resolve(messages),
+      // A delegated business WorkItem has its own WorkerRuns budget gate.
+      checkBudget: delegatedWork ? undefined : session => this.deps.budget?.check(run.id, session) ?? Promise.resolve(true),
+      dispatchModel: delegatedWork ? undefined : async (session, turn, step, route) => { await this.deps.budget?.check(run.id, session, { turn, step, route: route as { provider: string; model: string } }); },
       beforeModel: async session => {
         const clock = await this.clock.observe(context.repos.runControls, run.id, [session], id => id === session.id || this.clockLive(id));
         if (clock && clock.executionMs >= clock.limitMs) {
@@ -282,7 +302,7 @@ export class SkillRuns {
         }
         if (clock?.attempts.length && clock.attempts.at(-1)!.endedAt !== null) await context.repos.runControls.change(run.id, state => beginRunAttempt(state));
       },
-      ownsInput: async message => await this.ownsResume(run, agent.id, message) || this.native.ownsInput(repo, run, agent.id, message),
+      ownsInput: async message => await this.deps.budget?.ownsWake(run.id, agent.id, message) || await this.ownsResume(run, agent.id, message) || this.native.ownsInput(repo, run, agent.id, message),
       restoreInput: async id => {
         const record = (await repo.inputs(run.id)).find(row => row.session_id === run.session_id && row.message_id === id && row.accepted);
         if (!record) throw new Error('恢复信号没有已保存的原输入依据。');
@@ -367,7 +387,8 @@ export class SkillRuns {
     if (run.status !== 'waiting') throw new Error('只有等待中的原运行可以补充；已结束的运行请显式接续。');
     if (recheck) {
       await this.refreshBlocks(run);
-      if ((await context.repos.runControls.get(run.id))?.state.blocks.length) return this.inspect(input);
+      const control = await context.repos.runControls.get(run.id);
+      if (!control || !await context.repos.runControls.canResume(run, control.state)) return this.inspect(input);
       if ((await this.pendingInputs(run)).length || (await context.repos.runControls.resumes(run.id)).some(row => row.status !== 'submitted')) { await this.dispatchResumes(run); return this.inspect(input); }
     }
     const content = [{ type: 'text', text: `[24PA resume: ${id}]\n${recheck ? '主人已要求重新检查，原阻断已解除。' : `主人补充：${String(input.instruction).trim()}`}\n沿原运行继续剩余工作，不重做已有成功回执的步骤；原有权限和累计执行时限保持。` }];
@@ -395,7 +416,8 @@ export class SkillRuns {
     const current = await context.repos.skillRuns.get(run.id), control = await controls.get(run.id);
     if (!current || !['running', 'waiting'].includes(current.status) || !control || control.state.terminal) return false;
     await this.refreshBlocks(run);
-    if ((await controls.get(run.id))?.state.blocks.length || this.clockLive(run.session_id)) return true;
+    const refreshed = await controls.get(run.id);
+    if (!refreshed || !await controls.canResume(run, refreshed.state) || this.clockLive(run.session_id)) return true;
     await this.native.flush(run.id);
     if ((await context.repos.skillRuns.calls(run.id)).some(call => ['running', 'unknown'].includes(call.status)) || (await context.repos.skillRuns.unresolvedOperations(run.work_item_id)).length) {
       await this.block(run, '原运行仍有未决动作，不能用补充绕过核对。'); return true;
@@ -497,8 +519,9 @@ export class SkillRuns {
   private async authorize(run: SkillRunRow, binding: string): Promise<void> {
     const context = this.context(binding), current = await context.repos.skillRuns.get(run.id);
     const control = await context.repos.runControls.get(run.id);
-    if (control?.state.blocks.length && !control.state.terminal) throw new Error(control.state.blocks.map(block => block.reason).join('；'));
-    if (this.active.get(run.id)?.allowed === false || current?.status !== 'running') throw new Error('运行已停止或等待处理，不能继续执行。');
+    if (control && !canFinishDispatchedStep(control.state)) throw new Error(control.state.blocks.map(block => block.reason).join('；') || '原运行不可继续。');
+    const budgetWaiting = current?.status === 'waiting' && control?.state.blocks.some(block => block.kind === 'budget');
+    if (this.active.get(run.id)?.allowed === false || (current?.status !== 'running' && !budgetWaiting)) throw new Error('运行已停止或等待处理，不能继续执行。');
     if (this.deps.permissionHash(run.snapshot.plan?.authorization) !== run.snapshot.permissionHash) {
       await this.waitForBlock(run, 'current-authorization', 'authorization', '身份或授权配置与原运行不同；恢复原范围后可重新检查。');
       throw new Error('当前身份或授权发生变化，等待处理。');
@@ -579,8 +602,9 @@ export class SkillRuns {
     if (await this.stopCanceledInput(run)) return;
     const calls = await repo.calls(run.id);
     if (calls.some(call => call.status === 'unknown' || (recovering && call.status === 'running'))) return this.block(run, '工具结果待核对；停止或重启不抹除已经发生的动作。');
+    const observedRequests = await repo.modelRequests(run.id);
     let observation;
-    try { observation = await this.native.observe(repo, run, recovering); }
+    try { observation = await this.native.observe(repo, run, recovering, session => this.deps.budget?.paused(session) ?? Promise.resolve(false)); }
     catch (error) { await this.diagnostic(run.id, 'native-observe', error); return this.block(run, errorText(error)); }
     const history = observation.root;
     let control;
@@ -588,6 +612,12 @@ export class SkillRuns {
     catch (error) { await this.diagnostic(run.id, 'execution-clock', error); return this.block(run, `执行计时依据待核对：${errorText(error)}`); }
     if (control && control.executionMs >= control.limitMs) { await this.expire(run.id); return; }
     if (await this.dispatchResumes(run)) return;
+    if (fresh.status !== 'stopping' && control?.blocks.length) {
+      // Resuming reserves the Run's capacity until native work takes over.
+      // Remaining child waits become authoritative again after input adoption.
+      await repo.transition(run.id, 'waiting', control.blocks.map(block => block.reason).join('；'), undefined, observedRequests);
+      return;
+    }
     if ((await repo.get(run.id))?.status === 'waiting') return;
     if (!history) {
       if (recovering) await this.block(run, '没有可核验的原运行历史，请先核对实际结果。');
@@ -624,9 +654,10 @@ export class SkillRuns {
     const status = fresh.status === 'stopping' || kind === 'aborted' ? 'stopped' : kind === 'completed' && output ? 'completed' : 'failed';
     const reason = status === 'completed' ? '执行回合已完成，结果已保存；业务完成以结果和动作回执为准，未请求投递'
       : status === 'stopped' ? '已停止；已发生的动作及未知结果保留' : `执行未完成：${terminal.data.reason?.error?.message ?? kind}`;
+    const settled = await repo.transition(run.id, status, reason, output, observedRequests);
+    if (settled?.status !== status) return;
     const state = this.active.get(run.id); if (state) state.allowed = false;
     this.clock.disarm(run.id);
-    await repo.transition(run.id, status, reason, output);
   }
   async recover(): Promise<void> {
     if (this.recovering || !this.deps.context()) return;
