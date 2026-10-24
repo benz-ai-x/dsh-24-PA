@@ -1,6 +1,6 @@
 import type { SkillRepo, SkillEntryRow, SkillVersionRow, SkillChange } from './repo/skill.js';
 import type { SkillDefinitionLike, SkillRegistryLike } from './skills.js';
-import { editSkillPackage, exportSkillPackage, importSkillPackage, intelligentSkillCopy, makeSkillPackage, parseSkillMarkdown, readSkillFile, skillContract, skillHash, validateSkillPackage, type SkillPackage } from './skill-package.js';
+import { editSkillPackage, exportSkillPackage, importSkillPackage, intelligentSkillCopy, makeSkillPackage, parseSkillMarkdown, readSkillFile, skillContract, skillHash, skillPackageManifest, skillPackagePreview, validateSkillPackage, type SkillPackage } from './skill-package.js';
 
 interface PackageContext { cwd: string; binding: string; repo: SkillRepo }
 interface SkillPackagesDeps {
@@ -115,9 +115,22 @@ export class SkillPackages {
     return { id: `managed:${entry.id}`, name: entry.display_name, internalName: entry.name, description: version.definition?.description ?? '未完成草稿',
       source: 'managed' as const, type: this.type(version.definition), track: String(version.definition?.metadata?.track ?? 'agent'),
       content: version.definition?.content ?? '', markdown: readSkillFile(version.package_data, 'SKILL.md').toString('utf8'),
-      metadata: version.definition?.metadata ?? {}, fingerprint: version.package_data.hash, entry, versionId: version.id,
+      metadata: version.definition?.metadata ?? {}, fingerprint: version.package_data.hash, packageHash: version.package_data.hash, entry, versionId: version.id,
       versions: await ctx.repo.versions(entry.id), files: version.package_data.files.map(({ content: _content, ...file }) => file),
       verification: await ctx.repo.verification(entry.id, version.id), restrictions, plans, plansError, workspaceBinding: binding };
+  }
+
+  async packageContent(input: Record<string, unknown>) {
+    const ctx = this.context(input.workspaceBinding), entry = await ctx.repo.get(selectedId(input.id));
+    if (!entry) throw new Error('Skill 不存在。');
+    if (typeof input.versionId !== 'string' || !input.versionId) throw new Error('受管 Skill 包必须指定不可变版本。');
+    const version = await this.version(ctx, entry, input.versionId);
+    if (input.fingerprint !== version.package_data.hash || input.packageHash !== version.package_data.hash) throw new Error('Skill 包快照不匹配，请重新读取。');
+    const base = { id: `managed:${entry.id}`, source: 'managed' as const, snapshot: 'immutable-version' as const,
+      fingerprint: version.package_data.hash, versionId: version.id, packageHash: version.package_data.hash,
+      observedAt: new Date(version.created_at).toISOString(), workspaceBinding: ctx.binding };
+    if (Object.hasOwn(input, 'path')) return { ...base, packageBytes: version.package_data.bytes, ...skillPackagePreview(version.package_data, input.path as string) };
+    return { ...base, ...skillPackageManifest(version.package_data) };
   }
 
   async download(id: unknown, versionId: string, binding: unknown) {

@@ -9,6 +9,7 @@ import { ZipFile as ZipWriter } from 'yazl';
 import type { SkillDefinitionLike } from './skills.js';
 
 export const SKILL_PACKAGE_LIMITS = { files: 128, fileBytes: 2 * 1024 * 1024, totalBytes: 8 * 1024 * 1024, uploadBytes: 8 * 1024 * 1024 } as const;
+export const SKILL_PACKAGE_PREVIEW_BYTES = 256 * 1024;
 export interface SkillFile { path: string; bytes: number; hash: string; content: string }
 export interface SkillPackage { files: SkillFile[]; hash: string; bytes: number }
 export interface SkillParameter { type: 'string' | 'number' | 'integer' | 'boolean'; required?: boolean; default?: string | number | boolean; description?: string }
@@ -111,6 +112,31 @@ export function validateSkillPackage(pkg: SkillPackage): SkillPackage {
   const checked = makeSkillPackage(pkg.files.map(file => ({ path: file.path, bytes: readSkillFile(pkg, file.path) })));
   if (checked.hash !== pkg.hash || checked.bytes !== pkg.bytes) throw new Error('Skill 包指纹不一致。');
   return checked;
+}
+
+export function skillPackageManifest(pkg: SkillPackage) {
+  const checked = validateSkillPackage(pkg);
+  return { packageHash: checked.hash, bytes: checked.bytes,
+    files: checked.files.map(({ content: _content, ...file }) => file) };
+}
+
+export function skillPackagePreview(pkg: SkillPackage, path: string) {
+  const checked = validateSkillPackage(pkg), bytes = readSkillFile(checked, path);
+  const file = checked.files.find(item => item.path === path)!;
+  const base = { path: file.path, bytes: file.bytes, hash: file.hash };
+  const binary = () => ({ ...base, preview: { kind: 'binary' as const, content: null, truncated: false } });
+  if (bytes.includes(0)) return binary();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  try { decoder.decode(bytes); }
+  catch { return binary(); }
+  if (bytes.length <= SKILL_PACKAGE_PREVIEW_BYTES) return { ...base, preview: { kind: 'text' as const, content: bytes.toString('utf8'), truncated: false } };
+  let end = SKILL_PACKAGE_PREVIEW_BYTES;
+  for (;; end--) {
+    try {
+      const content = decoder.decode(bytes.subarray(0, end));
+      return { ...base, preview: { kind: 'text' as const, content, truncated: true } };
+    } catch { }
+  }
 }
 
 export function editSkillPackage(pkg: SkillPackage, markdown: string): SkillPackage {

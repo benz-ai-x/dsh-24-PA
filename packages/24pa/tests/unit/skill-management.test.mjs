@@ -5,7 +5,7 @@ import { registerPanel } from '../../lib/panel.js';
 import { WorkspaceExecution } from '../../lib/workspace-execution.js';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseSkillMarkdown } from '../../lib/skill-package.js';
 
 const personal = (name = 'digest-morning') => ({ name, description: '个人说明\n第二行', content: '工作区正文 <script>never()</script>', source: 'project-dsh', provider: 'filesystem', path: '/workspace/.dsh/skills/' + name + '.md', metadata: { track: 'agent', tools: ['pa24_memory'], params: { query: 'A: B' } }, invocation: { modelInvocable: false, userInvocable: true } });
@@ -106,6 +106,56 @@ describe('Skill 管理读取与导出', () => {
     expect(detail.restrictions.join(' ')).toContain('不作为普通任务');
   });
 
+  it('内置与扁平工作区文件均为真实单文件包，清单和正文不泄露服务器路径', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pa24-package-content-flat-'));
+    try {
+      const path = join(root, '.dsh/skills/example.md'), text = '---\nname: example\ndescription: 单文件示例\n---\n只读正文';
+      await mkdir(dirname(path), { recursive: true }); await writeFile(path, text);
+      const definition = { ...parseSkillMarkdown(text), source: 'project-dsh', provider: 'filesystem', path };
+      const { manager, registry } = setup({ cwd: root, definition });
+      const row = (await manager.list('workspace-a')).entries.find(row => row.source === 'project-dsh');
+      for (const detail of [await manager.inspect('builtin:digest-morning', 'workspace-a'), await manager.inspect(row.id, 'workspace-a')]) {
+        const input = { id: detail.id, fingerprint: detail.fingerprint, workspaceBinding: 'workspace-a' };
+        const manifest = await manager.packageContent(input);
+        expect(manifest).toMatchObject({ source: detail.source, snapshot: 'current-read', bytes: manifest.bytes, workspaceBinding: 'workspace-a' });
+        expect(manifest.files.map(file => file.path)).toEqual(['SKILL.md']);
+        expect(manifest.packageHash).toMatch(/^[0-9a-f]{64}$/);
+        const file = await manager.packageContent({ ...input, packageHash: manifest.packageHash, path: 'SKILL.md' });
+        expect(file).toMatchObject({ path: 'SKILL.md', packageBytes: manifest.bytes, preview: { kind: 'text', truncated: false } });
+        expect(file.preview.content).toContain(detail.content.trim());
+        expect(JSON.stringify(file)).not.toContain(root); expect(JSON.stringify(file)).not.toContain('resourceBase');
+      }
+      registry.get.mockClear();
+      await expect(manager.packageContent({ id: row.id, fingerprint: 'stale', workspaceBinding: 'workspace-a' })).rejects.toThrow(/变更/);
+      expect(registry.get).toHaveBeenCalledTimes(1); registry.get.mockClear();
+      await expect(manager.packageContent({ id: row.id, fingerprint: 'stale', workspaceBinding: 'old-workspace' })).rejects.toThrow(/工作区/);
+      expect(registry.get).not.toHaveBeenCalled();
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('目录包包含真实资源；资源单独变化使旧清单和文件请求冲突，不回落到新内容', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pa24-package-content-tree-'));
+    try {
+      const dir = join(root, '.dsh/skills/example'), path = join(dir, 'SKILL.md'), resource = join(dir, 'references/data.txt');
+      const text = '---\nname: example\ndescription: 目录示例\n---\n读取静态资料';
+      await mkdir(join(dir, 'references'), { recursive: true }); await writeFile(path, text); await writeFile(resource, '资源 A');
+      const definition = { ...parseSkillMarkdown(text), source: 'project-dsh', provider: 'filesystem', path };
+      const { manager } = setup({ cwd: root, definition });
+      const row = (await manager.list('workspace-a')).entries.find(row => row.source === 'project-dsh');
+      const detail = await manager.inspect(row.id, 'workspace-a'), input = { id: row.id, fingerprint: detail.fingerprint, workspaceBinding: 'workspace-a' };
+      const manifest = await manager.packageContent(input);
+      expect(manifest.files.map(file => file.path)).toEqual(['references/data.txt', 'SKILL.md']);
+      expect((await manager.packageContent({ ...input, packageHash: manifest.packageHash })).packageHash).toBe(manifest.packageHash);
+      expect((await manager.packageContent({ ...input, packageHash: manifest.packageHash, path: 'references/data.txt' })).preview.content).toBe('资源 A');
+      await writeFile(resource, '资源 B');
+      await expect(manager.packageContent({ ...input, packageHash: manifest.packageHash })).rejects.toThrow(/资源已变化/);
+      await expect(manager.packageContent({ ...input, packageHash: manifest.packageHash, path: 'references/data.txt' })).rejects.toThrow(/资源已变化/);
+      const current = await manager.packageContent(input);
+      expect(current.packageHash).not.toBe(manifest.packageHash);
+      expect((await manager.packageContent({ ...input, packageHash: current.packageHash, path: 'references/data.txt' })).preview.content).toBe('资源 B');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it('面板真实路由读取、查看与导出共用工作区只读边界，无业务动作', async () => {
     const { manager } = setup();
     const executions = new WorkspaceExecution();
@@ -119,6 +169,12 @@ describe('Skill 管理读取与导出', () => {
     expect(detail.ok).toBe(true);
     const file = await call('skills.export', { workspaceBinding: 'workspace-a', id: detail.value.id, fingerprint: detail.value.fingerprint });
     expect(file.value.content).toContain('digest-morning');
+    const input = { workspaceBinding: 'workspace-a', id: detail.value.id, fingerprint: detail.value.fingerprint };
+    const manifest = await call('skills.package-content', input);
+    expect(manifest.ok).toBe(true); expect(manifest.value.files).toHaveLength(1); expect(manifest.value.files[0].content).toBeUndefined();
+    const preview = await call('skills.package-content', { ...input, packageHash: manifest.value.packageHash, path: 'SKILL.md' });
+    expect(preview.ok).toBe(true); expect(preview.value.preview.content).toContain('digest-morning');
+    expect((await call('skills.package-content', { ...input, workspaceBinding: 'stale-binding' })).ok).toBe(false);
     expect((await call('skills.catalog', {})).ok).toBe(false);
     for (const method of ['delegate', 'digestRunNow', 'updateWorkspaceConfig']) expect(runtime[method]).not.toHaveBeenCalled();
   });
