@@ -271,6 +271,7 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
   }, 300_000);
 
   it('P23：等待事项到点只询问本人；收到后停止；同源去重', async () => {
+    const priorSends = await stubSends();
     await writeScript(tasksScript('建等待事项', { action: 'waiting_create', title: '等李雷回预算数字', sourceDesc: '李雷的消息', dedupKey: 'wait:lilei:budget', checkpointInSeconds: 10 }));
     let before = llm.log.length;
     await inject(ownerEvent('evt-wt-0', { text: '记一下：等李雷回预算数字，两秒后问我收到没' }));
@@ -283,10 +284,8 @@ describe('F08 事项交办与持续跟进（真实 Loader + 隔离 PG）', () =>
     // Native Schedule -> real Session -> digest Worker -> agent skill -> Outbox.
     const ask = await waitOutbox(`digest:${planId}:`, '智能检查点询问', 60_000);
     expect(ask.content?.text ?? '').toContain('等李雷回预算数字');
-    // 等待跟进绝不催办他人：对外发送日志里只有 P13 那条正式消息
-    const sends = await stubSends();
-    expect(sends).toHaveLength(1);
-    expect(sends[0].userId).toBe('ou_collab_1');
+    // 智能检查点只询问本人，不增加任何给联系人的消息。
+    expect(await stubSends()).toEqual(priorSends);
 
     // 同源重复事件不重复建立
     await writeScript(tasksScript('重复等待', { action: 'waiting_create', title: '等李雷回预算数字', dedupKey: 'wait:lilei:budget' }));
