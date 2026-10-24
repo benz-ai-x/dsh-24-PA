@@ -139,8 +139,13 @@ export class SourceCalendarWrites {
       // Never create a new target after removal, identity changes, or an
       // unknown first attempt. Read-only verification cannot authorize replay.
       if (previous && ['running', 'unknown'].includes(previous.status)) throw unknown('原操作结果待核对，不能重复提交；请核验原日程后恢复。');
-      await this.deps.registry.verify(target, kind === 'create' ? 'create' : 'read');
-      if (kind !== 'create') await this.checkObject(kind, target, params);
+      try {
+        await this.deps.registry.verify(target, kind === 'create' ? 'create' : 'read');
+        if (kind !== 'create') await this.checkObject(kind, target, params);
+      } catch (error) {
+        if (previous) throw error;
+        throw new SourcePreparationError(error);
+      }
     }
     const staged = await this.deps.external.stageWithId(id, item, action, params);
     let receipt: Record<string, any>;

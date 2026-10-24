@@ -243,15 +243,20 @@ export class SourceTodoWrites {
     let executionParams = params;
     if (!acknowledged) {
       if (previous && ['running', 'unknown'].includes(previous.status)) throw unknown('原待办操作结果未知，请先核对原对象；不会重复写入。');
-      await this.deps.registry.verify(target, kind === 'create' ? 'create' : 'read');
-      const source = effectiveSources(this.deps.config()).entries.find(row => row.id === target.sourceId);
-      if (!source || source.access !== 'readwrite' || sourceScopeFingerprint(source) !== target.scopeHash) throw new Error('原待办来源已变更或不可写。');
-      if (kind !== 'create') {
-        const current = await this.deps.reader.object(target, params.guid);
-        this.checkEffect(kind, target, params, current);
-        // An assignment adds people to the current set; stale creation-time
-        // participants must never replace later additions in WeCom.
-        executionParams = { ...params, before: current };
+      try {
+        await this.deps.registry.verify(target, kind === 'create' ? 'create' : 'read');
+        const source = effectiveSources(this.deps.config()).entries.find(row => row.id === target.sourceId);
+        if (!source || source.access !== 'readwrite' || sourceScopeFingerprint(source) !== target.scopeHash) throw new Error('原待办来源已变更或不可写。');
+        if (kind !== 'create') {
+          const current = await this.deps.reader.object(target, params.guid);
+          this.checkEffect(kind, target, params, current);
+          // An assignment adds people to the current set; stale creation-time
+          // participants must never replace later additions in WeCom.
+          executionParams = { ...params, before: current };
+        }
+      } catch (error) {
+        if (previous) throw error;
+        throw new SourcePreparationError(error);
       }
     }
     const staged = await this.deps.external.stageWithId(id, item, action, params);
