@@ -130,11 +130,14 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 
 当包级契约不够时读这些页面。它们从本 bundle 延伸到它实现的产品与它接入的平台。
 
-- [产品规格](docs/24PA-v1-SPEC.md)——每个已交付功能背后的故事、场景与测试组。
+- [Agent 指引](AGENTS.md)——按任务触发的读取路径与仓库约定。
+- [产品基线](docs/agents/product.md)——已确认 Manticore 目标、v1 规格与交付证据的关系。
+- [产品规格](docs/24PA-v1-SPEC.md)——v1 故事、场景与测试组。
 - [整体设计](docs/24PA-整体设计方案.md)——流程、会话拓扑与已确认取舍。
 - [ADR-0001](docs/adr/0001-workspace-session-boundaries.md)——本预设执行的工作区/会话权限边界。
 - [研究记录](docs/research/)——分功能的已验证契约，含双基线与接入向导研究。
-- [v1 PR 交付计划](docs/planning/24PA-v1-PR交付计划.md)——功能分组、依赖与合并标准。
+- [v1 PR 交付计划](docs/planning/24PA-v1-PR交付计划.md)——功能分组及其依赖。
+- [交付流程](docs/agents/delivery.md)——分支复用、依赖判定、验收证据与合并标准。
 
 -----
 
