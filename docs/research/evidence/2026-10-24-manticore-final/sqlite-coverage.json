@@ -1,0 +1,244 @@
+[
+  {
+    "file": "tests/e2e/f08.e2e.mjs",
+    "tests": 6,
+    "initial_failures": 1,
+    "initial_log": "legacy-sqlite-63e3dd8-partial.log",
+    "passing_rerun_log": "followup-sqlite-6072e89.log",
+    "passing_rerun_tests": 1,
+    "covered_after_repairs": 6
+  },
+  {
+    "file": "tests/e2e/f11.e2e.mjs",
+    "tests": 4,
+    "initial_failures": 3,
+    "initial_log": "legacy-sqlite-63e3dd8-partial.log",
+    "passing_rerun_log": "notes-sqlite-6072e89.log",
+    "passing_rerun_tests": 4,
+    "covered_after_repairs": 4
+  },
+  {
+    "file": "tests/e2e/f16.e2e.mjs",
+    "tests": 4,
+    "initial_failures": 0,
+    "initial_log": "legacy-sqlite-63e3dd8-partial.log",
+    "covered_after_repairs": 4
+  },
+  {
+    "file": "tests/e2e/f04.e2e.mjs",
+    "tests": 4,
+    "initial_failures": 0,
+    "initial_log": "legacy-sqlite-63e3dd8-partial.log",
+    "covered_after_repairs": 4
+  },
+  {
+    "file": "tests/e2e/f09.e2e.mjs",
+    "tests": 8,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 8
+  },
+  {
+    "file": "tests/e2e/manticore-skill-run.e2e.mjs",
+    "tests": 19,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 19
+  },
+  {
+    "file": "tests/e2e/f06.e2e.mjs",
+    "tests": 8,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 8
+  },
+  {
+    "file": "tests/e2e/manticore-run-control.e2e.mjs",
+    "tests": 17,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 17
+  },
+  {
+    "file": "tests/e2e/f07.e2e.mjs",
+    "tests": 6,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 6
+  },
+  {
+    "file": "tests/e2e/manticore-budget.e2e.mjs",
+    "tests": 9,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 9
+  },
+  {
+    "file": "tests/e2e/manticore-task-plan.e2e.mjs",
+    "tests": 8,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 8
+  },
+  {
+    "file": "tests/e2e/f10.e2e.mjs",
+    "tests": 3,
+    "initial_failures": 1,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "passing_rerun_log": "minutes-sqlite-f80c126.log",
+    "passing_rerun_tests": 1,
+    "covered_after_repairs": 3
+  },
+  {
+    "file": "tests/e2e/f02.e2e.mjs",
+    "tests": 5,
+    "initial_failures": 1,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "passing_rerun_log": "followups-sqlite-f80c126.log",
+    "passing_rerun_tests": 5,
+    "covered_after_repairs": 5
+  },
+  {
+    "file": "tests/e2e/manticore-backup.e2e.mjs",
+    "tests": 1,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 1
+  },
+  {
+    "file": "tests/e2e/manticore-calendar.e2e.mjs",
+    "tests": 7,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 7
+  },
+  {
+    "file": "tests/e2e/f12.e2e.mjs",
+    "tests": 3,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 3
+  },
+  {
+    "file": "tests/e2e/manticore-memory.e2e.mjs",
+    "tests": 4,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 4
+  },
+  {
+    "file": "tests/e2e/f01.e2e.mjs",
+    "tests": 8,
+    "initial_failures": 1,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "passing_rerun_log": "legacy-sqlite-f80c126.log",
+    "passing_rerun_tests": 8,
+    "covered_after_repairs": 8
+  },
+  {
+    "file": "tests/e2e/manticore-todo.e2e.mjs",
+    "tests": 7,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 7
+  },
+  {
+    "file": "tests/e2e/f05.e2e.mjs",
+    "tests": 7,
+    "initial_failures": 1,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "passing_rerun_log": "legacy-sqlite-f80c126.log",
+    "passing_rerun_tests": 7,
+    "covered_after_repairs": 7
+  },
+  {
+    "file": "tests/e2e/manticore-work-run.e2e.mjs",
+    "tests": 5,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 5
+  },
+  {
+    "file": "tests/e2e/f03.e2e.mjs",
+    "tests": 3,
+    "initial_failures": 1,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "passing_rerun_log": "followups-sqlite-f80c126.log",
+    "passing_rerun_tests": 3,
+    "covered_after_repairs": 3
+  },
+  {
+    "file": "tests/e2e/f13.e2e.mjs",
+    "tests": 5,
+    "initial_failures": 1,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "passing_rerun_log": "legacy-sqlite-f80c126.log",
+    "passing_rerun_tests": 5,
+    "covered_after_repairs": 5
+  },
+  {
+    "file": "tests/e2e/manticore-materials.e2e.mjs",
+    "tests": 3,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 3
+  },
+  {
+    "file": "tests/e2e/manticore-health.e2e.mjs",
+    "tests": 5,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 5
+  },
+  {
+    "file": "tests/e2e/f33.e2e.mjs",
+    "tests": 5,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 5
+  },
+  {
+    "file": "tests/e2e/work-settlement.e2e.mjs",
+    "tests": 2,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 2
+  },
+  {
+    "file": "tests/e2e/manticore-plan-todo.e2e.mjs",
+    "tests": 4,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 4
+  },
+  {
+    "file": "tests/e2e/manticore-plan-delivery.e2e.mjs",
+    "tests": 2,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 2
+  },
+  {
+    "file": "tests/e2e/f22.e2e.mjs",
+    "tests": 4,
+    "initial_failures": 1,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "passing_rerun_log": "legacy-sqlite-f80c126.log",
+    "passing_rerun_tests": 4,
+    "covered_after_repairs": 4
+  },
+  {
+    "file": "tests/e2e/f15.e2e.mjs",
+    "tests": 2,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 2
+  },
+  {
+    "file": "tests/e2e/manticore-skill-catalog.e2e.mjs",
+    "tests": 1,
+    "initial_failures": 0,
+    "initial_log": "remaining-sqlite-6072e89-partial.log",
+    "covered_after_repairs": 1
+  }
+]

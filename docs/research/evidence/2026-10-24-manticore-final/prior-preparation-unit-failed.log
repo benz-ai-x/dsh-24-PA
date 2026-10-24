@@ -1,0 +1,262 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ❯ tests/unit/knowledge-actions.test.mjs (56 tests | 28 failed) 110471ms
+   × R3 知识与行动公开入口 (sqlite) > V01 'first' 的'人名'变化不能沿用旧派生内容 1348ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (sqlite) > V01 'first' 的'日期'变化不能沿用旧派生内容 1126ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (sqlite) > V01 'first' 的'删除候选'变化不能沿用旧派生内容 1121ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (sqlite) > V01 'first' 的'疑点'变化不能沿用旧派生内容 1230ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'人名'变化不能沿用旧派生内容 1907ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'日期'变化不能沿用旧派生内容 1828ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容 1808ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'疑点'变化不能沿用旧派生内容 1913ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=false） 1700ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=true） 1713ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 升级前待审卡在 refresh 时换发正文卡，旧按钮不能批准 1417ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 升级前待审卡在 click 时换发正文卡，旧按钮不能批准 1331ms
+   × R3 知识与行动公开入口 (sqlite) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留 1223ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (sqlite) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留 1137ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   ✓ R3 知识与行动公开入口 (sqlite) > 同会议并发同参数复用，异参数拒绝；创建未知跨重启恢复仍唯一 2804ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 1636ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 1963ms
+   × R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 1849ms
+     → promise resolved "{ …(6) }" instead of rejecting
+   × R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'联系人原稿不清' 1910ms
+     → promise resolved "{ …(6) }" instead of rejecting
+   × R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'日期原稿不清' 1875ms
+     → promise resolved "{ …(6) }" instead of rejecting
+   × R3 知识与行动公开入口 (sqlite) > 混合联系人与日期疑点独立关联，派生变更后不能沿用原批准 1649ms
+     → promise resolved "{ …(6) }" instead of rejecting
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1734ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2093ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1716ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2117ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 2077ms
+   × R3 知识与行动公开入口 (postgres) > V01 'first' 的'人名'变化不能沿用旧派生内容 2367ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (postgres) > V01 'first' 的'日期'变化不能沿用旧派生内容 1891ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (postgres) > V01 'first' 的'删除候选'变化不能沿用旧派生内容 1943ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (postgres) > V01 'first' 的'疑点'变化不能沿用旧派生内容 1936ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (postgres) > V01 'republish' 的'人名'变化不能沿用旧派生内容 2599ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (postgres) > V01 'republish' 的'日期'变化不能沿用旧派生内容 2583ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (postgres) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容 2618ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (postgres) > V01 'republish' 的'疑点'变化不能沿用旧派生内容 2559ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   ✓ R3 知识与行动公开入口 (postgres) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=false） 2444ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=true） 2550ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 升级前待审卡在 refresh 时换发正文卡，旧按钮不能批准 2068ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 升级前待审卡在 click 时换发正文卡，旧按钮不能批准 1960ms
+   × R3 知识与行动公开入口 (postgres) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留 1896ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   × R3 知识与行动公开入口 (postgres) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留 1877ms
+     → 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+   ✓ R3 知识与行动公开入口 (postgres) > 同一笔记跨 session 并发最多一个活动事项，停止后可重新委派 793ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同会议并发同参数复用，异参数拒绝；创建未知跨重启恢复仍唯一 3717ms
+   ✓ R3 知识与行动公开入口 (postgres) > 会前准备按原身份与日历匹配，原生 ID 碰撞和未变化的回读不会误停其他计划 764ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 2400ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 2700ms
+   × R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 2680ms
+     → promise resolved "{ …(6) }" instead of rejecting
+   × R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'联系人原稿不清' 2695ms
+     → promise resolved "{ …(6) }" instead of rejecting
+   × R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'日期原稿不清' 2680ms
+     → promise resolved "{ …(6) }" instead of rejecting
+   × R3 知识与行动公开入口 (postgres) > 混合联系人与日期疑点独立关联，派生变更后不能沿用原批准 2267ms
+     → promise resolved "{ …(6) }" instead of rejecting
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2519ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2856ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2511ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 3397ms
+   ✓ R3 知识与行动公开入口 (postgres) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 2937ms
+ ✓ tests/unit/todo-public-tool.test.mjs (3 tests) 3860ms
+   ✓ 实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 GUID 不自动改绑或关联，新授权操作保留交办关联 1650ms
+   ✓ 实际公共工具拒绝无来源证据的旧本地编号，即便指定了当前来源 810ms
+   ✓ 实际工具保留允许尝试的权限证据，平台明确拒绝创建不能报告成功 1400ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 28 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 'first' 的'人名'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 'first' 的'日期'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 'first' 的'删除候选'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 'first' 的'疑点'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'人名'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'日期'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'疑点'变化不能沿用旧派生内容
+Error: 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+ ❯ lib/runtime.js:2201:27
+    2199|             if (String(args.worker) === 'handwriting') {
+    2200|                 if (!args.noteId || !String(args.noteId).trim())
+    2201|                     throw new Error('手写整理需要携带 noteId（先由飞书…
+       |                           ^
+    2202|                 note = await this.repos.notes.getNote(String(args.note…
+    2203|                 if (!note)
+ ❯ lib/workspace-execution.js:30:60
+ ❯ WorkspaceExecution.admit lib/workspace-execution.js:30:37
+ ❯ WorkspaceExecution.run lib/workspace-execution.js:18:21
+ ❯ PaRuntime.delegate lib/runtime.js:2169:32
+ ❯ worker tests/unit/knowledge-actions.test.mjs:36:51
+ ❯ tests/unit/knowledge-actions.test.mjs:79:84
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/28]⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留
+Error: 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+ ❯ lib/runtime.js:2201:27
+    2199|             if (String(args.worker) === 'handwriting') {
+    2200|                 if (!args.noteId || !String(args.noteId).trim())
+    2201|                     throw new Error('手写整理需要携带 noteId（先由飞书…
+       |                           ^
+    2202|                 note = await this.repos.notes.getNote(String(args.note…
+    2203|                 if (!note)
+ ❯ lib/workspace-execution.js:30:60
+ ❯ WorkspaceExecution.admit lib/workspace-execution.js:30:37
+ ❯ WorkspaceExecution.run lib/workspace-execution.js:18:21
+ ❯ PaRuntime.delegate lib/runtime.js:2169:32
+ ❯ worker tests/unit/knowledge-actions.test.mjs:36:51
+ ❯ tests/unit/knowledge-actions.test.mjs:140:77
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/28]⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认'
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'联系人原稿不清'
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'日期原稿不清'
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认'
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'联系人原稿不清'
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'日期原稿不清'
+AssertionError: promise resolved "{ …(6) }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "businessExecuted": false,
++   "message": "已保存等待；补充须绑定原交办，未结束运行沿原档案继续。",
++   "reason": "本次尚未提交平台写入，需补充或修复后继续：当前版本的结构化候选尚未重建或缺少同源证明；请重新整理当前文档并审核新候选，不能执行旧版本行动。",
++   "requested": Object {
++     "action": "note_adopt_actions",
++     "indexes": Array [
++       0,
++       1,
++     ],
++     "instruction": "执行第0项和第1项",
++     "noteId": "N-1",
++     "versionId": "N-1:v1",
++   },
++   "runId": "worker-run-bad9c4aa-56b7-4235-b07c-cbb8987eb18b",
++   "status": "waiting",
++ }
+
+ ❯ tests/unit/knowledge-actions.test.mjs:242:43
+    240|     delete version.content.candidates[0].unknowns;
+    241|     await f.rt.db.query('update pa24.note_version set content = $2 whe…
+    242|     const waiting = await f.rt.work(action, child);
+       |                                           ^
+    243|     expect(waiting).toMatchObject({ status: 'waiting', businessExecute…
+    244|     expect((await f.rt.repos.notes.getVersion(published.versionId)).co…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/28]⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (sqlite) > 混合联系人与日期疑点独立关联，派生变更后不能沿用原批准
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > 混合联系人与日期疑点独立关联，派生变更后不能沿用原批准
+AssertionError: promise resolved "{ …(6) }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "businessExecuted": false,
++   "message": "已保存等待；补充须绑定原交办，未结束运行沿原档案继续。",
++   "reason": "本次尚未提交平台写入，需补充或修复后继续：当前版本的结构化候选尚未重建或缺少同源证明；请重新整理当前文档并审核新候选，不能执行旧版本行动。",
++   "requested": Object {
++     "action": "note_adopt_actions",
++     "indexes": Array [
++       0,
++       1,
++       2,
++     ],
++     "instruction": "执行所选行动",
++     "noteId": "N-1",
++     "versionId": "N-1:v1",
++   },
++   "runId": "worker-run-0260b56c-db1b-48af-8925-49b127c33ff3",
++   "status": "waiting",
++ }
+
+ ❯ tests/unit/knowledge-actions.test.mjs:260:43
+    258|     expect(await f.rt.work(action, child)).toMatchObject({ executed: 1…
+    259|     for (const row of version.content.candidates) delete row.unknowns;
+    260|     await f.rt.db.query('update pa24.note_version set content = $2 whe…
+       |                                           ^
+    261|     const waiting = await f.rt.work(action, child);
+    262|     expect(waiting).toMatchObject({ status: 'waiting', businessExecute…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/28]⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 'first' 的'人名'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 'first' 的'日期'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 'first' 的'删除候选'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 'first' 的'疑点'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 'republish' 的'人名'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 'republish' 的'日期'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 'republish' 的'疑点'变化不能沿用旧派生内容
+Error: 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+ ❯ lib/runtime.js:2201:27
+    2199|             if (String(args.worker) === 'handwriting') {
+    2200|                 if (!args.noteId || !String(args.noteId).trim())
+    2201|                     throw new Error('手写整理需要携带 noteId（先由飞书…
+       |                           ^
+    2202|                 note = await this.repos.notes.getNote(String(args.note…
+    2203|                 if (!note)
+ ❯ lib/workspace-execution.js:30:60
+ ❯ WorkspaceExecution.admit lib/workspace-execution.js:30:37
+ ❯ WorkspaceExecution.run lib/workspace-execution.js:18:21
+ ❯ PaRuntime.delegate lib/runtime.js:2169:32
+ ❯ worker tests/unit/knowledge-actions.test.mjs:36:51
+ ❯ tests/unit/knowledge-actions.test.mjs:79:84
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/28]⎯
+
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留
+ FAIL  tests/unit/knowledge-actions.test.mjs > R3 知识与行动公开入口 (postgres) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留
+Error: 手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。
+ ❯ lib/runtime.js:2201:27
+    2199|             if (String(args.worker) === 'handwriting') {
+    2200|                 if (!args.noteId || !String(args.noteId).trim())
+    2201|                     throw new Error('手写整理需要携带 noteId（先由飞书…
+       |                           ^
+    2202|                 note = await this.repos.notes.getNote(String(args.note…
+    2203|                 if (!note)
+ ❯ lib/workspace-execution.js:30:60
+ ❯ WorkspaceExecution.admit lib/workspace-execution.js:30:37
+ ❯ WorkspaceExecution.run lib/workspace-execution.js:18:21
+ ❯ PaRuntime.delegate lib/runtime.js:2169:32
+ ❯ worker tests/unit/knowledge-actions.test.mjs:36:51
+ ❯ tests/unit/knowledge-actions.test.mjs:140:77
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/28]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  28 failed | 31 passed (59)
+   Start at  12:06:41
+   Duration  115.16s (transform 275ms, setup 0ms, collect 650ms, tests 114.33s, environment 0ms, prepare 37ms)

@@ -1,0 +1,29 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f01.e2e.mjs (8 tests) 12083ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P02：/24pa 状态回复经持久 Outbox 回执；重复事件、他人与错应用不处理 3070ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P03+P14：飞书委托经 Lead 委派 memo Worker，保存真实文档并回传出处 1035ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P03：本地24私助会话发起同一备忘流程，结果回到本地会话且不进飞书 1035ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P14：memo_find 经真实工具执行，找回带出处的备忘 1031ms
+   ✓ F01 工作区助理与随手记（真实 Loader + 隔离 PG） > P02：提交后重启，工作区/会话/账本从持久状态恢复，重复事件不重投 3663ms
+ ✓ tests/e2e/f05.e2e.mjs (7 tests) 17502ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > F45：一次性时钟提醒写入日历渠道（App 原生提醒），账本只留 delegated 备份 2058ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P18/F45：稍后交给 App，取消整条日历规则且不生成 ledger 实例 3600ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P20/F45：重启保留原生事件和备份，不重建日历或启动 ledger 发送 2686ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P20/F45：旧 every 新入口明确拒绝，不能静默回退计时 529ms
+   ✓ F05 个人提醒与免打扰（真实 Loader + 隔离 PG） > P15/P21/F45：本人休假偏好可记录；时钟免打扰归 App，不重新启动旧发送器 2070ms
+   ✓ F45 补充：delegated 取消与周期 rrule > 取消时钟型提醒＝同步删除日历事件＋备份行置 stopped 3072ms
+   ✓ F45 补充：delegated 取消与周期 rrule > daily 时钟提醒＝rrule 重复日程（FREQ=DAILY） 1537ms
+ ✓ tests/e2e/f13.e2e.mjs (5 tests) 3582ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 本地会话工具面＝标准编程工具全集＋完整 pa24 工具；schedule 与外部 CLI 委派缺席 511ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 飞书接入会话维持业务白名单：无终端/文件/通用委派工具 508ms
+   ✓ F13 预设并入标准模式能力（真实 Loader + 隔离 PG） > 飞书接入会话可实调 pa24_connection 只读动作（不被本地门禁拒绝） 513ms
+ ✓ tests/e2e/f22.e2e.mjs (4 tests) 4237ms
+   ✓ F22 飞书知识库笔记落库（wiki 优先、folder 回退） > 配置 wikiNodeToken 后备忘文档以知识库节点为父级创建 1039ms
+   ✓ F22 飞书知识库笔记落库（wiki 优先、folder 回退） > 移除 wikiNodeToken 重载后回退 folderToken，行为与存量一致 1161ms
+
+ Test Files  4 passed (4)
+      Tests  24 passed (24)
+   Start at  12:41:18
+   Duration  37.82s (transform 27ms, setup 0ms, collect 69ms, tests 37.40s, environment 0ms, prepare 72ms)

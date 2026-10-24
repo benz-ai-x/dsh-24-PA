@@ -1,0 +1,12 @@
+M09 写入前等待与旧流程回归增量 Standards 复审：通过，Standards findings 0。
+硬性规则违规 0；判断性代码异味 0。先前文档锚点发现已清偿。
+
+范围：cfcf876291fdd5ea5c0d0100074f79ca03d442ad...6072e89。提交：e621bd9、63e3dd8、1c38524、95d77ec、6072e89；共 12 文件，包含 3 个生产文件。59f92f6...cfcf876 沿用此前已通过的完整审查。依据根 AGENTS、product/domain、GLOSSARY、ADR-0001、SPEC、PR 交付计划及完整 Fowler 异味基线；不要求无关重构。
+
+核对依据：
+- feishu-channels.ts:248–279、runtime.ts:2868–2877、2919–2925、3340–3366：新增 SourcePreparationError 仅覆盖本次创建/分派/发送/候选执行前的明确条件或授权校验；均位于 create、stage/perform 或候选执行循环之前。派发失败、既有未知回执及逐项执行失败的处理未改成等待。runtime.ts:2477–2481 沿原运行保存等待，明确 businessExecuted:false；不会伪造本次业务完成。
+- tests/helpers/worker-run.mjs:6–46 从带工作区绑定的公开运行详情核验硬拒绝/未知和等待事实，补充使用最新 revision 与公开 work.change。F04/F08/F11 保留原 run ID、补充前零业务副作用、补充后对象数量及目标断言；F08 比较跟进前后完整发送日志；F11 结构化 executed/reused/failed 与实际对象计数同时核验，未削弱幂等或失败边界。
+- knowledge-actions.test.mjs:38–47 使用完整原 Agent、公开补充入口；无模型事件循环的 clearWait 模拟有明确说明，未冒充真实 Loader 接续验证。
+- M09 研究第 23 行已由越界 #L378 改为实际备份方法 #L334。
+
+本轮只读，未构建、运行测试、改仓库或启动其他代理。最终回归仍在运行，未将测试代码存在、待填文档或此前版本通过计作本版本全量通过；合并仍须等待实际回归及双轴闭环。

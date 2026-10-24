@@ -1,0 +1,22 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+stderr | tests/unit/transport-activation.test.mjs > 已持久接收的飞书委托归属 > 会话等待及待回传期间拒绝切换；原会话完成后才可激活 B
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+stderr | tests/unit/transport-activation.test.mjs > 快速 turn/end 等待接纳落账，回传始终返回飞书发起入口
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失败后，下一回合仍绑定自己的输入并重试原结果
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+[pa24] 回合结算待核对：disk temporarily unavailable
+
+stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失败后，下一回合仍绑定自己的输入并重试原结果
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+ ✓ tests/unit/transport-activation.test.mjs (14 tests) 1037ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  12:40:16
+   Duration  1.62s (transform 269ms, setup 0ms, collect 485ms, tests 1.04s, environment 0ms, prepare 23ms)

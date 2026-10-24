@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f08.e2e.mjs (6 tests | 5 skipped) 19196ms
+   ✓ F08 事项交办与持续跟进（真实 Loader + 隔离 PG） > P23：等待事项到点只询问本人；收到后停止；同源去重 17256ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+   Start at  12:15:11
+   Duration  19.32s (transform 23ms, setup 0ms, collect 33ms, tests 19.20s, environment 0ms, prepare 21ms)

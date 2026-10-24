@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/e2e/f11.e2e.mjs (4 tests) 20828ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：批准后只执行选定行动，重复幂等；过期审核拒绝 7779ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P34：修订产生变更建议且不重复打扰；P35：多版本可信检索 3588ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > P35：晨报/概览包含已审核笔记与等待/待审（缺数据明示） 2063ms
+   ✓ F11 审核笔记的行动与综合查询（真实 Loader + 隔离 PG） > V01：首次回读已修改正文，真实审核卡只批准正文且不能执行旧候选 5162ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  12:14:50
+   Duration  20.96s (transform 24ms, setup 0ms, collect 34ms, tests 20.83s, environment 0ms, prepare 28ms)

@@ -1,0 +1,13 @@
+M09 独立 Spec 最终复审
+固定 HEAD：cfcf876291fdd5ea5c0d0100074f79ca03d442ad。
+固定基线：59f92f60d3874a791be5c7d98d395a683404dc81；本轮增量：290f04b5419efe54020183aa12fb663a03e6073d...cfcf876291fdd5ea5c0d0100074f79ca03d442ad（2 个提交，非空）。
+
+可行动发现：0。缺失/部分实现 0；范围扩张 0；新增行为错误 0。
+
+前次问题均清偿：
+1. 记忆完整性：MemoryStore.verifyIntegrity 独立核验修订 JSON、审计 JSONL、同 revision 内容变化及最近修订凭证；backup-restore 在原副本和候选清理后执行。符合定稿323及 #222 的完整性与损坏披露要求。
+2. 写入前补问：source-calendar-writes.ts:142–150、source-todo-writes.ts:246–262 已覆盖新操作 stageWithId 前的再次验权、对象读取及影响检查；只有 previous 不存在时转换 SourcePreparationError。既有 running/unknown、stage/perform 及派发后错误仍保持原核对边界；runtime.work 沿原运行保存等待和请求参数。符合定稿69、118、221、232。新增真实 Loader 用例覆盖重复日程缺范围→等待→主人明确补充→同 run 仅取消一次；本评审未执行该用例，不将正在验证视为已通过。
+
+新增修复无偏离：backup-inspection.ts:25–34 对 SQLite note_seq 对象/有效计数行、PG sequence 类型/可读性只读校验，不推进序号或迁移账本；daily-planning.ts:66、72 将缺失错误值规范为 null，保留 fresh 与现有错误信息，未发起写入。
+
+此次只读审查，未构建、运行测试、改源码或启动子代理。最终交付验收文档为未提交草稿，未作为既成验收证据；其余前次通过范围未重复无关验证。真实外部账号及生产恢复仍按既定范围另行验收。

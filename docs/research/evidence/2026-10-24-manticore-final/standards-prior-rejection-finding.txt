@@ -1,0 +1,16 @@
+M09 收尾 Standards 审查：发现 1（P2，硬性恢复/状态一致性问题）；判断性代码异味 0。
+
+固定范围：6072e89...8acf3ef92239b7d794d760e075aa87b64d4e6436，并追加纯测试 8acf3ef...e779ffbe989b5ff328d65f22337408485a07773c。此前 59f92f6...6072e89 沿用通过结论。依据仓库 AGENTS、product/domain、GLOSSARY、ADR、SPEC、PR 交付标准及完整 Fowler 基线。
+
+[P2] 已明确拒绝的输入会因通知失败重新留作 admitted。
+位置：packages/24pa/src/runtime.ts:2071–2072。
+触发：引用已结束事项后，workLifecycle.resume 已抛 outcome=rejected；notifyOwner 的企微主人解析失败（例如授权过期/无缓存）或 outbox.enqueue 抛普通 Error。
+证据链：InboxLifecycle.admit:64 先写 admitted，79–81 遇明确拒绝已移除回复队列；新 catch 尚未写 rejected 就 await notifyOwner。通知异常覆盖原 outcome，drain:46–50 因已 admitted 且新错误无 rejected 标记而保持 admitted。此时没有宿主输入或回复队列可结清它；repo/inbox.ts:30–32 和 InboxLifecycle.assertIdle:19–22 将一直阻止工作区/身份切换。wecom-channels.ts:101–129 提供实际可触发的身份失败路径。此结论为静态控制流核对，未运行复现。
+标准：SPEC §7（349–355）要求准入/完成/未知事实分离且恢复状态可操作；PR 交付计划:97 要求故障与未知结果随本 PR 验收。
+修复方向：保证已知拒绝的 inbox 终态不受通知失败影响，并保留通知失败诊断；可保留 rejected 分类向上结算或显式可靠结算。不得将真实 unknown 接纳改成 rejected。补一项通知入队/身份解析失败的针对回归。
+
+其余核对：F02 保留旧 Run、明确接续新 Run、等待补充同 Run、原文档不重复；F01 身份夹具正确；F10/F05 比较完整追加日志，仍保留幂等/零实例及明确取消断言。未发现新增测试弱化。
+
+交付/证据/PR 草稿链接有效，87 文件 1440/1 与 6072e89 日志一致；测试进程定时器补丁明确披露。该结果与本地包只覆盖 63e3dd8 生产代码及 6072e89 测试，不代表本次修复已验证。最终须回填新基线、结果、包摘要、复审及实际合并状态；真实账号/部署仍单列。
+
+本轮未构建、测试、改仓库或开启代理；仅保存报告。此发现清偿前不能给出 Standards 0。

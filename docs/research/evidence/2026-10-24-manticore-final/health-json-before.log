@@ -1,0 +1,782 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ❯ tests/unit/maintenance-health.test.mjs (2 tests | 2 failed) 792ms
+   × 维护健康工具的公开回执 / sqlite > 有实际投递、身份和测试记录时仍返回可持久化 JSON，保留时间和只读边界 35ms
+     → expected { connectionEvidence: { …(9) }, …(5) } to deeply equal { connectionEvidence: { …(9) }, …(5) }
+   × 维护健康工具的公开回执 / postgres > 有实际投递、身份和测试记录时仍返回可持久化 JSON，保留时间和只读边界 758ms
+     → expected { connectionEvidence: { …(9) }, …(5) } to deeply equal { connectionEvidence: { …(9) }, …(5) }
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/maintenance-health.test.mjs > 维护健康工具的公开回执 / sqlite > 有实际投递、身份和测试记录时仍返回可持久化 JSON，保留时间和只读边界
+AssertionError: expected { connectionEvidence: { …(9) }, …(5) } to deeply equal { connectionEvidence: { …(9) }, …(5) }
+
+- Expected
++ Received
+
+  Object {
+    "capabilities": Array [
+      Object {
+        "id": "vision-route",
+        "message": "未配置 workerModels.handwriting：手写识别不可用（其余能力不受影响，固定提醒继续）",
+        "state": "warn",
+      },
+      Object {
+        "id": "lark-cli",
+        "message": "尚未执行接入检查（用 pa24_connection check 发起只读检查）",
+        "state": "info",
+      },
+      Object {
+        "detail": Object {
+          "from": "2026-10-23T16:00:00.000Z",
+          "sources": Array [
+            Object {
+              "checkedAt": null,
+              "filter": "all",
+              "fresh": false,
+              "lastCompleteAt": null,
+              "matching": 0,
+              "name": "飞书原日历来源",
+              "platform": "feishu",
+              "reason": "尚未核验本时间窗口",
+              "sourceId": "legacy-calendar-feishu",
+              "state": "unverified",
+              "unknownRoles": 0,
+            },
+          ],
+          "to": "2026-10-24T16:00:00.000Z",
+        },
+        "id": "calendar-sync",
+        "message": "以下为已保存的日程观察：当前可展示 0 个日程；请查看逐来源范围和时间，不能据此断言没有日程或全部空闲。",
+        "state": "info",
+      },
+    ],
+    "connectionEvidence": Object {
+      "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+      "evidence": Array [
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "当前工作区自证据功能启用后未留下合格事件",
+          "impact": "尚不能证明此端到端链路可用。",
+          "message": "尚无合格活动证据；无活动不等于故障。",
+          "nextSteps": Array [
+            "本人在飞书私聊发送 /24pa。",
+          ],
+          "scope": "feishu.receive",
+          "state": "no_activity",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "当前工作区自证据功能启用后未留下合格事件",
+          "impact": "尚不能证明此端到端链路可用。",
+          "message": "尚无合格活动证据；无活动不等于故障。",
+          "nextSteps": Array [
+            "明确触发发送测试，或查看正常业务投递回执。",
+          ],
+          "scope": "feishu.send",
+          "state": "no_activity",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "当前工作区自证据功能启用后未留下合格事件",
+          "impact": "尚不能证明此端到端链路可用。",
+          "message": "尚无合格活动证据；无活动不等于故障。",
+          "nextSteps": Array [
+            "在真实待审版本的飞书审核卡上完成一次批准或退回。",
+          ],
+          "scope": "feishu.review-callback",
+          "state": "no_activity",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "当前工作区自证据功能启用后未留下合格事件",
+          "impact": "尚不能证明此端到端链路可用。",
+          "message": "尚无合格活动证据；无活动不等于故障。",
+          "nextSteps": Array [
+            "明确触发发送测试，或查看正常业务投递回执。",
+          ],
+          "scope": "wecom.push",
+          "state": "no_activity",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "workspace",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "feishu",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "wecom",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "sources",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "materials",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "memory",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "skills",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "plans",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "models",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "voice",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "16748f305f806bae8050d09c55796898741aa9decc4091aecd21fac4e9bb4809",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "backup",
+          "state": "unchecked",
+        },
+      ],
+      "identity": Object {
+        "accepted": Object {
+          "authority": "bot:original",
+          "ownerId": "owner",
+        },
+-       "accepted_at": "2026-10-24T05:04:30.305Z",
++       "accepted_at": 2026-10-24T05:04:30.305Z,
+        "changed": false,
+        "observed": Object {
+          "authority": "bot:original",
+          "ownerId": "owner",
+        },
+-       "observed_at": "2026-10-24T05:04:30.305Z",
++       "observed_at": 2026-10-24T05:04:30.305Z,
+        "platform": "wecom",
+-       "updated_at": "2026-10-24T05:04:30.305Z",
++       "updated_at": 2026-10-24T05:04:30.305Z,
+      },
+      "monitor": Object {
+        "delivery": Object {
+          "channel": "local",
+-         "created_at": "2026-10-24T05:04:30.304Z",
++         "created_at": 2026-10-24T05:04:30.304Z,
+          "last_error": null,
+          "message_id": null,
+          "sent_at": null,
+          "status": "pending",
+          "target": "pa24-a2fbeba2fbca-local",
+        },
+        "notificationKey": "health-json-notice",
+      },
+      "readAt": "2026-10-24T05:04:30.310Z",
+      "scopes": Array [
+        "workspace",
+        "feishu",
+        "wecom",
+        "sources",
+        "materials",
+        "memory",
+        "skills",
+        "plans",
+        "models",
+        "voice",
+        "backup",
+      ],
+      "testCoverage": "最近 100 次明确触发的测试；不代表全部业务历史。",
+      "tests": Array [
+        Object {
+          "cleanup": null,
+          "config_version": "config-version",
+-         "created_at": "2026-10-24T05:04:30.305Z",
++         "created_at": 2026-10-24T05:04:30.305Z,
+          "id": "health-json-test",
+          "plan": Object {
+            "action": "read-only-evidence",
+          },
+          "request_hash": "request-hash",
+          "result": null,
+          "status": "prepared",
+-         "updated_at": "2026-10-24T05:04:30.305Z",
++         "updated_at": 2026-10-24T05:04:30.305Z,
+        },
+      ],
+      "traffic": Object {
+        "channels": Array [
+          Object {
+            "channel": "local",
+            "count": 1,
+            "last_sent_at": null,
+            "since": "2026-10-24T05:04:30.304Z",
+            "status": "pending",
+          },
+        ],
+        "coverage": "当前工作区完整持久账本，按渠道与状态分组；历史集合不证明当前配置可用，拒绝入站另列。",
+        "inbox": Array [],
+        "since": null,
+      },
+    },
+    "dataFlow": Object {
+      "extraLogs": "dsh 原生会话日志保存于 $DSH_HOME/sessions；24PA 不额外上传。Host 级日志开关影响同 Host 全部会话。",
+      "modelInput": "笔记原稿图片与转写文本会作为模型输入发送到所配置的 dsh 模型路由；账本与面板不外发。",
+      "retention": "PG 账本与工作区文件长期保留；备份按部署者执行的维护动作清理。",
+      "secrets": "诊断与备份仅含凭据引用名（环境变量名），凭据值不进入任何输出。",
+    },
+    "degraded": Object {
+      "modelDown": "模型不可用影响需要模型的步骤；已有结果保存与原生日历提醒按各自机制继续。",
+      "offlineAlert": "完全离线告警依赖独立服务器监控（声明边界）。",
+      "pgDown": "业务账本不可用时停止接纳/写入相关业务并保留可恢复状态。",
+    },
+    "readiness": Object {
+      "items": Array [
+        Object {
+          "id": "host",
+          "message": "24私助 Host 运行中（Node v26.4.0，dsh 0.2.1-rc.2，24私助插件 0.2.1-rc.2.9，飞书 SDK 1.74.0）",
+          "state": "ok",
+        },
+        Object {
+          "detail": Object {
+            "hash": "056ce6cd8f7d3659",
+            "source": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-DprX3U/health/AGENTS.md",
+          },
+          "id": "config",
+          "message": "配置有效：模式=体验，profile=default，加载于 2026/10/24 13:04:30",
+          "state": "ok",
+        },
+        Object {
+          "id": "postgres",
+          "message": "SQLite 业务账本已连接（pa24.db）",
+          "state": "ok",
+        },
+        Object {
+          "id": "workspace",
+          "message": "工作区：/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-DprX3U/health",
+          "state": "ok",
+        },
+        Object {
+          "id": "feishu",
+          "message": "demo：未连接飞书；业务账本按工作区配置运行。",
+          "state": "warn",
+        },
+        Object {
+          "id": "sessions",
+          "message": "飞书接入会话 pa24-a2fbeba2fbca-feishu；本地助理会话 pa24-a2fbeba2fbca-local",
+          "state": "ok",
+        },
+      ],
+      "startedAt": null,
+    },
+    "usage": Object {
+      "ledgerRetries": 0,
+      "modelTurns": 0,
+      "note": "模型/笔记投入自本 Host 启动累计（重启清零）；发送队列与未知计数覆盖完整账本，各渠道明细另列；延迟仅抽样最近 200 条。ledgerRetries 来自账本，费用口径取决于模型计费。",
+      "noteCrops": 0,
+      "notePagesInput": 0,
+      "operationsUnknown": 0,
+      "outboxLatencyMs": Object {
+        "p50": null,
+        "p95": null,
+      },
+      "outboxQueued": 1,
+      "outboxUnknown": 0,
+      "quota": "受管模型的持久用量、限额及一次放行见「模型与预算」；此处仅为本 Host 观测。",
+      "since": null,
+    },
+  }
+
+ ❯ tests/unit/maintenance-health.test.mjs:17:22
+     15|       await f.rt.repos.health.saveMonitor('wecom', { notificationKey: …
+     16|       const result = await f.rt.maintenanceTool({ action: 'health' }, …
+     17|       expect(result).toEqual(JSON.parse(JSON.stringify(result)));
+       |                      ^
+     18|       expect(result.connectionEvidence.traffic.channels[0].since).toEq…
+     19|       expect(result.connectionEvidence.identity.accepted_at).toEqual(e…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/unit/maintenance-health.test.mjs > 维护健康工具的公开回执 / postgres > 有实际投递、身份和测试记录时仍返回可持久化 JSON，保留时间和只读边界
+AssertionError: expected { connectionEvidence: { …(9) }, …(5) } to deeply equal { connectionEvidence: { …(9) }, …(5) }
+
+- Expected
++ Received
+
+  Object {
+    "capabilities": Array [
+      Object {
+        "id": "vision-route",
+        "message": "未配置 workerModels.handwriting：手写识别不可用（其余能力不受影响，固定提醒继续）",
+        "state": "warn",
+      },
+      Object {
+        "id": "lark-cli",
+        "message": "尚未执行接入检查（用 pa24_connection check 发起只读检查）",
+        "state": "info",
+      },
+      Object {
+        "detail": Object {
+          "from": "2026-10-23T16:00:00.000Z",
+          "sources": Array [
+            Object {
+              "checkedAt": null,
+              "filter": "all",
+              "fresh": false,
+              "lastCompleteAt": null,
+              "matching": 0,
+              "name": "飞书原日历来源",
+              "platform": "feishu",
+              "reason": "尚未核验本时间窗口",
+              "sourceId": "legacy-calendar-feishu",
+              "state": "unverified",
+              "unknownRoles": 0,
+            },
+          ],
+          "to": "2026-10-24T16:00:00.000Z",
+        },
+        "id": "calendar-sync",
+        "message": "以下为已保存的日程观察：当前可展示 0 个日程；请查看逐来源范围和时间，不能据此断言没有日程或全部空闲。",
+        "state": "info",
+      },
+    ],
+    "connectionEvidence": Object {
+      "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+      "evidence": Array [
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "当前工作区自证据功能启用后未留下合格事件",
+          "impact": "尚不能证明此端到端链路可用。",
+          "message": "尚无合格活动证据；无活动不等于故障。",
+          "nextSteps": Array [
+            "本人在飞书私聊发送 /24pa。",
+          ],
+          "scope": "feishu.receive",
+          "state": "no_activity",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "当前工作区自证据功能启用后未留下合格事件",
+          "impact": "尚不能证明此端到端链路可用。",
+          "message": "尚无合格活动证据；无活动不等于故障。",
+          "nextSteps": Array [
+            "明确触发发送测试，或查看正常业务投递回执。",
+          ],
+          "scope": "feishu.send",
+          "state": "no_activity",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "当前工作区自证据功能启用后未留下合格事件",
+          "impact": "尚不能证明此端到端链路可用。",
+          "message": "尚无合格活动证据；无活动不等于故障。",
+          "nextSteps": Array [
+            "在真实待审版本的飞书审核卡上完成一次批准或退回。",
+          ],
+          "scope": "feishu.review-callback",
+          "state": "no_activity",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "当前工作区自证据功能启用后未留下合格事件",
+          "impact": "尚不能证明此端到端链路可用。",
+          "message": "尚无合格活动证据；无活动不等于故障。",
+          "nextSteps": Array [
+            "明确触发发送测试，或查看正常业务投递回执。",
+          ],
+          "scope": "wecom.push",
+          "state": "no_activity",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "workspace",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "feishu",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "wecom",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "sources",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "materials",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "memory",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "skills",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "plans",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "models",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "voice",
+          "state": "unchecked",
+        },
+        Object {
+          "checkedAt": "",
+          "configVersion": "4a595eaad2fb4ccabdf4d578f36cbf9be9f32857eeedc740746873f8292bb957",
+          "coverage": "尚未主动检查此范围",
+          "impact": "尚无本范围的检查证据。",
+          "message": "未检查，不代表可用或故障。",
+          "nextSteps": Array [
+            "选择此范围执行只读检查。",
+          ],
+          "scope": "backup",
+          "state": "unchecked",
+        },
+      ],
+      "identity": Object {
+        "accepted": Object {
+          "authority": "bot:original",
+          "ownerId": "owner",
+        },
+-       "accepted_at": "2026-10-24T05:04:30.910Z",
++       "accepted_at": 2026-10-24T05:04:30.910Z,
+        "changed": false,
+        "observed": Object {
+          "authority": "bot:original",
+          "ownerId": "owner",
+        },
+-       "observed_at": "2026-10-24T05:04:30.910Z",
++       "observed_at": 2026-10-24T05:04:30.910Z,
+        "platform": "wecom",
+-       "updated_at": "2026-10-24T05:04:30.910Z",
++       "updated_at": 2026-10-24T05:04:30.910Z,
+      },
+      "monitor": Object {
+        "delivery": Object {
+          "channel": "local",
+-         "created_at": "2026-10-24T05:04:30.910Z",
++         "created_at": 2026-10-24T05:04:30.910Z,
+          "last_error": null,
+          "message_id": null,
+          "sent_at": null,
+          "status": "pending",
+          "target": "pa24-1ca5a637a394-local",
+        },
+        "notificationKey": "health-json-notice",
+      },
+      "readAt": "2026-10-24T05:04:30.917Z",
+      "scopes": Array [
+        "workspace",
+        "feishu",
+        "wecom",
+        "sources",
+        "materials",
+        "memory",
+        "skills",
+        "plans",
+        "models",
+        "voice",
+        "backup",
+      ],
+      "testCoverage": "最近 100 次明确触发的测试；不代表全部业务历史。",
+      "tests": Array [
+        Object {
+          "cleanup": null,
+          "config_version": "config-version",
+-         "created_at": "2026-10-24T05:04:30.911Z",
++         "created_at": 2026-10-24T05:04:30.911Z,
+          "id": "health-json-test",
+          "plan": Object {
+            "action": "read-only-evidence",
+          },
+          "request_hash": "request-hash",
+          "result": null,
+          "status": "prepared",
+-         "updated_at": "2026-10-24T05:04:30.911Z",
++         "updated_at": 2026-10-24T05:04:30.911Z,
+        },
+      ],
+      "traffic": Object {
+        "channels": Array [
+          Object {
+            "channel": "local",
+            "count": "1",
+            "last_sent_at": null,
+-           "since": "2026-10-24T05:04:30.910Z",
++           "since": 2026-10-24T05:04:30.910Z,
+            "status": "pending",
+          },
+        ],
+        "coverage": "当前工作区完整持久账本，按渠道与状态分组；历史集合不证明当前配置可用，拒绝入站另列。",
+        "inbox": Array [],
+        "since": null,
+      },
+    },
+    "dataFlow": Object {
+      "extraLogs": "dsh 原生会话日志保存于 $DSH_HOME/sessions；24PA 不额外上传。Host 级日志开关影响同 Host 全部会话。",
+      "modelInput": "笔记原稿图片与转写文本会作为模型输入发送到所配置的 dsh 模型路由；账本与面板不外发。",
+      "retention": "PG 账本与工作区文件长期保留；备份按部署者执行的维护动作清理。",
+      "secrets": "诊断与备份仅含凭据引用名（环境变量名），凭据值不进入任何输出。",
+    },
+    "degraded": Object {
+      "modelDown": "模型不可用影响需要模型的步骤；已有结果保存与原生日历提醒按各自机制继续。",
+      "offlineAlert": "完全离线告警依赖独立服务器监控（声明边界）。",
+      "pgDown": "业务账本不可用时停止接纳/写入相关业务并保留可恢复状态。",
+    },
+    "readiness": Object {
+      "items": Array [
+        Object {
+          "id": "host",
+          "message": "24私助 Host 运行中（Node v26.4.0，dsh 0.2.1-rc.2，24私助插件 0.2.1-rc.2.9，飞书 SDK 1.74.0）",
+          "state": "ok",
+        },
+        Object {
+          "detail": Object {
+            "hash": "d70458e1107a4145",
+            "source": "/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-eB6XRr/health/AGENTS.md",
+          },
+          "id": "config",
+          "message": "配置有效：模式=体验，profile=default，加载于 2026/10/24 13:04:30",
+          "state": "ok",
+        },
+        Object {
+          "id": "postgres",
+          "message": "PostgreSQL 业务账本已连接",
+          "state": "ok",
+        },
+        Object {
+          "id": "workspace",
+          "message": "工作区：/private/var/folders/8x/zbvzzwh525lfw_ldp529f4lm0000gn/T/pa24-runtime-eB6XRr/health",
+          "state": "ok",
+        },
+        Object {
+          "id": "feishu",
+          "message": "demo：未连接飞书；业务账本按工作区配置运行。",
+          "state": "warn",
+        },
+        Object {
+          "id": "sessions",
+          "message": "飞书接入会话 pa24-1ca5a637a394-feishu；本地助理会话 pa24-1ca5a637a394-local",
+          "state": "ok",
+        },
+      ],
+      "startedAt": null,
+    },
+    "usage": Object {
+      "ledgerRetries": 0,
+      "modelTurns": 0,
+      "note": "模型/笔记投入自本 Host 启动累计（重启清零）；发送队列与未知计数覆盖完整账本，各渠道明细另列；延迟仅抽样最近 200 条。ledgerRetries 来自账本，费用口径取决于模型计费。",
+      "noteCrops": 0,
+      "notePagesInput": 0,
+      "operationsUnknown": 0,
+      "outboxLatencyMs": Object {
+        "p50": null,
+        "p95": null,
+      },
+      "outboxQueued": 1,
+      "outboxUnknown": 0,
+      "quota": "受管模型的持久用量、限额及一次放行见「模型与预算」；此处仅为本 Host 观测。",
+      "since": null,
+    },
+  }
+
+ ❯ tests/unit/maintenance-health.test.mjs:17:22
+     15|       await f.rt.repos.health.saveMonitor('wecom', { notificationKey: …
+     16|       const result = await f.rt.maintenanceTool({ action: 'health' }, …
+     17|       expect(result).toEqual(JSON.parse(JSON.stringify(result)));
+       |                      ^
+     18|       expect(result.connectionEvidence.traffic.channels[0].since).toEq…
+     19|       expect(result.connectionEvidence.identity.accepted_at).toEqual(e…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  13:04:29
+   Duration  1.35s (transform 262ms, setup 0ms, collect 469ms, tests 792ms, environment 0ms, prepare 21ms)

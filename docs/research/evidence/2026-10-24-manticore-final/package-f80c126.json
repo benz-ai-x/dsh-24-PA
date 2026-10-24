@@ -1,0 +1,24 @@
+{
+  "commit": "f80c126b2b7d1ddc741efa8c93a7f5333173b236",
+  "production_commit": "f80c126b2b7d1ddc741efa8c93a7f5333173b236",
+  "command": "npm pack --ignore-scripts --offline --json --pack-destination /tmp/manticore-build-f80c126",
+  "filename": "benz-ai-x-dsh-24pa-0.2.1-rc.2.9.tgz",
+  "size": 597769,
+  "fileCount": 140,
+  "sha256": "f750bb1abf6dc0d0657f762e287d6b54f29f78cb16bd58ce76bd1c8b2e8e374d",
+  "requiredFilesPresent": [
+    "lib/index.js",
+    "lib/runtime.js",
+    "lib/backup-service.js",
+    "lib/backup-restore.js",
+    "lib/backup-host.js",
+    "lib/backup-ledger.js",
+    "lib/skill-runs.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "published": false,
+  "installed": false,
+  "note": "本地构建包沿用原 package version，以 commit 和 SHA-256 区分；尚未发布新的注册表版本或部署。"
+}

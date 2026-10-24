@@ -1,0 +1,532 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/manticore-source-state.test.mjs (75 tests) 1218ms
+ ✓ tests/unit/run-control.test.mjs (72 tests) 4136ms
+   ✓ 运行控制持久账本 (sqlite) > 模板受累计时限约束；配置等待期间取消实际 CLI，保存执行时间 1509ms
+   ✓ 运行控制持久账本 (postgres) > 模板受累计时限约束；配置等待期间取消实际 CLI，保存执行时间 1510ms
+stderr | tests/unit/channel-reliability.test.mjs > 渠道可靠性：真实账本与模块 interface > 健康证据保存失败不覆盖已持久的送达回执，也不阻断回复关联
+[pa24] 接入送达证据待补记：health evidence unavailable
+
+ ✓ tests/unit/channel-reliability.test.mjs (42 tests) 15075ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书 GUID 读取改名与截止，保留计划字段；自身标记不误报，坏观察不标新鲜 752ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 企微按 ID 读取标题/日期/终态；未知状态或缺少目标不伪造已完成 639ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 日期型截止在 America/Los_Angeles 原日期往返；datetime 保留实际时刻 648ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 日期型截止在 Asia/Shanghai 原日期往返；datetime 保留实际时刻 774ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 日期型截止在 UTC 原日期往返；datetime 保留实际时刻 652ms
+   ✓ 渠道可靠性：真实账本与模块 interface > DST 重复小时保留已知 instant；远端新歧义/不存在时刻保持 stale 548ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 个人完成保持整项 open，重启重试不扩大授权；整项完成必须读回 581ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[]} 为 unknown，重复不能重发 563ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[{"todo_id":"other","success":true}]} 为 unknown，重复不能重发 1129ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[{"todo_id":"tdstub-1"}]} 为 unknown，重复不能重发 541ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 明确拒绝可安全重试；单参与人整项完成后再次调用不写入 626ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 完成写入成功后读回失败，重启只补读回，不再发 finish 602ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同进程显式检查刷新授权身份；并发检查共用一次，失败不沿用旧目标 630ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 检查失败后旧在途 whoami 不能重新填充缓存，下一次成功检查可恢复 486ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 企微无幂等键：创建成功后任务投影失败，重试仍只有一个远端对象 425ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书日程创建成功后投影失败，凭回执补账而不重复创建 400ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书创建回执与后续观察使用同一真实标题，不把自身前缀误判为来源变更 468ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 计划投入与估时修改有独立操作身份，并且不调用空的远端 update 558ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 任务远端修改成功后来源通知失败，只补本地通知、不重复远端修改 529ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 当前渠道切换只改变新建，已有对象的查看/修改/完成/删除仍走自身 channel 422ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 相对提醒备份失败跨重启仍沿用原时间、渠道与操作身份 488ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书提醒原生创建携带 IANA 时区、重复规则、五分钟偏移与稳定幂等键 606ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同步只裁决原渠道与日历内的来源，空窗口也通知无提醒规则的会前计划来源 422ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书嵌套时间、全天包含式结束日与空标题保留；坏条目令整个观察不完整 426ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 来源通知失败可重试且未发布完整观察，跨归属同ID不能覆盖旧事件 504ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同步状态的日历ID跨渠道碰撞不能报告成功或覆盖原渠道新鲜度 428ms
+ ✓ tests/unit/followup-lifecycle.test.mjs (64 tests) 50272ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 首实例失败回滚；远端成功/本地失败保留回执，后继与投影均可恢复 448ms
+   ✓ R3 周期与等待公开入口 (sqlite) > claim 后重启恢复；无回执 running 作为未知不重放，仍推进下一发生 433ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 后继提交失败不丢当前发生，成功操作恢复不重复远端写入 495ms
+   ✓ R3 周期与等待公开入口 (sqlite) > feishu 三类日历提醒按原归属取消，周期明确 all 2733ms
+   ✓ R3 周期与等待公开入口 (sqlite) > wecom 三类日历提醒按原归属取消，周期明确 all 2511ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 升级保留企微创建旧操作身份，同一事项重试不新增日程 433ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 归档默认保留原生提醒；显式停止报告部分失败与剩余规则 1556ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 后继仅失败一次也保留成功任务，重复 tick 修复实例而不重复创建 440ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 停止后重启仍修复已确认远端任务的投影，不产生未来实例 429ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 升级清理规则级旧通知，退役来源不阻断公开任务更新 1006ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 历史活动来源更正原子停止并入队，随后公开取消一并清理 1034ms
+   ✓ R3 周期与等待公开入口 (sqlite) > 来源更正目标解析晚于公开取消，业务更新收口但不新增通知 991ms
+   ✓ R3 周期与等待公开入口 (postgres) > 完整规则去重、仅星期/时区变化可替换；skip 保留后继，stop 保留历史 814ms
+   ✓ R3 周期与等待公开入口 (postgres) > 首实例失败回滚；远端成功/本地失败保留回执，后继与投影均可恢复 1173ms
+   ✓ R3 周期与等待公开入口 (postgres) > claim 后重启恢复；无回执 running 作为未知不重放，仍推进下一发生 1176ms
+   ✓ R3 周期与等待公开入口 (postgres) > 后继提交失败不丢当前发生，成功操作恢复不重复远端写入 1182ms
+   ✓ R3 周期与等待公开入口 (postgres) > 同源等待唯一且原生计划唯一，tick 不询问；agent skill 只交付一次 796ms
+   ✓ R3 周期与等待公开入口 (postgres) > received 与慢免打扰读取交叠时不新增过期询问 771ms
+   ✓ R3 周期与等待公开入口 (postgres) > cancel 与慢免打扰读取交叠时不新增过期询问 776ms
+   ✓ R3 周期与等待公开入口 (postgres) > 免打扰延期为新原生检查点，通知事务失败不增加询问次数 800ms
+   ✓ R3 周期与等待公开入口 (postgres) > 原生创建未知经重启恢复；旧同源多项报告歧义 788ms
+   ✓ R3 周期与等待公开入口 (postgres) > feishu 三类日历提醒按原归属取消，周期明确 all 3565ms
+   ✓ R3 周期与等待公开入口 (postgres) > wecom 三类日历提醒按原归属取消，周期明确 all 3311ms
+   ✓ R3 周期与等待公开入口 (postgres) > 升级保留企微创建旧操作身份，同一事项重试不新增日程 1158ms
+   ✓ R3 周期与等待公开入口 (postgres) > 归档默认保留原生提醒；显式停止报告部分失败与剩余规则 2330ms
+   ✓ R3 周期与等待公开入口 (postgres) > 旧计时入口和并发稍后明确拒绝，升级清偿历史 active 规则未发送意图 799ms
+   ✓ R3 周期与等待公开入口 (postgres) > 旧计时入口和并发稍后明确拒绝，升级清偿历史 stopped 规则未发送意图 784ms
+   ✓ R3 周期与等待公开入口 (postgres) > 升级过期旧等待询问；控制取消新旧待投递意图而保留已发生历史 783ms
+   ✓ R3 周期与等待公开入口 (postgres) > 后继仅失败一次也保留成功任务，重复 tick 修复实例而不重复创建 1191ms
+   ✓ R3 周期与等待公开入口 (postgres) > 停止后重启仍修复已确认远端任务的投影，不产生未来实例 1210ms
+   ✓ R3 周期与等待公开入口 (postgres) > 未来检查点不能由跳过 facts 的直接交付提前消费 780ms
+   ✓ R3 周期与等待公开入口 (postgres) > 询问已入队但事项回执保存失败，自动停止后重试补齐实际结果 785ms
+   ✓ R3 周期与等待公开入口 (postgres) > 最终目标身份查询晚返回，取消与通知事务互斥且不复活实例 765ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史在途 silence 查询晚返回时，公开取消后不产生通知 765ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史在途 source 查询晚返回时，公开取消后不产生通知 905ms
+   ✓ R3 周期与等待公开入口 (postgres) > 旧 active 快照晚返回，取消后物化不能复活规则或新增实例 775ms
+   ✓ R3 周期与等待公开入口 (postgres) > 归档盘点并停止已完成但仍在途的一次性提醒 752ms
+   ✓ R3 周期与等待公开入口 (postgres) > 来源失效通知 pending 随公开取消清理或如实披露 758ms
+   ✓ R3 周期与等待公开入口 (postgres) > 来源失效通知 unknown 随公开取消清理或如实披露 762ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史 paused 已决定延迟但 DB 晚写，公开取消保持实例终态 768ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史 quiet 已决定延迟但 DB 晚写，公开取消保持实例终态 758ms
+   ✓ R3 周期与等待公开入口 (postgres) > 升级清理规则级旧通知，退役来源不阻断公开任务更新 1796ms
+   ✓ R3 周期与等待公开入口 (postgres) > 历史活动来源更正原子停止并入队，随后公开取消一并清理 1782ms
+   ✓ R3 周期与等待公开入口 (postgres) > 来源更正目标解析晚于公开取消，业务更新收口但不新增通知 1783ms
+ ✓ tests/unit/task-plan-service.test.mjs (48 tests) 1447ms
+ ✓ tests/unit/knowledge-actions.test.mjs (56 tests) 110251ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'人名'变化不能沿用旧派生内容 1397ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'日期'变化不能沿用旧派生内容 1311ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'删除候选'变化不能沿用旧派生内容 1336ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'first' 的'疑点'变化不能沿用旧派生内容 1320ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'人名'变化不能沿用旧派生内容 2048ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'日期'变化不能沿用旧派生内容 2038ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容 1988ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 'republish' 的'疑点'变化不能沿用旧派生内容 2044ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=false） 1676ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=true） 1687ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 升级前待审卡在 refresh 时换发正文卡，旧按钮不能批准 1422ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 升级前待审卡在 click 时换发正文卡，旧按钮不能批准 1199ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留 1209ms
+   ✓ R3 知识与行动公开入口 (sqlite) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留 1230ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 同会议并发同参数复用，异参数拒绝；创建未知跨重启恢复仍唯一 2720ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 1649ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 1942ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 1911ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'联系人原稿不清' 1829ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'日期原稿不清' 1841ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 混合联系人与日期疑点独立关联，派生变更后不能沿用原批准 1465ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1683ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2101ms
+   ✓ R3 知识与行动公开入口 (sqlite) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 1686ms
+   ✓ R3 知识与行动公开入口 (sqlite) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2044ms
+   ✓ R3 知识与行动公开入口 (sqlite) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 1953ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'人名'变化不能沿用旧派生内容 2065ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'日期'变化不能沿用旧派生内容 2053ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'删除候选'变化不能沿用旧派生内容 2048ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'first' 的'疑点'变化不能沿用旧派生内容 2114ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'人名'变化不能沿用旧派生内容 2752ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'日期'变化不能沿用旧派生内容 2724ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'删除候选'变化不能沿用旧派生内容 2766ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 'republish' 的'疑点'变化不能沿用旧派生内容 2724ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=false） 2420ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 未改正文或仅平台元数据变化可审核后选定执行（metadata=true） 2454ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 升级前待审卡在 refresh 时换发正文卡，旧按钮不能批准 2044ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 升级前待审卡在 click 时换发正文卡，旧按钮不能批准 1950ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 legacy 已批准版本不能继承未证实的候选，历史凭证保留 1970ms
+   ✓ R3 知识与行动公开入口 (postgres) > V01 changed-derived 已批准版本不能继承未证实的候选，历史凭证保留 2040ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同一笔记跨 session 并发最多一个活动事项，停止后可重新委派 760ms
+   ✓ R3 知识与行动公开入口 (postgres) > 同会议并发同参数复用，异参数拒绝；创建未知跨重启恢复仍唯一 3572ms
+   ✓ R3 知识与行动公开入口 (postgres) > 会前准备按原身份与日历匹配，原生 ID 碰撞和未变化的回读不会误停其他计划 744ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 feishu 两类行动保留真实授权 2347ms
+   ✓ R3 知识与行动公开入口 (postgres) > 纪要生成重试/旧身份兼容及 wecom 两类行动保留真实授权 2725ms
+   ✓ R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'候选0“联系李工”的联系人姓氏无法辨认，可能是李工或王工，尚未确认' 2600ms
+   ✓ R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'联系人原稿不清' 2585ms
+   ✓ R3 知识与行动公开入口 (postgres) > 顶层行动疑点关联且无关候选不受阻，修改派生后阻断：'日期原稿不清' 2587ms
+   ✓ R3 知识与行动公开入口 (postgres) > 混合联系人与日期疑点独立关联，派生变更后不能沿用原批准 2201ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2458ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:task 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2833ms
+   ✓ R3 知识与行动公开入口 (postgres) > feishu:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2422ms
+   ✓ R3 知识与行动公开入口 (postgres) > wecom:calendar 远端成功后本地失败，不能改澄清；渠道配置变化仍按原意图恢复 2799ms
+   ✓ R3 知识与行动公开入口 (postgres) > 候选疑点保留并按关联阻断；明确逐项澄清后执行且存授权，查询故障不变空结果 2727ms
+ ✓ tests/unit/digest-reliability.test.mjs (50 tests) 961ms
+ ✓ tests/unit/manticore-todo.test.mjs (44 tests) 1056ms
+ ✓ tests/unit/manticore-materials.test.mjs (25 tests) 44110ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 保存与发布分开、CAS 冲突、重识别不覆盖人工修订，旧按钮无法批准新草稿 1292ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 跨版本重排和改文保留候选关系；已成功对象返回变化建议，不重做 2107ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 同版本重发只增加通知意图，重复 requestId 去重，不重复识别/发布；主体变化拒绝旧卡 914ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 听记依真实本地工具回执导入，无虚构原稿；明确保存后可走同一冻结审核流程 948ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 发布回读失败后换请求恢复同一文档；候选执行锁定当前资料，草稿保存不穿过执行边界 1929ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 批准凭证绑定当前主人；远端人工修订后的重识别只提供对照 1713ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 升级前 task 成功行动首次关联保留原版本、授权和对象；新参数只产生建议 2374ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 升级前 calendar 成功行动首次关联保留原版本、授权和对象；新参数只产生建议 2381ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 直接资料操作有真实运行档案，重复请求和失败重放不再执行，不能启动 Worker 接续 1752ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 面板显式操作在空白会话被切到其他预设后建立正确入口，不修改原会话也不请求模型 917ms
+   ✓ M05 资料草稿、来源、审核及行动 (sqlite) > 部分失败返回原回执，重启中断保留未知动作且不覆盖历史成功或自动接续 1443ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 保存与发布分开、CAS 冲突、重识别不覆盖人工修订，旧按钮无法批准新草稿 2021ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 跨版本重排和改文保留候选关系；已成功对象返回变化建议，不重做 2818ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 同版本重发只增加通知意图，重复 requestId 去重，不重复识别/发布；主体变化拒绝旧卡 1774ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 听记依真实本地工具回执导入，无虚构原稿；明确保存后可走同一冻结审核流程 1575ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 发布回读失败后换请求恢复同一文档；候选执行锁定当前资料，草稿保存不穿过执行边界 2473ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 批准凭证绑定当前主人；远端人工修订后的重识别只提供对照 2406ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 升级前 task 成功行动首次关联保留原版本、授权和对象；新参数只产生建议 2983ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 升级前 calendar 成功行动首次关联保留原版本、授权和对象；新参数只产生建议 3092ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 直接资料操作有真实运行档案，重复请求和失败重放不再执行，不能启动 Worker 接续 2468ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 面板显式操作在空白会话被切到其他预设后建立正确入口，不修改原会话也不请求模型 1764ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 部分失败返回原回执，重启中断保留未知动作且不覆盖历史成功或自动接续 2156ms
+   ✓ M05 资料草稿、来源、审核及行动 (postgres) > 完整计数与分页不受最近记录上限影响；原稿按工作区与摘要校验，不接受旧绑定 779ms
+ ✓ tests/unit/manticore-skill-state.test.mjs (34 tests) 1190ms
+ ✓ tests/unit/memory-lifecycle.test.mjs (19 tests) 158ms
+ ✓ tests/unit/client.test.mjs (14 tests) 17ms
+ ✓ tests/unit/manticore-panel.test.mjs (13 tests) 383ms
+ ✓ tests/unit/runtime-ownership.test.mjs (17 tests) 1124ms
+ ✓ tests/unit/worker-run.test.mjs (28 tests) 2349ms
+ ✓ tests/unit/model-budget.test.mjs (21 tests | 1 skipped) 2092ms
+ ✓ tests/unit/note-publication-recovery.test.mjs (24 tests) 19795ms
+   ✓ 手写发布恢复 (sqlite) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 846ms
+   ✓ 手写发布恢复 (sqlite) > 升级前含版本号的旧 operation key 仍恢复原版本，不建立新的内容 key 356ms
+   ✓ 手写发布恢复 (sqlite) > V01 version 失败后正文被改，重建发布不能把旧候选与新正文拼接 357ms
+   ✓ 手写发布恢复 (sqlite) > 重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过 676ms
+   ✓ 手写发布恢复 (sqlite) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=false） 772ms
+   ✓ 手写发布恢复 (sqlite) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=true） 765ms
+   ✓ 手写发布恢复 (sqlite) > 旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档 607ms
+   ✓ 手写发布恢复 (sqlite) > 重发只采纳同一读取快照，清空旧派生资料；后续编辑不得混入指纹 720ms
+   ✓ 手写发布恢复 (sqlite) > 过期卡可续发同版本，旧 token 无效；批准后重发 v2 状态可再次同步 1485ms
+   ✓ 手写发布恢复 (sqlite) > 审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文 895ms
+   ✓ 手写发布恢复 (sqlite) > pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2 1422ms
+   ✓ 手写发布恢复 (postgres) > 版本已入账后失败，重建 pipeline 重试沿用一个文档、一个版本和一个审核卡 844ms
+   ✓ 手写发布恢复 (postgres) > 升级前含版本号的旧 operation key 仍恢复原版本，不建立新的内容 key 373ms
+   ✓ 手写发布恢复 (postgres) > V01 version 失败后正文被改，重建发布不能把旧候选与新正文拼接 380ms
+   ✓ 手写发布恢复 (postgres) > 重新发布在新版本入账后失败，也完成原候选而不是被 unchanged 提前跳过 721ms
+   ✓ 手写发布恢复 (postgres) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=false） 820ms
+   ✓ 手写发布恢复 (postgres) > 真实 notesTool 以新事项重试已入账候选，补齐原审核卡（legacy=true） 792ms
+   ✓ 手写发布恢复 (postgres) > 旧尝试迟到补账，不把更新候选降回旧版本或重复生成旧文档 630ms
+   ✓ 手写发布恢复 (postgres) > 重发只采纳同一读取快照，清空旧派生资料；后续编辑不得混入指纹 682ms
+   ✓ 手写发布恢复 (postgres) > 过期卡可续发同版本，旧 token 无效；批准后重发 v2 状态可再次同步 1423ms
+   ✓ 手写发布恢复 (postgres) > 审核状态段尾追加业务正文使版本失效，同步恢复不能抹去正文 966ms
+   ✓ 手写发布恢复 (postgres) > pending 和 failed 裁决投影恢复，旧版本恢复不得覆盖 v2 1924ms
+stderr | tests/unit/transport-activation.test.mjs > 已持久接收的飞书委托归属 > 会话等待及待回传期间拒绝切换；原会话完成后才可激活 B
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+stderr | tests/unit/transport-activation.test.mjs > 快速 turn/end 等待接纳落账，回传始终返回飞书发起入口
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失败后，下一回合仍绑定自己的输入并重试原结果
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+[pa24] 回合结算待核对：disk temporarily unavailable
+
+stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失败后，下一回合仍绑定自己的输入并重试原结果
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+ ✓ tests/unit/transport-activation.test.mjs (12 tests) 837ms
+ ✓ tests/unit/memory.test.mjs (26 tests) 66ms
+ ✓ tests/unit/config-editor.test.mjs (16 tests) 524ms
+ ✓ tests/unit/connection-health.test.mjs (26 tests) 896ms
+ ✓ tests/unit/ledger-ownership.test.mjs (25 tests) 3674ms
+   ✓ postgres 历史账本与身份恢复 > 联合备份保持隔离；空外部队列人工切换后可通过公开绑定检索原资料 321ms
+ ✓ tests/unit/workspace-activation.test.mjs (14 tests) 1577ms
+ ✓ tests/unit/backup-recovery.test.mjs (17 tests) 13005ms
+   ✓ M09 postgres durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved 1553ms
+   ✓ M09 postgres durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 1529ms
+   ✓ M09 postgres durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 2370ms
+   ✓ M09 postgres durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 2391ms
+   ✓ M09 postgres durable records and isolated restore > actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity 2448ms
+   ✓ PG dump meta-command and server-program escape attempts fail in isolated restricted import 2126ms
+ ✓ tests/unit/plan-results.test.mjs (20 tests) 1004ms
+ ✓ tests/unit/run-history.test.mjs (19 tests) 915ms
+ ✓ tests/unit/plan-lifecycle.test.mjs (34 tests) 931ms
+ ✓ tests/unit/backup.test.mjs (13 tests) 801ms
+ ✓ tests/unit/sqlite.test.mjs (29 tests) 142ms
+ ✓ tests/unit/health-panel.test.mjs (7 tests) 202ms
+ ✓ tests/unit/material-panel.test.mjs (10 tests) 246ms
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > before-update fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > outbox fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > total ledger outage still checkpoints the Session before exit; cold restart never resends
+[pa24] 模型用量等待持久事件补录：all ledger reads/writes unavailable
+[pa24] 原回合持久化待确认，将自动重试：all ledger reads/writes unavailable
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > committed transaction with lost acknowledgement is not delivered twice after restart
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > lost commit acknowledgements still automatically fill the next free slot
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > temporary cold-read failure retries evidence without resuming the Worker
+[pa24] 原回合结算暂未提交，将自动重试：history backend unavailable
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > flush false does not authorize completion; a later successful checkpoint retries automatically
+[pa24] 原回合持久化待确认，将自动重试：宿主没有持久化监听者，原回合结算等待持久化确认。
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > flush throw does not authorize completion; a later successful checkpoint retries automatically
+[pa24] 原回合持久化待确认，将自动重试：native checkpoint failed
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > stop defeats a queued settlement; continuation only accepts the new execution identity
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / sqlite > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > before-update fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > before-update fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > outbox fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > outbox fault automatically retries the same generation and releases both slots
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > total ledger outage still checkpoints the Session before exit; cold restart never resends
+[pa24] 模型用量等待持久事件补录：all ledger reads/writes unavailable
+[pa24] 原回合持久化待确认，将自动重试：all ledger reads/writes unavailable
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > committed transaction with lost acknowledgement is not delivered twice after restart
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > lost commit acknowledgements still automatically fill the next free slot
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > lost commit acknowledgements still automatically fill the next free slot
+[pa24] 原回合结算暂未提交，将自动重试：commit acknowledgement lost
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > temporary cold-read failure retries evidence without resuming the Worker
+[pa24] 原回合结算暂未提交，将自动重试：history backend unavailable
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > flush false does not authorize completion; a later successful checkpoint retries automatically
+[pa24] 原回合持久化待确认，将自动重试：宿主没有持久化监听者，原回合结算等待持久化确认。
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > flush throw does not authorize completion; a later successful checkpoint retries automatically
+[pa24] 原回合持久化待确认，将自动重试：native checkpoint failed
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > stop defeats a queued settlement; continuation only accepts the new execution identity
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+stderr | tests/unit/work-completion.test.mjs > original work completion / postgres > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff
+[pa24] 原回合结算暂未提交，将自动重试：SETTLEMENT_SQL_DOWN
+
+ ✓ tests/unit/work-completion.test.mjs (40 tests) 16478ms
+   ✓ original work completion / sqlite > before-update fault automatically retries the same generation and releases both slots 448ms
+   ✓ original work completion / sqlite > outbox fault automatically retries the same generation and releases both slots 447ms
+   ✓ original work completion / sqlite > lost commit acknowledgements still automatically fill the next free slot 438ms
+   ✓ original work completion / sqlite > temporary cold-read failure retries evidence without resuming the Worker 449ms
+   ✓ original work completion / sqlite > flush false does not authorize completion; a later successful checkpoint retries automatically 492ms
+   ✓ original work completion / sqlite > flush throw does not authorize completion; a later successful checkpoint retries automatically 479ms
+   ✓ original work completion / sqlite > failed/no-output turns release capacity once: {"kind":"max-tokens"} 523ms
+   ✓ original work completion / sqlite > stop defeats a queued settlement; continuation only accepts the new execution identity 1491ms
+   ✓ original work completion / sqlite > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff 1293ms
+   ✓ original work completion / postgres > before-update fault automatically retries the same generation and releases both slots 610ms
+   ✓ original work completion / postgres > outbox fault automatically retries the same generation and releases both slots 640ms
+   ✓ original work completion / postgres > lost commit acknowledgements still automatically fill the next free slot 618ms
+   ✓ original work completion / postgres > temporary cold-read failure retries evidence without resuming the Worker 606ms
+   ✓ original work completion / postgres > flush false does not authorize completion; a later successful checkpoint retries automatically 589ms
+   ✓ original work completion / postgres > flush throw does not authorize completion; a later successful checkpoint retries automatically 585ms
+   ✓ original work completion / postgres > stop defeats a queued settlement; continuation only accepts the new execution identity 1642ms
+   ✓ original work completion / postgres > persistent SQL failure uses bounded retry and duplicate end events do not reset backoff 1446ms
+ ✓ tests/unit/config.test.mjs (20 tests) 6ms
+ ✓ tests/unit/memory-panel.test.mjs (4 tests) 272ms
+stderr | tests/unit/budget-panel.test.mjs > 实际模型、未知用量、统计范围与完整分页可查，普通查阅不触发模型或写操作
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `CardShell`. It was passed a child from CardGrid. See https://react.dev/link/warning-keys for more information.
+
+ ✓ tests/unit/budget-panel.test.mjs (6 tests) 298ms
+ ✓ tests/unit/handwriting.test.mjs (12 tests) 5ms
+ ✓ tests/unit/skills.test.mjs (12 tests) 4ms
+ ✓ tests/unit/prompts.test.mjs (18 tests) 3ms
+ ✓ tests/unit/meeting-source.test.mjs (9 tests) 166ms
+ ✓ tests/unit/runtime-channels.test.mjs (6 tests) 2437ms
+   ✓ R3 Runtime 渠道边界 > 真实模式没有长连接也用 CLI 保存备忘；缺 CLI 失败后同一意图可修复且只创建一次 513ms
+   ✓ R3 Runtime 渠道边界 > 旧 demo 成功记录本人再次保存时补真实文档；已有文档不再创建 515ms
+   ✓ R3 Runtime 渠道边界 > 任务来源检查核对远端终态和失败；完成或取消不进入项目 next 848ms
+   ✓ R3 Runtime 渠道边界 > CLI audio 与同一长前缀的 text 键不同，audio 重试仍仅交付一次 506ms
+ ✓ tests/unit/task-plan.test.mjs (21 tests) 857ms
+ ✓ tests/unit/execution-capacity.test.mjs (14 tests) 918ms
+ ✓ tests/unit/candidate-recovery.test.mjs (30 tests) 30461ms
+   ✓ candidate recovery / sqlite > feishu:task preserves original receipt, target and owner after restart 1455ms
+   ✓ candidate recovery / sqlite > wecom:task preserves original receipt, target and owner after restart 1424ms
+   ✓ candidate recovery / sqlite > feishu:calendar preserves original receipt, target and owner after restart 1367ms
+   ✓ candidate recovery / sqlite > wecom:calendar preserves original receipt, target and owner after restart 1359ms
+   ✓ candidate recovery / sqlite > feishu:task:container preserves original receipt, target and owner after restart 910ms
+   ✓ candidate recovery / sqlite > feishu:calendar:container preserves original receipt, target and owner after restart 986ms
+   ✓ candidate recovery / sqlite > feishu:task:unchanged preserves original receipt, target and owner after restart 1029ms
+   ✓ candidate recovery / sqlite > feishu:task:localtime preserves original receipt, target and owner after restart 901ms
+   ✓ candidate recovery / sqlite > missing-target does not guess a candidate identity or replay an unknown write 638ms
+   ✓ candidate recovery / sqlite > unknown-format does not guess a candidate identity or replay an unknown write 691ms
+   ✓ candidate recovery / sqlite > foreign-source does not guess a candidate identity or replay an unknown write 719ms
+   ✓ candidate recovery / sqlite > wrong-action does not guess a candidate identity or replay an unknown write 717ms
+   ✓ candidate recovery / sqlite > unknown-result does not guess a candidate identity or replay an unknown write 651ms
+   ✓ candidate recovery / sqlite > bad-receipt does not guess a candidate identity or replay an unknown write 634ms
+   ✓ candidate recovery / sqlite > legacy does not guess a candidate identity or replay an unknown write 651ms
+   ✓ candidate recovery / postgres > feishu:task preserves original receipt, target and owner after restart 1443ms
+   ✓ candidate recovery / postgres > wecom:task preserves original receipt, target and owner after restart 1450ms
+   ✓ candidate recovery / postgres > feishu:calendar preserves original receipt, target and owner after restart 1527ms
+   ✓ candidate recovery / postgres > wecom:calendar preserves original receipt, target and owner after restart 1462ms
+   ✓ candidate recovery / postgres > feishu:task:container preserves original receipt, target and owner after restart 1064ms
+   ✓ candidate recovery / postgres > feishu:calendar:container preserves original receipt, target and owner after restart 1086ms
+   ✓ candidate recovery / postgres > feishu:task:unchanged preserves original receipt, target and owner after restart 1155ms
+   ✓ candidate recovery / postgres > feishu:task:localtime preserves original receipt, target and owner after restart 1043ms
+   ✓ candidate recovery / postgres > missing-target does not guess a candidate identity or replay an unknown write 752ms
+   ✓ candidate recovery / postgres > unknown-format does not guess a candidate identity or replay an unknown write 787ms
+   ✓ candidate recovery / postgres > foreign-source does not guess a candidate identity or replay an unknown write 778ms
+   ✓ candidate recovery / postgres > wrong-action does not guess a candidate identity or replay an unknown write 747ms
+   ✓ candidate recovery / postgres > unknown-result does not guess a candidate identity or replay an unknown write 743ms
+   ✓ candidate recovery / postgres > bad-receipt does not guess a candidate identity or replay an unknown write 775ms
+   ✓ candidate recovery / postgres > legacy does not guess a candidate identity or replay an unknown write 756ms
+ ✓ tests/unit/plan-panel.test.mjs (9 tests) 305ms
+ ✓ tests/unit/manticore-skill-package.test.mjs (18 tests) 24ms
+stderr | tests/unit/backup-panel.test.mjs > 三类持久事实按全量计数分页，查阅步骤不触发维护动作
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `CardShell`. It was passed a child from CardGrid. See https://react.dev/link/warning-keys for more information.
+
+ ✓ tests/unit/backup-panel.test.mjs (6 tests) 194ms
+ ✓ tests/unit/skill-management.test.mjs (7 tests) 15ms
+ ✓ tests/unit/todo-panel.test.mjs (4 tests) 186ms
+ ✓ tests/unit/plan-delivery-guards.test.mjs (10 tests) 862ms
+ ✓ tests/unit/work-tool-schema.test.mjs (40 tests) 10ms
+ ✓ tests/unit/planning-adoption.test.mjs (20 tests) 29982ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 1172ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 确定拒绝释放时段，后续重叠块正常成功 1125ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 确认实际未写后，同一未知操作可安全续办且身份不变 1073ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 1014ms
+   ✓ 规划采纳公开 Runtime (sqlite/feishu) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1075ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 1046ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 确定拒绝释放时段，后续重叠块正常成功 1030ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 确认实际未写后，同一未知操作可安全续办且身份不变 1025ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 919ms
+   ✓ 规划采纳公开 Runtime (sqlite/wecom) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1303ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 2104ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 确定拒绝释放时段，后续重叠块正常成功 1870ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 确认实际未写后，同一未知操作可安全续办且身份不变 1828ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 1839ms
+   ✓ 规划采纳公开 Runtime (postgres/feishu) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 1735ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 远端已写而回执落盘失败保留占用，重启/换事项不重复，核对成功沿原身份续办 1812ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 确定拒绝释放时段，后续重叠块正常成功 1843ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 确认实际未写后，同一未知操作可安全续办且身份不变 1773ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 已存远端回执但本地投影失败，同项重试修复投影且不被自身日程挡住 1787ms
+   ✓ 规划采纳公开 Runtime (postgres/wecom) > 升级认领旧渠道创建身份，已存回执的投影故障沿原操作恢复 2608ms
+ ✓ tests/unit/skill-panel.test.mjs (4 tests) 99ms
+ ✓ tests/unit/digest-service.test.mjs (8 tests) 11ms
+ ❯ tests/unit/todo-public-tool.test.mjs (3 tests | 3 failed) 2360ms
+   × 实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 GUID 不自动改绑或关联，新授权操作保留交办关联 1157ms
+     → expected '{"isError":true,"error":{"message":"C…' to match /原目标|来源/
+   × 实际公共工具拒绝无来源证据的旧本地编号，即便指定了当前来源 735ms
+     → expected '{"isError":true,"error":{"message":"C…' to match /持久证据/
+   × 实际工具保留允许尝试的权限证据，平台明确拒绝创建不能报告成功 469ms
+     → expected '{"isError":true,"error":{"message":"C…' to match /1–50/
+ ✓ tests/unit/calendar-panel.test.mjs (3 tests) 161ms
+ ✓ tests/unit/note-trust.test.mjs (12 tests) 32ms
+ ✓ tests/unit/feishu-setup.test.mjs (11 tests) 2ms
+ ✓ tests/unit/skill-selection.test.mjs (8 tests) 848ms
+ ✓ tests/unit/manticore-calendar-reader.test.mjs (7 tests) 11ms
+ ✓ tests/unit/wecom.test.mjs (9 tests) 1831ms
+   ✓ wecom-cli 受控执行 > 成功体剥离身份前缀字段，raw 保留原文 400ms
+   ✓ wecom-cli 受控执行 > 超时归类为结果未知，提示先核对再重试 1302ms
+ ✓ tests/unit/work-item-lifecycle.test.mjs (12 tests) 810ms
+ ✓ tests/unit/lock.test.mjs (9 tests) 112ms
+ ✓ tests/unit/daily-planning.test.mjs (7 tests) 9ms
+ ✓ tests/unit/manticore-source-access.test.mjs (6 tests) 3ms
+ ✓ tests/unit/extra-tools.test.mjs (11 tests) 2ms
+ ✓ tests/unit/repo.test.mjs (15 tests) 1553ms
+ ✓ tests/unit/skill-delegation.test.mjs (3 tests) 70ms
+ ✓ tests/unit/cli-gateway.test.mjs (8 tests) 2384ms
+   ✓ R3 CLI 有界终止 > 真实子进程忽略 TERM 后强制退出，调用有限结束且进程消失 807ms
+   ✓ R3 CLI 有界终止 > 主进程响应 TERM 先退出后，忽略 TERM 的独立 stdio 后代仍被 KILL 回收 933ms
+   ✓ R3 CLI 有界终止 > 无限 stdout 在上限终止，连续 stderr 只保留定额字节 584ms
+ ✓ tests/unit/tts.test.mjs (7 tests) 5ms
+ ✓ tests/unit/preset-sync.test.mjs (5 tests) 5ms
+ ✓ tests/unit/reminder-panel.test.mjs (2 tests) 78ms
+ ✓ tests/unit/note-document.test.mjs (8 tests) 3328ms
+   ✓ 生产 reader 解析同响应 sidecar，换 token 同图片等价，同 token 换字节 changed 681ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<synced_reference src-token="x" src-block-id="y"/> 406ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<sheet token="x"/> 405ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<whiteboard token="x"/> 443ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<fragment><p>部分正文</p></fragment> 416ms
+   ✓ 动态/片段/损坏 XML 不形成完整快照：<p>不完整 414ms
+   ✓ 无法下载图片不能退化成仅计数的通过结果 561ms
+ ✓ tests/unit/local-tool-access.test.mjs (7 tests) 4ms
+ ✓ tests/unit/task-plan-todo-access.test.mjs (6 tests) 803ms
+ ✓ tests/unit/lark.test.mjs (6 tests) 1834ms
+   ✓ lark-cli 受控执行 > 成功路径：固定 argv + stdin + ok 信封 401ms
+   ✓ lark-cli 受控执行 > 超时归类为结果未知，提示先核对再重试 1303ms
+ ✓ tests/unit/plan-time.test.mjs (6 tests) 14ms
+ ✓ tests/unit/secrets.test.mjs (4 tests) 3ms
+ ✓ tests/unit/runtime-identity.test.mjs (2 tests) 1634ms
+   ✓ 健康检查前冻结的企微投递在首次检查、重复检查及重启后均保持有效 919ms
+   ✓ 来源先核验即建立稳定身份；换机器人后旧缓存和新投递授权均被阻断 715ms
+ ✓ tests/unit/digest-trigger.test.mjs (5 tests) 2ms
+ ✓ tests/unit/note-collection.test.mjs (7 tests) 100ms
+ ✓ tests/unit/pg-backup.test.mjs (1 test) 1033ms
+   ✓ 真实 LATIN1 库备份可恢复原始文字，不能经 UTF-8 有损解码 1032ms
+ ✓ tests/unit/panel-rpc.test.mjs (4 tests) 2ms
+ ✓ tests/unit/workspace-control.test.mjs (3 tests) 25ms
+ ✓ tests/unit/wecom-channels.test.mjs (3 tests) 6ms
+ ✓ tests/unit/handwriting-pipeline.test.mjs (3 tests) 2ms
+ ✓ tests/unit/reminder-readback.test.mjs (1 test) 1ms
+ ✓ tests/unit/wecom-setup.test.mjs (1 test) 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/todo-public-tool.test.mjs > 实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 GUID 不自动改绑或关联，新授权操作保留交办关联
+AssertionError: expected '{"isError":true,"error":{"message":"C…' to match /原目标|来源/
+
+- Expected:
+/原目标|来源/
+
++ Received:
+"{\"isError\":true,\"error\":{\"message\":\"Cannot read properties of undefined (reading 'id')\"},\"content\":[{\"type\":\"text\",\"text\":\"Error: Cannot read properties of undefined (reading 'id')\"}]}"
+
+ ❯ tests/unit/todo-public-tool.test.mjs:51:73
+     49|   const patches = (await f.calls()).filter(row => row.args.includes('p…
+     50|   const rejected = await f.execute({ action: 'task_update', taskId: lo…
+     51|   expect(rejected.isError).toBe(true); expect(JSON.stringify(rejected)…
+       |                                                                         ^
+     52|   expect((await f.calls()).filter(row => row.args.includes('patch'))).…
+     53|   const changed = await f.run({ action: 'task_update', sourceId: 'seco…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/todo-public-tool.test.mjs > 实际公共工具拒绝无来源证据的旧本地编号，即便指定了当前来源
+AssertionError: expected '{"isError":true,"error":{"message":"C…' to match /持久证据/
+
+- Expected:
+/持久证据/
+
++ Received:
+"{\"isError\":true,\"error\":{\"message\":\"Cannot read properties of undefined (reading 'id')\"},\"content\":[{\"type\":\"text\",\"text\":\"Error: Cannot read properties of undefined (reading 'id')\"}]}"
+
+ ❯ tests/unit/todo-public-tool.test.mjs:69:69
+     67|   const before = (await f.calls()).length;
+     68|   const result = await f.execute({ action: 'task_complete', taskId: lo…
+     69|   expect(result.isError).toBe(true); expect(JSON.stringify(result)).to…
+       |                                                                     ^
+     70|   expect(await f.calls()).toHaveLength(before);
+     71|   expect((await f.run({ action: 'task_list', role: 'all' })).tasks[0].…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/todo-public-tool.test.mjs > 实际工具保留允许尝试的权限证据，平台明确拒绝创建不能报告成功
+AssertionError: expected '{"isError":true,"error":{"message":"C…' to match /1–50/
+
+- Expected:
+/1–50/
+
++ Received:
+"{\"isError\":true,\"error\":{\"message\":\"Cannot read properties of undefined (reading 'id')\"},\"content\":[{\"type\":\"text\",\"text\":\"Error: Cannot read properties of undefined (reading 'id')\"}]}"
+
+ ❯ tests/unit/todo-public-tool.test.mjs:78:75
+     76|   for (const assigneeIds of [[], Array(51).fill('owner')]) {
+     77|     const rejected = await f.execute({ action: 'task_create', summary:…
+     78|     expect(rejected.isError).toBe(true); expect(JSON.stringify(rejecte…
+       |                                                                           ^
+     79|   }
+     80|   expect((await f.calls()).some(row => row.args.includes('create'))).t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed | 86 passed (87)
+      Tests  3 failed | 1433 passed | 1 skipped (1437)
+   Start at  11:27:31
+   Duration  397.44s (transform 452ms, setup 0ms, collect 7.22s, tests 383.12s, environment 5ms, prepare 1.51s)

@@ -1,0 +1,22 @@
+
+ RUN  v2.1.9 /Users/pc2026/.codex/worktrees/manticore-backup/dsh-24-PA/packages/24pa
+
+ ✓ tests/unit/manticore-source-state.test.mjs (75 tests) 1220ms
+ ✓ tests/unit/backup-recovery.test.mjs (19 tests) 14842ms
+   ✓ M09 postgres durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved 1604ms
+   ✓ M09 postgres durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 1568ms
+   ✓ M09 postgres durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 2395ms
+   ✓ M09 postgres durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 2484ms
+   ✓ M09 postgres durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 1551ms
+   ✓ M09 postgres durable records and isolated restore > actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity 2332ms
+   ✓ PG dump meta-command and server-program escape attempts fail in isolated restricted import 2272ms
+ ✓ tests/unit/todo-public-tool.test.mjs (3 tests) 4009ms
+   ✓ 实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 GUID 不自动改绑或关联，新授权操作保留交办关联 1833ms
+   ✓ 实际公共工具拒绝无来源证据的旧本地编号，即便指定了当前来源 804ms
+   ✓ 实际工具保留允许尝试的权限证据，平台明确拒绝创建不能报告成功 1372ms
+ ✓ tests/unit/daily-planning.test.mjs (9 tests) 10ms
+
+ Test Files  4 passed (4)
+      Tests  106 passed (106)
+   Start at  11:39:01
+   Duration  21.28s (transform 299ms, setup 0ms, collect 834ms, tests 20.08s, environment 0ms, prepare 85ms)

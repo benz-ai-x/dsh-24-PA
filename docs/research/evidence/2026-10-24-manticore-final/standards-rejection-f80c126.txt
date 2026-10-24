@@ -1,0 +1,15 @@
+M09 拒绝提示故障清偿 Standards 复审：通过，Standards findings 0。
+
+固定 HEAD：f80c126b2b7d1ddc741efa8c93a7f5333173b236。
+增量：8acf3ef92239b7d794d760e075aa87b64d4e6436...f80c126，含 e779ffb、f80c126，共 7 文件。沿用已读仓库标准及完整 Fowler 异味基线；未重复旧生产范围或文档审查。
+
+原 P2：已清偿。
+- runtime.ts:2069–2075 仅处理已有 outcome=rejected：先保留原拒因，通知失败追加诊断，再保存 inbox rejected；状态保存失败显式携带 rejected 向外传播。InboxLifecycle.drain:46–50 因而可再次尝试拒绝结算，不再把通知失败误当宿主接纳未知。真正 unknown 路径及 WorkItemLifecycle 未变。
+- transport-activation.test.mjs:261–283 从公开 transport.inject 覆盖 outbox 入队失败、企微主人解析失败；检查原事项仍 completed、未发子会话输入、inbox 为 rejected 且保留原拒因/通知错误，并通过公开 bind 切换工作区。覆盖了原发现的实际后果。
+
+新增发现：硬规则违规 0，判断性代码异味 0。
+- F02 改用真实 pa24_jobs；F03 明确 continue 建新 Run，并核 fromRunId、reused、原操作数量和完整平台追加日志不变。
+- F05 仍检查公开原运行的拒因、零新平台事件、零账本实例及明确取消结果。
+- F13 严格白名单与已交付 local-tool-access.ts:41 一致，仅补 pa24_run；F22 appId 与实际夹具配置一致，没有放宽生产鉴权。
+
+本轮只读，未构建、运行测试、改仓库或启动代理。14/14 是主代理报告的 transport 文件执行结果；本评审未另执行。完整单元与 SQLite/PostgreSQL 最终集成结果仍须按实际完成记录，不以 Standards 通过替代其合并门槛。
