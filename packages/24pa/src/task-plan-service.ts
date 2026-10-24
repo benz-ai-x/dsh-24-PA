@@ -68,7 +68,7 @@ export class TaskPlanService {
   async summary(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), plans = await context.repos.taskPlans.scheduled();
     const times = await this.deps.lifecycle.nextTimes(plans), next = plans.flatMap(plan => {
-      const at = times.get(plan.id)?.nextTimes[0]; return at ? [{ id: plan.id, title: plan.title, at }] : [];
+      const at = times.get(plan.id)?.nextTimes[0]; return at ? [{ id: plan.id, title: plan.title, at, timeZone: plan.task_config?.timeZone ?? context.timeZone }] : [];
     }).sort((a, b) => a.at.localeCompare(b.at))[0] ?? null;
     return { ...await context.repos.taskPlans.summary(), next, recentRun: await context.repos.taskPlans.recentRun(),
       timingError: [...times.values()].find(value => value.timingError)?.timingError ?? null, workspaceBinding: context.binding };
