@@ -1,58 +1,24 @@
 // Secret scanner for pre-commit and CI. Exits non-zero when a file contains
-// an unexempted credential match.
+// an unexempted credential match (--history is report-only and always exits 0).
 //
-//   node scan.mjs --paths [dir|file...]   scan the working tree (default .)
+//   node scan.mjs --paths [dir|file...]   scan tracked files (default .)
 //   node scan.mjs --staged                scan only staged additions
 //   node scan.mjs --history               report hits across all commits
 //
 // Exemptions are value-hash based (scripts/secrets/allowlist.json): each entry
 // pins the sha256 of an explicitly tolerated value with a reason. Directory-
-// wide ignores are deliberately not supported.
+// wide ignores are deliberately not supported. Credential shapes live in
+// patterns.mjs, single-sourced with redact.mjs.
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-
-const VALUE = '[A-Za-z0-9_.:\\-]{16,}';
-const KEYS = [
-  'approve_?token',
-  'access_?token',
-  'refresh_?token',
-  'session_?token',
-  'app_?secret',
-  'token',
-  'secret',
-  'password',
-].join('|');
-
-const PATTERNS = [
-  { id: 'url-launch-token', regex: new RegExp(`[?&]token=(${VALUE})`) },
-  { id: 'cred-field', regex: new RegExp(`(["'\`]?)(?:${KEYS})\\1\\s*[:=]\\s*["'\`]?(${VALUE})`, 'i') },
-  { id: 'jwt', regex: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/ },
-  { id: 'github-token', regex: /gh[pousr]_[A-Za-z0-9]{30,}/ },
-  { id: 'openai-key', regex: /sk-[A-Za-z0-9_-]{20,}/ },
-  { id: 'slack-token', regex: /xox[baprs]-[A-Za-z0-9-]{10,}/ },
-  { id: 'aws-key', regex: /AKIA[0-9A-Z]{16}/ },
-  { id: 'google-key', regex: /AIza[0-9A-Za-z_-]{30,}/ },
-];
-
-function isSafeValue(raw) {
-  if (/^[A-Z][A-Z0-9_]*$/.test(raw)) return true;
-  if (/^\[?REDACTED/.test(raw)) return true;
-  // Documented placeholder values are examples, not credentials.
-  if (/^(replace_with|changeme|your|example|dummy)[_\-/]/i.test(raw)) return true;
-  return false;
-}
-
-// `token: params.appSecret` assigns identifiers, not credentials; real
-// token values carry digits, and long-enough alpha strings stay covered.
-function looksLikeCredential(raw) {
-  return /\d/.test(raw) || raw.length >= 32;
-}
+import { fileURLToPath } from 'node:url';
+import { PATTERNS, isSafeValue, looksLikeCredential } from './patterns.mjs';
 
 async function loadAllowlist() {
-  const here = path.dirname(new URL(import.meta.url).pathname);
+  const here = path.dirname(fileURLToPath(import.meta.url));
   try {
     return JSON.parse(await readFile(path.join(here, 'allowlist.json'), 'utf8'));
   } catch {
@@ -70,15 +36,20 @@ function isAllowed(allowlist, value, file) {
 export function scanLine(line) {
   const hits = [];
   for (const p of PATTERNS) {
-    for (const m of line.matchAll(new RegExp(p.regex.source, p.regex.flags.includes('g') ? p.regex.flags : p.regex.flags + 'g'))) {
-      // The credential is the last capture group; groupless patterns match whole.
-      const value = m.length > 1 ? m[m.length - 1] : m[0];
+    for (const m of line.matchAll(p.regex)) {
+      const value = m.groups?.value ?? m[0];
       if (!value || isSafeValue(value)) continue;
       if (p.id === 'cred-field' && !looksLikeCredential(value)) continue;
       hits.push({ id: p.id, value });
     }
   }
   return hits;
+}
+
+function previewLine(line, value) {
+  const idx = line.indexOf(value);
+  const start = Math.max(0, idx - 20);
+  return `${start > 0 ? '…' : ''}${line.slice(start, idx)}${value.slice(0, 3)}…(${value.length} chars)`;
 }
 
 export async function scanText(text, file, allowlist) {
@@ -93,18 +64,12 @@ export async function scanText(text, file, allowlist) {
   return findings;
 }
 
-function previewLine(line, value) {
-  const idx = line.indexOf(value);
-  const start = Math.max(0, idx - 20);
-  const mask = (s) => s.split('').map((c, i) => (i < 3 ? c : '…')).join('') + `(${value.length} chars)`;
-  return `${start > 0 ? '…' : ''}${line.slice(start, idx)}${mask(value)}`;
-}
-
-// .pnpm-store is this machine's untracked dependency cache, same nature as node_modules.
+// .pnpm-store is this machine's untracked dependency cache, same nature as
+// node_modules.
 export async function scanPaths(paths, { skip = ['node_modules', '.pnpm-store', '.git'] } = {}) {
   const allowlist = await loadAllowlist();
   const findings = [];
-  const { readdir } = await import('node:fs/promises');
+  const { readdir, stat } = await import('node:fs/promises');
   const { execFile } = await import('node:child_process');
   // Default mode mirrors CI: only git-tracked files (local runtime homes like
   // .prototype-runtime stay out). Explicit paths walk the filesystem so
@@ -125,14 +90,14 @@ export async function scanPaths(paths, { skip = ['node_modules', '.pnpm-store', 
     }
   }
   async function walk(p) {
-    const stat = await import('node:fs/promises').then((fs) => fs.stat(p));
-    if (stat.isDirectory()) {
+    const st = await stat(p);
+    if (st.isDirectory()) {
       const entries = await readdir(p, { withFileTypes: true });
       for (const e of entries) {
         if (skip.includes(e.name)) continue;
         await walk(path.join(p, e.name));
       }
-    } else if (stat.isFile()) {
+    } else if (st.isFile()) {
       const text = await readFile(p, 'utf8').catch(() => null);
       if (text !== null) findings.push(...(await scanText(text, p, allowlist)));
     }
@@ -197,11 +162,13 @@ async function main() {
   const args = process.argv.slice(2);
   let findings;
   let mode;
+  let reportOnly = false;
   if (args.includes('--staged')) {
     mode = 'staged';
     findings = await scanStaged();
   } else if (args.includes('--history')) {
     mode = 'history';
+    reportOnly = true; // known residue disposition is tracked in #228
     findings = await scanHistory();
   } else {
     mode = 'paths';
@@ -214,6 +181,10 @@ async function main() {
       console.error(`  ${f.sha ? f.sha + ' ' : ''}${f.file}:${f.line ?? ''} [${f.id}] ${f.preview ?? ''}`);
     }
     if (findings.length > 50) console.error(`  … and ${findings.length - 50} more`);
+    if (reportOnly) {
+      console.error(`secret-scan[${mode}]: report-only mode, exit 0`);
+      return;
+    }
     process.exit(1);
   }
   console.log(`secret-scan[${mode}]: clean`);

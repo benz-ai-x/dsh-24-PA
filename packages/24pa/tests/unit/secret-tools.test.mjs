@@ -38,6 +38,15 @@ describe('redactString', () => {
     expect(scanLine(`{"token":"${FAKE_BLOCKED}:derived"}`).map((h) => h.id)).toEqual(['cred-field']);
   });
 
+  it('reaches credential fields hidden behind escaped JSON-in-string quotes', () => {
+    const inner = JSON.stringify({ token: `${FAKE_BLOCKED}:body` }); // {"token":"…\"…"}
+    const wrapped = JSON.stringify({ card: inner });                  // quotes become \"
+    const out = redactString(wrapped);
+    expect(out).not.toContain(FAKE_BLOCKED);
+    expect(out).toContain('[REDACTED:len=53]');
+    expect(scanLine(inner.replace(/"/g, '\\"'))).toHaveLength(1);
+  });
+
   it('reaches secrets hidden behind nested/escaped JSON', () => {
     const inner = `started at http://127.0.0.1:32111/?token=${FAKE_LAUNCH}`;
     const wrapped = JSON.stringify({ stdout: JSON.stringify({ url: inner }) });
@@ -70,10 +79,13 @@ describe('scanLine/scanText', () => {
     expect(ids('ghp_' + 'a1'.repeat(20))).toContain('github-token');
   });
 
-  it('does not flag env-var names, short values or redacted markers', () => {
+  it('does not flag env-var names, short values, redacted markers or resource ids', () => {
     expect(scanLine('"appSecretEnv":"PA24_FEISHU_APP_SECRET"')).toHaveLength(0);
     expect(scanLine('"tokenId":"note-1"')).toHaveLength(0);
     expect(scanLine('"token":"[REDACTED:len=48]"')).toHaveLength(0);
+    // Feishu media tokens are document resource ids, not credentials.
+    expect(scanLine(`<img token="media-${'a1'.repeat(12)}">`)).toHaveLength(0);
+    expect(scanLine(`<img token="media_v2_${'a1'.repeat(12)}">`)).toHaveLength(0);
   });
 
   it('suppresses allowlisted values via value hash scoped to the pinned file', async () => {
