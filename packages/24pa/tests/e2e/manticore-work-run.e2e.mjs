@@ -31,6 +31,7 @@ afterAll(async () => { await host?.stop(); await llm?.close(); await cluster?.st
   if (previousExtras === undefined) delete process.env.PA24_E2E_EXTRA_PLUGINS; else process.env.PA24_E2E_EXTRA_PLUGINS = previousExtras; });
 const until = async (read, check) => { const end = Date.now() + 30000; while (Date.now() < end) { const value = await read(); if (check(value)) return value; await new Promise(r => setTimeout(r, 80)); } throw Error('交办验收等待超时：' + JSON.stringify(await read()) + '\n' + JSON.stringify(host.logs()).slice(-5000)); };
 const inspect = id => host.api('work.inspect', { workId: id, workspaceBinding: binding });
+const history = id => host.api('runs', { kind: 'work', workId: id, range: 'all', workspaceBinding: binding });
 const detail = id => host.api('worker.run', { runId: id, workspaceBinding: binding });
 const command = (work, op, instruction, extra = {}) => ({ type: 'work.change', workspaceBinding: binding, workId: work.id, expectedRevision: work.revision, requestId: randomUUID(), op, instruction, confirm: true, ...extra });
 const create = async (title, waiting = false) => {
@@ -45,6 +46,8 @@ it('真实交办有阶段、原请求、完成依据与固定投递；验收重�
   expect(run.run.progress_detail).toMatchObject({ completed: '完成原资料核对', next: '交付结果和出处' });
   expect(run.inputs[0].status).toBe('adopted'); expect(work.acceptance_status).toBe('pending');
   expect(run.deliveries).toHaveLength(1); expect(run.deliveries[0].target).toBe(work.parent_session_id);
+  const projected = (await history(work.id)).rows[0]; expect(Number(projected.run_count)).toBe(1);
+  expect(projected.progress_detail).toMatchObject({ stage: '已核对输入', completed: '完成原资料核对', next: '交付结果和出处' });
   const input = command(work, 'return', '还需补充附件'); await host.api('action', input);
   const returned = (await inspect(work.id)).work; expect(returned.acceptance_status).toBe('returned'); expect(returned.status).toBe('completed');
   const accept = command(returned, 'accept', '已人工核对附件与出处');
@@ -63,6 +66,7 @@ it('等待期间重启后补充沿原交办原运行采用，累计执行时限�
   await script('等待补充后恢复'); await host.api('action', command(work, 'supplement', '主题确认：本周复盘'));
   const result = await until(() => inspect(work.id), v => v.work.status === 'completed');
   expect(result.work.active_worker_run_id).toBe(first); expect(result.runs.total).toBe(1);
+  expect(Number((await history(work.id)).rows[0].run_count)).toBe(1);
   const run = await detail(first); expect(run.inputs).toHaveLength(2); expect(run.inputs.every(input => input.status === 'adopted')).toBe(true);
   expect(run.execution.executionMs).toBeGreaterThanOrEqual(before.executionMs); expect(run.execution.blocks).toHaveLength(0);
   expect(run.run.result).toContain('WORK_RESULT');
@@ -78,6 +82,7 @@ it('等待停止得到宿主确认；迟到补充不能复活，明确接续新�
   await host.api('action', command(work, 'continue', '只完成尚未执行的报告，不重做已保存动作'));
   const result = await until(() => inspect(work.id), v => v.work.status === 'completed');
   expect(result.runs.total).toBe(2); expect(result.work.active_worker_run_id).not.toBe(first);
+  expect(Number((await history(work.id)).rows[0].run_count)).toBe(2);
   expect((await detail(result.work.active_worker_run_id)).run.snapshot.fromRunId).toBe(first);
   expect((await detail(first)).run.status).toBe('stopped');
 }, 60000);

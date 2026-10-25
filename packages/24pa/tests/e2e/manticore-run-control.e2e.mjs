@@ -246,6 +246,8 @@ it('两次暂时拒绝后成功，保存三次尝试并且只产生一份结果'
   const ended = await until(() => detail(run.id), value => !['running', 'pending'].includes(value.run.status));
   expect(ended.run.status, JSON.stringify(ended)).toBe('completed');
   expect(ended.run.result).toContain('RETRY_SUCCESS'); expect(ended.attempts).toHaveLength(3);
+  const work = await host.api('runs', { kind: 'work', workId: ended.run.work_item_id, range: 'all', workspaceBinding: binding });
+  expect(work).toMatchObject({ total: 1 }); expect(Number(work.rows[0].run_count)).toBe(1);
 }, 60000);
 
 it('累计执行时限会停止正在执行的工具；已完成动作与未知结果仍保存', async () => {
