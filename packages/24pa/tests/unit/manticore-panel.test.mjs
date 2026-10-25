@@ -38,7 +38,7 @@ beforeEach(async () => {
       let value;
       if (endpoint === 'snapshot') value = { workspace: { path: '/workspace', config: DEFAULT_CONFIG }, work: [], outbox: [], readiness: { items: [] } };
       else if (endpoint === 'plans.summary') value = plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config.timeZone } };
-      else if (endpoint === 'runs.summary') value = emptyHistory ? { runs24: 0, failed24: 0, delivery_failed24: 0, unresolved: 0, unresolved_events: 0, unexecuted24: 0, active_work: 0, waiting_work: 0, failed_work: 0, run_total: 0, work_total: 0, event_total: 0, legacy_total: 0, empty: true, observedAt: new Date().toISOString() } : { runs24: 31, failed24: 2, delivery_failed24: 1, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, empty: false, observedAt: new Date().toISOString() };
+      else if (endpoint === 'runs.summary') value = emptyHistory ? { runs24: 0, failed24: 0, delivery_failed24: 0, delivery_unknown24: 0, unresolved: 0, unresolved_events: 0, unexecuted24: 0, active_work: 0, waiting_work: 0, failed_work: 0, run_total: 0, work_total: 0, event_total: 0, legacy_total: 0, empty: true, observedAt: new Date().toISOString() } : { runs24: 31, failed24: 2, delivery_failed24: 1, delivery_unknown24: 2, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, empty: false, observedAt: new Date().toISOString() };
       else if (endpoint === 'skills.catalog') value = { entries: ['morning', 'evening', 'weekly'].map(kind => ({ id: 'builtin:digest-' + kind, name: 'digest-' + kind, type: 'template', source: 'builtin' })), discovery: 'complete' };
       else if (endpoint === 'skills.inspect') value = { id: p.id, type: 'template', metadata: { track: 'template', pa24: true } };
       else if (endpoint === 'plans') { const empty = p.state === 'recycled' || (p.query && !plan.title.includes(p.query)); value = { rows: empty ? [] : [structuredClone(plan)], total: empty ? 0 : 1, offset: p.offset, limit: 20 }; }
@@ -300,6 +300,26 @@ describe('M02 管理界面', () => {
     expect([...container.querySelectorAll('.pa24-history-metric')].some(node => node.textContent.includes('进行中交办'))).toBe(false);
     await click(button('核对未执行原记录')); expect(requests.filter(row => row.endpoint === 'skills.run').at(-1).payload.runId).toBe('run-a'); await click(button('关闭详情'));
     await press(container.querySelector('#pa24-history-tab-events'), 'Home'); expect(container.querySelector('#pa24-history-tab-runs').getAttribute('aria-selected')).toBe('true');
+  });
+  it('未执行事件保留并可选接续来源', async () => {
+    await open('运行记录'); await click(container.querySelector('.pa24-history-advanced-toggle'));
+    await change(field('发起来源'), 'continuation'); await click(button('未执行事件'));
+    expect(field('发起来源').value).toBe('continuation');
+    expect([...field('发起来源').options].some(option => option.value === 'continuation' && option.textContent === '接续')).toBe(true);
+    expect(requests.filter(row => row.endpoint === 'runs').at(-1).payload).toMatchObject({ kind: 'events', source: 'continuation', offset: 0 });
+    expect(requests.filter(row => row.endpoint === 'action')).toHaveLength(0);
+  });
+  it('投递实际失败与待核对分开呈现，未知不使用失败红也不增加统计卡', async () => {
+    await open('运行记录');
+    const failed = [...container.querySelectorAll('.pa24-history-metric')].find(node => node.textContent.includes('24 小时投递失败'));
+    expect(failed.querySelector('strong').textContent).toBe('1'); expect(failed.className).toContain('danger');
+    const unknown = [...container.querySelectorAll('.pa24-history-scope .pa24-badge')].find(node => node.textContent.includes('24 小时投递待核对'));
+    expect(unknown).toBeTruthy(); expect(unknown.textContent).toContain('2'); expect(unknown.className).toContain('amber'); expect(unknown.className).not.toContain('danger');
+    expect(container.querySelectorAll('.pa24-history-metric')).toHaveLength(4);
+    expect(container.querySelector('.pa24-run-history').textContent).toContain('未知不计入投递失败，仍保留在全量待处理');
+    await click(button('返回卡片'));
+    const card = [...container.querySelectorAll('.pa24-cap')].find(node => node.textContent.includes('执行 · 投递 · 助理交办'));
+    expect(card.textContent).toContain('24 小时投递待核对'); expect(card.textContent).toContain('24 小时投递失败');
   });
   it('高级筛选显示有效数量，视图切换清理不支持字段、页码归零并关闭详情', async () => {
     await open('定时任务'); await click(button('项目晨报')); await click(button('查看全部运行')); await click(container.querySelector('.pa24-history-advanced-toggle'));

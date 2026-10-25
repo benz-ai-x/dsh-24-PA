@@ -26,8 +26,11 @@ const RUN_SOURCE = `case when r.record_kind = 'worker' then r.source when r.tria
 const executionRecord = (alias = 'r') => `${alias}.status <> 'rejected' and not exists (select 1 from pa24.plan_trigger unexecuted
   where unexecuted.run_id = ${alias}.id and unexecuted.status in ('skipped', 'rejected', 'expired'))`;
 const EXECUTION_RECORD = executionRecord();
-const DELIVERY_FAILURE = `(r.delivery_status in ('failed','unknown') or exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
-  where d.run_id = r.id and o.status in ('failed', 'unknown')))`;
+const DELIVERY_FAILED = `(r.delivery_status = 'failed' or exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
+  where d.run_id = r.id and o.status = 'failed'))`;
+const DELIVERY_UNKNOWN = `(r.delivery_status = 'unknown' or exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
+  where d.run_id = r.id and o.status = 'unknown'))`;
+const DELIVERY_FAILURE = `(${DELIVERY_FAILED} or ${DELIVERY_UNKNOWN})`;
 const PLAN_BLOCKED = (planId: string) => `exists (select 1 from pa24.digest_plan blocked_plan where blocked_plan.id = ${planId}
   and blocked_plan.recycled_at is null and (exists (select 1 from pa24.task_plan_block b where b.plan_id = blocked_plan.id)
   or exists (select 1 from pa24.skill_plan_block b where b.plan_id = blocked_plan.id)))`;
@@ -108,7 +111,8 @@ export class RunHistoryRepo {
     const counts = async (sql: string) => Object.fromEntries(Object.entries((await this.db.query<Record<string, number | string | null>>(sql, [since])).rows[0]!).map(([key, value]) => [key, Number(value ?? 0)]));
     const runs = await counts(`select count(*) as run_total, sum(case when r.created_at >= $1 then 1 else 0 end) as runs24,
       sum(case when r.created_at >= $1 and r.status in ('failed', 'timed_out') then 1 else 0 end) as failed24,
-      sum(case when r.created_at >= $1 and ${DELIVERY_FAILURE} then 1 else 0 end) as delivery_failed24,
+      sum(case when r.created_at >= $1 and ${DELIVERY_FAILED} then 1 else 0 end) as delivery_failed24,
+      sum(case when r.created_at >= $1 and ${DELIVERY_UNKNOWN} then 1 else 0 end) as delivery_unknown24,
       sum(case when ${RUN_UNRESOLVED} then 1 else 0 end) as unresolved from ${EXECUTIONS} r where ${EXECUTION_RECORD}`);
     const work = await counts(`select count(*) as work_total, sum(case when r.status in ('accepted', 'queued', 'running') then 1 else 0 end) as active_work,
       sum(case when r.status in ('waiting_input', 'needs_reconciliation') or (r.status = 'completed' and r.acceptance_required = true and r.acceptance_status in ('pending','returned')) then 1 else 0 end) as waiting_work,

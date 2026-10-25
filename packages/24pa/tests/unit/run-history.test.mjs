@@ -17,7 +17,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
   });
   afterAll(async () => { await db?.close(); await cluster?.stop(); });
   beforeEach(async () => {
-    for (const table of ['skill_run', 'work_item', 'plan_trigger', 'task_plan_block', 'digest_plan', 'digest_occurrence', 'outbox', 'task_plan_delivery', 'run_diagnostic']) await db.query(`delete from pa24.${table}`);
+    for (const table of ['skill_run', 'worker_run', 'work_item', 'plan_trigger', 'task_plan_block', 'digest_plan', 'digest_occurrence', 'outbox', 'task_plan_delivery', 'run_diagnostic']) await db.query(`delete from pa24.${table}`);
     now = new Date();
     for (let i = 0; i < 32; i++) {
       const at = new Date(now.getTime() - (i >= 30 ? 10 * 86400000 : (i + 1) * 1000)), status = [1, 30].includes(i) ? 'failed' : i === 0 ? 'running' : 'completed';
@@ -104,6 +104,44 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     expect((await list({ kind: 'events' })).rows[0]).toMatchObject({ id: 't', status: 'skipped', summary: '重叠' });
     const detail = await history.work({ workId: 'w2', workspaceBinding: 'binding' });
     expect(detail.work.status).toBe('waiting_input'); expect(detail.runs.total).toBe(1); expect(detail.runs.rows[0].id).toBe('r2');
+  });
+  it('接续来源的真实拒绝 Worker 记录可作为未执行事件筛选', async () => {
+    await repos.workItems.insert({ id: 'continuation-work', title: '接续未执行', instruction: '保留原请求', role: 'memo', origin: 'local',
+      parent_session_id: 'parent', child_session_id: 'continuation-session', delivery: 'local', status: 'failed', skill: null });
+    await db.query(`insert into pa24.worker_run (id, work_item_id, session_id, source, status, instruction, progress, snapshot)
+      values ('continuation-rejected','continuation-work','continuation-session','continuation','rejected','接续请求','接续准入拒绝','{}')`);
+    const events = await list({ kind: 'events', source: 'continuation', workId: 'continuation-work', range: 'all' });
+    expect(events).toMatchObject({ total: 1, empty: false });
+    expect(events.rows[0]).toMatchObject({ id: 'continuation-rejected', run_id: 'continuation-rejected', work_item_id: 'continuation-work',
+      record_kind: 'worker', source: 'continuation', status: 'rejected', summary: '接续准入拒绝' });
+    expect((await list({ kind: 'runs', workId: 'continuation-work', range: 'all' })).total).toBe(0);
+  });
+  it('实际投递失败与待核对分别统计，未知仍保留在运行和事件的全量待处理中', async () => {
+    expect(await history.summary({ workspaceBinding: 'binding' })).toMatchObject({ delivery_failed24: 1, delivery_unknown24: 0, unresolved: 3, unresolved_events: 0 });
+    await repos.workItems.insert({ id: 'worker-unknown-work', title: 'Worker 待核对', instruction: '保留原请求', role: 'memo', origin: 'local',
+      parent_session_id: 'parent', child_session_id: 'worker-unknown-session', delivery: 'local', status: 'completed', skill: null });
+    const workerOutbox = await repos.outbox.enqueue({ dedupKey: 'worker-unknown-outbox', channel: 'local', target: 'parent', kind: 'text', content: { text: '已保存结果' } });
+    await repos.outbox.mark(workerOutbox.row.id, { status: 'unknown', error: '原入口回执丢失' });
+    await db.query(`insert into pa24.worker_run (id, work_item_id, session_id, source, status, instruction, snapshot, outbox_key)
+      values ('worker-unknown','worker-unknown-work','worker-unknown-session','manual','completed','原请求','{}','worker-unknown-outbox')`);
+    await db.query("update pa24.skill_run set plan_id = 'unknown-event-plan' where id = 'r3'");
+    await db.query("insert into pa24.digest_plan (id, kind, title, session_id, schedule_spec) values ('unknown-event-plan','task','未知投递事件','parent','{}')");
+    await db.query("insert into pa24.plan_trigger (id, plan_id, run_id, generation, occurrence, source, status, reason, snapshot) values ('unknown-event','unknown-event-plan','r3','g','occ','schedule','skipped','未启动','{}')");
+    const eventOutbox = await repos.outbox.enqueue({ dedupKey: 'event-unknown-outbox', channel: 'feishu', target: 'private-recipient', kind: 'text', content: { text: '已保存结果' } });
+    await repos.outbox.mark(eventOutbox.row.id, { status: 'unknown', error: '平台回执丢失' });
+    await db.query("insert into pa24.task_plan_delivery (outbox_id, notice_id, run_id, component, override_quiet) values ($1,'unknown-event-notice','r3','text',false)", [eventOutbox.row.id]);
+    const summary = await history.summary({ workspaceBinding: 'binding' });
+    expect(summary).toMatchObject({ delivery_failed24: 1, delivery_unknown24: 1, unresolved: 4, unresolved_events: 1, unexecuted24: 1 });
+    expect((await list({ workId: 'worker-unknown-work', deliveryStatus: 'unknown', range: 'all' })).rows[0]).toMatchObject({ id: 'worker-unknown', status: 'completed', delivery_status: 'unknown' });
+    expect((await list({ workId: 'worker-unknown-work', deliveryStatus: 'failed', range: 'all' })).total).toBe(0);
+    const old = new Date(now.getTime() - 10 * 86400000);
+    await db.query('update pa24.worker_run set created_at = $2, updated_at = $2 where id = $1', ['worker-unknown', old]);
+    await db.query('update pa24.plan_trigger set created_at = $2, updated_at = $2 where id = $1', ['unknown-event', old]);
+    expect(await history.summary({ workspaceBinding: 'binding' })).toMatchObject({ delivery_failed24: 1, delivery_unknown24: 0, unresolved: 4, unresolved_events: 1, unexecuted24: 0 });
+    expect((await list({ workId: 'worker-unknown-work' })).total).toBe(1);
+    expect((await list({ workId: 'worker-unknown-work', includeUnresolved: false })).total).toBe(0);
+    expect((await list({ kind: 'events', planId: 'unknown-event-plan' })).total).toBe(1);
+    expect((await list({ kind: 'events', planId: 'unknown-event-plan', includeUnresolved: false })).total).toBe(0);
   });
   it('详细诊断按配置期限清理；不删除快照、结果和回执，查看本身不清理', async () => {
     const context = { binding: 'binding', timeZone: 'UTC', repos, diagnosticRetentionDays: 90 };

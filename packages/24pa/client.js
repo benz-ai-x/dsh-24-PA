@@ -1871,7 +1871,7 @@ window.__ModuleLoader__.load({
           const field = (label, node) => h('label', { key: label, className: 'pa24-field' }, label, node);
           const select = (key, entries) => h('select', { value: filters[key] || '', onChange: event => set(key, event.target.value) }, entries.map(([value, label]) => h('option', { key: value, value }, label)));
           const statuses = { runs: ['pending', 'running', 'waiting', 'stopping', 'completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'], work: ['accepted', 'queued', 'running', 'waiting_input', 'completed', 'failed', 'stopped', 'needs_reconciliation'], events: ['skipped', 'rejected', 'expired'], legacy: ['delivering', 'model_done', 'sent', 'unconfirmed'] };
-          const sourceValues = { runs: ['manual', 'schedule', 'trial', 'rerun', 'continuation'], work: ['local', 'feishu'], events: ['manual', 'schedule'], legacy: [] };
+          const sourceValues = { runs: ['manual', 'schedule', 'trial', 'rerun', 'continuation'], work: ['local', 'feishu'], events: ['manual', 'schedule', 'continuation'], legacy: [] };
           const views = [['runs', 'play', L('执行记录', 'Executions')], ['work', 'tasks', L('助理交办', 'Work items')], ['events', 'clock', L('未执行事件', 'Unexecuted events')]];
           const changeKind = kind => {
             if (!statuses[kind] || kind === filters.kind) return;
@@ -1883,7 +1883,7 @@ window.__ModuleLoader__.load({
           };
           const clearFilters = () => model.update({ filters: { kind: filters.kind, range: '7', includeUnresolved: true }, offset: 0, selectedRun: null, workId: null, workOffset: 0 });
           const summary = extra.runs, active = view.selectedRun, legacy = filters.kind === 'legacy';
-          const sourceOptions = filters.kind === 'work' ? [['local', L('本地', 'Local')], ['feishu', L('飞书', 'Feishu')]] : [['manual', L('手工', 'Manual')], ['schedule', L('计划', 'Scheduled')], ...(filters.kind === 'runs' ? [['trial', L('试运行', 'Trial')], ['rerun', L('重跑', 'Rerun')], ['continuation', L('接续', 'Continuation')]] : [])];
+          const sourceOptions = filters.kind === 'work' ? [['local', L('本地', 'Local')], ['feishu', L('飞书', 'Feishu')]] : [['manual', L('手工', 'Manual')], ['schedule', L('计划', 'Scheduled')], ...(filters.kind === 'runs' ? [['trial', L('试运行', 'Trial')], ['rerun', L('重跑', 'Rerun')], ['continuation', L('接续', 'Continuation')]] : filters.kind === 'events' ? [['continuation', L('接续', 'Continuation')]] : [])];
           const advancedFields = [...(!legacy ? ['source', 'skillId'] : []), 'planId', ...(!legacy ? ['workId'] : []), ...(filters.kind === 'runs' ? ['versionId', 'deliveryStatus'] : [])];
           const advancedCount = advancedFields.filter(key => !!filters[key]).length + (filters.includeUnresolved === false ? 1 : 0);
           const clearAdvanced = () => model.update({ filters: { ...filters, source: undefined, planId: undefined, workId: undefined, skillId: undefined, versionId: undefined, deliveryStatus: undefined, includeUnresolved: true }, offset: 0, selectedRun: null, workId: null, workOffset: 0 });
@@ -1973,7 +1973,9 @@ window.__ModuleLoader__.load({
             }, icon(name, { width: 16, height: 16 }), label))),
             h('div', { id: 'pa24-history-primary', role: 'tabpanel', 'aria-labelledby': 'pa24-history-tab-' + (legacy ? 'runs' : filters.kind), tabIndex: 0, hidden: legacy }, !legacy && h(React.Fragment, null,
               !!metrics.length && h('div', { className: 'pa24-history-metrics' }, metrics),
-              summary?.observedAt && h('p', { className: 'pa24-history-scope' }, (filters.kind === 'runs' ? L('24 小时统计与全量未解决分开；列表默认近 7 天。', '24h statistics and all-time unresolved are separate; the list defaults to 7 days.') : filters.kind === 'work' ? L('交办统计来自全部数据，不从当前页推算。', 'Work statistics cover the complete ledger, not the current page.') : L('24 小时未执行与全量待处理事件分开。', '24h unexecuted events and all-time unresolved events are separate.')) + ' · ' + date(summary.observedAt, tz)),
+              summary?.observedAt && h('p', { className: 'pa24-history-scope' },
+                filters.kind === 'runs' && h(React.Fragment, null, h('span', { className: 'pa24-badge pa24-tone-' + (summary.delivery_unknown24 ? 'amber' : 'neutral') }, L('24 小时投递待核对 ', '24h delivery unknown: ') + (summary.delivery_unknown24 ?? 0)), ' ', L('未知不计入投递失败，仍保留在全量待处理。', 'Unknown is not a delivery failure and remains unresolved.'), ' · '),
+                (filters.kind === 'runs' ? L('24 小时统计与全量未解决分开；列表默认近 7 天。', '24h statistics and all-time unresolved are separate; the list defaults to 7 days.') : filters.kind === 'work' ? L('交办统计来自全部数据，不从当前页推算。', 'Work statistics cover the complete ledger, not the current page.') : L('24 小时未执行与全量待处理事件分开。', '24h unexecuted events and all-time unresolved events are separate.')) + ' · ' + date(summary.observedAt, tz)),
               toolbar, error && h('p', { role: 'alert', className: 'pa24-error' }, error), list.error && h('p', { role: 'alert', className: 'pa24-error' }, L('读取失败；下方可能为上次结果：', 'Read failed; results below may be stale: ') + list.error), list.loading && h('p', { role: 'status' }, L('正在读取档案…', 'Reading history…')), listContent)),
             h('details', { className: 'pa24-history-compatibility', open: legacy ? true : undefined }, h('summary', null, icon('history', { width: 15, height: 15 }), L('兼容与历史', 'Compatibility and history')),
               legacy ? h('div', { className: 'pa24-history-compatibility-content' }, h('p', { className: 'pa24-history-scope' }, L('旧简报仅作为历史档案保留，不与三个主视图混合统计。', 'Legacy digests remain historical records and are not mixed into the three primary views.')), toolbar, error && h('p', { role: 'alert', className: 'pa24-error' }, error), list.error && h('p', { role: 'alert', className: 'pa24-error' }, list.error), list.loading && h('p', { role: 'status' }, L('正在读取档案…', 'Reading history…')), listContent)
@@ -2560,7 +2562,7 @@ window.__ModuleLoader__.load({
               const summary = extra.runs;
               if (summary?.empty) return h('div', null, h('p', null, L('暂无运行档案', 'No run history yet')), h('p', { className: 'pa24-meta' }, L('这是中性空状态，不代表异常或健康检查通过。', 'Neutral empty state; neither an error nor a health pass.')));
               return summary?.observedAt ? h('div', null, capKpi([[summary.runs24, L('24 小时运行', '24h runs')], [summary.failed24, L('24 小时执行失败', '24h execution failures')], [summary.delivery_failed24, L('24 小时投递失败', '24h delivery failures')]]),
-                capLine(L('全量需处理运行', 'All unresolved runs'), summary.unresolved), capLine(L('全量待处理事件', 'All unresolved events'), summary.unresolved_events),
+                capLine(L('24 小时投递待核对', '24h delivery unknown'), summary.delivery_unknown24 ?? 0), capLine(L('全量需处理运行', 'All unresolved runs'), summary.unresolved), capLine(L('全量待处理事件', 'All unresolved events'), summary.unresolved_events),
                 capLine(L('待我处理交办', 'Work awaiting you'), summary.waiting_work), capLine(L('异常交办', 'Failed work'), summary.failed_work))
                 : h('p', { className: 'pa24-meta' }, extra._errors?.runs || L('正在读取完整统计…', 'Reading complete statistics…'));
             },
