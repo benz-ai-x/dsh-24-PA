@@ -291,7 +291,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     } finally { runs.dispose(); }
   });
 
-  it.each(['completed', 'open-unknown'])('根会话只豁免有等待回执的回合（后续=%s）', async outcome => {
+  it.each(['completed', 'open-unknown'])('根会话逐回合核验等待证据（后续=%s）', async outcome => {
     const original = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原任务' }] };
     const wait = { action: 'wait', reason: '请补充会议主题' };
     const result = { isError: false, content: [], value: { runId: run.id, status: 'waiting', ...wait } };
@@ -302,20 +302,34 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
       { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
       { type: 'turn/start', data: { turn: 2 } },
       { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: '恢复完成' }] } } },
-      ...(outcome === 'completed' ? [{ type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } }]
-        : [{ type: 'assistant/attempt', data: { turn: 2, error: { message: '另一回合结果未知' } } }]),
+      ...(outcome === 'completed' ? [{ type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } }] : [
+        { type: 'tool/result', data: { turn: 2, message: { toolCallId: 'wait-2', source: { kind: 'tool', callId: 'wait-2' }, ...result } } },
+        { type: 'assistant/attempt', data: { turn: 2, error: { message: '首个开放回合已有等待证据' } } },
+        { type: 'turn/start', data: { turn: 3 } },
+        { type: 'assistant/attempt', data: { turn: 3, error: { message: '第二个开放回合仍无结果' } } },
+      ]),
     ] };
     await repos.skillRuns.input(run.id, original, true, run.session_id);
     await repos.skillRuns.beginCall(run.id, 'wait-1', 'pa24_run', wait, run.session_id);
     await repos.skillRuns.finishCall(run.id, 'wait-1', result, 'returned', run.session_id);
+    if (outcome === 'open-unknown') {
+      await repos.skillRuns.beginCall(run.id, 'wait-2', 'pa24_run', wait, run.session_id);
+      await repos.skillRuns.finishCall(run.id, 'wait-2', result, 'returned', run.session_id);
+    }
     const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
     const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
       permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    let submissions = 0;
+    runs.host.submitResume = async () => { submissions++; return 'must-not-submit'; };
     try {
       await runs.waitForInput(run, wait.reason);
-      const observing = runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true);
-      if (outcome === 'completed') expect(await observing).toMatchObject({ pending: false, root: { id: session.id } });
-      else await expect(observing).rejects.toThrow('原生回合缺少结束依据');
+      if (outcome === 'completed') expect(await runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true)).toMatchObject({ pending: false, root: { id: session.id } });
+      else {
+        await repos.runControls.prepareResume({ runId: run.id, requestId: 'second-open-resume', hash: 'second-open-resume', message: { content: [{ type: 'text', text: '待恢复输入' }] }, change: state => clearRunBlock(state, 'input') });
+        await runs.recover();
+        expect((await repos.skillRuns.get(run.id)).status).toBe('needs_reconciliation');
+        expect(submissions).toBe(0);
+      }
     } finally { runs.dispose(); }
   });
 

@@ -131,9 +131,9 @@ export class SkillRunNative {
       const turns = events.filter(event => event.type === 'turn/start');
       const ends = events.filter(event => event.type === 'turn/end');
       const hasWaitEvidence = row.session_id === run.session_id && !!resumeEvidence && await resumeEvidence(session);
-      const open = turns.find(turn => !ends.some(end => end.data.turn === turn.data.turn) && turnHasModelInput(session, turn.data.turn));
-      if (open) {
-        if ((recovering || !this.host.resident(row.session_id)) && !(hasWaitEvidence && waitingTurns.has(open.data.turn))) throw new Error('原生回合缺少结束依据，不能重复执行原动作。');
+      const openTurns = turns.filter(turn => !ends.some(end => end.data.turn === turn.data.turn) && turnHasModelInput(session, turn.data.turn));
+      if (openTurns.length) {
+        if ((recovering || !this.host.resident(row.session_id)) && openTurns.some(turn => !hasWaitEvidence || !waitingTurns.has(turn.data.turn))) throw new Error('原生回合缺少结束依据，不能重复执行原动作。');
         pending = true;
       }
       const inputs = (await repo.inputs(run.id)).filter(input => input.session_id === row.session_id);
