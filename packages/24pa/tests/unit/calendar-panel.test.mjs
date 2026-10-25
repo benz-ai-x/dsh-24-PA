@@ -33,7 +33,7 @@ beforeEach(async () => {
     if (req.endpoint === 'sources' && sourceFailed === true) return { ok: true, json: async () => ({ ok: false, error: { message: '来源服务离线' } }) };
     const value = req.endpoint === 'snapshot' ? { workspace: { path: '/workspace-' + binding, config: { ...DEFAULT_CONFIG } }, workspaceBinding: binding, work: [], outbox: [], secrets: {}, readiness: { items: [] } }
       : req.endpoint === 'calendar' || (req.endpoint === 'action' && req.payload.type === 'calendar.verify') ? calendarResponse(req.payload, req.endpoint === 'action')
-      : req.endpoint === 'sources' ? sourceFailed === 'shape' ? { entries: null } : { entries }
+      : req.endpoint === 'sources' ? sourceFailed === 'shape' ? { workspaceBinding: binding, entries: null } : sourceFailed === 'binding' ? { workspaceBinding: 'stale-workspace', entries } : { workspaceBinding: binding, entries }
       : req.endpoint === 'reminders' ? { rules: [], occurrences: [] }
       : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : {};
     return { ok: true, json: async () => ({ ok: true, value }) };
@@ -123,6 +123,8 @@ it('来源目录失败与结构错误可见，重试恢复目录且不清空日�
   expect(container.textContent).not.toContain('来源目录加载失败'); expect([...control('日历来源').options].map(row => row.value)).toEqual(['', 'project', 'personal']);
   sourceFailed = 'shape'; await click('核验日历');
   expect(container.textContent).toContain('来源目录加载失败：日历来源响应不完整'); expect(container.textContent).toContain('项目讨论');
+  sourceFailed = 'binding'; await click('核验日历');
+  expect(container.textContent).toContain('来源目录加载失败：日历来源响应或工作区不匹配'); expect(container.textContent).toContain('项目讨论');
 });
 
 it('单来源核验后重读全来源普通保存观察，不用单来源响应覆盖其他来源', async () => {

@@ -12,7 +12,7 @@ export interface SourceRegistration {
   ownerId: string;
   resourceKind: 'calendar' | 'tasklist' | 'authorized_scope';
   resourceId: string;
-  filter: 'all' | 'involved' | 'responsible';
+  filter: 'all' | 'involved' | 'responsible' | 'following' | 'assigned' | 'creator';
   access: 'read' | 'readwrite';
   enabled: boolean;
 }
@@ -80,7 +80,7 @@ export function validateSources(raw: unknown): SourceConfiguration | null {
     if (resourceKind !== 'authorized_scope' && resourceKind !== (kind === 'calendar' ? 'calendar' : 'tasklist')) throw new SourceError(`${path} 的资源类型与日历／待办领域不符。`);
     if (typeof row.enabled !== 'boolean') throw new SourceError(`${path}.enabled 必须为布尔值。`);
     const purpose = member(row.purpose, ['personal', 'company', 'project'], `${path}.purpose`);
-    const filter = member(row.filter, kind === 'calendar' ? ['all', 'involved'] : ['all', 'responsible'], `${path}.filter`);
+    const filter = member(row.filter, kind === 'calendar' ? ['all', 'involved'] : ['all', 'responsible', 'following', 'assigned', 'creator'], `${path}.filter`);
     // Shared sources start with a personal-role filter in the editor. The owner
     // may explicitly save "all" for that source; this still cannot grant access.
     return { id, domain: kind, platform, name: string(row.name, `${path}.name`, false, 120), purpose,

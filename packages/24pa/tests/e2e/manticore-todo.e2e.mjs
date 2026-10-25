@@ -26,7 +26,7 @@ const ready = async () => {
   binding = snapshot.workspaceBinding; localSessionId = snapshot.workspace.localSessionId;
 };
 const saveSources = async value => {
-  const before = await host.api('sources');
+  const before = await host.api('sources', { workspaceBinding: binding });
   await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, expectedSourcesHash: before.configHash, config: { sources: value } });
   await ready();
 };
@@ -64,8 +64,11 @@ beforeAll(async () => {
 }, 600000);
 afterAll(async () => { await host?.stop(); await llm?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true }); });
 
-it('普通卡片查询不调用平台或模型，旧个人来源默认全量', async () => {
-  const first = await host.api('sources'); expect(first.entries.find(row => row.domain === 'todo').filter).toBe('all');
+it('普通卡片查询不调用平台或模型，来源绑定与旧个人默认全量', async () => {
+  const first = await host.api('sources', { workspaceBinding: binding });
+  expect(first.workspaceBinding).toBe(binding);
+  expect(first.entries.find(row => row.domain === 'todo').filter).toBe('all');
+  await expect(host.api('sources', { workspaceBinding: 'stale-workspace' })).rejects.toThrow(/工作区已切换/);
   const before = (await journal(larkState + '.calls.jsonl')).length;
   const cached = await host.api('todos', { workspaceBinding: binding }); expect(cached.total).toBeNull(); expect(cached.count).toBe(0);
   expect((await journal(larkState + '.calls.jsonl')).length).toBe(before); expect(llm.requests).toHaveLength(0);
@@ -84,7 +87,13 @@ it('读取非助理待办全部分页，角色覆盖按来源默认；企微范�
   expect(verified.count).toBe(7); expect(verified.total).toBeNull(); expect(verified.tasks).toHaveLength(2); expect(verified.hasMore).toBe(true);
   expect(verified.sources.find(row => row.sourceId === 'wecom').reason).toMatch(/真实账号/);
   const project = await host.api('action', { type: 'todos.verify', workspaceBinding: binding, sourceId: 'project', role: 'following' });
-  expect(project.total).toBe(1); expect(project.tasks[0].guid).toBe('followed'); expect((await host.api('sources')).config.entries.find(row => row.id === 'project').filter).toBe('responsible');
+  expect(project.total).toBe(1); expect(project.tasks[0].guid).toBe('followed'); expect((await host.api('sources', { workspaceBinding: binding })).config.entries.find(row => row.id === 'project').filter).toBe('responsible');
+  const changed = (await host.api('sources', { workspaceBinding: binding })).config;
+  changed.entries.find(row => row.id === 'project').filter = 'following'; await saveSources(changed);
+  expect((await host.api('todos', { workspaceBinding: binding, sourceId: 'project' })).tasks.map(row => row.guid)).toEqual(['followed']);
+  expect((await host.api('todos', { workspaceBinding: binding, sourceId: 'project', role: 'responsible' })).tasks.map(row => row.guid)).toEqual(['assigned']);
+  expect((await host.api('todos', { workspaceBinding: binding, sourceId: 'project' })).tasks.map(row => row.guid)).toEqual(['followed']);
+  changed.entries.find(row => row.id === 'project').filter = 'responsible'; await saveSources(changed);
   const personal = await host.api('todos', { workspaceBinding: binding, sourceId: 'personal', offset: 4, limit: 2 }); expect(personal.total).toBe(5); expect(personal.tasks).toHaveLength(1);
 });
 it('本地和飞书两入口同次创建本人负责，明确项目只写一个来源，不另派执行', async () => {
@@ -99,7 +108,7 @@ it('本地和飞书两入口同次创建本人负责，明确项目只写一个�
   expect((await host.api('snapshot')).work.length - before).toBe(2);
 });
 it('切换默认后延期、完成、删除仍变更原件，未新建对象', async () => {
-  const config = (await host.api('sources')).config; config.defaults.todo = 'project'; await saveSources(config);
+  const config = (await host.api('sources', { workspaceBinding: binding })).config; config.defaults.todo = 'project'; await saveSources(config);
   const before = (await latestTasks()).length;
   expect((await work({ action: 'task_update', guid: created.guid, due: day.date })).receipt).toContain('personal-list');
   expect((await work({ action: 'task_complete', guid: created.guid })).receipt).toContain('completed');
@@ -117,7 +126,7 @@ it('企微写后核验默认本人，延期不重建；完成本人份额保留�
   const writeCalls = await journal(wecomState + '.calls.jsonl'); expect(writeCalls.filter(row => row.args[0] === 'todo' && row.args[1] === 'create')).toHaveLength(1);
 });
 it('只读来源的创建请求保留原输入等待；权限修复后原运行仅创建一次', async () => {
-  const config = (await host.api('sources')).config;
+  const config = (await host.api('sources', { workspaceBinding: binding })).config;
   config.entries.find(row => row.id === 'personal').access = 'read'; await saveSources(config);
   const count = (await latestTasks()).length;
   const refused = await work({ action: 'task_create', sourceId: 'personal', summary: '修复权限后的原待办' }, 'local', '请在个人待办清单记录这项任务', 'waiting_input');

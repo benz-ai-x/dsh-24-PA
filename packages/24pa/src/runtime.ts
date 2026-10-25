@@ -490,9 +490,10 @@ export class PaRuntime {
     });
   }
 
-  async sourcesSnapshot(): Promise<unknown> {
+  async sourcesSnapshot(input: Record<string, unknown> = {}): Promise<unknown> {
     if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
-    return { ...await this.sourceRegistry.list(), configHash: sourceConfigurationFingerprint(effectiveSources(this.config)) };
+    if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
+    return { ...await this.sourceRegistry.list(), configHash: sourceConfigurationFingerprint(effectiveSources(this.config)), workspaceBinding: this.workspaceBinding };
   }
 
   private calendarPanelRange(input: Record<string, unknown>): Record<string, unknown> {
@@ -1450,7 +1451,12 @@ export class PaRuntime {
         await this.loadWorkspaceConfig();
       } catch (error) {
         this.configError = `表单保存后重载失败（文件已写入，保留旧生效配置）：${(error as Error).message}`;
-        throw error;
+        let savedHash: string | null = null;
+        try { savedHash = (await readWorkspaceConfiguration(this.workspace!.statePath)).sourceHash; } catch { }
+        const evidence = { state: savedHash === this.sourceHash ? 'applied' : 'saved_not_applied', savedHash, activeHash: this.sourceHash };
+        const failure = error instanceof Error ? error : new Error(String(error));
+        Object.assign(failure, { code: 'workspace_config_not_applied', evidence });
+        throw failure;
       }
     });
   }
