@@ -1916,6 +1916,29 @@ window.__ModuleLoader__.load({
           ];
           const executionBadge = status => { const style = { pending: ['neutral', 'clock'], running: ['blue', 'pulse'], waiting: ['amber', 'clock'], stopping: ['amber', 'info'], completed: ['blue', 'check'], failed: ['danger', 'alert'], timed_out: ['danger', 'alert'], stopped: ['neutral', 'close'], needs_reconciliation: ['amber', 'info'] }[status] || ['neutral', 'info']; return badge(runStatusLabel(status), ...style); };
           const deliveryBadge = status => { const style = { sent: ['blue', 'check'], failed: ['danger', 'alert'], unknown: ['amber', 'info'], partial: ['amber', 'info'], pending: ['amber', 'clock'], sending: ['blue', 'pulse'] }[status] || ['neutral', 'info']; return badge(deliveryLabel(status), ...style); };
+          const acceptanceBadge = row => {
+            if (!row.acceptance_required) return null;
+            const view = { pending: ['待主人验收', 'amber', 'clock'], accepted: ['主人已验收', 'blue', 'check'], returned: ['验收退回', 'amber', 'alert'], none: ['尚未交付', 'neutral', 'clock'] }[row.acceptance_status] || ['验收状态未知', 'neutral', 'info'];
+            return badge(...view);
+          };
+          const workStage = row => {
+            if (row.status === 'completed' && row.acceptance_required) {
+              if (row.acceptance_status === 'pending') return L('交付待主人验收', 'Deliverable awaiting owner acceptance');
+              if (row.acceptance_status === 'accepted') return L('主人已验收', 'Accepted by owner');
+              if (row.acceptance_status === 'returned') return L('验收退回，待继续处理', 'Returned for further work');
+              return L('验收状态待核验', 'Acceptance status needs verification');
+            }
+            return row.progress_detail?.stage || row.progress || L('历史未记录阶段', 'Stage not recorded');
+          };
+          const workNext = row => {
+            if (row.status === 'completed' && row.acceptance_required) {
+              if (row.acceptance_status === 'pending') return L('等待主人验收', 'Await owner acceptance');
+              if (row.acceptance_status === 'accepted') return null;
+              if (row.acceptance_status === 'returned') return row.progress_detail?.next || L('按退回原因继续处理', 'Continue from the return findings');
+              return L('核对验收记录', 'Verify acceptance records');
+            }
+            return row.progress_detail?.next || null;
+          };
           const rangeLabel = { '7': L('近 7 天', 'Last 7 days'), '30': L('近 30 天', 'Last 30 days'), custom: L('自定义时间', 'Custom range'), all: L('全部历史', 'All history') }[filters.range || '7'];
           const recordMain = (row, action, actionLabel, meta) => h('div', { className: 'pa24-history-record-main' }, action ? h('button', { type: 'button', 'aria-label': actionLabel + '：' + (row.title || row.id), onClick: action }, row.title || row.id) : h('h3', null, row.title || row.id), h('p', { className: 'pa24-meta' }, meta));
           const cell = (label, value) => h('div', { className: 'pa24-history-cell' }, h('span', { className: 'pa24-history-cell-label' }, label), value);
@@ -1931,11 +1954,14 @@ window.__ModuleLoader__.load({
                 cell('Skill / ' + L('版本', 'version'), row.record_kind === 'worker' ? L('Worker 执行 · 无 Skill 版本', 'Worker execution · no Skill version') : (row.skill_name || row.skill_id || L('历史未记录', 'Not recorded')) + ' · ' + (row.version_id || L('历史未记录', 'Not recorded'))),
                 cell(L('执行状态', 'Execution'), h('span', { className: 'pa24-history-status' }, executionBadge(row.status))),
                 cell(L('投递状态', 'Delivery'), h('span', { className: 'pa24-history-status' }, deliveryBadge(row.delivery_status))));
-              if (filters.kind === 'work') return h('article', { key: row.id, className: 'pa24-history-row pa24-history-work-row' },
-                recordMain(row, () => openWork(row.id), L('查看交办详情', 'View work item'), runSourceLabel(row.source) + ' · ' + L('关联 ', 'Linked: ') + (Number.isFinite(Number(row.run_count)) ? Number(row.run_count) : 0) + L(' 次运行', ' run(s)') + ' · ' + row.id),
-                cell(L('当前阶段', 'Current stage'), row.progress_detail?.stage || row.progress || L('历史未记录阶段', 'Stage not recorded')),
-                cell(L('最近进展', 'Recent progress'), h(React.Fragment, null, row.progress_detail?.completed || row.summary || L('尚无进展记录', 'No progress recorded'), row.progress_detail?.next && h('p', { className: 'pa24-meta' }, L('下一步：', 'Next: ') + row.progress_detail.next))),
-                cell(L('当前状态', 'Status'), badgeOf(row.status)));
+              if (filters.kind === 'work') {
+                const next = workNext(row);
+                return h('article', { key: row.id, className: 'pa24-history-row pa24-history-work-row' },
+                  recordMain(row, () => openWork(row.id), L('查看交办详情', 'View work item'), runSourceLabel(row.source) + ' · ' + L('关联 ', 'Linked: ') + (Number.isFinite(Number(row.run_count)) ? Number(row.run_count) : 0) + L(' 次运行', ' run(s)') + ' · ' + row.id),
+                  cell(L('当前阶段', 'Current stage'), workStage(row)),
+                  cell(L('最近进展', 'Recent progress'), h(React.Fragment, null, row.progress_detail?.completed || row.summary || L('尚无进展记录', 'No progress recorded'), next && h('p', { className: 'pa24-meta' }, L('下一步：', 'Next: ') + next))),
+                  cell(L('当前状态', 'Status'), h('span', { className: 'pa24-history-status' }, badgeOf(row.status), acceptanceBadge(row))));
+              }
               if (filters.kind === 'events') return h('article', { key: row.id, className: 'pa24-history-row pa24-history-event-row' },
                 h('div', null, recordMain(row, row.run_id ? () => selectRun({ ...row, id: row.run_id }) : null, L('核对未执行原记录', 'Inspect original record'), runSourceLabel(row.source) + ' · ' + row.id), row.plan_id && h('button', { type: 'button', className: 'pa24-quiet', onClick: () => helpers.openPlan(row.plan_id) }, L('处理原计划', 'Open original plan'))),
                 cell(L('记录时间', 'Recorded'), date(row.created_at, tz)),
@@ -1953,8 +1979,8 @@ window.__ModuleLoader__.load({
           const workDrawer = work ? h(React.Fragment, null, workErrorNotice,
             h('section', { className: 'pa24-form-section' }, h('h3', null, L('交办概览', 'Work overview')), h('p', null, badgeOf(work.work.status)),
               work.work.id.startsWith('pa24-material-') ? h('details', null, h('summary', null, L('当次资料操作输入', 'Material action input')), h('pre', { className: 'pa24-json' }, work.work.instruction)) : h('p', null, work.work.instruction),
-              work.work.progress_detail && fields([[L('真实阶段', 'Current stage'), work.work.progress_detail.stage], [L('已完成', 'Completed'), work.work.progress_detail.completed], [L('下一步', 'Next'), work.work.progress_detail.next]]),
-              !work.work.progress_detail && work.work.progress && h('p', null, work.work.progress),
+              work.work.progress_detail && fields([[L('真实阶段', 'Current stage'), workStage(work.work)], [L('已完成', 'Completed'), work.work.progress_detail.completed], ...(workNext(work.work) ? [[L('下一步', 'Next'), workNext(work.work)]] : [])]),
+              !work.work.progress_detail && work.work.progress && h('p', null, workStage(work.work)),
               work.work.result && (work.work.id.startsWith('pa24-material-') ? h(MaterialFeedback, { value: materialReceipt(work.work.result) }) : h('pre', { className: 'pa24-json' }, work.work.result)),
               h('p', { className: 'pa24-meta' }, L('来源：', 'Origin: ') + work.work.origin + ' · ' + L('结果回到：', 'Results return to: ') + work.work.delivery),
               work.work.child_session_id && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession({ childSessionId: work.work.child_session_id, parentSessionId: work.work.parent_session_id, mode: 'continuable' }) }, L('查看原交办会话', 'Open original work session'))),

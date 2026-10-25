@@ -48,7 +48,7 @@ beforeEach(async () => {
       else if (endpoint === 'runs') {
         const matched = !emptyHistory && (!p.query || '项目晨报'.includes(p.query));
         const runRows = matched ? Array.from({ length: p.offset ? 11 : 20 }, (_, index) => ({ id: !index && !p.offset ? 'run-a' : 'run-' + (index + p.offset), title: '项目晨报', record_kind: run.run.record_kind || 'skill', skill_id: 'builtin:digest-morning', skill_name: '项目晨报', version_id: index === 1 ? null : 'v1', status: 'completed', delivery_status: index === 1 ? 'failed' : 'partial', summary: '结果摘要', source: 'schedule', created_at: new Date().toISOString() })) : [];
-        const workRows = matched ? [{ id: work.id, title: work.title, status: work.status, source: work.origin, progress_detail: { stage: '等待主人确认', completed: '原资料已核对', next: '交付结果和出处' }, summary: work.result, run_count: 2, created_at: new Date().toISOString() }] : [];
+        const workRows = matched ? [{ id: work.id, title: work.title, status: work.status, source: work.origin, progress_detail: work.progress_detail, acceptance_required: work.acceptance_required, acceptance_status: work.acceptance_status, summary: work.result, run_count: 2, created_at: new Date().toISOString() }] : [];
         const eventRows = matched ? [{ id: 'event-a', title: '项目晨报', run_id: 'run-a', plan_id: 'plan-a', work_item_id: 'work-a', record_kind: 'skill', skill_id: 'builtin:digest-morning', status: 'skipped', summary: '同一计划已有运行在执行', source: 'schedule', created_at: new Date().toISOString() }] : [];
         value = { kind: p.kind, rows: p.kind === 'runs' ? runRows : p.kind === 'work' ? workRows : p.kind === 'events' ? eventRows : [], total: matched && p.kind !== 'legacy' ? p.kind === 'runs' ? 31 : 1 : 0, empty: emptyHistory, timeZone: 'Asia/Shanghai' };
       }
@@ -150,9 +150,39 @@ describe('M02 管理界面', () => {
     await click(field('确认针对这项交办执行所选操作')); await click(button('提交交办操作'));
     expect(requests.filter(row => row.endpoint === 'action').at(-1).payload).toMatchObject({ type: 'work.change', op: 'accept', expectedRevision: 2, workId: 'work-a', confirm: true });
     expect(container.textContent).toContain('已接受');
+    await act(async () => intervals.filter(row => row.ms === 5000).at(-1).fn());
+    expect(container.querySelector('[role="dialog"]').textContent).toContain('主人已验收');
+    expect(container.querySelector('[role="dialog"]').textContent).not.toContain('真实阶段等待主人确认');
+    expect(container.querySelector('[role="dialog"]').textContent).not.toContain('下一步：交付结果和出处');
     await click(button('助理交办')); await act(async () => intervals.find(row => row.ms === 2500).fn());
     const waitingMetric = [...container.querySelectorAll('.pa24-history-metric')].find(node => node.textContent.includes('待我处理'));
     expect(waitingMetric.querySelector('strong').textContent).toBe('1');
+    const acceptedRow = container.querySelector('.pa24-history-work-row:not(.pa24-history-header)');
+    expect(acceptedRow.children[1].textContent).toContain('主人已验收'); expect(acceptedRow.children[1].textContent).not.toContain('等待主人确认');
+    expect(acceptedRow.children[2].textContent).toContain('原资料已核对'); expect(acceptedRow.children[2].textContent).not.toContain('下一步：交付结果和出处');
+    expect(acceptedRow.children[3].textContent).toContain('completed');
+    const acceptedBadge = [...acceptedRow.children[3].querySelectorAll('.pa24-badge')].find(node => node.textContent === '主人已验收');
+    expect(acceptedBadge).toBeTruthy(); expect(acceptedBadge.querySelector('svg')).toBeTruthy(); expect(acceptedBadge.className).toContain('blue');
+  });
+  it('验收退回、非验收工作和未知验收状态分别呈现', async () => {
+    work.acceptance_status = 'returned'; await open('运行记录'); await click(button('助理交办'));
+    let row = container.querySelector('.pa24-history-work-row:not(.pa24-history-header)');
+    expect(row.children[1].textContent).toContain('验收退回，待继续处理'); expect(row.children[2].textContent).toContain('下一步：交付结果和出处');
+    let acceptance = [...row.children[3].querySelectorAll('.pa24-badge')].find(node => node.textContent === '验收退回');
+    expect(acceptance).toBeTruthy(); expect(acceptance.querySelector('svg')).toBeTruthy(); expect(acceptance.className).toContain('amber');
+    work.acceptance_required = false; work.acceptance_status = 'none'; work.status = 'running';
+    work.progress_detail = { stage: '资料整理中', completed: '已保存阶段成果', next: '继续整理' };
+    await act(async () => intervals.filter(row => row.ms === 5000).at(-1).fn());
+    row = container.querySelector('.pa24-history-work-row:not(.pa24-history-header)');
+    expect(row.children[1].textContent).toContain('资料整理中'); expect(row.children[2].textContent).toContain('已保存阶段成果'); expect(row.children[2].textContent).toContain('下一步：继续整理');
+    expect([...row.children[3].querySelectorAll('.pa24-badge')].every(node => !/验收|主人/.test(node.textContent))).toBe(true);
+    work.acceptance_required = true; work.status = 'completed'; work.acceptance_status = 'legacy_unknown';
+    await act(async () => intervals.filter(row => row.ms === 5000).at(-1).fn());
+    row = container.querySelector('.pa24-history-work-row:not(.pa24-history-header)');
+    expect(row.children[1].textContent).toContain('验收状态待核验'); expect(row.children[2].textContent).toContain('下一步：核对验收记录'); expect(row.children[2].textContent).not.toContain('继续整理');
+    acceptance = [...row.children[3].querySelectorAll('.pa24-badge')].find(node => node.textContent === '验收状态未知');
+    expect(acceptance).toBeTruthy(); expect(acceptance.querySelector('svg')).toBeTruthy(); expect(acceptance.className).toContain('neutral'); expect(acceptance.className).not.toContain('danger'); expect(acceptance.className).not.toContain('amber');
+    expect(requests.filter(row => row.endpoint === 'action')).toHaveLength(0);
   });
   it('普通 Worker 运行打开独立详情并只补投原结果', async () => {
     run.run.record_kind = 'worker'; run.inputs = [{ execution_id: 'execution', instruction: '补充的主题', status: 'adopted' }];
@@ -291,7 +321,9 @@ describe('M02 管理界面', () => {
     expect(win.document.activeElement.id).toBe('pa24-history-tab-work'); expect(container.querySelector('#pa24-history-tab-work').getAttribute('aria-selected')).toBe('true');
     expect(container.querySelectorAll('.pa24-history-metric')).toHaveLength(3);
     const workRow = container.querySelector('.pa24-history-work-row:not(.pa24-history-header)');
-    expect(workRow.textContent).toContain('关联 2 次运行'); expect(workRow.textContent).toContain('等待主人确认'); expect(workRow.textContent).toContain('原资料已核对'); expect(workRow.textContent).toContain('下一步：交付结果和出处');
+    expect(workRow.textContent).toContain('关联 2 次运行'); expect(workRow.children[1].textContent).toContain('交付待主人验收'); expect(workRow.children[2].textContent).toContain('原资料已核对'); expect(workRow.children[2].textContent).toContain('下一步：等待主人验收');
+    const pendingBadge = [...workRow.querySelectorAll('.pa24-badge')].find(node => node.textContent === '待主人验收');
+    expect(pendingBadge).toBeTruthy(); expect(pendingBadge.querySelector('svg')).toBeTruthy(); expect(pendingBadge.className).toContain('amber');
     expect([...container.querySelectorAll('.pa24-history-metric')].some(node => node.textContent.includes('24 小时执行失败'))).toBe(false);
     await click(button('查看交办详情')); await act(async () => intervals.filter(row => row.ms === 5000).at(-1).fn());
     expect(container.querySelector('[role="dialog"]').textContent).toContain('真实阶段'); await click(button('关闭详情'));

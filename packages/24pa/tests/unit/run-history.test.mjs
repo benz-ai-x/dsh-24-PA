@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
@@ -174,6 +175,33 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     await db.query("insert into pa24.digest_occurrence (id, plan_id, window_key, status, report) values ('old','old-plan','2026-10-01','sent',$1)", [JSON.stringify('原始简报')]);
     const legacy = await list({ kind: 'legacy', range: 'all' });
     expect(legacy.total).toBe(1); expect(legacy.rows[0].report).toBe('原始简报'); expect((await list({ range: 'all' })).total).toBe(32);
+  });
+  it('交办投影保留独立验收事实，接受和退回不改变真实运行数', async () => {
+    const finish = async id => {
+      await db.query('update pa24.work_item set acceptance_required = true where id = $1', [id]);
+      await repos.workItems.update(id, { status: 'running', progress: '等待主人确认', progress_detail: { stage: '等待主人确认', completed: '已完成执行结果', next: '交付结果和出处' } });
+      await repos.workItems.finishWithDelivery(id, '验收交付物', false, { dedupKey: `acceptance-${id}-result`, channel: 'local', target: 'parent', kind: 'text', content: { text: '验收交付物' } });
+      return repos.workItems.get(id);
+    };
+    const decide = async (item, op, instruction) => {
+      const input = { op, instruction, expectedRevision: item.revision }, id = randomUUID();
+      const claimed = await repos.workControls.prepare(id, id, item.id, item.revision, input);
+      return repos.workControls.acceptance(claimed.row, item.revision, op, instruction);
+    };
+    let item = await finish('w0');
+    let row = (await list({ kind: 'work', workId: 'w0', range: 'all' })).rows[0];
+    expect(row).toMatchObject({ status: 'completed', acceptance_required: true, acceptance_status: 'pending', progress_detail: { stage: '等待主人确认', completed: '已完成执行结果', next: '交付结果和出处' } });
+    expect(Number(row.run_count)).toBe(1);
+    await decide(item, 'accept', '人工核对交付物');
+    row = (await list({ kind: 'work', workId: 'w0', range: 'all' })).rows[0];
+    expect(row).toMatchObject({ status: 'completed', acceptance_required: true, acceptance_status: 'accepted', progress_detail: { stage: '等待主人确认' } });
+    expect(Number(row.run_count)).toBe(1);
+    item = await finish('w1'); await decide(item, 'return', '仍需补充附件');
+    row = (await list({ kind: 'work', workId: 'w1', range: 'all' })).rows[0];
+    expect(row).toMatchObject({ status: 'completed', acceptance_required: true, acceptance_status: 'returned', progress_detail: { stage: '等待主人确认' } });
+    expect(Number(row.run_count)).toBe(1);
+    row = (await list({ kind: 'work', workId: 'w2', range: 'all' })).rows[0];
+    expect(row).toMatchObject({ acceptance_required: false, acceptance_status: 'none' }); expect(Number(row.run_count)).toBe(1);
   });
   it('交办投影一次查询返回真实运行数，重试等待与未执行事件不重复计数', async () => {
     const addSkillRun = async (id, status) => db.query(`insert into pa24.skill_run

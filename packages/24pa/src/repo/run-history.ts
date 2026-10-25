@@ -30,7 +30,7 @@ const DELIVERY_FAILED = `(r.delivery_status = 'failed' or exists (select 1 from 
   where d.run_id = r.id and o.status = 'failed'))`;
 const DELIVERY_UNKNOWN = `(r.delivery_status = 'unknown' or exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
   where d.run_id = r.id and o.status = 'unknown'))`;
-const DELIVERY_FAILURE = `(${DELIVERY_FAILED} or ${DELIVERY_UNKNOWN})`;
+const DELIVERY_UNRESOLVED = `(${DELIVERY_FAILED} or ${DELIVERY_UNKNOWN})`;
 const PLAN_BLOCKED = (planId: string) => `exists (select 1 from pa24.digest_plan blocked_plan where blocked_plan.id = ${planId}
   and blocked_plan.recycled_at is null and (exists (select 1 from pa24.task_plan_block b where b.plan_id = blocked_plan.id)
   or exists (select 1 from pa24.skill_plan_block b where b.plan_id = blocked_plan.id)))`;
@@ -38,7 +38,7 @@ const EVENT_UNRESOLVED = `((${PLAN_BLOCKED('r.plan_id')} and (r.status in ('reje
   or exists (select 1 from pa24.skill_run stopped where stopped.id = r.run_id and stopped.stop_reason = 'blocked')))
   or exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
     where d.run_id = r.run_id and o.status in ('failed', 'unknown')))`;
-const RUN_UNRESOLVED = `(r.status in ('waiting', 'needs_reconciliation', 'stopping') or ${DELIVERY_FAILURE}
+const RUN_UNRESOLVED = `(r.status in ('waiting', 'needs_reconciliation', 'stopping') or ${DELIVERY_UNRESOLVED}
   or (r.stop_reason = 'blocked' and ${PLAN_BLOCKED('r.plan_id')})
   or (r.status in ('failed', 'timed_out') and not exists (select 1 from ${EXECUTIONS} later
     where later.work_item_id = r.work_item_id and later.created_at > r.created_at and later.status = 'completed')))`;
@@ -65,7 +65,7 @@ export class RunHistoryRepo {
       if (filter.source) clauses.push(`(${RUN_SOURCE}) = ${bind(filter.source)}`);
     } else if (filter.kind === 'work') {
       table = 'pa24.work_item r';
-      fields = `r.id, r.title, r.origin as source, r.status, r.progress, r.progress_detail, substr(r.result, 1, 300) as summary, r.created_at, r.updated_at, r.active_skill_run_id, r.role,
+      fields = `r.id, r.title, r.origin as source, r.status, r.progress, r.progress_detail, r.acceptance_required, r.acceptance_status, substr(r.result, 1, 300) as summary, r.created_at, r.updated_at, r.active_skill_run_id, r.role,
         (select count(*) from ${EXECUTIONS} linked where linked.work_item_id = r.id and ${executionRecord('linked')}) as run_count`;
       search = ['r.id', 'r.title', 'r.instruction', 'r.progress', 'r.result'];
       unresolved = "(r.status in ('waiting_input', 'needs_reconciliation', 'failed') or (r.status = 'completed' and r.acceptance_required = true and r.acceptance_status in ('pending','returned')))";
@@ -103,7 +103,12 @@ export class RunHistoryRepo {
       ${filter.kind === 'runs' ? `where ${EXECUTION_RECORD}` : filter.kind === 'events' ? "where r.status in ('skipped', 'rejected', 'expired')" : ''} limit 1`)).rowCount;
     const rows = (await this.db.query<Record<string, unknown>>(`select ${fields} from ${table} ${where}
       order by r.created_at desc, r.id limit ${bind(filter.limit)} offset ${bind(filter.offset)}`, values)).rows
-      .map(row => filter.kind === 'work' && typeof row.progress_detail === 'string' ? { ...row, progress_detail: JSON.parse(row.progress_detail) } : row);
+      .map(row => {
+        if (filter.kind !== 'work') return row;
+        return { ...row,
+          ...(typeof row.progress_detail === 'string' ? { progress_detail: JSON.parse(row.progress_detail) } : {}),
+          ...(row.acceptance_required === 1 ? { acceptance_required: true } : row.acceptance_required === 0 ? { acceptance_required: false } : {}) };
+      });
     return { kind: filter.kind, rows, total, empty, offset: filter.offset, limit: filter.limit };
   }
   async summary(now = new Date()) {
