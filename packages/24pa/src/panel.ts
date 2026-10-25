@@ -177,7 +177,10 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             throw new Error('未知管理接口。');
           });
         } catch (error) {
-          return respond({ ok: false, error: { message: (error as Error).message } });
+          const failure = error as Error & { code?: string; evidence?: unknown };
+          return respond({ ok: false, error: { message: failure.message,
+            ...(typeof failure.code === 'string' ? { code: failure.code } : {}),
+            ...(failure.evidence !== undefined ? { evidence: failure.evidence } : {}) } });
         }
       },
     };

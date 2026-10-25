@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG, CONFIG_FIELDS } from '../../lib/config.js';
 import { readWorkspaceConfiguration, writeWorkspaceConfiguration } from '../../lib/workspace-config.js';
 import { effectiveSources, sourceConfigurationFingerprint } from '../../lib/source-config.js';
 
-let React, createRoot, act, win, root, container, saved, requests, failSave, workspacePath, pendingSave, binding, pollSnapshots, evidenceState;
+let React, createRoot, act, win, root, container, saved, requests, failSave, workspacePath, pendingSave, binding, pollSnapshots, evidenceState, reloadEvidence;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 beforeAll(async () => {
   win = new Window({ url: 'http://localhost/' });
@@ -16,7 +16,7 @@ beforeAll(async () => {
   React = await import('react'); ({ act } = React);
   ({ createRoot } = await import('react-dom/client'));
 });
-const snapshot = () => ({ workspace: { path: '/test/workspace', config: structuredClone(saved) }, workspaceBinding: binding, configMeta: { fields: CONFIG_FIELDS }, work: [], outbox: [], secrets: {}, readiness: { items: [] } });
+const snapshot = () => ({ workspace: { path: '/test/workspace', config: structuredClone(saved), sourceHash: 'same-version' }, workspaceBinding: binding, configMeta: { fields: CONFIG_FIELDS }, work: [], outbox: [], secrets: {}, readiness: { items: [] } });
 const button = label => [...container.querySelectorAll('button')].find(node => node.textContent === label);
 const field = name => [...container.querySelectorAll('label')].find(node => node.textContent.includes(`（${name}）`))?.control;
 const modelField = (role, key) => container.querySelector(`input[aria-label="${role} ${key}"]`);
@@ -40,23 +40,28 @@ beforeEach(async () => {
     if (delay === 2500) pollSnapshots = callback;
     return setIntervalOriginal(callback, delay, ...args);
   });
-  binding = 'binding-a'; saved = structuredClone(DEFAULT_CONFIG); requests = []; failSave = false; pendingSave = Promise.resolve(); evidenceState = 'applied';
+  binding = 'binding-a'; saved = structuredClone(DEFAULT_CONFIG); requests = []; failSave = false; pendingSave = Promise.resolve(); evidenceState = 'applied'; reloadEvidence = null;
   workspacePath = await mkdtemp(join(tmpdir(), 'pa24-config-editor-'));
   win.localStorage.clear();
   vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
     const req = JSON.parse(init.body); requests.push(req);
     if (req.endpoint === 'action' && req.payload.type === 'workspace.config-update') {
-      if (failSave) return { ok: true, json: async () => ({ ok: false, error: { message: '校验失败：maxWorkers' } }) };
+      if (failSave === true) return { ok: true, json: async () => ({ ok: false, error: { message: '校验失败：maxWorkers' } }) };
       // The server boundary reads its own latest file, including simulated
       // concurrent chat edits; exercise the real merge/validation path.
-      let saveFailure;
+      let saveFailure, previousHash;
       pendingSave = (async () => {
         await writeFile(join(workspacePath, 'AGENTS.md'), '# Rules\n\n```json\n' + JSON.stringify(saved) + '\n```\n');
+        previousHash = (await readWorkspaceConfiguration(workspacePath)).sourceHash;
         await writeWorkspaceConfiguration(workspacePath, req.payload.config, async () => {}, { expectedSourcesHash: req.payload.expectedSourcesHash });
         saved = (await readWorkspaceConfiguration(workspacePath)).config;
       })().catch(error => { saveFailure = error; });
       await pendingSave;
       if (saveFailure) return { ok: true, json: async () => ({ ok: false, error: { message: saveFailure.message } }) };
+      if (failSave === 'reload') {
+        reloadEvidence = { state: 'saved_not_applied', savedHash: (await readWorkspaceConfiguration(workspacePath)).sourceHash, activeHash: previousHash };
+        return { ok: true, json: async () => ({ ok: false, error: { message: '表单保存后重载失败（文件已写入，保留旧生效配置）', code: 'workspace_config_not_applied', evidence: reloadEvidence } }) };
+      }
     }
     const sources = effectiveSources(saved);
     const value = req.endpoint === 'sources' ? { workspaceBinding: binding, config: sources, configHash: sourceConfigurationFingerprint(sources), legacy: saved.sources === null, entries: sources.entries, removed: [] }
@@ -146,6 +151,28 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(input.value).toBe('尚未生效的草稿');
     expect(button('保存来源并重载').disabled).toBe(false);
     expect(container.querySelector('.pa24-sources').textContent).not.toContain('来源已保存并重载；新登记或变更的范围需要只读检查。');
+  });
+  it('写盘后重载失败按结构化证据显示实际 Hash 并保留来源草稿', async () => {
+    const article = container.querySelector('.pa24-sources article'), input = [...article.querySelectorAll('label')].find(row => row.textContent.startsWith('来源名称')).control;
+    await change(input, '写盘成功但重载失败的草稿'); failSave = 'reload';
+    await click(button('保存来源并重载'));
+    await vi.waitFor(() => { expect(container.querySelector('.pa24-sources [role=alert]')).not.toBeNull(); });
+    const alert = container.querySelector('.pa24-sources [role=alert]');
+    expect((await readWorkspaceConfiguration(workspacePath)).sourceHash).toBe(reloadEvidence.savedHash);
+    expect(reloadEvidence.savedHash).not.toBe(reloadEvidence.activeHash);
+    expect(alert.textContent).toContain('saved_not_applied');
+    expect(alert.textContent).toContain(reloadEvidence.savedHash);
+    expect(alert.textContent).toContain(reloadEvidence.activeHash);
+    expect(input.value).toBe('写盘成功但重载失败的草稿');
+    expect(button('保存来源并重载').disabled).toBe(false);
+  });
+  it('参数表单写后重载失败仍显示原错误语义并保留输入', async () => {
+    await change(field('maxWorkers'), '4'); failSave = 'reload';
+    await click(button('保存并重载'));
+    await vi.waitFor(() => { expect(container.querySelector('.pa24-form-actions [role=alert]')).not.toBeNull(); });
+    const alert = container.querySelector('.pa24-form-actions [role=alert]');
+    expect(alert.textContent).toContain('表单保存后重载失败（文件已写入，保留旧生效配置）');
+    expect(field('maxWorkers').value).toBe('4');
   });
   it('移除全部登记同时清空默认目标，保存后不自动复活旧来源', async () => {
     await click(button('移除登记')); await click(button('移除登记'));

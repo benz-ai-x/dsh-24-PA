@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { sourceConfigurationFingerprint } from '../../lib/source-config.js';
-let React, act, createRoot, win, root, container, requests, binding, failed, pending, poll, sourceFailed, sourceConfig, sourceEvidence, evidenceState, saveBarrier, todoResponse;
+let React, act, createRoot, win, root, container, requests, binding, failed, pending, poll, sourceFailed, sourceConfig, sourceEvidence, evidenceState, saveBarrier, todoResponse, sourcesGate, sourceHash, evidenceGate;
 beforeAll(async () => {
   win = new Window({ url: 'http://localhost/' });
   for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLSelectElement', 'Event', 'MouseEvent', 'KeyboardEvent', 'localStorage']) vi.stubGlobal(key, key === 'window' ? win : win[key]);
@@ -22,7 +22,7 @@ const response = (payload, fresh = false) => ({ workspaceBinding: binding, sourc
     locations: [{ sourceId: 'project', sourceName: '项目待办', platform: 'feishu', roles: { complete: true, values: ['responsible'] }, capabilities: { update: 'allowed', cancel: 'allowed' }, locator: { url: 'https://task.example/one' } }] }],
   counts: { overdue: 2, today: 3, open: 21, undated: 1 }, fresh, complete: fresh, count: 21, total: fresh ? 21 : null, hasMore: !payload.offset, message: fresh ? '已核验 1 个来源' : '当前可展示结果，未完整核验，不能据此判断全部完成' });
 beforeEach(async () => {
-  requests = []; binding = 'binding-a'; failed = false; sourceFailed = true; pending = null; evidenceState = 'applied'; saveBarrier = null; sourceConfig = initialSources(); todoResponse = response;
+  requests = []; binding = 'binding-a'; failed = false; sourceFailed = true; pending = null; evidenceState = 'applied'; saveBarrier = null; sourcesGate = null; evidenceGate = null; sourceHash = 'source-0'; sourceConfig = initialSources(); todoResponse = response;
   sourceEvidence = {
     personal: { state: 'verified', message: '个人来源身份与资源已核验', checkedAt: '2026-10-23T00:00:00Z', identity: { ownerId: 'owner', authority: 'app:test' }, resource: { id: 'personal-list' }, capabilities: { read: 'allowed', create: 'allowed', update: 'allowed', cancel: 'allowed' } },
     project: { state: 'failed', message: '项目授权已过期', checkedAt: '2026-10-23T00:00:00Z', identity: null, resource: null, capabilities: { read: 'denied', create: 'denied', update: 'unknown', cancel: 'unknown' } },
@@ -41,12 +41,18 @@ beforeEach(async () => {
       if (req.payload.workspaceBinding !== binding) return { ok: true, json: async () => ({ ok: false, error: { message: '工作区已切换，请刷新后重新编辑。' } }) };
       if (req.payload.expectedSourcesHash !== sourceConfigurationFingerprint(sourceConfig)) return { ok: true, json: async () => ({ ok: false, error: { message: '来源配置已变更，请重新读取后合并草稿。' } }) };
       sourceConfig = structuredClone(req.payload.config.sources);
+      sourceHash = 'source-' + requests.filter(row => row.payload.type === 'workspace.config-update').length;
     }
     if (req.endpoint === 'sources' && sourceFailed) return { ok: true, json: async () => ({ ok: false, error: { message: '来源服务离线' } }) };
-    const value = req.endpoint === 'snapshot' ? { workspace: { path: '/workspace-' + binding, config: { ...DEFAULT_CONFIG } }, workspaceBinding: binding, work: [], outbox: [], secrets: {}, readiness: { items: [] } }
+    if (req.endpoint === 'sources' && sourcesGate?.remaining) {
+      const stale = catalog(); sourcesGate.remaining -= 1; await sourcesGate.promise;
+      return { ok: true, json: async () => ({ ok: true, value: stale }) };
+    }
+    if (req.endpoint === 'workspace.evidence' && evidenceGate?.remaining) { evidenceGate.remaining -= 1; await evidenceGate.promise; }
+    const value = req.endpoint === 'snapshot' || (req.endpoint === 'action' && req.payload.type === 'workspace.config-update') ? { workspace: { path: '/workspace-' + binding, config: { ...DEFAULT_CONFIG }, sourceHash }, workspaceBinding: binding, work: [], outbox: [], secrets: {}, readiness: { items: [] } }
       : req.endpoint === 'todos' || (req.endpoint === 'action' && req.payload.type === 'todos.verify') ? todoResponse(req.payload, req.endpoint === 'action')
       : req.endpoint === 'sources' ? catalog() : req.endpoint === 'reminders' ? { rules: [], occurrences: [] }
-      : req.endpoint === 'workspace.evidence' ? { state: evidenceState, savedHash: evidenceState === 'applied' ? 'same-version' : 'saved-version', activeHash: evidenceState === 'applied' ? 'same-version' : 'active-version', impacts: {} }
+      : req.endpoint === 'workspace.evidence' ? { state: evidenceState, savedHash: evidenceState === 'applied' ? sourceHash : 'saved-version', activeHash: evidenceState === 'applied' ? sourceHash : 'active-version', impacts: {} }
       : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : {};
     return { ok: true, json: async () => ({ ok: true, value }) };
   }));
@@ -263,4 +269,73 @@ it('多来源部分失败保留结果，真实空、无匹配与无来源分别�
   await click('核验待办');
   expect(container.textContent).toContain('尚未登记待办来源');
   expect(scopePanel().textContent).toContain('尚未登记来源');
+});
+
+it('生效默认不会被在途旧 sources 响应迁回，后续草稿仍使用新目标', async () => {
+  await click('重试加载来源');
+  let release; sourcesGate = { remaining: 1, promise: new Promise(resolve => { release = resolve; }) };
+  await click('核验待办');
+  expect(sourcesGate.remaining).toBe(0);
+  await click('配置待办来源'); await change(control(drawer(), '新待办默认写入'), 'project');
+  await click('保存来源并重载');
+  expect(scopePanel().textContent).toContain('默认写入：项目待办');
+  const reads = requests.filter(req => req.endpoint === 'sources').length;
+  await act(async () => release());
+  expect(scopePanel().textContent).toContain('默认写入：项目待办');
+  expect(scopePanel().textContent).not.toContain('默认写入：个人待办');
+  expect(requests.filter(req => req.endpoint === 'sources')).toHaveLength(reads);
+  await act(async () => drawer().dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  await click('记录待办');
+  expect(container.querySelector('textarea[aria-label="待办对话内容"]').value).toContain('sourceId=project');
+});
+
+it('另一保存在 evidence 前完成时，不把本次目录冒充为已生效', async () => {
+  await click('重试加载来源'); await click('配置待办来源');
+  const defaultTarget = control(drawer(), '新待办默认写入'); await change(defaultTarget, 'project');
+  let release; evidenceGate = { remaining: 1, promise: new Promise(resolve => { release = resolve; }) };
+  await click('保存来源并重载');
+  expect(evidenceGate.remaining).toBe(0);
+  expect(sourceConfig.defaults.todo).toBe('project');
+  expect(sourceHash).toBe('source-1');
+  expect(requests.at(-1).endpoint).toBe('workspace.evidence');
+  const other = structuredClone(sourceConfig); other.defaults.todo = 'personal';
+  await fetch('./api/24pa', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint: 'action', payload: {
+    type: 'workspace.config-update', workspaceBinding: binding, config: { sources: other }, expectedSourcesHash: sourceConfigurationFingerprint(sourceConfig),
+  } }) });
+  expect(sourceHash).toBe('source-2');
+  await act(async () => release());
+  expect(drawer().textContent).toContain('saved_not_applied');
+  expect(drawer().textContent).toContain('source-2');
+  expect(defaultTarget.value).toBe('project');
+  expect(sourceConfig.defaults.todo).toBe('personal');
+  expect(scopePanel().textContent).toContain('默认写入：个人待办');
+  expect(scopePanel().textContent).not.toContain('默认写入：项目待办');
+});
+
+it('保存完成禁用按钮并 blur 到 body 后，真实焦点发 Escape 仍关闭且归还焦点', async () => {
+  await click('重试加载来源');
+  const opener = button('配置待办来源'); opener.focus(); await act(async () => opener.click());
+  await change(control(drawer(), '新待办默认写入'), 'project');
+  const save = [...drawer().querySelectorAll('button')].find(row => row.textContent === '保存来源并重载');
+  save.focus(); await act(async () => save.click());
+  await vi.waitFor(() => { expect(save.disabled).toBe(true); });
+  if (win.document.activeElement === save) save.blur();
+  win.document.body.tabIndex = -1; win.document.body.focus();
+  expect(win.document.activeElement).toBe(win.document.body);
+  await act(async () => { win.document.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); });
+  expect(drawer()).toBeNull();
+  expect(win.document.activeElement).toBe(opener);
+});
+
+it('焦点在弹层外时，Tab 与 Shift+Tab 分别回到弹层首尾控件', async () => {
+  await click('重试加载来源'); await click('配置待办来源');
+  const items = [...drawer().querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]')];
+  const first = items[0], last = items.at(-1);
+  win.document.body.tabIndex = -1; win.document.body.focus();
+  expect(win.document.activeElement).toBe(win.document.body);
+  win.document.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+  expect(win.document.activeElement).toBe(first);
+  win.document.body.focus();
+  win.document.activeElement.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+  expect(win.document.activeElement).toBe(last);
 });

@@ -183,12 +183,16 @@ describe('工作区激活：公开 bind/update/reload，真实文件与账本', 
       expect(await readFile(file, 'utf8')).toBe(before);
     }
   });
-  it('飞书连接准备失败不关闭当前连接或应用新的配置', async () => {
+  it('写盘成功后重载失败保留旧配置并返回实际 saved/active Hash', async () => {
     const path = await workspace('connection-rollback', { mode: 'feishu', ownerOpenId: 'ou_owner', folderToken: 'folder', tasklistId: 'list' });
     const { rt } = runtime({ PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'old', PA24_FEISHU_APP_SECRET: 'old-key', NEXT_APP: 'new' });
     await rt.bind(path); const old = rt.getTransport(); const config = rt.config;
     vi.spyOn(FakeFeishuTransport.prototype, 'start').mockRejectedValueOnce(new Error('test connection failure'));
-    await expect(rt.updateWorkspaceConfig({ appIdEnv: 'NEXT_APP' })).rejects.toThrow(/test connection failure/);
+    const failure = await rt.updateWorkspaceConfig({ appIdEnv: 'NEXT_APP' }).catch(error => error);
+    expect(failure).toBeInstanceOf(Error); expect(failure.message).toMatch(/test connection failure/);
+    const evidence = await rt.configurationEvidence();
+    expect(failure.evidence).toMatchObject({ state: 'saved_not_applied', savedHash: evidence.savedHash, activeHash: evidence.activeHash });
+    expect(failure.evidence.savedHash).not.toBe(failure.evidence.activeHash);
     expect(rt.config).toBe(config); expect(rt.getTransport()).toBe(old);
     // Saved text remains available for an explicit retry, as SPEC §13 requires.
     expect(await readFile(join(path, 'AGENTS.md'), 'utf8')).toContain('NEXT_APP');

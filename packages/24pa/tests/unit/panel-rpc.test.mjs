@@ -59,4 +59,20 @@ describe('面板动作注册表（arch-2 seam 直测）', () => {
     expect(received).toEqual({ workspaceBinding: 'binding-a' });
     expect(await response.json()).toEqual({ ok: true, value: { workspaceBinding: 'binding-a', entries: [] } });
   });
+
+  it('重载失败经 RPC 传输结构化 saved_not_applied 证据', async () => {
+    let route;
+    const evidence = { state: 'saved_not_applied', savedHash: 'disk-hash', activeHash: 'runtime-hash' };
+    const runtime = {
+      inspectWorkspace: async work => work(),
+      updateWorkspaceConfig: async () => { throw Object.assign(new Error('reload failed'), { code: 'workspace_config_not_applied', evidence }); },
+    };
+    registerPanel({ effect: setup => setup(), connection: { fetch: { register: value => { route = value; } } } }, runtime);
+    const response = await route.fetch(new Request('http://localhost/api/24pa', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: 'action',
+        payload: { type: PANEL_RPC.actions.workspaceConfigUpdate, workspaceBinding: 'binding-a', config: { sources: {} } },
+      }) }));
+    expect(await response.json()).toEqual({ ok: false, error: { message: 'reload failed', code: 'workspace_config_not_applied', evidence } });
+  });
 });

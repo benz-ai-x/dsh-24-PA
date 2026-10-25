@@ -182,7 +182,12 @@ window.__ModuleLoader__.load({
           const response = await fetch('./api/24pa', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint, payload }), signal });
           if (!response.ok) throw new Error('dsh HTTP ' + response.status);
           const result = await response.json();
-          if (!result.ok) throw new Error(result.error.message);
+          if (!result.ok) {
+            const error = new Error(result.error.message);
+            if (result.error.code) error.code = result.error.code;
+            if (result.error.evidence !== undefined) error.evidence = result.error.evidence;
+            throw error;
+          }
           return result.value;
         };
         const date = (value, timeZone) => (value ? new Date(value).toLocaleString('zh-CN', { timeZone: timeZone || 'Asia/Shanghai', hour12: false }) : L('尚无记录', 'No record yet'));
@@ -1151,7 +1156,7 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'pa24-row' }, button('copy', L('复制草稿', 'Copy draft'), async () => { try { await navigator.clipboard.writeText(model.draft); setNotice(L('草稿已复制。', 'Draft copied.')); } catch { setNotice(L('复制失败，请选中文字手动复制。', 'Copy failed; select the draft and copy it.')); } }), button('chat', L('打开24私助对话', 'Open 24PA chat'), openRobot)), notice && h('p', { role: 'status' }, notice))),
             h(SourceScopePanel, { sources: data?.sources || [], registrations, defaultSourceId: activeConfig ? activeConfig.defaults.todo : undefined, tz, onRetry: verify, busy: view.busy, catalogError: catalog.key === binding ? catalog.error : '', catalogBusy: catalog.busy, onReload: reloadSources, onConfigure: () => setDrawerOpen(true), loading: !data && view.busy, unavailable: !data && !view.busy, domain: 'todo' })),
             drawerOpen && h(SourceSettingsDrawer, { key: binding + ':todo-sources', helpers, domain: 'todo', onClose: () => setDrawerOpen(false),
-              onApplied: applied => { if (applied.workspaceBinding !== binding) return; setCatalog(adoptCatalog(applied)); retryRead(); },
+              onApplied: applied => { if (applied.workspaceBinding !== binding) return; catalogSequence.current++; setCatalog(adoptCatalog(applied)); retryRead(); },
               onVerified: () => { reloadSources(); retryRead(); } }));
         }
 
@@ -2894,7 +2899,13 @@ window.__ModuleLoader__.load({
           const run = async action => {
             setBusy(true); setFeedback(null);
             try { await action(); }
-            catch (error) { if (binding === currentBinding.current) setFeedback({ ok: false, message: error.message || String(error) }); }
+            catch (error) {
+              if (binding !== currentBinding.current) return;
+              const evidence = error.evidence;
+              setFeedback(evidence?.state === 'saved_not_applied'
+                ? { ok: false, state: 'saved_not_applied', savedHash: evidence.savedHash, activeHash: evidence.activeHash, message: error.message || String(error) }
+                : { ok: false, message: error.message || String(error) });
+            }
             finally { if (binding === currentBinding.current) setBusy(false); }
           };
           const check = id => run(async () => {
@@ -2915,12 +2926,14 @@ window.__ModuleLoader__.load({
             const submitted = { ...draft,
               entries: draft.entries.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]))),
               mappings: draft.mappings.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]))) };
-            await rpc('action', { type: 'workspace.config-update', workspaceBinding: owner, config: { sources: submitted }, expectedSourcesHash: baseline.hash });
+            const updated = await rpc('action', { type: 'workspace.config-update', workspaceBinding: owner, config: { sources: submitted }, expectedSourcesHash: baseline.hash });
+            const expectedHash = updated?.workspace?.sourceHash;
             const applied = await read(owner);
             const evidence = await rpc('workspace.evidence', { workspaceBinding: owner });
             if (request !== epoch.current || owner !== currentBinding.current) return;
             const matches = JSON.stringify(applied.config) === JSON.stringify(submitted);
-            if (!matches || evidence.state !== 'applied') {
+            const evidenceMatches = !!expectedHash && evidence.savedHash === expectedHash && evidence.activeHash === expectedHash;
+            if (!matches || evidence.state !== 'applied' || !evidenceMatches) {
               setData(applied);
               setFeedback({ ok: false, state: 'saved_not_applied', savedHash: evidence.savedHash, activeHash: evidence.activeHash,
                 message: L('源文件已保存，但本次来源未确认生效（saved_not_applied）；草稿和当前默认保持不变。', 'The source file changed, but these sources are not confirmed active (saved_not_applied). Your draft and current defaults are preserved.') });
@@ -3018,13 +3031,14 @@ window.__ModuleLoader__.load({
             const keydown = event => {
               if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); requestClose(); return; }
               if (event.key !== 'Tab') return;
-              const items = focusable(), first = items[0], last = items.at(-1);
+              const items = focusable(), first = items[0], last = items.at(-1), active = document.activeElement;
               if (!first) { event.preventDefault(); node.focus(); return; }
-              if (event.shiftKey && (document.activeElement === first || !node.contains(document.activeElement) || document.activeElement === node || document.activeElement.hasAttribute('data-drawer-title'))) { event.preventDefault(); last.focus(); }
-              else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+              if (!node.contains(active)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); return; }
+              if (event.shiftKey && (active === first || active === node || active.hasAttribute('data-drawer-title'))) { event.preventDefault(); last.focus(); }
+              else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus(); }
             };
-            node.addEventListener('keydown', keydown);
-            return () => { node.removeEventListener('keydown', keydown); if (returnFocus.current?.isConnected) returnFocus.current.focus(); };
+            document.addEventListener('keydown', keydown, true);
+            return () => { document.removeEventListener('keydown', keydown, true); if (returnFocus.current?.isConnected) returnFocus.current.focus(); };
           }, []);
           const titleId = `pa24-${domain}-sources-title`;
           return h('div', { className: 'pa24-drawer-backdrop', onMouseDown: event => { if (event.target === event.currentTarget) requestClose(); } },
