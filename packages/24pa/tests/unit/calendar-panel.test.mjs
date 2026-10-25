@@ -207,3 +207,31 @@ it('只有已开始未结束标进行中，未来对象仍标下一场', async (
   calendarResponse = () => result; await click('刷新');
   const next = container.querySelector('[data-testid=calendar-next]'); expect(next.textContent).toContain('未来评审'); expect(next.textContent).toContain('下一场'); expect(next.textContent).not.toContain('进行中');
 });
+
+it('空页仅在范围完整时宣称完整结果在其他页，部分失败只描述可展示结果', async () => {
+  calendarResponse = payload => {
+    const result = response(payload, false);
+    if (payload.offset) { result.events = []; result.count = 1; result.total = null; result.next = null; }
+    return result;
+  };
+  await click('刷新'); await click('下一页');
+  expect(container.textContent).toContain('当前页没有日程'); expect(container.textContent).toContain('当前可展示结果可能在其他页；范围未完整核验');
+  expect(container.textContent).not.toContain('完整筛选结果仍在其他页');
+  calendarResponse = payload => {
+    const result = response(payload, true);
+    if (payload.offset) { result.events = []; result.count = 1; result.next = null; }
+    return result;
+  };
+  await click('上一页'); await click('下一页');
+  expect(container.textContent).toContain('完整筛选结果仍在其他页');
+});
+
+it('空下一场仅在范围完整时断言当前筛选无下一场', async () => {
+  const partial = response({}, false); partial.next = null; calendarResponse = () => partial;
+  await click('刷新');
+  let next = container.querySelector('[data-testid=calendar-next]');
+  expect(next.querySelector('h3').textContent).toBe('当前可展示结果没有下一场'); expect(next.textContent).toContain('查询不完整'); expect(next.textContent).not.toContain('当前筛选没有下一场');
+  const complete = response({}, true); complete.next = null; calendarResponse = () => complete;
+  await click('刷新');
+  next = container.querySelector('[data-testid=calendar-next]'); expect(next.querySelector('h3').textContent).toBe('当前筛选没有下一场');
+});

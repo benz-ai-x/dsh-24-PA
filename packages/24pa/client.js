@@ -1181,7 +1181,7 @@ window.__ModuleLoader__.load({
         function CalendarNext({ data, tz }) {
           const next = data.next;
           if (!next) return h('section', { className: 'pa24-calendar-next pa24-calendar-next-empty', 'data-testid': 'calendar-next' }, icon('clock'), h('div', null,
-            h('h3', null, L('当前筛选没有下一场', 'No next event in this filter')),
+            h('h3', null, data.complete ? L('当前筛选没有下一场', 'No next event in this filter') : L('当前可展示结果没有下一场', 'No next event in available observations')),
             h('p', { className: 'pa24-meta' }, data.fresh ? L('本次完整筛选中没有结束时间晚于现在的日程。', 'This complete verification found no event ending after now.') : data.complete ? L('保存的完整筛选中没有结束时间晚于现在的日程；本次未访问原平台。', 'Saved complete observations contain no event ending after now; this read did not access the platforms.') : L('当前可展示结果未提供下一场；查询不完整，不能据此判断全部空闲。', 'Available observations have no next event; incomplete coverage does not prove availability.'))));
           const range = calendarRange(next, tz), ongoing = Date.parse(next.start) <= Date.now() && Date.parse(next.end) > Date.now();
           const conflict = data.conflicts.some(pair => pair.a === next.objectId || pair.b === next.objectId);
@@ -1266,7 +1266,7 @@ window.__ModuleLoader__.load({
           const data = view.key === args ? view.data : null, sources = catalog.key === binding ? catalog.entries : [];
           const filtered = Boolean(source || role || query.trim() || period !== 'day'), enabled = data?.sources.filter(row => row.state !== 'disabled') || [];
           const emptyState = () => {
-            if (data.count > 0) return empty('calendar', 'neutral', L('当前页没有日程', 'No events on this page'), L('完整筛选结果仍在其他页，请返回上一页。', 'Other pages still contain filtered results; return to the previous page.'), button('arrow', L('上一页', 'Previous'), () => setOffset(Math.max(0, offset - limit))));
+            if (data.count > 0) return empty('calendar', 'neutral', L('当前页没有日程', 'No events on this page'), data.complete ? L('完整筛选结果仍在其他页，请返回上一页。', 'Other pages still contain filtered results; return to the previous page.') : L('当前可展示结果可能在其他页；范围未完整核验，请返回上一页查看。', 'Available observations may be on other pages; coverage is incomplete. Return to the previous page.'), button('arrow', L('上一页', 'Previous'), () => setOffset(Math.max(0, offset - limit))));
             if (!data.sources.length) return empty('calendar', 'neutral', L('尚未登记日历来源', 'No calendar sources'), L('登记并核验来源后才能查阅日程；当前状态不代表没有日程。', 'Register and verify sources to read events; this state does not mean there are no events.'), button('settings', L('配置日历来源', 'Configure sources'), () => openCard('config', 'pa24-sources')));
             if (!data.complete) return empty('calendar', 'amber', L('当前没有可展示日程', 'No displayable events'), L('可查看逐来源原因并重试；未完整核验不等于没有日程。', 'Inspect per-source reasons and retry; incomplete coverage does not mean no events.'), button('refresh', L('核验日历', 'Verify calendars'), () => verify(), { disabled: view.busy }));
             if (data.fresh) return empty('calendar', 'neutral', filtered ? L('当前筛选没有匹配日程', 'No events match this filter') : L('该日没有日程', 'No events on this day'), filtered ? L('可以调整日期、时段、来源、参与范围或搜索词。', 'Adjust the date, period, source, role, or search text.') : L('本次完整核验未发现与当前日期和时段重叠的日程。', 'This complete check found no events overlapping the selected date and period.'), button('plus', L('创建日程', 'Create event'), () => prepare('创建日程')));
