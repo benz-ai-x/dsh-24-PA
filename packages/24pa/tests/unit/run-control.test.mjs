@@ -238,17 +238,22 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
 
   it('中断历史中的持久等待可恢复，running 中断仍需核对', async () => {
     const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原始任务' }] };
+    const wait = { action: 'wait', reason: '请补充会议主题' };
+    const result = { isError: false, content: [], value: { runId: run.id, status: 'waiting', ...wait } };
     const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
       { type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: message },
       { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '工具调用已返回' }] } } },
+      { type: 'tool/result', data: { turn: 1, message: { toolCallId: 'wait-history', source: { kind: 'tool', callId: 'wait-history' }, ...result } } },
       { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
     ] };
     await repos.skillRuns.input(run.id, message, true, run.session_id);
+    await repos.skillRuns.beginCall(run.id, 'wait-history', 'pa24_run', wait, run.session_id);
+    await repos.skillRuns.finishCall(run.id, 'wait-history', result, 'returned', run.session_id);
     const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
     const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
       permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
     try {
-      await runs.waitForInput(run, '请补充会议主题');
+      await runs.waitForInput(run, wait.reason);
       await runs.poll();
       expect((await repos.skillRuns.get(run.id)).status).toBe('waiting');
       await repos.runControls.change(run.id, state => clearRunBlock(state, 'input'));
@@ -286,22 +291,51 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     } finally { runs.dispose(); }
   });
 
-  it('根会话的恢复完成不被更早的等待中断阻断', async () => {
+  it.each(['completed', 'open-unknown'])('根会话只豁免有等待回执的回合（后续=%s）', async outcome => {
     const original = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原任务' }] };
+    const wait = { action: 'wait', reason: '请补充会议主题' };
+    const result = { isError: false, content: [], value: { runId: run.id, status: 'waiting', ...wait } };
     const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
       { type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: original },
       { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '等待补充' }] } } },
+      { type: 'tool/result', data: { turn: 1, message: { toolCallId: 'wait-1', source: { kind: 'tool', callId: 'wait-1' }, ...result } } },
       { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
       { type: 'turn/start', data: { turn: 2 } },
       { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: '恢复完成' }] } } },
-      { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+      ...(outcome === 'completed' ? [{ type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } }]
+        : [{ type: 'assistant/attempt', data: { turn: 2, error: { message: '另一回合结果未知' } } }]),
     ] };
     await repos.skillRuns.input(run.id, original, true, run.session_id);
+    await repos.skillRuns.beginCall(run.id, 'wait-1', 'pa24_run', wait, run.session_id);
+    await repos.skillRuns.finishCall(run.id, 'wait-1', result, 'returned', run.session_id);
     const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
     const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
       permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
     try {
-      expect(await runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true)).toMatchObject({ pending: false, root: { id: session.id } });
+      await runs.waitForInput(run, wait.reason);
+      const observing = runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true);
+      if (outcome === 'completed') expect(await observing).toMatchObject({ pending: false, root: { id: session.id } });
+      else await expect(observing).rejects.toThrow('原生回合缺少结束依据');
+    } finally { runs.dispose(); }
+  });
+
+  it.each([false, true])('较早 running 中断不能被后续完成掩盖（有待提交补充=%s）', async pending => {
+    const original = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原任务' }] };
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
+      { type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: original },
+      { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '结果未知的动作' }] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
+      { type: 'turn/start', data: { turn: 2 } },
+      { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: '另一回合已完成' }] } } },
+      { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+    ] };
+    await repos.skillRuns.input(run.id, original, true, run.session_id);
+    if (pending) await repos.runControls.prepareResume({ runId: run.id, requestId: randomUUID(), hash: 'pending-resume', message: { content: [{ type: 'text', text: '待提交补充' }] }, change: () => {} });
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    try {
+      await expect(runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true)).rejects.toThrow('原生回合被中断');
     } finally { runs.dispose(); }
   });
 
@@ -316,7 +350,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
       { type: 'turn/start', data: { turn: 1 } },
       { type: 'user/message', data: { id: 'native-resume', role: 'user', source: { kind: 'user', rpcId: requestId }, content: resume.message.content } },
-      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
       { type: 'turn/start', data: { turn: 2 } },
       { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [original] } },
       { type: 'assistant/attempt', data: { turn: 2, error: { message: '后续执行中断' } } },
@@ -494,7 +528,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } });
     expect(canceledInputIds(session).has(message.id)).toBe(true);
   });
-  it('历史读取只回退已注销会话，持久化失败和存活会话错误仍上抛', async () => {
+  it('历史读取区分写句柄关闭与会话注销，其他错误仍上抛', async () => {
     const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [{ type: 'turn/start', data: { turn: 1 } }] };
     const durable = [{ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }];
     let current = session, failure, reads = 0, closes = 0;
@@ -518,9 +552,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     expect(reads).toBe(2); expect(closes).toBe(2);
     current = session;
     await expect(host.history(run)).rejects.toThrow('not live');
+    failure = new Error('handle closed');
+    failure.name = 'SessionHandleClosedError';
+    expect((await host.history(run)).ownEvents()).toEqual(durable);
+    current = undefined;
+    expect((await host.history(run)).ownEvents()).toEqual(durable);
+    expect(reads).toBe(4); expect(closes).toBe(4);
+    current = session;
     failure = new Error('durable write failed');
     await expect(host.history(run)).rejects.toThrow('durable write failed');
-    expect(reads).toBe(2); expect(closes).toBe(2);
+    expect(reads).toBe(4); expect(closes).toBe(4);
   });
   it('上下文去重和外来输入移除不取消运行；只识别原输入与登记补充', async () => {
     const context = { id: 'context', content: [{ type: 'text', text: 'AGENTS.md' }], source: { kind: 'agent-instructions' } };

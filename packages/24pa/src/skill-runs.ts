@@ -607,7 +607,7 @@ export class SkillRuns {
     let observation;
     const resumeEvidence = async (session: DshSession): Promise<boolean> => {
       const control = await context.repos.runControls.get(run.id), resumes = await context.repos.runControls.resumes(run.id);
-      const consumed = new Set(session.ownEvents().filter(event => event.type === 'turn/end' && event.data.reason?.kind === 'completed')
+      const consumed = new Set(session.ownEvents().filter(event => event.type === 'turn/end')
         .flatMap(event => [...consumedTurn(session, event.data.turn).messageIds]));
       const evidence = resumes.some(row => row.status !== 'unknown' && (row.status !== 'submitted' || (row.native_message_id !== null && !consumed.has(row.native_message_id))))
         || (run.status === 'waiting' && (!control || !await context.repos.runControls.canResume(run, control.state)));
