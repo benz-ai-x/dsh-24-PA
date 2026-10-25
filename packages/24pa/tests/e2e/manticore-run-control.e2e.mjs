@@ -25,7 +25,8 @@ beforeAll(async () => {
   if (storage === 'postgres') cluster = await startPgCluster();
   await writeFile(join(workspace, 'AGENTS.md'), '# 隔离运行控制验证\n\n```json\n' + JSON.stringify({ ...DEFAULT_CONFIG, storage, enabledWorkers: [...new Set([...DEFAULT_CONFIG.enabledWorkers, 'skill'])], extraBusinessSkills: ['wait-business'] }) + '\n```\n');
   scriptPath = join(root, 'script.json'); await writeFile(scriptPath, JSON.stringify({ steps: [] }));
-  llm = await startMockLlm({ scriptPath, logPath: join(root, 'requests.json'), recordInputs: true });
+  llm = await startMockLlm({ scriptPath, logPath: join(root, 'requests.json'), recordInputs: true,
+    sequenceKey: body => body.messages.flatMap(message => message.content ?? []).map(part => part.type === 'text' ? part.text?.match(/固定版本：([^；\n]+)/)?.[1] : null).find(Boolean) });
   env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', PA24_TEST_RUN_BARRIER: barrierPath, DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, ...(cluster ? { PA24_PG_DSN: cluster.dsn } : {}) };
   host = await bootHost({ env }); binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
 }, 600000);
@@ -49,9 +50,9 @@ const settledStepMs = async sessionId => {
   return end.time - start.time;
 };
 const start = async ({ mode = 'local', tools = ['pa24_run'], executionLimitMs = 900000, steps }) => {
-  await writeFile(scriptPath, JSON.stringify({ steps, onlySkillRuns: true }));
   const markdown = '---\n' + JSON.stringify({ name: mode === 'business' ? 'wait-business' : 'wait-local-' + randomUUID(), description: '等待与执行时限验证', metadata: { track: 'agent', tools, pa24: { schemaVersion: 1, mode, parameters: {}, actions: [], expectedResult: '沿原记录完成', completionCriteria: '不重复已完成步骤' } } }) + '\n---\n\n按工具和原会话回执执行。';
   const created = await host.api('action', { type: 'skill.change', op: 'save', requestId: randomUUID(), workspaceBinding: binding, displayName: '等待恢复验证', markdown });
+  await llm.setSequence(created.entry.draft_version, steps);
   const id = 'managed:' + created.entry.id;
   if (mode === 'business') await host.api('action', { type: 'workspace.config-update', workspaceBinding: binding, config: { extraBusinessSkills: [created.entry.name] } });
   await host.api('action', { type: 'skill.change', op: 'publish', requestId: randomUUID(), workspaceBinding: binding, id, expectedRevision: created.entry.revision, confirm: true });
