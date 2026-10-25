@@ -398,7 +398,7 @@ export class SkillRuns {
         clearRunBlock(state, 'input');
       }
     } });
-    await this.dispatchResumes(run, true);
+    await this.dispatchResumes(run, recheck);
     return this.inspect(input);
   }
   private async dispatchResumes(run: SkillRunRow, revalidate = false): Promise<boolean> {
@@ -605,7 +605,9 @@ export class SkillRuns {
     if (calls.some(call => call.status === 'unknown' || (recovering && call.status === 'running'))) return this.block(run, '工具结果待核对；停止或重启不抹除已经发生的动作。');
     const observedRequests = await repo.modelRequests(run.id);
     let observation;
-    try { observation = await this.native.observe(repo, run, recovering, session => this.deps.budget?.paused(session) ?? Promise.resolve(false)); }
+    const resumeEvidence = (await context.repos.runControls.resumes(run.id)).some(row => row.status !== 'unknown')
+      || !!(await context.repos.runControls.get(run.id))?.state.blocks.length;
+    try { observation = await this.native.observe(repo, run, recovering, session => this.deps.budget?.paused(session) ?? Promise.resolve(false), resumeEvidence); }
     catch (error) { await this.diagnostic(run.id, 'native-observe', error); return this.block(run, errorText(error)); }
     const history = observation.root;
     let control;

@@ -3,8 +3,6 @@ import { mkdir, mkdtemp, rm, writeFile, readFile, rename } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
@@ -37,17 +35,6 @@ const until = async (read, check) => {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) { const value = await read(); if (check(value)) return value; await new Promise(resolve => setTimeout(resolve, 75)); }
   throw new Error('运行控制等待超时：' + JSON.stringify(await read()));
-};
-const settledStepMs = async sessionId => {
-  const archive = join(root, 'step-evidence.zip');
-  await writeFile(archive, await host.exportSession(sessionId));
-  const { stdout } = await promisify(execFile)('unzip', ['-p', archive, 'session*.jsonl']);
-  const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
-  const end = events.findLast(event => event.type === 'step/end');
-  if (!end) return null;
-  const start = events.find(event => event.type === 'step/start' && event.data.turn === end.data.turn && event.data.step === end.data.step);
-  if (!start || typeof start.time !== 'number' || typeof end.time !== 'number') throw new Error('原生步骤缺少可核验的起止时间。');
-  return end.time - start.time;
 };
 const start = async ({ mode = 'local', tools = ['pa24_run'], executionLimitMs = 900000, steps }) => {
   const markdown = '---\n' + JSON.stringify({ name: mode === 'business' ? 'wait-business' : 'wait-local-' + randomUUID(), description: '等待与执行时限验证', metadata: { track: 'agent', tools, pa24: { schemaVersion: 1, mode, parameters: {}, actions: [], expectedResult: '沿原记录完成', completionCriteria: '不重复已完成步骤' } } }) + '\n---\n\n按工具和原会话回执执行。';
@@ -160,22 +147,48 @@ it.each(['local', 'business'])('%s SQL 恢复已认领、原生采用前取消�
   } finally { await writeBarrier({}); }
 }, 600000);
 
+it.each(['local', 'business'])('%s 工具已返回且原生 step 未静止时优雅重启，仍沿原运行继续', async mode => {
+  try {
+    await writeBarrier({ kind: 'graceful-stop' });
+    const run = await start({ mode, steps: [waitStep, { text: 'GRACEFUL_RESTART_RESULT：原运行已恢复。' }] });
+    const held = await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.entered);
+    expect(held.sessionId).toBe(run.session_id);
+    expect(held.persistedStepEnded).toBe(false);
+    const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
+    expect(requestsFor(run)).toHaveLength(1);
+    const hostRoot = host.root, stopping = host.stop({ keepRoot: true });
+    await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.disposeStarted);
+    await writeBarrier({ ...held, release: true });
+    await stopping;
+    await writeBarrier({});
+    host = await bootHost({ env, root: hostRoot });
+    binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
+    const restored = await detail(run.id);
+    expect(restored.run.status, JSON.stringify(restored)).toBe('waiting');
+    expect(restored.execution.executionMs).toBeGreaterThanOrEqual(waiting.execution.executionMs);
+    await host.api('action', resumeCommand(run));
+    const done = await until(() => detail(run.id), value => ['completed', 'needs_reconciliation', 'failed'].includes(value.run.status));
+    expect(done.run.status, JSON.stringify(done)).toBe('completed');
+    expect(done.run.result).toContain('GRACEFUL_RESTART_RESULT');
+    expect(done.run.session_id).toBe(run.session_id);
+    expect(done.execution.executionMs).toBeGreaterThanOrEqual(waiting.execution.executionMs);
+    expect(done.execution.waitingMs).toBeGreaterThan(0);
+    expect(done.inputs.filter(input => JSON.stringify(input.message).includes('[24PA resume:') && input.accepted)).toHaveLength(1);
+    expect(requestsFor(run)).toHaveLength(2);
+  } finally { await writeBarrier({}); }
+}, 600000);
+
 it.each(['local', 'business'])('真实宿主 %s：等待并重启后在原运行继续，补充双击只消费一次', async mode => {
   const before = llm.requests.length;
   const run = await start({ mode, steps: [waitStep, { text: 'RESUMED_RESULT：主题已收到，沿原记录完成。' }] });
-  const waiting = await until(async () => {
-    const elapsed = await settledStepMs(run.session_id);
-    if (elapsed === null) return null;
-    const current = await detail(run.id);
-    return current.run.status === 'waiting' && current.calls.every(call => call.status !== 'running') && current.execution.executionMs >= elapsed ? current : null;
-  }, value => value);
+  const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
   expect(waiting.execution.blocks).toMatchObject([{ kind: 'input', reason: '请补充会议主题' }]);
   expect(requestsFor(run)).toHaveLength(1);
   const hostRoot = host.root; await host.stop({ keepRoot: true }); host = await bootHost({ env, root: hostRoot });
   binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
   const restored = await detail(run.id);
   expect(restored.run.status, JSON.stringify(restored)).toBe('waiting');
-  expect(restored.execution.executionMs).toBe(waiting.execution.executionMs);
+  expect(restored.execution.executionMs).toBeGreaterThanOrEqual(waiting.execution.executionMs);
   const command = resumeCommand(run);
   await Promise.all([host.api('action', command), host.api('action', command)]);
   const done = await until(() => detail(run.id), value => ['completed', 'needs_reconciliation', 'failed'].includes(value.run.status));

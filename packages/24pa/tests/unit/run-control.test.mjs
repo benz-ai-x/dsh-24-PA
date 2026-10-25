@@ -192,7 +192,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     await repos.skillRuns.transition(run.id, 'stopped', '测试结束');
   });
 
-  it('授权恢复后不得自动提交补充；显式重新检查才恢复', async () => {
+  it.each(['先补充后恢复', '先恢复后补充'])('授权恢复后不得自动提交补充；显式重新检查才恢复（%s）', async order => {
     let permission = 'blocked', submissions = 0;
     const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [] };
     const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
@@ -201,6 +201,10 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     runs.host.submitResume = async () => { submissions++; return 'native-' + submissions; };
     try {
       await runs.waitForInput(run, '请补充会议主题');
+      if (order === '先恢复后补充') {
+        await repos.runControls.change(run.id, state => blockRun(state, { key: 'current-authorization', kind: 'authorization', reason: '授权范围已改变' }));
+        permission = 'allowed';
+      }
       await runs.resume({ runId: run.id, requestId: randomUUID(), confirm: true, instruction: '会议主题：项目验收', workspaceBinding: 'binding' });
       expect(submissions).toBe(0);
       permission = 'allowed';
@@ -211,6 +215,66 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
       await runs.resume({ op: 'recheck', runId: run.id, requestId: randomUUID(), confirm: true, workspaceBinding: 'binding' });
       expect(submissions).toBe(1);
       expect((await repos.runControls.resumes(run.id)).map(row => row.status)).toEqual(['submitted']);
+    } finally { runs.dispose(); }
+  });
+
+  it('原生回合未闭合时保留已持久等待，running 仍需核对', async () => {
+    const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原始任务' }] };
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
+      { type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: message },
+      { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '工具调用已返回' }] } } },
+    ] };
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    try {
+      await runs.waitForInput(run, '请补充会议主题');
+      expect(await runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true)).toMatchObject({ pending: true, root: { id: session.id } });
+      await repos.skillRuns.transition(run.id, 'running', '恢复执行');
+      await expect(runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true)).rejects.toThrow('原生回合缺少结束依据');
+    } finally { runs.dispose(); }
+  });
+
+  it('中断历史中的持久等待可恢复，running 中断仍需核对', async () => {
+    const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原始任务' }] };
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
+      { type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: message },
+      { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '工具调用已返回' }] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
+    ] };
+    await repos.skillRuns.input(run.id, message, true, run.session_id);
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    try {
+      await runs.waitForInput(run, '请补充会议主题');
+      await runs.poll();
+      expect((await repos.skillRuns.get(run.id)).status).toBe('waiting');
+      await repos.runControls.change(run.id, state => clearRunBlock(state, 'input'));
+      await repos.skillRuns.transition(run.id, 'running', '恢复执行');
+      await runs.poll();
+      expect((await repos.skillRuns.get(run.id)).status).toBe('needs_reconciliation');
+    } finally { runs.dispose(); }
+  });
+
+  it('中断输入缺少等待证据时不得重放', async () => {
+    const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '待恢复输入' }] };
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } },
+      { type: 'assistant/attempt', data: { turn: 1, error: { message: '执行中断' } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
+    ] };
+    await repos.skillRuns.input(run.id, message, true, run.session_id);
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    let submissions = 0;
+    runs.host.resumePending = async () => { submissions++; };
+    try {
+      await runs.poll();
+      expect((await repos.skillRuns.get(run.id)).status).toBe('needs_reconciliation');
+      expect(submissions).toBe(0);
     } finally { runs.dispose(); }
   });
 

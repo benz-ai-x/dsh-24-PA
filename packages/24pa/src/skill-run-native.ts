@@ -98,7 +98,7 @@ export class SkillRunNative {
     }
   }
 
-  async observe(repo: SkillRunRepo, run: SkillRunRow, recovering = false, budgetPaused?: (session: DshSession) => Promise<boolean>): Promise<{ pending: boolean; root: DshSession | null; histories: DshSession[] }> {
+  async observe(repo: SkillRunRepo, run: SkillRunRow, recovering = false, budgetPaused?: (session: DshSession) => Promise<boolean>, resumeEvidence = false): Promise<{ pending: boolean; root: DshSession | null; histories: DshSession[] }> {
     await this.flush(run.id);
     const root = await this.host.history(run);
     if (!root) return { pending: false, root: null, histories: [] };
@@ -119,8 +119,9 @@ export class SkillRunNative {
       if (this.host.busy(row.session_id)) pending = true;
       const turns = session.ownEvents().filter(event => event.type === 'turn/start');
       const ends = session.ownEvents().filter(event => event.type === 'turn/end');
+      const hasWaitEvidence = row.session_id === run.session_id && (run.status === 'waiting' || resumeEvidence);
       if (turns.some(turn => !ends.some(end => end.data.turn === turn.data.turn) && turnHasModelInput(session, turn.data.turn))) {
-        if (recovering || !this.host.resident(row.session_id)) throw new Error('原生回合缺少结束依据，不能重复执行原动作。');
+        if ((recovering || !this.host.resident(row.session_id)) && !hasWaitEvidence) throw new Error('原生回合缺少结束依据，不能重复执行原动作。');
         pending = true;
       }
       const inputs = (await repo.inputs(run.id)).filter(input => input.session_id === row.session_id);
@@ -142,7 +143,7 @@ export class SkillRunNative {
       for (const end of ends) {
         const consumed = consumedTurn(session, end.data.turn).messageIds;
         if ([...consumed].some(id => admitted.has(id) && !inputs.some(input => input.message_id === id && input.accepted))) throw new Error('原生回合包含尚未核验归属的输入。');
-        if (end.data.reason?.kind === 'interrupted' && turnHasModelInput(session, end.data.turn)) throw new Error('原生回合被中断，需先核对实际执行结果。');
+        if (end.data.reason?.kind === 'interrupted' && turnHasModelInput(session, end.data.turn) && !hasWaitEvidence) throw new Error('原生回合被中断，需先核对实际执行结果。');
       }
       const knownJobs = (await repo.native(run.id)).filter(item => item.kind === 'job' && item.owner_id === row.session_id);
       if (this.host.ownedJobs(row.session_id).some(job => !knownJobs.some(item => item.native_id === job.id))) {
