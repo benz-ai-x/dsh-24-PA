@@ -314,6 +314,12 @@ describe('arch-5：面板工厂求值（真执行而非文本匹配）', () => {
   });
 });
 
+describe('待办来源抽屉导航', () => {
+  it('纯配置导航不被全局 busy 禁用，保留真实焦点入口', () => {
+    expect(client).toContain("button('settings', L('配置待办来源', 'Configure sources'), () => setDrawerOpen(true), { className: 'pa24-quiet', disabled: false })");
+  });
+});
+
 describe('arch-4/5 清偿锚点：音色选项形态', () => {
   it('tts.voice 下拉两个分支都输出 [value,label] 元组（自定义音色不崩 sel）', () => {
     // sel() 按元组解构 options；configMeta 侧是 {value,label} 对象——client 必须
