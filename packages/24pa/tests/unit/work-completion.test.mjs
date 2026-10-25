@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { fixture, deferred } from '../helpers/runtime.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
+import { WorkCompletionHistory } from '../../lib/work-completion.js';
 
 for (const storage of ['sqlite', 'postgres']) describe(`original work completion / ${storage}`, () => {
   let cluster, f;
@@ -113,6 +114,22 @@ for (const storage of ['sqlite', 'postgres']) describe(`original work completion
     await restartCold(id); expect((await work(id)).status).toBe('running');
     await vi.waitFor(async () => expect((await work(id)).status).toBe('completed'), { timeout: 5000 });
     expect(f.nativeInputs.size).toBe(1); expect(open).toHaveBeenCalledTimes(2);
+  });
+
+  it('a live Worker with a closed write handle settles from drained history without resend', async () => {
+    await setup(); const id = await delegate(); const original = f.ctx.sessions.flush;
+    const closed = vi.spyOn(f.ctx.sessions, 'flush').mockImplementation(async session => {
+      if (session.id !== id) return original(session);
+      const error = new Error(`session "${id}": flush on a closed handle`);
+      error.name = 'SessionHandleClosedError'; throw error;
+    });
+    try {
+      const session = end(id);
+      await original(session);
+      await expect(new WorkCompletionHistory(f.ctx).read(await work(id))).resolves.toMatchObject({ kind: 'complete', output: 'original result' });
+      await vi.waitFor(async () => expect((await work(id)).status).toBe('completed'), { timeout: 5000 });
+      expect(f.nativeInputs.size).toBe(1);
+    } finally { closed.mockRestore(); }
   });
 
   it.each(['false', 'throw'])('flush %s does not authorize completion; a later successful checkpoint retries automatically', async mode => {
