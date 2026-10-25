@@ -26,6 +26,20 @@ export interface TaskPlanAuthorization {
 export type TaskPlanBlockKind = 'skill' | 'dependency' | 'authorization' | 'failures' | 'manual';
 export interface TaskPlanBlock { plan_id: string; key: string; kind: TaskPlanBlockKind; reason: string; created_at: Date }
 
+interface TaskPlanTimingSource {
+  task_config?: { timeZone: string } | null;
+  schedule_spec?: {
+    daily?: { time_zone?: string };
+    weekly?: { time_zone?: string };
+    cron?: { time_zone?: string };
+    time_zone?: string;
+  } | null;
+}
+export function taskPlanTimeZone(row: TaskPlanTimingSource, fallback: string): string {
+  const spec = row.schedule_spec;
+  return String(row.task_config?.timeZone ?? spec?.daily?.time_zone ?? spec?.weekly?.time_zone ?? spec?.cron?.time_zone ?? spec?.time_zone ?? fallback);
+}
+
 function object(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${field} 须为对象。`);
   return value as Record<string, unknown>;
