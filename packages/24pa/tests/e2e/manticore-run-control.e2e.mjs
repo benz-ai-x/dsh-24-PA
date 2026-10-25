@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, rm, writeFile, readFile, rename } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
@@ -34,6 +36,17 @@ const until = async (read, check) => {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) { const value = await read(); if (check(value)) return value; await new Promise(resolve => setTimeout(resolve, 75)); }
   throw new Error('运行控制等待超时：' + JSON.stringify(await read()));
+};
+const settledStepMs = async sessionId => {
+  const archive = join(root, 'step-evidence.zip');
+  await writeFile(archive, await host.exportSession(sessionId));
+  const { stdout } = await promisify(execFile)('unzip', ['-p', archive, 'session*.jsonl']);
+  const events = stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  const end = events.findLast(event => event.type === 'step/end');
+  if (!end) return null;
+  const start = events.find(event => event.type === 'step/start' && event.data.turn === end.data.turn && event.data.step === end.data.step);
+  if (!start || typeof start.time !== 'number' || typeof end.time !== 'number') throw new Error('原生步骤缺少可核验的起止时间。');
+  return end.time - start.time;
 };
 const start = async ({ mode = 'local', tools = ['pa24_run'], executionLimitMs = 900000, steps }) => {
   await writeFile(scriptPath, JSON.stringify({ steps, onlySkillRuns: true }));
@@ -149,7 +162,12 @@ it.each(['local', 'business'])('%s SQL 恢复已认领、原生采用前取消�
 it.each(['local', 'business'])('真实宿主 %s：等待并重启后在原运行继续，补充双击只消费一次', async mode => {
   const before = llm.requests.length;
   const run = await start({ mode, steps: [waitStep, { text: 'RESUMED_RESULT：主题已收到，沿原记录完成。' }] });
-  const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
+  const waiting = await until(async () => {
+    const elapsed = await settledStepMs(run.session_id);
+    if (elapsed === null) return null;
+    const current = await detail(run.id);
+    return current.run.status === 'waiting' && current.calls.every(call => call.status !== 'running') && current.execution.executionMs >= elapsed ? current : null;
+  }, value => value);
   expect(waiting.execution.blocks).toMatchObject([{ kind: 'input', reason: '请补充会议主题' }]);
   expect(requestsFor(run)).toHaveLength(1);
   const hostRoot = host.root; await host.stop({ keepRoot: true }); host = await bootHost({ env, root: hostRoot });
