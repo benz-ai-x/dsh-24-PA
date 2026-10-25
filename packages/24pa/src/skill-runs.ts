@@ -386,10 +386,10 @@ export class SkillRuns {
     if (input.confirm !== true || (!recheck && (typeof input.instruction !== 'string' || !input.instruction.trim() || input.instruction.length > 4000))) throw new Error('请明确提交需补充的信息（1–4000 字符）。');
     if (run.status !== 'waiting') throw new Error('只有等待中的原运行可以补充；已结束的运行请显式接续。');
     if (recheck) {
-      await this.refreshBlocks(run);
+      await this.refreshBlocks(run, true);
       const control = await context.repos.runControls.get(run.id);
       if (!control || !await context.repos.runControls.canResume(run, control.state)) return this.inspect(input);
-      if ((await this.pendingInputs(run)).length || (await context.repos.runControls.resumes(run.id)).some(row => row.status !== 'submitted')) { await this.dispatchResumes(run); return this.inspect(input); }
+      if ((await this.pendingInputs(run)).length || (await context.repos.runControls.resumes(run.id)).some(row => row.status !== 'submitted')) { await this.dispatchResumes(run, true); return this.inspect(input); }
     }
     const content = [{ type: 'text', text: `[24PA resume: ${id}]\n${recheck ? '主人已要求重新检查，原阻断已解除。' : `主人补充：${String(input.instruction).trim()}`}\n沿原运行继续剩余工作，不重做已有成功回执的步骤；原有权限和累计执行时限保持。` }];
     await context.repos.runControls.prepareResume({ runId: run.id, requestId: id, hash, message: { content }, change: state => {
@@ -398,16 +398,16 @@ export class SkillRuns {
         clearRunBlock(state, 'input');
       }
     } });
-    await this.dispatchResumes(run);
+    await this.dispatchResumes(run, true);
     return this.inspect(input);
   }
-  private async dispatchResumes(run: SkillRunRow): Promise<boolean> {
+  private async dispatchResumes(run: SkillRunRow, revalidate = false): Promise<boolean> {
     if (this.resuming.has(run.id)) return true;
     this.resuming.add(run.id);
-    try { return await this.resumeInputs(run); }
+    try { return await this.resumeInputs(run, revalidate); }
     finally { this.resuming.delete(run.id); }
   }
-  private async resumeInputs(run: SkillRunRow): Promise<boolean> {
+  private async resumeInputs(run: SkillRunRow, revalidate = false): Promise<boolean> {
     if (await this.stopCanceledInput(run)) return true;
     const context = this.context(), controls = context.repos.runControls;
     const resumes = await controls.resumes(run.id), pending = resumes.filter(row => row.status !== 'submitted');
@@ -415,7 +415,7 @@ export class SkillRuns {
     if (!pending.length && !originals.length) return false;
     const current = await context.repos.skillRuns.get(run.id), control = await controls.get(run.id);
     if (!current || !['running', 'waiting'].includes(current.status) || !control || control.state.terminal) return false;
-    await this.refreshBlocks(run);
+    await this.refreshBlocks(run, revalidate);
     const refreshed = await controls.get(run.id);
     if (!refreshed || !await controls.canResume(run, refreshed.state) || this.clockLive(run.session_id)) return true;
     await this.native.flush(run.id);
@@ -498,7 +498,7 @@ export class SkillRuns {
     await context.repos.runControls.change(run.id, state => blockRun(state, { key, kind, reason }));
     await context.repos.skillRuns.transition(run.id, 'waiting', reason);
   }
-  private async refreshBlocks(run: SkillRunRow): Promise<void> {
+  private async refreshBlocks(run: SkillRunRow, revalidate = false): Promise<void> {
     const issues: Array<{ key: string; kind: RunBlockKind; reason: string }> = [];
     if (this.deps.permissionHash(run.snapshot.plan?.authorization) !== run.snapshot.permissionHash) issues.push({ key: 'current-authorization', kind: 'authorization', reason: '身份或授权配置与原运行不同；恢复原范围后可重新检查。' });
     try { await this.verifyPlan(run); } catch (error) { issues.push({ key: 'current-plan', kind: 'authorization', reason: errorText(error) }); }
@@ -511,7 +511,8 @@ export class SkillRuns {
       if (state.terminal) return;
       for (const key of ['current-authorization', 'current-dependencies', 'current-business', 'current-plan']) {
         const issue = issues.find(item => item.key === key);
-        if (issue) blockRun(state, issue); else clearRunBlock(state, key);
+        if (issue) blockRun(state, issue);
+        else if (revalidate || !state.blocks.some(block => block.key === key)) clearRunBlock(state, key);
       }
     });
     if (control.state.blocks.length && !control.state.terminal) await context.repos.skillRuns.transition(run.id, 'waiting', control.state.blocks.map(block => block.reason).join('；'));

@@ -192,6 +192,28 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     await repos.skillRuns.transition(run.id, 'stopped', '测试结束');
   });
 
+  it('授权恢复后不得自动提交补充；显式重新检查才恢复', async () => {
+    let permission = 'blocked', submissions = 0;
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [] };
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => permission, lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    runs.host.submitResume = async () => { submissions++; return 'native-' + submissions; };
+    try {
+      await runs.waitForInput(run, '请补充会议主题');
+      await runs.resume({ runId: run.id, requestId: randomUUID(), confirm: true, instruction: '会议主题：项目验收', workspaceBinding: 'binding' });
+      expect(submissions).toBe(0);
+      permission = 'allowed';
+      await runs.poll();
+      expect(submissions).toBe(0);
+      expect((await repos.skillRuns.get(run.id)).status).toBe('waiting');
+      expect((await repos.runControls.get(run.id)).state.blocks.map(block => block.key)).toEqual(['current-authorization']);
+      await runs.resume({ op: 'recheck', runId: run.id, requestId: randomUUID(), confirm: true, workspaceBinding: 'binding' });
+      expect(submissions).toBe(1);
+      expect((await repos.runControls.resumes(run.id)).map(row => row.status)).toEqual(['submitted']);
+    } finally { runs.dispose(); }
+  });
+
   it.each(['ready', 'used'])('旧预算拒绝快照不结算新许可（%s），随后原请求完成', async permitState => {
     const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原输入' }] };
     await repos.skillRuns.input(run.id, message, true, run.session_id);
