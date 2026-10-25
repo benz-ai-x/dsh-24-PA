@@ -1918,7 +1918,7 @@ window.__ModuleLoader__.load({
           const deliveryBadge = status => { const style = { sent: ['blue', 'check'], failed: ['danger', 'alert'], unknown: ['amber', 'info'], partial: ['amber', 'info'], pending: ['amber', 'clock'], sending: ['blue', 'pulse'] }[status] || ['neutral', 'info']; return badge(deliveryLabel(status), ...style); };
           const acceptanceBadge = row => {
             if (!row.acceptance_required) return null;
-            const view = { pending: ['待主人验收', 'amber', 'clock'], accepted: ['主人已验收', 'blue', 'check'], returned: ['验收退回', 'amber', 'alert'], none: ['尚未交付', 'neutral', 'clock'] }[row.acceptance_status] || ['验收状态未知', 'neutral', 'info'];
+            const view = { pending: [L('待主人验收', 'Awaiting owner acceptance'), 'amber', 'clock'], accepted: [L('主人已验收', 'Accepted by owner'), 'blue', 'check'], returned: [L('验收退回', 'Acceptance returned'), 'amber', 'alert'], none: [L('尚未交付', 'Not yet delivered'), 'neutral', 'clock'] }[row.acceptance_status] || [L('验收状态未知', 'Unknown acceptance status'), 'neutral', 'info'];
             return badge(...view);
           };
           const workStage = row => {
