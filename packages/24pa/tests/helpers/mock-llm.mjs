@@ -29,13 +29,13 @@ const writeJson = async (path, value) => {
 
 export async function startMockLlm({ scriptPath, logPath, recordInputs = false, sequenceKey }) {
   const requests = [];
-  let scriptQueue = Promise.resolve();
+  let scriptQueue = Promise.resolve(), logQueue = Promise.resolve();
   const updateScript = change => {
     const operation = scriptQueue.then(async () => {
       const script = await readJson(scriptPath, {});
-      const result = await change(script);
-      await writeJson(scriptPath, script);
-      return result;
+      const { value, changed } = await change(script);
+      if (changed) await writeJson(scriptPath, script);
+      return value;
     });
     scriptQueue = operation.then(() => undefined, () => undefined);
     return operation;
@@ -67,12 +67,13 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false, 
       .slice(-2000);
     requests.push({ at: new Date().toISOString(), model: body.model, tools, toolResults, images, lastUserText,
       ...(recordInputs ? { inputs: (body.messages ?? []).filter(message => message.role === 'user') } : {}) });
-    await writeJson(logPath, requests).catch(() => {});
+    logQueue = logQueue.then(() => writeJson(logPath, requests)).catch(() => {});
+    await logQueue;
 
     const sequence = sequenceKey?.(body);
     const step = await updateScript(script => {
       const selected = sequence ? script.sequences?.[sequence] : script;
-      let step;
+      let step, changed = false;
       if (script.onlySkillRuns && !(body.messages ?? []).some(message => (message.content ?? []).some(part => part.type === 'text' && /^\[24PA skill run: [^\]]+\]$/.test(part.text)))) {
         // The real manager may notify a parent independently of the owned Run.
         // Parent acknowledgement must not consume that Run's scripted sequence.
@@ -133,8 +134,9 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false, 
         step = (selected.steps ?? [])[index] ?? { text: '（mock 默认回复）' };
         selected.nextIndex = index + 1;
         if (sequence) (script.sequences ??= {})[sequence] = selected;
+        changed = true;
       }
-      return step;
+      return { value: step, changed };
     });
     const turn = requests.length;
     if (step.httpError) {
@@ -176,6 +178,7 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false, 
       await updateScript(script => {
         script.onlySkillRuns = true;
         (script.sequences ??= {})[key] = { steps };
+        return { changed: true };
       });
     },
     get log() {
