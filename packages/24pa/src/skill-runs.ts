@@ -579,7 +579,12 @@ export class SkillRuns {
     // Native evidence survives even a total SQL outage. Ordinary WorkItems
     // keep their existing checkpoint path without an extra SQL dependency.
     try { await this.host.checkpoint(session); }
-    catch (error) { if (!(error instanceof Error) || error.name !== 'SessionHandleClosedError') throw error; }
+    catch (error) {
+      const closed = error instanceof Error && error.name === 'SessionHandleClosedError';
+      const retired = error instanceof Error && this.deps.host.sessions.get?.(session.id) !== session
+        && error.message === `session "${session.id}" is not live in this store`;
+      if (!closed && !retired) throw error;
+    }
     const run = await context.repos.skillRuns.bySession(session.id);
     if (run) await this.reconcile(run);
     return !!run && (run.session_id === session.id || !await context.repos.workItems.get(session.id));

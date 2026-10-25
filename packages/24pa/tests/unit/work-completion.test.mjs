@@ -132,6 +132,22 @@ for (const storage of ['sqlite', 'postgres']) describe(`original work completion
     } finally { closed.mockRestore(); }
   });
 
+  it('a retired Worker completion still reaches durable completion handling', async () => {
+    await setup(); const id = await delegate(), get = f.ctx.sessions.get.bind(f.ctx.sessions), flush = f.ctx.sessions.flush;
+    const getMock = vi.spyOn(f.ctx.sessions, 'get').mockImplementation(sessionId => sessionId === id ? undefined : get(sessionId));
+    const flushMock = vi.spyOn(f.ctx.sessions, 'flush').mockImplementation(async session => {
+      if (session.id !== id) return flush(session);
+      throw new Error(`session "${session.id}" is not live in this store`);
+    });
+    f.rt.skillRuns.host.live.set(id, f.agents.get(id));
+    try {
+      const session = end(id);
+      await flush(session);
+      await vi.waitFor(async () => expect((await work(id)).status).toBe('completed'), { timeout: 2000 });
+      expect(f.nativeInputs.size).toBe(1);
+    } finally { flushMock.mockRestore(); getMock.mockRestore(); }
+  });
+
   it.each(['false', 'throw'])('flush %s does not authorize completion; a later successful checkpoint retries automatically', async mode => {
     await setup(); const id = await delegate(); const original = f.ctx.sessions.flush;
     const blocked = vi.spyOn(f.ctx.sessions, 'flush').mockImplementation(async session => {
