@@ -29,8 +29,17 @@ export class WorkCompletionHistory {
     const childId = item.child_session_id ?? item.id;
     const live = this.ctx.sessions.get?.(childId);
     if (live) {
-      await this.checkpoint(live);
-      return verifyWorkCompletion(item, live, await this.continuations(item));
+      try {
+        await this.checkpoint(live);
+        return verifyWorkCompletion(item, live, await this.continuations(item));
+      } catch (error) {
+        // A closed write handle has drained its log. Only a retired Session
+        // may use the not-live fallback; other checkpoint failures stay visible.
+        const closed = error instanceof Error && error.name === 'SessionHandleClosedError';
+        const retired = error instanceof Error && this.ctx.sessions.get?.(childId) !== live
+          && error.message === `session "${childId}" is not live in this store`;
+        if (!closed && !retired) throw error;
+      }
     }
     const persistence = this.ctx.get('sessionPersistence') as {
       open?(id: string, access: 'read'): Promise<{ header: SessionHeader & { id: string }; inheritedEventCount: number;

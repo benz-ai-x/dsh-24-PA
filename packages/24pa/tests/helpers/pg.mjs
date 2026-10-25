@@ -124,10 +124,16 @@ function booleanAliasesOf(sql) {
 let e2eSqliteWorkspace = null;
 let e2eSqliteDb = null;
 
-/** Set by bootHost when the suite runs against the SQLite backend. */
-export function setE2eSqliteWorkspace(workspacePath) {
-  e2eSqliteWorkspace = workspacePath;
+export async function closeE2eSqlite() {
+  const previous = e2eSqliteDb;
   e2eSqliteDb = null;
+  await previous?.close();
+}
+
+/** Set by bootHost when the suite runs against the SQLite backend. */
+export async function setE2eSqliteWorkspace(workspacePath) {
+  await closeE2eSqlite();
+  e2eSqliteWorkspace = workspacePath;
 }
 
 function openE2eSqlite() {

@@ -56,8 +56,6 @@ export function apply(ctx: DshContext, config: any) {
       .then(() => {
         if (runtime.startupError) console.warn(`[pa24] 启动未完成：${runtime.startupError.message}`);
       });
-    return () => {
-      runtime.stop().catch(() => {});
-    };
+    return () => runtime.stop();
   });
 }
