@@ -132,7 +132,7 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     await waitWorkItem('建日程A', '日程A完成');
     await waitToolResult('pa24_work', 'eventId', '日程A回执', 60_000, before);
 
-    await writeScript({ mode: 'dispatch', delegate: { worker: 'tasks', title: '建过载任务组', instruction: '建任务' }, leadReply: '已安排。', workerAction: { action: 'task_create', summary: '任务甲', due: new Date(Date.now() + 4 * 3600 * 1000).toISOString(), estimateMinutes: 120 }, workerReply: '已建。' });
+    await writeScript({ mode: 'dispatch', delegate: { worker: 'tasks', title: '建过载任务组', instruction: '建任务' }, leadReply: '已安排。', workerAction: { action: 'task_create', summary: '任务甲', due: new Date().toISOString(), estimateMinutes: 120 }, workerReply: '已建。' });
     before = llm.log.length;
     await inject(ownerEvent('evt-p2', { text: '建任务：任务甲，估时两小时' }));
     await waitWorkItem('建过载任务组', '任务甲完成');
