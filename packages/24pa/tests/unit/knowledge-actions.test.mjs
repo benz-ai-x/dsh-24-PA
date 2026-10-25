@@ -12,7 +12,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
   let f, local, cluster, nativeCreates, entries, nativeUnknown, workspacePath;
   const original = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
   beforeEach(async () => {
-    f = await fixture({ cliTimeoutMs: 10000 }); nativeCreates = 0; entries = []; nativeUnknown = false;
+    f = await fixture(); nativeCreates = 0; entries = []; nativeUnknown = false;
     for (const [name, variable] of [['lark', 'PA24_LARK_STUB_STATE'], ['wecom', 'PA24_WECOM_STUB_STATE']]) {
       const state = join(f.root, name + '.json'), bin = join(f.root, name + '-cli');
       await writeFile(state, JSON.stringify({ ownerOpenId: 'owner' }));
