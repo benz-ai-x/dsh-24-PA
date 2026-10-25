@@ -62,6 +62,8 @@ window.__ModuleLoader__.load({
       play: ['m8 5 11 7-11 7Z'],
       pause: ['M9 5v14M15 5v14'],
       history: ['M3 12a9 9 0 1 0 3-6.7L3 8', 'M3 3v5h5M12 7v5l3 2'],
+      search: ['M21 21l-4.35-4.35M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z'],
+      filter: ['M4 5h16M7 12h10m-7 7h4'],
       refresh: ['M20 7a8 8 0 0 0-14-2L3 8m0-5v5h5M4 17a8 8 0 0 0 14 2l3-3m0 5v-5h-5'],
       check: ['m5 12 4 4L19 6'],
       clock: ['M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 7v5l3 2'],
@@ -154,6 +156,11 @@ window.__ModuleLoader__.load({
       .pa24-plan-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.pa24-plan-metric{display:flex;align-items:flex-start;gap:10px;min-width:0;padding:12px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface)}.pa24-plan-metric strong{display:block;font-size:17px;line-height:1.35;font-variant-numeric:tabular-nums}.pa24-plan-metric small{display:block;margin-top:4px;color:var(--pa-muted);font-size:11px;line-height:1.5}.pa24-plan-metric .pa24-icon-tile{width:32px;height:32px;border-radius:9px}.pa24-plan-metric .pa24-icon-tile svg{width:16px;height:16px}
       .pa24-plan-list{padding:0 14px}.pa24-plan-row{display:grid;grid-template-columns:minmax(190px,1.4fr) minmax(145px,1fr) minmax(155px,1fr) minmax(92px,.55fr) minmax(170px,1.1fr);gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--pa-line)}.pa24-plan-row:last-child{border-bottom:0}.pa24-plan-row.pa24-plan-header{padding:8px 0;color:var(--pa-muted);font-size:11px}.pa24-plan-main{min-width:0}.pa24-plan-main>button{padding:0;min-height:0;border:0;background:transparent;color:var(--pa-blue);font-weight:650;text-align:left}.pa24-plan-cell{min-width:0;font-size:12px;overflow-wrap:anywhere}.pa24-plan-cell-label{display:block;margin-bottom:2px;color:var(--pa-muted);font-size:11px}
       .pa24-form-section{padding:2px 0 14px;margin-bottom:16px;border-bottom:1px solid var(--pa-line)}.pa24-form-section-title{display:flex;align-items:center;gap:8px;margin-bottom:10px}.pa24-form-section-title>svg{color:var(--pa-blue)}
+      .pa24-history-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.pa24-history-metric{min-width:0;padding:13px 14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface)}.pa24-history-metric strong{display:block;font-size:21px;line-height:1.3;font-variant-numeric:tabular-nums}.pa24-history-metric span{display:block;margin-top:3px;font-size:12px;font-weight:600}.pa24-history-metric small{display:block;margin-top:4px;color:var(--pa-muted);font-size:11px;line-height:1.5}.pa24-history-metric.primary{border-color:color-mix(in srgb,var(--pa-blue) 42%,var(--pa-line))}.pa24-history-metric.attention{border-color:color-mix(in srgb,var(--pa-amber) 55%,var(--pa-line));background:var(--pa-amber-bg)}.pa24-history-metric.danger{border-color:color-mix(in srgb,var(--pa-danger) 48%,var(--pa-line))}
+      .pa24-history-toolbar{display:grid;grid-template-columns:minmax(220px,1.5fr) minmax(135px,.65fr) minmax(150px,.75fr) auto;gap:10px;align-items:end;padding:14px;margin-bottom:12px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface)}.pa24-history-toolbar label.pa24-field{margin:0;font-size:11px;color:var(--pa-muted)}.pa24-history-toolbar .pa24-history-search{position:relative}.pa24-history-toolbar .pa24-history-search input{padding-left:36px}.pa24-history-toolbar .pa24-history-search>svg{position:absolute;left:11px;bottom:12px;width:17px;height:17px;color:var(--pa-muted)}.pa24-history-toolbar>button{white-space:nowrap;margin-bottom:1px}.pa24-history-custom{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0 0 12px}.pa24-history-custom label{margin:0}.pa24-history-advanced{margin:0 0 16px;padding:14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-soft)}.pa24-history-advanced-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 12px}.pa24-history-advanced-grid label{margin:6px 0}.pa24-history-advanced-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;flex-wrap:wrap}.pa24-history-scope{margin:0 0 14px;color:var(--pa-muted);font-size:12px}
+      .pa24-history-list{padding:0 16px}.pa24-history-row{display:grid;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid var(--pa-line)}.pa24-history-row:last-child{border-bottom:0}.pa24-history-run-row{grid-template-columns:minmax(190px,1.45fr) minmax(140px,.85fr) minmax(140px,.9fr) minmax(108px,.6fr) minmax(108px,.6fr)}.pa24-history-work-row{grid-template-columns:minmax(200px,1.25fr) minmax(150px,.9fr) minmax(180px,1.1fr) minmax(110px,.6fr)}.pa24-history-event-row{grid-template-columns:minmax(200px,1.2fr) minmax(145px,.85fr) minmax(190px,1.2fr) minmax(100px,.55fr)}.pa24-history-header{padding:9px 0;color:var(--pa-muted);font-size:11px}.pa24-history-record-main{min-width:0}.pa24-history-record-main h3{overflow-wrap:anywhere}.pa24-history-record-main>button{display:block;max-width:100%;min-height:0;padding:0;border:0;border-radius:3px;background:transparent;color:var(--pa-ink);font-size:14px;font-weight:650;text-align:left;white-space:normal;overflow-wrap:anywhere}.pa24-history-record-main>button:hover:not(:disabled){border:0;background:transparent;color:var(--pa-blue);text-decoration:underline}.pa24-history-record-main .pa24-meta{margin-top:4px}.pa24-history-cell{min-width:0;font-size:12px;overflow-wrap:anywhere}.pa24-history-cell-label{display:block;margin-bottom:3px;color:var(--pa-muted);font-size:11px}.pa24-history-status{display:flex;align-items:flex-start;flex-direction:column;gap:5px}.pa24-history-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0 0;border-top:1px solid var(--pa-line);flex-wrap:wrap}.pa24-history-footer nav{display:flex;gap:8px}.pa24-history-compatibility{margin-top:16px}.pa24-history-compatibility>summary{font-size:13px;color:var(--pa-ink)}.pa24-history-compatibility-content{padding-top:12px}
+      .pa24-drawer-backdrop{position:fixed;inset:0;z-index:1000;display:flex;justify-content:flex-end;background:rgb(15 23 42 / 38%)}.pa24-drawer{display:flex;flex-direction:column;width:min(780px,88vw);height:100vh;background:var(--pa-canvas);border-left:1px solid var(--pa-line);box-shadow:-18px 0 48px rgb(15 23 42 / 18%);color:var(--pa-ink)}.pa24-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:20px 22px 16px;border-bottom:1px solid var(--pa-line);background:var(--pa-surface)}.pa24-drawer-header>div{min-width:0}.pa24-drawer-header h2{font-size:18px;overflow-wrap:anywhere}.pa24-drawer-header p{margin-top:5px}.pa24-drawer-close{flex-shrink:0;width:40px;padding:8px!important}.pa24-drawer-tabs{display:flex;gap:6px;padding:10px 22px 0;border-bottom:1px solid var(--pa-line);background:var(--pa-surface)}.pa24-drawer-tabs button{border-radius:8px 8px 0 0;border-bottom-color:transparent;background:transparent;color:var(--pa-muted)}.pa24-drawer-tabs button[aria-selected=true]{color:var(--pa-blue);background:var(--pa-blue-bg)}.pa24-drawer-body{flex:1;min-height:0;overflow:auto;padding:20px 22px 32px;overscroll-behavior:contain}.pa24-drawer-body>.pa24-card{padding:0;border:0;background:transparent}.pa24-drawer-section{min-width:0}.pa24-drawer-section>h3{margin-bottom:12px}.pa24-drawer-work-runs{display:grid;gap:8px}.pa24-drawer-work-runs>button{justify-content:flex-start;text-align:left;white-space:normal}
+      @container(max-width:900px){.pa24-history-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-history-toolbar{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.pa24-history-advanced-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-history-header{display:none}.pa24-history-run-row,.pa24-history-work-row,.pa24-history-event-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
       @container(max-width:880px){.pa24-plan-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-plan-row{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}.pa24-plan-row.pa24-plan-header{display:none}}
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
@@ -1768,7 +1775,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', disabled: busy || !confirmed || !!unresolved.length || !summary.trim() || !completed.trim() || !remaining.trim() || unknown.some(row => !calls[row.id]?.evidence?.trim()), onClick: save }, L('保存交办运行核对', 'Save work run findings')),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error));
         }
-        function WorkerRunDetail({ id, binding, openWork }) {
+        function WorkerRunDetail({ id, binding, openWork, section = 'all' }) {
           const [detail, setDetail] = React.useState(null), [error, setError] = React.useState(''), [diagnostic, setDiagnostic] = React.useState(null), [refresh, setRefresh] = React.useState(0);
           const alive = React.useRef(true);
           React.useEffect(() => { const abort = new AbortController(); let pending = false; alive.current = true;
@@ -1777,98 +1784,205 @@ window.__ModuleLoader__.load({
           }, [id, binding, refresh]);
           const preview = async () => { try { const result = await rpc('runs.diagnostics', { runId: id, workspaceBinding: binding }); if (alive.current && result.workspaceBinding === binding) setDiagnostic(result); } catch (error) { if (alive.current) setError(error.message); } };
           const run = detail?.run, directMaterial = run?.snapshot?.executor === 'material-action';
-          const materialResult = materialReceipt(run?.result);
+          const materialResult = materialReceipt(run?.result), overview = section === 'all' || section === 'overview', delivery = section === 'all' || section === 'delivery', diagnostics = section === 'all' || section === 'diagnostics';
           return h('section', { className: 'pa24-card' }, h('h3', null, L('交办执行与投递', 'Work execution and delivery')),
             h('button', { type: 'button', onClick: () => setRefresh(value => value + 1) }, L('刷新运行状态', 'Refresh run status')),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error), !detail && h('p', { role: 'status' }, L('正在读取运行…', 'Reading run…')),
-            run && h('div', null, run.snapshot?.executor === 'material-action' && h('p', { className: 'pa24-note' }, L('资料直接操作，未启动模型；结果返回原发起入口。重试请回原资料核对回执后明确操作。', 'Direct material action; no model started. Results return to the original entry. Check receipts in the material before retrying.')), h('p', null, runStatusLabel(run.status)), h('p', null, directMaterial ? run.snapshot.title : run.instruction), run.progress && h('p', null, run.progress), run.result && (directMaterial ? h(MaterialFeedback, { value: materialResult }) : h('pre', { className: 'pa24-json' }, run.result)), directMaterial && h('details', null, h('summary', null, L('当次资料操作输入', 'Material action input')), h('pre', { className: 'pa24-json' }, run.instruction)),
-              run.progress_detail && h('div', null, h('p', null, L('已完成：', 'Completed: ') + run.progress_detail.completed), h('p', null, L('下一步：', 'Next: ') + run.progress_detail.next)),
-              detail.execution && h('p', null, L('累计执行 ', 'Execution ') + Math.round(detail.execution.executionMs / 1000) + L(' 秒；剩余 ', ' s; remaining ') + Math.round(detail.execution.remainingMs / 1000) + L(' 秒', ' s')),
-              detail.execution?.blocks.map(block => h('p', { key: block.key }, block.reason)),
-              detail.execution?.stop && h('p', null, detail.execution.stop.settledAt ? L('宿主已确认停止', 'Host confirmed stop') : L('已请求停止，仍等待确认', 'Stop requested; awaiting confirmation')),
-              h('button', { type: 'button', onClick: () => openWork(run.work_item_id) }, L('查看原助理交办', 'Open original work')),
-              h('h4', null, L('补充收到与采用', 'Input receipt and adoption')), (detail.inputs || []).map(row => h('div', { key: row.execution_id }, h('p', null, ({ prepared: L('待接纳', 'Awaiting admission'), received: L('已收到，尚未采用', 'Received, not adopted'), adopted: L('已在原回合采用', 'Adopted in original turn'), rejected: L('未接纳', 'Not admitted'), unknown: L('接纳待核对', 'Admission uncertain') })[row.status]), h('p', null, row.instruction))),
-              h('h4', null, L('工具动作与原回执', 'Tool actions and original receipts')), (detail.calls || []).map(call => h('details', { key: call.id }, h('summary', null, call.tool + ' · ' + t(call.status)), h('pre', { className: 'pa24-json' }, JSON.stringify({ arguments: call.args, result: call.result }, null, 2)))),
-              !!detail.reviews?.length && h('details', null, h('summary', null, detail.reviewed ? L('当前证据已核对', 'Current evidence reviewed') : L('已有核对，待核验新证据', 'Previous findings; new evidence needs review')), detail.reviews.map(row => h('pre', { key: row.request_id, className: 'pa24-json' }, JSON.stringify(row.record.result, null, 2)))),
-              detail.work && ['stopped','failed','timed_out','completed'].includes(run.status) && h(WorkerRunReview, { detail, binding, changed: () => setRefresh(value => value + 1) }),
-              h('h4', null, L('固定结果投递', 'Fixed result delivery')), !(detail.deliveries || []).length && h('p', null, L('尚无结果投递', 'No result delivery yet')), (detail.deliveries || []).map(row => h('p', { key: row.id }, row.channel + ' · ' + row.target + ' · ' + deliveryLabel(row.status, row.channel) + (row.last_error ? ' · ' + row.last_error : ''))),
-              !!detail.deliveries?.length && h(PlanDeliveryControls, { detail: { run, deliveries: detail.deliveries.map(row => ({ id: row.id, deliveryStatus: row.status, deliveries: [{ outbox_id: row.id, outbox: row, component: row.kind, fingerprint: row.fingerprint }] })) }, binding, onChanged: () => setRefresh(value => value + 1) }),
-              h('details', null, h('summary', null, L('当次执行快照', 'Execution snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify(run.snapshot, null, 2))),
-              h('button', { type: 'button', onClick: () => saveDownload({ filename: '24pa-result-' + id + '.json', content: JSON.stringify({ run, inputs: detail.inputs, calls: detail.calls, deliveries: detail.deliveries }, null, 2) }) }, L('下载当次结果', 'Download run result')),
-              h('button', { type: 'button', onClick: preview }, L('预览脱敏诊断', 'Preview redacted diagnostics')),
-              diagnostic && h('div', { className: 'pa24-note' }, h('p', null, diagnostic.message), h('pre', { className: 'pa24-json' }, diagnostic.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostic) }, L('确认下载这份诊断', 'Confirm diagnostic download')))));
+            run && h('div', null,
+              overview && h(React.Fragment, null, run.snapshot?.executor === 'material-action' && h('p', { className: 'pa24-note' }, L('资料直接操作，未启动模型；结果返回原发起入口。重试请回原资料核对回执后明确操作。', 'Direct material action; no model started. Results return to the original entry. Check receipts in the material before retrying.')), h('p', null, runStatusLabel(run.status)), h('p', null, directMaterial ? run.snapshot.title : run.instruction), run.progress && h('p', null, run.progress), run.result && (directMaterial ? h(MaterialFeedback, { value: materialResult }) : h('pre', { className: 'pa24-json' }, run.result)), directMaterial && h('details', null, h('summary', null, L('当次资料操作输入', 'Material action input')), h('pre', { className: 'pa24-json' }, run.instruction)),
+                run.progress_detail && h('div', null, h('p', null, L('已完成：', 'Completed: ') + run.progress_detail.completed), h('p', null, L('下一步：', 'Next: ') + run.progress_detail.next)),
+                detail.execution && h('p', null, L('累计执行 ', 'Execution ') + Math.round(detail.execution.executionMs / 1000) + L(' 秒；剩余 ', ' s; remaining ') + Math.round(detail.execution.remainingMs / 1000) + L(' 秒', ' s')),
+                detail.execution?.blocks.map(block => h('p', { key: block.key }, block.reason)),
+                detail.execution?.stop && h('p', null, detail.execution.stop.settledAt ? L('宿主已确认停止', 'Host confirmed stop') : L('已请求停止，仍等待确认', 'Stop requested; awaiting confirmation')),
+                h('button', { type: 'button', onClick: () => openWork(run.work_item_id) }, L('查看原助理交办', 'Open original work')),
+                h('h4', null, L('补充收到与采用', 'Input receipt and adoption')), (detail.inputs || []).map(row => h('div', { key: row.execution_id }, h('p', null, ({ prepared: L('待接纳', 'Awaiting admission'), received: L('已收到，尚未采用', 'Received, not adopted'), adopted: L('已在原回合采用', 'Adopted in original turn'), rejected: L('未接纳', 'Not admitted'), unknown: L('接纳待核对', 'Admission uncertain') })[row.status]), h('p', null, row.instruction))),
+                h('h4', null, L('工具动作与原回执', 'Tool actions and original receipts')), (detail.calls || []).map(call => h('details', { key: call.id }, h('summary', null, call.tool + ' · ' + t(call.status)), h('pre', { className: 'pa24-json' }, JSON.stringify({ arguments: call.args, result: call.result }, null, 2)))),
+                !!detail.reviews?.length && h('details', null, h('summary', null, detail.reviewed ? L('当前证据已核对', 'Current evidence reviewed') : L('已有核对，待核验新证据', 'Previous findings; new evidence needs review')), detail.reviews.map(row => h('pre', { key: row.request_id, className: 'pa24-json' }, JSON.stringify(row.record.result, null, 2)))),
+                detail.work && ['stopped','failed','timed_out','completed'].includes(run.status) && h(WorkerRunReview, { detail, binding, changed: () => setRefresh(value => value + 1) }),
+                h('details', null, h('summary', null, L('当次执行快照', 'Execution snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify(run.snapshot, null, 2))),
+                h('button', { type: 'button', onClick: () => saveDownload({ filename: '24pa-result-' + id + '.json', content: JSON.stringify({ run, inputs: detail.inputs, calls: detail.calls, deliveries: detail.deliveries }, null, 2) }) }, L('下载当次结果', 'Download run result'))),
+              delivery && h(React.Fragment, null, h('h4', null, L('固定结果投递', 'Fixed result delivery')), !(detail.deliveries || []).length && h('p', null, L('尚无结果投递', 'No result delivery yet')), (detail.deliveries || []).map(row => h('p', { key: row.id }, row.channel + ' · ' + row.target + ' · ' + deliveryLabel(row.status, row.channel) + (row.last_error ? ' · ' + row.last_error : ''))),
+                !!detail.deliveries?.length && h(PlanDeliveryControls, { detail: { run, deliveries: detail.deliveries.map(row => ({ id: row.id, deliveryStatus: row.status, deliveries: [{ outbox_id: row.id, outbox: row, component: row.kind, fingerprint: row.fingerprint }] })) }, binding, onChanged: () => setRefresh(value => value + 1) })),
+              diagnostics && h(React.Fragment, null, h('p', { className: 'pa24-meta' }, L('诊断只生成脱敏预览；确认预览内容后才下载。', 'Diagnostics require a redacted preview before download.')), h('button', { type: 'button', onClick: preview }, L('预览脱敏诊断', 'Preview redacted diagnostics')),
+                diagnostic && h('div', { className: 'pa24-note' }, h('p', null, diagnostic.message), h('pre', { className: 'pa24-json' }, diagnostic.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostic) }, L('确认下载这份诊断', 'Confirm diagnostic download'))))));
+        }
+
+        function HistoryDrawer({ title, subtitle, onClose, tabs, children }) {
+          const [section, setSection] = React.useState(tabs?.[0]?.[0] || 'overview');
+          const dialog = React.useRef(null), closeButton = React.useRef(null), previousFocus = React.useRef(null), closeHandler = React.useRef(onClose);
+          closeHandler.current = onClose;
+          React.useEffect(() => {
+            previousFocus.current = document.activeElement;
+            closeButton.current?.focus();
+            const onKey = event => {
+              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeHandler.current(); return; }
+              if (event.key !== 'Tab' || !dialog.current) return;
+              const focusable = [...dialog.current.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])')]
+                .filter(node => !node.closest('[hidden]') && !(node.closest('details:not([open])') && node.tagName !== 'SUMMARY'));
+              if (!focusable.length) { event.preventDefault(); dialog.current.focus(); return; }
+              const first = focusable[0], last = focusable.at(-1), current = document.activeElement;
+              if (event.shiftKey && (current === first || !dialog.current.contains(current))) { event.preventDefault(); last.focus(); }
+              else if (!event.shiftKey && (current === last || !dialog.current.contains(current))) { event.preventDefault(); first.focus(); }
+            };
+            document.addEventListener('keydown', onKey, true);
+            return () => { document.removeEventListener('keydown', onKey, true); if (previousFocus.current?.isConnected) previousFocus.current.focus(); };
+          }, []);
+          const current = tabs?.find(([value]) => value === section);
+          return h('div', { className: 'pa24-drawer-backdrop' }, h('section', { ref: dialog, className: 'pa24-drawer', role: 'dialog', 'aria-modal': true, 'aria-labelledby': 'pa24-history-drawer-title', tabIndex: -1 },
+            h('header', { className: 'pa24-drawer-header' }, h('div', null, h('h2', { id: 'pa24-history-drawer-title' }, title), h('p', { className: 'pa24-meta' }, subtitle)),
+              h('button', { ref: closeButton, type: 'button', className: 'pa24-drawer-close', 'aria-label': L('关闭详情', 'Close details'), onClick: () => closeHandler.current() }, icon('close'))),
+            tabs && h('nav', { className: 'pa24-drawer-tabs', role: 'tablist', 'aria-label': L('运行详情分区', 'Run detail sections') }, tabs.map(([value, label], index) => h('button', {
+              key: value, id: 'pa24-history-drawer-tab-' + value, type: 'button', role: 'tab', 'aria-selected': section === value, 'aria-controls': 'pa24-history-drawer-panel', tabIndex: section === value ? 0 : -1,
+              onClick: () => setSection(value), onKeyDown: event => { const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null;
+                if (next === null) return; event.preventDefault(); setSection(tabs[next][0]); event.currentTarget.parentElement.querySelectorAll('[role=tab]')[next].focus(); },
+            }, label))),
+            h('div', { className: 'pa24-drawer-body' }, h('section', { className: 'pa24-drawer-section', id: tabs ? 'pa24-history-drawer-panel' : undefined, role: tabs ? 'tabpanel' : undefined, 'aria-labelledby': tabs && current ? 'pa24-history-drawer-tab-' + current[0] : undefined, tabIndex: tabs ? 0 : undefined },
+              current && h('h3', null, current[1]), children(section)))));
         }
 
         function RunHistoryDetail(helpers) {
           const { state, extra, planStates, refresh, openCard, tz } = helpers, binding = state.workspaceBinding;
           const model = planRowState(planStates, 'run-history:' + binding, {}), view = React.useSyncExternalStore(model.subscribe, model.getSnapshot);
           const filters = view.filters || { kind: 'runs', range: '7', includeUnresolved: true }, offset = view.offset || 0;
-          const [list, setList] = React.useState({ loading: true }), [work, setWork] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
+          const [list, setList] = React.useState({ loading: true }), [work, setWork] = React.useState(null), [workError, setWorkError] = React.useState(''), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
           const alive = React.useRef(true); React.useEffect(() => () => { alive.current = false; }, []);
           const filterKey = JSON.stringify(filters);
           React.useEffect(() => {
             const abort = new AbortController(), key = JSON.stringify([binding, filterKey, offset]); let pending = false;
             setList(previous => previous.key === key ? { ...previous, loading: true, error: null } : { key, loading: true });
-            setWork(previous => previous?.workspaceBinding === binding && previous?.work.id === view.workId && previous?.runs.offset === (view.workOffset || 0) ? previous : null);
+            setWork(previous => previous?.workspaceBinding === binding && previous?.work?.id === view.workId && previous?.runs.offset === (view.workOffset || 0) ? previous : null);
+            setWorkError('');
             const load = async () => { if (pending) return; pending = true; try {
               const result = await rpc('runs', { ...filters, offset, workspaceBinding: binding }, abort.signal);
               if (!Array.isArray(result.rows) || !Number.isSafeInteger(result.total)) throw new Error(L('运行档案响应不完整，请刷新重试。', 'Incomplete run history; refresh to retry.'));
               if (!abort.signal.aborted && result.workspaceBinding === binding) setList({ key, data: result });
-              if (view.workId) { const result = await rpc('work.inspect', { workId: view.workId, offset: view.workOffset || 0, workspaceBinding: binding }, abort.signal); if (!abort.signal.aborted && result.workspaceBinding === binding) setWork(result); }
-            } catch (error) { if (!abort.signal.aborted) setList(previous => ({ ...previous, loading: false, error: error.message })); } finally { pending = false; } };
+              if (view.workId) try {
+                const inspected = await rpc('work.inspect', { workId: view.workId, offset: view.workOffset || 0, workspaceBinding: binding }, abort.signal);
+                if (!abort.signal.aborted) { if (inspected.workspaceBinding !== binding) throw new Error(L('工作区已变化，请重新读取交办。', 'Workspace changed; read the work item again.')); setWork(inspected); setWorkError(''); }
+              } catch (failure) { if (!abort.signal.aborted) setWorkError(failure.message); }
+            } catch (failure) { if (!abort.signal.aborted) setList(previous => ({ ...previous, loading: false, error: failure.message })); } finally { pending = false; } };
             void load(); const timer = setInterval(load, 5000); return () => { abort.abort(); clearInterval(timer); };
           }, [binding, filterKey, offset, view.tick, view.workId, view.workOffset]);
-          const set = (key, value) => model.update({ filters: { ...filters, [key]: value }, offset: 0, selectedRun: null, workId: null });
+          const closeDetails = () => model.update({ selectedRun: null, workId: null, workOffset: 0 });
+          const set = (key, value) => model.update({ filters: { ...filters, [key]: value }, offset: 0, selectedRun: null, workId: null, workOffset: 0 });
           const openWork = id => model.update({ workId: id, workOffset: 0, selectedRun: null });
-          const selectRun = row => model.update({ selectedRun: { id: row.id, skillId: row.skill_id, kind: row.record_kind }, workId: null });
-          const exportRows = async () => { setBusy(true); setError(''); try { const file = await rpc('runs.export', { ...filters, workspaceBinding: binding }); if (alive.current && file.workspaceBinding === binding) saveDownload(file); } catch (error) { if (alive.current) setError(error.message); } finally { if (alive.current) setBusy(false); } };
+          const selectRun = row => model.update({ selectedRun: { id: row.id || row.run_id, skillId: row.skill_id, kind: row.record_kind || 'skill', title: row.title, source: row.source, createdAt: row.created_at }, workId: null, workOffset: 0 });
+          const exportRows = async () => { setBusy(true); setError(''); try { const file = await rpc('runs.export', { ...filters, workspaceBinding: binding }); if (alive.current && file.workspaceBinding === binding) saveDownload(file); } catch (failure) { if (alive.current) setError(failure.message); } finally { if (alive.current) setBusy(false); } };
           const field = (label, node) => h('label', { key: label, className: 'pa24-field' }, label, node);
           const select = (key, entries) => h('select', { value: filters[key] || '', onChange: event => set(key, event.target.value) }, entries.map(([value, label]) => h('option', { key: value, value }, label)));
           const statuses = { runs: ['pending', 'running', 'waiting', 'stopping', 'completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'], work: ['accepted', 'queued', 'running', 'waiting_input', 'completed', 'failed', 'stopped', 'needs_reconciliation'], events: ['skipped', 'rejected', 'expired'], legacy: ['delivering', 'model_done', 'sent', 'unconfirmed'] };
-          const summary = extra.runs, active = view.selectedRun;
-          return h('section', { className: 'pa24-manager' }, sectionHead('pulse', L('运行记录', 'Run history'), L('执行、交办目标和未执行事件分别统计。等待恢复与自动重试沿用原运行。', 'Executions, work goals and non-execution events are counted separately. Waits and automatic retries keep the same run.'),
+          const sourceValues = { runs: ['manual', 'schedule', 'trial', 'rerun', 'continuation'], work: ['local', 'feishu'], events: ['manual', 'schedule'], legacy: [] };
+          const views = [['runs', 'play', L('执行记录', 'Executions')], ['work', 'tasks', L('助理交办', 'Work items')], ['events', 'clock', L('未执行事件', 'Unexecuted events')]];
+          const changeKind = kind => {
+            if (!statuses[kind] || kind === filters.kind) return;
+            model.update({ filters: { kind, range: filters.range || '7', from: filters.from, to: filters.to, includeUnresolved: filters.includeUnresolved !== false, query: filters.query,
+              status: statuses[kind].includes(filters.status) ? filters.status : undefined, source: sourceValues[kind].includes(filters.source) ? filters.source : undefined,
+              planId: filters.planId, workId: kind === 'legacy' ? undefined : filters.workId, skillId: kind === 'legacy' ? undefined : filters.skillId,
+              versionId: kind === 'runs' ? filters.versionId : undefined, deliveryStatus: kind === 'runs' ? filters.deliveryStatus : undefined },
+            offset: 0, selectedRun: null, workId: null, workOffset: 0 });
+          };
+          const clearFilters = () => model.update({ filters: { kind: filters.kind, range: '7', includeUnresolved: true }, offset: 0, selectedRun: null, workId: null, workOffset: 0 });
+          const summary = extra.runs, active = view.selectedRun, legacy = filters.kind === 'legacy';
+          const sourceOptions = filters.kind === 'work' ? [['local', L('本地', 'Local')], ['feishu', L('飞书', 'Feishu')]] : [['manual', L('手工', 'Manual')], ['schedule', L('计划', 'Scheduled')], ...(filters.kind === 'runs' ? [['trial', L('试运行', 'Trial')], ['rerun', L('重跑', 'Rerun')], ['continuation', L('接续', 'Continuation')]] : [])];
+          const advancedFields = [...(!legacy ? ['source', 'skillId'] : []), 'planId', ...(!legacy ? ['workId'] : []), ...(filters.kind === 'runs' ? ['versionId', 'deliveryStatus'] : [])];
+          const advancedCount = advancedFields.filter(key => !!filters[key]).length + (filters.includeUnresolved === false ? 1 : 0);
+          const clearAdvanced = () => model.update({ filters: { ...filters, source: undefined, planId: undefined, workId: undefined, skillId: undefined, versionId: undefined, deliveryStatus: undefined, includeUnresolved: true }, offset: 0, selectedRun: null, workId: null, workOffset: 0 });
+          const toolbar = h(React.Fragment, null,
+            h('div', { className: 'pa24-history-toolbar' },
+              field(L('标题、摘要或标识', 'Title, summary or ID'), h('div', { className: 'pa24-history-search' }, icon('search'), h('input', { type: 'search', value: filters.query || '', onChange: event => set('query', event.target.value) }))),
+              field(L('时间范围', 'Date range'), select('range', [['7', L('近 7 天', 'Last 7 days')], ['30', L('近 30 天', 'Last 30 days')], ['custom', L('自定义', 'Custom')], ['all', L('全部历史', 'All history')]])),
+              field(L('当前状态', 'Current status'), select('status', [['', L('全部状态', 'All statuses')], ...statuses[filters.kind].map(value => [value, filters.kind === 'runs' ? runStatusLabel(value) : t(value)])])),
+              h('button', { type: 'button', className: 'pa24-history-advanced-toggle', 'aria-expanded': !!view.advanced, 'aria-controls': 'pa24-history-advanced', onClick: () => model.update({ advanced: !view.advanced }) }, icon('filter'), L('高级筛选', 'Advanced filters'), badge(String(advancedCount), advancedCount ? 'blue' : 'neutral'))),
+            filters.range === 'custom' && h('div', { className: 'pa24-history-custom' }, ['from', 'to'].map(key => field((key === 'from' ? L('开始', 'From') : L('结束', 'To')) + ' · ' + tz, h('input', { type: 'datetime-local', value: filters[key] || '', onChange: event => set(key, event.target.value) })))),
+            view.advanced && h('div', { id: 'pa24-history-advanced', className: 'pa24-history-advanced' }, h('div', { className: 'pa24-history-advanced-grid' },
+              !legacy && field(L('发起来源', 'Initiation source'), select('source', [['', L('全部来源', 'All sources')], ...sourceOptions])),
+              [['planId', L('计划标识', 'Plan ID')], ...(!legacy ? [['workId', L('交办标识', 'Work ID')], ['skillId', 'Skill ID']] : []), ...(filters.kind === 'runs' ? [['versionId', L('版本标识', 'Version ID')]] : [])].map(([key, label]) => field(label, h('input', { value: filters[key] || '', onChange: event => set(key, event.target.value) }))),
+              filters.kind === 'runs' && field(L('投递状态', 'Delivery status'), select('deliveryStatus', [['', L('全部投递状态', 'All delivery statuses')], ...['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'failed', 'unknown', 'expired'].map(value => [value, deliveryLabel(value)])])),
+              field(L('保留跨日待处理与未解决异常', 'Keep unresolved records across dates'), h('input', { type: 'checkbox', checked: filters.includeUnresolved !== false, onChange: event => set('includeUnresolved', event.target.checked) }))),
+              h('div', { className: 'pa24-history-advanced-footer' }, h('p', { className: 'pa24-meta' }, L('默认保留跨日待处理；关闭后严格限制在所选时间范围。', 'Unresolved records cross date boundaries by default; disable this for a strict date range.')), h('button', { type: 'button', className: 'pa24-quiet', disabled: !advancedCount, onClick: clearAdvanced }, L('清除高级筛选', 'Clear advanced filters')))));
+          const metric = (value, label, description, tone = '') => h('div', { className: 'pa24-history-metric' + (tone ? ' ' + tone : ''), key: label }, h('strong', null, value ?? 0), h('span', null, label), h('small', null, description));
+          const metrics = !summary?.observedAt || legacy ? [] : filters.kind === 'runs' ? [
+            metric(summary.runs24, L('24 小时运行', '24h runs'), L('独立统计，不受列表时间范围影响', 'Independent of the list date range'), 'primary'),
+            metric(summary.failed24, L('24 小时执行失败', '24h execution failures'), L('不含同一运行的内部自动重试', 'Excludes retries within the same run'), summary.failed24 ? 'danger' : ''),
+            metric(summary.delivery_failed24, L('24 小时投递失败', '24h delivery failures'), L('与执行结果分别统计', 'Counted separately from execution'), summary.delivery_failed24 ? 'danger' : ''),
+            metric(summary.unresolved, L('全量需处理', 'All unresolved runs'), L('跨日保留，不是 24 小时计数', 'Across all dates, not a 24h count'), summary.unresolved ? 'attention' : 'primary'),
+          ] : filters.kind === 'work' ? [
+            metric(summary.active_work, L('进行中交办', 'Active work'), L('全部交办数据', 'All work items')),
+            metric(summary.waiting_work, L('待我处理', 'Awaiting you'), L('含等待补充、核对与验收', 'Input, reconciliation and acceptance'), summary.waiting_work ? 'attention' : ''),
+            metric(summary.failed_work, L('异常交办', 'Failed work'), L('与单次执行失败分开', 'Separate from individual run failures'), summary.failed_work ? 'danger' : ''),
+          ] : [
+            metric(summary.unexecuted24, L('24 小时未执行', '24h unexecuted events'), L('跳过、过期和拒绝不计执行', 'Skipped, expired and rejected'), 'primary'),
+            metric(summary.unresolved_events, L('全量待处理事件', 'All unresolved events'), L('跨日保留，修复后移出', 'Across dates until resolved'), summary.unresolved_events ? 'attention' : ''),
+          ];
+          const executionBadge = status => { const style = { pending: ['neutral', 'clock'], running: ['blue', 'pulse'], waiting: ['amber', 'clock'], stopping: ['amber', 'info'], completed: ['blue', 'check'], failed: ['danger', 'alert'], timed_out: ['danger', 'alert'], stopped: ['neutral', 'close'], needs_reconciliation: ['amber', 'info'] }[status] || ['neutral', 'info']; return badge(runStatusLabel(status), ...style); };
+          const deliveryBadge = status => { const style = { sent: ['blue', 'check'], failed: ['danger', 'alert'], unknown: ['amber', 'info'], partial: ['amber', 'info'], pending: ['amber', 'clock'], sending: ['blue', 'pulse'] }[status] || ['neutral', 'info']; return badge(deliveryLabel(status), ...style); };
+          const rangeLabel = { '7': L('近 7 天', 'Last 7 days'), '30': L('近 30 天', 'Last 30 days'), custom: L('自定义时间', 'Custom range'), all: L('全部历史', 'All history') }[filters.range || '7'];
+          const recordMain = (row, action, actionLabel, meta) => h('div', { className: 'pa24-history-record-main' }, action ? h('button', { type: 'button', 'aria-label': actionLabel + '：' + (row.title || row.id), onClick: action }, row.title || row.id) : h('h3', null, row.title || row.id), h('p', { className: 'pa24-meta' }, meta));
+          const cell = (label, value) => h('div', { className: 'pa24-history-cell' }, h('span', { className: 'pa24-history-cell-label' }, label), value);
+          const rows = list.data?.rows || [];
+          const listContent = list.data && h('div', { className: 'pa24-card pa24-history-list' },
+            !!rows.length && filters.kind === 'runs' && h('div', { className: 'pa24-history-row pa24-history-run-row pa24-history-header' }, h('span', null, L('运行 / 来源', 'Run / source')), h('span', null, L('开始时间', 'Started')), h('span', null, 'Skill / ' + L('版本', 'version')), h('span', null, L('执行状态', 'Execution')), h('span', null, L('投递状态', 'Delivery'))),
+            !!rows.length && filters.kind === 'work' && h('div', { className: 'pa24-history-row pa24-history-work-row pa24-history-header' }, h('span', null, L('交办 / 来源 / 运行', 'Work / source / runs')), h('span', null, L('当前阶段', 'Current stage')), h('span', null, L('最近进展', 'Recent progress')), h('span', null, L('当前状态', 'Status'))),
+            !!rows.length && filters.kind === 'events' && h('div', { className: 'pa24-history-row pa24-history-event-row pa24-history-header' }, h('span', null, L('事件 / 来源', 'Event / source')), h('span', null, L('记录时间', 'Recorded')), h('span', null, L('原因', 'Reason')), h('span', null, L('当前状态', 'Status'))),
+            rows.map(row => {
+              if (filters.kind === 'runs') return h('article', { key: row.id, className: 'pa24-history-row pa24-history-run-row' },
+                recordMain(row, () => selectRun(row), L('查看执行与投递', 'View execution and delivery'), runSourceLabel(row.source) + ' · ' + row.id),
+                cell(L('开始时间', 'Started'), date(row.created_at, tz)),
+                cell('Skill / ' + L('版本', 'version'), row.record_kind === 'worker' ? L('Worker 执行 · 无 Skill 版本', 'Worker execution · no Skill version') : (row.skill_name || row.skill_id || L('历史未记录', 'Not recorded')) + ' · ' + (row.version_id || L('历史未记录', 'Not recorded'))),
+                cell(L('执行状态', 'Execution'), h('span', { className: 'pa24-history-status' }, executionBadge(row.status))),
+                cell(L('投递状态', 'Delivery'), h('span', { className: 'pa24-history-status' }, deliveryBadge(row.delivery_status))));
+              if (filters.kind === 'work') return h('article', { key: row.id, className: 'pa24-history-row pa24-history-work-row' },
+                recordMain(row, () => openWork(row.id), L('查看交办详情', 'View work item'), runSourceLabel(row.source) + ' · ' + L('关联 ', 'Linked: ') + (Number.isFinite(Number(row.run_count)) ? Number(row.run_count) : 0) + L(' 次运行', ' run(s)') + ' · ' + row.id),
+                cell(L('当前阶段', 'Current stage'), row.progress_detail?.stage || row.progress || L('历史未记录阶段', 'Stage not recorded')),
+                cell(L('最近进展', 'Recent progress'), h(React.Fragment, null, row.progress_detail?.completed || row.summary || L('尚无进展记录', 'No progress recorded'), row.progress_detail?.next && h('p', { className: 'pa24-meta' }, L('下一步：', 'Next: ') + row.progress_detail.next))),
+                cell(L('当前状态', 'Status'), badgeOf(row.status)));
+              if (filters.kind === 'events') return h('article', { key: row.id, className: 'pa24-history-row pa24-history-event-row' },
+                h('div', null, recordMain(row, row.run_id ? () => selectRun({ ...row, id: row.run_id }) : null, L('核对未执行原记录', 'Inspect original record'), runSourceLabel(row.source) + ' · ' + row.id), row.plan_id && h('button', { type: 'button', className: 'pa24-quiet', onClick: () => helpers.openPlan(row.plan_id) }, L('处理原计划', 'Open original plan'))),
+                cell(L('记录时间', 'Recorded'), date(row.created_at, tz)),
+                cell(L('原因', 'Reason'), row.summary || L('历史未记录原因', 'Reason not recorded')),
+                cell(L('当前状态', 'Status'), badge(t(row.status), row.status === 'rejected' ? 'amber' : 'neutral', 'info')));
+              return h('article', { key: row.id, className: 'pa24-job' }, h('h3', null, row.title || row.id), h('p', null, t(row.status)), h('p', { className: 'pa24-meta' }, date(row.created_at, tz) + ' · ' + row.id),
+                h('details', null, h('summary', null, L('原始简报与旧关联', 'Original digest and links')), h('pre', { className: 'pa24-json' }, JSON.stringify(row, null, 2))));
+            }),
+            !rows.length && empty(list.data.empty ? 'history' : 'search', 'neutral', list.data.empty ? L('此类档案尚无记录', 'No records in this category') : L('当前筛选没有记录', 'No matching records'),
+              list.data.empty ? L('实际运行、交办或未执行事件出现后，会按类别保留在这里。普通查看不会启动运行。', 'Actual executions, work and unexecuted events appear here. Browsing never starts a run.') : L('可扩大时间范围或清除筛选；读取失败不会显示为空档案。', 'Widen the date range or clear filters. Read failures are not shown as an empty ledger.'), !list.data.empty && h('button', { type: 'button', onClick: clearFilters }, L('清除筛选', 'Clear filters'))),
+            h('footer', { className: 'pa24-history-footer' }, h('span', { className: 'pa24-meta' }, L('匹配记录 ', 'Matching records: ') + list.data.total + ' · ' + rangeLabel + (filters.includeUnresolved !== false && filters.range !== 'all' ? L(' · 含跨日待处理', ' · includes unresolved across dates') : '') + ' · ' + list.data.timeZone),
+              (list.data.total > 20 || offset > 0) && h('nav', { 'aria-label': L('运行记录分页', 'Run history pages') }, h('button', { type: 'button', disabled: !offset, onClick: () => model.update({ offset: Math.max(0, offset - 20) }) }, L('上一页', 'Previous')), h('button', { type: 'button', disabled: offset + 20 >= list.data.total, onClick: () => model.update({ offset: offset + 20 }) }, L('下一页', 'Next')))));
+          const workErrorNotice = workError && h('div', { role: 'alert', className: 'pa24-error' }, h('p', null, (work ? L('交办读取失败；当前详情可能为上次结果：', 'Work refresh failed; details may be stale: ') : L('交办读取失败：', 'Work read failed: ')) + workError),
+            h('button', { type: 'button', onClick: () => model.update({ tick: (view.tick || 0) + 1 }) }, L('重试交办读取', 'Retry work read')));
+          const workDrawer = work ? h(React.Fragment, null, workErrorNotice,
+            h('section', { className: 'pa24-form-section' }, h('h3', null, L('交办概览', 'Work overview')), h('p', null, badgeOf(work.work.status)),
+              work.work.id.startsWith('pa24-material-') ? h('details', null, h('summary', null, L('当次资料操作输入', 'Material action input')), h('pre', { className: 'pa24-json' }, work.work.instruction)) : h('p', null, work.work.instruction),
+              work.work.progress_detail && fields([[L('真实阶段', 'Current stage'), work.work.progress_detail.stage], [L('已完成', 'Completed'), work.work.progress_detail.completed], [L('下一步', 'Next'), work.work.progress_detail.next]]),
+              !work.work.progress_detail && work.work.progress && h('p', null, work.work.progress),
+              work.work.result && (work.work.id.startsWith('pa24-material-') ? h(MaterialFeedback, { value: materialReceipt(work.work.result) }) : h('pre', { className: 'pa24-json' }, work.work.result)),
+              h('p', { className: 'pa24-meta' }, L('来源：', 'Origin: ') + work.work.origin + ' · ' + L('结果回到：', 'Results return to: ') + work.work.delivery),
+              work.work.child_session_id && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession({ childSessionId: work.work.child_session_id, parentSessionId: work.work.parent_session_id, mode: 'continuable' }) }, L('查看原交办会话', 'Open original work session'))),
+            h(WorkControls, { key: binding + work.work.id, work: work.work, changes: work.changes, binding, changed: () => { model.update({ tick: (model.getSnapshot().tick || 0) + 1 }); void refresh().catch(() => {}); } }),
+            h('section', { className: 'pa24-form-section' }, h('h3', null, L('关联执行记录 ', 'Linked runs ') + work.runs.total), h('div', { className: 'pa24-drawer-work-runs' }, work.runs.rows.map(row => h('button', { key: row.id, type: 'button', onClick: () => selectRun(row) },
+              h('span', null, date(row.created_at, tz) + ' · ' + row.id), h('span', { className: 'pa24-meta' }, runStatusLabel(row.status) + ' · ' + deliveryLabel(row.delivery_status))))),
+              !work.runs.rows.length && h('p', { className: 'pa24-meta' }, L('尚无真实执行主记录；未执行事件不计运行数。', 'No execution records yet; unexecuted events do not count as runs.')),
+              work.runs.total > 20 && h('div', { className: 'pa24-row' }, h('button', { type: 'button', disabled: !(view.workOffset || 0), onClick: () => model.update({ workOffset: Math.max(0, (view.workOffset || 0) - 20) }) }, L('更近的运行', 'Newer runs')), h('button', { type: 'button', disabled: (view.workOffset || 0) + 20 >= work.runs.total, onClick: () => model.update({ workOffset: (view.workOffset || 0) + 20 }) }, L('更早的运行', 'Older runs'))))) : h(React.Fragment, null, workErrorNotice, !workError && h('p', { role: 'status' }, L('正在读取交办…', 'Reading work item…')));
+          return h('section', { className: 'pa24-manager pa24-run-history' }, sectionHead('history', L('运行记录', 'Run history'), L('执行、投递与助理交办分别查阅；等待恢复和自动重试沿用原运行。', 'Review execution, delivery and work separately. Waits and automatic retries keep the same run.'),
             h('div', { className: 'pa24-row' }, h('button', { type: 'button', onClick: () => { model.update({ tick: (view.tick || 0) + 1 }); void refresh().catch(() => {}); } }, L('刷新', 'Refresh')), h('button', { type: 'button', disabled: busy || !list.data, onClick: exportRows }, L('导出全部筛选结果', 'Export all matching results')))),
             extra._errors?.runs && h('p', { role: 'alert', className: 'pa24-error' }, extra._errors.runs),
-            summary?.observedAt && h('div', { className: 'pa24-card' }, capKpi([[summary.runs24, L('24 小时运行', '24h runs')], [summary.failed24, L('执行失败', 'Execution failures')], [summary.delivery_failed24, L('投递失败', 'Delivery failures')], [summary.unexecuted24, L('未执行事件', 'Unexecuted events')]]),
-              capKpi([[summary.active_work, L('进行中交办', 'Active work')], [summary.waiting_work, L('待我处理交办', 'Work awaiting you')], [summary.failed_work, L('异常交办', 'Failed work')]]),
-              h('p', { className: 'pa24-meta' }, L('跨日未解决：运行 ', 'Unresolved across dates: runs ') + summary.unresolved + L('，未执行事件 ', ', unexecuted events ') + summary.unresolved_events + ' · ' + date(summary.observedAt, tz))),
-            h('div', { className: 'pa24-card' }, field(L('档案类别', 'Record category'), h('select', { value: filters.kind, onChange: event => model.update({ filters: { kind: event.target.value, range: filters.range, from: filters.from, to: filters.to, includeUnresolved: filters.includeUnresolved, query: filters.query, planId: filters.planId }, offset: 0, selectedRun: null, workId: null }) },
-              [['runs', L('执行记录', 'Executions')], ['work', L('助理交办', 'Work items')], ['events', L('未执行事件', 'Unexecuted events')], ['legacy', L('旧简报档案', 'Legacy digests')]].map(([value, label]) => h('option', { key: value, value }, label)))),
-              field(L('时间范围', 'Date range'), select('range', [['7', L('近 7 天', 'Last 7 days')], ['30', L('近 30 天', 'Last 30 days')], ['custom', L('自定义', 'Custom')], ['all', L('全部历史', 'All history')]])),
-              filters.range === 'custom' && h('div', null, ['from', 'to'].map(key => field((key === 'from' ? L('开始', 'From') : L('结束', 'To')) + ' · ' + tz, h('input', { type: 'datetime-local', value: filters[key] || '', onChange: event => set(key, event.target.value) })))),
-              field(L('保留跨日期待处理与未解决异常', 'Keep unresolved records across dates'), h('input', { type: 'checkbox', checked: filters.includeUnresolved !== false, onChange: event => set('includeUnresolved', event.target.checked) })),
-              field(L('标题、摘要或标识', 'Title, summary or ID'), h('input', { value: filters.query || '', onChange: event => set('query', event.target.value) })),
-              field(L('执行状态', 'Execution status'), select('status', [['', L('全部状态', 'All statuses')], ...statuses[filters.kind].map(value => [value, filters.kind === 'runs' ? runStatusLabel(value) : t(value)])])),
-              h('details', null, h('summary', null, L('来源、关联与投递筛选', 'Source, links and delivery filters')),
-                filters.kind !== 'legacy' && field(L('发起来源', 'Initiation source'), select('source', [['', L('全部来源', 'All sources')], ...(filters.kind === 'work' ? [['local', L('本地', 'Local')], ['feishu', L('飞书', 'Feishu')]] : [['manual', L('手工', 'Manual')], ['schedule', L('计划', 'Scheduled')], ...(filters.kind === 'runs' ? [['trial', L('试运行', 'Trial')], ['rerun', L('重跑', 'Rerun')], ['continuation', L('接续', 'Continuation')]] : [])])])),
-                [['planId', L('计划标识', 'Plan ID')], ...(['runs', 'work'].includes(filters.kind) ? [['workId', L('交办标识', 'Work ID')]] : []), ...(filters.kind !== 'legacy' ? [['skillId', 'Skill ID']] : []), ...(filters.kind === 'runs' ? [['versionId', L('版本标识', 'Version ID')]] : [])].map(([key, label]) => field(label, h('input', { value: filters[key] || '', onChange: event => set(key, event.target.value) }))),
-                filters.kind === 'runs' && field(L('投递状态', 'Delivery status'), select('deliveryStatus', [['', L('全部投递状态', 'All delivery statuses')], ...['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'failed', 'unknown', 'expired'].map(value => [value, deliveryLabel(value)])])))),
-            error && h('p', { role: 'alert', className: 'pa24-error' }, error),
-            list.error && h('p', { role: 'alert', className: 'pa24-error' }, L('读取失败；下方可能为上次结果：', 'Read failed; results below may be stale: ') + list.error),
-            list.loading && h('p', { role: 'status' }, L('正在读取档案…', 'Reading history…')),
-            list.data && h('div', { className: 'pa24-card' }, h('p', { className: 'pa24-meta' }, L('匹配记录 ', 'Matching records: ') + list.data.total + ' · ' + L('当前时区 ', 'Time zone ') + list.data.timeZone),
-              !list.data.rows.length && h('p', null, list.data.empty ? L('此类档案尚无记录。实际运行或交办后会在这里保留。', 'No records in this category yet. Actual executions or work will appear here.') : L('当前筛选没有记录。可扩大时间范围或清除筛选。', 'No matching records. Widen the range or clear filters.')),
-              list.data.rows.map(row => h('article', { key: row.id, className: 'pa24-job' }, h('h3', null, row.title || row.id), h('p', null, (filters.kind === 'runs' ? runStatusLabel(row.status) : t(row.status)) + (row.delivery_status ? ' · ' + deliveryLabel(row.delivery_status) : '')),
-                h('p', { className: 'pa24-meta' }, date(row.created_at, tz) + ' · ' + runSourceLabel(row.source)), row.progress && h('p', null, row.progress), row.summary && h('p', null, row.summary),
-                filters.kind === 'runs' && h('button', { type: 'button', onClick: () => selectRun(row) }, L('查看执行与投递', 'View execution and delivery')),
-                filters.kind === 'work' && h('button', { type: 'button', onClick: () => openWork(row.id) }, L('查看交办详情', 'View work item')),
-                filters.kind === 'events' && row.run_id && h('button', { type: 'button', onClick: () => selectRun({ id: row.run_id, record_kind: row.record_kind }) }, L('核对未执行原记录', 'Inspect unexecuted admission')),
-                filters.kind === 'events' && row.plan_id && h('button', { type: 'button', onClick: () => helpers.openPlan(row.plan_id) }, L('处理原计划', 'Open original plan')),
-                filters.kind === 'legacy' && h('details', null, h('summary', null, L('原始简报与旧关联', 'Original digest and links')), h('pre', { className: 'pa24-json' }, JSON.stringify(row, null, 2))),
-                h('details', null, h('summary', null, L('技术标识', 'Technical IDs')), h('p', { className: 'pa24-meta' }, row.id + (row.plan_id ? ' · ' + row.plan_id : ''))))),
-              h('div', { className: 'pa24-row' }, h('button', { type: 'button', disabled: !offset, onClick: () => model.update({ offset: Math.max(0, offset - 20) }) }, L('上一页', 'Previous')), h('button', { type: 'button', disabled: offset + 20 >= list.data.total, onClick: () => model.update({ offset: offset + 20 }) }, L('下一页', 'Next')))),
-            active?.kind === 'worker' && h(WorkerRunDetail, { key: binding + active.id, id: active.id, binding, openWork }),
-            active && active.kind !== 'worker' && h(SkillRunControls, { key: active.id, data: { id: active.skillId }, binding, detailOnly: true, initialRunId: active.id, openWork }),
-            view.workId && !work && h('p', { role: 'status' }, L('正在读取交办…', 'Reading work item…')),
-            work && h('section', { className: 'pa24-card' }, h('h3', null, work.work.title), h('p', null, t(work.work.status)),
-              work.work.id.startsWith('pa24-material-') ? h('details', null, h('summary', null, L('当次资料操作输入', 'Material action input')), h('pre', { className: 'pa24-json' }, work.work.instruction)) : h('p', null, work.work.instruction),
-              work.work.progress && h('p', null, work.work.progress), work.work.result && (work.work.id.startsWith('pa24-material-') ? h(MaterialFeedback, { value: materialReceipt(work.work.result) }) : h('pre', { className: 'pa24-json' }, work.work.result)),
-              work.work.progress_detail && h('div', null, h('p', null, L('已完成：', 'Completed: ') + work.work.progress_detail.completed), h('p', null, L('下一步：', 'Next: ') + work.work.progress_detail.next)),
-              h('p', { className: 'pa24-meta' }, L('来源：', 'Origin: ') + work.work.origin + ' · ' + L('结果回到：', 'Results return to: ') + work.work.delivery),
-              work.work.child_session_id && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession({ childSessionId: work.work.child_session_id, parentSessionId: work.work.parent_session_id, mode: 'continuable' }) }, L('查看原交办会话', 'Open original work session')),
-              h(WorkControls, { key: binding + work.work.id, work: work.work, changes: work.changes, binding, changed: () => { model.update({ tick: (model.getSnapshot().tick || 0) + 1 }); void refresh().catch(() => {}); } }),
-              h('h4', null, L('关联执行记录 ', 'Linked runs ') + work.runs.total), work.runs.rows.map(row => h('div', { key: row.id }, h('button', { type: 'button', onClick: () => selectRun(row) }, date(row.created_at, tz) + ' · ' + t(row.status)))),
-              work.runs.total > 20 && h('div', { className: 'pa24-row' }, h('button', { type: 'button', disabled: !(view.workOffset || 0), onClick: () => model.update({ workOffset: Math.max(0, (view.workOffset || 0) - 20) }) }, L('更近的运行', 'Newer runs')), h('button', { type: 'button', disabled: (view.workOffset || 0) + 20 >= work.runs.total, onClick: () => model.update({ workOffset: (view.workOffset || 0) + 20 }) }, L('更早的运行', 'Older runs')))),
+            h('nav', { className: 'pa24-tabs', role: 'tablist', 'aria-label': L('运行档案主视图', 'Run history views') }, views.map(([kind, name, label], index) => h('button', {
+              key: kind, id: 'pa24-history-tab-' + kind, type: 'button', role: 'tab', className: 'pa24-tone-blue', 'aria-selected': !legacy && filters.kind === kind, 'aria-controls': 'pa24-history-primary', tabIndex: (!legacy && filters.kind === kind) || (legacy && index === 0) ? 0 : -1,
+              onClick: () => changeKind(kind), onKeyDown: event => { const next = event.key === 'ArrowRight' ? (index + 1) % views.length : event.key === 'ArrowLeft' ? (index + views.length - 1) % views.length : event.key === 'Home' ? 0 : event.key === 'End' ? views.length - 1 : null;
+                if (next === null) return; event.preventDefault(); changeKind(views[next][0]); event.currentTarget.parentElement.querySelectorAll('[role=tab]')[next].focus(); },
+            }, icon(name, { width: 16, height: 16 }), label))),
+            h('div', { id: 'pa24-history-primary', role: 'tabpanel', 'aria-labelledby': 'pa24-history-tab-' + (legacy ? 'runs' : filters.kind), tabIndex: 0, hidden: legacy }, !legacy && h(React.Fragment, null,
+              !!metrics.length && h('div', { className: 'pa24-history-metrics' }, metrics),
+              summary?.observedAt && h('p', { className: 'pa24-history-scope' }, (filters.kind === 'runs' ? L('24 小时统计与全量未解决分开；列表默认近 7 天。', '24h statistics and all-time unresolved are separate; the list defaults to 7 days.') : filters.kind === 'work' ? L('交办统计来自全部数据，不从当前页推算。', 'Work statistics cover the complete ledger, not the current page.') : L('24 小时未执行与全量待处理事件分开。', '24h unexecuted events and all-time unresolved events are separate.')) + ' · ' + date(summary.observedAt, tz)),
+              toolbar, error && h('p', { role: 'alert', className: 'pa24-error' }, error), list.error && h('p', { role: 'alert', className: 'pa24-error' }, L('读取失败；下方可能为上次结果：', 'Read failed; results below may be stale: ') + list.error), list.loading && h('p', { role: 'status' }, L('正在读取档案…', 'Reading history…')), listContent)),
+            h('details', { className: 'pa24-history-compatibility', open: legacy ? true : undefined }, h('summary', null, icon('history', { width: 15, height: 15 }), L('兼容与历史', 'Compatibility and history')),
+              legacy ? h('div', { className: 'pa24-history-compatibility-content' }, h('p', { className: 'pa24-history-scope' }, L('旧简报仅作为历史档案保留，不与三个主视图混合统计。', 'Legacy digests remain historical records and are not mixed into the three primary views.')), toolbar, error && h('p', { role: 'alert', className: 'pa24-error' }, error), list.error && h('p', { role: 'alert', className: 'pa24-error' }, list.error), list.loading && h('p', { role: 'status' }, L('正在读取档案…', 'Reading history…')), listContent)
+                : h('div', { className: 'pa24-history-compatibility-content' }, h('p', { className: 'pa24-meta' }, L('旧简报档案与既有诊断保留规则可在这里查阅。', 'Read legacy digest archives and existing diagnostic retention rules here.')), h('button', { type: 'button', onClick: () => changeKind('legacy') }, L('查看旧简报档案', 'View legacy digests')))),
+            (active || view.workId) && h(HistoryDrawer, { key: active ? 'run:' + active.id : 'work:' + view.workId,
+              title: active ? (active.title || active.id) : (work?.work.title || L('助理交办', 'Work item')),
+              subtitle: active ? runSourceLabel(active.source) + ' · ' + date(active.createdAt, tz) + ' · ' + active.id : L('交办标识：', 'Work ID: ') + view.workId,
+              onClose: closeDetails, tabs: active ? [['overview', L('概览', 'Overview')], ['delivery', L('投递', 'Delivery')], ['diagnostics', L('诊断', 'Diagnostics')]] : null,
+            }, section => active ? (active.kind === 'worker' ? h(WorkerRunDetail, { id: active.id, binding, openWork, section }) : h(SkillRunControls, { data: { id: active.skillId }, binding, detailOnly: true, initialRunId: active.id, openWork, section })) : workDrawer),
             h('p', { className: 'pa24-meta' }, L('详细诊断默认保留 90 天，可在参数配置调整；结果及业务回执长期保留。', 'Detailed diagnostics default to 90 days in configuration. Results and business receipts persist.')),
             h('button', { type: 'button', onClick: () => openCard('config') }, L('打开参数配置', 'Open configuration')));
         }
@@ -1919,7 +2033,8 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', disabled: busy || !confirmed || detail.unresolvedOperations.length > 0, onClick: save }, L('保存核对并结束本次运行', 'Save findings and close run')));
         }
 
-        function SkillRunControls({ data, binding, detailOnly = false, initialRunId = null, openWork }) {
+        function SkillRunControls({ data, binding, detailOnly = false, initialRunId = null, openWork, section = 'all' }) {
+          const overview = section === 'all' || section === 'overview', deliveryView = section === 'all' || section === 'delivery', diagnosticsView = section === 'all' || section === 'diagnostics';
           const [values, setValues] = React.useState({}), [preview, setPreview] = React.useState(null);
           const [target, setTarget] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
           const [history, setHistory] = React.useState(null), [selected, setSelected] = React.useState(initialRunId), [detail, setDetail] = React.useState(null);
@@ -2011,7 +2126,7 @@ window.__ModuleLoader__.load({
               h('input', { type: 'number', min: 1 / 60, max: 1440, step: 'any', value: limitMinutes, onChange: event => { setLimitMinutes(event.target.value); setPreview(null); setApproved(false); } })),
             !detailOnly && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status) || ['persona', 'setup'].includes(data.type), onClick: () => prepare(null) }, L('预览本次运行', 'Preview run')),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error),
-            preview && h('div', { className: 'pa24-note' },
+            preview && overview && h('div', { className: 'pa24-note' },
               h('p', null, preview.message), h('p', null, L('版本：', 'Version: ') + preview.versionId),
               h('p', null, L('累计执行时限：', 'Active execution limit: ') + (preview.executionLimitMs ?? 900000) / 60000 + L(' 分钟', ' minutes')),
               h('p', null, L('工具：', 'Tools: ') + (preview.tools.join('、') || L('无', 'None'))),
@@ -2038,57 +2153,60 @@ window.__ModuleLoader__.load({
               h('button', { disabled: offset + 20 >= history.total, onClick: () => setOffset(offset + 20) }, L('下一页', 'Next'))),
             selected && !detail && h('p', { role: 'status' }, L('正在读取运行详情…', 'Reading run…')),
             detail && h('div', { className: 'pa24-note' },
-              h('h4', null, status(detail.run.status)), h('p', null, detail.run.progress),
-              detail.execution ? h('div', { className: 'pa24-note' },
-                h('p', null, L('累计执行 ', 'Active execution ') + (detail.execution.executionMs / 1000).toFixed(1) + L(' 秒 · 剩余 ', ' s · Remaining ') + (detail.execution.remainingMs / 1000).toFixed(1) + L(' 秒', ' s')),
-                h('p', { className: 'pa24-meta' }, L('排队 ', 'Queued ') + (detail.execution.queuedMs / 1000).toFixed(1) + L(' 秒 · 等待 ', ' s · Waiting ') + (detail.execution.waitingMs / 1000).toFixed(1) + L(' 秒', ' s')),
-                detail.execution.blocks.map(block => h('p', { key: block.key }, block.reason)),
-                detail.execution.stop && h('p', { role: detail.execution.stop.error ? 'alert' : 'status' }, detail.execution.stop.error || (detail.execution.stop.settledAt
-                  ? L('原生执行已确认停止。', 'Native execution has stopped.') : L('已请求停止，正在等待实际执行回执。', 'Stop requested; waiting for native receipts.'))))
-                : h('p', { className: 'pa24-meta' }, L('历史记录没有累计执行计时资料。', 'Active execution timing is unavailable for this legacy record.')),
-              detail.run.status === 'waiting' && h('div', { className: 'pa24-note' },
-                h('p', null, L('补充和放行沿原运行继续，不重置时限。其他阻断须分别处理。', 'Resume this run without resetting its time limit. Resolve each remaining blocker separately.')),
-                detail.execution?.blocks.some(block => block.kind === 'input') && h('label', { className: 'pa24-field' }, L('补充给本次运行的信息', 'Information for this run'),
-                  h('textarea', { value: resumeInput, rows: 3, maxLength: 4000, onChange: event => setResumeInput(event.target.value) })),
+              overview && h(React.Fragment, null,
+                h('h4', null, status(detail.run.status)), h('p', null, detail.run.progress),
+                detail.execution ? h('div', { className: 'pa24-note' },
+                  h('p', null, L('累计执行 ', 'Active execution ') + (detail.execution.executionMs / 1000).toFixed(1) + L(' 秒 · 剩余 ', ' s · Remaining ') + (detail.execution.remainingMs / 1000).toFixed(1) + L(' 秒', ' s')),
+                  h('p', { className: 'pa24-meta' }, L('排队 ', 'Queued ') + (detail.execution.queuedMs / 1000).toFixed(1) + L(' 秒 · 等待 ', ' s · Waiting ') + (detail.execution.waitingMs / 1000).toFixed(1) + L(' 秒', ' s')),
+                  detail.execution.blocks.map(block => h('p', { key: block.key }, block.reason)),
+                  detail.execution.stop && h('p', { role: detail.execution.stop.error ? 'alert' : 'status' }, detail.execution.stop.error || (detail.execution.stop.settledAt
+                    ? L('原生执行已确认停止。', 'Native execution has stopped.') : L('已请求停止，正在等待实际执行回执。', 'Stop requested; waiting for native receipts.'))))
+                  : h('p', { className: 'pa24-meta' }, L('历史记录没有累计执行计时资料。', 'Active execution timing is unavailable for this legacy record.')),
+                detail.run.status === 'waiting' && h('div', { className: 'pa24-note' },
+                  h('p', null, L('补充和放行沿原运行继续，不重置时限。其他阻断须分别处理。', 'Resume this run without resetting its time limit. Resolve each remaining blocker separately.')),
+                  detail.execution?.blocks.some(block => block.kind === 'input') && h('label', { className: 'pa24-field' }, L('补充给本次运行的信息', 'Information for this run'),
+                    h('textarea', { value: resumeInput, rows: 3, maxLength: 4000, onChange: event => setResumeInput(event.target.value) })),
+                  h('div', { className: 'pa24-row' },
+                    detail.execution?.blocks.some(block => block.kind === 'input') && h('button', { type: 'button', disabled: busy || !resumeInput.trim(), onClick: () => resume(false) }, L('补充并继续原运行', 'Submit and resume')),
+                    h('button', { type: 'button', disabled: busy, onClick: () => resume(true) }, L('重新检查并继续原运行', 'Recheck and resume')))),
+                h('p', { className: 'pa24-meta' }, L('助理交办：', 'Work item: ') + detail.run.work_item_id),
+                h('p', { className: 'pa24-meta' }, L('版本：', 'Version: ') + (detail.run.version_id || L('历史未记录', 'Not recorded'))),
+                h('p', { className: 'pa24-meta' }, L('触发时间：', 'Triggered: ') + (detail.run.triggered_at ? new Date(detail.run.triggered_at).toLocaleString() : L('历史未记录', 'Not recorded')) + ' · ' + L('接纳时间：', 'Admitted: ') + new Date(detail.run.created_at).toLocaleString()),
+                detail.run.result && h('pre', { className: 'pa24-json' }, detail.run.result),
+                ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('label', { className: 'pa24-field' }, L('接续补充说明（可选）', 'Continuation instructions (optional)'),
+                  h('textarea', { value: instruction, maxLength: 4000, rows: 2, onChange: event => { setInstruction(event.target.value); setPreview(null); setApproved(false); } })),
                 h('div', { className: 'pa24-row' },
-                  detail.execution?.blocks.some(block => block.kind === 'input') && h('button', { type: 'button', disabled: busy || !resumeInput.trim(), onClick: () => resume(false) }, L('补充并继续原运行', 'Submit and resume')),
-                  h('button', { type: 'button', disabled: busy, onClick: () => resume(true) }, L('重新检查并继续原运行', 'Recheck and resume')))),
-              h('p', { className: 'pa24-meta' }, L('助理交办：', 'Work item: ') + detail.run.work_item_id),
-              h('p', { className: 'pa24-meta' }, L('版本：', 'Version: ') + detail.run.version_id),
-              h('p', { className: 'pa24-meta' }, L('结果投递：', 'Delivery: ') + deliveryLabel(detail.run.delivery_status)),
-              h('p', { className: 'pa24-meta' }, L('触发时间：', 'Triggered: ') + (detail.run.triggered_at ? new Date(detail.run.triggered_at).toLocaleString() : L('历史未记录', 'Not recorded')) + ' · ' + L('接纳时间：', 'Admitted: ') + new Date(detail.run.created_at).toLocaleString()),
-              detail.run.result && h('pre', { className: 'pa24-json' }, detail.run.result),
-              ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('label', { className: 'pa24-field' }, L('接续补充说明（可选）', 'Continuation instructions (optional)'),
-                h('textarea', { value: instruction, maxLength: 4000, rows: 2, onChange: event => { setInstruction(event.target.value); setPreview(null); setApproved(false); } })),
-              h('div', { className: 'pa24-row' },
-                detail.run.mode !== 'template' && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession(detail.run.mode === 'business' ? { childSessionId: detail.run.session_id, parentSessionId: detail.run.source_session_id, mode: 'continuable' } : detail.run.session_id) }, L('查看原执行会话', 'Open execution session')),
-                detail.run.result && h('button', { type: 'button', onClick: downloadResult }, L('下载结果', 'Download result')),
-                openWork && h('button', { type: 'button', onClick: () => openWork(detail.run.work_item_id) }, L('查看原助理交办', 'Open original work item')),
+                  detail.run.mode !== 'template' && h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession(detail.run.mode === 'business' ? { childSessionId: detail.run.session_id, parentSessionId: detail.run.source_session_id, mode: 'continuable' } : detail.run.session_id) }, L('查看原执行会话', 'Open execution session')),
+                  detail.run.result && h('button', { type: 'button', onClick: downloadResult }, L('下载结果', 'Download result')),
+                  openWork && h('button', { type: 'button', onClick: () => openWork(detail.run.work_item_id) }, L('查看原助理交办', 'Open original work item')),
+                  ['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy, onClick: () => stop(detail.run.id) }, L('停止本次运行', 'Stop run')),
+                  ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'original' }) }, L('用原快照重跑 · 先预览', 'Rerun snapshot · preview')),
+                  ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'current' }) }, L('用当前配置重跑 · 先预览', 'Rerun current · preview'))),
+                h('details', null, h('summary', null, L('输入、资源与版本快照', 'Input, resources and version snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify({ parameters: detail.run.parameters, contract: detail.run.contract, files: detail.run.files, plan: detail.run.plan }, null, 2))),
+                detail.attempts?.length > 0 && h('details', null, h('summary', null, L('执行尝试（含自动重试）', 'Execution attempts (including retries)')),
+                  detail.attempts.map(attempt => h('p', { key: attempt.number }, L('第 ', 'Attempt ') + attempt.number + L(' 次', '') + ' · ' + new Date(attempt.startedAt).toLocaleString() + (attempt.error ? ' · ' + attempt.error : '')))),
+                h('details', null, h('summary', null, L('实际工具调用与回执', 'Actual tool calls and receipts')), h('pre', { className: 'pa24-json' }, JSON.stringify(detail.calls, null, 2))),
+                detail.inputs?.length > 0 && h('details', null, h('summary', null, L('输入接纳与采用', 'Input receipt and adoption')),
+                  detail.inputs.map(input => h('p', { key: input.message_id }, input.message_id + ' · ' + (!input.accepted ? L('归属未确认', 'Ownership not confirmed')
+                    : input.adopted === true ? L('已采用', 'Adopted') : input.adopted === false ? L('已接纳，尚未采用', 'Accepted, not adopted') : L('采用状态暂不可核验', 'Adoption could not be verified'))))),
+                detail.reviews?.length > 0 && h('details', null, h('summary', null, L('人工核对记录', 'Human verification history')),
+                  !detail.reviewed && h('p', { role: 'alert' }, L('核对后收到新证据，需要重新核对后才能接续。', 'New evidence arrived after verification; review it before continuing.')),
+                  h('pre', { className: 'pa24-json' }, JSON.stringify(detail.reviews, null, 2))),
+                (detail.run.status === 'needs_reconciliation' || (['failed', 'stopped', 'timed_out'].includes(detail.run.status) && !detail.reviewed && detail.calls.some(call => ['running', 'unknown'].includes(call.status))) || (detail.reviews?.length > 0 && !detail.reviewed)) && h(SkillRunReview, { key: detail.run.id + ':' + detail.fingerprint, detail, binding,
+                  onSaved: result => { setDetail(result); setRefresh(n => n + 1); } }),
+                detail.native?.length > 0 && h('details', null, h('summary', null, L('子任务与后台作业', 'Subtasks and background jobs')),
+                  detail.native.map(item => h('div', { key: item.kind + ':' + item.owner_id + ':' + item.native_id, className: 'pa24-note' },
+                    h('p', null, (item.kind === 'job' ? L('后台作业', 'Background job') : L('子任务', 'Subtask')) + ' · ' + item.native_id),
+                    h('p', { className: 'pa24-meta' }, L('所属会话：', 'Owner session: ') + item.owner_id),
+                    h('p', null, item.end_data ? L('结束状态：', 'Terminal status: ') + (item.end_data.status || item.end_data.stopReason) : L('尚无结束回执', 'No terminal receipt yet')),
+                    item.end_data?.detail && h('p', null, item.end_data.detail),
+                    item.end_data?.producerReported === false && h('p', { role: 'alert' }, L('生产者未确认结束，需要核对实际状态。', 'The producer has not confirmed termination. Reconciliation is required.')))))),
+              deliveryView && h(React.Fragment, null, h('h4', null, L('结果投递与原 Outbox', 'Delivery and original Outbox')), h('p', null, L('当前投递状态：', 'Current delivery status: ') + deliveryLabel(detail.run.delivery_status)),
+                !(detail.deliveries || []).length && h('p', { className: 'pa24-meta' }, L('尚无投递明细；这不改变执行结果。', 'No delivery records yet; this does not change the execution result.')),
+                (detail.deliveries || []).length > 0 && h(PlanDeliveryControls, { key: detail.run.id, detail, binding, onChanged: () => setRefresh(n => n + 1) })),
+              diagnosticsView && h(React.Fragment, null, h('p', { className: 'pa24-meta' }, L('诊断只生成脱敏预览；确认预览内容后才下载。', 'Diagnostics require a redacted preview before download.')),
                 h('button', { type: 'button', onClick: async () => { const id = detail.run.id; try { const result = await rpc('runs.diagnostics', { workspaceBinding: binding, runId: id }); if (alive.current && selectedRun.current === id && result.workspaceBinding === binding) setDiagnostics(result); } catch (failure) { if (alive.current) setError(failure.message); } } }, L('预览脱敏诊断', 'Preview redacted diagnostics')),
-                ['pending', 'running', 'waiting', 'stopping', 'needs_reconciliation'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy, onClick: () => stop(detail.run.id) }, L('停止本次运行', 'Stop run')),
-                ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'original' }) }, L('用原快照重跑 · 先预览', 'Rerun snapshot · preview')),
-                ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'current' }) }, L('用当前配置重跑 · 先预览', 'Rerun current · preview'))),
-              diagnostics && h('div', { className: 'pa24-note' }, h('p', null, diagnostics.message), h('pre', { className: 'pa24-json' }, diagnostics.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostics) }, L('确认下载这份诊断', 'Download this diagnostic preview'))),
-              h('details', null, h('summary', null, L('输入、资源与版本快照', 'Input, resources and version snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify({ parameters: detail.run.parameters, contract: detail.run.contract, files: detail.run.files, plan: detail.run.plan }, null, 2))),
-              (detail.deliveries || []).length > 0 && h(PlanDeliveryControls, { key: detail.run.id, detail, binding, onChanged: () => setRefresh(n => n + 1) }),
-              detail.attempts?.length > 0 && h('details', null, h('summary', null, L('执行尝试（含自动重试）', 'Execution attempts (including retries)')),
-                detail.attempts.map(attempt => h('p', { key: attempt.number }, L('第 ', 'Attempt ') + attempt.number + L(' 次', '') + ' · ' + new Date(attempt.startedAt).toLocaleString() + (attempt.error ? ' · ' + attempt.error : '')))),
-              h('details', null, h('summary', null, L('实际工具调用与回执', 'Actual tool calls and receipts')), h('pre', { className: 'pa24-json' }, JSON.stringify(detail.calls, null, 2))),
-              detail.inputs?.length > 0 && h('details', null, h('summary', null, L('输入接纳与采用', 'Input receipt and adoption')),
-                detail.inputs.map(input => h('p', { key: input.message_id }, input.message_id + ' · ' + (!input.accepted ? L('归属未确认', 'Ownership not confirmed')
-                  : input.adopted === true ? L('已采用', 'Adopted') : input.adopted === false ? L('已接纳，尚未采用', 'Accepted, not adopted') : L('采用状态暂不可核验', 'Adoption could not be verified'))))),
-              detail.reviews?.length > 0 && h('details', null, h('summary', null, L('人工核对记录', 'Human verification history')),
-                !detail.reviewed && h('p', { role: 'alert' }, L('核对后收到新证据，需要重新核对后才能接续。', 'New evidence arrived after verification; review it before continuing.')),
-                h('pre', { className: 'pa24-json' }, JSON.stringify(detail.reviews, null, 2))),
-              (detail.run.status === 'needs_reconciliation' || (['failed', 'stopped', 'timed_out'].includes(detail.run.status) && !detail.reviewed && detail.calls.some(call => ['running', 'unknown'].includes(call.status))) || (detail.reviews?.length > 0 && !detail.reviewed)) && h(SkillRunReview, { key: detail.run.id + ':' + detail.fingerprint, detail, binding,
-                onSaved: result => { setDetail(result); setRefresh(n => n + 1); } }),
-              detail.native?.length > 0 && h('details', null, h('summary', null, L('子任务与后台作业', 'Subtasks and background jobs')),
-                detail.native.map(item => h('div', { key: item.kind + ':' + item.owner_id + ':' + item.native_id, className: 'pa24-note' },
-                  h('p', null, (item.kind === 'job' ? L('后台作业', 'Background job') : L('子任务', 'Subtask')) + ' · ' + item.native_id),
-                  h('p', { className: 'pa24-meta' }, L('所属会话：', 'Owner session: ') + item.owner_id),
-                  h('p', null, item.end_data ? L('结束状态：', 'Terminal status: ') + (item.end_data.status || item.end_data.stopReason) : L('尚无结束回执', 'No terminal receipt yet')),
-                  item.end_data?.detail && h('p', null, item.end_data.detail),
-                  item.end_data?.producerReported === false && h('p', { role: 'alert' }, L('生产者未确认结束，需要核对实际状态。', 'The producer has not confirmed termination. Reconciliation is required.')))))));
+                diagnostics && h('div', { className: 'pa24-note' }, h('p', null, diagnostics.message), h('pre', { className: 'pa24-json' }, diagnostics.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostics) }, L('确认下载这份诊断', 'Download this diagnostic preview'))))));
         }
 
         const validSkillHash = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
@@ -2435,12 +2553,15 @@ window.__ModuleLoader__.load({
             detail: helpers => h(TodoDetail, { key: helpers.state.workspaceBinding, ...helpers }),
           },
           {
-            id: 'activity', cat: 'work', tone: 'blue', icon: 'pulse', title: ['运行记录', 'Run history'], sub: ['执行 · 投递 · 助理交办', 'Execution · delivery · work items'], action: ['查看运行档案', 'Open run history'],
-            tier: ({ extra }) => extra._errors?.runs ? 'error' : !extra.runs?.observedAt ? 'unchecked' : extra.runs.unresolved || extra.runs.unresolved_events ? 'warn' : 'ok',
+            id: 'activity', cat: 'work', tone: 'blue', icon: 'history', title: ['运行记录', 'Run history'], sub: ['执行 · 投递 · 助理交办', 'Execution · delivery · work items'], action: ['查看运行档案', 'Open run history'],
+            tier: ({ extra }) => extra._errors?.runs ? 'error' : !extra.runs?.observedAt || extra.runs.empty ? 'unchecked' : extra.runs.unresolved || extra.runs.unresolved_events || extra.runs.waiting_work || extra.runs.failed_work ? 'warn' : 'ok',
+            label: ({ extra }) => !extra._errors?.runs && extra.runs?.empty ? L('暂无档案', 'No history') : null,
             body: ({ extra }) => {
               const summary = extra.runs;
-              return summary?.observedAt ? h('div', null, capKpi([[summary.runs24, L('24 小时运行', '24h runs')], [summary.failed24, L('执行失败', 'Execution failures')], [summary.delivery_failed24, L('投递失败', 'Delivery failures')]]),
-                capLine(L('未执行事件', 'Unexecuted events'), summary.unexecuted24), capLine(L('待我处理交办', 'Work awaiting you'), summary.waiting_work))
+              if (summary?.empty) return h('div', null, h('p', null, L('暂无运行档案', 'No run history yet')), h('p', { className: 'pa24-meta' }, L('这是中性空状态，不代表异常或健康检查通过。', 'Neutral empty state; neither an error nor a health pass.')));
+              return summary?.observedAt ? h('div', null, capKpi([[summary.runs24, L('24 小时运行', '24h runs')], [summary.failed24, L('24 小时执行失败', '24h execution failures')], [summary.delivery_failed24, L('24 小时投递失败', '24h delivery failures')]]),
+                capLine(L('全量需处理运行', 'All unresolved runs'), summary.unresolved), capLine(L('全量待处理事件', 'All unresolved events'), summary.unresolved_events),
+                capLine(L('待我处理交办', 'Work awaiting you'), summary.waiting_work), capLine(L('异常交办', 'Failed work'), summary.failed_work))
                 : h('p', { className: 'pa24-meta' }, extra._errors?.runs || L('正在读取完整统计…', 'Reading complete statistics…'));
             },
             detail: helpers => h(RunHistoryDetail, { key: helpers.state.workspaceBinding, ...helpers }),

@@ -205,6 +205,8 @@ it('公开管理查询与导出保留真实执行、交办和原投递，重启�
     expect(list).toMatchObject({ total: 1, empty: false }); expect(list.rows[0]).toMatchObject({ id: run.id, title: row.title, source: 'manual' });
     const work = await host.api('work.inspect', { workspaceBinding: binding, workId: run.work_item_id });
     expect(work.work.id).toBe(run.work_item_id); expect(work.runs.rows.map(item => item.id)).toEqual([run.id]);
+    const workHistory = await host.api('runs', { workspaceBinding: binding, kind: 'work', workId: run.work_item_id, range: 'all' });
+    expect(workHistory).toMatchObject({ total: 1, empty: false }); expect(Number(workHistory.rows[0].run_count)).toBe(1);
     const exported = JSON.parse((await host.api('runs.export', { workspaceBinding: binding, planId: row.id, range: 'all' })).content);
     expect(exported.total).toBe(1); expect(exported.rows[0].id).toBe(run.id);
     const diagnostic = JSON.parse((await host.api('runs.diagnostics', { workspaceBinding: binding, runId: run.id })).content);

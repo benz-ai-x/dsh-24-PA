@@ -3,6 +3,8 @@ import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { RunHistory, historyFilter } from '../../lib/run-history.js';
+import { initializeRunControl } from '../../lib/repo/run-control.js';
+import { beginRunAttempt, failRunAttempt } from '../../lib/run-control.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { fixture } from '../helpers/runtime.mjs';
 import { writeSecretStore } from '../../lib/secrets.js';
@@ -50,6 +52,13 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     await db.query('delete from pa24.skill_run');
     expect(await list({})).toMatchObject({ total: 0, empty: true });
     expect(await list({ kind: 'work', query: 'does-not-exist' })).toMatchObject({ total: 0, empty: false });
+  });
+  it('空库存摘要为中性，只有旧简报时仍不冒充空档案', async () => {
+    expect((await history.summary({ workspaceBinding: 'binding' })).empty).toBe(false);
+    for (const table of ['plan_trigger', 'skill_run', 'worker_run', 'work_item', 'digest_occurrence']) await db.query(`delete from pa24.${table}`);
+    expect(await history.summary({ workspaceBinding: 'binding' })).toMatchObject({ empty: true, run_total: 0, work_total: 0, event_total: 0, legacy_total: 0 });
+    await db.query("insert into pa24.digest_occurrence (id, plan_id, window_key, status) values ('legacy-only','old-plan','window','sent')");
+    expect(await history.summary({ workspaceBinding: 'binding' })).toMatchObject({ empty: false, run_total: 0, work_total: 0, event_total: 0, legacy_total: 1 });
   });
   it('来源、计划、版本、执行与投递状态组合筛选，不用仅最近记录推算', async () => {
     expect((await list({ source: 'trial' })).rows.map(row => row.id)).toEqual(['r3']);
@@ -127,6 +136,39 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     await db.query("insert into pa24.digest_occurrence (id, plan_id, window_key, status, report) values ('old','old-plan','2026-10-01','sent',$1)", [JSON.stringify('原始简报')]);
     const legacy = await list({ kind: 'legacy', range: 'all' });
     expect(legacy.total).toBe(1); expect(legacy.rows[0].report).toBe('原始简报'); expect((await list({ range: 'all' })).total).toBe(32);
+  });
+  it('交办投影一次查询返回真实运行数，重试等待与未执行事件不重复计数', async () => {
+    const addSkillRun = async (id, status) => db.query(`insert into pa24.skill_run
+      (id, request_id, request_hash, work_item_id, skill_id, version_id, source_session_id, session_id, workspace_path, mode, trial, snapshot, status, created_at, updated_at)
+      values ($1,$1,'hash','w0','builtin:history','v1','parent',$2,'/private/workspace','template',false,$3,$4,$5,$5)`,
+    [id, `session-${id}`, JSON.stringify({ name: '能力' }), status, now]);
+    await db.query("update pa24.skill_run set status = 'waiting' where id = 'r0'");
+    await initializeRunControl(db, 'r0');
+    const at = now.getTime() - 5000;
+    await repos.runControls.change('r0', state => beginRunAttempt(state, at));
+    await repos.runControls.change('r0', state => failRunAttempt(state, '明确未执行的暂时错误', true, at + 1000));
+    await repos.runControls.change('r0', state => beginRunAttempt(state, at + 2000));
+    expect((await repos.runControls.get('r0')).state.attempts).toHaveLength(2);
+    await addSkillRun('r-extra', 'completed');
+    await addSkillRun('r-rejected', 'rejected');
+    await addSkillRun('r-skipped', 'stopped');
+    await db.query("insert into pa24.worker_run (id, work_item_id, session_id, source, status, instruction, snapshot) values ('worker-real','w0','worker-real-session','local','waiting','原请求','{}')");
+    await db.query("insert into pa24.worker_run (id, work_item_id, session_id, source, status, instruction, snapshot) values ('worker-rejected','w0','worker-rejected-session','local','rejected','未接纳','{}')");
+    await db.query("insert into pa24.digest_plan (id, kind, title, session_id, schedule_spec) values ('plan-a','task','运行数计划','parent','{}')");
+    await db.query("insert into pa24.plan_trigger (id, plan_id, run_id, generation, occurrence, source, status, reason, snapshot) values ('skipped-w0','plan-a','r-skipped','g','occ','schedule','skipped','主人暂停，未启动',$1)",
+      [JSON.stringify({ configuration: { skillId: 'builtin:history' } })]);
+    await repos.workItems.update('w0', { progress: '等待主人确认', progress_detail: { stage: '等待主人确认', completed: '原资料已核对', next: '交付结果和出处' } });
+    const query = db.query.bind(db); let readQueries = 0, projection;
+    db.query = (...args) => { readQueries++; return query(...args); };
+    try { projection = await list({ kind: 'work', workId: 'w0', range: 'all' }); } finally { db.query = query; }
+    expect(readQueries).toBe(2);
+    expect(projection.rows).toHaveLength(1); expect(Number(projection.rows[0].run_count)).toBe(3);
+    expect(projection.rows[0].progress_detail).toMatchObject({ stage: '等待主人确认', completed: '原资料已核对', next: '交付结果和出处' });
+    expect((await list({ kind: 'runs', workId: 'w0', range: 'all' })).rows.map(row => row.id).sort()).toEqual(['r-extra', 'r0', 'worker-real']);
+    expect((await list({ kind: 'work', workId: 'w0', planId: 'plan-a', skillId: 'builtin:history', source: 'local', query: '目标 %_', range: 'all' })).rows.map(row => row.id)).toEqual(['w0']);
+    expect((await list({ kind: 'events', workId: 'w0', planId: 'plan-a', skillId: 'builtin:history', source: 'schedule', status: 'skipped', range: 'all' })).rows[0]).toMatchObject({ run_id: 'r-skipped', record_kind: 'skill', skill_id: 'builtin:history', summary: '主人暂停，未启动' });
+    const exported = JSON.parse((await history.export({ kind: 'work', workId: 'w0', range: 'all', workspaceBinding: 'binding' })).content);
+    expect(exported.total).toBe(1); expect(Number(exported.rows[0].run_count)).toBe(3);
   });
 });
 
