@@ -605,8 +605,14 @@ export class SkillRuns {
     if (calls.some(call => call.status === 'unknown' || (recovering && call.status === 'running'))) return this.block(run, '工具结果待核对；停止或重启不抹除已经发生的动作。');
     const observedRequests = await repo.modelRequests(run.id);
     let observation;
-    const resumeEvidence = (await context.repos.runControls.resumes(run.id)).some(row => row.status !== 'unknown')
-      || !!(await context.repos.runControls.get(run.id))?.state.blocks.length;
+    const resumeEvidence = async (session: DshSession): Promise<boolean> => {
+      const control = await context.repos.runControls.get(run.id), resumes = await context.repos.runControls.resumes(run.id);
+      const consumed = new Set(session.ownEvents().filter(event => event.type === 'turn/end' && event.data.reason?.kind === 'completed')
+        .flatMap(event => [...consumedTurn(session, event.data.turn).messageIds]));
+      const evidence = resumes.some(row => row.status !== 'unknown' && (row.status !== 'submitted' || (row.native_message_id !== null && !consumed.has(row.native_message_id))))
+        || (run.status === 'waiting' && (!control || !await context.repos.runControls.canResume(run, control.state)));
+      return evidence;
+    };
     try { observation = await this.native.observe(repo, run, recovering, session => this.deps.budget?.paused(session) ?? Promise.resolve(false), resumeEvidence); }
     catch (error) { await this.diagnostic(run.id, 'native-observe', error); return this.block(run, errorText(error)); }
     const history = observation.root;

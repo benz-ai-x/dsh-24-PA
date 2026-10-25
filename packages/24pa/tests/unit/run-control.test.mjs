@@ -229,7 +229,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
       permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
     try {
       await runs.waitForInput(run, '请补充会议主题');
-      expect(await runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true)).toMatchObject({ pending: true, root: { id: session.id } });
+      await runs.poll();
+      expect((await repos.skillRuns.get(run.id)).status).toBe('waiting');
       await repos.skillRuns.transition(run.id, 'running', '恢复执行');
       await expect(runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true)).rejects.toThrow('原生回合缺少结束依据');
     } finally { runs.dispose(); }
@@ -257,7 +258,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     } finally { runs.dispose(); }
   });
 
-  it('中断输入缺少等待证据时不得重放', async () => {
+  it.each(['无阻断', '仅子会话预算'])('中断输入缺少根会话等待证据时不得重放（%s）', async kind => {
     const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '待恢复输入' }] };
     const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
       { type: 'turn/start', data: { turn: 1 } },
@@ -266,13 +267,67 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
       { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
     ] };
     await repos.skillRuns.input(run.id, message, true, run.session_id);
-    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    if (kind === '仅子会话预算') {
+      const childId = randomUUID();
+      await repos.skillRuns.child(run.id, childId, run.session_id, '/workspace');
+      await repos.runControls.change(run.id, state => blockRun(state, { key: 'budget:' + childId, kind: 'budget', reason: '子会话预算等待' }));
+      await repos.skillRuns.transition(run.id, 'waiting', '子会话预算等待');
+    }
+    const host = { sessions: { get: id => id === session.id ? session : { ...session, id, header: { ...session.header, parentSession: { id: run.session_id }, origin: 'subagent' }, ownEvents: () => [] }, flush: async () => true },
+      subagents: { listDescendants: async () => [] }, get: () => null };
     const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
       permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
     let submissions = 0;
     runs.host.resumePending = async () => { submissions++; };
     try {
       await runs.poll();
+      expect((await repos.skillRuns.get(run.id)).status).toBe('needs_reconciliation');
+      expect(submissions).toBe(0);
+    } finally { runs.dispose(); }
+  });
+
+  it('根会话的恢复完成不被更早的等待中断阻断', async () => {
+    const original = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原任务' }] };
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
+      { type: 'turn/start', data: { turn: 1 } }, { type: 'user/message', data: original },
+      { type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '等待补充' }] } } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'interrupted' } } },
+      { type: 'turn/start', data: { turn: 2 } },
+      { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: '恢复完成' }] } } },
+      { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } },
+    ] };
+    await repos.skillRuns.input(run.id, original, true, run.session_id);
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    try {
+      expect(await runs.native.observe(repos.skillRuns, await repos.skillRuns.get(run.id), true)).toMatchObject({ pending: false, root: { id: session.id } });
+    } finally { runs.dispose(); }
+  });
+
+  it('已采用补充不构成后续 running 中断的恢复证据', async () => {
+    const original = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原任务' }] };
+    await repos.skillRuns.input(run.id, original, true, run.session_id);
+    const requestId = 'resume-evidence';
+    await repos.runControls.prepareResume({ runId: run.id, requestId, hash: 'resume-evidence', message: { content: [{ type: 'text', text: '已采用补充' }] }, change: () => {} });
+    expect(await repos.runControls.claimResume(requestId, 8)).toBe(true);
+    expect(await repos.runControls.submitted(requestId, 'native-resume')).toBe(true);
+    const resume = (await repos.runControls.resumes(run.id))[0];
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'user/message', data: { id: 'native-resume', role: 'user', source: { kind: 'user', rpcId: requestId }, content: resume.message.content } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+      { type: 'turn/start', data: { turn: 2 } },
+      { type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [original] } },
+      { type: 'assistant/attempt', data: { turn: 2, error: { message: '后续执行中断' } } },
+    ] };
+    const host = { sessions: { get: () => session, flush: async () => true }, subagents: { listDescendants: async () => [] }, get: () => null };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    let submissions = 0;
+    runs.host.resumePending = async () => { submissions++; };
+    try {
+      await runs.recover();
       expect((await repos.skillRuns.get(run.id)).status).toBe('needs_reconciliation');
       expect(submissions).toBe(0);
     } finally { runs.dispose(); }
@@ -438,6 +493,34 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     expect(followed).toBe(0);
     events.push({ type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [message] } });
     expect(canceledInputIds(session).has(message.id)).toBe(true);
+  });
+  it('历史读取只回退已注销会话，持久化失败和存活会话错误仍上抛', async () => {
+    const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [{ type: 'turn/start', data: { turn: 1 } }] };
+    const durable = [{ type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } }];
+    let current = session, failure, reads = 0, closes = 0;
+    const host = new SkillRunHost({
+      sessions: {
+        get: () => current,
+        flush: async () => {
+          await Promise.resolve();
+          if (failure) throw failure;
+          return true;
+        },
+      },
+      get: () => ({ open: async () => ({ header: { ...session.header, id: session.id }, inheritedEventCount: 0,
+        read: async () => { reads++; return { events: durable }; }, close: async () => { closes++; } }) }),
+    });
+    failure = new Error(`session "${session.id}" is not live in this store`);
+    const reading = host.history(run);
+    current = undefined;
+    await expect(reading).resolves.toMatchObject({ id: session.id, header: session.header });
+    expect((await host.history(run)).ownEvents()).toEqual(durable);
+    expect(reads).toBe(2); expect(closes).toBe(2);
+    current = session;
+    await expect(host.history(run)).rejects.toThrow('not live');
+    failure = new Error('durable write failed');
+    await expect(host.history(run)).rejects.toThrow('durable write failed');
+    expect(reads).toBe(2); expect(closes).toBe(2);
   });
   it('上下文去重和外来输入移除不取消运行；只识别原输入与登记补充', async () => {
     const context = { id: 'context', content: [{ type: 'text', text: 'AGENTS.md' }], source: { kind: 'agent-instructions' } };

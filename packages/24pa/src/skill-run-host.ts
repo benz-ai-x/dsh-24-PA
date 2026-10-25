@@ -266,10 +266,11 @@ export class SkillRunHost {
     if (live) {
       try { await this.checkpoint(live); const events = live.ownEvents().slice(); return { id: live.id, header: live.header, ownEvents: () => events }; }
       catch (error) {
-        // A child can leave its live scope during this await. Only that
-        // closed-handle race falls back to the durable file; other flush
-        // failures remain failures, never evidence of completion.
-        if (!(error instanceof Error) || error.name !== 'SessionHandleClosedError') throw error;
+        // Closing a retired session's write handle drains its durable log.
+        // Never reuse its older memory snapshot or suppress another failure.
+        const retired = error instanceof Error && error.message === `session "${sessionId}" is not live in this store`
+          && this.ctx.sessions.get?.(sessionId) !== live;
+        if (!(error instanceof Error) || (error.name !== 'SessionHandleClosedError' && !retired)) throw error;
       }
     }
     const store = this.ctx.get('sessionPersistence') as { open(id: string, mode: 'read'): Promise<{ header: SessionHeader & { id: string }; inheritedEventCount: number; read(start: number): Promise<{ events: SessionEvent[] }>; close(): Promise<void> }> } | null;
