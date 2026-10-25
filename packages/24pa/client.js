@@ -2151,6 +2151,7 @@ window.__ModuleLoader__.load({
           const selectSkill = id => { setSelected(id); setVersion(''); setConfirmed(false); setDownloadError(''); };
           const typeLabel = type => ({ task: L('智能任务', 'Agent task'), template: L('确定性模板', 'Template'), persona: L('职责', 'Persona'), setup: L('接入向导', 'Setup guide') }[type] || L('待核验', 'Unverified'));
           const sourceLabel = value => value === 'builtin' ? L('内置原件', 'Built-in original') : value === 'managed' ? L('受管 Skill', 'Managed skill') : L('工作区文件', 'Workspace file');
+          const managedStatusLabels = { draft: L('草稿', 'Draft'), enabled: L('已启用', 'Enabled'), disabled: L('已禁用', 'Disabled'), deleted: L('已删除', 'Deleted') };
           const data = detail.id === selected && detail.status === 'ready' ? detail.data : null;
           const download = async (full = false) => {
             if (!data) return;
@@ -2247,7 +2248,7 @@ window.__ModuleLoader__.load({
                   h('span', { className: 'pa24-skill-row-head' },
                     h('span', { className: 'pa24-skill-row-title' }, h('strong', { title: entry.name }, entry.name), entry.internalName && entry.internalName !== entry.name && h('span', { className: 'pa24-skill-row-id', title: entry.internalName }, entry.internalName)),
                     h('span', { className: 'pa24-skill-row-tags' }, h('span', { className: 'pa24-skill-tag' }, sourceLabel(entry.source)), entry.managedStatus && entry.managedStatus !== 'enabled'
-                      ? h('span', { className: 'pa24-skill-tag' }, ({ draft: L('草稿', 'Draft'), disabled: L('已禁用', 'Disabled'), deleted: L('已删除', 'Deleted') })[entry.managedStatus] || entry.managedStatus)
+                      ? h('span', { className: 'pa24-skill-tag' }, managedStatusLabels[entry.managedStatus] || entry.managedStatus)
                       : entry.type && h('span', { className: 'pa24-skill-tag' }, typeLabel(entry.type)))),
                   h('span', { className: 'pa24-skill-row-desc' }, entry.description || L('尚无说明', 'No description')),
                   entry.status === 'error' && h('span', { className: 'pa24-skill-row-error' }, entry.error || L('待修正', 'Needs correction'))))),
@@ -2286,7 +2287,7 @@ window.__ModuleLoader__.load({
                         data.entry && h(SkillRunControls, { key: data.id + ':' + data.versionId, data, binding })),
                       tab === 'versions' && (data.entry ? h('section', { className: 'pa24-note' },
                         h('h4', null, L('版本与草稿', 'Versions and draft')),
-                        fields([[L('状态', 'Status'), ({ draft: L('草稿', 'Draft'), enabled: L('已启用', 'Enabled'), disabled: L('已禁用', 'Disabled'), deleted: L('已删除', 'Deleted') })[data.entry.status] || data.entry.status], [L('修订', 'Revision'), String(data.entry.revision)], [L('当前启用版本', 'Published version'), data.entry.active_version || L('尚未启用', 'Unpublished')]]),
+                        fields([[L('状态', 'Status'), managedStatusLabels[data.entry.status] || data.entry.status], [L('修订', 'Revision'), String(data.entry.revision)], [L('当前启用版本', 'Published version'), data.entry.active_version || L('尚未启用', 'Unpublished')]]),
                         h('label', { className: 'pa24-field' }, L('查看版本', 'View version'), h('select', { value: version || data.entry.draft_version, onChange: event => { setVersion(event.target.value); setConfirmed(false); } },
                           data.versions.map(row => h('option', { key: row.id, value: row.id }, row.id.slice(0, 8) + ' · ' + (row.validation_error ? L('待修正', 'Invalid') : L('已保存', 'Saved')))))),
                         h('div', { className: 'pa24-row' },

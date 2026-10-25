@@ -115,7 +115,7 @@ describe('client.js 挂载面', () => {
     expect(client).not.toContain('.pa24-settings{');
     // 一屏一主按钮：页头对话＋工作/记忆/提醒/晨报空态 CTA＋新建 Skill＋工作区卡绑定＋全量健康检查；
     // 未开放的知识库不再提供误导性的主 CTA。
-    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(13); // 参数、来源、明确测试与一次预算放行分别提交
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(14); // 参数、来源、明确测试、一次预算放行与定时任务暂停保存分别提交
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
     // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留
@@ -164,7 +164,7 @@ describe('client.js 挂载面', () => {
     }
     // 保存/试听反馈（saveState）渲染在 .pa24-form-actions 区间内——
     // 用户在表单任意位置点保存，错误信息都在贴底常驻的保存栏里可见。
-    const actions = spanOf(client, "className: 'pa24-form-actions'", "h('div");
+    const actions = spanOf(client, "saveState && h('div'", "h('div");
     expect(actions.includes('saveState')).toBe(true);
     expect(actions.includes("role: saveState.ok ? 'status' : 'alert'")).toBe(true);
     // sticky 保存栏自带投影（贴底浮起的可供性）

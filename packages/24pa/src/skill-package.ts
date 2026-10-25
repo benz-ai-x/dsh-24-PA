@@ -124,11 +124,11 @@ export function skillPackagePreview(pkg: SkillPackage, path: string) {
   const checked = validateSkillPackage(pkg), bytes = readSkillFile(checked, path);
   const file = checked.files.find(item => item.path === path)!;
   const base = { path: file.path, bytes: file.bytes, hash: file.hash };
-  const binary = () => ({ ...base, preview: { kind: 'binary' as const, content: null, truncated: false } });
-  if (bytes.includes(0)) return binary();
+  const withoutText = (kind: 'binary' | 'invalid-text') => ({ ...base, preview: { kind, content: null, truncated: false } });
+  if (bytes.includes(0)) return withoutText('binary');
   const decoder = new TextDecoder('utf-8', { fatal: true });
   try { decoder.decode(bytes); }
-  catch { return { ...base, preview: { kind: 'invalid-text' as const, content: null, truncated: false } }; }
+  catch { return withoutText('invalid-text'); }
   if (bytes.length <= SKILL_PACKAGE_PREVIEW_BYTES) return { ...base, preview: { kind: 'text' as const, content: bytes.toString('utf8'), truncated: false } };
   let end = SKILL_PACKAGE_PREVIEW_BYTES;
   for (;; end--) {
