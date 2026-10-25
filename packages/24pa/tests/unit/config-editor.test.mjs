@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG, CONFIG_FIELDS } from '../../lib/config.js';
 import { readWorkspaceConfiguration, writeWorkspaceConfiguration } from '../../lib/workspace-config.js';
 import { effectiveSources, sourceConfigurationFingerprint } from '../../lib/source-config.js';
 
-let React, createRoot, act, win, root, container, saved, requests, failSave, workspacePath, pendingSave, binding, pollSnapshots;
+let React, createRoot, act, win, root, container, saved, requests, failSave, workspacePath, pendingSave, binding, pollSnapshots, evidenceState;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 beforeAll(async () => {
   win = new Window({ url: 'http://localhost/' });
@@ -40,7 +40,7 @@ beforeEach(async () => {
     if (delay === 2500) pollSnapshots = callback;
     return setIntervalOriginal(callback, delay, ...args);
   });
-  binding = 'binding-a'; saved = structuredClone(DEFAULT_CONFIG); requests = []; failSave = false; pendingSave = Promise.resolve();
+  binding = 'binding-a'; saved = structuredClone(DEFAULT_CONFIG); requests = []; failSave = false; pendingSave = Promise.resolve(); evidenceState = 'applied';
   workspacePath = await mkdtemp(join(tmpdir(), 'pa24-config-editor-'));
   win.localStorage.clear();
   vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
@@ -59,7 +59,8 @@ beforeEach(async () => {
       if (saveFailure) return { ok: true, json: async () => ({ ok: false, error: { message: saveFailure.message } }) };
     }
     const sources = effectiveSources(saved);
-    const value = req.endpoint === 'sources' ? { config: sources, configHash: sourceConfigurationFingerprint(sources), legacy: saved.sources === null, entries: sources.entries, removed: [] }
+    const value = req.endpoint === 'sources' ? { workspaceBinding: binding, config: sources, configHash: sourceConfigurationFingerprint(sources), legacy: saved.sources === null, entries: sources.entries, removed: [] }
+      : req.endpoint === 'workspace.evidence' ? { state: evidenceState, savedHash: evidenceState === 'applied' ? 'same-version' : 'saved-version', activeHash: evidenceState === 'applied' ? 'same-version' : 'active-version', loadedAt: '2026-10-25T00:00:00Z', impacts: {} }
       : req.endpoint === 'snapshot' || req.endpoint === 'action' ? snapshot() : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : req.endpoint === 'digests' ? { plans: [], skills: [] } : {};
     return { ok: true, json: async () => ({ ok: true, value }) };
   }));
@@ -110,6 +111,18 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(saved.sources.entries.at(-1)).toMatchObject({ name: '项目日历', purpose: 'project', filter: 'involved', resourceId: 'project-calendar' });
     expect((await readWorkspaceConfiguration(workspacePath)).config.sources).toEqual(saved.sources);
   });
+  it('新增个人待办默认全部，五档默认角色可进入真实配置源', async () => {
+    await click(button('添加待办来源'));
+    const article = [...container.querySelectorAll('.pa24-sources article')].at(-1);
+    const control = name => [...article.querySelectorAll('label')].find(row => row.textContent.startsWith(name)).control;
+    expect(control('默认筛选').value).toBe('all');
+    expect([...control('默认筛选').options].map(row => row.value)).toEqual(['all', 'responsible', 'following', 'assigned', 'creator']);
+    await change(control('来源名称'), '个人待办');
+    await change(control('资源标识'), 'personal-todos');
+    await change(control('默认筛选'), 'creator');
+    await click(button('保存来源并重载'));
+    expect(saved.sources.entries.at(-1)).toMatchObject({ name: '个人待办', purpose: 'personal', filter: 'creator', resourceId: 'personal-todos' });
+  });
   it('来源发生并发修改时拒绝覆盖，保留当前草稿和磁盘另一方的修改', async () => {
     const article = container.querySelector('.pa24-sources article');
     await change([...article.querySelectorAll('label')].find(row => row.textContent.startsWith('来源名称')).control, '我的草稿');
@@ -118,6 +131,21 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(container.querySelector('.pa24-sources [role=alert]').textContent).toContain('来源配置已变更');
     expect(saved.sources.entries[0].name).toBe('其他会话修改');
     expect([...article.querySelectorAll('input')][0].value).toBe('我的草稿');
+  });
+  it('来源写后未生效保留草稿并显示 saved_not_applied 源文件与生效版本差异', async () => {
+    const article = container.querySelector('.pa24-sources article'), input = [...article.querySelectorAll('label')].find(row => row.textContent.startsWith('来源名称')).control;
+    await change(input, '尚未生效的草稿');
+    evidenceState = 'saved_not_applied';
+    const evidenceCalls = requests.filter(req => req.endpoint === 'workspace.evidence').length;
+    await click(button('保存来源并重载'));
+    const alert = container.querySelector('.pa24-sources [role=alert]');
+    expect(alert.textContent).toContain('saved_not_applied');
+    expect(alert.textContent).toContain('saved-version');
+    expect(alert.textContent).toContain('active-version');
+    expect(requests.filter(req => req.endpoint === 'workspace.evidence').length).toBeGreaterThan(evidenceCalls);
+    expect(input.value).toBe('尚未生效的草稿');
+    expect(button('保存来源并重载').disabled).toBe(false);
+    expect(container.querySelector('.pa24-sources').textContent).not.toContain('来源已保存并重载；新登记或变更的范围需要只读检查。');
   });
   it('移除全部登记同时清空默认目标，保存后不自动复活旧来源', async () => {
     await click(button('移除登记')); await click(button('移除登记'));

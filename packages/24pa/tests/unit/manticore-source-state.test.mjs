@@ -6,7 +6,7 @@ import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { DEFAULT_CONFIG, validateConfig } from '../../lib/config.js';
-import { effectiveSources, selectSource, validateSources } from '../../lib/source-config.js';
+import { effectiveSources, selectSource, sourceScopeFingerprint, validateSources } from '../../lib/source-config.js';
 import { SourceRegistry, unknownCapabilities } from '../../lib/source-registry.js';
 import { sourceObjectId } from '../../lib/repo/source-projection.js';
 import { SourceCalendar } from '../../lib/source-calendar.js';
@@ -52,6 +52,20 @@ describe('Manticore 来源配置与路由', () => {
     expect(() => validateSources({ ...c, entries: [entry('a', { verified: true })] })).toThrow(/未知字段/);
     expect(() => validateSources({ ...c, defaults: { calendar: 'missing', todo: null } })).toThrow(/已登记/);
     expect(validateConfig({ ...DEFAULT_CONFIG, sources: c }).sources).toEqual(c);
+  });
+  it('待办接受五档持久角色，日历仍只接受自身角色且显示角色不改范围指纹', () => {
+    const roles = ['all', 'responsible', 'following', 'assigned', 'creator'];
+    const fingerprints = roles.map(filter => {
+      const todo = entry('todo', { domain: 'todo', resourceKind: 'tasklist', filter });
+      const validated = validateSources({ version: 1, entries: [todo], defaults: { calendar: null, todo: 'todo' }, mappings: [], meetingDurationMinutes: null });
+      expect(validated.entries[0].filter).toBe(filter);
+      return sourceScopeFingerprint(validated.entries[0]);
+    });
+    expect(new Set(fingerprints).size).toBe(1);
+    for (const filter of roles.filter(role => !['all', 'involved'].includes(role))) {
+      expect(() => validateSources({ ...config(), entries: [entry('a', { filter })], mappings: [] })).toThrow(/filter/);
+    }
+    expect(validateSources({ ...config(), entries: [entry('a', { filter: 'involved' })], mappings: [] }).entries[0].filter).toBe('involved');
   });
 });
 

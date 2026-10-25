@@ -91,7 +91,7 @@ export class SourceTodo {
       const cache = await this.deps.projection().cached(scope, query), observation = cache.observation;
       const current = effectiveSources(this.deps.config()).entries.find(row => row.id === source.id);
       if (!current || sourceScopeFingerprint(current) !== scope.scopeHash) throw new Error('查询期间来源配置已改变，请重新查询。');
-      const filter = role ?? (source.filter === 'responsible' ? 'responsible' : 'all');
+      const filter = role ?? source.filter as TodoRole;
       let unknownRoles = 0, matching = 0;
       const rows = cache.items.map(row => {
         const assigned = relations.some(operation => {
@@ -140,20 +140,23 @@ export class SourceTodo {
           && receipt.objectId === objectId && isDeepStrictEqual(receipt.sourceTarget, target);
       }).map(operation => operation.work_item_id);
       return { ...row.body, objectId, guid: row.native_id, channel: row.platform, summary: String(row.body.summary ?? ''),
-        status: String(row.body.status), description: String(row.body.description ?? ''), dueAt: row.body.dueAt ?? null, dueDate: row.body.dueDate ?? null, bucket: bucket(row.body), locations, stale,
+        status: String(row.body.status), description: String(row.body.description ?? ''), assignees: (row.body.assignees ?? []) as any[], dueAt: row.body.dueAt ?? null, dueDate: row.body.dueDate ?? null, bucket: bucket(row.body), locations, stale,
         checkedAt: row.observed_at.toISOString(), url: locations.find(location => location.locator.url)?.locator.url ?? null,
         workItemIds: [...new Set([...links.map(task => task.work_item_id), ...relatedWork].filter(Boolean))], taskId: links.length === 1 ? links[0]!.id : null,
         plannedAt: links.length === 1 ? links[0]!.planned_at?.toISOString() ?? null : null, estimateMinutes: links.length === 1 ? links[0]!.estimate_minutes : null };
     }).filter(row => (projectTasks === null || projectTasks.some(task => localObjects.get(task.id) === row.objectId))
       && (status === 'all' || row.status === status) && (deadline === 'all' || row.bucket === deadline)
-      && (!search || `${row.summary}\n${row.description ?? ''}`.toLowerCase().includes(search)));
+      && (!search || [row.summary, row.description,
+        ...row.assignees.flatMap((person: any) => [person.name, person.id]),
+        ...row.locations.flatMap((location: any) => [location.sourceName, location.sourceId, location.platform]),
+      ].filter(Boolean).join('\n').toLowerCase().includes(search)));
     const weight = { overdue: 0, today: 1, upcoming: 2, undated: 3 };
     all.sort((a, b) => weight[a.bucket as keyof typeof weight] - weight[b.bucket as keyof typeof weight]
       || String(a.dueAt ?? a.dueDate ?? '').localeCompare(String(b.dueAt ?? b.dueDate ?? '')) || a.objectId.localeCompare(b.objectId));
     const enabled = sources.filter(source => source.state !== 'disabled');
     const complete = enabled.length > 0 && enabled.every(source => source.state === 'complete'), fresh = complete && enabled.every(source => source.fresh);
     const counts = { open: all.filter(row => row.status === 'open').length, overdue: all.filter(row => row.status === 'open' && row.bucket === 'overdue').length,
-      today: all.filter(row => row.status === 'open' && ((row.dueDate === today.date) || (row.dueAt && Date.parse(String(row.dueAt)) >= today.from.getTime() && Date.parse(String(row.dueAt)) < today.to.getTime()))).length,
+      today: all.filter(row => row.status === 'open' && row.bucket === 'today').length,
       undated: all.filter(row => row.status === 'open' && row.bucket === 'undated').length };
     return { sources, complete, fresh, counts, count: all.length, total: complete ? all.length : null, offset, limit, hasMore: paginate && offset + limit < all.length,
       tasks: paginate ? all.slice(offset, offset + limit) : all,

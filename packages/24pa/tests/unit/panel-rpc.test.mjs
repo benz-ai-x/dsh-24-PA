@@ -2,7 +2,7 @@
 // tests hit the same interface the browser does (replace the old tautology
 // guard that only checked the table contains its own strings).
 import { describe, expect, it } from 'vitest';
-import { PANEL_RPC, action } from '../../lib/panel.js';
+import { PANEL_RPC, action, registerPanel } from '../../lib/panel.js';
 
 const fakeRuntime = overrides => ({
   reloadWorkspace: async () => ({}),
@@ -45,5 +45,18 @@ describe('面板动作注册表（arch-2 seam 直测）', () => {
     const rt = fakeRuntime({ digestRunNow: async planId => { calls.push(planId); return {}; } });
     await action(rt, { type: PANEL_RPC.actions.digestRunNow });
     expect(calls).toEqual(['']);
+  });
+
+  it('sources RPC 传递 workspaceBinding 并返回同一绑定', async () => {
+    let route, received;
+    const runtime = {
+      inspectWorkspace: async work => work(),
+      sourcesSnapshot: async payload => { received = payload; return { workspaceBinding: payload.workspaceBinding, entries: [] }; },
+    };
+    registerPanel({ effect: setup => setup(), connection: { fetch: { register: value => { route = value; } } } }, runtime);
+    const response = await route.fetch(new Request('http://localhost/api/24pa', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: PANEL_RPC.endpoints.sources, payload: { workspaceBinding: 'binding-a' } }) }));
+    expect(received).toEqual({ workspaceBinding: 'binding-a' });
+    expect(await response.json()).toEqual({ ok: true, value: { workspaceBinding: 'binding-a', entries: [] } });
   });
 });

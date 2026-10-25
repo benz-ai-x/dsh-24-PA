@@ -12,6 +12,7 @@ import { SourceTodo } from '../../lib/source-todo.js';
 import { SourceTodoWrites } from '../../lib/source-todo-writes.js';
 import { ExternalOperations } from '../../lib/external-operations.js';
 import { startPgCluster } from '../helpers/pg.mjs';
+import { localDay } from '../../lib/calendar-time.js';
 
 const source = (id, patch = {}) => ({ id, domain: 'todo', platform: 'feishu', name: id, purpose: 'personal', ownerId: 'owner', resourceKind: 'tasklist', resourceId: id, filter: 'all', access: 'readwrite', enabled: true, ...patch });
 const registration = () => ({ version: 1, entries: [source('a'), source('b', { purpose: 'project', filter: 'responsible' })], defaults: { todo: 'a', calendar: null }, mappings: [{ domain: 'todo', kind: 'project', name: '项目', sourceId: 'b' }], meetingDurationMinutes: null });
@@ -127,6 +128,57 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     expect((await service.query({ sourceId: 'b' }, false)).tasks.map(row => row.guid)).toEqual(['a-responsible']);
     expect(config.sources.entries[1].filter).toBe('responsible');
   });
+  it('五档默认角色逐来源生效，明确角色只覆盖本次且缓存重筛不访问平台', async () => {
+    remote.set('role-responsible', native('role-responsible', ['b']));
+    remote.set('role-following', native('role-following', ['b'], { creator: { id: 'other', type: 'user' }, members: [{ id: 'other', type: 'user', role: 'assignee' }, { id: 'owner', type: 'user', role: 'follower' }] }));
+    remote.set('role-creator', native('role-creator', ['b'], { members: [{ id: 'other', type: 'user', role: 'assignee' }] }));
+    const assigned = await writes.write(work, 'create', { summary: '明确交办', sourceId: 'b', assigneeIds: ['other'], instruction: '将此待办分派给 other' });
+    await service.query({ sourceId: 'b', role: 'all' });
+    const platformCalls = calls.length, guids = result => result.tasks.map(row => row.guid).sort();
+    const expected = {
+      all: ['role-responsible', 'role-following', 'role-creator', assigned.guid],
+      responsible: ['role-responsible'], following: ['role-following'], assigned: [assigned.guid],
+      creator: ['role-responsible', 'role-creator', assigned.guid],
+    };
+    for (const [role, ids] of Object.entries(expected)) {
+      config.sources.entries[1].filter = role; await registry.synchronize();
+      const result = await service.query({ sourceId: 'b' }, false);
+      expect(result.sources[0].filter).toBe(role);
+      expect(guids(result)).toEqual(ids.sort());
+      if (role === 'assigned') expect(result.sources[0].state).toBe('partial');
+    }
+    config.sources.entries[1].filter = 'responsible'; await registry.synchronize();
+    expect(guids(await service.query({ sourceId: 'b', role: 'following' }, false))).toEqual(['role-following']);
+    expect(config.sources.entries[1].filter).toBe('responsible');
+    expect(guids(await service.query({ sourceId: 'b' }, false))).toEqual(['role-responsible']);
+    expect(calls).toHaveLength(platformCalls);
+  });
+  it('缓存搜索覆盖标题、负责人和来源，重筛不访问平台', async () => {
+    config.sources.entries[1].name = '项目清单';
+    remote.set('needle', native('needle', ['b'], { summary: '其他', members: [{ id: 'owner', name: '张三', type: 'user', role: 'assignee' }] }));
+    remote.set('other', native('other', ['b'], { summary: '无关' }));
+    await service.query({ sourceId: 'b', role: 'all' });
+    const before = calls.length;
+    for (const [query, expected] of Object.entries({ 张三: ['needle'], 项目清单: ['needle', 'other'], 其他: ['needle'] })) {
+      expect((await service.query({ sourceId: 'b', role: 'all', query }, false)).tasks.map(row => row.guid).sort()).toEqual(expected.sort());
+    }
+    expect((await service.query({ sourceId: 'b', role: 'all', query: '没有匹配' }, false)).tasks).toEqual([]);
+    expect(calls).toHaveLength(before);
+  });
+  it('逾期、今日、以后和无截止按业务优先级排序，完整计数先于分页', async () => {
+    const today = localDay(new Date(), config.timeZone);
+    remote.set('overdue', native('overdue', ['a'], { due: { is_all_day: false, timestamp: String(Date.parse('2020-01-01T00:00:00Z')) } }));
+    remote.set('overdue-today', native('overdue-today', ['a'], { due: { is_all_day: false, timestamp: String(Math.max(today.from.getTime(), Date.now() - 60_000)) } }));
+    remote.set('today', native('today', ['a'], { due: { is_all_day: true, timestamp: String(Date.parse(today.date + 'T00:00:00Z')) } }));
+    remote.set('upcoming', native('upcoming', ['a'], { due: { is_all_day: true, timestamp: String(Date.parse('2099-01-01T00:00:00Z')) } }));
+    remote.set('undated', native('undated', ['a']));
+    const page = await service.query({ sourceId: 'a', limit: 1 });
+    expect(page.count).toBe(5); expect(page.total).toBe(5); expect(page.tasks).toHaveLength(1); expect(page.tasks[0].guid).toBe('overdue');
+    expect(page.counts).toMatchObject({ open: 5, overdue: 2, today: 1, undated: 1 });
+    const all = await service.query({ sourceId: 'a' }, false);
+    expect(all.tasks.map(row => row.guid)).toEqual(['overdue', 'overdue-today', 'today', 'upcoming', 'undated']);
+    expect((await service.query({ sourceId: 'a', deadline: 'undated' }, false)).tasks.map(row => row.guid)).toEqual(['undated']);
+  });
   it('同对象多清单合并保留关系，同名不合并；列表失败保留缓存且不报全量', async () => {
     remote.set('one', native('one', ['a', 'b'])); remote.set('two', native('two', ['a'], { summary: 'one' }));
     const initial = await service.query({}); expect(initial.total).toBe(2); expect(initial.tasks.find(row => row.guid === 'one').locations).toHaveLength(2);
@@ -184,8 +236,11 @@ for (const backend of ['sqlite', 'postgres']) describe(`M04 待办全流程 (${b
     const result = await writes.write(work, 'complete', { guid: 'shared', effect: 'whole' }); expect(result.status).toBe('completed'); expect(calls.some(args => args[2] === 'delete')).toBe(false);
     const deleted = await writes.write(work, 'cancel', { guid: 'shared', reason: '本人取消', effect: 'whole' }); expect(deleted.status).toBe('canceled'); expect(remote.size).toBe(0);
   });
-  it('冻结计划目标不受默认变化影响，已移除/只读来源阻断未发送操作', async () => {
-    const frozen = await writes.target({}); config.sources.defaults.todo = 'b'; await registry.synchronize();
+  it('冻结计划目标不受默认或显示角色变化影响，已移除/只读来源阻断未发送操作', async () => {
+    const frozen = await writes.target({});
+    config.sources.defaults.todo = 'b'; config.sources.entries[0].filter = 'following'; await registry.synchronize();
+    expect((await registry.list()).entries.find(row => row.id === 'a').status).toBe('verified');
+    await writes.checkAction(frozen, 'task_create', {});
     const result = await writes.write(work, 'create', { summary: '固定来源', _sourceTarget: frozen }); expect(result.sourceId).toBe('a');
     config.sources.entries[0].access = 'read'; await registry.synchronize();
     await expect(writes.checkAction(frozen, 'task_create', {})).rejects.toThrow(/变更/);

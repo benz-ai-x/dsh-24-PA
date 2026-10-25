@@ -150,7 +150,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.workerRun) return respond({ ok: true, value: await runtime.workerRuns.inspect(payload) });
             if (endpoint === E.workInspect) return respond({ ok: true, value: await runtime.runHistory.work(payload) });
             if (endpoint === E.planRunPreview) return respond({ ok: true, value: await runtime.planEngine.previewRun(payload) });
-            if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot() });
+            if (endpoint === E.sources) return respond({ ok: true, value: await runtime.sourcesSnapshot(payload) });
             if (endpoint === E.calendar) return respond({ ok: true, value: await runtime.calendarSnapshot(payload) });
             if (endpoint === E.todos) return respond({ ok: true, value: await runtime.todoSnapshot(payload) });
             if (endpoint === E.snapshot) return respond({ ok: true, value: await snapshot(runtime) });

@@ -490,9 +490,10 @@ export class PaRuntime {
     });
   }
 
-  async sourcesSnapshot(): Promise<unknown> {
+  async sourcesSnapshot(input: Record<string, unknown> = {}): Promise<unknown> {
     if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
-    return { ...await this.sourceRegistry.list(), configHash: sourceConfigurationFingerprint(effectiveSources(this.config)) };
+    if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
+    return { ...await this.sourceRegistry.list(), configHash: sourceConfigurationFingerprint(effectiveSources(this.config)), workspaceBinding: this.workspaceBinding };
   }
 
   private calendarPanelRange(input: Record<string, unknown>): Record<string, unknown> {
