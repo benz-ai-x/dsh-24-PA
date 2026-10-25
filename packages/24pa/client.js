@@ -2048,7 +2048,7 @@ window.__ModuleLoader__.load({
               ...(data.versionId ? { versionId: data.versionId } : {}), path: selectedPath }, abort.signal).then(value => {
               if (epoch !== previewEpoch.current || abort.signal.aborted) return;
               if (!matchesSnapshot(value, packageData.packageHash) || value.packageBytes !== packageData.bytes || value.path !== selectedPath
-                || value.bytes !== expected.bytes || value.hash !== expected.hash || !value.preview || !['text', 'binary'].includes(value.preview.kind)
+                || value.bytes !== expected.bytes || value.hash !== expected.hash || !value.preview || !['text', 'binary', 'invalid-text'].includes(value.preview.kind)
                 || typeof value.preview.truncated !== 'boolean' || (value.preview.kind === 'text' ? typeof value.preview.content !== 'string' : value.preview.content !== null)) {
                 throw new Error(L('文件与包清单不属于同一快照，请重新读取。', 'The file and manifest do not belong to the same snapshot. Read them again.'));
               }
@@ -2106,6 +2106,7 @@ window.__ModuleLoader__.load({
                   preview.status === 'loading' && preview.key === previewKey && h('p', { role: 'status' }, L('正在读取文件预览…', 'Reading file preview…')),
                   preview.status === 'error' && preview.key === previewKey && h('div', { role: 'alert', className: 'pa24-error' }, h('p', null, preview.error), h('button', { type: 'button', onClick: () => setPreviewTick(value => value + 1) }, L('重试', 'Retry'))),
                   currentPreview?.preview.kind === 'binary' && h('p', { role: 'status', className: 'pa24-note' }, L('二进制文件，不返回正文预览。可经既有完整 ZIP 下载取得；不会解析或执行。', 'Binary file: no inline content is returned. Use the existing full ZIP download; nothing is parsed or executed.')),
+                  currentPreview?.preview.kind === 'invalid-text' && h('p', { role: 'status', className: 'pa24-note' }, L('文本解码失败（不是有效 UTF-8）；不返回正文预览。可经既有完整 ZIP 下载核验；不会解析或执行。', 'Text decoding failed (not valid UTF-8). No inline preview. Use the existing full ZIP to inspect; nothing is parsed or executed.')),
                   currentPreview?.preview.kind === 'text' && h(React.Fragment, null,
                     currentPreview.preview.truncated && h('p', { role: 'status', className: 'pa24-note' }, L('仅显示前 256 KiB；完整内容请经既有完整 ZIP 下载取得。', 'Only the first 256 KiB is shown. Use the existing full ZIP download for complete content.')),
                     currentPreview.bytes === 0 && h('p', { role: 'status', className: 'pa24-meta' }, L('空文件 · 0 B', 'Empty file · 0 B')),

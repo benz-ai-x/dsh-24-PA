@@ -80,11 +80,12 @@ describe('Skill 包边界', () => {
     expect(() => skillPackageManifest({ ...pkg, hash: '0'.repeat(64) })).toThrow(/指纹/);
   });
 
-  it('NUL 与非法 UTF-8 是二进制且不返正文，超过 256 KiB 的合法文本按字符边界截断', () => {
+  it('NUL 为二进制、非法 UTF-8 为解码失败，超过 256 KiB 的合法文本按字符边界截断', () => {
     const long = Buffer.from('界'.repeat(Math.ceil(SKILL_PACKAGE_PREVIEW_BYTES / 3) + 2));
     const pkg = makeSkillPackage([file('SKILL.md', md), file('null-byte.bin', Buffer.concat([Buffer.from('text'), Buffer.from([0]), Buffer.from('more')])),
       file('invalid.bin', Buffer.from([0xe4, 0xb8])), file('late-invalid.bin', Buffer.concat([Buffer.alloc(SKILL_PACKAGE_PREVIEW_BYTES + 4, 97), Buffer.from([255])])), file('long.txt', long)]);
-    for (const path of ['null-byte.bin', 'invalid.bin', 'late-invalid.bin']) expect(skillPackagePreview(pkg, path).preview).toEqual({ kind: 'binary', content: null, truncated: false });
+    expect(skillPackagePreview(pkg, 'null-byte.bin').preview).toEqual({ kind: 'binary', content: null, truncated: false });
+    for (const path of ['invalid.bin', 'late-invalid.bin']) expect(skillPackagePreview(pkg, path).preview).toEqual({ kind: 'invalid-text', content: null, truncated: false });
     const preview = skillPackagePreview(pkg, 'long.txt');
     expect(preview.bytes).toBe(long.length); expect(preview.preview.kind).toBe('text'); expect(preview.preview.truncated).toBe(true);
     expect(Buffer.byteLength(preview.preview.content)).toBeLessThanOrEqual(SKILL_PACKAGE_PREVIEW_BYTES);

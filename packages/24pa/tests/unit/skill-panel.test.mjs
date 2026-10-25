@@ -192,6 +192,21 @@ describe('Skill 管理面板的用户操作', () => {
     expect(requests.some(req => req.endpoint === 'action')).toBe(false);
   });
 
+  it('UTF-8 解码失败与二进制分别提示，均不返正文', async () => {
+    const pkg = makeSkillPackage([
+      { path: 'SKILL.md', bytes: Buffer.from('---\nname: my-skill\ndescription: 解码区分\n---\n只读预览') },
+      { path: 'assets/pixel.bin', bytes: Buffer.from([0, 255, 1]) },
+      { path: 'assets/invalid.txt', bytes: Buffer.from([0xc3, 0x28]) },
+    ]);
+    packageReply = req => packageValue(req, pkg);
+    await click(skillRow('内置原件')); await click(button('包内容'));
+    await click(fileButton('assets/pixel.bin'));
+    expect(container.querySelector('.pa24-package-preview').textContent).toContain('二进制文件');
+    await click(fileButton('assets/invalid.txt'));
+    expect(container.querySelector('.pa24-package-preview').textContent).toContain('文本解码失败（不是有效 UTF-8）');
+    expect(container.querySelector('.pa24-package-preview pre')).toBeNull();
+  });
+
   it('文件快速切换时 A 正文迟到不能覆盖 B', async () => {
     const pkg = browserPackage('默认指令'); let release;
     packageReply = req => req.payload.path === 'references/a.txt' ? new Promise(resolve => { release = () => resolve(packageValue(req, pkg)); }) : packageValue(req, pkg);

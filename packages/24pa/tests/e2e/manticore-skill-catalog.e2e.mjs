@@ -22,13 +22,14 @@ beforeAll(async () => {
   const exported = await manager.exportMarkdown(detail.id, detail.fingerprint, null);
   await writeFile(join(workspace, '.dsh/skills/roundtrip-skill.md'), exported.content);
   packageDir = join(workspace, '.dsh/skills/package-skill'); marker = join(root, 'python-executed.marker');
-  const markdown = '---\n' + JSON.stringify({ name: 'package-skill', description: '二十文件目录包', metadata: { track: 'agent', tools: [], pa24: {
+  const markdown = '---\n' + JSON.stringify({ name: 'package-skill', description: '多文件目录包', metadata: { track: 'agent', tools: [], pa24: {
     schemaVersion: 1, mode: 'local', parameters: {}, expectedResult: '只读验证', completionCriteria: '不产生副作用',
   } } }) + '\n---\n目录包正文';
   const files = [
     { path: 'SKILL.md', bytes: Buffer.from(markdown) },
     { path: 'scripts/never-execute.py', bytes: Buffer.from(`from pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('executed', encoding='utf-8')\n`) },
     { path: 'assets/pixel.bin', bytes: Buffer.from([0, 255, 1]) },
+    { path: 'assets/invalid.txt', bytes: Buffer.from([0xc3, 0x28]) },
     { path: 'empty.txt', bytes: Buffer.alloc(0) },
     { path: 'references/' + Array.from({ length: 8 }, (_, index) => 'level-' + index).join('/') + '/item.txt', bytes: Buffer.from('深层长路径资源') },
     { path: 'long.txt', bytes: Buffer.alloc(SKILL_PACKAGE_PREVIEW_BYTES + 20, 97) },
@@ -107,13 +108,15 @@ describe('M01a 真实 dsh Loader 与面板读取', () => {
     const projectInput = contentInput(projectDetail), projectManifest = await host.api('skills.package-content', projectInput);
     expect(projectManifest).toMatchObject({ source: 'project-dsh', snapshot: 'current-read', workspaceBinding: binding });
     expect(projectManifest.files.map(file => file.path)).toEqual(managedPackage.files.map(file => file.path));
-    expect(projectManifest.files).toHaveLength(20); expect(projectManifest.files.every(file => file.content === undefined)).toBe(true);
+    expect(projectManifest.files).toHaveLength(21); expect(projectManifest.files.every(file => file.content === undefined)).toBe(true);
     expect(JSON.stringify(projectManifest)).not.toContain(workspace); expect(projectManifest.resourceBase).toBeUndefined();
     const python = await host.api('skills.package-content', { ...projectInput, packageHash: projectManifest.packageHash, path: 'scripts/never-execute.py' });
     expect(python.preview.kind).toBe('text'); expect(python.preview.content).toContain('python-executed.marker');
     expect(python.hash).toBe(managedPackage.files.find(file => file.path === python.path).hash);
     const binary = await host.api('skills.package-content', { ...projectInput, packageHash: projectManifest.packageHash, path: 'assets/pixel.bin' });
     expect(binary.preview).toEqual({ kind: 'binary', content: null, truncated: false });
+    const invalid = await host.api('skills.package-content', { ...projectInput, packageHash: projectManifest.packageHash, path: 'assets/invalid.txt' });
+    expect(invalid.preview).toEqual({ kind: 'invalid-text', content: null, truncated: false });
     const long = await host.api('skills.package-content', { ...projectInput, packageHash: projectManifest.packageHash, path: 'long.txt' });
     expect(long.preview.kind).toBe('text'); expect(long.preview.truncated).toBe(true);
     expect(Buffer.byteLength(long.preview.content)).toBe(SKILL_PACKAGE_PREVIEW_BYTES);

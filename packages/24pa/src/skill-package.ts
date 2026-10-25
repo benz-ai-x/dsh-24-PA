@@ -128,7 +128,7 @@ export function skillPackagePreview(pkg: SkillPackage, path: string) {
   if (bytes.includes(0)) return binary();
   const decoder = new TextDecoder('utf-8', { fatal: true });
   try { decoder.decode(bytes); }
-  catch { return binary(); }
+  catch { return { ...base, preview: { kind: 'invalid-text' as const, content: null, truncated: false } }; }
   if (bytes.length <= SKILL_PACKAGE_PREVIEW_BYTES) return { ...base, preview: { kind: 'text' as const, content: bytes.toString('utf8'), truncated: false } };
   let end = SKILL_PACKAGE_PREVIEW_BYTES;
   for (;; end--) {
