@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { assertToolDeclaration } from './skills.js';
 import type { SkillDefinitionLike, SkillRegistryLike, SkillSummaryLike } from './skills.js';
-import { captureSkillDirectory, importSkillPackage, exportSkillPackage, parseSkillMarkdown, readSkillFile, type SkillPackage } from './skill-package.js';
+import { captureSkillDirectory, importSkillPackage, exportSkillPackage, parseSkillMarkdown, readSkillFile, skillPackageManifest, skillPackagePreview, type SkillPackage } from './skill-package.js';
 import type { SkillPackages } from './skill-packages.js';
 
 interface SkillManagementDeps {
@@ -34,8 +34,8 @@ const identity = (def: SkillSummaryLike | SkillDefinitionLike, source: Selection
   ? `builtin:${def.name}`
   : `project-dsh:${def.name}:${digest([def.provider ?? null, def.path ?? null, def.resourceBase ?? null])}`;
 
-/** Read-only management of the selected definition. Execution still uses
- * SkillCatalog's gate; this module never loads package resources or runs tools.
+/** Read-only management of selected definitions and packages. Execution still
+ * uses SkillCatalog's gate; package instructions and tools are never executed.
  * The caller holds the workspace read lease throughout each operation. */
 export class SkillManagement {
   constructor(private readonly deps: SkillManagementDeps) {}
@@ -92,6 +92,20 @@ export class SkillManagement {
     try { plans = (await this.deps.plans()).filter(plan => plan.skill === view.name).map(({ id, kind, status }) => ({ id, kind, status })); }
     catch (error) { plansError = message(error); }
     return { ...view, plans, plansError, workspaceBinding: context.binding };
+  }
+
+  async packageContent(input: Record<string, unknown>) {
+    if (typeof input.id === 'string' && input.id.startsWith('managed:') && this.deps.packages) return this.deps.packages.packageContent(input);
+    const context = this.context(input.workspaceBinding);
+    if (typeof input.id !== 'string' || typeof input.fingerprint !== 'string') throw new Error('Skill 包快照标识无效。');
+    if (Object.hasOwn(input, 'path') && typeof input.packageHash !== 'string') throw new Error('读取包文件必须携带清单中的完整包哈希。');
+    const pkg = await this.capture(input.id, input.fingerprint, context.binding);
+    if (input.packageHash !== undefined && input.packageHash !== pkg.hash) throw new Error('Skill 包或资源已变化，请重新读取清单。');
+    const base = { id: input.id, source: input.id.startsWith('builtin:') ? 'builtin' as const : 'project-dsh' as const,
+      snapshot: 'current-read' as const, fingerprint: input.fingerprint, packageHash: pkg.hash,
+      observedAt: new Date().toISOString(), workspaceBinding: context.binding };
+    if (Object.hasOwn(input, 'path')) return { ...base, packageBytes: pkg.bytes, ...skillPackagePreview(pkg, input.path as string) };
+    return { ...base, ...skillPackageManifest(pkg) };
   }
 
   async exportMarkdown(id: unknown, fingerprint: unknown, expectedBinding: unknown, versionId?: string) {

@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, chmod, symlink, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
-import { makeSkillPackage, parseSkillMarkdown, skillContract, skillParameters, importSkillPackage, exportSkillPackage, readSkillFile, captureSkillDirectory, intelligentSkillCopy } from '../../lib/skill-package.js';
+import { makeSkillPackage, parseSkillMarkdown, skillContract, skillParameters, importSkillPackage, exportSkillPackage, readSkillFile, captureSkillDirectory, intelligentSkillCopy, skillPackageManifest, skillPackagePreview, SKILL_PACKAGE_PREVIEW_BYTES } from '../../lib/skill-package.js';
 import { skillRequirements } from '../../lib/skill-requirements.js';
 
 const md = '---\nname: sample\ndescription: 样例\n---\n\n核实资料并生成结果。';
@@ -64,6 +64,35 @@ describe('Skill 包边界', () => {
     expect(restored).toEqual(pkg); expect(readSkillFile(restored, 'assets/pixel.bin')).toEqual(Buffer.from([0, 255, 127]));
     expect(await importSkillPackage('skill.md', Buffer.from(md))).toEqual(makeSkillPackage([file('SKILL.md', md)]));
   });
+
+  it('包清单只暴露真实路径、大小和 SHA-256，文本与空文件预览不携带 Base64', () => {
+    const pkg = makeSkillPackage([file('SKILL.md', md), file('references/中文.txt', '甲乙丙'), file('empty.txt', Buffer.alloc(0))]);
+    const manifest = skillPackageManifest(pkg);
+    expect(manifest.packageHash).toBe(pkg.hash);
+    expect(manifest.files.map(item => item.path)).toEqual(['empty.txt', 'references/中文.txt', 'SKILL.md']);
+    expect(manifest.files.every(item => item.content === undefined)).toBe(true);
+    expect(skillPackagePreview(pkg, 'references/中文.txt')).toMatchObject({ bytes: 9, preview: { kind: 'text', content: '甲乙丙', truncated: false } });
+    expect(skillPackagePreview(pkg, 'empty.txt')).toMatchObject({ hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', preview: { kind: 'text', content: '', truncated: false } });
+    expect(skillPackagePreview(pkg, 'SKILL.md').content).toBeUndefined();
+    for (const path of ['../outside', '/absolute', 'scripts\\escape', 'missing.txt']) expect(() => skillPackagePreview(pkg, path)).toThrow();
+    const changed = structuredClone(pkg); changed.files.find(item => item.path === 'references/中文.txt').content = Buffer.from('tampered').toString('base64');
+    expect(() => skillPackagePreview(changed, 'references/中文.txt')).toThrow(/校验|指纹/);
+    expect(() => skillPackageManifest({ ...pkg, hash: '0'.repeat(64) })).toThrow(/指纹/);
+  });
+
+  it('NUL 为二进制、非法 UTF-8 为解码失败，超过 256 KiB 的合法文本按字符边界截断', () => {
+    const long = Buffer.from('界'.repeat(Math.ceil(SKILL_PACKAGE_PREVIEW_BYTES / 3) + 2));
+    const pkg = makeSkillPackage([file('SKILL.md', md), file('null-byte.bin', Buffer.concat([Buffer.from('text'), Buffer.from([0]), Buffer.from('more')])),
+      file('invalid.bin', Buffer.from([0xe4, 0xb8])), file('late-invalid.bin', Buffer.concat([Buffer.alloc(SKILL_PACKAGE_PREVIEW_BYTES + 4, 97), Buffer.from([255])])), file('long.txt', long)]);
+    expect(skillPackagePreview(pkg, 'null-byte.bin').preview).toEqual({ kind: 'binary', content: null, truncated: false });
+    for (const path of ['invalid.bin', 'late-invalid.bin']) expect(skillPackagePreview(pkg, path).preview).toEqual({ kind: 'invalid-text', content: null, truncated: false });
+    const preview = skillPackagePreview(pkg, 'long.txt');
+    expect(preview.bytes).toBe(long.length); expect(preview.preview.kind).toBe('text'); expect(preview.preview.truncated).toBe(true);
+    expect(Buffer.byteLength(preview.preview.content)).toBeLessThanOrEqual(SKILL_PACKAGE_PREVIEW_BYTES);
+    expect(Buffer.byteLength(preview.preview.content)).toBeGreaterThanOrEqual(SKILL_PACKAGE_PREVIEW_BYTES - 2);
+    expect(preview.preview.content).not.toContain('�');
+  });
+
   it.each(['../outside', '/absolute', 'C:/absolute', 'scripts\\escape', 'references/AUX.txt', '.24pa/history.json', '.dsh/config.json', '.env.local', 'references/token.json', 'assets/key.pem'])('拒绝不可移植或敏感路径 %s', path => {
     expect(() => makeSkillPackage([file('SKILL.md', md), file(path)])).toThrow();
   });

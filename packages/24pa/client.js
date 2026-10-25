@@ -69,6 +69,7 @@ window.__ModuleLoader__.load({
       alert: ['m12 3 10 18H2ZM12 9v5m0 3v.1'],
       shield: ['m12 2 8 4v6c0 5-8 10-8 10S4 17 4 12V6Z', 'm8 11 3 3 5-5'],
       code: ['m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18'],
+      blocks: ['M4 4h6v6H4ZM14 4h6v6h-6ZM4 14h6v6H4ZM14 14h6v6h-6Z'],
       close: ['m6 6 12 12M6 18 18 6'],
       arrow: ['M4 12h16m-6-6 6 6-6 6'],
       chevron: ['m9 5 7 7-7 7'],
@@ -141,6 +142,7 @@ window.__ModuleLoader__.load({
       .pa24-chip.show{display:inline-flex}.pa24-chip.error{background:var(--pa-danger-bg);color:var(--pa-danger)}
       .pa24-detail-bar{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
       :is(.pa24-skills,.pa24-manager) label.pa24-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;max-width:100%;font-size:13px}:is(.pa24-skills,.pa24-manager) label.pa24-field:has(input[type=checkbox]){flex-direction:row;align-items:flex-start}:is(.pa24-skills,.pa24-manager) label.pa24-field input:not([type=checkbox]),:is(.pa24-skills,.pa24-manager) label.pa24-field textarea,:is(.pa24-skills,.pa24-manager) label.pa24-field select{width:100%;min-width:0;max-width:100%;padding:8px;border:1px solid var(--pa-line);border-radius:8px;background:var(--pa-soft);color:var(--pa-ink);font:inherit}:is(.pa24-skills,.pa24-manager) label.pa24-field textarea{resize:vertical}:is(.pa24-skills,.pa24-manager) label.pa24-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px;margin:2px 0;padding:0}:is(.pa24-skills,.pa24-manager) fieldset{min-width:0;border:1px solid var(--pa-line);border-radius:10px;padding:12px}:is(.pa24-skills,.pa24-manager) legend{font-size:12px;overflow-wrap:anywhere}
+      .pa24-skill-layout{display:grid;grid-template-columns:minmax(350px,380px) minmax(0,1fr);gap:16px;align-items:start}.pa24-skill-layout>.pa24-card{margin:0}.pa24-skill-catalog{min-width:0;padding:12px}.pa24-skill-detail{min-width:0;padding:18px}.pa24-skill-filters{display:grid;grid-template-columns:minmax(0,1fr) 124px;gap:8px;margin:12px 0}.pa24-skill-filters label{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:11px;color:var(--pa-muted)}.pa24-skill-filters input,.pa24-skill-filters select{min-height:36px;padding:6px 8px;font-size:12px}.pa24-skill-list{display:grid;grid-template-columns:minmax(0,1fr);gap:3px;max-height:calc(100vh - 280px);overflow:auto;padding:2px;margin-top:8px}.pa24 button.pa24-skill-row{display:block;width:100%;min-height:58px;padding:7px 9px;text-align:left;border-color:transparent;background:transparent;border-radius:9px}.pa24-skill-row[aria-pressed=true]{background:var(--pa-blue-bg);border-color:color-mix(in srgb,var(--pa-blue) 35%,var(--pa-line));box-shadow:inset 3px 0 0 var(--pa-blue)}.pa24-skill-row-head{display:flex;align-items:center;justify-content:space-between;gap:7px;min-width:0;max-width:100%;flex-wrap:wrap}.pa24-skill-row-title{display:flex;align-items:baseline;gap:6px;min-width:0;max-width:100%;flex:1 1 130px}.pa24-skill-row-title strong{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.pa24-skill-row-id{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--pa-muted);font:10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace}.pa24-skill-row-tags{display:flex;gap:4px;flex-shrink:0}.pa24-skill-tag{display:inline-block;padding:1px 5px;border-radius:5px;background:var(--pa-soft);color:var(--pa-muted);font-size:10px;line-height:1.6;white-space:nowrap}.pa24-skill-row-desc{display:block;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--pa-muted);font-size:11px}.pa24-skill-row-error{display:block;margin-top:3px;color:var(--pa-danger);font-size:11px;overflow-wrap:anywhere}.pa24-skill-pagination{justify-content:center;margin-top:10px}.pa24-skill-actions{margin:14px 0}.pa24-skill-tabs{margin-top:14px}.pa24-skill-detail .pa24-empty{padding:28px 12px}.pa24-package-browser{min-width:0}.pa24-package-summary{margin:10px 0 0;color:var(--pa-muted);font-size:12px}.pa24-package-layout{display:grid;grid-template-columns:minmax(160px,220px) minmax(0,1fr);margin-top:12px;overflow:hidden;border:1px solid var(--pa-line);border-radius:10px}.pa24-package-tree{min-width:0;max-height:460px;overflow:auto;padding:6px;border-right:1px solid var(--pa-line);background:var(--pa-soft)}.pa24-package-tree ul{margin:0;padding:0;list-style:none}.pa24-package-tree li{margin:1px 0}.pa24-package-tree li ul{margin-left:10px;padding-left:5px;border-left:1px solid var(--pa-line)}.pa24-package-tree button{justify-content:flex-start;width:100%;min-height:30px;padding:4px 6px;border-color:transparent;border-radius:6px;background:transparent;font-size:11px;white-space:nowrap}.pa24-package-tree button[aria-current=true]{background:var(--pa-blue-bg);color:var(--pa-blue)}.pa24-package-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pa24-package-chevron{transition:transform .14s}.pa24-package-folder[aria-expanded=true] .pa24-package-chevron{transform:rotate(90deg)}.pa24-package-preview{min-width:0;padding:12px}.pa24-package-file-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.pa24-package-file-head>div{min-width:0}.pa24-package-file-head>button{flex-shrink:0;min-height:30px;padding:4px 7px}.pa24-package-path{font:600 11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;word-break:break-all}.pa24-package-preview pre{max-height:360px;white-space:pre;overflow:auto}.pa24-package-browser>.pa24-meta{margin-top:10px}
       .pa24-materials{min-width:0;overflow-wrap:anywhere}.pa24-material-field{display:flex;flex-direction:column;gap:6px;margin:12px 0;min-width:0;font-size:13px}.pa24-material-field:has(input[type=checkbox]){flex-direction:row;align-items:center}.pa24-material-field input:not([type=checkbox]),.pa24-material-field textarea,.pa24-material-field select{width:100%;min-width:0;max-width:100%;box-sizing:border-box;background:var(--pa-soft);color:var(--pa-ink);border:1px solid var(--pa-line);border-radius:8px;padding:8px;font:inherit}.pa24-material-field input[type=checkbox]{flex:0 0 18px;width:18px;height:18px;min-height:18px}.pa24-material-text{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:13px;max-width:100%}.pa24-original{max-width:100%;height:auto;display:block;margin:12px auto}.pa24-material-compare{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:16px;margin-top:16px}.pa24-material-main{min-width:0}.pa24-materials fieldset{min-width:0;padding:12px;border:1px solid var(--pa-line);border-radius:8px;margin:12px 0}.pa24-materials button{white-space:normal}.pa24-materials>.pa24-section-head{flex-wrap:wrap}.pa24-materials>.pa24-section-head>button{flex-shrink:0;white-space:nowrap}.pa24-materials .pa24-note{white-space:pre-wrap}.pa24-materials .pa24-row{flex-wrap:wrap}@container(max-width:760px){.pa24-material-compare{display:block}.pa24-original-side{display:none}}
       .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
       .pa24-backups>.pa24-section-head{flex-wrap:wrap}.pa24-backups>.pa24-section-head>button{flex-shrink:0;white-space:nowrap}
@@ -2089,53 +2091,187 @@ window.__ModuleLoader__.load({
                   item.end_data?.producerReported === false && h('p', { role: 'alert' }, L('生产者未确认结束，需要核对实际状态。', 'The producer has not confirmed termination. Reconciliation is required.')))))));
         }
 
+        const validSkillHash = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+        const shortSkillHash = value => validSkillHash(value) ? value.slice(0, 12) + '…' : '';
+        const formatSkillBytes = bytes => bytes < 1024 ? bytes + ' B' : bytes < 1024 * 1024 ? (bytes / 1024).toFixed(1) + ' KiB' : (bytes / 1024 / 1024).toFixed(1) + ' MiB';
+        const skillPackageTree = files => {
+          const root = [];
+          for (const file of files) {
+            const parts = file.path.split('/');
+            let siblings = root, path = '';
+            for (let index = 0; index < parts.length; index++) {
+              const name = parts[index]; path = path ? path + '/' + name : name;
+              if (index === parts.length - 1) { siblings.push({ type: 'file', name, path, file }); break; }
+              let folder = siblings.find(node => node.type === 'folder' && node.path === path);
+              if (!folder) { folder = { type: 'folder', name, path, children: [] }; siblings.push(folder); }
+              siblings = folder.children;
+            }
+          }
+          const sort = nodes => {
+            nodes.sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name, 'en') : a.type === 'folder' ? -1 : 1);
+            for (const node of nodes) if (node.children) sort(node.children);
+            return nodes;
+          };
+          return sort(root);
+        };
+
+        function SkillPackageBrowser({ data, binding }) {
+          const snapshotKey = JSON.stringify([binding, data.id, data.versionId || null, data.fingerprint]);
+          const [manifest, setManifest] = React.useState({ status: 'loading', key: snapshotKey });
+          const [selectedPath, setSelectedPath] = React.useState(''), [preview, setPreview] = React.useState({ status: 'idle' });
+          const [collapsed, setCollapsed] = React.useState(new Set()), [reload, setReload] = React.useState(0), [previewTick, setPreviewTick] = React.useState(0);
+          const [copyStatus, setCopyStatus] = React.useState('');
+          const manifestEpoch = React.useRef(0), previewEpoch = React.useRef(0), treeRef = React.useRef(null);
+          const packageData = manifest.key === snapshotKey && manifest.status === 'ready' ? manifest.data : null;
+          const previewKey = JSON.stringify([snapshotKey, selectedPath]);
+          const currentPreview = preview.key === previewKey && preview.status === 'ready' ? preview.data : null;
+          const matchesSnapshot = (value, expectedHash) => !!value && value.id === data.id && value.workspaceBinding === binding
+            && value.source === data.source && value.snapshot === (data.source === 'managed' ? 'immutable-version' : 'current-read')
+            && value.fingerprint === data.fingerprint && (value.versionId || null) === (data.versionId || null)
+            && validSkillHash(value.packageHash) && (!expectedHash || value.packageHash === expectedHash);
+          React.useEffect(() => {
+            const abort = new AbortController(), epoch = ++manifestEpoch.current;
+            const expectedHash = data.packageHash || (manifest.key === snapshotKey ? manifest.data?.packageHash : undefined);
+            setManifest({ status: 'loading', key: snapshotKey }); setSelectedPath(''); setPreview({ status: 'idle' }); setCopyStatus(''); setCollapsed(new Set());
+            rpc('skills.package-content', { id: data.id, workspaceBinding: binding, fingerprint: data.fingerprint,
+              ...(data.versionId ? { versionId: data.versionId } : {}), ...(expectedHash ? { packageHash: expectedHash } : {}) }, abort.signal).then(value => {
+              if (epoch !== manifestEpoch.current || abort.signal.aborted) return;
+              if (!matchesSnapshot(value, expectedHash) || !Array.isArray(value.files) || !Number.isSafeInteger(value.bytes)
+                || value.files.some(file => typeof file.path !== 'string' || !Number.isSafeInteger(file.bytes) || !validSkillHash(file.hash))
+                || value.files.reduce((sum, file) => sum + file.bytes, 0) !== value.bytes) throw new Error(L('包清单快照无效，请重新读取。', 'The package manifest snapshot is invalid. Read it again.'));
+              setManifest({ status: 'ready', key: snapshotKey, data: value });
+              setSelectedPath(value.files.some(file => file.path === 'SKILL.md') ? 'SKILL.md' : value.files[0]?.path || '');
+            }).catch(error => { if (epoch === manifestEpoch.current && !abort.signal.aborted) setManifest({ status: 'error', key: snapshotKey, error: error.message }); });
+            return () => abort.abort();
+          }, [snapshotKey, reload]);
+          React.useEffect(() => {
+            const abort = new AbortController(), epoch = ++previewEpoch.current;
+            if (!packageData || !selectedPath) { setPreview({ status: 'idle', key: previewKey }); return () => abort.abort(); }
+            const expected = packageData.files.find(file => file.path === selectedPath);
+            if (!expected) { setPreview({ status: 'error', key: previewKey, error: L('所选文件不在当前包清单中。', 'The selected file is not in this package manifest.') }); return () => abort.abort(); }
+            setPreview({ status: 'loading', key: previewKey }); setCopyStatus('');
+            rpc('skills.package-content', { id: data.id, workspaceBinding: binding, fingerprint: data.fingerprint, packageHash: packageData.packageHash,
+              ...(data.versionId ? { versionId: data.versionId } : {}), path: selectedPath }, abort.signal).then(value => {
+              if (epoch !== previewEpoch.current || abort.signal.aborted) return;
+              if (!matchesSnapshot(value, packageData.packageHash) || value.packageBytes !== packageData.bytes || value.path !== selectedPath
+                || value.bytes !== expected.bytes || value.hash !== expected.hash || !value.preview || !['text', 'binary', 'invalid-text'].includes(value.preview.kind)
+                || typeof value.preview.truncated !== 'boolean' || (value.preview.kind === 'text' ? typeof value.preview.content !== 'string' : value.preview.content !== null)) {
+                throw new Error(L('文件与包清单不属于同一快照，请重新读取。', 'The file and manifest do not belong to the same snapshot. Read them again.'));
+              }
+              setPreview({ status: 'ready', key: previewKey, data: value });
+            }).catch(error => { if (epoch === previewEpoch.current && !abort.signal.aborted) setPreview({ status: 'error', key: previewKey, error: error.message }); });
+            return () => abort.abort();
+          }, [snapshotKey, packageData, selectedPath, previewTick]);
+          const toggleFolder = (path, expand) => setCollapsed(previous => {
+            const next = new Set(previous), shouldExpand = expand === undefined ? next.has(path) : expand;
+            if (shouldExpand) next.delete(path); else next.add(path);
+            return next;
+          });
+          const treeKeyDown = event => {
+            const current = event.target.closest('button');
+            if (current?.dataset.folderPath && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+              event.preventDefault(); toggleFolder(current.dataset.folderPath, event.key === 'ArrowRight'); return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            const buttons = [...treeRef.current.querySelectorAll('button')], index = buttons.indexOf(current);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : event.key === 'ArrowDown' ? Math.min(buttons.length - 1, index + 1) : Math.max(0, index - 1);
+            event.preventDefault(); buttons[next]?.focus();
+          };
+          const copyPath = async () => {
+            if (!selectedPath) return;
+            try { await navigator.clipboard.writeText(selectedPath); setCopyStatus(L('已复制包相对路径。', 'Package-relative path copied.')); }
+            catch { setCopyStatus(L('复制失败，请选中路径手工复制。', 'Copy failed. Select the path and copy it manually.')); }
+          };
+          const selectedFile = packageData?.files.find(file => file.path === selectedPath);
+          const renderNodes = nodes => h('ul', null, nodes.map(node => h('li', { key: node.path },
+            node.type === 'folder' ? [
+              h('button', { key: 'folder', type: 'button', className: 'pa24-package-folder', 'data-folder-path': node.path,
+                'aria-expanded': !collapsed.has(node.path), title: node.path, onClick: () => toggleFolder(node.path) },
+                icon('chevron', { className: 'pa24-package-chevron', width: 14, height: 14 }), icon('folder', { width: 14, height: 14 }), h('span', { className: 'pa24-package-name' }, node.name)),
+              !collapsed.has(node.path) && h(React.Fragment, { key: 'children' }, renderNodes(node.children)),
+            ] : h('button', { type: 'button', className: 'pa24-package-file', 'data-file-path': node.path,
+              'aria-current': selectedPath === node.path ? 'true' : undefined, title: node.path, onClick: () => setSelectedPath(node.path) },
+              icon('note', { width: 14, height: 14 }), h('span', { className: 'pa24-package-name' }, node.name)))));
+          return h('section', { className: 'pa24-package-browser', 'aria-label': L('Skill 包内容', 'Skill package content') },
+            h('div', { className: 'pa24-row pa24-between' }, h('h4', null, L('包内容 · 只读预览', 'Package content · read-only preview')),
+              h('button', { type: 'button', className: 'pa24-quiet', disabled: manifest.status === 'loading', onClick: () => setReload(value => value + 1) }, icon('refresh'), L('重新读取', 'Read again'))),
+            manifest.status === 'loading' && h('p', { role: 'status' }, L('正在读取包清单…', 'Reading package manifest…')),
+            manifest.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('p', null, manifest.error), h('button', { type: 'button', onClick: () => setReload(value => value + 1) }, L('读取当前快照', 'Read current snapshot'))),
+            packageData && h(React.Fragment, null,
+              h('p', { className: 'pa24-package-summary' }, packageData.files.length + L(' 个文件 · ', ' files · ') + formatSkillBytes(packageData.bytes) + ' · SHA-256 ' + shortSkillHash(packageData.packageHash)),
+              h('p', { className: 'pa24-meta', title: packageData.packageHash }, packageData.snapshot === 'immutable-version' ? L('不可变版本快照', 'Immutable version snapshot') : L('当前读取快照（非持久版本）', 'Current read snapshot (not a persistent version)'),
+                packageData.versionId ? ' · ' + packageData.versionId : '', ' · ' + packageData.observedAt),
+              h('div', { className: 'pa24-package-layout' },
+                h('div', { className: 'pa24-package-tree', ref: treeRef, 'aria-label': L('包目录树', 'Package directory tree'), onKeyDown: treeKeyDown }, renderNodes(skillPackageTree(packageData.files))),
+                h('div', { className: 'pa24-package-preview' },
+                  selectedFile && h(React.Fragment, null,
+                    h('div', { className: 'pa24-package-file-head' }, h('div', null, h('div', { className: 'pa24-package-path' }, selectedFile.path),
+                      h('p', { className: 'pa24-meta', title: selectedFile.hash }, formatSkillBytes(selectedFile.bytes) + ' · SHA-256 ' + shortSkillHash(selectedFile.hash))),
+                      h('button', { type: 'button', className: 'pa24-quiet', onClick: copyPath }, L('复制路径', 'Copy path'))),
+                    copyStatus && h('p', { role: 'status', className: 'pa24-meta' }, copyStatus)),
+                  preview.status === 'loading' && preview.key === previewKey && h('p', { role: 'status' }, L('正在读取文件预览…', 'Reading file preview…')),
+                  preview.status === 'error' && preview.key === previewKey && h('div', { role: 'alert', className: 'pa24-error' }, h('p', null, preview.error), h('button', { type: 'button', onClick: () => setPreviewTick(value => value + 1) }, L('重试', 'Retry'))),
+                  currentPreview?.preview.kind === 'binary' && h('p', { role: 'status', className: 'pa24-note' }, L('二进制文件，不返回正文预览。可经既有完整 ZIP 下载取得；不会解析或执行。', 'Binary file: no inline content is returned. Use the existing full ZIP download; nothing is parsed or executed.')),
+                  currentPreview?.preview.kind === 'invalid-text' && h('p', { role: 'status', className: 'pa24-note' }, L('文本解码失败（不是有效 UTF-8）；不返回正文预览。可经既有完整 ZIP 下载核验；不会解析或执行。', 'Text decoding failed (not valid UTF-8). No inline preview. Use the existing full ZIP to inspect; nothing is parsed or executed.')),
+                  currentPreview?.preview.kind === 'text' && h(React.Fragment, null,
+                    currentPreview.preview.truncated && h('p', { role: 'status', className: 'pa24-note' }, L('仅显示前 256 KiB；完整内容请经既有完整 ZIP 下载取得。', 'Only the first 256 KiB is shown. Use the existing full ZIP download for complete content.')),
+                    currentPreview.bytes === 0 && h('p', { role: 'status', className: 'pa24-meta' }, L('空文件 · 0 B', 'Empty file · 0 B')),
+                    h('pre', { className: 'pa24-json', tabIndex: 0, 'aria-label': selectedPath + L(' 正文', ' content') }, currentPreview.preview.content))))),
+            h('p', { className: 'pa24-meta' }, L('仅显示包相对路径。阅读清单或正文不会启动模型、执行脚本、安装依赖或写运行缓存。', 'Only package-relative paths are shown. Reading manifests or files does not start models, execute scripts, install dependencies, or write run caches.')));
+        }
+
         function SkillsDetail({ binding }) {
           const [catalog, setCatalog] = React.useState({ status: 'loading' });
           const [selected, setSelected] = React.useState(null), [detail, setDetail] = React.useState({ status: 'idle' });
           const [query, setQuery] = React.useState(''), [source, setSource] = React.useState('all'), [page, setPage] = React.useState(0);
           const [tick, setTick] = React.useState(0), [downloading, setDownloading] = React.useState(false), [downloadError, setDownloadError] = React.useState('');
           const [editor, setEditor] = React.useState(null), [busy, setBusy] = React.useState(false), [feedback, setFeedback] = React.useState('');
-          const [version, setVersion] = React.useState(''), [confirmed, setConfirmed] = React.useState(false);
-          const mutation = React.useRef(null);
+          const [version, setVersion] = React.useState(''), [confirmed, setConfirmed] = React.useState(false), [tab, setTab] = React.useState('overview');
+          const mutation = React.useRef(null), catalogEpoch = React.useRef(0), detailEpoch = React.useRef(0);
           const alive = React.useRef(true);
-          const detailTitle = React.useRef(null);
+          const detailTitle = React.useRef(null), importInput = React.useRef(null);
           React.useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-          React.useEffect(() => { setSelected(null); setEditor(null); setFeedback(''); mutation.current = null; }, [binding]);
-          React.useEffect(() => { setVersion(''); setConfirmed(false); }, [selected, tick]);
+          React.useEffect(() => { setSelected(null); setEditor(null); setFeedback(''); setVersion(''); setConfirmed(false); mutation.current = null; }, [binding]);
+          React.useEffect(() => { setVersion(''); setConfirmed(false); }, [tick]);
           React.useEffect(() => { if (detail.status === 'ready' && detail.id === selected) detailTitle.current?.focus(); }, [detail, selected]);
           React.useEffect(() => {
-            const abort = new AbortController();
-            setCatalog({ status: 'loading' }); setPage(0); setDownloadError('');
+            const abort = new AbortController(), epoch = ++catalogEpoch.current;
+            setCatalog(previous => ({ status: 'loading', data: previous.data?.workspaceBinding === binding ? previous.data : null })); setPage(0); setDownloadError('');
             rpc('skills.catalog', { workspaceBinding: binding }, abort.signal).then(data => {
-              if (!abort.signal.aborted && data.workspaceBinding === binding) setCatalog({ status: 'ready', data });
-            }).catch(error => { if (!abort.signal.aborted) setCatalog({ status: 'error', error: error.message }); });
+              if (epoch === catalogEpoch.current && !abort.signal.aborted && data.workspaceBinding === binding) setCatalog({ status: 'ready', data });
+            }).catch(error => {
+              if (epoch === catalogEpoch.current && !abort.signal.aborted) setCatalog(previous => ({ status: 'error', error: error.message, data: previous.data?.workspaceBinding === binding ? previous.data : null }));
+            });
             return () => abort.abort();
           }, [binding, tick]);
           React.useEffect(() => {
-            const abort = new AbortController();
+            const abort = new AbortController(), epoch = ++detailEpoch.current;
             setDownloadError('');
             if (!selected) { setDetail({ status: 'idle' }); return () => abort.abort(); }
             setDetail({ status: 'loading', id: selected });
-            rpc(version ? 'skills.version' : 'skills.inspect', { id: selected, versionId: version, workspaceBinding: binding }, abort.signal).then(data => {
-              if (!abort.signal.aborted && data.workspaceBinding === binding) setDetail({ status: 'ready', id: selected, data });
-            }).catch(error => { if (!abort.signal.aborted) setDetail({ status: 'error', id: selected, error: error.message }); });
+            rpc(version ? 'skills.version' : 'skills.inspect', { id: selected, versionId: version, workspaceBinding: binding }, abort.signal).then(value => {
+              if (epoch === detailEpoch.current && !abort.signal.aborted && value.workspaceBinding === binding && value.id === selected) setDetail({ status: 'ready', id: selected, data: value });
+            }).catch(error => { if (epoch === detailEpoch.current && !abort.signal.aborted) setDetail({ status: 'error', id: selected, error: error.message }); });
             return () => abort.abort();
           }, [selected, binding, tick, version]);
+          const selectSkill = id => { setSelected(id); setVersion(''); setConfirmed(false); setDownloadError(''); };
           const typeLabel = type => ({ task: L('智能任务', 'Agent task'), template: L('确定性模板', 'Template'), persona: L('职责', 'Persona'), setup: L('接入向导', 'Setup guide') }[type] || L('待核验', 'Unverified'));
           const sourceLabel = value => value === 'builtin' ? L('内置原件', 'Built-in original') : value === 'managed' ? L('受管 Skill', 'Managed skill') : L('工作区文件', 'Workspace file');
+          const managedStatusLabels = { draft: L('草稿', 'Draft'), enabled: L('已启用', 'Enabled'), disabled: L('已禁用', 'Disabled'), deleted: L('已删除', 'Deleted') };
           const data = detail.id === selected && detail.status === 'ready' ? detail.data : null;
           const download = async (full = false) => {
             if (!data) return;
+            const epoch = detailEpoch.current;
             setDownloading(true); setDownloadError('');
             try {
               const file = await rpc(full ? 'skills.package' : 'skills.export', { id: data.id, versionId: data.versionId, fingerprint: data.fingerprint, workspaceBinding: binding });
-              if (!alive.current || file.workspaceBinding !== binding) return;
+              if (!alive.current || epoch !== detailEpoch.current || file.workspaceBinding !== binding) return;
               const bytes = full ? Uint8Array.from(atob(file.base64), c => c.charCodeAt(0)) : file.content;
               const url = URL.createObjectURL(new Blob([bytes], { type: full ? 'application/zip' : 'text/markdown;charset=utf-8' }));
               const link = document.createElement('a'); link.href = url; link.download = file.filename;
               document.body.append(link); link.click(); link.remove();
               setTimeout(() => URL.revokeObjectURL(url), 0);
-            } catch (error) { if (alive.current) setDownloadError(error.message); }
+            } catch (error) { if (alive.current && epoch === detailEpoch.current) setDownloadError(error.message); }
             finally { if (alive.current) setDownloading(false); }
           };
           const change = async payload => {
@@ -2146,7 +2282,7 @@ window.__ModuleLoader__.load({
               const result = await rpc('action', { type: 'skill.change', ...payload, requestId: mutation.current.requestId, workspaceBinding: binding });
               if (!alive.current) return;
               mutation.current = null; setEditor(null); setTick(t => t + 1);
-              setSelected('managed:' + result.entry.id);
+              selectSkill('managed:' + result.entry.id);
               setFeedback((result.warnings || []).join('；') || L('已保存。', 'Saved.'));
             } catch (error) { if (alive.current) setFeedback(error.message); }
             finally { if (alive.current) setBusy(false); }
@@ -2166,17 +2302,26 @@ window.__ModuleLoader__.load({
               if (alive.current) await change({ op: 'save', filename: file.name, base64, displayName: file.name.replace(/\.(zip|md)$/i, '') });
             } catch (error) { if (alive.current) setFeedback(error.message); }
           };
-          const entries = catalog.data?.entries || [];
-          const matches = entries.filter(entry => (source === 'all' || entry.source === source) && (entry.name + ' ' + entry.description).toLowerCase().includes(query.trim().toLowerCase()));
+          const entries = catalog.data?.workspaceBinding === binding ? catalog.data.entries : [];
+          const matches = entries.filter(entry => (source === 'all' || entry.source === source) && [entry.name, entry.internalName, entry.id, entry.description].filter(Boolean).join(' ').toLowerCase().includes(query.trim().toLowerCase()));
           const rows = matches.slice(page * 20, (page + 1) * 20);
+          const detailTabs = [['overview', L('概览', 'Overview')], ['versions', L('版本', 'Versions')], ['plans', L('关联计划', 'Linked plans')], ['package', L('包内容', 'Package')], ['instructions', L('指令正文', 'Instructions')]];
+          const detailTabKey = (event, index) => {
+            if (event.key === 'Enter') { event.preventDefault(); setTab(detailTabs[index][0]); return; }
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? detailTabs.length - 1 : event.key === 'ArrowRight' ? (index + 1) % detailTabs.length : (index + detailTabs.length - 1) % detailTabs.length;
+            setTab(detailTabs[next][0]); event.currentTarget.parentElement.querySelectorAll('[role="tab"]')[next]?.focus();
+          };
           return h('div', { className: 'pa24-skills' },
-            sectionHead('code', null, L('查看内置原件与工作区 Skill。读取和下载不会执行 Skill。', 'Inspect built-in originals and workspace skills. Reading and downloading do not execute them.'),
-              h('button', { type: 'button', onClick: () => setTick(tick + 1), disabled: catalog.status === 'loading' }, icon('refresh'), L('刷新目录', 'Refresh catalog')), 'violet'),
-            h('p', { className: 'pa24-note' }, L('文件和内置原件可复制后编辑。草稿保存与启用分开；更新保留旧版本。完整包只包含 Skill 自身文件，不附带工作区配置、计划参数或运行历史。', 'Copy files or built-ins before editing. Saving a draft does not publish it. Earlier versions remain available. Packages contain only skill files.')),
-            h('div', { className: 'pa24-row' },
-              h('button', { type: 'button', disabled: busy, onClick: () => setEditor({ displayName: '', description: '', markdown: seed('') }) }, L('新建 Skill', 'New skill')),
-              h('label', { className: 'pa24-field' }, L('上传 Markdown / ZIP', 'Upload Markdown / ZIP'),
-                h('input', { type: 'file', accept: '.md,.zip', disabled: busy, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; void upload(file); } }))),
+            sectionHead('blocks', L('Skill 管理', 'Skill management'), L('查看内置、工作区与受管 Skill。读取和下载不会执行 Skill。', 'Inspect built-in, workspace and managed skills. Reading and downloading do not execute them.'),
+              h('div', { className: 'pa24-row' },
+                h('button', { type: 'button', className: 'pa24-primary', disabled: busy, onClick: () => setEditor({ displayName: '', description: '', markdown: seed('') }) }, L('新建 Skill', 'New skill')),
+                h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => importInput.current?.click() }, L('导入 Markdown / ZIP', 'Import Markdown / ZIP')),
+                h('input', { ref: importInput, type: 'file', accept: '.md,.zip', hidden: true, disabled: busy, onChange: event => { const file = event.target.files?.[0]; event.target.value = ''; void upload(file); } }),
+                h('button', { type: 'button', className: 'pa24-quiet', onClick: () => setTick(value => value + 1), disabled: catalog.status === 'loading' }, icon('refresh'), L('刷新目录', 'Refresh catalog'))), 'violet'),
+            h('details', { className: 'pa24-skill-help' }, h('summary', null, L('包与版本说明', 'Package and version notes')),
+              h('p', { className: 'pa24-note' }, L('文件和内置原件可复制后编辑。草稿保存与启用分开；更新保留旧版本。完整包只包含 Skill 自身文件，不附带工作区配置、计划参数或运行历史。', 'Copy files or built-ins before editing. Saving a draft does not publish it. Earlier versions remain available. Packages contain only skill files.'))),
             feedback && h('p', { role: 'status', className: 'pa24-note' }, feedback),
             editor && h('section', { className: 'pa24-card', 'aria-label': L('Skill 编辑', 'Skill editor') },
               h('h3', null, editor.id ? L('编辑草稿', 'Edit draft') : L('新建草稿', 'New draft')),
@@ -2188,78 +2333,93 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-row' },
                 h('button', { type: 'button', disabled: busy || !editor.displayName.trim(), onClick: () => change({ op: 'save', id: editor.id, expectedRevision: editor.revision, baseVersionId: editor.versionId, displayName: editor.displayName, markdown: editor.markdown }) }, busy ? L('保存中…', 'Saving…') : L('保存草稿', 'Save draft')),
                 h('button', { type: 'button', disabled: busy, onClick: () => setEditor(null) }, L('取消编辑', 'Cancel')))),
-            catalog.status === 'loading' && h('p', { role: 'status' }, L('正在读取 Skill 目录…', 'Reading skill catalog…')),
-            catalog.status === 'error' && h('p', { role: 'alert', className: 'pa24-error' }, catalog.error),
-            catalog.status === 'ready' && !selected && h('section', { className: 'pa24-card' },
-              h('p', { className: 'pa24-meta' }, catalog.data.discovery === 'complete'
-                ? L('已读取当前目录。同名工作区文件只展示当前生效项；格式不正确或未被发现的文件不会出现在列表中。', 'Current catalog loaded. Only the active workspace entry for each name is shown; invalid or undiscovered files are not listed.')
-                : catalog.data.discovery === 'unavailable' ? L('工作区目录不可用，当前仅展示内置原件。', 'Workspace catalog unavailable; showing built-in originals only.')
-                : L('工作区发现不完整或完整性未知，不能据此判断工作区没有其他 Skill。', 'Workspace discovery is incomplete or unverified; other skills may exist.')),
-              catalog.data.discoveryError && h('p', { role: 'alert', className: 'pa24-error' }, catalog.data.discoveryError),
-              h('div', { className: 'pa24-row' },
-                h('label', null, L('搜索 Skill', 'Search skills'), h('input', { type: 'search', value: query, onChange: event => { setQuery(event.target.value); setPage(0); } })),
-                h('label', null, L('来源', 'Source'), h('select', { value: source, onChange: event => { setSource(event.target.value); setPage(0); } },
-                  h('option', { value: 'all' }, L('全部', 'All')), h('option', { value: 'builtin' }, sourceLabel('builtin')), h('option', { value: 'project-dsh' }, sourceLabel('project-dsh')), h('option', { value: 'managed' }, sourceLabel('managed'))))),
-              h('p', { className: 'pa24-meta' }, L('当前可见 ' + entries.length + ' 项，匹配 ' + matches.length + ' 项', entries.length + ' visible, ' + matches.length + ' matching')),
-              !rows.length && h('p', { role: 'status' }, entries.length ? L('没有匹配项', 'No matches') : L('本次未返回目录项', 'No entries returned')),
-              rows.map(entry => h('div', { className: 'pa24-note', key: entry.id },
-                h('button', { type: 'button', onClick: () => setSelected(entry.id), 'aria-pressed': selected === entry.id, className: 'pa24-quiet' }, entry.name, ' · ', sourceLabel(entry.source)),
-                h('p', null, entry.description), h('p', { className: 'pa24-meta' }, typeLabel(entry.type), ' · ', entry.status === 'error' ? L('待修正', 'Needs correction')
-                  : entry.verification?.runs ? L('本版本运行 ' + entry.verification.runs + ' 次 · 试运行 ' + entry.verification.trials + ' 次', entry.verification.runs + ' runs · ' + entry.verification.trials + ' trials for this version') : L('定义已读取 · 本版本未运行', 'Definition read · this version has not run')),
-                entry.managedStatus && h('p', { className: 'pa24-meta' }, ({ draft: L('草稿', 'Draft'), enabled: L('已启用', 'Enabled'), disabled: L('已禁用', 'Disabled'), deleted: L('已删除 · 历史保留', 'Deleted · history retained') })[entry.managedStatus]),
-                entry.error && h('p', { className: 'pa24-error' }, entry.error))),
-              matches.length > 20 && h('div', { className: 'pa24-row' },
-                h('button', { type: 'button', disabled: page === 0, onClick: () => setPage(page - 1) }, L('上一页', 'Previous')),
-                h('span', null, (page + 1) + ' / ' + Math.ceil(matches.length / 20)),
-                h('button', { type: 'button', disabled: (page + 1) * 20 >= matches.length, onClick: () => setPage(page + 1) }, L('下一页', 'Next')))),
-            selected && h('section', { className: 'pa24-card', 'aria-label': L('Skill 详情', 'Skill details') },
-              h('button', { type: 'button', onClick: () => setSelected(null), className: 'pa24-quiet' }, L('返回 Skill 目录', 'Back to skill catalog')),
-              detail.status === 'loading' && h('p', { role: 'status' }, L('正在读取详情…', 'Reading details…')),
-              detail.status === 'error' && h('p', { role: 'alert', className: 'pa24-error' }, detail.error),
-              data && h('div', null,
-                h('h3', { ref: detailTitle, tabIndex: -1 }, data.name), h('p', null, data.description),
-                data.entry?.status === 'deleted' && h('p', { role: 'status', className: 'pa24-note' }, L('此 Skill 已删除。版本、结果与运行历史仍可查阅；在途运行可停止，未决结果可核对。不能再编辑、启用或开始新运行。', 'This skill is deleted. Versions, results and run history remain accessible; active runs can be stopped and uncertain results reviewed. Editing, publishing and new runs are unavailable.')),
-                fields([[L('来源', 'Source'), sourceLabel(data.source)], [L('类型', 'Type'), typeLabel(data.type)], [L('执行轨', 'Track'), data.track], [L('内容指纹（非版本号）', 'Content fingerprint (not a version)'), data.fingerprint]]),
-                h('h4', null, L('运行范围与限制', 'Execution scope and restrictions')),
-                data.restrictions.map((text, index) => h('p', { className: 'pa24-meta', key: index }, text)),
-                data.verification && h('p', { className: 'pa24-meta' }, L('当前版本：运行 ' + data.verification.runs + ' 次，试运行 ' + data.verification.trials + ' 次，执行回合完成 ' + data.verification.completed + ' 次；业务完成请核对结果。', 'Current version: ' + data.verification.runs + ' runs, ' + data.verification.trials + ' trials, ' + data.verification.completed + ' completed executions; inspect results for business completion.')),
-                data.metadata?.pa24?.dependencies && h('details', null, h('summary', null, L('声明的运行依赖', 'Declared dependencies')), h('pre', { className: 'pa24-json' }, JSON.stringify(data.metadata.pa24.dependencies, null, 2))),
-                h('h4', null, L('关联计划', 'Linked plans')),
-                h('p', { className: 'pa24-meta' }, data.source === 'managed' ? L('计划绑定稳定身份，修改显示名称不改变关联。', 'Plans bind to a stable identity; changing the display name preserves links.') : L('文件与内置项的既有计划按名称绑定。', 'Existing file and built-in plans bind by name.')),
-                data.plansError ? h('p', { role: 'alert', className: 'pa24-error' }, data.plansError) : data.plans.length
-                  ? data.plans.map(plan => h('p', { key: plan.id }, plan.kind + ' · ' + plan.id + ' · ' + plan.status)) : h('p', null, L('没有按此名称绑定的计划', 'No plans bound to this name')),
-                h('details', null, h('summary', null, L('声明与参数', 'Declared metadata')), h('pre', { className: 'pa24-json' }, JSON.stringify(data.metadata, null, 2))),
-                h('h4', null, L('指令正文', 'Instructions')), h('pre', { className: 'pa24-json' }, data.content),
-                data.type === 'template' && h('p', { className: 'pa24-note' }, L('确定性模板不调用模型。自由修改业务行为请先生成智能副本；智能副本更灵活，实际运行会产生模型用量，工具须另行声明。', 'Deterministic templates do not call a model. Create an agent copy to change behavior; running it uses model tokens and requires explicit tool declarations.')),
-                data.entry && h(SkillRunControls, { key: data.id + ':' + data.versionId, data, binding }),
-                data.entry && h('section', { className: 'pa24-note' },
-                  h('h4', null, L('版本与草稿', 'Versions and draft')),
-                  fields([[L('状态', 'Status'), ({ draft: L('草稿', 'Draft'), enabled: L('已启用', 'Enabled'), disabled: L('已禁用', 'Disabled'), deleted: L('已删除', 'Deleted') })[data.entry.status] || data.entry.status], [L('修订', 'Revision'), String(data.entry.revision)], [L('当前启用版本', 'Published version'), data.entry.active_version || L('尚未启用', 'Unpublished')]]),
-                  h('label', { className: 'pa24-field' }, L('查看版本', 'View version'), h('select', { value: version || data.entry.draft_version, onChange: event => { setVersion(event.target.value); setConfirmed(false); } },
-                    data.versions.map(row => h('option', { key: row.id, value: row.id }, row.id.slice(0, 8) + ' · ' + (row.validation_error ? L('待修正', 'Invalid') : L('已保存', 'Saved')))))),
-                  h('p', { className: 'pa24-meta' }, L('文件清单', 'Package files') + ' · ' + data.files.length),
-                  data.files.map(file => h('p', { key: file.path, className: 'pa24-meta' }, file.path + ' · ' + file.bytes + ' B')),
-                  h('div', { className: 'pa24-row' },
-                    h('button', { type: 'button', disabled: busy || data.entry.status === 'deleted', onClick: () => setEditor({ id: data.id, revision: data.entry.revision, versionId: data.versionId, displayName: data.name, markdown: data.markdown }) }, L('编辑此内容为新草稿', 'Edit as new draft')),
-                    h('button', { type: 'button', disabled: busy || data.entry.status === 'deleted', onClick: () => change({ op: 'disable', id: data.id, expectedRevision: data.entry.revision }) }, L('禁用并暂停关联计划', 'Disable and pause plans'))),
-                  h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: confirmed, onChange: event => setConfirmed(event.target.checked) }), L('已核对本版本内容、权限声明和关联计划；启用只影响后续运行。', 'I reviewed this version, permissions and linked plans. Publishing affects future runs.')),
-                  h('div', { className: 'pa24-row' },
-                    h('button', { type: 'button', disabled: busy || data.entry.status === 'deleted' || !confirmed || data.restrictions.length > 0, onClick: () => change({ op: version && version !== data.entry.draft_version ? 'rollback' : 'publish', id: data.id, expectedRevision: data.entry.revision, versionId: data.versionId, confirm: true }) }, L('启用所选版本', 'Publish selected version')),
-                    h('button', { type: 'button', disabled: busy || data.entry.status === 'deleted' || !confirmed || data.plansError || data.plans.some(p => p.status !== 'stopped'), onClick: () => change({ op: 'delete', id: data.id, expectedRevision: data.entry.revision }) }, L('删除 Skill，保留历史', 'Delete skill, keep history')))),
-                h('div', { className: 'pa24-row' },
-                  h('button', { type: 'button', disabled: busy || data.entry?.status === 'deleted', onClick: () => change({ op: 'save', copyFrom: data.id, versionId: data.versionId, fingerprint: data.fingerprint, displayName: (data.name + L(' 副本', ' copy')).slice(0, 120) }) }, L('复制为个人 Skill', 'Copy as personal skill')),
-                  data.type === 'template' && h('button', { type: 'button', disabled: busy || data.entry?.status === 'deleted', onClick: () => change({ op: 'save', copyFrom: data.id, versionId: data.versionId, fingerprint: data.fingerprint, intelligentCopy: true, displayName: (data.name + L(' 智能副本', ' agent copy')).slice(0, 120) }) }, L('生成智能副本草稿', 'Create agent copy draft')),
-                  h('button', { type: 'button', disabled: downloading, onClick: () => download(false) }, icon('note'), downloading ? L('准备下载…', 'Preparing download…') : L('下载指令 Markdown', 'Download instruction Markdown')),
-                  h('button', { type: 'button', disabled: downloading, onClick: () => download(true) }, L('下载完整 ZIP 包', 'Download full ZIP package'))),
-                downloadError && h('p', { role: 'alert', className: 'pa24-error' }, downloadError))));
+            catalog.status === 'loading' && !catalog.data && h('p', { role: 'status' }, L('正在读取 Skill 目录…', 'Reading skill catalog…')),
+            catalog.status === 'error' && !catalog.data && h('p', { role: 'alert', className: 'pa24-error' }, catalog.error),
+            catalog.data && h('div', { className: 'pa24-skill-layout' },
+              h('section', { className: 'pa24-card pa24-skill-catalog', 'aria-label': L('Skill 目录', 'Skill catalog') },
+                catalog.status === 'loading' && h('p', { role: 'status', className: 'pa24-meta' }, L('正在刷新；当前仍显示上次目录。', 'Refreshing; the previous catalog remains visible.')),
+                catalog.status === 'error' && h('div', { role: 'alert', className: 'pa24-error' }, h('p', null, catalog.error), h('p', null, L('读取失败或当前离线；显示 ' + (catalog.data.observedAt || L('未知时间', 'unknown time')) + ' 的上次目录，内容可能不是最新。', 'Read failed or offline. Showing the previous catalog from ' + (catalog.data.observedAt || 'unknown time') + '; it may be stale.'))),
+                h('p', { className: 'pa24-meta' }, catalog.data.discovery === 'complete'
+                  ? L('当前目录已读取；同名工作区文件仅展示获胜来源。', 'Catalog loaded; only the winning workspace source for each name is shown.')
+                  : catalog.data.discovery === 'unavailable' ? L('工作区目录不可用，当前仅展示内置原件。', 'Workspace catalog unavailable; showing built-in originals only.')
+                  : L('工作区发现不完整或完整性未知，不能据此判断没有其他 Skill。', 'Workspace discovery is incomplete or unverified; other skills may exist.')),
+                catalog.data.discoveryError && h('p', { role: 'alert', className: 'pa24-error' }, catalog.data.discoveryError),
+                h('div', { className: 'pa24-skill-filters' },
+                  h('label', null, L('搜索 Skill', 'Search skills'), h('input', { type: 'search', value: query, onChange: event => { setQuery(event.target.value); setPage(0); } })),
+                  h('label', null, L('来源', 'Source'), h('select', { value: source, onChange: event => { setSource(event.target.value); setPage(0); } },
+                    h('option', { value: 'all' }, L('全部', 'All')), h('option', { value: 'builtin' }, sourceLabel('builtin')), h('option', { value: 'project-dsh' }, sourceLabel('project-dsh')), h('option', { value: 'managed' }, sourceLabel('managed'))))),
+                h('p', { className: 'pa24-meta' }, L('当前可见 ' + entries.length + ' 项，匹配 ' + matches.length + ' 项', entries.length + ' visible, ' + matches.length + ' matching')),
+                !rows.length && h('p', { role: 'status' }, entries.length ? L('没有匹配项', 'No matches') : L('本次未返回目录项', 'No entries returned')),
+                h('div', { className: 'pa24-skill-list' }, rows.map(entry => h('button', { type: 'button', key: entry.id, onClick: () => selectSkill(entry.id), 'aria-pressed': selected === entry.id, className: 'pa24-skill-row' },
+                  h('span', { className: 'pa24-skill-row-head' },
+                    h('span', { className: 'pa24-skill-row-title' }, h('strong', { title: entry.name }, entry.name), entry.internalName && entry.internalName !== entry.name && h('span', { className: 'pa24-skill-row-id', title: entry.internalName }, entry.internalName)),
+                    h('span', { className: 'pa24-skill-row-tags' }, h('span', { className: 'pa24-skill-tag' }, sourceLabel(entry.source)), entry.managedStatus && entry.managedStatus !== 'enabled'
+                      ? h('span', { className: 'pa24-skill-tag' }, managedStatusLabels[entry.managedStatus] || entry.managedStatus)
+                      : entry.type && h('span', { className: 'pa24-skill-tag' }, typeLabel(entry.type)))),
+                  h('span', { className: 'pa24-skill-row-desc' }, entry.description || L('尚无说明', 'No description')),
+                  entry.status === 'error' && h('span', { className: 'pa24-skill-row-error' }, entry.error || L('待修正', 'Needs correction'))))),
+                matches.length > 20 && h('div', { className: 'pa24-row pa24-skill-pagination' },
+                  h('button', { type: 'button', disabled: page === 0, onClick: () => setPage(page - 1) }, L('上一页', 'Previous')),
+                  h('span', null, (page + 1) + ' / ' + Math.ceil(matches.length / 20)),
+                  h('button', { type: 'button', disabled: (page + 1) * 20 >= matches.length, onClick: () => setPage(page + 1) }, L('下一页', 'Next')))),
+              h('section', { className: 'pa24-card pa24-skill-detail', 'aria-label': L('Skill 详情', 'Skill details') },
+                !selected && empty('blocks', 'violet', L('选择一个 Skill', 'Select a skill'), L('从左侧目录查看概览、版本、关联计划和真实包内容；选择本身不会执行。', 'Select an item to inspect its overview, versions, linked plans and real package content. Selection does not execute it.')),
+                selected && h(React.Fragment, null,
+                  h('button', { type: 'button', onClick: () => selectSkill(null), className: 'pa24-quiet' }, L('返回 Skill 目录', 'Back to skill catalog')),
+                  detail.status === 'loading' && h('p', { role: 'status' }, L('正在读取详情…', 'Reading details…')),
+                  detail.status === 'error' && h('p', { role: 'alert', className: 'pa24-error' }, detail.error),
+                  data && h('div', null,
+                    h('h3', { ref: detailTitle, tabIndex: -1 }, data.name),
+                    h('p', { className: 'pa24-meta' }, data.internalName || data.name), h('p', null, data.description),
+                    data.entry?.status === 'deleted' && h('p', { role: 'status', className: 'pa24-note' }, L('此 Skill 已删除。版本、结果与运行历史仍可查阅；不能再编辑、启用或开始新运行。', 'This skill is deleted. Versions, results and run history remain accessible; editing, publishing and new runs are unavailable.')),
+                    h('div', { className: 'pa24-row pa24-skill-actions' },
+                      h('button', { type: 'button', disabled: busy || data.entry?.status === 'deleted', onClick: () => change({ op: 'save', copyFrom: data.id, versionId: data.versionId, fingerprint: data.fingerprint, displayName: (data.name + L(' 副本', ' copy')).slice(0, 120) }) }, L('复制为个人 Skill', 'Copy as personal skill')),
+                      data.type === 'template' && h('button', { type: 'button', disabled: busy || data.entry?.status === 'deleted', onClick: () => change({ op: 'save', copyFrom: data.id, versionId: data.versionId, fingerprint: data.fingerprint, intelligentCopy: true, displayName: (data.name + L(' 智能副本', ' agent copy')).slice(0, 120) }) }, L('生成智能副本草稿', 'Create agent copy draft')),
+                      h('button', { type: 'button', disabled: downloading, onClick: () => download(false) }, icon('note'), downloading ? L('准备下载…', 'Preparing download…') : L('下载指令 Markdown', 'Download instruction Markdown')),
+                      h('button', { type: 'button', disabled: downloading, onClick: () => download(true) }, L('下载完整 ZIP 包', 'Download full ZIP package'))),
+                    downloadError && h('p', { role: 'alert', className: 'pa24-error' }, downloadError),
+                    h('div', { className: 'pa24-tabs pa24-skill-tabs', role: 'tablist', 'aria-label': L('Skill 详情视图', 'Skill detail views') }, detailTabs.map(([value, label], index) => h('button', {
+                      key: value, id: 'pa24-skill-tab-' + value, type: 'button', role: 'tab', 'aria-selected': tab === value, 'aria-controls': 'pa24-skill-panel', tabIndex: tab === value ? 0 : -1,
+                      className: tab === value ? 'pa24-filter-active' : 'pa24-quiet', onClick: () => setTab(value), onKeyDown: event => detailTabKey(event, index),
+                    }, label))),
+                    h('section', { id: 'pa24-skill-panel', role: 'tabpanel', 'aria-labelledby': 'pa24-skill-tab-' + tab },
+                      tab === 'overview' && h(React.Fragment, null,
+                        fields([[L('来源', 'Source'), sourceLabel(data.source)], [L('类型', 'Type'), typeLabel(data.type)], [L('执行轨', 'Track'), data.track], [L('内容指纹（非版本号）', 'Content fingerprint (not a version)'), data.fingerprint]]),
+                        h('h4', null, L('运行范围与限制', 'Execution scope and restrictions')),
+                        data.restrictions.map((text, index) => h('p', { className: 'pa24-meta', key: index }, text)),
+                        data.verification && h('p', { className: 'pa24-meta' }, L('当前版本：运行 ' + data.verification.runs + ' 次，试运行 ' + data.verification.trials + ' 次，执行回合完成 ' + data.verification.completed + ' 次；业务完成请核对结果。', 'Current version: ' + data.verification.runs + ' runs, ' + data.verification.trials + ' trials, ' + data.verification.completed + ' completed executions; inspect results for business completion.')),
+                        data.metadata?.pa24?.dependencies && h('details', null, h('summary', null, L('声明的运行依赖', 'Declared dependencies')), h('pre', { className: 'pa24-json' }, JSON.stringify(data.metadata.pa24.dependencies, null, 2))),
+                        h('details', null, h('summary', null, L('声明与参数', 'Declared metadata')), h('pre', { className: 'pa24-json' }, JSON.stringify(data.metadata, null, 2))),
+                        data.entry && h(SkillRunControls, { key: data.id + ':' + data.versionId, data, binding })),
+                      tab === 'versions' && (data.entry ? h('section', { className: 'pa24-note' },
+                        h('h4', null, L('版本与草稿', 'Versions and draft')),
+                        fields([[L('状态', 'Status'), managedStatusLabels[data.entry.status] || data.entry.status], [L('修订', 'Revision'), String(data.entry.revision)], [L('当前启用版本', 'Published version'), data.entry.active_version || L('尚未启用', 'Unpublished')]]),
+                        h('label', { className: 'pa24-field' }, L('查看版本', 'View version'), h('select', { value: version || data.entry.draft_version, onChange: event => { setVersion(event.target.value); setConfirmed(false); } },
+                          data.versions.map(row => h('option', { key: row.id, value: row.id }, row.id.slice(0, 8) + ' · ' + (row.validation_error ? L('待修正', 'Invalid') : L('已保存', 'Saved')))))),
+                        h('div', { className: 'pa24-row' },
+                          h('button', { type: 'button', disabled: busy || data.entry.status === 'deleted', onClick: () => setEditor({ id: data.id, revision: data.entry.revision, versionId: data.versionId, displayName: data.name, markdown: data.markdown }) }, L('编辑此内容为新草稿', 'Edit as new draft')),
+                          h('button', { type: 'button', disabled: busy || data.entry.status === 'deleted', onClick: () => change({ op: 'disable', id: data.id, expectedRevision: data.entry.revision }) }, L('禁用并暂停关联计划', 'Disable and pause plans'))),
+                        h('label', { className: 'pa24-field' }, h('input', { type: 'checkbox', checked: confirmed, onChange: event => setConfirmed(event.target.checked) }), L('已核对本版本内容、权限声明和关联计划；启用只影响后续运行。', 'I reviewed this version, permissions and linked plans. Publishing affects future runs.')),
+                        h('div', { className: 'pa24-row' },
+                          h('button', { type: 'button', disabled: busy || data.entry.status === 'deleted' || !confirmed || data.restrictions.length > 0, onClick: () => change({ op: version && version !== data.entry.draft_version ? 'rollback' : 'publish', id: data.id, expectedRevision: data.entry.revision, versionId: data.versionId, confirm: true }) }, L('启用所选版本', 'Publish selected version')),
+                          h('button', { type: 'button', disabled: busy || data.entry.status === 'deleted' || !confirmed || data.plansError || (data.plans || []).some(p => p.status !== 'stopped'), onClick: () => change({ op: 'delete', id: data.id, expectedRevision: data.entry.revision }) }, L('删除 Skill，保留历史', 'Delete skill, keep history'))))
+                        : h('p', { className: 'pa24-note' }, L('此来源只有当前读取快照，没有受管持久版本。可复制为个人 Skill 后建立版本历史。', 'This source has only a current read snapshot, without managed persistent versions. Copy it as a personal skill to create version history.'))),
+                      tab === 'plans' && h(React.Fragment, null,
+                        h('h4', null, L('关联计划', 'Linked plans')),
+                        h('p', { className: 'pa24-meta' }, data.source === 'managed' ? L('计划绑定稳定身份，修改显示名称不改变关联。', 'Plans bind to a stable identity; changing the display name preserves links.') : L('文件与内置项的既有计划按名称绑定。', 'Existing file and built-in plans bind by name.')),
+                        data.plansError ? h('p', { role: 'alert', className: 'pa24-error' }, data.plansError) : data.plans?.length
+                          ? data.plans.map(plan => h('p', { key: plan.id }, plan.kind + ' · ' + plan.id + ' · ' + plan.status)) : h('p', null, L('没有按此名称绑定的计划', 'No plans bound to this name'))),
+                      tab === 'package' && h(SkillPackageBrowser, { key: JSON.stringify([binding, data.id, data.versionId || null, data.fingerprint, tick]), data, binding }),
+                      tab === 'instructions' && h(React.Fragment, null,
+                        h('h4', null, L('指令正文', 'Instructions')), h('pre', { className: 'pa24-json' }, data.content),
+                        data.type === 'template' && h('p', { className: 'pa24-note' }, L('确定性模板不调用模型。自由修改业务行为请先生成智能副本；智能副本更灵活，实际运行会产生模型用量，工具须另行声明。', 'Deterministic templates do not call a model. Create an agent copy to change behavior; running it uses model tokens and requires explicit tool declarations.')))))))));
         }
 
         // 卡片注册表：tier 为纯函数（角标聚合复用同一结果）；label 可覆盖状态词。
         const CARDS = [
           {
-            id: 'skills', cat: 'work', tone: 'violet', icon: 'code', title: ['Skill 管理', 'Skill management'], sub: ['能力、版本与手工运行', 'Capabilities, versions and manual runs'], action: ['查看 Skill', 'Browse skills'],
+            id: 'skills', cat: 'work', tone: 'violet', icon: 'blocks', title: ['Skill 管理', 'Skill management'], sub: ['能力、版本与手工运行', 'Capabilities, versions and manual runs'], action: ['查看 Skill', 'Browse skills'],
             tier: () => 'unchecked',
-            label: () => L('包、版本与运行', 'Packages, versions & runs'),
             body: () => h('p', { className: 'pa24-meta' }, L('创建与导入 Skill、管理版本和关联计划，预览并执行任务，查看实际结果。', 'Create and import skills, manage versions and linked plans, preview and run tasks, and inspect actual results.')),
             detail: helpers => h(SkillsDetail, { key: helpers.state.workspaceBinding, binding: helpers.state.workspaceBinding ?? null }),
           },

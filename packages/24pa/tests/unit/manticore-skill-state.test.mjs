@@ -9,6 +9,7 @@ import { createRepos } from '../../lib/repo.js';
 import { makeSkillPackage, parseSkillMarkdown, skillContract } from '../../lib/skill-package.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { SkillPackages } from '../../lib/skill-packages.js';
+import { SkillManagement } from '../../lib/skill-management.js';
 import { SkillRuns } from '../../lib/skill-runs.js';
 
 const markdown = body => '---\n' + JSON.stringify({ name: 'example', description: '可核验任务', metadata: { track: 'agent', tools: [], pa24: {
@@ -260,6 +261,26 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     await repos.skillRuns.transition(next.id, 'completed', '接续完成', '新结果');
     expect(await repos.workItems.get(original.work_item_id)).toMatchObject({ status: 'completed', result: '新结果' });
     expect((await repos.skillRuns.evidence(original.id)).reviews).toHaveLength(2);
+  });
+
+  it('受管历史版本按真实 versionId 和包哈希只读，删除后仍可读取且拒绝混快照', async () => {
+    const first = await publish(await create('历史版本 A')), original = first.active_version;
+    const current = await change({ op: 'save', id: first.id, expectedRevision: first.revision, version: version('当前版本 B') });
+    const packages = new SkillPackages({ context: () => ({ cwd: '/workspace', binding: 'binding', repo: repos.skills }), registry: null, plans: async () => [], pausePlan: async () => {}, check: async () => [] });
+    const manager = new SkillManagement({ context: () => ({ cwd: '/workspace', binding: 'binding', enabled: false, allowed: [] }), builtins: () => [], registry: null, plans: async () => [], packages });
+    const id = 'managed:' + first.id, detail = await packages.inspect(id, 'binding', original);
+    const input = { id, workspaceBinding: 'binding', versionId: original, fingerprint: detail.fingerprint, packageHash: detail.packageHash };
+    const manifest = await manager.packageContent(input);
+    expect(manifest).toMatchObject({ id, source: 'managed', snapshot: 'immutable-version', versionId: original, packageHash: detail.packageHash, workspaceBinding: 'binding' });
+    expect(manifest.files.map(file => file.path)).toEqual(['references/data.txt', 'SKILL.md']);
+    expect((await manager.packageContent({ ...input, path: 'references/data.txt' })).preview.content).toBe('历史版本 A');
+    const latest = await packages.inspect(id, 'binding', current.draft_version);
+    expect((await manager.packageContent({ id, workspaceBinding: 'binding', versionId: current.draft_version, fingerprint: latest.fingerprint, packageHash: latest.packageHash, path: 'references/data.txt' })).preview.content).toBe('当前版本 B');
+    for (const stale of [{ packageHash: '0'.repeat(64) }, { fingerprint: '0'.repeat(64) }, { workspaceBinding: 'stale' }, { versionId: current.draft_version }]) {
+      await expect(manager.packageContent({ ...input, ...stale, path: 'references/data.txt' })).rejects.toThrow(/快照|工作区/);
+    }
+    await change({ op: 'delete', id: first.id, expectedRevision: current.revision });
+    expect((await manager.packageContent({ ...input, path: 'references/data.txt' })).preview.content).toBe('历史版本 A');
   });
 
   it('删除只关闭新操作，历史目录、版本导出和原运行管理仍可访问', async () => {

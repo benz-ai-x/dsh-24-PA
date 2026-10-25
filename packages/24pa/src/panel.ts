@@ -39,6 +39,7 @@ export const PANEL_RPC = {
     skillsInspect: 'skills.inspect',
     skillsExport: 'skills.export',
     skillsPackage: 'skills.package',
+    skillsPackageContent: 'skills.package-content',
     skillsVersion: 'skills.version',
     skillsPreview: 'skills.preview',
     skillsRuns: 'skills.runs',
@@ -129,6 +130,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.skillsPackage) return respond({ ok: true, value: typeof payload.id === 'string' && payload.id.startsWith('managed:')
               ? await runtime.skillPackages.download(payload.id, String(payload.versionId ?? ''), payload.workspaceBinding)
               : await runtime.skillManagement.downloadPackage(payload.id, payload.fingerprint, payload.workspaceBinding) });
+            if (endpoint === E.skillsPackageContent) return respond({ ok: true, value: await runtime.skillManagement.packageContent(payload) });
             if (endpoint === E.skillsVersion) return respond({ ok: true, value: await runtime.skillPackages.inspect(payload.id, payload.workspaceBinding, String(payload.versionId ?? '')) });
             if (endpoint === E.skillsPreview) return respond({ ok: true, value: await runtime.skillRuns.preview(payload) });
             if (endpoint === E.skillsRuns) return respond({ ok: true, value: await runtime.skillRuns.list(payload) });
