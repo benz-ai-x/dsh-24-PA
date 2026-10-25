@@ -38,7 +38,7 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
     }
     if (storage === 'sqlite') {
       const { setE2eSqliteWorkspace } = await import('./pg.mjs');
-      setE2eSqliteWorkspace(extraEnv.PA24_WORKSPACE);
+      await setE2eSqliteWorkspace(extraEnv.PA24_WORKSPACE);
     }
   }
   const bin = dshBin();
@@ -157,7 +157,14 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
       stopped = true;
       child.kill('SIGTERM');
       await Promise.race([exited, new Promise(r => setTimeout(r, 10_000))]);
-      if (child.exitCode === null) child.kill('SIGKILL');
+      if (child.exitCode === null) {
+        child.kill('SIGKILL');
+        await exited;
+      }
+      if (process.env.PA24_E2E_STORAGE === 'sqlite') {
+        const { closeE2eSqlite } = await import('./pg.mjs');
+        await closeE2eSqlite();
+      }
       if (!keepRoot) await rm(root, { recursive: true, force: true }).catch(() => {});
     },
   };
