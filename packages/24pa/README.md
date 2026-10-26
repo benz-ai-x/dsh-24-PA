@@ -14,14 +14,14 @@ kind: "package-bundle"
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
-`@benz-ai-x/dsh-24pa` is a self-hosted AI personal-assistant plugin for [dsh](https://github.com/deepseek-ai/deepseek-harness). A local desktop workspace and a Feishu bot coordinate seven business workers in one owner-bound workspace, combining agent skills, scheduled tasks, calendars, todos, structured memory, handwriting review, and delivery evidence.
+`@benz-ai-x/dsh-24pa` is a self-hosted AI personal-assistant plugin for [dsh](https://github.com/deepseek-ai/deepseek-harness). Local DSH sessions and a Feishu bot coordinate seven business workers in one owner-bound workspace; the desktop workspace adds sixteen capability cards for agent skills, scheduled tasks, calendars, todos, structured memory, handwriting review, and delivery evidence.
 
 ![24PA desktop workspace showing Skill management, scheduled tasks, calendars, todos, and run history](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
 
 ## Why 24PA?
 
 - **More than a chatbot.** Move from a request to a work item, a Skill run, a platform object, and a traceable result — with schedules and follow-through built in.
-- **Keep the tools you already use.** Work with original Feishu and WeCom calendars, todos, documents, and notifications instead of forcing another source of truth.
+- **Keep the tools you already use.** Work with original Feishu calendars, todos, documents, and notifications, plus WeCom calendars, todos, and one-way notifications — without forcing another source of truth.
 - **Automation you can actually govern.** Inspect Skill packages and versions, preview permissions, separate execution from delivery, and keep human approval distinct from action authorization.
 - **A personal-assistant surface that can grow.** Cards organize focused capabilities on one shared workspace and runtime, so new scenarios can be added without creating another disconnected bot.
 
