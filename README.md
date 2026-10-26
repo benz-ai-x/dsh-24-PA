@@ -1,217 +1,165 @@
 ---
-description: "Feishu-backed personal-assistant profile bundle for dsh: one 24私助 preset carrying the full standard tool base plus a SQLite-by-default ledger, seven business workers, task skills, voice digests, calendar-native reminders, handwriting review, and a staged access-setup wizard."
+description: "24PA (24私助) is a self-hosted AI personal assistant for Feishu/Lark, built as a dsh plugin: agent skills, schedules, calendars, todos, memory, handwriting review, and WeCom integrations."
 kind: "package-bundle"
 ---
 
-# @benz-ai-x/dsh-24pa
+# 24PA (24私助) — AI Personal Assistant for Feishu / Lark
 
-English | [中文](README.zh.md)
+**English** | [中文](README.zh.md) | [npm](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) | [Releases](https://github.com/benz-ai-x/dsh-24-PA/releases)
 
-## Summary
+[![npm version](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
+[![GitHub release](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
+[![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](packages/24pa/package.json)
+[![dsh baseline](https://img.shields.io/badge/dsh-0.2.1--rc.3-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.3.1)
 
-Install `@benz-ai-x/dsh-24pa` into a Profile to gain the「24私助」assistant preset and its host plugin: a Feishu plus local dual-entry coordinator delegating to seven business workers over a SQLite-by-default ledger (workspace `data/pa24.db`; optional PostgreSQL) for items, handwritten-note review, digests, and delivery receipts. Behavior ships as task skills — built-in plus workspace-customizable (`<workspace>/.dsh/skills/`, hot-reloaded), each declaring a deterministic template track or a model-executed track — covering voice digests and calendar-native clock reminders that fire from the Feishu/WeCom app with the host offline. The preset carries the standard-mode tool base restricted per role, so the local session programs while the Feishu entry and workers keep business-only whitelists. Versions follow the dsh baseline (`<dsh version>.<serial>`) and support dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`, `0.2.1-rc.1`–`0.2.1-rc.2`.
+**From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
+
+`@benz-ai-x/dsh-24pa` is a self-hosted AI personal-assistant plugin for [dsh](https://github.com/deepseek-ai/deepseek-harness). Local DSH sessions and a Feishu bot coordinate seven business workers in one owner-bound workspace; the desktop workspace adds sixteen capability cards for agent skills, scheduled tasks, calendars, todos, structured memory, handwriting review, and delivery evidence.
+
+![24PA desktop workspace showing Skill management, scheduled tasks, calendars, todos, and run history](docs/assets/24pa-desktop-overview.png)
+
+## Why 24PA?
+
+- **More than a chatbot.** Move from a request to a work item, a Skill run, a platform object, and a traceable result — with schedules and follow-through built in.
+- **Keep the tools you already use.** Work with original Feishu calendars, todos, documents, and notifications, plus WeCom calendars, todos, and one-way notifications — without forcing another source of truth.
+- **Automation you can actually govern.** Inspect Skill packages and versions, preview permissions, separate execution from delivery, and keep human approval distinct from action authorization.
+- **A personal-assistant surface that can grow.** Cards organize focused capabilities on one shared workspace and runtime, so new scenarios can be added without creating another disconnected bot.
+
+## Card-based assistant architecture
+
+The bundle combines one assistant preset with a host plugin. Conversational coordination and the desktop card surface share the same owner identity, role boundaries, Skill and schedule runtime, work records, storage, and delivery evidence.
+
+![Architecture of 24PA showing local and Feishu entries, one workspace and permission boundary, sixteen capability cards, a shared runtime, and future scenario cards](docs/assets/24pa-architecture.png)
+
+**Cards are the product's extension unit.** A new personal-assistant scenario can add a focused card while reusing the same workspace, permissions, plans, run history, and operational foundation. The sixteen solid cards below are implemented today; the dashed card is an extension direction, not a claim that this release already exposes a third-party card SDK.
+
+## Sixteen implemented cards
+
+Every card below is part of the current product. Ordinary browsing is read-only and does not silently start a model, create a platform object, or run a task.
+
+### Work & plans — 5 cards
+
+| Card | What it helps you do | Included capabilities |
+| --- | --- | --- |
+| **Skill management** | Turn reusable know-how into controlled assistant capabilities. | Create/import Markdown or ZIP; edit and copy; complete package tree and read-only file preview; immutable versions; linked plans; test, run, disable, roll back, delete, and download. |
+| **Scheduled tasks** | Put one-off and recurring work on a persistent timeline. | Blank, preset, or copied plans; Skill parameters, fixed time zone, approved targets and delivery; occurrence preview; enable, pause, resume, run now, delete, restore, and history. |
+| **Calendar** | Understand and manage schedules across registered calendars. | Today and next-event views; source filters, conflicts and query completeness; platform verification; conversation-based create/change; native reminders; original-event links. |
+| **Todos** | Manage real platform work without confusing it with assistant execution. | Overdue, today and open views; multi-source aggregation; five role scopes; conversation-based create, complete, postpone, edit and cancel; original-object links and related work items. |
+| **Run history** | See what ran, what resulted, and what was actually delivered. | Separate executions, work items and unexecuted events; filters and export; diagnostics and reconciliation; retry delivery or rerun; supplement, stop, continue and accept work items. |
+
+### Knowledge & materials — 2 cards
+
+| Card | What it helps you do | Included capabilities |
+| --- | --- | --- |
+| **Handwriting review** | Turn handwritten material into reviewable content and explicitly authorized next actions. | Source comparison, draft editing, version publishing and diffs; Feishu review entry; verification and resend; candidate actions remain separate from content approval. |
+| **Structured memory** | Keep long-term facts, preferences and decisions traceable. | Full text, sources, confirmation evidence, scope, validity, conflicts and revisions; query/filter; local create, edit, deactivate, delete, restore and undo; JSON remains the editable authority. |
+
+### Connections & setup — 6 cards
+
+| Card | What it helps you do | Included capabilities |
+| --- | --- | --- |
+| **Feishu connection** | Know whether the owner, app and required capabilities are really connected. | Owner, CLI, app and profile identity evidence; send/receive, review callback and resource checks; read-only diagnostics, explicitly triggered tests, cleanup and configuration links. |
+| **WeCom connection** | Operate selected WeCom resources without adding another inbound bot. | Separate calendar, todo and one-way push evidence; identity and authorization checks; renewal, independent tests and configuration links; no inbound chat. |
+| **QwenNote minutes** | Use recordings and meeting notes as traceable source material. | Local-only, on-demand list/transcript/minutes reading; connection evidence; source-backed summaries and candidate actions that still require review and authorization. |
+| **Feishu Wiki** | Choose where memos and handwriting-review documents belong. | Destination, node, permission and related-document checks; configure, verify and open; save through material workflows without moving old documents or silently changing destinations. |
+| **Workspace & config** | Keep each owner's rules, data and sessions attached to the right workspace. | Directory and binding status, configuration source, effective version and differences; bind, switch, reload, inspect effective config and enter parameter editing; failed reloads keep the current environment. |
+| **Parameters** | Change everyday behavior through one controlled configuration surface. | Business parameters, source mappings, model routes, voice and budget settings; edit, validate, save, reset and locate errors; write-only secrets and separate saved/effective feedback. |
+
+### Operations & maintenance — 3 cards
+
+| Card | What it helps you do | Included capabilities |
+| --- | --- | --- |
+| **Full-app health checks** | Find what needs attention before it blocks work. | Module status, evidence time and scope, impact and next steps; full or per-module read-only checks; distinguish disabled, unchecked, unverified and failed states; diagnostics and repair links. |
+| **Models & budgets** | Understand model consumption and stop new managed requests at explicit limits. | Actual model routes, token/request usage and pricing evidence; daily/monthly limits and warning thresholds; one-run permit after review; unknown cost is never reported as zero. |
+| **Ledger & backups** | Protect the state needed for recovery and prove what was checked. | SQLite/PostgreSQL status; create backups, inspect manifests and verify real copies; isolated restore checks; secrets excluded; restore drills remain separate from authorized production cutover. |
+
+See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-交付验收.md) for module ownership and verification evidence.
+
+## Inside the workspace
+
+| Skill package management | Auditable run history |
+| --- | --- |
+| ![Skill package directory, immutable version details, and read-only file preview](docs/assets/24pa-skill-management.png) | ![Run history separating execution status from delivery status](docs/assets/24pa-run-history.png) |
+
+## Quick start
+
+### Requirements
+
+- Node.js `^22.19.0` or `>=24.0.0` (the default SQLite ledger uses built-in `node:sqlite`).
+- dsh `0.2.1-rc.3` for the current release line.
+- No Feishu credentials are needed for the initial demo. PostgreSQL is optional.
+
+### Install the current release
+
+```sh
+npm install -g @deepseek-ai/dsh@0.2.1-rc.3
+
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.3.1 --registry=https://registry.npmjs.org
+```
+
+Restart the same Profile, open the 24PA workspace, and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`; the official npm registry is recommended because some mirrors lag behind.
+
+**Setting up a new instance?** Follow the [step-by-step initialization guide](docs/24PA-初始化指南.md) for the isolated instance directory, workspace, launch script, expected pnpm build approval, token URL, and demo verification. After the demo works, tell the local assistant「帮我接通飞书」or use the bundled [Feishu setup guide](packages/24pa/feishu-setup.md).
+
+<details>
+<summary><strong>Using an older dsh host?</strong> Recommended version pins</summary>
+
+24PA versions follow `<dsh baseline>.<serial>`. Use the release line matching your host instead of installing the newest package everywhere.
+
+| dsh host | 24PA package |
+| --- | --- |
+| `0.2.1-rc.3` | `0.2.1-rc.3.1` (current) |
+| `0.2.1-rc.2` | `0.2.1-rc.2.9` |
+| `0.2.1-rc.1` | `0.2.1-rc.1.2` |
+| `0.2.1-alpha.2` – `0.2.1-alpha.5` | `0.2.1-alpha.5.1` |
+| `0.2.1-alpha.1` | `0.2.1-alpha.1.6` |
+| `0.2.0-rc.2` | `0.2.0-rc.2.3`, plus the two schedule companions described in the [initialization guide](docs/24PA-初始化指南.md) |
+
+</details>
+
+## Architecture and safeguards
+
+- **One preset, role-specific permissions.** Local sessions can use the standard coding toolset; Feishu entry sessions and business workers receive business-only allowlists. Managed Skill runs use their saved package and permission snapshots.
+- **Local-first ledger.** SQLite is the zero-service default at `data/pa24.db` in the workspace; explicitly configured PostgreSQL is also supported. Durable inbox/outbox records preserve origin and delivery targets.
+- **No blind replay of external writes.** An unknown platform result is reconciled against the original object before any retry. A successful action is not repeated merely to repair a local record or delivery.
+- **Secrets stay out of prompts and backups.** Use server environment values or the write-only workspace secret store (`.24pa/secrets.json`, mode `0600`); environment values take precedence. `AGENTS.md` stores rules and non-secret configuration.
+- **Review is not execution.** Approving a handwriting version does not execute its candidate actions. Notes, documents, minutes, web content, and subagent replies are material, not authorization.
+- **Calendar-native clock reminders.** Feishu or WeCom owns the native alert; the ledger keeps backup and reconciliation records. Actual device delivery still depends on the platform and verified account configuration.
+
+Read the [package reference](packages/24pa/README.md) for configuration fields, storage ownership, failure recovery, permission details, and the source map.
+
+## Documentation
+
+- [Initialization guide](docs/24PA-初始化指南.md) — new instance, demo verification, optional PostgreSQL, voice, and QwenNote setup.
+- [Feishu setup](packages/24pa/feishu-setup.md) and [WeCom setup](packages/24pa/wecom-setup.md) — authoritative connection workflows.
+- [Manticore backup and recovery](docs/Manticore-备份恢复.md) — verification, isolated restore drills, and manual cutover boundaries.
+- [Product specification](docs/24PA-v1-SPEC.md) and [overall design](docs/24PA-整体设计方案.md) — behavior, flows, and trade-offs.
+- [ADR-0001](docs/adr/0001-workspace-session-boundaries.md) — workspace, session, and permission boundaries.
+- [GitHub Issues](https://github.com/benz-ai-x/dsh-24-PA/issues) — questions, bug reports, and delivery tracking.
+
+## Known boundaries
+
+- The desktop management UI is not a mobile-responsive product. Native Feishu and WeCom apps retain their own platform behavior.
+- Real-account permissions, broader tenant/Lark-region compatibility, actual device reminder delivery, QwenNote OAuth and recording-card transcripts, and source verification require environment-specific verification.
+- Model usage, prices, and budget estimates are not vendor bills. Reconcile actual provider usage and billing differences; budgets do not promise an exact invoice cap.
+- Handwriting recognition accuracy is not yet quantified; the visual model route must be configured explicitly.
+- Backup verification and an isolated restore check do not prove production recovery. Credentials, remote objects, pending actions, deliveries, plans, and budgets must be reconciled before a separately authorized cutover.
+- External Codex/Claude Code delegation and QwenNote tools require their providers and explicit workspace opt-in; they are not silently enabled.
 
 ## FAQ
 
-**What is 24私助 (24PA)?** — A Feishu personal-assistant plugin for dsh, shipped as a profile bundle: local dsh sessions and a Feishu bot coordinate seven business workers over a SQLite-by-default ledger — tasks, calendar, memos, digests, handwriting review, and a skill runner — while clock-type reminders ride native calendar events.
+### Does 24PA require PostgreSQL?
 
-**Which dsh runtimes are supported?** — dsh `0.2.0-rc.2`, `0.2.1-alpha.1`–`0.2.1-alpha.5`, `0.2.1-rc.1`–`0.2.1-rc.2`; versions are named `<dsh baseline>.<serial>` and npm dist-tags track baselines.
+No. SQLite is the default and needs no separate database service. PostgreSQL remains an explicit option for existing or preferred deployments.
 
-**How do I install it?** — `dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<baseline serial>`, then restart the profile (see [Installing the Bundle](#installing-the-bundle)).
+### Can I customize routines without changing plugin code?
 
-**Do reminders require the model to be online?** — No. Clock-type reminders are written as calendar events with native app alerts (Feishu or WeCom, per `calendarChannel`) — they fire with both the model and the 24私助 host offline; the ledger keeps a delegated backup row. Follow-up and conditional reminders run as agent-track skills.
+Yes. Use built-in or workspace Skills and scheduled tasks. Markdown files under `.dsh/skills/` are hot-reloaded; managed packages add versioning, review, execution, and rollback controls.
 
-**Can I add or change routines without touching plugin code?** — Yes: periodic tasks, worker personas, access wizards, and workflows all ship as task skills. Drop a `<name>.md` into the workspace `.dsh/skills/` directory (picked up hot) or rebind from the panel's plan cards; each skill declares a deterministic template track or a model-executed track with completion criteria, and can only tighten — never loosen — tool permissions.
+### Do clock reminders need the model or 24PA host to stay online?
 
-**How do I connect Feishu?** — Tell the local 24私助 session「帮我接通飞书」; the built-in wizard (`pa24_connection` `guide`, and `check` with `nextSteps`) walks app creation, authorization, resource ids, and health checks. The Feishu entry session can also run this read-only wizard and `wecom_guide`/`wecom_check` for channel diagnostics; configuration writes stay local-only (ADR-0001).
+They are written to the native calendar with an alert, so the model is not the reminder engine. Platform acceptance, device delivery, and read status are different facts; 24PA does not claim one proves another.
 
-## Table of Contents
+---
 
-- [Use this package](#use-this-package)
-- [Understand the implementation](#understand-the-implementation)
-- [Further Exploration](#further-exploration)
-- [Model Experience](#model-experience)
-- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
-- [Dev Note](#dev-note)
-
------
-
-<a id="use-this-package"></a>
-## Use this package
-
-### Installing the Bundle
-
-Pick the release matching your dsh runtime, then restart the Profile. The reconcile step activates the patch layer (one assistant preset row plus the host plugin row) for exactly this `dsh.bundle` declaration.
-
-```sh
-# dsh 0.2.1-alpha.1 host (schedule service built in)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
-
-# dsh 0.2.1-alpha.2 – 0.2.1-rc.2 hosts (peers span these baselines; rc.2 is the active release line)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.3.1
-
-# alpha.2 – alpha.5 hosts may also pin the alpha line (frozen at 0.2.1-alpha.5.1; preset content identical, only engines/peer range and docs differ)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
-
-# dsh 0.2.0-rc.2 host — line frozen at 0.2.0-rc.2.3, no further releases (also add the two schedule companions for digests)
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
-dsh plugin --profile <name> add @deepseek-ai/dsh-experimental-schedule-bundle
-dsh plugin --profile <name> add <rc.2 harness checkout>/packages/schedule/schedule
-
-dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
-```
-
-Removal withdraws the preset and host plugin on the next Profile start; PostgreSQL data, dsh sessions, and the workspace directory are untouched. Version naming follows `<dsh baseline version>.<serial>`; npm dist-tags track baselines (`dsh-0.2.0-rc.2`, `dsh-0.2.1-alpha.1`, `dsh-0.2.1-alpha.2`, `dsh-0.2.1-alpha.5`, `dsh-0.2.1-rc.1`, `dsh-0.2.1-rc.2`).
-
-### Configuration
-
-Secrets live only in the server environment; the workspace `AGENTS.md` holds one machine-checked JSON block with variable names, revalidated on reload — a bad block never replaces the effective configuration.
-
-| Variable | Meaning |
-|---|---|
-| `PA24_PG_DSN` | PostgreSQL connection string; the ledger uses an isolated `pa24` schema |
-| `PA24_WORKSPACE` | Absolute workspace directory bound on first start (or pick one in the panel / dsh settings) |
-| `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | Feishu custom-app credentials (feishu mode) |
-
-`AGENTS.md` fields: `mode` (demo/feishu), `storage` (sqlite/postgres, default sqlite — the ledger is the workspace `data/pa24.db` file; SQLite uses the built-in `node:sqlite`, unflagged across this package's supported Node range; `postgres` requires `pgDsnEnv` and an external database), `larkProfile`, `ownerOpenId`, `folderToken`, `wikiNodeToken` (optional — memos and handwriting review docs land under this Feishu wiki node when set; empty falls back to folderToken), `tasklistId`, `calendarId`, `calendarChannel`/`todoChannel`/`notifyChannel` (feishu|wecom, default feishu — WeCom as the second operation channel for calendar/todo plus one-way reminder push, never inbound), `timeZone`, `appIdEnv`/`appSecretEnv`/`pgDsnEnv`, `maxWorkers`, `enabledWorkers`, `workerModels`, `extraBusinessSkills` (kebab-case allow list releasing workspace business skills to model-driven runs), `tts` (`engine` none/melo/volcengine, `voice`, `volcKeyEnv`, `meloDir` — voice digests via cloud Doubao TTS or local Melo), `extraLocalTools` (`subagent_codex`, `subagent_claude_code`, and QwenNote minutes tools via `mcp__qwennote__*` wildcard or precise names; entries naming unmounted tools are filtered out with a health note). For Feishu access setup, tell the local session「帮我接通飞书」or call `pa24_connection` with `action=guide`; the bundled `feishu-setup.md` is the single authority.
-
-### Registered calendars (Manticore / M03)
-
-The Calendar card (`日程`) reads saved observations; **Verify calendars** explicitly reads the platforms. In Parameter configuration → Calendar & todo sources, register each personal, company or project calendar, choose its visible scope, creation default, project/company mapping and optional meeting duration. Registration does not grant platform permissions. Conversations query all enabled registered calendars; creation selects one explicit source, mapping or default. Missing or ambiguous targets require clarification.
-
-The `sources` object in the same AGENTS.md config block is authoritative. Without it, existing calendar/task-list fields yield stable migration candidates. Saving the source editor materializes those candidates; changing a legacy default through the form preserves the old source and adds the new default. An explicit empty registry stays empty. After a registry exists, change defaults there. Removing a source preserves remote objects and operation history. Pending operations retain their original identity and resource; an unknown result is never replayed as a new create.
-
-Feishu reads native instances plus paginated participant/group evidence. WeCom currently uses the authorized scope and a ±30-day window; a named calendar container, complete organizer evidence, invite and personal-reminder edit remain adapter gaps, reported explicitly. WeCom changes require the original confirmed creation receipt. Actual device notification delivery needs real-account verification. Todo sources can be registered/checked in M03; todo operations continue using the existing channel and task-list settings until M04.
-
-Schema 20 adds source registrations, access evidence, platform objects, per-source observations and memberships to both ledgers. Stop the host and keep a joint pre-upgrade backup of the ledger, workspace identity/config and native session history. Restore the whole backup with the matching code to roll back; do not drop migration records or run old and new hosts against the same ledger. See the initialization guide for recovery steps.
-
-### Exposing the tool
-
-External CLI delegation rows ship enabled but stay dormant: `subagent_codex` and `subagent_claude_code` mount only after their provider bundles (`@deepseek-ai/dsh-subagent-codex` / `-claude-code`) are installed into the Profile, and the workspace must then opt in through `extraLocalTools`; entries naming tools that are not live are filtered before `tools.restrict()` runs and surface in maintenance health, so a missing provider or channel never breaks agent creation. QwenNote minutes tools pass the same gate from the host plane: add a `dsh-mcp-client` entry with `serverName: qwennote` (stdio + `mcp-remote` OAuth bridge, pinned version) to the Profile patch, complete the owner-browser authorization once, then opt in via `mcp__qwennote__*`. `ralph` is available to local sessions and follows its own tool contract: only on an explicit user request.
-
-### What you get
-
-- The「24私助」preset: standard plugin set (platform shell, fs, search, jobs, skill, skill-filesystem, tool-skill, goal, plan-mode, compaction, delegation, ask-user, todo, web, present, ralph) plus `pa24-agent`; persona text merged into the assistant identity; `tool-schedule` deliberately excluded — clock-type reminders ride native calendar events, with the ledger as backup record.
-- Role-restricted tool surfaces: local sessions get the full standard base plus all `pa24_*` tools; the Feishu entry session and workers keep business-only whitelists (one preset never implies one permission set).
-- The host plugin: fixed Feishu access and local sessions, `pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`, the SQLite-by-default ledger (optional PostgreSQL) with outbox delivery, the task-skill runtime (built-in plus workspace `.dsh/skills/`), calendar-native clock reminders, voice-capable digests, handwriting review cards, backup/health, the web panel (whose System category carries a parameter-configuration form: validate → rewrite the AGENTS.md config block → reload, with chat and the form sharing one config source; secrets are written via the Secrets group into a 0600 workspace store — write-only in the UI, env vars become optional overrides, and AGENTS.md/system prompts/backups never contain secret values), with workspace binding, switching, AGENTS.md reload, effective-config review, and health & budget living on the panel's System category under the Workspace & config card. WeCom access setup follows the bundled `wecom-setup.md` via `pa24_connection action=wecom_guide` / `wecom_check`.
-
-### Failure and recovery
-
-Digests and meeting prep on a dsh 0.2.0-rc.2 host report「当前 Host 未提供原生 Schedule 服务」until the schedule companions above are installed; the registry `dsh-schedule@0.2.0-rc.1` is peer-incompatible and its row stays disabled. An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A fresh Profile ships an unresolved `allowBuilds` placeholder for `protobufjs` (a transitive dependency of the Feishu SDK), so the first install exits nonzero until you set it to `true` in the Profile `pnpm-workspace.yaml`; the package is fully added either way. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
-
------
-
-<a id="understand-the-implementation"></a>
-## Understand the implementation
-
-<details>
-<summary>Implementation internals — click to expand</summary>
-
-This section explains how the assistant organizes work and where the observable behavior comes from; the consumer contract lives in [Use this package](#use-this-package).
-
-### Design concept
-
-- **One preset, many permission sets.** Every session composes the same「24私助」preset; role whitelists applied at agent creation decide the visible tools, so inheriting the preset never inherits maintenance authority (ADR-0001).
-- **Calendars own clock-type reminders.** `tool-schedule` is excluded on purpose: clock-type reminders are written as calendar events with native alerts (per `calendarChannel`), firing even with 24私助 offline; the ledger keeps delegated backup rows for history and dedup (ADR-0001, revised 2026-10-18).
-- **Material never becomes authorization.** Notes, documents, subagent replies, and fetched web content are inputs; only the owner's explicit instruction authorizes an external write, and secrets are referenced by environment variable name only.
-
-### Source map
-
-| File | Role |
-|---|---|
-| [`cordis.patch.yml`](packages/24pa/cordis.patch.yml) | The Profile patch layer: preset row plus host plugin row |
-| [`src/index.ts`](packages/24pa/src/index.ts) | Plugin entry: config schema, runtime construction, panel |
-| [`src/tools.ts`](packages/24pa/src/tools.ts) | Tool registration, `STANDARD_CODING_TOOLS`, `ROLE_TOOLS` |
-| [`src/prompts.ts`](packages/24pa/src/prompts.ts) | Every built-in prompt with `PROMPTS_VERSION`, AGENTS.md template |
-| [`src/runtime.ts`](packages/24pa/src/runtime.ts) | Roles, delegation, ledger flows, reminders, digests, backup |
-| [`src/feishu.ts`](packages/24pa/src/feishu.ts) | SDK long-connection transport, access diagnostics, `setupNextSteps` |
-| [`feishu-setup.md`](packages/24pa/feishu-setup.md) | The bundled access-setup guide served by `pa24_connection guide` |
-
-### Run flow
-
-On start the host plugin takes a single-writer lock on `$DSH_HOME/24pa`, opens the ledger (SQLite workspace file by default, or PostgreSQL), loads and validates the workspace `AGENTS.md`, and establishes the fixed Feishu access and local sessions through the SessionController. Inbound Feishu events durably enter an inbox before acknowledgment, the coordinator delegates to workers through the continuable child API, and each item records its origin, parent, and delivery target. Ticks drain the outbox with receipts, fire due non-delegated reminder occurrences, verify published note fingerprints, and wake digest plans through the native Schedule service; results return to the entry that originated the work. At agent creation the role whitelist restricts the inherited tool catalog, and an `AGENTS.md` reload replaces the workspace-rules prompt section without touching the effective configuration on failure.
-
-</details>
-
------
-
-<a id="further-exploration"></a>
-## Further Exploration
-
-Read these pages when the package-level contract is not enough. They move from this bundle to the product it implements and the platform it plugs into.
-
-- [Agent guide](AGENTS.md) — task-specific reading paths and repository conventions.
-- [Product baseline](docs/agents/product.md) — how the approved Manticore targets relate to the v1 spec and delivery evidence.
-- [Product spec](docs/24PA-v1-SPEC.md) — v1 stories, scenarios, and test groups.
-- [Overall design](docs/24PA-整体设计方案.md) — flows, session topology, and confirmed trade-offs.
-- [ADR-0001](docs/adr/0001-workspace-session-boundaries.md) — the workspace/session permission boundary this preset enforces.
-- [Research records](docs/research/) — per-feature verified contracts, including the dual-baseline and access-wizard studies.
-- [Delivery plan](docs/planning/24PA-v1-PR交付计划.md) — feature groups and their dependencies.
-- [Delivery workflow](docs/agents/delivery.md) — branch reuse, dependency checks, acceptance evidence, and merge criteria.
-
------
-
-<a id="model-experience"></a>
-## Model Experience
-
-### Assistant request
-
-#### What the model sees
-
-`pa24-agent` injects four ordered lead sections (identity and capability split, coordination, business domains, safety and reporting) plus the merged persona line; the workspace-rules section (order 910) carries `AGENTS.md` prose and stays empty until a workspace is bound. Workers receive four-part personas (职责/完成标准/边界/输出要求) instead.
-
-##### Verbatim identity line (src/prompts.ts)
-
-```markdown
-统一提供助理协调、工作区维护和完整编程能力；按本会话实际可用的工具办理（身份与工作目录见系统提示开头）。
-```
-
-#### Token effect
-
-Fixed per role after workspace bind; the workspace-rules section is conditional (empty until bound) and is replaced, not extended, on reload.
-
-#### KV Cache effect
-
-Stable repeated prefix within a session: an `AGENTS.md` reload replaces the rules section and invalidates reuse from that request on, while a `PROMPTS_VERSION` bump invalidates across deployments. Nothing else in this bundle rewrites the earlier prefix.
-
-### Role-restricted tool catalog
-
-#### What the model sees
-
-Eight `pa24_*` schemas with fixed JSON parameters, plus the role restriction applied to the inherited catalog: the Feishu entry sees exactly its five business tools, workers exactly `pa24_work` and read-only `pa24_memory`, local sessions the full standard base plus all `pa24_*` tools.
-
-#### Token effect
-
-Fixed catalog per role for the session lifetime; `extraLocalTools` extends the local allow list only, and host-plane additions from other bundles (for example `schedule_*`) are outside this bundle's allow list.
-
-#### KV Cache effect
-
-Append-only: the catalog is constant across one session's requests, so conversation growth never rewrites the prefix; changing the workspace `extraLocalTools`, the preset composition, or upgrading the package invalidates reuse.
-
-Indirectly, through the preset rows this bundle composes, each inserted standard package owns its own tool descriptions and prompt contributions.
-
-## Known Limitations and Deferred Work
-
-<a id="known-limitations-and-deferred-work"></a>
-
-These limits define when this assistant needs special operational care. They are current package constraints, not a general Feishu comparison or a task backlog.
-
-- **Real-tenant operation is single-instance so far** — long-connection, identity, and renewal paths now run on one production Feishu tenant (WeCom channels and voice digests included); broader tenant and zone compatibility remains untested, and console permission scope names are keyword-based pending on-console verification.
-- **Handwriting recognition quality is unquantified** — multi-page transcription fidelity needs a 30–50 page real-sample evaluation before any accuracy claim; the visual route must be configured in `workerModels`.
-- **dsh 0.2.0-rc.2 hosts ship no schedule service** — digests and meeting prep stay honestly unavailable until the schedule companions are installed, and the host-plane `schedule_*` tools those companions add cannot be hidden by preset restriction.
-- **External CLI delegation is dormant by default** — `subagent_codex`/`subagent_claude_code` mount only after their provider bundles are installed and `extraLocalTools` opts in; unconfigured tools stay absent rather than erroring.
-- **One writer per state directory** — a second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock; run one host per state directory.
-
-<a id="dev-note"></a>
-### Dev Note
-
-<details>
-<summary>Working context for maintainers — click to expand</summary>
-
-This Dev Note is working context for maintainers: open questions and undecided directions. It is explicitly non-authoritative — shipped behavior and limits live in the sections above and in the package code.
-
-- **Multi-baseline verification** — regression runs select the runtime with `DSH_BIN` and append the rc.2 schedule companions with `PA24_E2E_EXTRA_PLUGINS`; the active release line is 0.2.1-rc.2 with the full suite at 258/258, while 0.2.0-rc.2 and 0.2.1-alpha.1 remain covered by the dual-API fallback paths.
-- **Preset patch is generated** — `cordis.patch.yml` is produced by `scripts/sync-preset.mjs` from the `@deepseek-ai/dsh-web-app` standard preset pinned as a devDependency; never edit it by hand. On a new dsh baseline, bump the pin and run `npm run preset:sync`; `npm run preset:check` and unit tests fail when the checked-in copy drifts.
-- **Local harness adjacency** — dev type-checking links vendored peers from an adjacent `deepseek-harness` checkout through `scripts/link-peer.mjs`; registry installs never depend on that checkout.
-
-</details>
+Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.1-rc.3.1`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.3.1)

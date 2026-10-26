@@ -1,207 +1,165 @@
 ---
-description: "面向 dsh 的飞书私人助理 profile bundle：一个「24私助」预设，携带标准模式完整工具面与默认 SQLite 账本、七类业务 Worker、任务 skill、语音简报、日历原生提醒、手写审核和分阶段接入向导。"
+description: "24私助（24PA）是运行在 dsh 上的自托管飞书 / Lark AI 私人助理插件，提供 Agent Skills、定时任务、日程、待办、结构化记忆、手写审核与企微集成。"
 kind: "package-bundle"
 ---
 
-# @benz-ai-x/dsh-24pa
+# 24私助（24PA）— 飞书 / Lark AI 私人助理
 
-[English](README.md) | 中文
+[English](README.md) | **中文** | [npm](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) | [版本发布](https://github.com/benz-ai-x/dsh-24-PA/releases)
 
-## 摘要
+[![npm 版本](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
+[![GitHub 最新发布](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
+[![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](packages/24pa/package.json)
+[![dsh 基线](https://img.shields.io/badge/dsh-0.2.1--rc.3-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.3.1)
 
-把 `@benz-ai-x/dsh-24pa` 安装进 Profile，即获得「24私助」助理预设及其宿主插件：飞书＋本地双入口协调、七类业务 Worker，默认 SQLite 账本（工作区 `data/pa24.db`，可选 PostgreSQL）承载事项、手写审核、简报与发送回执。行为层以任务 skill 交付——内置＋工作区自定义（`<workspace>/.dsh/skills/`，热生效），各自声明模板轨或模型执行轨——覆盖语音简报与日历原生时钟提醒（宿主离线也由飞书/企微 App 照发）。预设携带按角色裁剪的标准模式工具面——本地会话可编程，飞书入口与 Worker 保持业务白名单。版本号跟随 dsh 基线（`<dsh 版本>.<序号>`），支持 dsh `0.2.0-rc.2`、`0.2.1-alpha.1`–`0.2.1-alpha.5`、`0.2.1-rc.1`–`0.2.1-rc.2`。
+**从“提醒我”到“帮我准备这一周”——把对话变成有条理、可审核、能跟进的行动，同时把控制权留在自己手里。**
+
+`@benz-ai-x/dsh-24pa` 是运行在 [dsh](https://github.com/deepseek-ai/deepseek-harness) 上的自托管 AI 私人助理插件。本地 DSH 会话与飞书机器人围绕同一位主人的工作区协调七类业务 Worker；电脑端工作区另以十六张能力卡片承接 Agent Skills、定时任务、日程、待办、结构化记忆、手写审核与送达证据。
+
+![24私助电脑端工作区，展示 Skill 管理、定时任务、日程、待办与运行记录](docs/assets/24pa-desktop-overview.png)
+
+## 为什么是24私助？
+
+- **不止聊天，更能跟进事情。** 从一句委托到助理交办、Skill 运行、平台对象与可追溯结果，把定时计划和后续跟进串在同一条工作链路里。
+- **继续用你熟悉的工具。** 直接承接飞书的日程、待办、文档与通知，以及企微的日程、待办和单向推送，不为了使用助理再迁出一套数据真相。
+- **自动化也能看得见、管得住。** 查看 Skill 包与版本、预览权限、分开跟踪执行和投递，并把内容审核与行动授权明确分开。
+- **个人助理能力可以持续生长。** 用卡片组织聚焦的能力，共享同一工作区与运行时；新需求可以扩展新场景卡片，而不是再造一个彼此割裂的机器人。
+
+## 卡片化个人助理架构
+
+24私助把一个助理预设与宿主插件组合在一起。对话协调与电脑端卡片能力面共享主人身份、角色权限、Skill 与计划运行时、工作记录、存储和送达证据。
+
+![24私助架构图：本地与飞书入口、统一工作区与权限边界、十六张能力卡片、共享运行时，以及未来新场景卡片](docs/assets/24pa-architecture.zh.png)
+
+**卡片是产品能力的扩展单元。** 新的个人助理需求可以增加聚焦的场景卡片，复用同一工作区、权限、计划、运行记录和运维底座。下方十六张实线卡片均已实现；虚线卡片代表产品扩展方向，不表示当前版本已经提供第三方卡片 SDK。
+
+## 已实现的 16 张卡片
+
+以下卡片全部属于当前产品。普通浏览是只读操作，不会悄悄启动模型、创建平台对象或运行任务。
+
+### 事务与计划 · 5 张
+
+| 卡片 | 能帮你做什么 | 已具备的能力 |
+| --- | --- | --- |
+| **Skill 管理** | 把可复用的经验变成可控的助理能力。 | 新建／导入 Markdown 或 ZIP；编辑、复制；完整包目录树与只读文件预览；不可变版本与关联计划；试运行、运行、禁用、回退、删除和下载。 |
+| **定时任务** | 让一次性和周期性工作按持久计划推进。 | 空白、预设或复制计划；Skill 参数、固定时区、授权目标与投递；触发预览；启用、暂停、恢复、立即运行、删除、还原和历史查询。 |
+| **日程** | 跨已登记日历查看并办理真实日程。 | 今日安排与下一场；来源筛选、冲突和查询完整性；平台核验；对话创建／变更；原生提醒；原日程入口。 |
+| **待办** | 管理原平台业务工作，同时与助理执行保持分流。 | 逾期、今日到期和未完成视图；多来源聚合与五档角色范围；对话创建、完成、延期、修改、取消；原对象入口与关联交办。 |
+| **运行记录** | 看清运行了什么、结果是什么、是否真正送达。 | 执行记录、助理交办、未执行事件分视图；筛选与导出；诊断与核对；补投、重跑；交办补充、停止、接续与验收。 |
+
+### 知识与资料 · 2 张
+
+| 卡片 | 能帮你做什么 | 已具备的能力 |
+| --- | --- | --- |
+| **手写审核** | 把手写材料整理成可审核的内容，再逐项授权后续行动。 | 原稿对照、草稿编辑、版本发布与差异；飞书审核入口；核验与重发；内容批准不会自动执行候选行动。 |
+| **结构化记忆** | 让长期事实、偏好与决定有来源、有确认依据。 | 完整正文、来源、确认依据、范围、时效、冲突与修订；查询筛选；本地新建、修改、停用、删除、恢复和撤销；JSON 保持唯一可编辑权威。 |
+
+### 接入与设置 · 6 张
+
+| 卡片 | 能帮你做什么 | 已具备的能力 |
+| --- | --- | --- |
+| **飞书接入** | 确认主人、应用与所需能力是否真正接通。 | 主人、CLI、应用与 profile 身份证据；收发、审核回调与资源检查；只读诊断、明确触发的测试、清理和配置定位。 |
+| **企业微信接入** | 办理授权范围内的企微对象，而不增加另一个收信机器人。 | 日程、待办、单向推送分域证据；身份与授权检查；续期、独立测试和配置定位；不提供收信对话。 |
+| **QwenNote 听记** | 把录音、转写与会议纪要作为可追溯的资料来源。 | 仅本地按需读取列表、转写和纪要；接入证据；带来源的整理与候选行动提炼，仍需审核和行动授权。 |
+| **飞书知识库** | 选择备忘与手写审核文档的保存落点。 | 落点、节点、权限与关联文档检查；配置、核验和打开；沿资料流程保存，不搬动旧文档，也不静默更换落点。 |
+| **工作区与配置** | 让主人的规则、数据和会话始终归属正确的工作区。 | 目录、绑定、配置来源、生效版本与差异；绑定、切换、重载、生效配置查看和参数编辑入口；重载失败保留当前环境。 |
+| **参数配置** | 在一个受控入口调整日常行为，不必翻找配置文件。 | 业务参数、来源映射、模型路由、语音和预算；编辑、校验、保存、重置和错误定位；密钥只写不回显，保存与生效分别反馈。 |
+
+### 运行与维护 · 3 张
+
+| 卡片 | 能帮你做什么 | 已具备的能力 |
+| --- | --- | --- |
+| **全应用健康检查** | 在问题阻断工作之前，找到真正需要处理的环节。 | 模块状态、证据时间与范围、影响和下一步；全量或分项只读检查；区分未启用、未检查、未验证与故障；诊断与修复定位。 |
+| **模型与预算** | 看清模型消耗，并在明确限额处暂停新的受管请求。 | 实际模型路由、Token／请求用量与价格依据；日／月限额和预警；核对后单次放行；费用未知不会报成零。 |
+| **账本与备份** | 保护恢复所需状态，并证明实际检查过什么。 | SQLite／PostgreSQL 状态；创建备份、查看清单、校验真实副本；隔离恢复检查；排除密钥；恢复演练不等于授权生产切换。 |
+
+各模块归属与验证证据见 [Manticore 交付与验收记录](docs/planning/24PA-Manticore-交付验收.md)。
+
+## 工作区实拍
+
+| Skill 完整包管理 | 可追溯的运行记录 |
+| --- | --- |
+| ![Skill 包目录、不可变版本详情与只读文件预览](docs/assets/24pa-skill-management.png) | ![执行状态与投递状态分列的运行记录](docs/assets/24pa-run-history.png) |
+
+## 快速开始
+
+### 前置要求
+
+- Node.js `^22.19.0` 或 `>=24.0.0`（默认 SQLite 账本使用内建 `node:sqlite`）。
+- 当前发版线使用 dsh `0.2.1-rc.3`。
+- 初次 demo 不需要飞书凭据，也不需要单独安装 PostgreSQL。
+
+### 安装当前版本
+
+```sh
+npm install -g @deepseek-ai/dsh@0.2.1-rc.3
+
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.3.1 --registry=https://registry.npmjs.org
+```
+
+重启同一个 Profile，打开24私助工作区并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`；由于部分镜像同步滞后，建议显式使用 npm 官方 registry。
+
+**要创建全新实例？** 请按[初始化指南](docs/24PA-初始化指南.md)逐步完成隔离实例目录、工作区、启动脚本、pnpm 构建审批、带 token 的面板地址与 demo 验收。demo 正常后，对本地助理说「帮我接通飞书」，或阅读随包[飞书接入指南](packages/24pa/feishu-setup.md)。
+
+<details>
+<summary><strong>使用旧版 dsh 宿主？</strong>查看推荐版本</summary>
+
+24私助版本号遵循 `<dsh 基线>.<序号>`。请选择与宿主一致的发版线，不要给所有宿主都安装最新包。
+
+| dsh 宿主 | 24私助包版本 |
+| --- | --- |
+| `0.2.1-rc.3` | `0.2.1-rc.3.1`（当前版本） |
+| `0.2.1-rc.2` | `0.2.1-rc.2.9` |
+| `0.2.1-rc.1` | `0.2.1-rc.1.2` |
+| `0.2.1-alpha.2` – `0.2.1-alpha.5` | `0.2.1-alpha.5.1` |
+| `0.2.1-alpha.1` | `0.2.1-alpha.1.6` |
+| `0.2.0-rc.2` | `0.2.0-rc.2.3`，另需[初始化指南](docs/24PA-初始化指南.md)中的两个 schedule 伴随件 |
+
+</details>
+
+## 架构与安全边界
+
+- **一个预设，按角色分权。** 本地会话可使用标准编程工具面；飞书入口与业务 Worker 仅获得业务白名单。受管 Skill 运行使用保存的包与权限快照。
+- **本地优先账本。** 默认零外部服务的 SQLite 位于工作区 `data/pa24.db`；也可显式选择 PostgreSQL。持久 inbox／outbox 记录发起入口与固定投递目标。
+- **外部写入不盲目重放。** 平台结果未知时先核对原对象，再决定是否重试；修复本地记录或补投不会重复已经成功的外部动作。
+- **密钥不进入提示与备份。** 使用服务器环境变量或只写的工作区密钥库（`.24pa/secrets.json`，权限 `0600`）；同名环境变量优先。`AGENTS.md` 只保存规则与非秘密配置。
+- **审核不等于执行。** 批准某个手写版本不会自动执行其中的候选行动。笔记、文档、听记、网页与子 Agent 回复都是材料，不构成授权。
+- **时钟提醒归原生日历。** 飞书或企微负责原生提醒，账本保留备份与核对记录；实际设备送达仍取决于平台及经过核验的账号配置。
+
+配置字段、账本归属、失败恢复、权限细节与源码地图见[包级参考文档](packages/24pa/README.md)。
+
+## 文档入口
+
+- [初始化指南](docs/24PA-初始化指南.md)——全新实例、demo 验收、可选 PostgreSQL、语音与 QwenNote 接入。
+- [飞书接入](packages/24pa/feishu-setup.md)与[企微接入](packages/24pa/wecom-setup.md)——对应渠道的权威配置流程。
+- [Manticore 备份恢复](docs/Manticore-备份恢复.md)——备份校验、隔离恢复演练与人工切换边界。
+- [产品规格](docs/24PA-v1-SPEC.md)与[整体设计](docs/24PA-整体设计方案.md)——行为、流程与取舍。
+- [ADR-0001](docs/adr/0001-workspace-session-boundaries.md)——工作区、会话与权限边界。
+- [GitHub Issues](https://github.com/benz-ai-x/dsh-24-PA/issues)——问题、缺陷与交付跟踪。
+
+## 已知边界
+
+- 管理界面只面向电脑端，不提供手机响应式产品界面；飞书与企微原生 App 保持各自平台行为。
+- 真实账号权限、更广的租户／Lark 地区兼容性、实际设备提醒送达、QwenNote OAuth 与录音卡转写，以及来源核验，仍需按部署环境验证。
+- 模型用量、价格与预算估算不等于供应商账单；实际用量和账单差异需另行核对，预算不承诺精确账单封顶。
+- 手写识别准确率尚未量化，需显式配置视觉模型路由。
+- 备份校验与隔离恢复检查不等于生产恢复成功；凭据、远端对象、未决动作、待发结果、计划与预算完成核对后，才能另行授权人工切换。
+- Codex／Claude Code 外部委派与 QwenNote 工具需安装对应通道并由工作区显式放行，不会静默开启。
 
 ## 常见问题
 
-**24私助（24PA）是什么？**——面向 dsh 的飞书私人助理插件（profile bundle）：本地 dsh 会话与飞书机器人协调七类业务 Worker，默认 SQLite 账本承载任务、日程、备忘、简报、手写审核与 skill 执行；时钟型提醒走日历原生送达。
+### 24私助必须使用 PostgreSQL 吗？
 
-**支持哪些 dsh 运行时？**——dsh `0.2.0-rc.2`、`0.2.1-alpha.1`–`0.2.1-alpha.5`、`0.2.1-rc.1`–`0.2.1-rc.2`；版本号按 `<dsh 基线>.<序号>` 命名，npm dist-tag 按基线分通道。
+不需要。默认 SQLite 无需独立数据库服务；既有部署或明确偏好 PostgreSQL 时可显式选择。
 
-**怎么安装？**——`dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@<基线序号>`，然后重启 profile（见[安装 Bundle](#安装-bundle)）。
+### 不改插件代码，能调整例程吗？
 
-**提醒需要模型在线吗？**——不需要。时钟型提醒写入带原生提醒的日历日程（按 `calendarChannel` 走飞书或企微）——模型与24私助宿主都离线也照发；账本保留 delegated 备份行。跟进与条件型提醒由 agent 轨 skill 承接。
+可以。使用内置或工作区 Skill 与定时任务。`.dsh/skills/` 下的 Markdown 文件支持热加载；受管包另提供版本、审核、执行与回退控制。
 
-**不改插件代码能新增或调整例程吗？**——能：周期任务、Worker 职责、接入向导与业务工作流都以任务 skill 交付。往工作区 `.dsh/skills/` 放一个 `<name>.md`（热生效）或在面板计划卡换绑即可；每个 skill 自声明模板轨或带完成标准的模型执行轨，且只能收紧、绝不放宽工具权限。
+### 时钟提醒需要模型或24私助宿主一直在线吗？
 
-**怎么接通飞书？**——对本地24私助会话说「帮我接通飞书」；内置向导（`pa24_connection` 的 `guide` 与带 `nextSteps` 的 `check`）带你完成建应用、授权、资源标识与健康检查。飞书接入会话也可运行这套只读向导及 `wecom_guide`/`wecom_check` 渠道诊断；配置写入仍仅限本地会话（ADR-0001）。
+提醒会写入带原生提醒的日历日程，模型不是提醒引擎。平台接受、设备送达和已读是不同事实，24私助不会用其中一项证明另一项。
 
-## 目录
+---
 
-- [使用本包](#使用本包)
-- [理解实现](#理解实现)
-- [延伸阅读](#延伸阅读)
-- [模型体验](#模型体验)
-- [已知限制与遗留事项](#已知限制与遗留事项)
-- [维护者备注](#维护者备注)
-
------
-
-<a id="使用本包"></a>
-## 使用本包
-
-### 安装 Bundle
-
-按你的 dsh 运行时选择对应版本，然后重启 Profile。reconcile 步骤会为这个 `dsh.bundle` 声明激活补丁层（一个助理预设行＋一个宿主插件行）。
-
-```sh
-# dsh 0.2.1-alpha.1 宿主（自带 schedule 服务）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.1.6
-
-# dsh 0.2.1-alpha.2 – 0.2.1-rc.2 宿主（peer 覆盖这些基线；rc.2 为活跃发版线）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.3.1
-
-# alpha.2 – alpha.5 宿主也可固定停在 alpha 线（已冻结于 0.2.1-alpha.5.1；preset 内容相同，仅 engines/peer 扩围与文档差异）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-alpha.5.1
-
-# dsh 0.2.0-rc.2 宿主——该线已冻结于 0.2.0-rc.2.3、不再迭代（简报功能另需两个 schedule 伴随件）
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.0-rc.2.3
-dsh plugin --profile <name> add @deepseek-ai/dsh-experimental-schedule-bundle
-dsh plugin --profile <name> add <rc.2 harness 源码>/packages/schedule/schedule
-
-dsh plugin --profile <name> remove @benz-ai-x/dsh-24pa
-```
-
-删除在下一次 Profile 启动时收回预设与宿主插件；PostgreSQL 数据、dsh 会话与工作区目录不受影响。版本命名遵循 `<dsh 基线版本>.<序号>`；npm dist-tag 按基线分通道（`dsh-0.2.0-rc.2`、`dsh-0.2.1-alpha.1`、`dsh-0.2.1-alpha.2`、`dsh-0.2.1-alpha.5`、`dsh-0.2.1-rc.1`、`dsh-0.2.1-rc.2`）。
-
-### 配置
-
-密钥只存在于服务器环境；工作区 `AGENTS.md` 以唯一一个机器校验的 JSON 块保存变量名，重载时重新校验——坏配置绝不替换当前生效版本。
-
-| 变量 | 含义 |
-|---|---|
-| `PA24_PG_DSN` | PostgreSQL 连接串；账本使用独立 `pa24` schema |
-| `PA24_WORKSPACE` | 首次启动绑定的绝对工作区目录（也可在面板或设置里选择） |
-| `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | 飞书自建应用凭据（feishu 模式） |
-
-`AGENTS.md` 字段：`mode`（demo/feishu）、`storage`（sqlite/postgres，默认 sqlite——账本默认是工作区 `data/pa24.db`，SQLite 用 Node 内建 `node:sqlite`（本包支持的 Node 范围内均免 flag）；显式 `postgres` 时才需要 `pgDsnEnv` 与外部数据库）、`larkProfile`、`ownerOpenId`、`folderToken`、`wikiNodeToken`（可选——已配置时备忘与手写待审文档建到该飞书知识库节点下，留空回退 folderToken）、`tasklistId`、`calendarId`、`calendarChannel`/`todoChannel`/`notifyChannel`（feishu|wecom，默认 feishu——企微作日程/待办第二操作渠道＋提醒单向推送，永不收信）、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraBusinessSkills`（kebab-case 放行名单，把工作区业务 skill 释放给模型执行）、`tts`（`engine` none/melo/volcengine、`voice`、`volcKeyEnv`、`meloDir`——语音简报走火山豆包云端或本地 Melo）、`extraLocalTools`（subagent_codex、subagent_claude_code，以及经 `mcp__qwennote__*` 通配或精确名放行的 QwenNote 听记工具；点名未挂载工具的条目会被过滤并在健康里提示）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
-
-### 暴露工具
-
-外部 CLI 委派行已随包启用但保持休眠：`subagent_codex` 与 `subagent_claude_code` 仅在对应 provider 包（`@deepseek-ai/dsh-subagent-codex` / `-claude-code`）安装进 Profile 后挂载，且工作区须再经 `extraLocalTools` 显式开启——点名了未挂载工具的条目会在 `tools.restrict()` 之前被过滤并进入维护健康提示，provider 或通道缺失不再导致会话创建失败。QwenNote 听记工具经宿主面过同一道门：在 Profile patch 添加 `serverName: qwennote` 的 `dsh-mcp-client` 条目（stdio＋`mcp-remote` OAuth 桥，锁版本），由本人浏览器完成一次授权，再经 `mcp__qwennote__*` 放行。`ralph` 对本地会话可用，遵循其工具契约：仅在本人明确要求时使用。
-
-### 你会得到什么
-
-- 「24私助」预设：标准插件全集（平台 shell、文件、检索、jobs、skill、skill-filesystem、tool-skill、goal、plan-mode、压缩、通用委派、ask-user、todo、web、present、ralph）＋`pa24-agent`；persona 文案已并入助理身份；`tool-schedule` 刻意不并入——时钟型提醒走日历原生日程，账本留备份行。
-- 按角色裁剪的工具面：本地会话获得完整标准工具面＋全部 `pa24_*` 工具；飞书接入会话与 Worker 保持业务白名单（同一预设绝不意味着同一权限）。
-- 宿主插件：固定飞书接入与本地会话，`pa24_delegate`/`pa24_jobs`/`pa24_notes`/`pa24_memory`/`pa24_maintenance`/`pa24_workspace`/`pa24_connection`/`pa24_work`，默认 SQLite 账本（可选 PostgreSQL）＋Outbox 回执、任务 skill 运行时（内置＋工作区 `.dsh/skills/`）、日历原生时钟提醒、语音简报、手写审核卡片、备份/健康与 Web 面板（系统维护分类含参数配置表单：校验→写回 AGENTS.md 配置块→重载，与对话共享同一配置源；密钥经「密钥」组写入工作区密钥库 0600 文件、只写不回显，环境变量降为可选覆盖，AGENTS.md/系统提示/备份永不包含密钥值），工作区管理（绑定/切换/重载/生效配置查看/健康预算）在面板「系统维护 → 工作区与配置」卡；企微渠道接入走随包 `wecom-setup.md`（`pa24_connection action=wecom_guide` / `wecom_check`）。
-
-### 失败与恢复
-
-dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会前准备如实报「当前 Host 未提供原生 Schedule 服务」；registry 的 `dsh-schedule@0.2.0-rc.1` peer 不匹配、其行保持禁用。未安装的外部 CLI provider 使工具缺席而非报错。同一 `$DSH_HOME/24pa` 上的第二个 pa24 宿主会因锁拒绝启动。全新 Profile 对 `protobufjs`（飞书 SDK 的传递依赖）自带未决的 `allowBuilds` 占位符，首次安装会以非零码结束，需在 Profile 的 `pnpm-workspace.yaml` 里把它设为 `true`；无论哪种结果包都已完整加入。 lark-cli 超时归类为结果未知——先核对飞书实际对象再决定是否重试；绝不盲目重放外部写入。
-
------
-
-<a id="理解实现"></a>
-## 理解实现
-
-<details>
-<summary>实现内幕——点击展开</summary>
-
-本节说明助理如何组织工作、可观察行为来自哪里；消费者契约见[使用本包](#使用本包)。
-
-### 设计概念
-
-- **一个预设，多套权限。** 每个会话组装的都是同一个「24私助」预设；agent 创建时套用的角色白名单决定可见工具，因此继承预设绝不继承维护授权（ADR-0001）。
-- **日历是时钟型提醒的权威。** `tool-schedule` 的排除是有意为之：时钟型提醒按 `calendarChannel` 写成带原生提醒的日程，24私助离线也照发；账本保留 delegated 备份行供历史与防重（ADR-0001，2026-10-18 修订）。
-- **材料永远不构成授权。** 笔记、文档、子 Agent 回复与抓取的网页内容都只是输入；只有本人的明确指令才授权外部写入，密钥只以环境变量名引用。
-
-### 源码地图
-
-| 文件 | 角色 |
-|---|---|
-| [`cordis.patch.yml`](packages/24pa/cordis.patch.yml) | Profile 补丁层：预设行＋宿主插件行 |
-| [`src/index.ts`](packages/24pa/src/index.ts) | 插件入口：配置模式、runtime 装配、面板 |
-| [`src/tools.ts`](packages/24pa/src/tools.ts) | 工具注册、`STANDARD_CODING_TOOLS`、`ROLE_TOOLS` |
-| [`src/prompts.ts`](packages/24pa/src/prompts.ts) | 全部内置提示词与 `PROMPTS_VERSION`、AGENTS.md 模板 |
-| [`src/runtime.ts`](packages/24pa/src/runtime.ts) | 角色、委派、账本流程、提醒、简报、备份 |
-| [`src/feishu.ts`](packages/24pa/src/feishu.ts) | SDK 长连接传输、接入诊断、`setupNextSteps` |
-| [`feishu-setup.md`](packages/24pa/feishu-setup.md) | `pa24_connection guide` 服务的内置接入指南 |
-
-### 运行流程
-
-启动时宿主插件对 `$DSH_HOME/24pa` 取单写锁，打开账本（默认 SQLite 工作区文件，或 PostgreSQL），加载并校验工作区 `AGENTS.md`，经 SessionController 建立固定的飞书接入与本地会话。入站飞书事件先耐久落 inbox 再确认；协调者经 continuable child API 委派 Worker，每个事项记录 origin、父会话与固定投递目标。定时循环带回执地排空 Outbox、触发到期的非 delegated 提醒、核验已发布笔记指纹、经原生 Schedule 服务唤醒简报计划；结果回到实际发起入口。agent 创建时角色白名单裁剪继承的工具目录；`AGENTS.md` 重载只替换工作区规则提示段，失败时不触碰生效配置。
-
-</details>
-
------
-
-<a id="延伸阅读"></a>
-## 延伸阅读
-
-当包级契约不够时读这些页面。它们从本 bundle 延伸到它实现的产品与它接入的平台。
-
-- [Agent 指引](AGENTS.md)——按任务触发的读取路径与仓库约定。
-- [产品基线](docs/agents/product.md)——已确认 Manticore 目标、v1 规格与交付证据的关系。
-- [产品规格](docs/24PA-v1-SPEC.md)——v1 故事、场景与测试组。
-- [整体设计](docs/24PA-整体设计方案.md)——流程、会话拓扑与已确认取舍。
-- [ADR-0001](docs/adr/0001-workspace-session-boundaries.md)——本预设执行的工作区/会话权限边界。
-- [研究记录](docs/research/)——分功能的已验证契约，含双基线与接入向导研究。
-- [v1 PR 交付计划](docs/planning/24PA-v1-PR交付计划.md)——功能分组及其依赖。
-- [交付流程](docs/agents/delivery.md)——分支复用、依赖判定、验收证据与合并标准。
-
------
-
-<a id="模型体验"></a>
-## 模型体验
-
-### 助理请求
-
-#### 模型看到什么
-
-`pa24-agent` 注入四个有序 Lead 段（身份与能力分工、协调流程、业务要点、安全边界与汇报）与并入的 persona 行；工作区规则段（order 910）承载 `AGENTS.md` 散文规则，绑定工作区前为空。Worker 改收四节式 persona（职责/完成标准/边界/输出要求）。
-
-##### 身份行原文（src/prompts.ts）
-
-```markdown
-统一提供助理协调、工作区维护和完整编程能力；按本会话实际可用的工具办理（身份与工作目录见系统提示开头）。
-```
-
-#### Token 影响
-
-工作区绑定后按角色固定；工作区规则段为条件性（绑定前为空），重载时整体替换而非追加。
-
-#### KV Cache 影响
-
-会话内为稳定重复前缀：`AGENTS.md` 重载会替换规则段并自该请求起使复用失效，`PROMPTS_VERSION` 升版则跨部署使复用失效；本 bundle 不改写更早的前缀。
-
-### 角色裁剪的工具目录
-
-#### 模型看到什么
-
-八个 `pa24_*` 模式（固定 JSON 参数），以及对继承目录的角色裁剪：飞书入口恰见五个业务工具，Worker 恰见 `pa24_work` 与只读 `pa24_memory`，本地会话见完整标准工具面＋全部 `pa24_*` 工具。
-
-#### Token 影响
-
-会话生命周期内按角色固定；`extraLocalTools` 仅扩展本地 allow 名单，其他 bundle 在宿主面新增的工具（如 `schedule_*`）不经过本 bundle 的名单。
-
-#### KV Cache 影响
-
-只追加：同一会话各请求间目录恒定，对话增长不改写前缀；修改工作区 `extraLocalTools`、变更预设组装或升级本包会使复用失效。
-
-间接地，经本 bundle 组装的预设行，每个被插入的标准包各自持有其工具描述与提示词贡献。
-
-## 已知限制与遗留事项
-
-<a id="已知限制与遗留事项"></a>
-
-这些限制说明本助理何时需要特别的运维注意。它们是当前的包约束，不是与飞书的一般性对比，也不是任务清单。
-
-- **真实租户运营目前仅单实例**——长连接、身份与续期路径已在一个生产飞书租户上运行（含企微渠道与语音简报）；更广的租户与地区兼容性未验证，控制台权限点为关键词表述、精确 scope 名待控制台核对。
-- **手写识别质量未量化**——多页转写保真度需 30–50 页真实样本评测后才能作任何准确率表述；视觉路由须在 `workerModels` 配置。
-- **dsh 0.2.0-rc.2 宿主不带 schedule 服务**——安装 schedule 伴随件之前，简报与会前准备如实不可用；伴随件在宿主面新增的 `schedule_*` 工具无法被预设裁剪隐藏。
-- **外部 CLI 委派默认休眠**——`subagent_codex`/`subagent_claude_code` 须安装对应 provider 包并经 `extraLocalTools` 显式开启后才挂载；未配置时工具缺席而非报错。
-- **每个状态目录单写**——同一 `$DSH_HOME/24pa` 上的第二个 pa24 宿主会因锁拒绝启动；每个状态目录只跑一个宿主。
-
-<a id="维护者备注"></a>
-### 维护者备注
-
-<details>
-<summary>面向维护者的工作上下文——点击展开</summary>
-
-本备注是面向维护者的工作上下文：待决问题与未定方向。它明确不具权威性——已交付的行为与限制以正文章节与包代码为准。
-
-- **多基线验证**——回归运行用 `DSH_BIN` 选运行时、`PA24_E2E_EXTRA_PLUGINS` 附加 rc.2 的 schedule 伴随件；当前活跃发版线为 0.2.1-rc.2、全量测试 258/258，0.2.0-rc.2 与 0.2.1-alpha.1 由双 API 回退路径保持兼容。
-- **预设补丁为生成物**——`cordis.patch.yml` 由 `scripts/sync-preset.mjs` 对 devDependency 钉住的 `@deepseek-ai/dsh-web-app` 标准预设应用 delta 生成，勿手改；换新 dsh 基线时先改 pin 再跑 `npm run preset:sync`，`npm run preset:check` 与单测守护已提交副本不漂移。
-- **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
-
-</details>
+包：[`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · 当前版本：[`v0.2.1-rc.3.1`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.3.1)
