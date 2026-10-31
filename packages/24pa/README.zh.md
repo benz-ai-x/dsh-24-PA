@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm 版本](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub 最新发布](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](package.json)
-[![dsh 基线](https://img.shields.io/badge/dsh-0.2.1--rc.4-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.2)
+[![dsh 基线](https://img.shields.io/badge/dsh-0.2.1--rc.5-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.5.1)
 
 **从“提醒我”到“帮我准备这一周”——把对话变成有条理、可审核、能跟进的行动，同时把控制权留在自己手里。**
 
@@ -77,15 +77,15 @@ kind: "package-bundle"
 
 ## 快速开始
 
-前置要求：Node.js `^22.19.0` 或 `>=24.0.0`、dsh `0.2.1-rc.4`；默认 SQLite demo 无需独立数据库服务。
+前置要求：Node.js `^22.19.0` 或 `>=24.0.0`、dsh `0.2.1-rc.5`；默认 SQLite demo 无需独立数据库服务。
 
 <a id="安装-bundle"></a>
 ### 安装当前版本
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.1-rc.4
+npm install -g @deepseek-ai/dsh@0.2.1-rc.5
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.2 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.5.1 --registry=https://registry.npmjs.org
 ```
 
 重启同一个 Profile 并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`。全新实例请按[初始化指南](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md)完成隔离目录、启动脚本、pnpm 构建审批、带 token 的面板地址与 demo 验收；随后对本地助理说「帮我接通飞书」，或阅读随包[飞书接入指南](feishu-setup.md)。
@@ -99,7 +99,8 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.2 --registry=http
 
 | dsh 宿主 | 24私助包版本 |
 | --- | --- |
-| `0.2.1-rc.4` | `0.2.1-rc.4.2`（当前版本） |
+| `0.2.1-rc.5` | `0.2.1-rc.5.1`（当前版本） |
+| `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
 | `0.2.1-rc.2` | `0.2.1-rc.2.9` |
 | `0.2.1-rc.1` | `0.2.1-rc.1.2` |
@@ -259,7 +260,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 
 本备注面向维护者。已交付行为与限制以正文章节和包代码为准；历史测试数量属于对应的 dated 验收记录，不作为本 living 文档的长期状态。
 
-- **多基线验证**——当前活跃发版线为 0.2.1-rc.4。回归运行用 `DSH_BIN` 选运行时，并以 `PA24_E2E_EXTRA_PLUGINS` 附加 0.2.0-rc.2 的 schedule 伴随件；旧基线沿用各自文档中的兼容路径。
+- **多基线验证**——当前活跃发版线为 0.2.1-rc.5。回归运行用 `DSH_BIN` 选运行时，并以 `PA24_E2E_EXTRA_PLUGINS` 附加 0.2.0-rc.2 的 schedule 伴随件；旧基线沿用各自文档中的兼容路径。
 - **预设补丁为生成物**——`cordis.patch.yml` 由 `scripts/sync-preset.mjs` 对 devDependency 钉住的 `@deepseek-ai/dsh-web-app` 标准预设应用 delta 生成，勿手改；换新 dsh 基线时先改 pin 再跑 `npm run preset:sync`，`npm run preset:check` 与单测守护已提交副本不漂移。
 - **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
 

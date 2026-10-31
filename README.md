@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm version](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub release](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](packages/24pa/package.json)
-[![dsh baseline](https://img.shields.io/badge/dsh-0.2.1--rc.4-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.2)
+[![dsh baseline](https://img.shields.io/badge/dsh-0.2.1--rc.5-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.5.1)
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
@@ -86,15 +86,15 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 ### Requirements
 
 - Node.js `^22.19.0` or `>=24.0.0` (the default SQLite ledger uses built-in `node:sqlite`).
-- dsh `0.2.1-rc.4` for the current release line.
+- dsh `0.2.1-rc.5` for the current release line.
 - No Feishu credentials are needed for the initial demo. PostgreSQL is optional.
 
 ### Install the current release
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.1-rc.4
+npm install -g @deepseek-ai/dsh@0.2.1-rc.5
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.2 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.5.1 --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile, open the 24PA workspace, and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`; the official npm registry is recommended because some mirrors lag behind.
@@ -108,7 +108,8 @@ Restart the same Profile, open the 24PA workspace, and choose the「24私助」p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.1-rc.4` | `0.2.1-rc.4.2` (current) |
+| `0.2.1-rc.5` | `0.2.1-rc.5.1` (current) |
+| `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
 | `0.2.1-rc.2` | `0.2.1-rc.2.9` |
 | `0.2.1-rc.1` | `0.2.1-rc.1.2` |
@@ -163,4 +164,4 @@ They are written to the native calendar with an alert, so the model is not the r
 
 ---
 
-Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.1-rc.4.2`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.2)
+Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.1-rc.5.1`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.5.1)
