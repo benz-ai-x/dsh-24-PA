@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm version](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub release](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](package.json)
-[![dsh baseline](https://img.shields.io/badge/dsh-0.2.1--rc.4-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.1)
+[![dsh baseline](https://img.shields.io/badge/dsh-0.2.1--rc.4-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.2)
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
@@ -85,7 +85,7 @@ Requirements: Node.js `^22.19.0` or `>=24.0.0`, dsh `0.2.1-rc.4`, and no databas
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.1-rc.4
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.1 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.2 --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`. For a new instance, follow the [initialization guide](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md) for the isolated directory, launch script, expected pnpm approval, token URL, and demo verification. Then tell the local assistant「帮我接通飞书」or use the bundled [Feishu setup guide](feishu-setup.md).
@@ -99,7 +99,7 @@ To remove the bundle, run `dsh plugin --profile <name> remove @benz-ai-x/dsh-24p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.1-rc.4` | `0.2.1-rc.4.1` (current) |
+| `0.2.1-rc.4` | `0.2.1-rc.4.2` (current) |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
 | `0.2.1-rc.2` | `0.2.1-rc.2.9` |
 | `0.2.1-rc.1` | `0.2.1-rc.1.2` |

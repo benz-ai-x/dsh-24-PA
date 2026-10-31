@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm 版本](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub 最新发布](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](packages/24pa/package.json)
-[![dsh 基线](https://img.shields.io/badge/dsh-0.2.1--rc.4-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.1)
+[![dsh 基线](https://img.shields.io/badge/dsh-0.2.1--rc.4-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.2)
 
 **从“提醒我”到“帮我准备这一周”——把对话变成有条理、可审核、能跟进的行动，同时把控制权留在自己手里。**
 
@@ -94,7 +94,7 @@ kind: "package-bundle"
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.1-rc.4
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.1 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.2 --registry=https://registry.npmjs.org
 ```
 
 重启同一个 Profile，打开24私助工作区并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`；由于部分镜像同步滞后，建议显式使用 npm 官方 registry。
@@ -108,7 +108,7 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.1 --registry=http
 
 | dsh 宿主 | 24私助包版本 |
 | --- | --- |
-| `0.2.1-rc.4` | `0.2.1-rc.4.1`（当前版本） |
+| `0.2.1-rc.4` | `0.2.1-rc.4.2`（当前版本） |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
 | `0.2.1-rc.2` | `0.2.1-rc.2.9` |
 | `0.2.1-rc.1` | `0.2.1-rc.1.2` |
@@ -163,4 +163,4 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.4.1 --registry=http
 
 ---
 
-包：[`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · 当前版本：[`v0.2.1-rc.4.1`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.1)
+包：[`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · 当前版本：[`v0.2.1-rc.4.2`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.4.2)
