@@ -134,6 +134,15 @@ for (const backend of ['sqlite', 'postgres']) describe(`M07 ${backend}`, () => {
     await tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-unknown-secret', ...preview, confirm: true }); expect(attempts).toHaveLength(1);
     deps.local = async () => { throw Error('refresh_token=private-refresh'); }; await health.check(['memory']);
     const row = (await health.snapshot()).evidence.find(row => row.scope === 'memory'); expect(row.state).toBe('fault'); expect(row.message).not.toContain('private-refresh');
+    deps.local = async () => ({ state: 'fault', coverage: '诊断对象', message: '读取失败', impact: '仅此项受阻', nextSteps: [], detail: {
+      tenant_access_token: 'tenant-secret', accessToken: 'camel-secret', appSecret: 'app-secret',
+      proof: { authorization: 'Basic object-auth', resourceId: 'cal-a' },
+    } });
+    await health.check(['memory']);
+    const objectRow = (await health.snapshot()).evidence.find(row => row.scope === 'memory');
+    expect(objectRow.detail).toEqual({ tenant_access_token: '[已隐藏]', accessToken: '[已隐藏]', appSecret: '[已隐藏]',
+      proof: { authorization: '[已隐藏]', resourceId: 'cal-a' } });
+    expect(JSON.stringify(objectRow)).not.toMatch(/tenant-secret|camel-secret|app-secret|object-auth/);
   });
   it('实际身份变更又恢复也不复活旧成功，缺企业标识单独未验证', async () => {
     const original = { ownerId: 'owner', authority: 'bot:old' };
