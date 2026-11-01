@@ -16,7 +16,9 @@ kind: "package-bundle"
 
 `@benz-ai-x/dsh-24pa` is a self-hosted AI personal-assistant plugin for [dsh](https://github.com/deepseek-ai/deepseek-harness). Local DSH sessions and a Feishu bot coordinate seven business workers in one owner-bound workspace; the desktop workspace adds sixteen capability cards for agent skills, scheduled tasks, calendars, todos, structured memory, handwriting review, and delivery evidence.
 
-![24PA desktop workspace showing Skill management, scheduled tasks, calendars, todos, and run history](docs/assets/24pa-desktop-overview.png)
+![24PA English desktop home showing key metrics, near-term focus, and an adopted daily plan](docs/assets/24pa-desktop-overview.en.jpg)
+
+*English desktop interface with sample data.*
 
 ## Why 24PA?
 
@@ -79,7 +81,7 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 
 | Skill package management | Auditable run history |
 | --- | --- |
-| ![Skill package directory, immutable version details, and read-only file preview](docs/assets/24pa-skill-management.png) | ![Run history separating execution status from delivery status](docs/assets/24pa-run-history.png) |
+| ![English Skill management showing a package directory and read-only file preview](docs/assets/24pa-skill-management.en.jpg) | ![English run history separating execution status from delivery status](docs/assets/24pa-run-history.en.jpg) |
 
 ## Quick start
 
