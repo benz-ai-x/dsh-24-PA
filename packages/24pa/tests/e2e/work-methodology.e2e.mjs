@@ -36,10 +36,11 @@ it('近期重点→建议→采纳→复盘→原生定时建议→重启：首�
     const invoke = async (title, input, worker = 'calendar') => {
       await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker, title, instruction: '本人确认近期重点是客户方案；确认采纳方案。', completionCriteria: '取得工具回执' },
         workerTool: { name: 'pa24_work', input }, workerReply: '规划操作已返回，请依据记录核对。' }));
-      await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: ready.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: title }] } });
+      await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: ready.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: input.instruction ?? title }] } });
       try {
         const result = await host.waitUntil(row => row.work.some(work => work.title === title && ['completed', 'failed', 'needs_reconciliation'].includes(work.status)), { label: title, timeoutMs: 15000 });
         expect(result.work.find(work => work.title === title).status, JSON.stringify(result.work)).toBe('completed');
+        return result.work.find(work => work.title === title);
       } catch (error) {
         const work = (await host.api('snapshot')).work;
         const run = work.find(row => row.title === title);
@@ -50,9 +51,20 @@ it('近期重点→建议→采纳→复盘→原生定时建议→重启：首�
     await invoke('确认近期成果', { action: 'focus_update', expectedRevision: 0, focuses: [{ id: 'client', title: '客户方案', outcome: '交付可评审的初稿' }], instruction: '本人确认近期重点是客户方案' });
     const todos = await host.api('action', { type: 'todos.verify', workspaceBinding: binding });
     const item = { id: 'draft', title: '客户方案初稿', outcome: '交付初稿', reason: '推进主人确认的近期成果', nextAction: '整理客户需求', focusId: 'client', references: [{ kind: 'todo', id: todos.tasks[0].objectId }], estimateMinutes: 60 };
-    await invoke('提出今日安排', { action: 'daily_plan_save', focusRevision: 1, date, expectedRevision: 0, items: [item] });
+    const proposed = await invoke('提出今日安排', { action: 'daily_plan_save', focusRevision: 1, date, expectedRevision: 0, items: [item] });
     expect((await host.api('home', { workspaceBinding: binding })).workPlanning.plan.content.accepted).toBeNull();
-    await invoke('采纳今日安排', { action: 'daily_plan_confirm', date, expectedRevision: 1, selectedItemIds: ['draft'], instruction: '确认采纳方案' });
+    await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_jobs', input: { action: 'continue', workId: proposed.id, instruction: '按主人这次原始输入处理采纳。' } },
+      workerTool: { name: 'pa24_work', input: { action: 'daily_plan_confirm', date, expectedRevision: 1, selectedItemIds: ['draft'], instruction: '确认采纳方案' } }, workerReply: '已保存主人明确采纳的安排。' }));
+    await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: ready.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: '确认采纳方案' }] } });
+    try {
+      await host.waitUntil(row => row.work.some(work => work.id === proposed.id && work.active_worker_run_id !== proposed.active_worker_run_id && work.status === 'completed'), { label: '同一交办的后续采纳', timeoutMs: 15000 });
+    } catch (error) {
+      const work = (await host.api('work.inspect', { workId: proposed.id, workspaceBinding: binding })).work;
+      const detail = await host.api('worker.run', { runId: work.active_worker_run_id, workspaceBinding: binding });
+      throw new Error(JSON.stringify({ work, inputs: detail.inputs, calls: detail.calls }) + '\n' + error.message);
+    }
+    const adopted = (await host.api('home', { workspaceBinding: binding })).workPlanning.plan.content.accepted;
+    expect(adopted.confirmationSource.messages.some(message => message.text === '确认采纳方案')).toBe(true);
     await appendFile(state + '.tasks.jsonl', JSON.stringify({ ...task, status: 'completed' }) + '\n');
     await invoke('日终核对成果', { action: 'daily_review_save', date, expectedRevision: 0, acceptedRevision: 2, results: [{ itemId: 'draft', status: 'completed', detail: '原待办已核验完成' }], adjustments: ['明天先确认客户反馈'] }, 'digest');
     const reviewed = await host.api('home', { workspaceBinding: binding });

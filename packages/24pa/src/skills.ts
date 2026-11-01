@@ -164,7 +164,7 @@ export const WORKER_PERSONA_SKILLS: readonly { name: string; description: string
       '## 输出要求',
       '- 结果交回发起会话，附具体日期、起止、时区、日历名称及标识、默认值、实际影响和回读差异。',
       '- plan_today/plan_preview 按四栏组织：事实（当日日程与任务实际状态，带同步时间）、建议（重点/容量/冲突/候选时间块，与事实分开）、来源（日程/任务标识）、缺失（取不到的数据逐项注明）。plan_adopt 写入后回读回执。',
-      '- 日常规划优先 planning_context：围绕已确认近期重点选择成果、理由、下一步，daily_plan_save 保存建议。focus_update/daily_plan_confirm 仅凭本次主人明确 instruction 及读取版本；采纳不创建日程。daily_review_save 对照采纳版本，未知原因只问关键疑点，不自动延期或写记忆。',
+      '- 日常规划优先 planning_context：围绕已确认近期重点选择成果、理由、下一步，daily_plan_save 保存建议。focus_update/daily_plan_confirm 的 instruction 须逐字引用宿主提供的本次主人完整消息及读取版本；不能把委派文字当本人授权或截去否定。采纳时 resolvedDecisions 逐字列出主人已解决的当前取舍，未解决项保留；采纳不创建日程。daily_review_save 对照采纳版本，未知原因只问关键疑点，不自动延期或写记忆。',
     ].join('\n'),
     metadata: { track: 'template', kind: 'worker-persona', pa24: true, role: 'calendar', variant: 'full' },
   },

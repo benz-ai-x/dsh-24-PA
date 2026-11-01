@@ -34,14 +34,15 @@ const planSummary = () => ({ workspaceBinding: binding, total: 3, enabled: 2, pa
 const reviewSummary = () => ({ count: 5, counts: { awaiting_review: 3, returned: 1, needs_rereview: 1, verificationUnknown: 1 }, items: [] });
 const workPlanning = () => {
   const item = { id: 'outcome-1', title: '客户方案', outcome: '交付可评审初稿', reason: '本周确认的重要成果', nextAction: '整理需求', estimateMinutes: 60, start: '2026-11-01T02:00:00Z', end: '2026-11-01T03:00:00Z' };
+  const resolved = scenario === 'resolved-decision';
   return { date: '2026-11-01', timeZone: zone, focus: { revision: 1, content: { items: [{ id: 'focus-1', title: '客户成果', outcome: '初稿通过评审', until: null }] } },
-    plan: { revision: scenario === 'partial-adoption' ? 2 : 3, content: { items: scenario === 'partial-adoption' ? [item, { ...item, id: 'outcome-2', title: '尚未采纳的整理工作' }] : [{ ...item, title: '后续建议' }], decisions: ['归档和初稿如何取舍？'], evidence: { missing: [] }, accepted: { revision: 2, items: [item] } } },
+    plan: { revision: scenario === 'partial-adoption' ? 2 : 3, content: { items: scenario === 'partial-adoption' ? [item, { ...item, id: 'outcome-2', title: '尚未采纳的整理工作' }] : [{ ...item, title: '后续建议' }], decisions: resolved ? [] : ['归档和初稿如何取舍？'], evidence: { missing: [] }, accepted: { revision: 2, items: [item], resolvedDecisions: resolved ? ['先完成初稿，归档后续安排'] : [] } } },
     review: { content: { date: '2026-11-01', acceptedRevision: 2, results: [{ itemId: 'outcome-1', status: 'unknown', detail: '待确认进度' }], adjustments: ['明天核对客户输入'], question: '还缺哪些输入？' } } };
 };
 const snapshot = () => ({ workspace: { path: '/workspace-' + binding, config: { ...DEFAULT_CONFIG, timeZone: zone } }, workspaceBinding: binding, work: [], outbox: [], secrets: {}, readiness: { items: [] } });
 const valueFor = (endpoint, payload) => {
   if (endpoint === 'snapshot') return snapshot();
-  if (endpoint === 'home') return { workspaceBinding: binding, observedAt: '2026-11-01T01:30:00Z', calendar: calendarData(), todos: todoData(), review: reviewSummary(), plans: planSummary(), runs: runSummary(), workPlanning: ['planning', 'partial-adoption'].includes(scenario) ? workPlanning() : { date: '2026-11-01', timeZone: zone, focus: null, plan: null, review: null, previousReview: null } };
+  if (endpoint === 'home') return { workspaceBinding: binding, observedAt: '2026-11-01T01:30:00Z', calendar: calendarData(), todos: todoData(), review: reviewSummary(), plans: planSummary(), runs: runSummary(), workPlanning: ['planning', 'partial-adoption', 'resolved-decision'].includes(scenario) ? workPlanning() : { date: '2026-11-01', timeZone: zone, focus: null, plan: null, review: null, previousReview: null } };
   if (endpoint === 'calendar') return calendarData();
   if (endpoint === 'todos') return todoData();
   if (endpoint === 'runs.summary') return runSummary();
@@ -243,4 +244,15 @@ it('只采纳部分重点时仍能查看其余建议', async () => {
   const board = container.querySelector('[data-testid=home-work-planning]');
   expect(board.textContent).toContain('客户方案'); expect(board.textContent).toContain('已采纳');
   expect(board.textContent).toContain('查看其他未采纳建议'); expect(board.textContent).toContain('尚未采纳的整理工作');
+});
+
+it('已解决取舍保留为历史说明，不继续显示待决定', async () => {
+  scenario = 'resolved-decision'; await refresh();
+  const board = container.querySelector('[data-testid=home-work-planning]');
+  expect(board.textContent).toContain('已确认的取舍');
+  expect(board.textContent).toContain('先完成初稿，归档后续安排');
+  expect(board.textContent).not.toContain('待你决定');
+  language = 'en'; localeSnapshot = { active: 'en', locales: [], revision: 1 }; await act(async () => localeListener());
+  expect(board.textContent).toContain('Confirmed tradeoffs');
+  expect(board.textContent).not.toContain('Your decision needed');
 });

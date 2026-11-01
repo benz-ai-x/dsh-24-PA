@@ -77,7 +77,7 @@ if (process.argv.includes('--work-methodology')) {
     await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker: 'calendar', title,
       instruction: '确认近期重点是客户汇报；确认采纳安排。', completionCriteria: '取得保存回执' },
       workerAction: input, workerReply: '工作方法记录已保存。' }));
-    await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: ready.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: title }] } });
+    await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: ready.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: input.instruction ?? title }] } });
     await host.waitUntil(row => row.work.some(work => work.title === title && work.status === 'completed'), { label: title });
   };
   await invoke('确认近期成果', { action: 'focus_update', expectedRevision: 0, focuses: [{ id: 'client', title: '客户汇报', outcome: '完成可供客户评审的汇报初稿' }], instruction: '确认近期重点是客户汇报' });

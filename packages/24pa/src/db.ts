@@ -909,4 +909,8 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 33,
+    statements: [`alter table pa24.work_item add column owner_input jsonb`],
+  },
 ];

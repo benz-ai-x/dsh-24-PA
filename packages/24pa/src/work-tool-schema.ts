@@ -27,6 +27,7 @@ export const workToolProperties = {
   }, additionalProperties: false } },
   workWindows: { type: 'array', items: { type: 'object', required: ['start', 'end'], properties: { start: string, end: string }, additionalProperties: false }, description: '本人明确的当日可工作时段；更改需提供 instruction。缺失不假定八小时。' },
   selectedItemIds: { type: 'array', items: string },
+  resolvedDecisions: { type: 'array', items: string, description: '采纳时逐字列出主人已明确解决的当前 decisions；未解决项继续保留。' },
   decisions: { type: 'array', items: string },
   results: { type: 'array', items: { type: 'object', required: ['itemId', 'status', 'detail'], properties: { itemId: string, status: { type: 'string', enum: ['completed', 'progress', 'blocked', 'changed', 'unknown'] }, detail: string, instruction: string }, additionalProperties: false } },
   adjustments: { type: 'array', items: string },

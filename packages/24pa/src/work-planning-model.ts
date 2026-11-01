@@ -1,5 +1,7 @@
+import type { WorkOwnerInput } from './work-owner-input.js';
+
 export interface WorkFocus { id: string; title: string; outcome: string; until: string | null }
-export interface FocusSet { items: WorkFocus[]; confirmation: string }
+export interface FocusSet { items: WorkFocus[]; confirmation: string; confirmationSource?: WorkOwnerInput }
 export interface PlanningReference { kind: 'todo' | 'work'; id: string }
 export interface WorkPlanItem {
   id: string; title: string; outcome: string; reason: string; nextAction: string;
@@ -13,6 +15,7 @@ export interface PlanningEvidence {
 }
 export interface AcceptedWorkPlan {
   revision: number; confirmedAt: string; confirmation: string; items: WorkPlanItem[];
+  confirmationSource?: WorkOwnerInput; resolvedDecisions?: string[];
   evidence: PlanningEvidence;
 }
 export interface DailyWorkPlan {
@@ -20,7 +23,7 @@ export interface DailyWorkPlan {
   workWindows: PlanningWindow[]; evidence: PlanningEvidence; accepted: AcceptedWorkPlan | null;
 }
 export type ReviewStatus = 'completed' | 'progress' | 'blocked' | 'changed' | 'unknown';
-export interface ReviewResult { itemId: string; status: ReviewStatus; detail: string; evidence: 'platform' | 'owner' | 'unknown' }
+export interface ReviewResult { itemId: string; status: ReviewStatus; detail: string; evidence: 'platform' | 'owner' | 'unknown'; confirmationSource?: WorkOwnerInput }
 export interface DailyWorkReview {
   date: string; timeZone: string; acceptedRevision: number; results: ReviewResult[];
   adjustments: string[]; question: string | null; questionRepeated: boolean; observedAt: string; missing: string[];

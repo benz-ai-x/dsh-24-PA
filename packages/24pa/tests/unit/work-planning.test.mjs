@@ -39,7 +39,9 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
     ] };
     calendarFacts = { fresh: true, complete: true, events: [] };
     service = new WorkPlanning({ repo: () => repo, timeZone: () => zone, todos: async () => { calls++; return todoFacts; },
-      calendar: async () => { calls++; return calendarFacts; }, work: async () => [], waiting: async () => [], isBackground: async () => scheduled });
+      calendar: async () => { calls++; return calendarFacts; }, work: async () => [], waiting: async () => [], isBackground: async () => scheduled,
+      ownerInput: async actor => actor.id === owner.id ? { kind: 'session', sourceId: 'owner-session', turn: 1,
+        messages: ['本周重点是客户方案', '工作时段9点至12点', '确认采纳方案', '方案完成'].map((text, i) => ({ id: String(i), text })) } : null });
   });
   const save = (patch = {}, actor = owner) => service.savePlan({ date, focusRevision: 1, expectedRevision: 0, items: [item()], ...patch }, actor);
   const confirm = (revision = 1) => service.confirmPlan({ date, expectedRevision: revision, selectedItemIds: ['proposal'], instruction: '确认采纳方案' }, owner);
@@ -62,7 +64,7 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
     await expect(save({ expectedRevision: 1, decisions: ['另一项'] })).rejects.toThrow(/版本/);
     expect((await service.updateFocus(focusArgs, owner)).revision).toBe(1);
     await expect(save({ expectedRevision: 2, items: [item({ references: [{ kind: 'todo', id: 'invented' }] })] })).rejects.toThrow(/来源/);
-    await expect(service.updateFocus({ ...focusArgs, expectedRevision: 1, instruction: '模型臆造的确认' }, owner)).rejects.toThrow(/委托/);
+    await expect(service.updateFocus({ ...focusArgs, expectedRevision: 1, instruction: '模型臆造的确认' }, owner)).rejects.toThrow(/主人完整消息/);
   });
 
   it('先合并重叠会议再计算容量，候选不穿越忙碌区间，过载必须给出取舍', async () => {
@@ -122,7 +124,10 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
       await service.updateFocus(focusArgs, owner);
       await save({ workWindows: [{ start: at(9), end: at(12) }], instruction: '工作时段9点至12点', items: [item({ estimateMinutes: 240 })], decisions: ['只完成核心部分，剩余后续安排'] });
       vi.setSystemTime(new Date(Date.parse(at(9)) + 30000));
-      expect((await confirm()).content.accepted.evidence.capacityMinutes).toBe(179.5);
+      const adopted = await service.confirmPlan({ date, expectedRevision: 1, selectedItemIds: ['proposal'], instruction: '确认采纳方案', resolvedDecisions: ['只完成核心部分，剩余后续安排'] }, owner);
+      expect(adopted.content.accepted.evidence.capacityMinutes).toBe(179.5);
+      expect(adopted.content.decisions).toEqual([]);
+      expect(adopted.content.accepted.resolvedDecisions).toEqual(['只完成核心部分，剩余后续安排']);
     } finally { vi.useRealTimers(); }
   });
 
@@ -136,6 +141,25 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
     expect((await service.snapshot(next)).previousReview.content.adjustments).toEqual(['明天先核对客户反馈']);
     expect((await service.snapshot(localDay(date, zone, 3).date)).previousReview.content.adjustments).toEqual(['明天先核对客户反馈']);
     const before = calls; await service.snapshot(date); expect(calls).toBe(before);
+  });
+
+  it('已解决取舍逐项留存；未解决项不因部分采纳消失', async () => {
+    await service.updateFocus(focusArgs, owner);
+    await save({ decisions: ['先完成方案，暂缓归档', '另一项仍待选择'] });
+    await expect(service.confirmPlan({ date, expectedRevision: 1, selectedItemIds: ['proposal'], instruction: '确认采纳方案', resolvedDecisions: ['不存在的决定'] }, owner)).rejects.toThrow(/当前建议/);
+    const accepted = await service.confirmPlan({ date, expectedRevision: 1, selectedItemIds: ['proposal'], instruction: '确认采纳方案', resolvedDecisions: ['先完成方案，暂缓归档'] }, owner);
+    expect(accepted.content.decisions).toEqual(['另一项仍待选择']);
+    expect(accepted.content.accepted.resolvedDecisions).toEqual(['先完成方案，暂缓归档']);
+  });
+
+  it('无关来源失败不抹掉已核验完成依据；关联对象过期仍拒绝完成', async () => {
+    await service.updateFocus(focusArgs, owner); await save(); await confirm();
+    todoFacts.fresh = false; todoFacts.message = '无关来源 B 暂不可用'; todoFacts.tasks[1].status = 'completed';
+    const review = { date, expectedRevision: 0, acceptedRevision: 2, results: [{ itemId: 'proposal', status: 'completed', detail: 'A 已完成' }] };
+    const saved = await service.saveReview(review, background);
+    expect(saved.content.results[0].evidence).toBe('platform'); expect(saved.content.missing.join('')).toContain('来源 B');
+    todoFacts.tasks[1].stale = true;
+    await expect(service.saveReview({ ...review, expectedRevision: 1 }, background)).rejects.toThrow(/完成结论/);
   });
 
   it('后台可以保存建议，不能确认成果、采纳安排或设置工作时段', async () => {
@@ -160,8 +184,22 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
     await service.updateFocus(focusArgs, owner); await save(); await confirm();
     await db.close(); db = storage === 'sqlite' ? new SqliteDb(join(root, 'ledger.sqlite')) : new PaDatabase(cluster.dsn); repo = new WorkPlanningRepo(db);
     expect((await service.snapshot(date)).plan.content.accepted.items[0].id).toBe('proposal');
+    expect((await service.snapshot(date)).plan.content.accepted.confirmationSource.sourceId).toBe('owner-session');
     expect((await service.snapshot(date, 'UTC')).plan).toBeNull();
     expect((await service.snapshot(next)).plan).toBeNull();
+  });
+
+  it('第32版账本升级保留原规划和交办，不给历史交办补造主人输入', async () => {
+    await service.updateFocus(focusArgs, owner); await save(); await confirm();
+    const before = (await service.snapshot(date)).plan;
+    await db.query("insert into pa24.work_item (id,title,role,instruction,origin,parent_session_id,delivery,status) values ('legacy-work','历史交办','calendar','旧委派','local','parent','local:parent','completed')");
+    await db.query('alter table pa24.work_item drop column owner_input');
+    await db.query('delete from pa24.schema_migrations where version = 33');
+    expect(await db.schemaVersion()).toBe(32);
+    await db.migrate();
+    expect(await db.schemaVersion()).toBe(33);
+    expect((await service.snapshot(date)).plan.content).toEqual(before.content);
+    expect((await db.query("select owner_input from pa24.work_item where id = 'legacy-work'")).rows[0].owner_input).toBeNull();
   });
 
   it('备份恢复保留采纳快照、复盘与全部修订，并能继续版本校验', async () => {

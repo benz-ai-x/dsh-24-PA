@@ -7,6 +7,7 @@ import { WorkerRunRepo } from './worker-run.js';
 import { randomUUID } from 'node:crypto';
 import { readLedgerOwner } from './ledger.js';
 import { executionCapacity, hasExecutionCapacity } from './execution-capacity.js';
+import type { WorkOwnerInput } from '../work-owner-input.js';
 
 export interface WorkExecutionScope {
   workspaceId: string;
@@ -15,6 +16,7 @@ export interface WorkExecutionScope {
   childSessionId: string;
   generation: number;
   input: 'start' | 'followup';
+  ownerInput?: WorkOwnerInput | null;
 }
 
 export type WorkItemStatus =
@@ -42,6 +44,7 @@ export interface WorkItemRow {
   title: string;
   role: string;
   instruction: string;
+  owner_input?: WorkOwnerInput | null;
   skill?: string | null;
   skill_definition?: ResolvedTaskSkill | null;
   origin: 'feishu' | 'local';
@@ -83,13 +86,14 @@ export class WorkItemRepo {
 
   /** Commit the input identity before native admission, so a later DB outage
    * cannot erase the link to the independently persisted Session history. */
-  async beginExecution(item: WorkItemRow, workspacePath: string, input: WorkExecutionScope['input'], instruction = item.instruction): Promise<WorkItemRow> {
+  async beginExecution(item: WorkItemRow, workspacePath: string, input: WorkExecutionScope['input'], instruction = item.instruction,
+    ownerInput: WorkOwnerInput | null = input === 'start' ? item.owner_input ?? null : null): Promise<WorkItemRow> {
     return this.db.withTransaction(async tx => {
       const owner = await readLedgerOwner(tx);
       if (!owner) throw new Error('账本尚未登记工作区，不能接纳 Worker 输入。');
       const scope: WorkExecutionScope = { workspaceId: owner.workspace_id, workspacePath,
         parentSessionId: item.parent_session_id, childSessionId: item.child_session_id ?? item.id,
-        generation: item.recovery_gen ?? 0, input };
+        generation: item.recovery_gen ?? 0, input, ...(ownerInput ? { ownerInput } : {}) };
       const result = await tx.query<WorkItemRow>(
         `update pa24.work_item set execution_id = $2, execution_scope = $3, updated_at = now()
          where id = $1 and status = 'running' and recovery_gen = $4 returning *`,
@@ -157,9 +161,9 @@ export class WorkItemRepo {
 
   async insert(row: Omit<WorkItemRow, 'created_at' | 'updated_at' | 'progress' | 'result' | 'result_ref' | 'child_session_id'> & { child_session_id?: string }): Promise<WorkItemRow> {
     const result = await this.db.query<WorkItemRow>(
-      `insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, child_session_id, delivery, status, skill, skill_definition, completion_criteria, acceptance_required, parent_work_item_id)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) returning *`,
-      [row.id, row.title, row.role, row.instruction, row.origin, row.parent_session_id, row.child_session_id ?? null, row.delivery, row.status, row.skill ?? null, row.skill_definition ? JSON.stringify(row.skill_definition) : null, row.completion_criteria ?? null, row.acceptance_required === true, row.parent_work_item_id ?? null],
+      `insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, child_session_id, delivery, status, skill, skill_definition, completion_criteria, acceptance_required, parent_work_item_id, owner_input)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) returning *`,
+      [row.id, row.title, row.role, row.instruction, row.origin, row.parent_session_id, row.child_session_id ?? null, row.delivery, row.status, row.skill ?? null, row.skill_definition ? JSON.stringify(row.skill_definition) : null, row.completion_criteria ?? null, row.acceptance_required === true, row.parent_work_item_id ?? null, row.owner_input ? JSON.stringify(row.owner_input) : null],
     );
     return result.rows[0]!;
   }

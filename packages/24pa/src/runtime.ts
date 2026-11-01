@@ -48,6 +48,7 @@ import { candidateParameters, materialFingerprint } from './material-draft.js';
 import { WecomChannels, WECOM_CALENDAR_ID, wecomRepeatRule, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
 import { WorkPlanning } from './work-planning.js';
+import { captureWorkOwnerInput, workOwnerInputPrompt, type WorkOwnerInput } from './work-owner-input.js';
 import { fixedPlanningWindow } from './work-planning-validation.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
 import { noteDerivedContent } from './note-derivation.js';
@@ -569,6 +570,11 @@ export class PaRuntime {
     work: () => this.repos!.workItems.list(undefined, 1000), waiting: () => this.repos!.waiting.list('waiting'),
     bufferMinutes: () => this.digest.preferenceBufferMinutes(),
     isBackground: async id => (await this.repos!.digests.workSource(id))?.kind === 'schedule',
+    ownerInput: async item => {
+      if (!item.execution_id || !item.active_worker_run_id) return null;
+      const input = (await this.repos!.workerRuns.inputs(item.active_worker_run_id)).find(row => row.execution_id === item.execution_id);
+      return input?.status === 'adopted' ? input.scope.ownerInput ?? null : null;
+    },
   });
   // Native tools require lossless JSON; ledger rows and source facts contain Dates.
   private async planningResult(operation: Promise<unknown>): Promise<unknown> {
@@ -1775,7 +1781,8 @@ export class PaRuntime {
       const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
       if ('error' in parent) throw parent.error;
       this.workerParents.add(item.parent_session_id);
-      const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input }, workExecutionContent(item)], { signal: this.lifetime.signal })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
+      const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input },
+        ...(item.role === 'calendar' ? [{ type: 'text', text: workOwnerInputPrompt(item.execution_scope?.ownerInput) }] : []), workExecutionContent(item)], { signal: this.lifetime.signal })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
       return typeof messageId === 'string' ? messageId : undefined;
     },
     quiesce: async item => {
@@ -2107,7 +2114,8 @@ export class PaRuntime {
     }
     try {
       await this.inboxLifecycle.admit(item.child_session_id, inboxEventId, `followup:${inboxEventId}`, async () => {
-        const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true);
+        const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true,
+          { kind: 'feishu', sourceId: inboxEventId, messages: [{ id: inboxEventId, text: input }] });
         return resumed.acceptedMessageId;
       });
     } catch (error) {
@@ -2200,7 +2208,23 @@ export class PaRuntime {
 
   // ---- delegation & worker control -----------------------------------------
 
-  async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string; completionCriteria?: string; acceptanceRequired?: boolean; parentWorkId?: string }, agent: DshAgent): Promise<unknown> {
+  private async captureOwnerInput(agent: DshAgent): Promise<WorkOwnerInput | null> {
+    const input = captureWorkOwnerInput(agent.session);
+    if (!input) return null;
+    if (agent.id === this.accessSessionId) {
+      for (const message of input.messages) {
+        const event = agent.session.ownEvents().find(row => row.type === 'user/message' && row.data.id === message.id);
+        const requestId = event?.data.source?.rpcId;
+        const row = typeof requestId === 'string' && requestId.startsWith('feishu:') ? await this.repos!.inbox.get(requestId.slice(7)) : null;
+        if (!row || row.status === 'rejected' || row.payload.senderOpenId !== this.config!.ownerOpenId || !row.payload.text?.trim()) return null;
+        message.text = row.payload.text.trim();
+      }
+    }
+    if (!await this.ctx.sessions.flush(agent.session)) throw new Error('主人输入尚未持久化，请稍后重试。');
+    return input;
+  }
+
+  async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string; completionCriteria?: string; acceptanceRequired?: boolean; parentWorkId?: string }, agent: DshAgent, panelInput?: WorkOwnerInput): Promise<unknown> {
     return this.executions.run(async () => {
       const role = this.roleFor(agent);
       if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
@@ -2224,6 +2248,7 @@ export class PaRuntime {
       if (args.parentWorkId && !await this.repos!.workItems.get(args.parentWorkId)) throw new Error('关联的原交办不存在。');
       const title = text(args.title, 200);
       const instruction = text(args.instruction);
+      const ownerInput = args.worker === 'calendar' ? panelInput ?? await this.captureOwnerInput(agent) : null;
       let note: NoteRow | null = null;
       if (String(args.worker) === 'handwriting') {
         if (!args.noteId || !String(args.noteId).trim()) throw new Error('手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。');
@@ -2261,6 +2286,7 @@ export class PaRuntime {
           role: args.worker,
           // Raw delegation text only; context is composed when the child starts.
           instruction,
+          owner_input: ownerInput,
           completion_criteria: args.completionCriteria ? text(args.completionCriteria, 4000) : WORKER_PROMPTS[args.worker as keyof typeof WORKER_PROMPTS]?.doneCriteria ?? roleDef.brief,
           acceptance_required: args.acceptanceRequired === true, parent_work_item_id: args.parentWorkId ?? null,
           skill: args.worker === 'skill' ? args.skill! : null,
@@ -2364,6 +2390,7 @@ export class PaRuntime {
     }
     if (runPrompt) prompt = runPrompt;
     if (!runPrompt) prompt.push({ type: 'text', text: '处理过程中使用 pa24_run action=progress 记录真实阶段、已完成内容、下一步。缺少主人信息或外部结果时使用 action=wait 并说明所需内容。最终结果包含摘要、实际动作、产物或出处、未完成问题和接续建议；对照完成标准判断，不以已创建待办代替业务完成。' });
+    if (item.role === 'calendar') prompt.push({ type: 'text', text: workOwnerInputPrompt(item.execution_scope?.ownerInput) });
     prompt.push(workExecutionContent(item));
     if (item.active_worker_run_id) await this.repos.workerRuns.freeze(item.active_worker_run_id, { persona, prompt, modelRoute: modelRoute ?? null,
       tools: ['pa24_work', 'pa24_memory', 'pa24_run', ...(roleDef.tools ?? [])], completionCriteria: item.completion_criteria ?? null });
@@ -2429,13 +2456,19 @@ export class PaRuntime {
             const parent = requester ? { agent: requester } : await this.ctx.sessionController.resolveAgent(await this.openLocalSession());
             if ('error' in parent) throw parent.error;
             result = await this.delegate({ worker: String(input.worker ?? item.role), title: text(input.title, 200), instruction: text(input.instruction, 20000),
-              parentWorkId: item.id, completionCriteria: input.completionCriteria ? String(input.completionCriteria) : undefined, acceptanceRequired: input.acceptanceRequired === true }, parent.agent);
+              parentWorkId: item.id, completionCriteria: input.completionCriteria ? String(input.completionCriteria) : undefined, acceptanceRequired: input.acceptanceRequired === true }, parent.agent,
+              requester ? undefined : { kind: 'panel', sourceId: requestId, messages: [{ id: requestId, text: text(input.instruction, 20000) }] });
           } else {
             if (item.execution_mode === 'skill') throw new Error('Skill 交办请通过原运行详情核对后接续或停止。');
             if (input.op === 'stop') {
               if (item.status !== 'stopped') await this.workLifecycle.stop(id);
               await this.inboxLifecycle.cancelTarget(item.child_session_id ?? item.id, '本人要求停止交办。');
-            } else await this.workLifecycle.resume(id, text(input.instruction, 20000), input.op === 'supplement');
+            } else {
+              const instruction = text(input.instruction, 20000);
+              const ownerInput = requester ? await this.captureOwnerInput(requester)
+                : { kind: 'panel' as const, sourceId: requestId, messages: [{ id: requestId, text: instruction }] };
+              await this.workLifecycle.resume(id, instruction, input.op === 'supplement', ownerInput);
+            }
             result = { work: await this.repos!.workItems.get(id), run: await this.repos!.workerRuns.current(id) };
           }
           await controls.settle(claimed.row, 'completed', result);
@@ -2477,7 +2510,7 @@ export class PaRuntime {
         return { workId: id, status: 'stopped' };
       }
       if (args.action === 'continue') {
-        await this.workLifecycle.resume(id, text(args.instruction ?? '请继续处理本事项。', 2000));
+        await this.workLifecycle.resume(id, text(args.instruction ?? '请继续处理本事项。', 2000), false, await this.captureOwnerInput(agent));
         return { workId: id, status: 'running' };
       }
       throw new Error('未知事项操作。');
@@ -2534,6 +2567,7 @@ export class PaRuntime {
         const role = this.roles.get(item.role);
         const handler = role?.actions[String(args.action ?? '')];
         if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
+        if (['focus_update', 'daily_plan_confirm', 'daily_plan_save', 'daily_review_save'].includes(String(args.action))) await this.workerRuns.observe(agent.session, true);
         const bounded = Object.hasOwn(this.planningActions, String(args.action ?? '')) ? await this.digest.planningArgs(item, args) : args;
         return await handler(bounded, item, this);
       } catch (error) {

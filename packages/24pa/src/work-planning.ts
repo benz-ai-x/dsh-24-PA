@@ -6,6 +6,7 @@ import type { WorkItemRow, WaitingItemRow } from './repo.js';
 import type { WorkPlanningRepo } from './repo/work-planning.js';
 import type { DailyWorkPlan, DailyWorkReview, FocusSet, PlanningContent, ReviewResult, WorkPlanItem } from './work-planning-model.js';
 import { planningAvailability, planningDate, planningItems, planningList, planningObject, planningRevision, planningText, planningWindows } from './work-planning-validation.js';
+import type { WorkOwnerInput } from './work-owner-input.js';
 
 interface PlanningDeps {
   repo(): WorkPlanningRepo;
@@ -16,6 +17,7 @@ interface PlanningDeps {
   waiting(): Promise<WaitingItemRow[]>;
   bufferMinutes?(): Promise<number>;
   isBackground(workId: string): Promise<boolean>;
+  ownerInput(item: WorkItemRow): Promise<WorkOwnerInput | null>;
 }
 
 /** Method decisions live in business records, not long-term memory. Only
@@ -53,11 +55,12 @@ export class WorkPlanning {
   private requestKey(action: string, item: WorkItemRow, args: Record<string, unknown>) {
     return taskPlanFingerprint([item.id, action, args]);
   }
-  private async confirmation(args: Record<string, unknown>, item: WorkItemRow): Promise<string> {
+  private async confirmation(args: Record<string, unknown>, item: WorkItemRow) {
     if (item.role !== 'calendar' || item.execution_mode === 'skill' || await this.deps.isBackground(item.id)) throw new Error('只有交互式日程 Worker 可以确认近期重点或采纳安排。');
-    const quote = planningText(args.instruction, '本人指令依据');
-    if (!item.instruction.includes(quote)) throw new Error('确认依据必须来自本次主人委托，不能由模型补造。');
-    return quote;
+    const quote = planningText(args.instruction, '本人指令依据', 20000);
+    const source = await this.deps.ownerInput(item);
+    if (!source?.messages.some(message => message.text === quote)) throw new Error('确认依据必须逐字引用本次已采用的主人完整消息，不能以委派文字或模型补造的内容代替。');
+    return { quote, source };
   }
   private async replay<T extends PlanningContent>(action: string, args: Record<string, unknown>, item: WorkItemRow) {
     return this.deps.repo().receipt<T>(this.requestKey(action, item, args));
@@ -72,7 +75,7 @@ export class WorkPlanning {
         until: row.until ? planningDate(row.until, this.deps.timeZone()) : null };
     });
     if (new Set(items.map(row => row.id)).size !== items.length) throw new Error('近期重点编号不能重复。');
-    return this.deps.repo().save('focus', planningRevision(args.expectedRevision), { items, confirmation }, item.id, this.requestKey('focus_update', item, args));
+    return this.deps.repo().save('focus', planningRevision(args.expectedRevision), { items, confirmation: confirmation.quote, confirmationSource: confirmation.source }, item.id, this.requestKey('focus_update', item, args));
   }
 
   private validateReferences(items: WorkPlanItem[], facts: Awaited<ReturnType<WorkPlanning['context']>>) {
@@ -120,12 +123,15 @@ export class WorkPlanning {
     const ids = planningList(args.selectedItemIds, 3).map(value => planningText(value, '采纳项编号', 100));
     if (!ids.length || new Set(ids).size !== ids.length || ids.some(id => !plan.content.items.some(row => row.id === id))) throw new Error('请明确选择当前建议中的重点。');
     const items = plan.content.items.filter(row => ids.includes(row.id));
+    const resolvedDecisions = planningList(args.resolvedDecisions ?? [], 3).map(value => planningText(value, '已解决取舍'));
+    if (new Set(resolvedDecisions).size !== resolvedDecisions.length || resolvedDecisions.some(value => !plan.content.decisions.includes(value))) throw new Error('只能标记当前建议中主人已明确解决的取舍。');
     this.validateReferences(items, facts);
     if (items.some(row => row.start && row.end && !facts.availability.free.some(window => Date.parse(window.start) <= Date.parse(row.start!) && Date.parse(row.end!) <= Date.parse(window.end)))) throw new Error('日程已改变或未完整核验，请先调整候选时间块。');
     const estimateMinutes = items.reduce((sum, row) => sum + (row.estimateMinutes ?? 0), 0), capacityMinutes = facts.availability.capacityMinutes;
-    if (capacityMinutes !== null && estimateMinutes > capacityMinutes && (!plan.content.decisions.length || facts.availability.capacityBasis !== plan.content.evidence.capacityBasis)) throw new Error('当前可用时间不足，请重新给出取舍选项并讨论后再采纳。');
+    if (capacityMinutes !== null && estimateMinutes > capacityMinutes && (!resolvedDecisions.length || facts.availability.capacityBasis !== plan.content.evidence.capacityBasis)) throw new Error('当前可用时间不足，请重新给出取舍选项并讨论后再采纳。');
     const evidence = { observedAt: facts.observedAt, missing: facts.missing, focusRevision: facts.focus?.revision ?? 0, capacityMinutes, capacityBasis: facts.availability.capacityBasis, estimateMinutes, unknownEstimates: items.filter(row => row.estimateMinutes === null).length };
-    const content = { ...plan.content, accepted: { revision: expected + 1, confirmedAt: new Date().toISOString(), confirmation, items, evidence } };
+    const content = { ...plan.content, decisions: plan.content.decisions.filter(value => !resolvedDecisions.includes(value)),
+      accepted: { revision: expected + 1, confirmedAt: new Date().toISOString(), confirmation: confirmation.quote, confirmationSource: confirmation.source, resolvedDecisions, items, evidence } };
     return this.deps.repo().save(facts.planId, expected, content, item.id, this.requestKey('daily_plan_confirm', item, args), [{ id: 'focus', revision: facts.focus?.revision ?? 0 }]);
   }
 
@@ -138,11 +144,11 @@ export class WorkPlanning {
       if (!planned || !['completed', 'progress', 'blocked', 'changed', 'unknown'].includes(String(row.status))) throw new Error('复盘项必须对应已采纳重点，状态须明确。');
       const quote = typeof row.instruction === 'string' && row.instruction.trim() ? await this.confirmation({ instruction: row.instruction }, item) : null;
       const completed = planned.references.length > 0 && planned.references.every(ref => ref.kind === 'todo'
-        ? facts.todos?.fresh && facts.todos.tasks.some(task => task.objectId === ref.id && task.status === 'completed' && !task.stale)
+        ? facts.todos?.tasks.some(task => task.objectId === ref.id && task.status === 'completed' && !task.stale)
         : facts.work.some(work => work.id === ref.id && work.status === 'completed' && !['pending', 'returned'].includes(work.acceptanceStatus ?? 'none')));
       if (row.status === 'completed' && !completed && !quote) throw new Error('完成结论缺少当前业务状态或本人说明，不能推断为完成。');
       if (['progress', 'blocked', 'changed'].includes(String(row.status)) && !quote) throw new Error('进展和受阻原因缺少本人说明，请标记未知并提出关键问题。');
-      return { itemId: planned.id, status: row.status as ReviewResult['status'], detail: planningText(row.detail, '复盘说明'), evidence: quote ? 'owner' : completed && row.status === 'completed' ? 'platform' : 'unknown' };
+      return { itemId: planned.id, status: row.status as ReviewResult['status'], detail: planningText(row.detail, '复盘说明'), evidence: quote ? 'owner' : completed && row.status === 'completed' ? 'platform' : 'unknown', ...(quote ? { confirmationSource: quote.source } : {}) };
     }));
     if (results.length !== accepted.items.length || new Set(results.map(row => row.itemId)).size !== results.length) throw new Error('复盘须覆盖每一项已采纳重点且不能重复。');
     const adjustments = planningList(args.adjustments ?? [], 3).map(value => planningText(value, '调整建议'));
