@@ -14,8 +14,8 @@ describe('F40：任务 skill 目录', () => {
     const catalog = new SkillCatalog(null);
     const list = await catalog.list();
     const taskSkills = list.filter(s => !s.name.startsWith('worker-persona'));
-    expect(taskSkills.map(s => s.name)).toEqual(['waiting-followup', 'digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
-    expect(taskSkills.every(s => s.source === 'builtin' && s.track === (s.name === 'waiting-followup' ? 'agent' : 'template'))).toBe(true);
+    expect(taskSkills.map(s => s.name)).toEqual(['daily-planning', 'daily-review', 'waiting-followup', 'digest-morning', 'digest-evening', 'digest-weekly', 'handwriting-review-flow', 'meeting-prep']);
+    expect(taskSkills.every(s => s.source === 'builtin' && s.track === (['daily-planning', 'daily-review', 'waiting-followup'].includes(s.name) ? 'agent' : 'template'))).toBe(true);
     expect(list.every(s => !s.name.startsWith('worker-persona') && !s.name.endsWith('-setup-flow'))).toBe(true); // F42/F43：persona/向导件不进计划绑定面
     expect(await catalog.content('worker-persona-memo')).toContain('备忘整理'); // persona 件经 content() 仍可载
     expect((await catalog.find('digest-morning'))?.kind).toBe('morning');

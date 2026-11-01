@@ -165,3 +165,9 @@ They are written to the native calendar with an alert, so the model is not the r
 ---
 
 Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.1-rc.5.3`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.5.3)
+
+## Everyday work methods
+
+Confirm 1–3 near-term outcomes in chat, then ask 24PA to plan your day. Proposals explain priorities, next actions, and tradeoffs. An adopted plan remains available for the evening review; Home shows the same records and provides reviewable chat drafts. Clear small requests proceed directly; consequential tradeoffs prompt a discussion.
+
+The `daily-planning` and `daily-review` agent Skills use the model. Run them on demand or explicitly enable a schedule. In workspace settings, enable the Skill worker and calendar or digest role, and add the selected names to the business Skill allowlist. Existing digest templates are retained. Adopting a daily plan does not create calendar events; time blocks require separate explicit adoption.

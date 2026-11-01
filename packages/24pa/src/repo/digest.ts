@@ -206,10 +206,15 @@ export class DigestRepo {
   }
 
   async runForWorkItem(planId: string, workItemId: string): Promise<DigestOccurrenceRow | null> {
+    const row = await this.occurrenceForWorkItem(workItemId);
+    return row?.plan_id === planId ? row : null;
+  }
+
+  async occurrenceForWorkItem(workItemId: string): Promise<DigestOccurrenceRow | null> {
     const binding = (await this.db.query<{ occurrence_id: string | null }>('select occurrence_id from pa24.digest_work_binding where work_item_id = $1', [workItemId])).rows[0];
     if (!binding?.occurrence_id) return null;
     const row = (await this.db.query<DigestOccurrenceRow>('select * from pa24.digest_occurrence where id = $1', [binding.occurrence_id])).rows[0];
-    return row?.plan_id === planId ? row : null;
+    return row ?? null;
   }
 
   /** Completion and the send intents are one commit; no remote call is made here. */

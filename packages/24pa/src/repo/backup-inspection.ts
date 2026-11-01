@@ -6,6 +6,7 @@ const CONTENT_TABLES = [
   'note', 'note_page', 'note_version', 'review_decision', 'note_material', 'note_action_link', 'material_read_evidence',
   'skill_entry', 'skill_version', 'skill_run', 'skill_run_session', 'skill_run_input', 'skill_run_call', 'skill_run_control', 'skill_run_resume', 'skill_run_native', 'skill_run_review', 'skill_plan_block',
   'worker_run', 'worker_run_input', 'worker_run_call', 'work_change', 'run_diagnostic',
+  'work_planning', 'work_planning_revision',
   'digest_plan', 'plan_trigger', 'task_plan_block', 'task_plan_run_outcome', 'task_plan_notice', 'task_plan_delivery', 'task_plan_delivery_change', 'task_plan_migration',
   'action_operation', 'outbox', 'budget_request', 'budget_wait', 'budget_release',
   'health_evidence', 'health_test', 'health_identity', 'source_registration', 'source_object', 'source_membership',

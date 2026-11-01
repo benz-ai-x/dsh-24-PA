@@ -2,6 +2,7 @@ import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import type { WorkItemRepo, WorkItemRow } from './repo/work.js';
 import type { NewOutbox } from './repo/outbox.js';
 import type { WorkCompletion } from './work-completion.js';
+import type { WorkOwnerInput } from './work-owner-input.js';
 
 /** The single-host admission gate owns capacity for new work AND continuations.
  * Native child operations stay behind the host adapter; durable state stays in
@@ -71,7 +72,7 @@ export class WorkItemLifecycle {
     }
   }
 
-  resume(id: string, input: string, supplement = false): Promise<WorkItemRow & { acceptedMessageId?: string }> {
+  resume(id: string, input: string, supplement = false, ownerInput: WorkOwnerInput | null = null): Promise<WorkItemRow & { acceptedMessageId?: string }> {
     return this.gate(async () => {
       if (!this.deps.available()) throw new Error('事项调度尚未就绪。');
       const repo = this.deps.repo();
@@ -90,7 +91,7 @@ export class WorkItemLifecycle {
       this.deps.track(running!);
       let acceptedMessageId: string | void = undefined, submitted = false;
       try {
-        if (this.deps.completion) running = await repo.beginExecution(running!, this.deps.completion.workspacePath(), 'followup', input);
+        if (this.deps.completion) running = await repo.beginExecution(running!, this.deps.completion.workspacePath(), 'followup', input, ownerInput);
         this.deps.track(running!);
         acceptedMessageId = await this.deps.resume(running!, input); submitted = true;
         if (running?.execution_id) await repo.inputReceipt(running.execution_id, 'received', typeof acceptedMessageId === 'string' ? acceptedMessageId : undefined);

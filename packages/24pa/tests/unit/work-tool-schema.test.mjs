@@ -16,6 +16,10 @@ function registeredWork(work = async args => args, name = 'pa24_work') {
 }
 
 const minimal = {
+  planning_context: { date: '2026-11-01' }, focus_update: { expectedRevision: 0, focuses: [{ id: 'client', title: '方案', outcome: '初稿', until: null }], instruction: '确认重点' },
+  daily_plan_save: { date: '2026-11-01', expectedRevision: 0, focusRevision: 1, items: [{ id: 'draft', title: '方案', outcome: '初稿', reason: '近期成果', nextAction: '整理需求', focusId: null, estimateMinutes: null, start: null, end: null, references: [] }], workWindows: [] },
+  daily_plan_confirm: { date: '2026-11-01', expectedRevision: 1, selectedItemIds: ['draft'], instruction: '采纳' },
+  daily_review_save: { date: '2026-11-01', expectedRevision: 0, acceptedRevision: 2, results: [{ itemId: 'draft', status: 'unknown', detail: '待核对' }], question: null },
   memo_save: { topic: '备忘', content: '内容' }, memo_find: { query: '备忘' }, digest_summarize: { topic: '资料', content: '摘要' },
   task_create: { summary: '待办' }, task_update: { taskId: 't1', summary: '更名' }, task_complete: { guid: 'g1' }, task_get: { taskId: 't1' }, task_cancel: { taskId: 't1', reason: '本人取消' }, task_list: { status: 'open' },
   project_create: { name: '项目' }, project_adopt: { projectId: 'p1', tasks: [{ summary: '步骤' }] }, project_progress: { projectId: 'p1' },

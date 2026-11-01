@@ -1,4 +1,5 @@
 import { WORKER_PERSONA_SKILLS } from './skills.js';
+import { WORK_METHOD_PRINCIPLES } from './work-methods.js';
 // Single source of truth for every built-in prompt surface in 24私助: the
 // Lead system sections, the worker personas/briefs/done-criteria, the
 // delegation and wake templates, and the safety reiterations. Structure
@@ -11,7 +12,7 @@ import { WORKER_PERSONA_SKILLS } from './skills.js';
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.11.0';
+export const PROMPTS_VERSION = '1.12.0';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -78,6 +79,9 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
     ].join('\n'),
   },
   {
+    name: '24pa-work-methods', order: 902.5, version: 1, text: WORK_METHOD_PRINCIPLES,
+  },
+  {
     name: '24pa-safety-reporting',
     order: 903,
     version: 1,
@@ -123,12 +127,12 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     version: 1,
   },
   digest: {
-    brief: 'digest_build {planId}（模板轨直接交付；agent 轨返回任务指令与事实，由你按指令生成简报全文后以 digest_deliver {planId, report} 交付，未达完成标准时如实说明）。',
+    brief: 'digest_build {planId}（模板轨直接交付；agent 轨返回任务指令与事实，由你按指令生成简报全文后以 digest_deliver {planId, report} 交付，未达完成标准时如实说明）。工作方法：planning_context {date?,timeZone?} 读取依据；daily_plan_save 保存今日建议；daily_review_save 对照采纳版本保存复盘；不能确认重点或采纳安排。',
     doneCriteria: '简报文本已产出：事实/建议分开、逐条带来源、缺失如实列出。',
     version: 1,
   },
   calendar: {
-    brief: 'calendar_sources（登记、默认目标和已存检查）、calendar_query/calendar_busy（多来源、角色/时间筛选、分页与新鲜度）、calendar_create/update/cancel/reminders（固定原目标的操作与回读）、meeting_schedule、plan_today/plan_preview/plan_adopt、meeting_prep_*、overview_today。',
+    brief: 'calendar_sources（登记、默认目标和已存检查）、calendar_query/calendar_busy（多来源、角色/时间筛选、分页与新鲜度）、calendar_create/update/cancel/reminders（固定原目标的操作与回读）、meeting_schedule、plan_today/plan_preview/plan_adopt、meeting_prep_*、overview_today；planning_context {date?} 读取近期重点/建议/采纳/复盘；focus_update {expectedRevision,focuses:[{id,title,outcome,until?}],instruction}；daily_plan_save {date,expectedRevision,focusRevision,items,decisions?,workWindows?,instruction?}；daily_plan_confirm {date,expectedRevision,selectedItemIds,instruction}；daily_review_save {date,expectedRevision,acceptedRevision,results,adjustments?,question?}。',
     doneCriteria: '读操作带新鲜度说明；写操作取得平台回执（日程标识）后交回；规划建议按事实/建议/来源/缺失四栏给出。',
     version: 3,
   },
@@ -151,7 +155,8 @@ export function workerPersonaFor(roleId: string, route?: WorkerModelRoute, fallb
   const simple = route?.simplePersona === true;
   const wanted = WORKER_PERSONA_SKILLS.find(s => s.name === `worker-persona-${roleId}${simple ? '-simple' : ''}`)?.content;
   const full = simple ? WORKER_PERSONA_SKILLS.find(s => s.name === `worker-persona-${roleId}`)?.content : undefined;
-  return wanted ?? full ?? fallback ?? '';
+  const persona = wanted ?? full ?? fallback ?? '';
+  return ['calendar', 'digest'].includes(roleId) && persona ? `${persona}\n\n${WORK_METHOD_PRINCIPLES}` : persona;
 }
 
 // ---- Delegation and wake templates (B3/B6) ------------------------------------

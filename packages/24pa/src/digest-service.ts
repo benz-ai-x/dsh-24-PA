@@ -14,6 +14,7 @@ import { PlanLifecycle } from './plan-lifecycle.js';
 import type { ResolvedTaskSkill, SkillDefinitionLike } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
+import { fixedPlanningWindow } from './work-planning-validation.js';
 import { localDay } from './calendar-time.js';
 import { checkExecution } from './execution-cancellation.js';
 import { digestPeriod, digestWindowKey, type DigestPeriod } from './digest-period.js';
@@ -89,6 +90,13 @@ export class DigestService {
     if (item.parent_session_id !== session.id) throw new Error('事项与触发会话不一致，不能保存计划来源。');
     const source = captureDigestTrigger(session, scheduleOnly);
     if (source) await this.deps.repos().digests.recordWorkSource(item.id, source);
+  }
+
+  async planningArgs(item: WorkItemRow, args: Record<string, unknown>) {
+    const repo = this.deps.repos().digests, occurrence = await repo.occurrenceForWorkItem(item.id);
+    if (occurrence?.time_context) return fixedPlanningWindow(args, occurrence.time_context.localFrom, occurrence.time_context.timeZone);
+    if (occurrence || (await repo.workSource(item.id))?.kind === 'schedule') throw new Error('请先读取并绑定原计划发生窗口，不能按当前日期执行规划。');
+    return args;
   }
 
   /** Local-date window key for a plan kind (morning/evening share the date, weekly uses ISO week). */
@@ -337,6 +345,7 @@ export class DigestService {
     const originalReport = boundRun && this.savedReport(boundRun);
     if (originalReport) return this.restoreSavedReport(item, plan, boundRun!, originalReport);
     let boundSkill = boundRun?.skill_snapshot ? boundRun.skill_snapshot.definition : await this.boundSkillOrThrow(plan);
+    if (boundSkill) this.assertLegacySkill(boundSkill.name);
     if (boundRun && !boundRun.time_context && !this.savedReport(boundRun)) throw new Error('历史运行缺少已固定的事实区间，原记录保留待核对；请明确重新运行，不能按当前计划猜测。');
     let timeContext = boundRun?.time_context ?? undefined;
     let requestedWindow = boundRun?.window_key;
@@ -404,6 +413,7 @@ export class DigestService {
   /** F40：点名 skill 必须在目录中；报错携带可用清单（spec AC）。 */
   private async requireSkill(skill: string): Promise<ResolvedTaskSkill> {
     try {
+      this.assertLegacySkill(skill);
       const resolved = await this.deps.skillCatalog().resolve(skill, ['pa24_work', 'pa24_memory']);
       if (skillContract(resolved)?.mode === 'local') throw new Error('本地 Skill 不能用于后台计划；请创建范围明确的业务副本。');
       if (resolved.track === 'template' && !['morning', 'evening', 'weekly'].includes(resolved.kind ?? '')) {
@@ -413,6 +423,10 @@ export class DigestService {
       return resolved;
     }
     catch (error) { throw new Error(`任务 skill 不存在或不可执行：${skill}；${(error as Error).message}`); }
+  }
+
+  private assertLegacySkill(name: string): void {
+    if (['daily-planning', 'daily-review'].includes(name)) throw new Error('这项工作方法须在 Skill 管理中明确放行，再从定时任务配置；不支持旧简报入口绑定。');
   }
 
   private async boundSkillOrThrow(plan: DigestPlanRow): Promise<ResolvedTaskSkill | null> {
