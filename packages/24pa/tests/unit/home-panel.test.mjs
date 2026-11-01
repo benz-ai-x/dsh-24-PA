@@ -125,7 +125,8 @@ it('部分失败、读取失败、无来源、完整空结果和不完整响应�
   scenario = 'partial'; await refresh();
   expect(container.querySelector('[data-testid=home-calendar-board]').textContent).toContain('部分来源核验失败');
   expect(container.querySelector('[data-testid=home-todo-board]').textContent).toContain('来源范围未完整核验');
-  expect(metricValue('home-metric-calendar')).toBe('2（可展示）'); expect(metricValue('home-metric-overdue')).toBe('2（可展示）');
+  expect(metricValue('home-metric-calendar')).toBe('2'); expect(metricValue('home-metric-overdue')).toBe('2'); expect(metricValue('home-metric-today')).toBe('3');
+  expect(container.querySelector('.pa24-home-kpis').textContent).not.toContain('可展示');
   expect(container.textContent).not.toContain('全部空闲'); expect(container.textContent).not.toContain('全部完成。');
   scenario = 'error'; await refresh();
   expect(metricValue('home-metric-calendar')).toBe('—'); expect(metricValue('home-metric-overdue')).toBe('—');

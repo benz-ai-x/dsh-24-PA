@@ -3421,7 +3421,7 @@ window.__ModuleLoader__.load({
         };
         const homeAvailable = (data, value) => {
           if (!data?.sources?.some(row => row.state !== 'disabled')) return null;
-          return data.complete ? value : L(`${value}（可展示）`, `${value} available`);
+          return value;
         };
         function HomeMetric({ name, label, value, detail, onClick, tone = 'blue', testId }) {
           const attention = typeof value === 'number' && value > 0 && ['amber', 'danger'].includes(tone);
