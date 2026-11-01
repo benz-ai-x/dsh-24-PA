@@ -16,7 +16,9 @@ kind: "package-bundle"
 
 `@benz-ai-x/dsh-24pa` is a self-hosted AI personal-assistant plugin for [dsh](https://github.com/deepseek-ai/deepseek-harness). Local DSH sessions and a Feishu bot coordinate seven business workers in one owner-bound workspace. The desktop home brings key metrics, today's calendar, priority todos, and assistant status into one view, while sixteen capability cards across four categories cover agent skills, scheduled tasks, structured memory, handwriting review, and delivery evidence. All 24PA-owned panels and chat drafts support both Chinese and English.
 
-![24PA desktop home showing key metrics, today's calendar, priority todos, and assistant status](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
+![24PA English desktop home showing key metrics, near-term focus, and an adopted daily plan](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.en.jpg)
+
+*English desktop interface with sample data.*
 
 ## Why 24PA?
 
