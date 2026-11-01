@@ -467,6 +467,20 @@ export class PaRuntime {
     notify: (guid, fingerprint) => this.notifySourceChanged('task', guid, fingerprint),
   });
 
+  async homeSnapshot(input: Record<string, unknown> = {}): Promise<unknown> {
+    if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
+    const workspaceBinding = this.workspaceBinding;
+    const [calendar, todos, review, plans, runs] = await Promise.all([
+      this.calendarSnapshot({ workspaceBinding, period: 'day', offset: 0, limit: 50 }),
+      this.todoSnapshot({ workspaceBinding, status: 'open', deadline: 'all', offset: 0, limit: 50 }),
+      this.reviewQueue(),
+      this.taskPlans.summary({ workspaceBinding }),
+      this.runHistory.summary({ workspaceBinding }),
+    ]);
+    return { calendar, todos, review, plans, runs, observedAt: new Date().toISOString(), workspaceBinding };
+  }
+
   async todoSnapshot(input: Record<string, unknown> = {}): Promise<unknown> {
     if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
     if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));

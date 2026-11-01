@@ -20,7 +20,7 @@ const change = async (node, value) => { expect(node).toBeTruthy(); await act(asy
   if (node.tagName === 'SELECT') { node.value = value; node.dispatchEvent(new win.Event('change', { bubbles: true })); }
   else { Object.getOwnPropertyDescriptor(node.tagName === 'TEXTAREA' ? win.HTMLTextAreaElement.prototype : win.HTMLInputElement.prototype, 'value').set.call(node, value); node.dispatchEvent(new win.Event('input', { bubbles: true })); }
 }); };
-const open = title => click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：' + title)));
+const open = async title => { await click(container.querySelector('#pa24-tab-work')); await click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：' + title))); };
 beforeEach(async () => {
   binding = 'binding-a'; requests = []; fault = null; delayed = null; savedBlob = null; intervals = []; emptyHistory = false; win.localStorage.clear();
   const draft = taskPlanDraft(form(), 'Asia/Shanghai');
@@ -37,6 +37,9 @@ beforeEach(async () => {
       if (fault === endpoint) throw new Error('离线读取失败'); if (delayed?.endpoint === endpoint) return await delayed.promise;
       let value;
       if (endpoint === 'snapshot') value = { workspace: { path: '/workspace', config: DEFAULT_CONFIG }, work: [], outbox: [], readiness: { items: [] } };
+      else if (endpoint === 'home') value = { calendar: {}, todos: {}, review: {},
+        plans: plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config.timeZone } },
+        runs: emptyHistory ? { runs24: 0, failed24: 0, delivery_failed24: 0, delivery_unknown24: 0, unresolved: 0, unresolved_events: 0, unexecuted24: 0, active_work: 0, waiting_work: 0, failed_work: 0, run_total: 0, work_total: 0, event_total: 0, legacy_total: 0, empty: true, observedAt: new Date().toISOString() } : { runs24: 31, failed24: 2, delivery_failed24: 1, delivery_unknown24: 2, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, empty: false, observedAt: new Date().toISOString() }, observedAt: new Date().toISOString() };
       else if (endpoint === 'plans.summary') value = plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config.timeZone } };
       else if (endpoint === 'runs.summary') value = emptyHistory ? { runs24: 0, failed24: 0, delivery_failed24: 0, delivery_unknown24: 0, unresolved: 0, unresolved_events: 0, unexecuted24: 0, active_work: 0, waiting_work: 0, failed_work: 0, run_total: 0, work_total: 0, event_total: 0, legacy_total: 0, empty: true, observedAt: new Date().toISOString() } : { runs24: 31, failed24: 2, delivery_failed24: 1, delivery_unknown24: 2, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, empty: false, observedAt: new Date().toISOString() };
       else if (endpoint === 'skills.catalog') value = { entries: ['morning', 'evening', 'weekly'].map(kind => ({ id: 'builtin:digest-' + kind, name: 'digest-' + kind, type: 'template', source: 'builtin' })), discovery: 'complete' };
@@ -112,10 +115,10 @@ describe('M02 管理界面', () => {
     await open('运行记录');
     const summary = () => [...container.querySelectorAll('.pa24-manager .pa24-history-metric')].find(node => node.textContent.includes('24 小时运行'))?.querySelector('strong')?.textContent;
     expect(summary()).toBe('31'); await click(button('返回卡片'));
-    let release; delayed = { endpoint: 'runs.summary', promise: new Promise(resolve => { release = resolve; }) };
+    let release; delayed = { endpoint: 'home', promise: new Promise(resolve => { release = resolve; }) };
     binding = 'binding-b'; await act(async () => intervals.find(row => row.ms === 2500).fn());
     await open('运行记录'); expect(summary()).toBeUndefined();
-    await act(async () => release({ ok: true, json: async () => ({ ok: true, value: { runs24: 0, workspaceBinding: binding } }) }));
+    await act(async () => release({ ok: true, json: async () => ({ ok: true, value: { calendar: {}, todos: {}, review: {}, plans: {}, runs: { runs24: 0 }, workspaceBinding: binding } }) }));
   });
   it('预设统一表单先预览后保存暂停；离页保留草稿，授权确认后启用', async () => {
     await open('定时任务'); await click(button('晨报预设')); await change(field('名称'), '调整后的晨报'); expect(button('保存为暂停').disabled).toBe(true);
@@ -276,6 +279,7 @@ describe('M02 管理界面', () => {
     expect(button('上一页')).toBeUndefined();
   });
   it('空计划总览使用专用图标和中性空态，不冒充健康', async () => {
+    await click(container.querySelector('#pa24-tab-work'));
     plan.empty = true; await click(button('刷新'));
     const card = [...container.querySelectorAll('.pa24-cap')].find(node => node.textContent.includes('时间 + Skill'));
     expect(card.textContent).toContain('暂无计划');
@@ -401,6 +405,7 @@ describe('M02 管理界面', () => {
     expect(requests.filter(row => row.endpoint === 'action')).toHaveLength(0);
   });
   it('空运行档案使用独立 History 与中性状态，不冒充健康或故障', async () => {
+    await click(container.querySelector('#pa24-tab-work'));
     emptyHistory = true; await click(button('刷新'));
     const card = [...container.querySelectorAll('.pa24-cap')].find(node => node.textContent.includes('执行 · 投递 · 助理交办'));
     expect(card.textContent).toContain('暂无档案'); expect(card.textContent).toContain('暂无运行档案'); expect(card.textContent).not.toContain('正常');

@@ -43,7 +43,10 @@ export function historyFilter(input: Record<string, unknown>, timeZone: string, 
     if (typeof value !== 'string' || value.length > limit) throw new Error(`筛选字段 ${key} 无效。`);
     return value.trim() || undefined;
   };
-  const status = text('status'), source = text('source'), deliveryStatus = text('deliveryStatus');
+  const status = text('status'), source = text('source'), deliveryStatus = text('deliveryStatus'), attention = text('attention');
+  if (attention && !['waiting', 'unresolved'].includes(attention)) throw new Error('待处理筛选无效。');
+  if (attention === 'waiting' && kind !== 'work') throw new Error('待我处理筛选只适用于助理交办。');
+  if (attention === 'unresolved' && kind !== 'runs') throw new Error('未解决筛选只适用于执行记录。');
   if (status && !statuses[kind].includes(status)) throw new Error('此类别不支持该执行状态。');
   if (source && !(kind === 'work' ? ['local', 'feishu'] : kind === 'events' ? ['manual', 'schedule', 'continuation'] : ['manual', 'schedule', 'trial', 'rerun', 'continuation']).includes(source)) throw new Error('此类别不支持该来源筛选。');
   if (deliveryStatus && !['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'failed', 'unknown', 'expired'].includes(deliveryStatus)) throw new Error('投递状态无效。');
@@ -54,6 +57,7 @@ export function historyFilter(input: Record<string, unknown>, timeZone: string, 
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('历史页码无效。');
   return { kind, from, to, status, source, deliveryStatus, query: text('query', 500),
     workId: text('workId'), planId: text('planId'), skillId: skillId?.replace(/^managed:/, ''), versionId: text('versionId'),
+    ...(attention ? { attention: attention as 'waiting' | 'unresolved' } : {}),
     includeUnresolved: input.includeUnresolved !== false, offset, limit: 20 };
 }
 

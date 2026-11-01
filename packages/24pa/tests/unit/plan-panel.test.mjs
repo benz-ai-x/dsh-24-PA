@@ -16,6 +16,7 @@ it('计划待核对原因在真实 DOM 中可读，暂停状态不显示可执�
   vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
     const req = JSON.parse(init.body);
     const value = req.endpoint === 'snapshot' ? { workspace: { path: '/workspace', config: DEFAULT_CONFIG }, work: [], outbox: [], secrets: {}, readiness: { items: [] } }
+      : req.endpoint === 'home' ? { calendar: {}, todos: {}, review: {}, plans: { total: 0, enabled: 0, paused: 0, blocked: 0, next: null }, runs: { runs24: 0, failed24: 0, delivery_failed24: 0, delivery_unknown24: 0 }, observedAt: new Date().toISOString() }
       : req.endpoint === 'digests' ? { plans: [{ planId: 'morning', kind: 'morning', title: '晨报', status: pending ? 'paused' : 'active', skill: 'digest-morning', voice: false, schedule: { daily: { time: '08:00:00', time_zone: 'Asia/Shanghai' } }, pendingChange: pending ? { phase: 'unknown', error: '原生任务待清理：连接失败' } : null }], skills: [{ name: 'digest-morning', track: 'template' }] }
       : req.endpoint === 'skills.catalog' ? { entries: [], discovery: 'complete' } : req.endpoint === 'plans' ? { rows: [], total: 0, offset: 0, limit: 20 } : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : {};
     return { ok: true, json: async () => ({ ok: true, value }) };
@@ -29,6 +30,7 @@ it('计划待核对原因在真实 DOM 中可读，暂停状态不显示可执�
   });
   container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container);
   await act(async () => root.render(React.createElement(Panel)));
+  await act(async () => container.querySelector('#pa24-tab-work').click());
   const card = [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：定时任务'));
   expect(card).toBeTruthy(); await act(async () => card.click());
   expect(container.querySelector('[role=alert]').textContent).toContain('计划变更尚未确认：原生任务待清理：连接失败');
@@ -70,6 +72,7 @@ for (const theme of ['light', 'dark']) it.each(['digest.run-now', 'digest.resche
   });
   container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container);
   await act(async () => root.render(React.createElement(Panel)));
+  await act(async () => container.querySelector('#pa24-tab-work').click());
   await act(async () => [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：定时任务')).click());
   const row = () => [...container.querySelectorAll('article')].find(node => node.querySelector('h3')?.textContent === 'first');
   let field = row().querySelector('input'); field.focus(); expect(win.document.activeElement).toBe(field);

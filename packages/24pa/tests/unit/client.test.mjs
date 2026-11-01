@@ -33,7 +33,7 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.-]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'action', 'memory', 'notes.queue', 'materials', 'minutes', 'health', 'budget', 'backups', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.package-content', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'plans.summary', 'runs', 'runs.summary', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'home', 'action', 'memory', 'materials', 'minutes', 'health', 'budget', 'backups', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.package-content', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'runs', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
@@ -45,10 +45,10 @@ describe('client.js 挂载面', () => {
     }
   });
 
-  it('能力卡片体系（F26/P58）：四分类 tab、16 卡注册表、角标聚合、管理态与详情导航', () => {
-    // 一级导航＝事务与计划 / 知识与资料 / 接入与设置 / 运行与维护
-    expect(client).toContain("const CATEGORY_TABS = [['work', 'grid', 'blue'], ['knowledge', 'memory', 'violet'], ['setup', 'plug', 'green'], ['ops', 'shield', 'amber']];");
-    expect(client).toContain("const [tab, setTab] = React.useState('work')");
+  it('能力卡片体系（F26/P58）：首页 + 四分类 tab、16 卡注册表、角标聚合、管理态与详情导航', () => {
+    // 一级导航＝首页 / 事务与计划 / 知识与资料 / 接入与设置 / 运行与维护
+    expect(client).toContain("const CATEGORY_TABS = [['home', 'sunrise', 'blue'], ['work', 'grid', 'blue'], ['knowledge', 'memory', 'violet'], ['setup', 'plug', 'green'], ['ops', 'shield', 'amber']];");
+    expect(client).toContain("const [tab, setTab] = React.useState('home')");
     expect(client).toContain("work: '事务与计划', knowledge: '知识与资料', setup: '接入与设置', ops: '运行与维护'");
     expect(client).toContain("work: 'Work & plans', knowledge: 'Knowledge & content', setup: 'Connections & setup', ops: 'Operations & maintenance'");
     // 注册表驱动：注册即生卡；每卡必有 tier（角标聚合纯函数）＋body＋detail
@@ -89,10 +89,10 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('const healthAggregate = ({ state, extra }) =>');
     expect(client).toContain("'一键全量检查'");
     expect(client).toContain('helpers.run(helpers.runFullCheck)');
-    // 快照轮询不变；卡片补充数据一次性读取并随手动刷新重取
+    // 快照轮询不变；补充数据挂载读取，随手动刷新与首页定时重读更新
     expect(client).toContain('const useExtra = (workspacePath, tick, workspaceBinding)');
     expect(client).toContain('setExtraTick');
-    // 键盘 ←→/Home/End 四 tab 轮转
+    // 键盘 ←→/Home/End 在首页与四分类共五个 tab 间轮转
     expect(client).toContain('% CATEGORY_TABS.length');
     // 旧三分类不再回潮
     expect(client).not.toContain("biz: '业务内容'");
@@ -115,7 +115,7 @@ describe('client.js 挂载面', () => {
     expect(client).not.toContain('.pa24-settings{');
     // 一屏一主按钮：页头对话＋工作/记忆/提醒/晨报空态 CTA＋新建 Skill＋工作区卡绑定＋全量健康检查；
     // 未开放的知识库不再提供误导性的主 CTA。
-    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(16); // 参数、来源、日程/待办、明确测试、预算放行、定时暂停保存与创建日程分别提交
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(17); // 首页绑定入口，以及参数、来源、日程/待办、明确测试、预算放行、定时暂停保存与创建日程分别提交
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
     // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留

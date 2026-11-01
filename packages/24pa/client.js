@@ -10,7 +10,7 @@
 // F21 (P53): UI/UX walkthrough fixes — tighter vertical rhythm, one primary
 // action per view, unified status-badge vocabulary, human-first copy with
 // tech detail folded away, and design-doc tab color semantics.
-// F26 (P58): capability cards — 一级导航收敛为四分类 tab（事务与计划/知识与
+// F26 (P58): capability cards — 首页总览 + 四分类 tab（事务与计划/知识与
 // 资料/接入与设置/运行与维护），卡片由
 // CARD_REGISTRY 驱动：注册即生卡，点卡片进入二级详情（原视图平移）。浅色为
 // 设计主参考（--pa-ink/--pa-muted 双层文字层级暗色跟随不掉队）。
@@ -19,7 +19,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react'), h = React.createElement;
     const zh = {
-      panel: '24私助工作区', title: '24私助',
+      panel: '24私助工作区', title: '24私助', home: '首页',
       work: '事务与计划', knowledge: '知识与资料', setup: '接入与设置', ops: '运行与维护',
       review: '手写审核', awaiting_review: '待审核', needs_rereview: '需重新审核', returned: '已退回', collecting: '收集中',
       collected: '已收齐', approved: '已通过', pending_review: '待审核', stale: '已失效', superseded: '已取代',
@@ -34,7 +34,7 @@ window.__ModuleLoader__.load({
     // resolveText({zh,en}) 的 L() 帮助函数（dsh 官方内联双语通道，与字符串
     // 同址维护）；切换即时生效由 Panel 的 useSyncExternalStore 订阅保证。
     const en = {
-      panel: '24PA Workspace', title: '24PA',
+      panel: '24PA Workspace', title: '24PA', home: 'Home',
       work: 'Work & plans', knowledge: 'Knowledge & content', setup: 'Connections & setup', ops: 'Operations & maintenance',
       review: 'Handwriting Review', awaiting_review: 'Awaiting review', needs_rereview: 'Needs re-review', returned: 'Returned', collecting: 'Collecting',
       collected: 'All pages in', approved: 'Approved', pending_review: 'Awaiting review', stale: 'Stale', superseded: 'Superseded',
@@ -163,6 +163,13 @@ window.__ModuleLoader__.load({
       .pa24-drawer-backdrop{position:fixed;inset:0;z-index:1000;display:flex;justify-content:flex-end;background:rgb(15 23 42 / 38%)}.pa24-drawer{display:flex;flex-direction:column;width:min(780px,88vw);height:100vh;background:var(--pa-canvas);border-left:1px solid var(--pa-line);box-shadow:-18px 0 48px rgb(15 23 42 / 18%);color:var(--pa-ink)}.pa24-drawer-header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:20px 22px 16px;border-bottom:1px solid var(--pa-line);background:var(--pa-surface)}.pa24-drawer-header>div{min-width:0}.pa24-drawer-header h2{font-size:18px;overflow-wrap:anywhere}.pa24-drawer-header p{margin-top:5px}.pa24-drawer-close{flex-shrink:0;width:40px;padding:8px!important}.pa24-drawer-tabs{display:flex;gap:6px;padding:10px 22px 0;border-bottom:1px solid var(--pa-line);background:var(--pa-surface)}.pa24-drawer-tabs button{border-radius:8px 8px 0 0;border-bottom-color:transparent;background:transparent;color:var(--pa-muted)}.pa24-drawer-tabs button[aria-selected=true]{color:var(--pa-blue);background:var(--pa-blue-bg)}.pa24-drawer-body{flex:1;min-height:0;overflow:auto;padding:20px 22px 32px;overscroll-behavior:contain}.pa24-drawer-body>.pa24-card{padding:0;border:0;background:transparent}.pa24-drawer-section{min-width:0}.pa24-drawer-section>h3{margin-bottom:12px}.pa24-drawer-work-runs{display:grid;gap:8px}.pa24-drawer-work-runs>button{justify-content:flex-start;text-align:left;white-space:normal}
       @container(max-width:900px){.pa24-history-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-history-toolbar{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.pa24-history-advanced-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-history-header{display:none}.pa24-history-run-row,.pa24-history-work-row,.pa24-history-event-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
       @container(max-width:880px){.pa24-plan-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-plan-row{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}.pa24-plan-row.pa24-plan-header{display:none}}
+      .pa24-home{min-width:0}.pa24-home-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:16px;padding:22px 24px;border:1px solid color-mix(in srgb,var(--pa-blue) 18%,var(--pa-line));border-radius:18px;background:linear-gradient(120deg,color-mix(in srgb,var(--pa-blue-bg) 72%,var(--pa-surface)),var(--pa-surface))}.pa24-home-hero h2{margin-bottom:6px;font-size:22px;line-height:1.35;letter-spacing:-.3px}.pa24-home-hero p{max-width:620px;color:var(--pa-muted);font-size:13px}.pa24-home-date{flex-shrink:0;text-align:right;color:var(--pa-muted);font-size:12px;line-height:1.8}.pa24-home-date strong{display:block;color:var(--pa-blue);font-size:14px;font-weight:650;font-variant-numeric:tabular-nums}
+      .pa24-home-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:16px}.pa24 button.pa24-home-metric{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:9px;min-width:0;min-height:134px;padding:14px;text-align:left;border-radius:14px;background:var(--pa-surface);box-shadow:none}.pa24 button.pa24-home-metric:hover:not(:disabled){border-color:color-mix(in srgb,var(--tone) 48%,var(--pa-line));background:color-mix(in srgb,var(--tone-bg) 32%,var(--pa-surface))}.pa24-home-metric-top{display:flex;align-items:center;justify-content:space-between;gap:6px;color:var(--pa-muted);font-size:12px}.pa24-home-metric-top>span:first-child{display:flex;align-items:center;gap:7px;min-width:0}.pa24-home-metric-top svg{color:var(--tone);width:17px;height:17px}.pa24-home-metric>strong{display:block;color:var(--pa-ink);font-size:29px;line-height:1.1;font-weight:680;font-variant-numeric:tabular-nums}.pa24-home-metric>small{display:block;margin-top:auto;color:var(--pa-muted);font-size:11px;line-height:1.55;overflow-wrap:anywhere}.pa24-home-metric.attention>strong{color:var(--tone)}
+      .pa24-home-boards{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,.94fr);gap:16px;align-items:start}.pa24-home-board{padding:16px 18px}.pa24-home-board-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.pa24-home-board-head>div{min-width:0}.pa24-home-board-head h2{display:flex;align-items:center;gap:8px}.pa24-home-board-head h2 svg{color:var(--pa-blue);width:19px;height:19px}.pa24-home-board-head p{margin-top:4px;color:var(--pa-muted);font-size:12px}.pa24-home-board-head>button{flex-shrink:0;min-height:32px;padding:4px 8px;font-size:12px}.pa24-home-board .pa24-source-compact{margin:0 0 12px;padding:10px 12px}.pa24-home-board .pa24-source-compact p+p{margin-top:3px}.pa24-home-board .pa24-calendar-next{gap:12px;margin-bottom:8px;padding:13px 14px;background:var(--pa-soft)}.pa24-home-board .pa24-calendar-next-time{min-width:62px;font-size:17px}.pa24-home-board .pa24-calendar-next-body h3{font-size:15px}.pa24-home-board .pa24-calendar-next .pa24-link-button{min-height:30px;padding:4px 7px;font-size:11px}.pa24-home-list{min-width:0}.pa24-home-event{display:grid;grid-template-columns:54px minmax(0,1fr);gap:12px;padding:13px 0;border-bottom:1px solid var(--pa-line)}.pa24-home-event:last-child,.pa24-home-todo-row:last-child{border-bottom:0}.pa24-home-event-time{padding-top:2px;text-align:right;color:var(--pa-ink);font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}.pa24-home-event-time small{display:block;color:var(--pa-muted);font-size:10px;font-weight:400}.pa24-home-event-body,.pa24-home-todo-main{min-width:0;overflow-wrap:anywhere}.pa24-home-event-body h3,.pa24-home-todo-main h3{font-size:14px;line-height:1.5}.pa24-home-event-body p,.pa24-home-todo-main p{margin-top:4px}.pa24-home-event-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-top:7px}.pa24-home-event-meta .pa24-link-button{min-height:28px;padding:3px 6px;font-size:11px}.pa24-home-todo-row{padding:13px 0;border-bottom:1px solid var(--pa-line)}.pa24-home-todo-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.pa24-home-todo-head>.pa24-badge{flex-shrink:0}.pa24-home-todo-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:8px}.pa24-home-todo-foot>div{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.pa24-home-todo-foot button,.pa24-home-todo-foot .pa24-link-button{min-height:28px;padding:3px 6px;font-size:11px}.pa24-home-board .pa24-empty{padding:22px 12px}.pa24-home-board .pa24-empty>.pa24-icon-tile{width:46px;height:46px;border-radius:15px;margin-bottom:12px}.pa24-home-board .pa24-empty>.pa24-icon-tile svg{width:22px;height:22px}.pa24-home-board .pa24-empty h3{font-size:15px}
+      .pa24-home-assistant{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:0;padding:0;overflow:hidden}.pa24-home-assistant>section{min-width:0;padding:16px 18px}.pa24-home-assistant>section+section{border-left:1px solid var(--pa-line)}.pa24-home-assistant h3{display:flex;align-items:center;gap:8px;margin-bottom:10px}.pa24-home-assistant h3 svg{width:17px;height:17px;color:var(--pa-blue)}.pa24-home-runstats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.pa24-home-runstat{min-width:0;padding:9px 10px;border-radius:10px;background:var(--pa-soft)}.pa24-home-runstat strong{display:block;font-size:19px;line-height:1.3;font-variant-numeric:tabular-nums}.pa24-home-runstat span{display:block;color:var(--pa-muted);font-size:10px;line-height:1.5}.pa24-home-plan-next{padding:10px 12px;border-radius:10px;background:var(--pa-soft)}.pa24-home-plan-next strong{display:block;overflow-wrap:anywhere}.pa24-home-plan-next p{margin-top:4px;color:var(--pa-muted);font-size:12px}.pa24-home-assistant button{min-height:30px;margin-top:10px;padding:4px 7px;font-size:11px}
+      @container(max-width:1040px){.pa24-home-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.pa24-home-hero{padding:20px}.pa24-home-runstats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @container(max-width:800px){.pa24-home-boards,.pa24-home-assistant{grid-template-columns:minmax(0,1fr)}.pa24-home-assistant>section+section{border-left:0;border-top:1px solid var(--pa-line)}}
+      @container(max-width:620px){.pa24-home-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-home-hero{align-items:flex-start;flex-direction:column;gap:10px}.pa24-home-date{text-align:left}.pa24-home-board{padding:15px}.pa24-home-runstats{grid-template-columns:repeat(4,minmax(0,1fr))}}
       .pa24-spin{animation:pa24-spin 1s linear infinite}@keyframes pa24-spin{to{transform:rotate(360deg)}}
       @container(max-width:880px){.pa24-header{align-items:flex-start}.pa24-tabs{gap:2px}.pa24-field{grid-template-columns:110px minmax(0,1fr)}}
       @container(max-width:620px){.pa24-header{flex-direction:column;gap:16px}.pa24-form-row{grid-template-columns:1fr;gap:4px;padding:10px 0}.pa24 h1{font-size:19px}.pa24-grid{grid-template-columns:1fr}.pa24-stats{gap:8px}.pa24-stat{padding:12px;gap:8px}.pa24-stat>.pa24-icon-tile{display:none}.pa24-card{padding:18px}.pa24-form-actions{gap:8px;padding:10px 12px}.pa24-form-actions>.pa24-meta{display:none}}
@@ -178,19 +185,51 @@ window.__ModuleLoader__.load({
         // 链解析 {zh,en}；与字符串同址维护，避免大字典间接层。
         const L = (zhText, enText) => ctx.locale.resolveText({ zh: zhText, en: enText });
         const statusBadge = (tier, label) => { const item = STATUS[tier] || STATUS.unchecked; return badge(label || t(item[0]), item[1], item[2]); };
+        const technicalText = value => {
+          const text = String(value ?? '');
+          if (!/[\u3400-\u9fff]/.test(text) || displayLocale() !== 'en-US') return text;
+          const rules = [
+            [/尚未绑定工作区/, 'No workspace is bound.'],
+            [/工作区已变化|工作区已切换/, 'The workspace changed or is not ready. Refresh and retry.'],
+            [/首页响应或工作区不匹配|首页响应不完整/, 'The home response is incomplete or belongs to another workspace. Retry reading.'],
+            [/日程响应不完整/, 'The calendar response is incomplete. Retry reading.'],
+            [/待办响应或工作区不匹配|待办响应不完整/, 'The todo response is incomplete or belongs to another workspace. Retry reading.'],
+            [/来源配置已变更|工作区配置已变更/, 'Configuration changed. Reload and merge your changes before saving.'],
+            [/缺少工作区绑定标识/, 'Workspace binding is missing. Refresh and retry.'],
+            [/来源服务离线/, 'The source service is offline.'],
+            [/原平台离线/, 'The source platform is offline.'],
+            [/本地读取离线/, 'The local read failed.'],
+            [/健康证据读取失败/, 'Failed to read health evidence. Retry reading.'],
+            [/记忆读取失败/, 'Failed to read memories.'],
+            [/计划变更尚未确认/, 'The plan change is not confirmed. Review the pending native task cleanup.'],
+            [/原生任务待清理/, 'A native task cleanup is pending.'],
+            [/未授权|失权|无权/, 'Permission denied or authorization expired.'],
+            [/参数无效|校验失败|格式无效|格式错误/, 'Invalid parameters or validation failed.'],
+            [/未知管理接口/, 'Unknown panel endpoint.'],
+            [/读取失败|离线/, 'Read failed or the service is offline. Retry reading.'],
+          ];
+          for (const [pattern, translation] of rules) if (pattern.test(text)) return translation;
+          return 'The operation could not be completed. Retry or review the technical details.';
+        };
         const rpc = async (endpoint, payload = {}, signal) => {
           const response = await fetch('./api/24pa', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ endpoint, payload }), signal });
           if (!response.ok) throw new Error('dsh HTTP ' + response.status);
           const result = await response.json();
           if (!result.ok) {
-            const error = new Error(result.error.message);
+            const error = new Error(technicalText(result.error.message));
+            error.originalMessage = result.error.message;
             if (result.error.code) error.code = result.error.code;
             if (result.error.evidence !== undefined) error.evidence = result.error.evidence;
             throw error;
           }
           return result.value;
         };
-        const date = (value, timeZone) => (value ? new Date(value).toLocaleString('zh-CN', { timeZone: timeZone || 'Asia/Shanghai', hour12: false }) : L('尚无记录', 'No record yet'));
+        const displayLocale = () => {
+          const snapshot = ctx.locale.getSnapshot?.(), active = typeof snapshot === 'string' ? snapshot : snapshot?.active;
+          return String(active || 'zh').toLowerCase().startsWith('en') ? 'en-US' : 'zh-CN';
+        };
+        const date = (value, timeZone) => (value ? new Date(value).toLocaleString(displayLocale(), { timeZone: timeZone || 'Asia/Shanghai', hour12: false }) : L('尚无记录', 'No record yet'));
+        const dayText = (value, timeZone) => new Intl.DateTimeFormat(displayLocale(), { timeZone, year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value));
         const badgeOf = status => badge(t(status) || status, ...(statusStyle[status] || ['neutral', 'info']));
         const fields = items => h('dl', { className: 'pa24-dl' }, items.map(([label, value]) => h('div', { key: String(label), className: 'pa24-field' }, h('dt', null, label), h('dd', null, value ?? L('未配置', 'Not configured')))));
         const sectionHead = (name, title, description, action, tone = 'neutral') => h('div', { className: 'pa24-section-head' }, h('div', null, h('div', { className: 'pa24-section-title' }, h('span', { className: 'pa24-tone-' + tone, style: { color: 'var(--tone)' } }, icon(name)), title && h('h2', null, title)), description && h('p', { className: 'pa24-section-desc' }, description)), action);
@@ -261,8 +300,10 @@ window.__ModuleLoader__.load({
           const prepare = (record, action = 'edit') => {
             const revision = data?.revision;
             setMaintenance({ record, action, revision }); setNote('');
-            const names = { new: '新建记忆', edit: '修改这条记忆', confirm: '确认这条记忆的内容', deactivate: '停用这条记忆', activate: '重新启用这条记忆', delete: '把这条记忆移入回收', restore: '恢复这条已回收记忆', purge: '永久删除这条已回收记忆及可恢复版本', undo: '撤销我指定的修订' };
-            setInstruction(`请在本地帮我${names[action]}。\n工作区：${workspace.path}\nexpectedRevision=${revision ?? '请先查询'}${record ? `\nid=${record.id}\n当前完整内容：\n${JSON.stringify(record, null, 2)}` : ''}\n${action === 'new' || action === 'edit' ? '我要保存的内容与来源：请填写。' : action === 'confirm' ? '我的明确确认指令：请填写；资料审核通过不代表记忆已确认。' : action === 'undo' ? '需要撤销的修订 ID：请填写；核对完整字段，不能覆盖后续修改。' : '这是我对上述单条记忆的维护指令。'}\n执行前重新读取当前版本；如有冲突先说明，批量变更须先给我预览选择。${action === 'purge' ? '\n仅处理记忆正文与修订副本；原始资料、会话和既有备份另行处理。' : ''}`);
+            const names = { new: ['新建记忆', 'create a memory'], edit: ['修改这条记忆', 'edit this memory'], confirm: ['确认这条记忆的内容', 'confirm this memory’s content'], deactivate: ['停用这条记忆', 'deactivate this memory'], activate: ['重新启用这条记忆', 'reactivate this memory'], delete: ['把这条记忆移入回收', 'move this memory to recycling'], restore: ['恢复这条已回收记忆', 'restore this recycled memory'], purge: ['永久删除这条已回收记忆及可恢复版本', 'permanently delete this recycled memory and its recoverable revisions'], undo: ['撤销我指定的修订', 'undo the revision I specify'] };
+            const actionName = L(...names[action]);
+            setInstruction(L(`请在本地帮我${actionName}。\n工作区：${workspace.path}\nexpectedRevision=${revision ?? '请先查询'}${record ? `\nid=${record.id}\n当前完整内容：\n${JSON.stringify(record, null, 2)}` : ''}\n${action === 'new' || action === 'edit' ? '我要保存的内容与来源：请填写。' : action === 'confirm' ? '我的明确确认指令：请填写；资料审核通过不代表记忆已确认。' : action === 'undo' ? '需要撤销的修订 ID：请填写；核对完整字段，不能覆盖后续修改。' : '这是我对上述单条记忆的维护指令。'}\n执行前重新读取当前版本；如有冲突先说明，批量变更须先给我预览选择。${action === 'purge' ? '\n仅处理记忆正文与修订副本；原始资料、会话和既有备份另行处理。' : ''}`,
+              `Please ${actionName} in my local session.\nWorkspace: ${workspace.path}\nexpectedRevision=${revision ?? 'query first'}${record ? `\nid=${record.id}\nCurrent full content:\n${JSON.stringify(record, null, 2)}` : ''}\n${action === 'new' || action === 'edit' ? 'Content and source to save: please provide.' : action === 'confirm' ? 'My explicit confirmation: please provide; approving material does not confirm this memory.' : action === 'undo' ? 'Revision ID to undo: please provide; check all fields and do not overwrite later changes.' : 'This is my maintenance instruction for the memory above.'}\nRead the current version before acting; explain conflicts first. Preview bulk changes before I choose.${action === 'purge' ? '\nOnly process memory content and revision copies; source material, sessions, and existing backups are handled separately.' : ''}`));
           };
           return h('section', { className: 'pa24-memory-manager' },
             sectionHead('memory', null, L('查阅长期事实与线索；维护由你在本地会话发起。', 'Read long-term facts and clues; initiate maintenance in your local session.'), h('div', { className: 'pa24-row' }, button('refresh', L('刷新记忆', 'Refresh memories'), retry, { disabled: view.status === 'loading', className: 'pa24-quiet' }), button('plus', L('新建记忆', 'New memory'), () => prepare(null, 'new'))), 'neutral'),
@@ -320,12 +361,12 @@ window.__ModuleLoader__.load({
         }
         const materialReceipt = value => { if (typeof value !== 'string') return value; try { return JSON.parse(value); } catch { return value; } };
         function MaterialFeedback({ value }) {
-          if (typeof value === 'string') return h('p', { role: 'status', className: 'pa24-note' }, value);
+          if (typeof value === 'string') return h('p', { role: 'status', className: 'pa24-note' }, technicalText(value));
           if (!value) return null;
           return h('section', { className: 'pa24-note', 'aria-label': L('资料操作结果', 'Material action result') },
-            h('p', { role: 'status' }, value.message || value.error || L('操作已返回，详见结果。', 'Action returned; see the result.')), materialObjectLink(value),
+            h('p', { role: 'status' }, technicalText(value.message || value.error) || L('操作已返回，详见结果。', 'Action returned; see the result.')), materialObjectLink(value),
             (value.results || []).map((row, index) => h('article', { key: index }, h('h4', null, L('候选 ', 'Candidate ') + ((row.index ?? index) + 1)),
-              h('p', null, row.error || row.message || (row.changeProposal ? L('仅提出变更建议，尚未修改原对象。', 'Change proposed; original object unchanged.') : row.reused ? L('返回已有对象。', 'Existing object returned.') : row.ok ? L('已完成。', 'Completed.') : L('请核对回执。', 'Check the receipt.'))),
+              h('p', null, technicalText(row.error || row.message) || (row.changeProposal ? L('仅提出变更建议，尚未修改原对象。', 'Change proposed; original object unchanged.') : row.reused ? L('返回已有对象。', 'Existing object returned.') : row.ok ? L('已完成。', 'Completed.') : L('请核对回执。', 'Check the receipt.'))),
               materialObjectLink(row), row.changeProposal && h(React.Fragment, null,
                 row.changeProposal.previous && h('section', null, h('h5', null, L('原参数', 'Previous parameters')), materialParameters(row.changeProposal.previous)),
                 h('section', null, h('h5', null, L('建议参数（需另行授权）', 'Proposed parameters (separate authorization required)')), materialParameters(row.changeProposal.proposed))))),
@@ -380,8 +421,8 @@ window.__ModuleLoader__.load({
           };
           const field = (label, control) => h('label', { key: label, className: 'pa24-material-field' }, h('span', null, label), control);
           const input = (key, label, multiline = false) => field(label, h(multiline ? 'textarea' : 'input', { value: editor?.draft[key] ?? '', rows: multiline ? key === 'transcript' ? 14 : 4 : undefined, disabled: busy, onChange: e => updateDraft({ [key]: e.target.value }) }));
-          const diffNames = { title: '标题', transcript: '正文', summary: '摘要', pageOrder: '原稿页序', pages: '逐页转写', doubts: '定位疑点', unknowns: '待确认项', suggestions: 'AI 建议', relativeDates: '日期依据', diagrams: '图示说明' };
-          const diffView = data => data && h('div', { className: 'pa24-note', 'aria-label': L('发布差异', 'Publication changes') }, h('p', null, L('与最新冻结版本比较：', 'Compared with the latest frozen version: ') + (data.fields.map(key => diffNames[key] || key).join('、') || L('正文与页序未变化', 'Body and page order unchanged'))),
+          const diffNames = { title: L('标题', 'Title'), transcript: L('正文', 'Body'), summary: L('摘要', 'Summary'), pageOrder: L('原稿页序', 'Original page order'), pages: L('逐页转写', 'Page transcripts'), doubts: L('定位疑点', 'Doubt locations'), unknowns: L('待确认项', 'Uncertainties'), suggestions: L('AI 建议', 'AI suggestions'), relativeDates: L('日期依据', 'Date basis'), diagrams: L('图示说明', 'Diagram notes') };
+          const diffView = data => data && h('div', { className: 'pa24-note', 'aria-label': L('发布差异', 'Publication changes') }, h('p', null, L('与最新冻结版本比较：', 'Compared with the latest frozen version: ') + (data.fields.map(key => diffNames[key] || key).join(L('、', ', ')) || L('正文与页序未变化', 'Body and page order unchanged'))),
             (data.fieldChanges || []).map(change => h('section', { key: change.field }, h('h4', null, diffNames[change.field] || change.field),
               h('h5', null, L('发布前', 'Before')), h(MaterialValue, { value: change.before }), h('h5', null, L('发布后', 'After')), h(MaterialValue, { value: change.after }))),
             data.candidates.filter(c => c.change !== 'unchanged').map(c => h('section', { key: c.id }, h('h4', null, (c.change === 'added' ? L('新增候选：', 'New candidate: ') : L('变更候选：', 'Changed candidate: ')) + c.summary),
@@ -396,7 +437,7 @@ window.__ModuleLoader__.load({
             source?.kind === 'qwennote' ? h(React.Fragment, null, fields([[L('类型', 'Type'), source.type], [L('来源', 'Source'), source.title], [L('引用', 'Reference'), source.reference || '—'], [L('读取工具', 'Read tool'), source.toolName || '—']]), h('pre', { className: 'pa24-material-text' }, detail.sourceText))
               : h(React.Fragment, null, h('div', { className: 'pa24-row' }, detail.pages.map(page => button('image', L('第 ' + page.pageNo + ' 页', 'Page ' + page.pageNo), async () => {
                 const seq = detailEpoch.current; setImageError('');
-                try { const data = await rpc('materials', { kind: 'original', noteId: selected, pageNo: page.pageNo, workspaceBinding: binding }); if (seq === detailEpoch.current && mounted.current) { if (data.workspaceBinding !== binding) throw new Error('工作区已变化'); setImage(data); } }
+                try { const data = await rpc('materials', { kind: 'original', noteId: selected, pageNo: page.pageNo, workspaceBinding: binding }); if (seq === detailEpoch.current && mounted.current) { if (data.workspaceBinding !== binding) throw new Error(L('工作区已变化', 'Workspace changed')); setImage(data); } }
                 catch (e) { if (seq === detailEpoch.current && mounted.current) setImageError(e.message); }
               }, { key: page.pageNo, disabled: page.status !== 'saved' || busy }))), imageError && h('p', { role: 'alert', className: 'pa24-error' }, imageError), image && h('img', { src: image.data, alt: L('已核验原稿第 ' + image.pageNo + ' 页', 'Verified original page ' + image.pageNo), className: 'pa24-original' }), !image && h('p', { className: 'pa24-meta' }, L('选择页码读取已保存原稿；显示前核对原件摘要。', 'Choose a page to read the saved original; its digest is checked first.'))));
           return h('section', { className: 'pa24-materials' },
@@ -430,7 +471,7 @@ window.__ModuleLoader__.load({
                   button('plus', L('添加候选', 'Add candidate'), () => updateDraft({ candidates: [...editor.draft.candidates, { summary: '' }] })),
                   h('details', null, h('summary', null, L('逐页转写、疑点定位与 AI 建议', 'Page transcripts, doubt locations, and AI suggestions')), field(L('高级草稿字段 JSON', 'Advanced draft JSON'), h('textarea', { rows: 12, defaultValue: JSON.stringify({ pages: editor.draft.pages || [], doubts: editor.draft.doubts || [], diagrams: editor.draft.diagrams || [], suggestions: editor.draft.suggestions, relativeDates: editor.draft.relativeDates }, null, 2), onBlur: e => { try { const value = JSON.parse(e.target.value); updateDraft(Object.fromEntries(['pages','doubts','diagrams','suggestions','relativeDates'].filter(key => key in value).map(key => [key, value[key]]))); } catch { setFeedback(L('高级字段 JSON 无效，未应用。', 'Invalid advanced JSON; not applied.')); } } }))),
                   h('div', { className: 'pa24-row pa24-material-actions' }, button('check', L('保存草稿', 'Save draft'), () => perform('save_draft', { expectedRevision: editor.revision, draft: editor.draft }), { disabled: busy || !editor.dirty }), button('external', L('预览发布', 'Preview publication'), () => { setPreview(true); setConfirmed(false); }, { disabled: busy || editor.dirty || editor.revision === 0 })),
-                  preview && h('section', { className: 'pa24-card' }, h('h3', null, L('发布这份草稿为新的待审版本', 'Publish this draft for review')), diffView(detail.diff), h('p', null, L('将创建飞书文档并发审核卡；内容审核不执行候选行动。', 'Creates a Feishu document and review card; review does not execute actions.')), field(L('已核对正文、原稿顺序与候选参数', 'I checked the body, original order, and candidate parameters'), h('input', { type: 'checkbox', checked: confirmed, onChange: e => setConfirmed(e.target.checked) })), button('external', L('确认发布', 'Confirm publication'), () => perform('publish_draft', { expectedRevision: editor.revision, instruction: '主人在资料面板核对差异后明确发布此修订为待审版本' }), { disabled: busy || !confirmed || editor.dirty }))),
+                  preview && h('section', { className: 'pa24-card' }, h('h3', null, L('发布这份草稿为新的待审版本', 'Publish this draft for review')), diffView(detail.diff), h('p', null, L('将创建飞书文档并发审核卡；内容审核不执行候选行动。', 'Creates a Feishu document and review card; review does not execute actions.')), field(L('已核对正文、原稿顺序与候选参数', 'I checked the body, original order, and candidate parameters'), h('input', { type: 'checkbox', checked: confirmed, onChange: e => setConfirmed(e.target.checked) })), button('external', L('确认发布', 'Confirm publication'), () => perform('publish_draft', { expectedRevision: editor.revision, instruction: L('主人在资料面板核对差异后明确发布此修订为待审版本', 'The owner reviewed the differences in the materials panel and explicitly publishes this revision for review') }), { disabled: busy || !confirmed || editor.dirty }))),
                 mode === 'version' && h(React.Fragment, null, field(L('冻结版本', 'Frozen version'), h('select', { value: version?.id || '', onChange: e => { setVersionId(e.target.value); setSelection([]); } }, detail.versions.map(v => h('option', { key: v.id, value: v.id }, 'v' + v.version + ' · ' + L(...materialStatus(v.status)))))),
                   version ? h(React.Fragment, null, badge(L(...materialStatus(version.status)), version.status === 'approved' ? 'blue' : 'amber'), h('pre', { className: 'pa24-material-text' }, version.content.transcript || version.doc_snapshot),
                     h('details', null, h('summary', null, L('查看冻结文档及完整派生字段', 'Frozen document and derived fields')), h('p', { className: 'pa24-meta' }, L('指纹：', 'Fingerprint: ') + version.fingerprint), h('pre', { className: 'pa24-material-text' }, version.doc_snapshot), h('pre', { className: 'pa24-material-text' }, JSON.stringify(version.content, null, 2))),
@@ -593,8 +634,8 @@ window.__ModuleLoader__.load({
             view.status === 'ready' && h('div', { className: 'pa24-card' },
               h('div', { className: 'pa24-ready' }, (view.data.capabilities ?? []).map(c => h('div', { key: c.id, className: 'pa24-ready-item pa24-tone-' + (c.state === 'ok' ? 'blue' : c.state === 'warn' ? 'amber' : c.state === 'info' ? 'neutral' : 'danger') }, icon(c.state === 'ok' ? 'check' : c.state === 'info' ? 'info' : 'alert', { width: 17, height: 17 }), h('div', null,
                 h('div', { className: 'pa24-row pa24-between' }, h('strong', null, capName(c.id)), badgeOfCap(c)),
-                h('p', { className: 'pa24-meta' }, c.message),
-                (c.detail?.nextSteps ?? []).length > 0 && h('details', null, h('summary', null, L('处理建议', 'Next steps')), (c.detail.nextSteps).map((step, i) => h('p', { key: i, className: 'pa24-note pa24-meta' }, step))))))),
+                h('p', { className: 'pa24-meta' }, technicalText(c.message)),
+                (c.detail?.nextSteps ?? []).length > 0 && h('details', null, h('summary', null, L('处理建议', 'Next steps')), (c.detail.nextSteps).map((step, i) => h('p', { key: i, className: 'pa24-note pa24-meta' }, technicalText(step)))))))),
               view.data.usage && h('div', { style: { marginTop: 14 } }, fields([
                 [L('模型轮次', 'Model turns'), view.data.usage.modelTurns], [L('输入笔记页', 'Note pages in'), view.data.usage.notePagesInput], [L('生成裁片', 'Crops generated'), view.data.usage.noteCrops],
                 [L('发送队列', 'Outbox queued'), view.data.usage.outboxQueued], [L('结果未知', 'Unknown results'), (view.data.usage.outboxUnknown ?? 0) + (view.data.usage.operationsUnknown ?? 0)],
@@ -622,9 +663,9 @@ window.__ModuleLoader__.load({
         }
 
         // ---- F26: 能力卡片体系（原型 prototypes/pa24-card-panel v0.3 裁决）----
-        // 一级导航＝四分类 tab；卡片＝内容单元：元数据＋tier（角标聚合的纯函数）
+        // 一级导航＝首页 + 四分类 tab；卡片＝内容单元：元数据＋tier（角标聚合的纯函数）
         // ＋body（摘要）＋detail（二级详情，原视图平移）。注册即生卡。
-        const CATEGORY_TABS = [['work', 'grid', 'blue'], ['knowledge', 'memory', 'violet'], ['setup', 'plug', 'green'], ['ops', 'shield', 'amber']];
+        const CATEGORY_TABS = [['home', 'sunrise', 'blue'], ['work', 'grid', 'blue'], ['knowledge', 'memory', 'violet'], ['setup', 'plug', 'green'], ['ops', 'shield', 'amber']];
         const CARD_HIDDEN_KEY = 'pa24.panelCards.hidden';
         const CATEGORY_MIGRATION = {
           skills: 'work',
@@ -646,7 +687,7 @@ window.__ModuleLoader__.load({
           } catch (e) { return {}; }
         };
         const writeHiddenPrefs = prefs => { try { localStorage.setItem(CARD_HIDDEN_KEY, JSON.stringify(prefs)); } catch (e) { /* 无痕模式等场景静默降级为会话内记忆 */ } };
-        // 面板级补充数据只在挂载、手动刷新和重绑工作区时读取；普通轮询只读快照。
+        // 面板级补充数据只在挂载、首页定时刷新、手动刷新和重绑工作区时读取；普通轮询只读保存观察。
         const useExtra = (workspacePath, tick, workspaceBinding) => {
           const [view, setView] = React.useState({ status: 'loading', data: null, errors: {} });
           React.useEffect(() => {
@@ -655,26 +696,27 @@ window.__ModuleLoader__.load({
               setView({ binding: workspaceBinding, status: 'ready', data: {}, errors: {} });
               return () => abort.abort();
             }
-            setView(v => ({ binding: workspaceBinding, status: 'loading', data: v.binding === workspaceBinding ? v.data : null, errors: v.binding === workspaceBinding ? v.errors : {} }));
-            const out = {}, errors = {};
-            const capture = (key, request) => request.then(result => { out[key] = result; }).catch(error => { errors[key] = error.message; });
+            setView(v => ({ binding: workspaceBinding, status: 'loading', data: v.binding === workspaceBinding ? v.data : null, errors: v.binding === workspaceBinding ? v.errors : {}, originalErrors: v.binding === workspaceBinding ? v.originalErrors : {} }));
+            const out = {}, errors = {}, originalErrors = {}, homeKeys = ['calendar', 'todos', 'review', 'plans', 'runs'];
+            const capture = (key, request) => request.then(result => { out[key] = result; }).catch(error => { errors[key] = error.message; originalErrors[key] = error.originalMessage || error.message; });
+            const captureHome = () => rpc('home', { workspaceBinding }, abort.signal).then(home => {
+              if (!home || home.workspaceBinding !== workspaceBinding || homeKeys.some(key => home[key] === undefined)) throw new Error(L('首页响应或工作区不匹配，请刷新重试。', 'The home response or workspace changed. Refresh and retry.'));
+              for (const key of homeKeys) out[key] = home[key];
+              out.homeObservedAt = home.observedAt;
+            }).catch(error => { for (const key of homeKeys) { errors[key] = error.message; originalErrors[key] = error.originalMessage || error.message; } });
             void Promise.all([
-              capture('review', rpc('notes.queue', {}, abort.signal)),
+              captureHome(),
               capture('minutes', rpc('minutes', {}, abort.signal)),
               capture('memory', rpc('memory', { query: '', offset: 0 }, abort.signal)),
               capture('health', rpc('health', {}, abort.signal)),
               capture('budget', rpc('budget', { workspaceBinding }, abort.signal)),
               capture('roles', rpc('roles', {}, abort.signal)),
               capture('reminders', rpc('reminders', {}, abort.signal)),
-              capture('calendar', rpc('calendar', { workspaceBinding }, abort.signal)),
-              capture('todos', rpc('todos', { workspaceBinding }, abort.signal)),
               capture('digests', rpc('digests', {}, abort.signal)),
-              capture('plans', rpc('plans.summary', { workspaceBinding }, abort.signal)),
-              capture('runs', rpc('runs.summary', { workspaceBinding }, abort.signal)),
-            ]).then(() => { if (!abort.signal.aborted) setView({ binding: workspaceBinding, status: 'ready', data: out, errors }); });
+            ]).then(() => { if (!abort.signal.aborted) setView({ binding: workspaceBinding, status: 'ready', data: out, errors, originalErrors }); });
             return () => abort.abort();
           }, [workspacePath, tick, workspaceBinding]);
-          return view.binding === workspaceBinding ? { ...(view.data || {}), _status: view.status, _errors: view.errors || {} } : { _status: 'loading', _errors: {} };
+          return view.binding === workspaceBinding ? { ...(view.data || {}), _status: view.status, _errors: view.errors || {}, _originalErrors: view.originalErrors || {} } : { _status: 'loading', _errors: {}, _originalErrors: {} };
         };
         const capLine = (label, value) => h('div', { className: 'pa24-cap-line' }, h('span', { className: 'pa24-muted' }, label), h('b', null, value));
         // F35: 模式显示词收敛一处（config/workspace 两卡 label＋body 共用）。
@@ -782,7 +824,7 @@ window.__ModuleLoader__.load({
               icon(STATUS[tier][2], { width: 17, height: 17 }),
               h('div', null,
                 h('div', { className: 'pa24-row pa24-between' }, h('strong', null, labels[item.id] || item.id), statusBadge(tier)),
-                h('p', { className: 'pa24-meta' }, item.message)));
+                h('p', { className: 'pa24-meta' }, technicalText(item.message))));
           });
           return h('section', { className: 'pa24-card' }, sectionHead('pulse', L('运行就绪', 'Readiness'), L('配置、账本与接入的真实状态；不把进程在线当作全部就绪。', 'Real state of config, ledger, and access; process-up alone does not mean ready.')),
             h('div', { className: 'pa24-ready' }, readyItems));
@@ -799,11 +841,11 @@ window.__ModuleLoader__.load({
           const stepState = value => ({ passed: L('通过', 'Passed'), failed: L('失败', 'Failed'), not_checked: L('未检查', 'Not checked'), required: L('后续必做', 'Still required') }[value] || value);
           return h('section', { className: 'pa24-card pa24-backups' }, sectionHead('folder', backupOperation(record.operation), backupStatus(record.status), h('button', { type: 'button', onClick: retry }, L('刷新详情', 'Refresh details'))),
             fields([[L('备份位置', 'Backup location'), record.backup_dir || '—'], [L('隔离副本', 'Isolated copy'), record.target_dir || L('无持久副本', 'No retained copy')], [L('开始时间', 'Started'), date(record.started_at, tz)], [L('完成时间', 'Finished'), record.finished_at ? date(record.finished_at, tz) : L('尚未保存完成凭据', 'No completion receipt')]]),
-            record.error && h('p', { role: 'alert' }, record.error), result.message !== record.error && h('p', null, result.message),
+            record.error && h('p', { role: 'alert' }, technicalText(record.error)), result.message !== record.error && h('p', null, technicalText(result.message)),
             h('p', { className: 'pa24-helper' }, L('备份产物、校验、隔离演练分别留档；通过本项不代表现场已恢复。凭据、远端对象和旧待发仍需核对。', 'Artifact creation, verification and drills are separate facts. Passing one does not prove production recovery. Credentials, remote objects and old deliveries still need reconciliation.')),
             (result.steps || []).map(step => h('details', { key: step.id, className: 'pa24-note', open: ['failed', 'not_checked'].includes(step.status) },
               h('summary', null, stepState(step.status) + ' · ' + ({ files: L('备份清单与文件', 'Manifest and files'), isolation: L('执行隔离', 'Execution isolation'), ledger: L('实际账本', 'Restored ledger'), materials: L('原稿与审核快照', 'Originals and review snapshots'), skills: L('Skill 版本与资源', 'Skill versions and resources'), sessions: L('会话与附件', 'Sessions and attachments'), memory: L('记忆与删除保护', 'Memory and deletion protection'), 'remote-reconciliation': L('外部对象与旧待发', 'Remote objects and old deliveries'), credentials: L('凭据', 'Credentials'), cutover: L('人工切换', 'Manual cutover') }[step.id] || step.id)),
-              h('p', null, step.message), step.evidence && h('pre', { className: 'pa24-json' }, JSON.stringify(step.evidence, null, 2)))),
+              h('p', null, technicalText(step.message)), step.evidence && h('pre', { className: 'pa24-json' }, JSON.stringify(step.evidence, null, 2)))),
             h('details', null, h('summary', null, L('范围、采集时间与版本', 'Scope, collection times and versions')), h('pre', { className: 'pa24-json' }, JSON.stringify({ coverage: result.coverage, capturedAt: result.capturedAt, sourceVersion: result.sourceVersion, manifestHash: record.manifest_hash, parts: result.parts }, null, 2))));
         }
         function BackupDetail({ state, config, button, openRobot }) {
@@ -826,9 +868,12 @@ window.__ModuleLoader__.load({
           const current = view.key === key ? view : { status: 'loading', data: null, error: '' }, data = current.data;
           const prepare = () => {
             const requestId = 'backup-' + (globalThis.crypto?.randomUUID?.() || Date.now().toString(36));
-            const text = task === 'backup_create' ? `请为当前工作区创建一次联合备份，targetDir=${JSON.stringify(targetDir)}，requestId=${requestId}。备份形成后展示记录和实际覆盖范围。`
-              : task === 'backup_verify' ? `请校验当前工作区备份 ${JSON.stringify(backupDir)}，requestId=${requestId}。使用隔离副本核验实际账本、会话、原稿、Skill 和记忆，分别报告未检查项。`
-                : `请先调用 backup_preview 预览 ${JSON.stringify(backupDir)} 的恢复保护与冲突。展示结果后由我确认，再使用返回的 previewToken 与 confirm=true 在全新目录 ${JSON.stringify(targetDir)} 执行 backup_restore_check，requestId=${requestId}。保留现场、当前记忆和删除标记；保持执行隔离。`;
+            const text = task === 'backup_create' ? L(`请为当前工作区创建一次联合备份，targetDir=${JSON.stringify(targetDir)}，requestId=${requestId}。备份形成后展示记录和实际覆盖范围。`,
+              `Create one joint backup for the current workspace, targetDir=${JSON.stringify(targetDir)}, requestId=${requestId}. Show the resulting record and actual coverage.`)
+              : task === 'backup_verify' ? L(`请校验当前工作区备份 ${JSON.stringify(backupDir)}，requestId=${requestId}。使用隔离副本核验实际账本、会话、原稿、Skill 和记忆，分别报告未检查项。`,
+                `Verify the current workspace backup ${JSON.stringify(backupDir)}, requestId=${requestId}. Use an isolated copy to check the ledger, sessions, originals, Skills, and memories, reporting unchecked items separately.`)
+                : L(`请先调用 backup_preview 预览 ${JSON.stringify(backupDir)} 的恢复保护与冲突。展示结果后由我确认，再使用返回的 previewToken 与 confirm=true 在全新目录 ${JSON.stringify(targetDir)} 执行 backup_restore_check，requestId=${requestId}。保留现场、当前记忆和删除标记；保持执行隔离。`,
+                  `First call backup_preview for ${JSON.stringify(backupDir)} to preview restore protections and conflicts. After I confirm the result, use the returned previewToken with confirm=true to run backup_restore_check in the new directory ${JSON.stringify(targetDir)}, requestId=${requestId}. Preserve the current workspace, memories, and deletion markers; keep execution isolated.`);
             setInstruction(text); setNote('');
           };
           const copy = async () => { try { await navigator.clipboard.writeText(instruction); setNote(L('指令已复制；在本地会话发送后才开始执行。', 'Copied; execution begins only after sending in the local session.')); } catch { setNote(L('复制失败，请手工选中下方指令。', 'Copy failed; select the instruction below.')); } };
@@ -886,8 +931,8 @@ window.__ModuleLoader__.load({
             catch (failure) { if (current.current === owner) setError(failure.message); }
             finally { if (current.current === owner) setBusy(false); }
           };
-          const names = { verified: '已核验', partial: '部分可用', unverified: '未验证', unchecked: '未检查', disabled: '未启用', no_activity: '无活动', fault: '故障', stale: '证据已过期' };
-          const scopeNames = { workspace: '工作区与账本', feishu: '飞书', wecom: '企业微信', sources: '日历与待办来源', materials: '审核与听记', memory: '结构化记忆', skills: 'Skill 管理', plans: '定时任务', models: '模型路由', voice: '语音', backup: '备份与恢复' };
+          const names = { verified: L('已核验', 'Verified'), partial: L('部分可用', 'Partial'), unverified: L('未验证', 'Unverified'), unchecked: L('未检查', 'Unchecked'), disabled: L('未启用', 'Disabled'), no_activity: L('无活动', 'No activity'), fault: L('故障', 'Fault'), stale: L('证据已过期', 'Evidence expired') };
+          const scopeNames = { workspace: L('工作区与账本', 'Workspace & ledger'), feishu: L('飞书', 'Feishu'), wecom: L('企业微信', 'WeCom'), sources: L('日历与待办来源', 'Calendar & todo sources'), materials: L('审核与听记', 'Review & minutes'), memory: L('结构化记忆', 'Structured memory'), skills: L('Skill 管理', 'Skill management'), plans: L('定时任务', 'Scheduled tasks'), models: L('模型路由', 'Model routing'), voice: L('语音', 'Voice'), backup: L('备份与恢复', 'Backup & recovery') };
           const rows = (data?.evidence || []).filter(row => !platform || row.scope === platform || row.scope.startsWith(platform + '.') || row.scope.startsWith('source:') && sources.some(source => 'source:' + source.id === row.scope));
           const tests = (data?.tests || []).filter(row => !platform || row.plan.platform === platform);
           const identityLabel = identity => identity ? `${identity.ownerId} · ${identity.authority}` : L('尚未核验', 'Not verified');
@@ -897,15 +942,15 @@ window.__ModuleLoader__.load({
             sectionHead('shield', L('检查证据与明确测试', 'Evidence and explicit tests'), L('刷新只读已保存证据。主动检查不发消息、不创建对象、不读听记正文、不启动模型。', 'Refresh reads saved evidence; checks create no objects, send no messages, read no minutes, and invoke no model.'),
               h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void run(async () => { await load(); return L('已读取保存证据。', 'Saved evidence read.'); }) }, icon('refresh'), L('刷新证据', 'Refresh evidence'))),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error, ' ', h('button', { type: 'button', disabled: busy, onClick: () => void run(load) }, L('重试读取', 'Retry read'))),
-            feedback && h('p', { role: 'status', className: 'pa24-helper' }, feedback),
+            feedback && h('p', { role: 'status', className: 'pa24-helper' }, technicalText(feedback)),
             !data && !error && h('p', { role: 'status' }, L('正在读取检查证据…', 'Reading evidence…')),
             h('div', { className: 'pa24-row' }, h('label', null, L('检查范围 ', 'Check scope '), h('select', { value: scope, onChange: event => setScope(event.target.value), disabled: busy },
               h('option', { value: 'all' }, L('全部模块', 'All modules')), Object.entries(scopeNames).map(([value, label]) => h('option', { key: value, value }, label)))),
               h('button', { type: 'button', disabled: busy, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.check', workspaceBinding: binding, ...(scope === 'all' ? {} : { scopes: [scope] }) }); return L('只读检查已完成，实际覆盖 ', 'Read-only check completed; covered ') + result.evidence.length + L(' 项证据。', ' evidence items.'); }) }, busy ? L('处理中…', 'Working…') : L('执行只读检查', 'Run read-only check'))),
             data && h('p', { className: 'pa24-meta' }, L('当前配置版本：', 'Current config version: ') + data.configVersion?.slice(0, 16) + ' · ' + L('读取时间：', 'Read at: ') + date(data.readAt, tzOf(state))),
             rows.map(row => h('div', { className: 'pa24-resource', key: row.scope }, h('div', { className: 'pa24-row pa24-between' }, h('strong', null, scopeNames[row.scope] || row.scope), badge(names[row.state] || row.state, row.state === 'verified' ? 'green' : row.state === 'fault' ? 'danger' : 'neutral')),
-              h('p', null, row.message), h('p', { className: 'pa24-meta' }, row.coverage), h('p', { className: 'pa24-meta' }, L('检查时间 ', 'Checked ') + date(row.checkedAt, tzOf(state)) + ' · ' + L('证据配置 ', 'Evidence config ') + row.configVersion?.slice(0, 16)),
-              h('details', null, h('summary', null, L('影响与修复', 'Impact and repair')), h('p', null, row.impact), row.nextSteps.map((step, index) => h('p', { key: index }, step)), h('p', { className: 'pa24-meta' }, L('参数修改请到「参数配置」；修复后重新检查本项。', 'Edit Parameters, then recheck this scope.')), openRepair && h('button', { type: 'button', onClick: () => openRepair(row) }, L('定位修复配置', 'Open relevant configuration'))))),
+              h('p', null, technicalText(row.message)), h('p', { className: 'pa24-meta' }, row.coverage), h('p', { className: 'pa24-meta' }, L('检查时间 ', 'Checked ') + date(row.checkedAt, tzOf(state)) + ' · ' + L('证据配置 ', 'Evidence config ') + row.configVersion?.slice(0, 16)),
+              h('details', null, h('summary', null, L('影响与修复', 'Impact and repair')), h('p', null, technicalText(row.impact)), row.nextSteps.map((step, index) => h('p', { key: index }, technicalText(step))), h('p', { className: 'pa24-meta' }, L('参数修改请到「参数配置」；修复后重新检查本项。', 'Edit Parameters, then recheck this scope.')), openRepair && h('button', { type: 'button', onClick: () => openRepair(row) }, L('定位修复配置', 'Open relevant configuration'))))),
             data?.monitor && (!platform || platform === 'wecom') && h('details', null, h('summary', null, L('企业微信自动巡检', 'WeCom monitoring')), fields([
               [L('最近巡检', 'Last check'), date(data.monitor.checkedAt, tzOf(state))], [L('巡检频率', 'Cadence'), L('每 6 小时，只读', 'Every 6 hours, read-only')],
               [L('最近通知日', 'Last notification day'), data.monitor.notifiedDay || L('尚未通知', 'None')], [L('静默至', 'Silent until'), data.monitor.silentUntil ? date(data.monitor.silentUntil, tzOf(state)) : '—'],
@@ -924,7 +969,7 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', disabled: busy || testAction === 'source.create' && !sourceId, onClick: () => void run(async () => { const next = await rpc('health.test.preview', { workspaceBinding: binding, action: testAction, sourceId }); if (current.current === binding) { setPreview(next); setApproved(false); requestId.current = globalThis.crypto.randomUUID(); } return L('已生成测试预览，尚未执行。', 'Preview ready; no test executed.'); }) }, L('预览测试目标', 'Preview test target')),
               preview && h('div', { className: 'pa24-example' }, fields([[L('目标', 'Target'), testTargetLabel(preview.plan)], [L('动作', 'Action'), preview.plan.description], [L('费用', 'Cost'), preview.plan.cost], [L('残留与清理', 'Residue and cleanup'), preview.plan.residue]]),
                 h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: approved, onChange: event => setApproved(event.target.checked) }), L('确认对以上目标执行这一次测试', 'Confirm one test against this target')),
-                h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !approved, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.test', workspaceBinding: binding, requestId: requestId.current, ...preview, confirm: true }); setApproved(false); return `${L('测试状态：', 'Test status: ')}${result.status} · ${result.result?.message || result.message || ''}`; }) }, L('执行已确认测试', 'Execute confirmed test')))),
+                h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !approved, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.test', workspaceBinding: binding, requestId: requestId.current, ...preview, confirm: true }); setApproved(false); return L(`测试状态：${result.status} · ${result.result?.message || result.message || ''}`, `Test status: ${result.status} · ${technicalText(result.result?.message || result.message || '')}`); }) }, L('执行已确认测试', 'Execute confirmed test')))),
             tests.length > 0 && h('details', null, h('summary', null, L('测试记录、结果与清理', 'Test results and cleanup')), h('p', { className: 'pa24-meta' }, data.testCoverage), tests.map(test => h('div', { key: test.id, className: 'pa24-resource' }, h('strong', null, test.plan.parameters?.title || test.id),
               h('p', null, `${test.plan.action} · ${test.status} · ${testTargetLabel(test.plan)}`), h('p', null, test.result?.message || L('尚无确认回执；请先核对原目标。', 'No confirmed receipt; reconcile the original target first.')),
               test.result?.nativeId && h('p', { className: 'pa24-meta' }, L('原生对象：', 'Native object: ') + test.result.nativeId),
@@ -934,7 +979,7 @@ window.__ModuleLoader__.load({
                 h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: cleanId === test.id, onChange: event => setCleanId(event.target.checked ? test.id : '') }), L('确认清理此测试对象', 'Confirm cleanup of this test object')),
                 h('button', { type: 'button', disabled: busy || cleanId !== test.id, onClick: () => void run(async () => { const result = await rpc('action', { type: 'health.test.cleanup', workspaceBinding: binding, testId: test.id, confirm: true }); setCleanId(''); return result.cleanup?.message; }) }, L('清理测试对象', 'Clean up test object')))))),
             data?.traffic && h('details', null, h('summary', null, L('完整收发集合统计', 'Complete traffic totals')), h('p', { className: 'pa24-meta' }, data.traffic.coverage),
-              fields((data.traffic.channels || []).map(row => [`${row.channel} · ${row.status}`, `${row.count} ${L('条', 'rows')}`])), fields((data.traffic.inbox || []).map(row => [`${row.source} · ${row.kind} · ${row.status}`, `${row.count} ${L('条', 'rows')}`]))));
+              fields((data.traffic.channels || []).map(row => [`${row.channel} · ${row.status}`, L(`${row.count} 条`, `${row.count} rows`)])), fields((data.traffic.inbox || []).map(row => [`${row.source} · ${row.kind} · ${row.status}`, L(`${row.count} 条`, `${row.count} rows`)]))));
         }
 
         function FeishuDetail({ state, busy, button, openRobot, openRepair }) {
@@ -954,7 +999,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-row' },
                 h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, label), h('p', null, value || L('尚未配置', 'Not configured yet'))),
                 diagnosis(resource, !!value)),
-              resource ? h('p', null, resource.message) : null);
+              resource ? h('p', null, technicalText(resource.message)) : null);
           });
           return h('div', { className: 'pa24-grid' },
             h(ConnectionEvidence, { state, platform: 'feishu', openRepair }),
@@ -972,7 +1017,7 @@ window.__ModuleLoader__.load({
             h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('机器人连接', 'Bot connection')), badge(state.transport && state.transport.connected ? L('长连接已启动', 'Connected') : L('未启动', 'Not started'), state.transport && state.transport.connected ? 'blue' : 'neutral', 'plug')),
               fields([
-                [L('连接状态', 'Connection'), (state.transport && state.transport.message) || (state.transport && state.transport.connected ? L('长连接运行中（无报错）', 'Running (no errors)') : L('未启动', 'Not started'))],
+                [L('连接状态', 'Connection'), (state.transport && technicalText(state.transport.message)) || (state.transport && state.transport.connected ? L('长连接运行中（无报错）', 'Running (no errors)') : L('未启动', 'Not started'))],
                 [L('最近收到本人消息', 'Last owner message in'), date(state.transport ? state.transport.lastReceivedAt : null, tz)],
                 [L('最近发送获平台确认', 'Last send acknowledged'), date(state.transport ? state.transport.lastSentAt : null, tz)],
                 [L('待发消息', 'Outbox pending'), pendingOutbox],
@@ -981,9 +1026,9 @@ window.__ModuleLoader__.load({
             h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与用户授权', 'CLI & user auth')), diagnosis(auth)),
               fields([
-                [L('安装状态', 'Install'), cli ? cli.message : L('尚未检查', 'Not checked')],
+                [L('安装状态', 'Install'), cli ? technicalText(cli.message) : L('尚未检查', 'Not checked')],
                 [L('CLI 版本', 'CLI version'), cli ? cli.version : L('尚未检查', 'Not checked')],
-                [L('用户授权', 'User auth'), auth ? auth.message : L('尚未检查', 'Not checked')],
+                [L('用户授权', 'User auth'), auth ? technicalText(auth.message) : L('尚未检查', 'Not checked')],
                 [L('CLI 用户', 'CLI user'), auth ? auth.userName : L('尚未取得', 'Not acquired')],
                 [L('用户令牌', 'User token'), auth ? auth.tokenStatus : L('尚未确认', 'Unconfirmed')],
               ]),
@@ -997,7 +1042,7 @@ window.__ModuleLoader__.load({
               sectionHead('folder', L('使用的飞书资源', 'Feishu resources in use'), L('检查结果仅代表可读性；写入由实际任务回执验证。', 'Checks prove readability only; writes are verified by real task receipts.')),
               resourceRows,
               h('details', null, h('summary', null, L('配置来源与生效时间', 'Source & effective time')),
-                fields([[L('配置来源', 'Source'), (workspace ? workspace.path : '') + '/AGENTS.md'], [L('生效时间', 'Effective at'), date(workspace ? workspace.loadedAt : null, tz)], [L('文件与生效版本', 'File vs. effective version'), check && check.source ? check.source.message : L('尚未检查', 'Not checked')]]))));
+                fields([[L('配置来源', 'Source'), (workspace ? workspace.path : '') + '/AGENTS.md'], [L('生效时间', 'Effective at'), date(workspace ? workspace.loadedAt : null, tz)], [L('文件与生效版本', 'File vs. effective version'), check && check.source ? technicalText(check.source.message) : L('尚未检查', 'Not checked')]]))));
         }
 
         // 二级详情：飞书知识库（F22 转正——落库节点配置与可读性诊断）。
@@ -1053,6 +1098,11 @@ window.__ModuleLoader__.load({
           const { state, tz, button, openRobot, openCard } = helpers, binding = state.workspaceBinding;
           if (!todoModels.has(binding)) todoModels.set(binding, { source: '', role: '', status: 'open', deadline: 'all', query: '', offset: 0, draft: '', draftFocus: 0 });
           const model = todoModels.get(binding), [, redraw] = React.useReducer(n => n + 1, 0);
+          const preset = helpers.detailPreset?.card === 'work' ? helpers.detailPreset.value : null, presetKey = JSON.stringify(preset || null), appliedPreset = React.useRef('');
+          if (preset && appliedPreset.current !== presetKey) {
+            Object.assign(model, { source: '', role: '', status: 'open', deadline: 'all', query: '', offset: 0, ...preset, draft: '', draftFocus: 0 });
+            appliedPreset.current = presetKey;
+          }
           const [view, setView] = React.useState({ key: '', data: null, busy: false, error: '', mode: 'read' });
           const [catalog, setCatalog] = React.useState({ key: '', entries: [], config: null, error: '', busy: false });
           const [sourceEpoch, reloadSources] = React.useReducer(n => n + 1, 0), [readEpoch, retryRead] = React.useReducer(n => n + 1, 0);
@@ -1096,10 +1146,15 @@ window.__ModuleLoader__.load({
           const select = (label, key, options) => h('label', { className: 'pa24-field' }, label, h('select', { value: model[key], onChange: event => change(key, event.target.value) }, options.map(([value, title]) => h('option', { key: value, value }, title))));
           const data = view.key === args ? view.data : null, registrations = catalog.key === binding ? catalog.entries : [], activeConfig = catalog.key === binding ? catalog.config : null;
           const prepare = (action, task, location) => {
+            const actionNames = { record: ['记录待办', 'record a todo'], edit: ['延期或修改', 'reschedule or edit this todo'], complete: ['完成待办', 'complete this todo'], cancel: ['取消待办', 'cancel this todo'] };
+            const actionName = L(...actionNames[action]);
             const targetId = model.source || activeConfig?.defaults?.todo || '', target = registrations.find(row => row.id === targetId);
-            const scope = task ? `原待办：${task.summary}，guid=${task.guid}，objectId=${task.objectId}。来源：${location.sourceName}（sourceId=${location.sourceId}）。`
-              : targetId ? `写入来源：${target?.name || targetId}（sourceId=${targetId}）。` : '尚未设置默认写入目标，请明确唯一来源，不要擅自改投。';
-            model.draft = `请帮我${action}。${scope}${task ? '' : '内容：请补充。负责人默认我本人，未给截止时请保留未设置。仅记录业务工作，不自动交办助理执行。'}${action === '延期或修改' ? '新内容或截止：请补充。' : action === '完成待办' || action === '取消待办' ? '请按原平台核对本人份额与整项影响，有歧义时先确认。' : ''}`;
+            const scope = task ? L(`原待办：${task.summary}，guid=${task.guid}，objectId=${task.objectId}。来源：${location.sourceName}（sourceId=${location.sourceId}）。`,
+              `Original todo: ${task.summary}, guid=${task.guid}, objectId=${task.objectId}. Source: ${location.sourceName} (sourceId=${location.sourceId}).`)
+              : targetId ? L(`写入来源：${target?.name || targetId}（sourceId=${targetId}）。`, `Write source: ${target?.name || targetId} (sourceId=${targetId}).`)
+                : L('尚未设置默认写入目标，请明确唯一来源，不要擅自改投。', 'No default write target is set. Specify one source explicitly; do not redirect it.');
+            model.draft = L(`请帮我${actionName}。${scope}${task ? '' : '内容：请补充。负责人默认我本人，未给截止时请保留未设置。仅记录业务工作，不自动交办助理执行。'}${action === 'edit' ? '新内容或截止：请补充。' : action === 'complete' || action === 'cancel' ? '请按原平台核对本人份额与整项影响，有歧义时先确认。' : ''}`,
+              `Please ${actionName}. ${scope}${task ? '' : ' Content: please provide. Default assignee: me. Leave the deadline unset if not specified. Record business work only; do not assign it to the assistant for execution.'}${action === 'edit' ? ' New content or deadline: please provide.' : action === 'complete' || action === 'cancel' ? ' Check my share and the whole-item impact on the original platform; confirm first if anything is ambiguous.' : ''}`);
             model.draftFocus = (model.draftFocus || 0) + 1; setNotice(''); redraw();
           };
           const emptyState = () => {
@@ -1107,7 +1162,7 @@ window.__ModuleLoader__.load({
             if (data.count > 0) return empty('tasks', 'neutral', L('当前页没有待办', 'No todos on this page'), data.complete ? L('完整筛选结果仍在其他页，请返回上一页。', 'Other pages still contain filtered results; return to the previous page.') : L('当前可展示结果可能在其他页；范围未完整核验。', 'Available observations may be on other pages; coverage is incomplete.'), button('arrow', L('上一页', 'Previous'), () => change('offset', Math.max(0, model.offset - limit))));
             if (!data.sources.length) return empty('tasks', 'neutral', L('尚未登记待办来源', 'No todo sources'), L('登记并核验来源后才能查阅；当前状态不代表没有待办。', 'Register and verify sources before reading; this does not mean there are no todos.'), button('settings', L('配置待办来源', 'Configure sources'), () => setDrawerOpen(true)));
             if (!data.complete) return empty('tasks', 'amber', L('当前没有可展示待办', 'No displayable todos'), L('逐来源查看缺失原因并重试；未完整核验不等于全部完成。', 'Inspect source gaps and retry; incomplete coverage does not prove everything is complete.'), button('refresh', L('核验待办', 'Verify todos'), () => verify(), { disabled: view.busy }));
-            if (data.fresh) return empty('tasks', 'neutral', filtered ? L('当前筛选没有匹配待办', 'No todos match this filter') : L('当前范围没有待办', 'No todos in this scope'), filtered ? L('可以调整来源、角色、状态、截止或搜索词。', 'Adjust source, role, status, deadline, or search text.') : L('本次完整核验没有发现符合当前条件的待办。', 'This complete verification found no matching todos.'), button('plus', L('记录待办', 'Record todo'), () => prepare('记录待办')));
+            if (data.fresh) return empty('tasks', 'neutral', filtered ? L('当前筛选没有匹配待办', 'No todos match this filter') : L('当前范围没有待办', 'No todos in this scope'), filtered ? L('可以调整来源、角色、状态、截止或搜索词。', 'Adjust source, role, status, deadline, or search text.') : L('本次完整核验没有发现符合当前条件的待办。', 'This complete verification found no matching todos.'), button('plus', L('记录待办', 'Record todo'), () => prepare('record')));
             return empty('tasks', 'neutral', filtered ? L('保存的完整观察中没有匹配', 'No match in saved complete observations') : L('保存的完整观察为空', 'Saved complete observations are empty'), L('这是普通查阅结果，未在本次访问原平台；需要最新状态时再明确核验。', 'This ordinary read did not access the platforms; explicitly verify when current state is needed.'), button('refresh', L('核验待办', 'Verify todos'), () => verify(), { disabled: view.busy }));
           };
           const enabled = data?.sources.filter(row => row.state !== 'disabled') || [];
@@ -1115,7 +1170,7 @@ window.__ModuleLoader__.load({
             sectionHead('tasks', L('待办', 'Todos'), L('逾期、今日到期与原平台业务状态优先。记录待办与交办助理执行分别办理。', 'Overdue, due-today, and platform business status first. Recording and assistant execution stay separate.'),
               h('div', { className: 'pa24-row' }, button('refresh', L('刷新', 'Refresh'), retryRead, { disabled: view.busy, className: 'pa24-quiet' }),
                 button('check', view.busy && view.mode === 'verify' ? L('核验中…', 'Verifying…') : L('核验待办', 'Verify todos'), () => verify(), { disabled: view.busy }),
-                button('plus', L('记录待办', 'Record todo'), () => prepare('记录待办'), { className: 'pa24-primary' }), button('settings', L('配置待办来源', 'Configure sources'), () => setDrawerOpen(true), { className: 'pa24-quiet', disabled: false })), 'blue'),
+                button('plus', L('记录待办', 'Record todo'), () => prepare('record'), { className: 'pa24-primary' }), button('settings', L('配置待办来源', 'Configure sources'), () => setDrawerOpen(true), { className: 'pa24-quiet', disabled: false })), 'blue'),
             h(SourceQueryState, { data, error: view.key === args ? view.error : '', busy: view.busy, verifying: view.busy && view.mode === 'verify', onRetry: view.mode === 'verify' ? () => verify() : retryRead, retryLabel: view.mode === 'verify' ? L('重试核验', 'Retry verification') : undefined, tz, domain: 'todo' }),
             data && h('div', { className: 'pa24-calendar-metrics', 'data-testid': 'todo-metrics' },
               [[data.counts.overdue, L('逾期', 'Overdue'), L('优先查看原平台未完成工作', 'Open platform work first')], [data.counts.today, L('今日到期', 'Due today'), L('按工作区时区计算', 'Using the workspace time zone')], [data.counts.open, L('未完成', 'Open'), data.complete ? L('完整筛选结果', 'Complete filtered result') : L('当前可展示，不是完整总数', 'Available observations, not a complete total')], [`${enabled.filter(row => row.state === 'complete').length} / ${enabled.length}`, L('完整来源', 'Complete sources'), data.fresh ? L('本次核验', 'This verification') : L('逐来源证据见侧栏', 'Per-source evidence in the sidebar')]].map(([value, label, meta]) => h('div', { className: 'pa24-calendar-metric', key: label }, h('span', null, label), h('strong', null, value), h('small', null, meta)))),
@@ -1137,13 +1192,13 @@ window.__ModuleLoader__.load({
                         h('p', { className: 'pa24-meta' }, task.stale ? L('保存观察 · 业务状态以原平台为准', 'Saved observation · platform status is authoritative') : L('原平台业务对象', 'Platform business object')),
                         (task.workItemIds || []).map(id => h('button', { key: id, type: 'button', className: 'pa24-quiet pa24-todo-work-link', onClick: () => helpers.openRuns ? helpers.openRuns({ kind: 'work', workId: id, range: 'all' }) : openCard('activity') }, icon('pulse'), L('查看关联交办', 'View linked work')))),
                       h('div', { className: 'pa24-todo-cell', role: 'cell' }, h('span', { className: 'pa24-todo-cell-label' }, L('截止', 'Deadline')), task.bucket === 'overdue' && task.status === 'open' ? badge(L('逾期 · ', 'Overdue · ') + due, 'amber', 'clock') : task.bucket === 'today' && task.status === 'open' ? badge(L('今日 · ', 'Today · ') + due, 'blue', 'clock') : due),
-                      h('div', { className: 'pa24-todo-cell', role: 'cell' }, h('span', { className: 'pa24-todo-cell-label' }, L('负责人', 'Assignees')), (task.assignees || []).map(person => person.name || person.id).join('、') || L('尚未核实', 'Unverified')),
+                      h('div', { className: 'pa24-todo-cell', role: 'cell' }, h('span', { className: 'pa24-todo-cell-label' }, L('负责人', 'Assignees')), (task.assignees || []).map(person => person.name || person.id).join(L('、', ', ')) || L('尚未核实', 'Unverified')),
                       h('div', { className: 'pa24-todo-cell', role: 'cell' }, h('span', { className: 'pa24-todo-cell-label' }, L('来源', 'Source')), (task.locations || []).map(location => h('span', { key: location.sourceId, className: 'pa24-todo-source-name' }, location.sourceName))),
                       h('div', { className: 'pa24-todo-cell', role: 'cell' }, h('span', { className: 'pa24-todo-cell-label' }, L('业务状态', 'Business status')), badge(...business)),
                       h('div', { className: 'pa24-todo-actions' },
                         (task.locations || []).map(location => h('div', { className: 'pa24-row', key: location.sourceId },
-                          h('span', { className: 'pa24-meta' }, location.sourceName + L(' · 本人关系：', ' · My roles: ') + (location.roles?.values?.map(sourceRoleLabel).join('、') || L('待核验', 'Unverified'))),
-                          button('check', L('完成待办', 'Complete todo'), () => prepare('完成待办', task, location)), button('edit', L('延期或修改', 'Reschedule or edit'), () => prepare('延期或修改', task, location)), button('close', L('取消待办', 'Cancel todo'), () => prepare('取消待办', task, location), { className: 'pa24-quiet' }))),
+                          h('span', { className: 'pa24-meta' }, location.sourceName + L(' · 本人关系：', ' · My roles: ') + (location.roles?.values?.map(sourceRoleLabel).join(L('、', ', ')) || L('待核验', 'Unverified'))),
+                          button('check', L('完成待办', 'Complete todo'), () => prepare('complete', task, location)), button('edit', L('延期或修改', 'Reschedule or edit'), () => prepare('edit', task, location)), button('close', L('取消待办', 'Cancel todo'), () => prepare('cancel', task, location), { className: 'pa24-quiet' }))),
                         h('div', { className: 'pa24-row' }, url && h('a', { className: 'pa24-link-button', href: url, target: '_blank', rel: 'noreferrer' }, icon('external'), L('打开原待办', 'Open original todo')),
                           (task.workItemIds || []).length > 0 && h('span', { className: 'pa24-meta' }, L('关联交办仅作独立链接；执行进度不改变上述业务状态。', 'Linked work is independent; execution progress does not change business status.')))));
                   })),
@@ -1164,14 +1219,14 @@ window.__ModuleLoader__.load({
         const sourceCapabilityLabel = value => ({ allowed: L('当前范围允许，实际结果看回执', 'Allowed in current scope; result needs receipt'), attemptable: L('可尝试，写权限未证实', 'Attemptable; write permission unproven'), denied: L('无权', 'Denied'), adapter_unavailable: L('接入方式待完善', 'Adapter unavailable'), unknown: L('待核验', 'Unverified') }[value] || L('待核验', 'Unverified'));
         const latestSourceTime = (rows, key) => rows.map(row => row[key]).filter(value => value && Number.isFinite(Date.parse(value))).sort().at(-1) || null;
 
-        function SourceQueryState({ data, error, busy, verifying, onRetry, retryLabel, tz, domain = 'calendar' }) {
+        function SourceQueryState({ data, error, busy, verifying, onRetry, retryLabel, tz, domain = 'calendar', compact = false }) {
           const todo = domain === 'todo', itemName = todo ? L('待办', 'todos') : L('日程', 'events'), sourceName = todo ? L('待办来源', 'todo sources') : L('日历来源', 'calendar sources');
           const conclusion = todo ? L('全部完成', 'everything is complete') : L('全部空闲', 'complete availability');
-          if (error) return h('div', { className: 'pa24-notice pa24-tone-danger', role: 'alert', 'data-testid': 'source-query-state' }, icon('alert'), h('div', null,
+          if (error) return h('div', { className: 'pa24-notice pa24-tone-danger' + (compact ? ' pa24-source-compact' : ''), role: 'alert', 'data-testid': 'source-query-state' }, icon('alert'), h('div', null,
             h('strong', null, data ? L('读取失败，以下保留旧观察', 'Read failed; saved observations remain below') : L(`${itemName}读取失败`, `${itemName} read failed`)),
-            h('p', null, error), h('p', { className: 'pa24-meta' }, data ? L('当前筛选尚未重新读取，旧结果不代表现时平台状态。', 'This filter has not been read again; old results do not prove current platform state.') : L(`尚未取得可展示的${itemName}，读取失败不会替换为空结果。`, `No displayable ${itemName} were obtained; a failed read is not an empty result.`)),
+            h('p', null, error), !compact && h('p', { className: 'pa24-meta' }, data ? L('当前筛选尚未重新读取，旧结果不代表现时平台状态。', 'This filter has not been read again; old results do not prove current platform state.') : L(`尚未取得可展示的${itemName}，读取失败不会替换为空结果。`, `No displayable ${itemName} were obtained; a failed read is not an empty result.`)),
             h('button', { type: 'button', onClick: onRetry, disabled: busy }, icon('refresh'), retryLabel || L('重试读取', 'Retry read'))));
-          if (!data) return busy ? h('div', { className: 'pa24-notice pa24-tone-neutral', role: 'status', 'data-testid': 'source-query-state' }, icon('refresh', { className: 'pa24-spin' }), h('div', null, verifying ? L('正在按明确操作核验原平台；完成前不把旧观察当作本次结果。', 'Verifying the platforms after an explicit request; old observations are not presented as this result.') : L('正在读取保存的来源观察；普通查阅不访问原平台。', 'Reading saved source observations; ordinary browsing does not access the platforms.'))) : null;
+          if (!data) return busy ? h('div', { className: 'pa24-notice pa24-tone-neutral' + (compact ? ' pa24-source-compact' : ''), role: 'status', 'data-testid': 'source-query-state' }, icon('refresh', { className: 'pa24-spin' }), h('div', null, verifying ? L('正在按明确操作核验原平台；完成前不把旧观察当作本次结果。', 'Verifying the platforms after an explicit request; old observations are not presented as this result.') : L('正在读取保存的来源观察；普通查阅不访问原平台。', 'Reading saved source observations; ordinary browsing does not access the platforms.'))) : null;
           const enabled = data.sources.filter(row => row.state !== 'disabled'), failed = enabled.some(row => row.state === 'failed');
           const completeAt = latestSourceTime(data.sources, 'lastCompleteAt'), checkedAt = latestSourceTime(data.sources, 'checkedAt');
           const title = !data.sources.length ? L(`尚未登记${sourceName}`, `No ${sourceName} registered`)
@@ -1181,8 +1236,8 @@ window.__ModuleLoader__.load({
             : data.fresh ? L(`当前筛选的 ${enabled.length} 个启用来源已完整读取。`, `${enabled.length} enabled sources were read completely for this filter.`)
               : data.complete ? L('本次为普通查阅，未发起原平台核验。', 'This is an ordinary read; no platform verification was started.')
                 : L(`当前可展示 ${data.count} 个${itemName}；缺失范围与原因见逐来源证据，不能据此判断${conclusion}。`, `${data.count} ${itemName} are available; inspect per-source gaps and reasons. This does not prove ${conclusion}.`);
-          return h('div', { className: 'pa24-notice ' + (data.complete ? 'pa24-tone-blue' : data.sources.length ? 'pa24-tone-amber' : 'pa24-tone-neutral'), role: 'status', 'data-testid': 'source-query-state' }, icon(data.complete ? 'check' : 'info'), h('div', null,
-            h('strong', null, title), h('p', null, description),
+          return h('div', { className: 'pa24-notice ' + (data.complete ? 'pa24-tone-blue' : data.sources.length ? 'pa24-tone-amber' : 'pa24-tone-neutral') + (compact ? ' pa24-source-compact' : ''), role: 'status', 'data-testid': 'source-query-state' }, icon(data.complete ? 'check' : 'info'), h('div', null,
+            h('strong', null, title), !compact && h('p', null, description),
             h('p', { className: 'pa24-meta' }, (completeAt ? L('最新一笔完整观察 ', 'Latest complete source observation ') + date(completeAt, tz) : L('尚无全来源完整观察', 'No complete all-source observation yet')) + (checkedAt ? L(' · 最近观察 ', ' · Latest observation ') + date(checkedAt, tz) : '')),
             busy && h('p', { className: 'pa24-meta' }, L('正在更新，现有结果保留到新响应通过校验。', 'Updating; current results remain until a new response passes validation.'))));
         }
@@ -1225,8 +1280,8 @@ window.__ModuleLoader__.load({
                 evidence && h('p', { className: 'pa24-meta' }, L('能力证据 · 读取：', 'Capability evidence · read: ') + sourceCapabilityLabel(evidence.capabilities?.read) + L(' · 创建：', ' · create: ') + sourceCapabilityLabel(evidence.capabilities?.create)),
                 h('p', { className: 'pa24-meta' }, L('最近完整：', 'Last complete: ') + (row.lastCompleteAt ? date(row.lastCompleteAt, tz) : L('尚无完整观察', 'No complete observation'))),
                 h('p', { className: 'pa24-meta' }, L('最近观察：', 'Latest observation: ') + (row.checkedAt ? date(row.checkedAt, tz) : L('尚无观察', 'No observation')) + (evidence?.checkedAt ? L(' · 能力核验：', ' · capability check: ') + date(evidence.checkedAt, tz) : '')),
-                row.reason && h('p', { className: row.state === 'failed' || row.state === 'partial' ? 'pa24-source-reason' : 'pa24-meta' }, row.reason),
-                evidence?.state === 'failed' && evidence.message !== row.reason && h('p', { className: 'pa24-source-reason' }, evidence.message),
+                row.reason && h('p', { className: row.state === 'failed' || row.state === 'partial' ? 'pa24-source-reason' : 'pa24-meta' }, technicalText(row.reason)),
+                evidence?.state === 'failed' && evidence.message !== row.reason && h('p', { className: 'pa24-source-reason' }, technicalText(evidence.message)),
                 row.state !== 'disabled' && onRetry && h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => onRetry(row.sourceId) }, icon('refresh'), L(`重试${row.name}`, `Retry ${row.name}`)));
             }));
         }
@@ -1275,17 +1330,18 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'pa24-row' }, h('p', { className: 'pa24-meta' }, location.sourceName + ' · ' + (location.platform === 'wecom' ? L('企业微信', 'WeCom') : L('飞书', 'Feishu'))),
                   location.capabilities?.update === 'denied' && location.capabilities?.cancel === 'denied' && badge(L('只读来源', 'Read-only source'), 'neutral')),
                 h('p', { className: 'pa24-meta' }, location.roles.complete ? location.roles.values.length ? location.roles.values.map(sourceRoleLabel).join(L('、', ', ')) : L('未确认本人参与或组织', 'No confirmed personal participation or organization') : L('本人关系未完整核验', 'Personal role evidence is incomplete')),
-                location.roles.reason && h('p', { className: 'pa24-meta' }, location.roles.reason),
-                h('div', { className: 'pa24-row' }, originalLink(location), button('chat', L('改期', 'Reschedule'), () => onPrepare('改期', event, location), { className: 'pa24-quiet' }),
-                  button('chat', L('取消日程', 'Cancel event'), () => onPrepare('取消日程，先核验原来源与影响范围', event, location), { className: 'pa24-quiet' }),
-                  button('chat', L('仅取消本人提醒', 'Remove my reminder only'), () => onPrepare('仅取消本人提醒，保留会议', event, location), { className: 'pa24-quiet' }))))));
+                location.roles.reason && h('p', { className: 'pa24-meta' }, technicalText(location.roles.reason)),
+                h('div', { className: 'pa24-row' }, originalLink(location), button('chat', L('改期', 'Reschedule'), () => onPrepare('reschedule', event, location), { className: 'pa24-quiet' }),
+                  button('chat', L('取消日程', 'Cancel event'), () => onPrepare('cancel', event, location), { className: 'pa24-quiet' }),
+                  button('chat', L('仅取消本人提醒', 'Remove my reminder only'), () => onPrepare('removeReminder', event, location), { className: 'pa24-quiet' }))))));
         }
 
         function CalendarDetail(helpers) {
           const { state, tz, button, openRobot, openCard } = helpers, binding = state.workspaceBinding;
+          const preset = helpers.detailPreset?.card === 'reminders' ? helpers.detailPreset.value : null;
           const today = () => calendarDay(new Date(), tz || 'Asia/Shanghai');
-          const [day, setDay] = React.useState(today), [period, setPeriod] = React.useState('day'), [source, setSource] = React.useState(''), [role, setRole] = React.useState('');
-          const [query, setQuery] = React.useState(''), [offset, setOffset] = React.useState(0), [readEpoch, retryRead] = React.useReducer(n => n + 1, 0);
+          const [day, setDay] = React.useState(preset?.date || today), [period, setPeriod] = React.useState(preset?.period || 'day'), [source, setSource] = React.useState(preset?.source || ''), [role, setRole] = React.useState(preset?.role || '');
+          const [query, setQuery] = React.useState(preset?.query || ''), [offset, setOffset] = React.useState(preset?.offset || 0), [readEpoch, retryRead] = React.useReducer(n => n + 1, 0);
           const [view, setView] = React.useState({ key: '', data: null, error: '', busy: false, mode: 'read' });
           const [catalog, setCatalog] = React.useState({ key: '', entries: [], error: '', busy: false }), [sourceEpoch, reloadSources] = React.useReducer(n => n + 1, 0);
           const [draft, setDraft] = React.useState(''), [draftFocus, setDraftFocus] = React.useState(0), [note, setNote] = React.useState('');
@@ -1330,8 +1386,13 @@ window.__ModuleLoader__.load({
           const changeDay = value => { if (/^\d{4}-\d{2}-\d{2}$/.test(value)) change(setDay)(value); };
           const select = (label, value, setter, choices) => h('label', { className: 'pa24-field' }, label, h('select', { value, onChange: event => change(setter)(event.target.value) }, choices.map(([value, title]) => h('option', { key: value, value }, title))));
           const prepare = (action, event, location) => {
-            const scope = location ? `来源：${location.sourceName}（sourceId=${location.sourceId}），原日程 ${event.summary}，${event.start} 至 ${event.end}，eventId=${location.locator.eventId}，objectId=${event.objectId}。` : `日期：${day}，时区：${tz}。${source ? `sourceId=${source}。` : ''}`;
-            setDraft(`请帮我${action}。${scope}${action === '改期' ? '新时间：请补充。' : action === '创建日程' ? '主题和起止时间：请补充。' : ''}${event?.recurring ? '这是重复日程，请先确认本次、以后或全系列范围。' : ''}`);
+            const actionNames = { create: ['创建日程', 'create an event'], reschedule: ['改期', 'reschedule this event'], cancel: ['取消日程，先核验原来源与影响范围', 'cancel this event; first verify the original source and impact'], removeReminder: ['仅取消本人提醒，保留会议', 'remove only my reminder and keep the meeting'] };
+            const actionName = L(...actionNames[action]);
+            const scope = location ? L(`来源：${location.sourceName}（sourceId=${location.sourceId}），原日程 ${event.summary}，${event.start} 至 ${event.end}，eventId=${location.locator.eventId}，objectId=${event.objectId}。`,
+              `Source: ${location.sourceName} (sourceId=${location.sourceId}), original event ${event.summary}, ${event.start} to ${event.end}, eventId=${location.locator.eventId}, objectId=${event.objectId}.`)
+              : L(`日期：${day}，时区：${tz}。${source ? `sourceId=${source}。` : ''}`, `Date: ${day}, time zone: ${tz}. ${source ? `sourceId=${source}.` : ''}`);
+            setDraft(L(`请帮我${actionName}。${scope}${action === 'reschedule' ? '新时间：请补充。' : action === 'create' ? '主题和起止时间：请补充。' : ''}${event?.recurring ? '这是重复日程，请先确认本次、以后或全系列范围。' : ''}`,
+              `Please ${actionName}. ${scope}${action === 'reschedule' ? 'New time: please provide.' : action === 'create' ? 'Title and start/end times: please provide.' : ''}${event?.recurring ? 'This is a recurring event; confirm this instance, future instances, or the whole series first.' : ''}`));
             setNote(''); setDraftFocus(value => value + 1);
           };
           const data = view.key === args ? view.data : null, sources = catalog.key === binding ? catalog.entries : [];
@@ -1340,14 +1401,14 @@ window.__ModuleLoader__.load({
             if (data.count > 0) return empty('calendar', 'neutral', L('当前页没有日程', 'No events on this page'), data.complete ? L('完整筛选结果仍在其他页，请返回上一页。', 'Other pages still contain filtered results; return to the previous page.') : L('当前可展示结果可能在其他页；范围未完整核验，请返回上一页查看。', 'Available observations may be on other pages; coverage is incomplete. Return to the previous page.'), button('arrow', L('上一页', 'Previous'), () => setOffset(Math.max(0, offset - limit))));
             if (!data.sources.length) return empty('calendar', 'neutral', L('尚未登记日历来源', 'No calendar sources'), L('登记并核验来源后才能查阅日程；当前状态不代表没有日程。', 'Register and verify sources to read events; this state does not mean there are no events.'), button('settings', L('配置日历来源', 'Configure sources'), () => openCard('config', 'pa24-sources')));
             if (!data.complete) return empty('calendar', 'amber', L('当前没有可展示日程', 'No displayable events'), L('可查看逐来源原因并重试；未完整核验不等于没有日程。', 'Inspect per-source reasons and retry; incomplete coverage does not mean no events.'), button('refresh', L('核验日历', 'Verify calendars'), () => verify(), { disabled: view.busy }));
-            if (data.fresh) return empty('calendar', 'neutral', filtered ? L('当前筛选没有匹配日程', 'No events match this filter') : L('该日没有日程', 'No events on this day'), filtered ? L('可以调整日期、时段、来源、参与范围或搜索词。', 'Adjust the date, period, source, role, or search text.') : L('本次完整核验未发现与当前日期和时段重叠的日程。', 'This complete check found no events overlapping the selected date and period.'), button('plus', L('创建日程', 'Create event'), () => prepare('创建日程')));
+            if (data.fresh) return empty('calendar', 'neutral', filtered ? L('当前筛选没有匹配日程', 'No events match this filter') : L('该日没有日程', 'No events on this day'), filtered ? L('可以调整日期、时段、来源、参与范围或搜索词。', 'Adjust the date, period, source, role, or search text.') : L('本次完整核验未发现与当前日期和时段重叠的日程。', 'This complete check found no events overlapping the selected date and period.'), button('plus', L('创建日程', 'Create event'), () => prepare('create')));
             return empty('calendar', 'neutral', filtered ? L('保存的完整观察中没有匹配', 'No match in saved complete observations') : L('保存的完整观察为空', 'Saved complete observations are empty'), L('这是普通查阅结果，未在本次访问原平台；需要最新状态时再明确核验。', 'This ordinary read did not access the platforms; explicitly verify when current state is needed.'), button('refresh', L('核验日历', 'Verify calendars'), () => verify(), { disabled: view.busy }));
           };
           return h('section', { className: 'pa24-calendar-detail', 'data-testid': 'calendar-detail' },
             sectionHead('calendar', L('日程', 'Calendar'), L('当前筛选的下一场、今日安排与查询完整性。普通查看只读保存观察。', 'Next event, today’s schedule, and query completeness for the current filter. Ordinary browsing only reads saved observations.'),
               h('div', { className: 'pa24-row' }, button('refresh', L('刷新', 'Refresh'), retryRead, { disabled: view.busy, className: 'pa24-quiet', title: L('刷新保存观察', 'Refresh saved observations') }),
                 button('check', view.busy && view.mode === 'verify' ? L('核验中…', 'Verifying…') : L('核验日历', 'Verify calendars'), () => verify(), { disabled: view.busy }),
-                button('plus', L('创建日程', 'Create event'), () => prepare('创建日程'), { className: 'pa24-primary' }), button('settings', L('配置日历来源', 'Configure sources'), () => openCard('config', 'pa24-sources'), { className: 'pa24-quiet' })), 'amber'),
+                button('plus', L('创建日程', 'Create event'), () => prepare('create'), { className: 'pa24-primary' }), button('settings', L('配置日历来源', 'Configure sources'), () => openCard('config', 'pa24-sources'), { className: 'pa24-quiet' })), 'amber'),
             h(SourceQueryState, { data, error: view.key === args ? view.error : '', busy: view.busy, verifying: view.busy && view.mode === 'verify', onRetry: retryRead, tz }),
             data && h('div', { className: 'pa24-calendar-metrics', 'data-testid': 'calendar-metrics' },
               [[data.count, data.complete ? day === today() ? L('今日安排', 'Today’s events') : L('当日安排', 'Events on this day') : day === today() ? L('今日可展示', 'Available today') : L('当前可展示', 'Currently available'), data.complete ? L('完整筛选结果', 'Complete filtered result') : L('保存观察，不是完整总数', 'Saved observations, not a complete total')],
@@ -1663,7 +1724,7 @@ window.__ModuleLoader__.load({
             catch (error) { model.update({ error: error.message }); } finally { model.update({ busy: false }); }
           };
           const edit = form => update({ selected: form.id || null, form: { ...form, parameters: form.parameters || {}, parametersText: JSON.stringify(form.parameters || {}, null, 2) }, draft: null });
-          const fresh = preset => edit({ title: preset ? ({ morning: '晨报', evening: '晚间复盘', weekly: '周回顾' })[preset] : '', skillId: preset ? 'builtin:digest-' + preset : '',
+          const fresh = preset => edit({ title: preset ? L(...({ morning: ['晨报', 'Morning digest'], evening: ['晚间复盘', 'Evening review'], weekly: ['周回顾', 'Weekly review'] })[preset]) : '', skillId: preset ? 'builtin:digest-' + preset : '',
             timing: { type: preset === 'weekly' ? 'weekly' : 'daily', time: preset === 'evening' ? '21:00:00' : '09:00:00', weekdays: [5] }, timeZone: config?.timeZone || 'Asia/Shanghai',
             executionLimitMs: 900000, parameters: {}, selectors: {}, delivery: { channel: config?.ownerOpenId ? config.notifyChannel : config?.notifyChannel === 'wecom' ? 'wecom' : 'none', mode: 'always', voice: false, overrideQuiet: false } });
           const formPayload = () => { const { parametersText, ...form } = view.form; return { ...form, parameters: JSON.parse(parametersText) }; };
@@ -1681,11 +1742,11 @@ window.__ModuleLoader__.load({
           return h('section', { className: 'pa24-manager' },
             sectionHead('calendarClock', L('定时任务', 'Scheduled tasks'), L('时间 + Skill。保存、启用、单次执行和投递分别留档。', 'Time + skill. Configuration, activation, execution and delivery have separate records.'), button(L('新建计划', 'New plan'), () => fresh(null), { name: 'plus', className: 'pa24-primary' }), 'green'),
             summary && h('div', { className: 'pa24-plan-metrics' }, summaryMetrics.map(([name, tone, label, value, hint]) => h('div', { key: label, className: 'pa24-plan-metric' }, tile(name, tone), h('div', null, h('div', { className: 'pa24-plan-cell-label' }, label), h('strong', null, value), h('small', null, hint))))),
-            summary?.timingError && h('p', { role: 'alert', className: 'pa24-error' }, summary.timingError),
+            summary?.timingError && h('p', { role: 'alert', className: 'pa24-error' }, technicalText(summary.timingError)),
             extra._errors?.plans && h('p', { role: 'alert', className: 'pa24-error' }, extra._errors.plans),
             h('div', { className: 'pa24-row' }, ['morning', 'evening', 'weekly'].map(preset => button(({ morning: L('晨报预设', 'Morning preset'), evening: L('复盘预设', 'Evening preset'), weekly: L('周回顾预设', 'Weekly preset') })[preset], () => fresh(preset), { name: preset === 'morning' ? 'sunrise' : preset === 'evening' ? 'sunset' : 'calendarRange' })), button(L('刷新', 'Refresh'), async () => { model.update({ tick: (view.tick || 0) + 1 }); await refresh().catch(() => {}); }, { name: 'refresh' })),
             catalogError && h('p', { role: 'alert', className: 'pa24-error' }, catalogError),
-            catalog && catalog.discovery !== 'complete' && h('p', { role: 'alert' }, catalog.discoveryError || L('Skill 目录读取不完整，请核验接入后刷新。', 'Skill discovery is incomplete; check access and refresh.')),
+            catalog && catalog.discovery !== 'complete' && h('p', { role: 'alert' }, technicalText(catalog.discoveryError) || L('Skill 目录读取不完整，请核验接入后刷新。', 'Skill discovery is incomplete; check access and refresh.')),
             view.error && h('p', { role: 'alert', className: 'pa24-error' }, view.error), view.note && h('p', { role: 'status' }, view.note),
             view.form && h(TaskPlanForm, { form: view.form, setForm: form => update({ form, draft: null }), catalog: catalog?.workspaceBinding === binding ? catalog : null, binding, config, refreshTick: view.tick, busy: disabled, onPreview: () => saveDraft(false), onSave: () => saveDraft(true), onDiscard: () => update({ form: null, draft: null }), draft: view.draft, formError: view.draftError }),
             h('div', { className: 'pa24-row' }, h('label', { className: 'pa24-field' }, L('搜索计划', 'Search plans'), h('input', { value: query, onChange: event => update({ query: event.target.value, offset: 0 }) })),
@@ -1701,7 +1762,7 @@ window.__ModuleLoader__.load({
                 h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('时间规则', 'Timing')), planTimingLabel(row)),
                 h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('下次运行', 'Next run')), row.nextTimes?.[0] ? date(row.nextTimes[0], planTimeZone(row, tz)) : L('暂无已核验触发时间', 'No verified occurrence')),
                 h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('状态', 'Status')), planStateLabel(row),
-                  row.timingError && h('p', { role: 'alert', className: 'pa24-error' }, row.timingError),
+                  row.timingError && h('p', { role: 'alert', className: 'pa24-error' }, technicalText(row.timingError)),
                   !row.task_config && h('p', { className: 'pa24-meta' }, L('旧计划：核验后沿原关联升级', 'Legacy plan: verify before adoption'))),
                 h('div', { className: 'pa24-plan-cell' }, h('span', { className: 'pa24-plan-cell-label' }, L('最近执行', 'Last execution')), row.recentRun
                   ? h(React.Fragment, null, runStatusLabel(row.recentRun.status),
@@ -1741,7 +1802,7 @@ window.__ModuleLoader__.load({
             h('details', null, h('summary', null, icon('history'), L('兼容与历史', 'Compatibility and history')), h(DigestDetail, helpers)));
         }
 
-        function PlanDeliveryControls({ detail, binding, onChanged }) {
+        function PlanDeliveryControls({ detail, binding, onChanged, tz }) {
           const [selected, setSelected] = React.useState(null), [outcome, setOutcome] = React.useState('not_sent'), [evidence, setEvidence] = React.useState(''), [messageId, setMessageId] = React.useState('');
           const [busy, setBusy] = React.useState(false), [error, setError] = React.useState(''), [note, setNote] = React.useState('');
           const request = React.useRef(null), alive = React.useRef(true);
@@ -1760,8 +1821,8 @@ window.__ModuleLoader__.load({
               notice.deliveries.map(delivery => h('div', { key: delivery.outbox_id, className: 'pa24-note' },
                 h('p', null, (delivery.component === 'audio' ? L('语音', 'Audio') : L('完整文本', 'Full text')) + ' · ' + deliveryLabel(delivery.outbox.status, delivery.outbox.channel)),
                 h('p', { className: 'pa24-meta' }, delivery.outbox.channel + ' · ' + L('固定接收者 ', 'Pinned recipient ') + delivery.outbox.target),
-                delivery.outbox.last_error && h('p', { role: 'alert' }, delivery.outbox.last_error),
-                delivery.expires_at && h('p', { className: 'pa24-meta' }, L('投递有效至：', 'Delivery expires: ') + new Date(delivery.expires_at).toLocaleString()),
+                delivery.outbox.last_error && h('p', { role: 'alert' }, technicalText(delivery.outbox.last_error)),
+                delivery.expires_at && h('p', { className: 'pa24-meta' }, L('投递有效至：', 'Delivery expires: ') + date(delivery.expires_at, tz)),
                 delivery.outbox.message_id && h('p', { className: 'pa24-meta' }, (delivery.outbox.channel === 'local' ? L('本地投递标识：', 'Local delivery ID: ') : L('原平台回执：', 'Platform receipt: ')) + delivery.outbox.message_id),
                 delivery.outbox.status === 'failed' && !delivery.outbox.message_id && h('button', { type: 'button', disabled: busy, onClick: () => mutate(delivery, 'retry') }, L('明确补投此结果', 'Retry this delivery')),
                 delivery.outbox.status === 'unknown' && !delivery.outbox.message_id && h('button', { type: 'button', disabled: busy, onClick: () => { setSelected(delivery.outbox_id); setEvidence(''); setMessageId(''); setOutcome('not_sent'); } }, L('核对原平台是否收到', 'Verify platform receipt')),
@@ -1828,7 +1889,7 @@ window.__ModuleLoader__.load({
           return h('section', { className: 'pa24-note' }, h('h4', null, L('原运行核对', 'Review original run')),
             h('p', null, L('先核对原对象或文件。核对依据单独留档，原未知回执保留；接续须另行明确确认。', 'Check the original objects or files. Findings are stored separately from uncertain receipts; continuation needs a separate explicit action.')),
             !!unresolved.length && h('p', { role: 'alert' }, L('关联平台操作仍待核对：', 'Platform operations still need verification: ') + unresolved.map(row => row.id).join('、')),
-            [['核对摘要', summary, setSummary], ['已完成步骤', completed, setCompleted], ['剩余步骤', remaining, setRemaining]].map(([label, value, set]) => h('label', { key: label, className: 'pa24-field' }, L(label, { 核对摘要: 'Review summary', 已完成步骤: 'Completed steps', 剩余步骤: 'Remaining steps' }[label]), h('textarea', { value, rows: 2, maxLength: 4000, onChange: event => { set(event.target.value); setConfirmed(false); } }))),
+            [[['核对摘要', 'Review summary'], summary, setSummary], [['已完成步骤', 'Completed steps'], completed, setCompleted], [['剩余步骤', 'Remaining steps'], remaining, setRemaining]].map(([labels, value, set]) => h('label', { key: labels[0], className: 'pa24-field' }, L(...labels), h('textarea', { value, rows: 2, maxLength: 4000, onChange: event => { set(event.target.value); setConfirmed(false); } }))),
             unknown.map(row => h('fieldset', { key: row.id }, h('legend', null, row.tool + ' · ' + row.id),
               h('select', { 'aria-label': L('动作核对结果', 'Verified action outcome'), value: calls[row.id]?.outcome || 'partial', onChange: event => { setCalls({ ...calls, [row.id]: { ...calls[row.id], outcome: event.target.value } }); setConfirmed(false); } },
                 h('option', { value: 'partial' }, L('部分完成', 'Partially completed')), h('option', { value: 'completed' }, L('已完成', 'Completed')), h('option', { value: 'not_performed' }, L('明确未执行', 'Confirmed not performed'))),
@@ -1837,7 +1898,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', disabled: busy || !confirmed || !!unresolved.length || !summary.trim() || !completed.trim() || !remaining.trim() || unknown.some(row => !calls[row.id]?.evidence?.trim()), onClick: save }, L('保存交办运行核对', 'Save work run findings')),
             error && h('p', { role: 'alert', className: 'pa24-error' }, error));
         }
-        function WorkerRunDetail({ id, binding, openWork, section = 'all' }) {
+        function WorkerRunDetail({ id, binding, openWork, section = 'all', tz }) {
           const [detail, setDetail] = React.useState(null), [error, setError] = React.useState(''), [diagnostic, setDiagnostic] = React.useState(null), [refresh, setRefresh] = React.useState(0);
           const alive = React.useRef(true);
           React.useEffect(() => { const abort = new AbortController(); let pending = false; alive.current = true;
@@ -1863,10 +1924,10 @@ window.__ModuleLoader__.load({
                 detail.work && ['stopped','failed','timed_out','completed'].includes(run.status) && h(WorkerRunReview, { detail, binding, changed: () => setRefresh(value => value + 1) }),
                 h('details', null, h('summary', null, L('当次执行快照', 'Execution snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify(run.snapshot, null, 2))),
                 h('button', { type: 'button', onClick: () => saveDownload({ filename: '24pa-result-' + id + '.json', content: JSON.stringify({ run, inputs: detail.inputs, calls: detail.calls, deliveries: detail.deliveries }, null, 2) }) }, L('下载当次结果', 'Download run result'))),
-              delivery && h(React.Fragment, null, h('h4', null, L('固定结果投递', 'Fixed result delivery')), !(detail.deliveries || []).length && h('p', null, L('尚无结果投递', 'No result delivery yet')), (detail.deliveries || []).map(row => h('p', { key: row.id }, row.channel + ' · ' + row.target + ' · ' + deliveryLabel(row.status, row.channel) + (row.last_error ? ' · ' + row.last_error : ''))),
-                !!detail.deliveries?.length && h(PlanDeliveryControls, { detail: { run, deliveries: detail.deliveries.map(row => ({ id: row.id, deliveryStatus: row.status, deliveries: [{ outbox_id: row.id, outbox: row, component: row.kind, fingerprint: row.fingerprint }] })) }, binding, onChanged: () => setRefresh(value => value + 1) })),
+              delivery && h(React.Fragment, null, h('h4', null, L('固定结果投递', 'Fixed result delivery')), !(detail.deliveries || []).length && h('p', null, L('尚无结果投递', 'No result delivery yet')), (detail.deliveries || []).map(row => h('p', { key: row.id }, row.channel + ' · ' + row.target + ' · ' + deliveryLabel(row.status, row.channel) + (row.last_error ? ' · ' + technicalText(row.last_error) : ''))),
+                !!detail.deliveries?.length && h(PlanDeliveryControls, { detail: { run, deliveries: detail.deliveries.map(row => ({ id: row.id, deliveryStatus: row.status, deliveries: [{ outbox_id: row.id, outbox: row, component: row.kind, fingerprint: row.fingerprint }] })) }, binding, onChanged: () => setRefresh(value => value + 1), tz })),
               diagnostics && h(React.Fragment, null, h('p', { className: 'pa24-meta' }, L('诊断只生成脱敏预览；确认预览内容后才下载。', 'Diagnostics require a redacted preview before download.')), h('button', { type: 'button', onClick: preview }, L('预览脱敏诊断', 'Preview redacted diagnostics')),
-                diagnostic && h('div', { className: 'pa24-note' }, h('p', null, diagnostic.message), h('pre', { className: 'pa24-json' }, diagnostic.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostic) }, L('确认下载这份诊断', 'Confirm diagnostic download'))))));
+                diagnostic && h('div', { className: 'pa24-note' }, h('p', null, technicalText(diagnostic.message)), h('pre', { className: 'pa24-json' }, diagnostic.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostic) }, L('确认下载这份诊断', 'Confirm diagnostic download'))))));
         }
 
         function HistoryDrawer({ title, subtitle, onClose, tabs, children }) {
@@ -2072,7 +2133,7 @@ window.__ModuleLoader__.load({
               title: active ? (active.title || active.id) : (work?.work.title || L('助理交办', 'Work item')),
               subtitle: active ? runSourceLabel(active.source) + ' · ' + date(active.createdAt, tz) + ' · ' + active.id : L('交办标识：', 'Work ID: ') + view.workId,
               onClose: closeDetails, tabs: active ? [['overview', L('概览', 'Overview')], ['delivery', L('投递', 'Delivery')], ['diagnostics', L('诊断', 'Diagnostics')]] : null,
-            }, section => active ? (active.kind === 'worker' ? h(WorkerRunDetail, { id: active.id, binding, openWork, section }) : h(SkillRunControls, { data: { id: active.skillId }, binding, detailOnly: true, initialRunId: active.id, openWork, section })) : workDrawer),
+            }, section => active ? (active.kind === 'worker' ? h(WorkerRunDetail, { id: active.id, binding, openWork, section, tz }) : h(SkillRunControls, { data: { id: active.skillId }, binding, detailOnly: true, initialRunId: active.id, openWork, section, tz })) : workDrawer),
             h('p', { className: 'pa24-meta' }, L('详细诊断默认保留 90 天，可在参数配置调整；结果及业务回执长期保留。', 'Detailed diagnostics default to 90 days in configuration. Results and business receipts persist.')),
             h('button', { type: 'button', onClick: () => openCard('config') }, L('打开参数配置', 'Open configuration')));
         }
@@ -2123,7 +2184,7 @@ window.__ModuleLoader__.load({
             h('button', { type: 'button', disabled: busy || !confirmed || detail.unresolvedOperations.length > 0, onClick: save }, L('保存核对并结束本次运行', 'Save findings and close run')));
         }
 
-        function SkillRunControls({ data, binding, detailOnly = false, initialRunId = null, openWork, section = 'all' }) {
+        function SkillRunControls({ data, binding, detailOnly = false, initialRunId = null, openWork, section = 'all', tz }) {
           const overview = section === 'all' || section === 'overview', deliveryView = section === 'all' || section === 'delivery', diagnosticsView = section === 'all' || section === 'diagnostics';
           const [values, setValues] = React.useState({}), [preview, setPreview] = React.useState(null);
           const [target, setTarget] = React.useState(null), [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
@@ -2237,7 +2298,7 @@ window.__ModuleLoader__.load({
               !history.rows.length && h('p', null, L('尚无运行记录；未试运行。', 'No runs yet; untested.')),
               history.rows.map(row => h('div', { key: row.id, className: 'pa24-row' },
                 h('button', { type: 'button', onClick: () => { setSelected(row.id); setDetail(null); } }, row.id.slice(0, 8) + ' · ' + status(row.status)),
-                h('span', { className: 'pa24-meta' }, (row.trial ? L('试运行', 'Trial') : L('正式运行', 'Run')) + ' · ' + new Date(row.created_at).toLocaleString()))))),
+                h('span', { className: 'pa24-meta' }, (row.trial ? L('试运行', 'Trial') : L('正式运行', 'Run')) + ' · ' + date(row.created_at, tz)))))),
             history?.total > 20 && h('div', { className: 'pa24-row' },
               h('button', { disabled: offset === 0, onClick: () => setOffset(Math.max(0, offset - 20)) }, L('上一页', 'Previous')),
               h('button', { disabled: offset + 20 >= history.total, onClick: () => setOffset(offset + 20) }, L('下一页', 'Next'))),
@@ -2261,7 +2322,7 @@ window.__ModuleLoader__.load({
                     h('button', { type: 'button', disabled: busy, onClick: () => resume(true) }, L('重新检查并继续原运行', 'Recheck and resume')))),
                 h('p', { className: 'pa24-meta' }, L('助理交办：', 'Work item: ') + detail.run.work_item_id),
                 h('p', { className: 'pa24-meta' }, L('版本：', 'Version: ') + (detail.run.version_id || L('历史未记录', 'Not recorded'))),
-                h('p', { className: 'pa24-meta' }, L('触发时间：', 'Triggered: ') + (detail.run.triggered_at ? new Date(detail.run.triggered_at).toLocaleString() : L('历史未记录', 'Not recorded')) + ' · ' + L('接纳时间：', 'Admitted: ') + new Date(detail.run.created_at).toLocaleString()),
+                h('p', { className: 'pa24-meta' }, L('触发时间：', 'Triggered: ') + (detail.run.triggered_at ? date(detail.run.triggered_at, tz) : L('历史未记录', 'Not recorded')) + ' · ' + L('接纳时间：', 'Admitted: ') + date(detail.run.created_at, tz)),
                 detail.run.result && h('pre', { className: 'pa24-json' }, detail.run.result),
                 ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('label', { className: 'pa24-field' }, L('接续补充说明（可选）', 'Continuation instructions (optional)'),
                   h('textarea', { value: instruction, maxLength: 4000, rows: 2, onChange: event => { setInstruction(event.target.value); setPreview(null); setApproved(false); } })),
@@ -2274,7 +2335,7 @@ window.__ModuleLoader__.load({
                   ['completed', 'failed', 'stopped', 'timed_out'].includes(detail.run.status) && h('button', { type: 'button', disabled: busy || ['disabled', 'deleted'].includes(data.entry?.status), onClick: () => prepare({ rerunId: detail.run.id, configuration: 'current' }) }, L('用当前配置重跑 · 先预览', 'Rerun current · preview'))),
                 h('details', null, h('summary', null, L('输入、资源与版本快照', 'Input, resources and version snapshot')), h('pre', { className: 'pa24-json' }, JSON.stringify({ parameters: detail.run.parameters, contract: detail.run.contract, files: detail.run.files, plan: detail.run.plan }, null, 2))),
                 detail.attempts?.length > 0 && h('details', null, h('summary', null, L('执行尝试（含自动重试）', 'Execution attempts (including retries)')),
-                  detail.attempts.map(attempt => h('p', { key: attempt.number }, L('第 ', 'Attempt ') + attempt.number + L(' 次', '') + ' · ' + new Date(attempt.startedAt).toLocaleString() + (attempt.error ? ' · ' + attempt.error : '')))),
+                  detail.attempts.map(attempt => h('p', { key: attempt.number }, L('第 ', 'Attempt ') + attempt.number + L(' 次', '') + ' · ' + date(attempt.startedAt, tz) + (attempt.error ? ' · ' + technicalText(attempt.error) : '')))),
                 h('details', null, h('summary', null, L('实际工具调用与回执', 'Actual tool calls and receipts')), h('pre', { className: 'pa24-json' }, JSON.stringify(detail.calls, null, 2))),
                 detail.inputs?.length > 0 && h('details', null, h('summary', null, L('输入接纳与采用', 'Input receipt and adoption')),
                   detail.inputs.map(input => h('p', { key: input.message_id }, input.message_id + ' · ' + (!input.accepted ? L('归属未确认', 'Ownership not confirmed')
@@ -2293,10 +2354,10 @@ window.__ModuleLoader__.load({
                     item.end_data?.producerReported === false && h('p', { role: 'alert' }, L('生产者未确认结束，需要核对实际状态。', 'The producer has not confirmed termination. Reconciliation is required.')))))),
               deliveryView && h(React.Fragment, null, h('h4', null, L('结果投递与原 Outbox', 'Delivery and original Outbox')), h('p', null, L('当前投递状态：', 'Current delivery status: ') + deliveryLabel(detail.run.delivery_status)),
                 !(detail.deliveries || []).length && h('p', { className: 'pa24-meta' }, L('尚无投递明细；这不改变执行结果。', 'No delivery records yet; this does not change the execution result.')),
-                (detail.deliveries || []).length > 0 && h(PlanDeliveryControls, { key: detail.run.id, detail, binding, onChanged: () => setRefresh(n => n + 1) })),
+                (detail.deliveries || []).length > 0 && h(PlanDeliveryControls, { key: detail.run.id, detail, binding, onChanged: () => setRefresh(n => n + 1), tz })),
               diagnosticsView && h(React.Fragment, null, h('p', { className: 'pa24-meta' }, L('诊断只生成脱敏预览；确认预览内容后才下载。', 'Diagnostics require a redacted preview before download.')),
                 h('button', { type: 'button', onClick: async () => { const id = detail.run.id; try { const result = await rpc('runs.diagnostics', { workspaceBinding: binding, runId: id }); if (alive.current && selectedRun.current === id && result.workspaceBinding === binding) setDiagnostics(result); } catch (failure) { if (alive.current) setError(failure.message); } } }, L('预览脱敏诊断', 'Preview redacted diagnostics')),
-                diagnostics && h('div', { className: 'pa24-note' }, h('p', null, diagnostics.message), h('pre', { className: 'pa24-json' }, diagnostics.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostics) }, L('确认下载这份诊断', 'Download this diagnostic preview'))))));
+                diagnostics && h('div', { className: 'pa24-note' }, h('p', null, technicalText(diagnostics.message)), h('pre', { className: 'pa24-json' }, diagnostics.content), h('button', { type: 'button', onClick: () => saveDownload(diagnostics) }, L('确认下载这份诊断', 'Download this diagnostic preview'))))));
         }
 
         const validSkillHash = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
@@ -2323,7 +2384,7 @@ window.__ModuleLoader__.load({
           return sort(root);
         };
 
-        function SkillPackageBrowser({ data, binding }) {
+        function SkillPackageBrowser({ data, binding, tz }) {
           const snapshotKey = JSON.stringify([binding, data.id, data.versionId || null, data.fingerprint]);
           const [manifest, setManifest] = React.useState({ status: 'loading', key: snapshotKey });
           const [selectedPath, setSelectedPath] = React.useState(''), [preview, setPreview] = React.useState({ status: 'idle' });
@@ -2408,7 +2469,7 @@ window.__ModuleLoader__.load({
             packageData && h(React.Fragment, null,
               h('p', { className: 'pa24-package-summary' }, packageData.files.length + L(' 个文件 · ', ' files · ') + formatSkillBytes(packageData.bytes) + ' · SHA-256 ' + shortSkillHash(packageData.packageHash)),
               h('p', { className: 'pa24-meta', title: packageData.packageHash }, packageData.snapshot === 'immutable-version' ? L('不可变版本快照', 'Immutable version snapshot') : L('当前读取快照（非持久版本）', 'Current read snapshot (not a persistent version)'),
-                packageData.versionId ? ' · ' + packageData.versionId : '', ' · ' + packageData.observedAt),
+                packageData.versionId ? ' · ' + packageData.versionId : '', ' · ' + date(packageData.observedAt, tz)),
               h('div', { className: 'pa24-package-layout' },
                 h('div', { className: 'pa24-package-tree', ref: treeRef, 'aria-label': L('包目录树', 'Package directory tree'), onKeyDown: treeKeyDown }, renderNodes(skillPackageTree(packageData.files))),
                 h('div', { className: 'pa24-package-preview' },
@@ -2428,7 +2489,7 @@ window.__ModuleLoader__.load({
             h('p', { className: 'pa24-meta' }, L('仅显示包相对路径。阅读清单或正文不会启动模型、执行脚本、安装依赖或写运行缓存。', 'Only package-relative paths are shown. Reading manifests or files does not start models, execute scripts, install dependencies, or write run caches.')));
         }
 
-        function SkillsDetail({ binding }) {
+        function SkillsDetail({ binding, tz }) {
           const [catalog, setCatalog] = React.useState({ status: 'loading' });
           const [selected, setSelected] = React.useState(null), [detail, setDetail] = React.useState({ status: 'idle' });
           const [query, setQuery] = React.useState(''), [source, setSource] = React.useState('all'), [page, setPage] = React.useState(0);
@@ -2496,8 +2557,10 @@ window.__ModuleLoader__.load({
             finally { if (alive.current) setBusy(false); }
           };
           const seed = description => {
-            const metadata = { track: 'agent', tools: [], pa24: { schemaVersion: 1, mode: 'local', parameters: {}, expectedResult: description || '填写预期结果', completionCriteria: '完成目标并如实列出结果、依据与未完成项。' } };
-            return '---\n' + JSON.stringify({ name: 'personal-skill', description: description || '填写 Skill 用途', metadata }, null, 2) + '\n---\n\n## 目标\n' + (description || '填写具体目标。') + '\n\n## 执行说明\n根据当次参数完成目标；缺少信息时说明需要补充的内容。\n';
+            const metadata = { track: 'agent', tools: [], pa24: { schemaVersion: 1, mode: 'local', parameters: {}, expectedResult: description || L('填写预期结果', 'Describe the expected result'), completionCriteria: L('完成目标并如实列出结果、依据与未完成项。', 'Complete the objective and honestly list outcomes, evidence, and unfinished work.') } };
+            return '---\n' + JSON.stringify({ name: 'personal-skill', description: description || L('填写 Skill 用途', 'Describe the skill purpose'), metadata }, null, 2)
+              + L('\n---\n\n## 目标\n', '\n---\n\n## Objective\n') + (description || L('填写具体目标。', 'Describe the concrete objective.'))
+              + L('\n\n## 执行说明\n根据当次参数完成目标；缺少信息时说明需要补充的内容。\n', '\n\n## Execution\nComplete the objective using the current parameters; explain any missing information that is needed.\n');
           };
           const upload = async file => {
             if (!file) return;
@@ -2551,7 +2614,7 @@ window.__ModuleLoader__.load({
                   ? L('当前目录已读取；同名工作区文件仅展示获胜来源。', 'Catalog loaded; only the winning workspace source for each name is shown.')
                   : catalog.data.discovery === 'unavailable' ? L('工作区目录不可用，当前仅展示内置原件。', 'Workspace catalog unavailable; showing built-in originals only.')
                   : L('工作区发现不完整或完整性未知，不能据此判断没有其他 Skill。', 'Workspace discovery is incomplete or unverified; other skills may exist.')),
-                catalog.data.discoveryError && h('p', { role: 'alert', className: 'pa24-error' }, catalog.data.discoveryError),
+                catalog.data.discoveryError && h('p', { role: 'alert', className: 'pa24-error' }, technicalText(catalog.data.discoveryError)),
                 h('div', { className: 'pa24-skill-filters' },
                   h('label', null, L('搜索 Skill', 'Search skills'), h('input', { type: 'search', value: query, onChange: event => { setQuery(event.target.value); setPage(0); } })),
                   h('label', null, L('来源', 'Source'), h('select', { value: source, onChange: event => { setSource(event.target.value); setPage(0); } },
@@ -2617,7 +2680,7 @@ window.__ModuleLoader__.load({
                         h('p', { className: 'pa24-meta' }, data.source === 'managed' ? L('计划绑定稳定身份，修改显示名称不改变关联。', 'Plans bind to a stable identity; changing the display name preserves links.') : L('文件与内置项的既有计划按名称绑定。', 'Existing file and built-in plans bind by name.')),
                         data.plansError ? h('p', { role: 'alert', className: 'pa24-error' }, data.plansError) : data.plans?.length
                           ? data.plans.map(plan => h('p', { key: plan.id }, plan.kind + ' · ' + plan.id + ' · ' + plan.status)) : h('p', null, L('没有按此名称绑定的计划', 'No plans bound to this name'))),
-                      tab === 'package' && h(SkillPackageBrowser, { key: JSON.stringify([binding, data.id, data.versionId || null, data.fingerprint, tick]), data, binding }),
+                      tab === 'package' && h(SkillPackageBrowser, { key: JSON.stringify([binding, data.id, data.versionId || null, data.fingerprint, tick]), data, binding, tz }),
                       tab === 'instructions' && h(React.Fragment, null,
                         h('h4', null, L('指令正文', 'Instructions')), h('pre', { className: 'pa24-json' }, data.content),
                         data.type === 'template' && h('p', { className: 'pa24-note' }, L('确定性模板不调用模型。自由修改业务行为请先生成智能副本；智能副本更灵活，实际运行会产生模型用量，工具须另行声明。', 'Deterministic templates do not call a model. Create an agent copy to change behavior; running it uses model tokens and requires explicit tool declarations.')))))))));
@@ -2629,7 +2692,7 @@ window.__ModuleLoader__.load({
             id: 'skills', cat: 'work', tone: 'violet', icon: 'blocks', title: ['Skill 管理', 'Skill management'], sub: ['能力、版本与手工运行', 'Capabilities, versions and manual runs'], action: ['查看 Skill', 'Browse skills'],
             tier: () => 'unchecked',
             body: () => h('p', { className: 'pa24-meta' }, L('创建与导入 Skill、管理版本和关联计划，预览并执行任务，查看实际结果。', 'Create and import skills, manage versions and linked plans, preview and run tasks, and inspect actual results.')),
-            detail: helpers => h(SkillsDetail, { key: helpers.state.workspaceBinding, binding: helpers.state.workspaceBinding ?? null }),
+            detail: helpers => h(SkillsDetail, { key: helpers.state.workspaceBinding, binding: helpers.state.workspaceBinding ?? null, tz: helpers.tz }),
           },
           {
             id: 'work', cat: 'work', tone: 'blue', icon: 'tasks', title: ['待办', 'Todos'], sub: ['原平台业务工作与截止', 'Platform tasks and deadlines'], action: ['查看待办', 'View todos'],
@@ -2992,7 +3055,7 @@ window.__ModuleLoader__.load({
                     h('button', { type: 'button', onClick: () => remove(source.id) }, L('移除登记', 'Remove registration'))),
                   !unchanged && h('p', { className: 'pa24-meta' }, L('有未保存修改；先保存来源再检查。', 'Save the source before checking changes.')),
                   evidence && unchanged ? h('div', { className: evidence.state === 'failed' ? 'pa24-error' : 'pa24-helper' },
-                    h('p', null, evidence.message),
+                    h('p', null, technicalText(evidence.message)),
                     fields([[L('实际身份', 'Verified identity'), evidence.identity ? evidence.identity.ownerId + ' · ' + evidence.identity.authority : L('未核验', 'Unverified')],
                       [L('实际资源', 'Resolved resource'), evidence.resource?.id || L('待解析', 'Unresolved')], [L('读取', 'Read'), capabilityLabel(evidence.capabilities?.read)], [L('创建', 'Create'), capabilityLabel(evidence.capabilities?.create)],
                       [L('修改', 'Update'), capabilityLabel(evidence.capabilities?.update)], [L('取消／完成', 'Cancel / complete'), capabilityLabel(evidence.capabilities?.cancel)], [L('最近核验', 'Checked at'), date(evidence.checkedAt, helpers.tz)]]))
@@ -3016,7 +3079,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-source-save' },
                 h('button', { type: 'button', className: 'pa24-primary', disabled: !dirty, onClick: save }, busy ? L('处理中…', 'Working…') : L('保存来源并重载', 'Save & reload sources')),
                 feedback && h('div', { role: feedback.ok ? 'status' : 'alert', className: feedback.ok ? 'pa24-helper' : 'pa24-error' }, h('p', null, feedback.message),
-                  feedback.state === 'saved_not_applied' && h('p', { className: 'pa24-meta' }, `saved_not_applied · ${L('源文件版本', 'Saved version')} ${feedback.savedHash || L('无法读取', 'Unavailable')} · ${L('生效版本', 'Active version')} ${feedback.activeHash || L('无法读取', 'Unavailable')}`)),
+                  feedback.state === 'saved_not_applied' && h('p', { className: 'pa24-meta' }, L(`saved_not_applied · 源文件版本 ${feedback.savedHash || '无法读取'} · 生效版本 ${feedback.activeHash || '无法读取'}`, `saved_not_applied · Saved version ${feedback.savedHash || 'Unavailable'} · Active version ${feedback.activeHash || 'Unavailable'}`))),
                 dirty && h('p', { className: 'pa24-meta' }, L('来源修改通过此按钮单独保存。', 'Save source changes with this button.')))));
         }
 
@@ -3348,6 +3411,122 @@ window.__ModuleLoader__.load({
               h('span', { className: 'pa24-meta', role: 'status' }, configDirty ? L('参数有未保存修改', 'Unsaved configuration changes') : secretDirty ? L('密钥有未保存修改，请点「保存密钥」', 'Unsaved secrets — use Save secrets') : L('保存后立即重载生效；对话修改与表单等价（同一配置源）。', 'Reload applies immediately; chat edits and the form share the same config source.'))));
         }
 
+        const homeCoverage = data => {
+          if (!data?.sources) return L('来源读取中', 'Reading sources');
+          const enabled = data.sources.filter(row => row.state !== 'disabled');
+          if (!enabled.length) return L('尚未登记来源', 'No sources registered');
+          const complete = enabled.filter(row => row.state === 'complete').length;
+          return L(`${complete} / ${enabled.length} 个完整来源`, `${complete} / ${enabled.length} complete sources`);
+        };
+        const homeAvailable = (data, value) => {
+          if (!data?.sources?.some(row => row.state !== 'disabled')) return null;
+          return data.complete ? value : L(`${value}（可展示）`, `${value} available`);
+        };
+        function HomeMetric({ name, label, value, detail, onClick, tone = 'blue', testId }) {
+          const attention = typeof value === 'number' && value > 0 && ['amber', 'danger'].includes(tone);
+          return h('button', { type: 'button', className: 'pa24-home-metric pa24-tone-' + tone + (attention ? ' attention' : ''), onClick, 'data-testid': testId },
+            h('span', { className: 'pa24-home-metric-top' }, h('span', null, icon(name), label), icon('arrow', { width: 13, height: 13 })),
+            h('strong', null, value === null || value === undefined ? '—' : String(value)), h('small', null, detail));
+        }
+        function HomeCalendarRow({ event, data, tz }) {
+          const range = calendarRange(event, tz), conflict = data.conflicts.some(pair => pair.a === event.objectId || pair.b === event.objectId);
+          return h('article', { className: 'pa24-home-event', 'data-testid': 'home-calendar-event' },
+            h('div', { className: 'pa24-home-event-time' }, range.allDay ? L('全天', 'All day') : range.startTime,
+              h('small', null, range.allDay ? calendarDay(event.start, range.zone) : range.endDay === range.startDay ? range.endTime : range.endDay)),
+            h('div', { className: 'pa24-home-event-body' },
+              h('div', { className: 'pa24-row pa24-between' }, h('h3', null, event.summary || L('无标题', 'Untitled')),
+                h('div', { className: 'pa24-row' }, conflict && badge(L('时间冲突', 'Conflict'), 'amber', 'alert'), event.stale && badge(L('保存观察', 'Saved'), 'neutral', 'clock'))),
+              h('p', { className: 'pa24-meta' }, range.detail + ' · ' + range.zone),
+              h('div', { className: 'pa24-home-event-meta' }, h('span', { className: 'pa24-meta' }, event.locations.map(row => row.sourceName).join(L('、', ', '))),
+                event.locations.map(row => h('span', { key: row.sourceId }, originalLink(row))))));
+        }
+        function HomeCalendarBoard({ data, error, helpers }) {
+          const { tz } = helpers, events = data?.events || [], next = data?.next || null;
+          const timeline = events.filter(event => event.objectId !== next?.objectId).slice(0, next ? 4 : 5);
+          const emptyState = () => {
+            if (!data.sources.length) return empty('calendar', 'neutral', L('尚未登记日历来源', 'No calendar sources'), L('登记并核验来源后，日程才会出现在这里；这不代表没有日程。', 'Register and verify sources to see events here; this does not mean there are no events.'));
+            if (!data.complete) return empty('calendar', 'amber', L('当前没有可展示日程', 'No displayable events'), L('来源范围未完整核验，不能据此判断今天没有日程。', 'Coverage is incomplete; this does not prove there are no events today.'));
+            return empty('calendar', 'neutral', data.fresh ? L('今天没有日程', 'No events today') : L('保存的完整观察为空', 'Saved complete observations are empty'), L('普通首页读取不会访问原平台；需要最新状态时请到日程详情明确核验。', 'Ordinary home reads do not access the platforms; verify explicitly from Calendar when current state is needed.'));
+          };
+          return h('section', { className: 'pa24-card pa24-home-board', 'aria-label': L('今日日程看板', 'Today calendar board'), 'data-testid': 'home-calendar-board' },
+            h('div', { className: 'pa24-home-board-head' }, h('div', null, h('h2', null, icon('calendar'), L('今日日程', 'Today’s calendar')),
+              h('p', null, data ? L(`${data.count} 项可展示 · ${homeCoverage(data)}`, `${data.count} available · ${homeCoverage(data)}`) : L('汇总全部已登记日历', 'All registered calendars'))),
+              h('button', { type: 'button', className: 'pa24-quiet', onClick: () => helpers.openCalendar({ date: calendarDay(new Date(), tz), period: 'day', offset: 0 }) }, L('查看全部', 'View all'), icon('arrow', { width: 14, height: 14 }))),
+            h(SourceQueryState, { data, error, busy: helpers.refreshing, onRetry: helpers.refresh, tz, compact: true }),
+            data && h(React.Fragment, null,
+              events.length === 0 ? emptyState() : h('div', { className: 'pa24-home-list' },
+                next && h(CalendarNext, { data, tz }), timeline.map(event => h(HomeCalendarRow, { key: event.objectId, event, data, tz })))));
+        }
+        function HomeTodoRow({ task, helpers }) {
+          const { tz } = helpers;
+          const due = task.dueDate || (task.dueAt ? date(task.dueAt, tz) : L('未设置截止', 'No deadline'));
+          const bucket = ({ overdue: [L('已逾期', 'Overdue'), 'amber'], today: [L('今日到期', 'Due today'), 'blue'], upcoming: [L('以后到期', 'Upcoming'), 'neutral'], undated: [L('无截止', 'No date'), 'neutral'] })[task.bucket] || [L('待核验', 'Unverified'), 'amber'];
+          const url = /^https?:\/\//.test(task.url || '') ? task.url : null;
+          return h('article', { className: 'pa24-home-todo-row', 'data-testid': 'home-todo-row' },
+            h('div', { className: 'pa24-home-todo-head' }, h('div', { className: 'pa24-home-todo-main' }, h('h3', null, task.summary || L('无标题', 'Untitled')),
+              h('p', { className: 'pa24-meta' }, (task.assignees || []).map(person => person.name || person.id).join(L('、', ', ')) || L('负责人待核验', 'Assignee unverified'))), badge(bucket[0], bucket[1], 'clock')),
+            h('p', { className: 'pa24-meta' }, due + (task.stale ? L(' · 保存观察，业务状态以原平台为准', ' · Saved observation; platform status is authoritative') : '')),
+            h('div', { className: 'pa24-home-todo-foot' }, h('span', { className: 'pa24-meta' }, (task.locations || []).map(row => row.sourceName).join(L('、', ', '))),
+              h('div', null, (task.workItemIds || []).slice(0, 2).map(id => h('button', { key: id, type: 'button', className: 'pa24-quiet', onClick: () => helpers.openRuns({ kind: 'work', workId: id, range: 'all' }) }, icon('pulse', { width: 12, height: 12 }), L('关联交办', 'Linked work'))),
+                url && h('a', { className: 'pa24-link-button', href: url, target: '_blank', rel: 'noreferrer' }, icon('external', { width: 12, height: 12 }), L('原待办', 'Original')))));
+        }
+        function HomeTodoBoard({ data, error, helpers }) {
+          const tasks = (data?.tasks || []).filter(task => task.status === 'open').slice(0, 6);
+          const emptyState = () => {
+            if (!data.sources.length) return empty('tasks', 'neutral', L('尚未登记待办来源', 'No todo sources'), L('登记并核验来源后，待办才会出现在这里；这不代表全部完成。', 'Register and verify sources to see todos here; this does not mean everything is complete.'));
+            if (!data.complete) return empty('tasks', 'amber', L('当前没有可展示待办', 'No displayable todos'), L('来源范围未完整核验，不能据此判断全部完成。', 'Coverage is incomplete; this does not prove everything is complete.'));
+            return empty('tasks', 'neutral', data.fresh ? L('当前没有未完成待办', 'No open todos') : L('保存观察中没有未完成待办', 'No open todos in saved observations'), L('普通首页读取不会访问原平台；需要最新状态时请到待办详情明确核验。', 'Ordinary home reads do not access the platforms; verify explicitly from Todos when current state is needed.'));
+          };
+          return h('section', { className: 'pa24-card pa24-home-board', 'aria-label': L('优先待办看板', 'Priority todo board'), 'data-testid': 'home-todo-board' },
+            h('div', { className: 'pa24-home-board-head' }, h('div', null, h('h2', null, icon('tasks'), L('优先待办', 'Priority todos')),
+              h('p', null, data ? L(`${data.counts.open} 项未完成 · ${homeCoverage(data)}`, `${data.counts.open} open · ${homeCoverage(data)}`) : L('逾期与今日到期优先', 'Overdue and due today first'))),
+              h('button', { type: 'button', className: 'pa24-quiet', onClick: () => helpers.openTodos({ status: 'open', deadline: 'all', offset: 0 }) }, L('查看全部', 'View all'), icon('arrow', { width: 14, height: 14 }))),
+            h(SourceQueryState, { data, error, busy: helpers.refreshing, onRetry: helpers.refresh, tz: helpers.tz, domain: 'todo', compact: true }),
+            data && (tasks.length ? h('div', { className: 'pa24-home-list' }, tasks.map(task => h(HomeTodoRow, { key: task.objectId, task, helpers }))) : emptyState()));
+        }
+        function HomeAssistantStatus({ helpers }) {
+          const { extra } = helpers, rawRuns = extra.runs, rawPlans = extra.plans;
+          const runs = rawRuns && ['runs24', 'failed24', 'delivery_failed24', 'delivery_unknown24'].every(key => Number.isSafeInteger(rawRuns[key])) ? rawRuns : null;
+          const plans = rawPlans && ['total', 'enabled', 'paused', 'blocked'].every(key => Number.isSafeInteger(rawPlans[key])) ? rawPlans : null;
+          const stats = runs ? [[runs.runs24, L('24 小时运行', '24h runs')], [runs.failed24, L('执行失败', 'Execution failed')], [runs.delivery_failed24, L('投递失败', 'Delivery failed')], [runs.delivery_unknown24, L('投递待核对', 'Delivery unknown')]] : [];
+          return h('section', { className: 'pa24-card pa24-home-assistant', 'aria-label': L('助理状态', 'Assistant status'), 'data-testid': 'home-assistant-status' },
+            h('section', null, h('h3', null, icon('pulse'), L('运行与投递', 'Runs & delivery')),
+              runs ? h('div', { className: 'pa24-home-runstats' }, stats.map(([value, label]) => h('div', { className: 'pa24-home-runstat', key: label }, h('strong', null, value), h('span', null, label))))
+                : h('p', { className: 'pa24-meta' }, extra._errors?.runs || (rawRuns ? L('运行摘要响应不完整', 'Incomplete run summary') : L('正在读取运行摘要…', 'Reading run summary…'))),
+              h('button', { type: 'button', className: 'pa24-quiet', onClick: () => helpers.openRuns({ kind: 'runs', range: '7', includeUnresolved: true }) }, L('查看运行记录', 'View run history'), icon('arrow', { width: 13, height: 13 }))),
+            h('section', null, h('h3', null, icon('calendarClock'), L('下一次定时任务', 'Next scheduled task')),
+              plans ? h('div', { className: 'pa24-home-plan-next' }, plans.next ? h(React.Fragment, null, h('strong', null, plans.next.title), h('p', null, date(plans.next.at, plans.next.timeZone || helpers.tz) + ' · ' + (plans.next.timeZone || helpers.tz)))
+                : h('strong', null, plans.total === 0 ? L('暂无定时计划', 'No scheduled tasks') : L('暂无已核验触发时间', 'No verified occurrence')),
+                h('p', null, L(`启用 ${plans.enabled} · 暂停 ${plans.paused} · 需处理 ${plans.blocked}`, `${plans.enabled} enabled · ${plans.paused} paused · ${plans.blocked} blocked`)))
+                : h('p', { className: 'pa24-meta' }, extra._errors?.plans || (rawPlans ? L('计划摘要响应不完整', 'Incomplete plan summary') : L('正在读取计划摘要…', 'Reading plan summary…'))),
+              h('button', { type: 'button', className: 'pa24-quiet', onClick: () => plans?.next ? helpers.openPlan(plans.next.id) : helpers.openCard('digest') }, L('管理定时任务', 'Manage scheduled tasks'), icon('arrow', { width: 13, height: 13 }))));
+        }
+        function HomeOverview(helpers) {
+          const { extra, tz } = helpers;
+          if (!helpers.workspace) return h('section', { className: 'pa24-home', 'data-testid': 'home-overview' }, empty('bot', 'blue', L('先绑定你的工作区', 'Bind your workspace first'), L('绑定后，首页会在这里汇总你的日程、待办和需要处理的事项。', 'Once bound, this home will bring together your calendar, todos, and items needing attention.'), h('button', { type: 'button', className: 'pa24-primary', onClick: () => helpers.openCard('workspace') }, L('前往工作区与配置', 'Open workspace & config'))));
+          const rawCalendar = extra.calendar, rawTodos = extra.todos, rawRuns = extra.runs, rawReview = extra.review;
+          const calendar = rawCalendar && Array.isArray(rawCalendar.sources) && Array.isArray(rawCalendar.events) && Array.isArray(rawCalendar.conflicts) && Number.isSafeInteger(rawCalendar.count) ? rawCalendar : null;
+          const todos = rawTodos && Array.isArray(rawTodos.sources) && Array.isArray(rawTodos.tasks) && rawTodos.counts && ['open', 'overdue', 'today'].every(key => Number.isSafeInteger(rawTodos.counts[key])) ? rawTodos : null;
+          const runs = rawRuns && ['waiting_work', 'active_work', 'failed_work', 'unresolved', 'unresolved_events', 'failed24'].every(key => Number.isSafeInteger(rawRuns[key])) ? rawRuns : null;
+          const review = rawReview && Number.isSafeInteger(rawReview.count) ? rawReview : null;
+          const valid = { calendar, todos, runs, review };
+          const problem = key => extra._errors?.[key] || (extra[key] !== undefined && !valid[key] ? L('首页响应不完整，请重试读取。', 'The home response is incomplete. Retry reading.') : '');
+          const loading = key => problem(key) || (extra[key] === undefined ? L('正在读取…', 'Loading…') : '');
+          const today = calendarDay(new Date(), tz || 'Asia/Shanghai');
+          return h('section', { className: 'pa24-home', 'data-testid': 'home-overview' },
+            h('section', { className: 'pa24-home-hero' }, h('div', null, h('h2', null, L('今天，先处理重要的事', 'Focus on what matters today')), h('p', null, L('日程、待办和需要你决定的事项，集中在同一个工作视图。', 'Your calendar, todos, and decisions in one working view.'))),
+              h('div', { className: 'pa24-home-date' }, h('strong', null, dayText(new Date(), tz || 'Asia/Shanghai')), L('工作区时区 · ', 'Workspace time zone · ') + (tz || 'Asia/Shanghai'))),
+            h('div', { className: 'pa24-home-kpis', 'aria-label': L('今日关键数据', 'Today’s key metrics') },
+              h(HomeMetric, { name: 'calendar', label: L('今日日程', 'Today’s events'), value: homeAvailable(calendar, calendar?.count), detail: loading('calendar') || (calendar ? L(`${calendar.conflicts.length} 处冲突 · ${homeCoverage(calendar)}`, `${calendar.conflicts.length} conflict(s) · ${homeCoverage(calendar)}`) : ''), onClick: () => helpers.openCalendar({ date: today, period: 'day', offset: 0 }), testId: 'home-metric-calendar' }),
+              h(HomeMetric, { name: 'clock', label: L('逾期待办', 'Overdue todos'), value: homeAvailable(todos, todos?.counts?.overdue), detail: loading('todos') || L('优先核对原平台未完成工作', 'Check open platform work first'), onClick: () => helpers.openTodos({ status: 'open', deadline: 'overdue', offset: 0 }), tone: 'amber', testId: 'home-metric-overdue' }),
+              h(HomeMetric, { name: 'tasks', label: L('今日到期', 'Due today'), value: homeAvailable(todos, todos?.counts?.today), detail: loading('todos') || L('按工作区时区计算', 'Using the workspace time zone'), onClick: () => helpers.openTodos({ status: 'open', deadline: 'today', offset: 0 }), testId: 'home-metric-today' }),
+              h(HomeMetric, { name: 'chat', label: L('待我处理交办', 'Work awaiting me'), value: runs?.waiting_work, detail: loading('runs') || (runs ? L(`进行中 ${runs.active_work} · 异常交办 ${runs.failed_work}`, `${runs.active_work} active · ${runs.failed_work} failed work`) : ''), onClick: () => helpers.openRuns({ kind: 'work', range: 'all', includeUnresolved: true, attention: 'waiting' }), tone: 'violet', testId: 'home-metric-work' }),
+              h(HomeMetric, { name: 'note', label: L('待审资料', 'Materials to review'), value: review?.count, detail: loading('review') || (review ? L(`退回 ${review.counts?.returned ?? 0} · 需重审 ${review.counts?.needs_rereview ?? 0} · 核验异常 ${review.counts?.verificationUnknown ?? 0}`, `${review.counts?.returned ?? 0} returned · ${review.counts?.needs_rereview ?? 0} re-review · ${review.counts?.verificationUnknown ?? 0} unknown`) : ''), onClick: () => helpers.openCard('review'), tone: 'danger', testId: 'home-metric-review' }),
+              h(HomeMetric, { name: 'alert', label: L('需处理运行', 'Unresolved runs'), value: runs?.unresolved, detail: loading('runs') || (runs ? L(`未执行事件 ${runs.unresolved_events} · 24 小时失败 ${runs.failed24}`, `${runs.unresolved_events} unexecuted events · ${runs.failed24} failed in 24h`) : ''), onClick: () => helpers.openRuns({ kind: 'runs', range: 'all', includeUnresolved: true, attention: 'unresolved' }), tone: 'amber', testId: 'home-metric-runs' })),
+            h('div', { className: 'pa24-home-boards' }, h(HomeCalendarBoard, { data: calendar, error: problem('calendar'), helpers }), h(HomeTodoBoard, { data: todos, error: problem('todos'), helpers })),
+            h(HomeAssistantStatus, { helpers }));
+        }
+
         function CardShell({ card, tier, label, manage, hidden, onToggleHidden, body, foot }) {
           const cardTitle = L(...card.title);
           return h('section', { className: 'pa24-cap pa24-tone-' + card.tone + (hidden ? ' pa24-cap-hidden' : '') + (ATTENTION_TIERS.includes(tier) ? ' pa24-cap-att' : '') },
@@ -3391,7 +3570,8 @@ window.__ModuleLoader__.load({
 
         function Panel() {
           const [state, setState] = React.useState(null), [connError, setConnError] = React.useState('');
-          const [tab, setTab] = React.useState('work'), [detail, setDetail] = React.useState(null), [noticeClosed, setNoticeClosed] = React.useState(false);
+          const [tab, setTab] = React.useState('home'), [detail, setDetail] = React.useState(null), [noticeClosed, setNoticeClosed] = React.useState(false);
+          const [detailPreset, setDetailPreset] = React.useState(null);
           // F27: 订阅 locale 快照——语言切换即时重渲染（快照含 revision）。
           React.useSyncExternalStore(cb => ctx.locale.subscribe(cb), () => ctx.locale.getSnapshot());
           const [manage, setManage] = React.useState(false), [hidden, setHidden] = React.useState(readHiddenPrefs());
@@ -3440,24 +3620,30 @@ window.__ModuleLoader__.load({
           }, []);
           const { busy, error, run, button } = usePanelActions();
           const extra = useExtra(state ? (state.workspace ? state.workspace.path : '') : '', extraTick, state?.workspaceBinding);
+          React.useEffect(() => {
+            if (tab !== 'home') return undefined;
+            const timer = setInterval(() => setExtraTick(value => value + 1), 30000);
+            return () => clearInterval(timer);
+          }, [tab]);
           const canLeave = () => !formDirty.current || window.confirm(L('有未保存修改，确定放弃吗？', 'Discard unsaved changes?'));
           const selectTab = id => {
             if (!canLeave()) return false;
             formDirty.current = false;
-            setTab(id); setDetail(null); main.current?.scrollTo({ top: 0 });
+            setManage(false); setDetailPreset(null); setTab(id); setDetail(null); main.current?.scrollTo({ top: 0 });
             return true;
           };
-          const openDetail = id => { setDetail(id); main.current?.scrollTo({ top: 0 }); };
+          const openDetail = id => { setDetailPreset(null); setDetail(id); main.current?.scrollTo({ top: 0 }); };
           const closeDetail = () => {
             if (!canLeave()) return;
             formDirty.current = false;
-            setDetail(null);
+            setDetailPreset(null); setDetail(null);
           };
-          const openCard = (id, anchor) => {
+          const openCard = (id, anchor, preset = null) => {
             if (!canLeave()) return;
             const card = CARDS.find(c => c.id === id);
             if (!card) return;
             formDirty.current = false;
+            setDetailPreset(preset ? { card: id, binding: state.workspaceBinding, value: preset } : null);
             setTab(card.cat); setDetail(id); main.current?.scrollTo({ top: 0 });
             if (anchor) setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ block: 'start' }), 0);
           };
@@ -3500,10 +3686,13 @@ window.__ModuleLoader__.load({
             planRowState(planStates.current, 'run-history:' + state.workspaceBinding, {}).update({ filters: { kind: 'runs', range: '7', includeUnresolved: true, ...filters }, offset: 0, selectedRun: null, workId: null }); openCard('activity');
           };
           const openPlan = id => { planRowState(planStates.current, 'task-manager:' + state.workspaceBinding, {}).update({ selected: id, form: null, preview: null }); openCard('digest'); };
-          const helpers = { state, extra, workspace, config, tz, planStates: planStates.current, busy, button, run, runFullCheck, refresh, openCard, openRuns, openPlan, openRepair, repairContext: repairContext?.binding === state.workspaceBinding ? repairContext : null, setFormDirty: value => { formDirty.current = value; }, openRobot: chatWithRobot };
+          const openTodos = filters => openCard('work', null, { source: '', role: '', status: 'open', deadline: 'all', query: '', offset: 0, ...filters });
+          const openCalendar = filters => openCard('reminders', null, { date: calendarDay(new Date(), tz || 'Asia/Shanghai'), period: 'day', source: '', role: '', query: '', offset: 0, ...filters });
+          const helpers = { state, extra, workspace, config, tz, planStates: planStates.current, busy, button, run, runFullCheck, refresh, refreshing, openCard, openRuns, openPlan, openTodos, openCalendar, openRepair, detailPreset: detailPreset?.binding === state.workspaceBinding ? detailPreset : null, repairContext: repairContext?.binding === state.workspaceBinding ? repairContext : null, setFormDirty: value => { formDirty.current = value; }, openRobot: chatWithRobot };
           // F26: tab 角标＝分类内「需注意/需处理」卡片数；出现 error 时角标转红，
           // 仅 warn 时保持琥珀（口径为实施默认，后续可裁决调整）。
           const chipOf = cat => {
+            if (cat === 'home') return null;
             const tiers = CARDS.filter(c => c.cat === cat && !(hidden[cat] || []).includes(c.id)).map(c => c.tier(helpers));
             const errors = tiers.filter(x => x === 'error').length;
             const warns = tiers.filter(x => x === 'warn').length;
@@ -3518,7 +3707,7 @@ window.__ModuleLoader__.load({
                 h('h2', { style: { margin: 0 } }, L(...entry.title), h('span', { className: 'pa24-muted', style: { fontSize: 12, fontWeight: 400, marginLeft: 8 } }, L(...entry.sub)))),
               entry.detail(helpers));
           } else {
-            content = h(CardGrid, { cat: tab, helpers, manage, hidden, toggleHidden, openDetail });
+            content = tab === 'home' ? h(HomeOverview, helpers) : h(CardGrid, { cat: tab, helpers, manage, hidden, toggleHidden, openDetail });
           }
           return h('main', { className: 'pa24' + (manage ? ' pa24-manage' : ''), ref: main }, h('style', null, style), h('div', { className: 'pa24-wrap' },
             h('header', { className: 'pa24-header' },
@@ -3526,7 +3715,7 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-row' },
                 button('chat', L('与24私助对话', 'Chat with 24PA'), chatWithRobot, { className: 'pa24-primary', disabled: busy || !workspace }),
                 button('refresh', refreshing ? L('刷新中…', 'Refreshing…') : L('刷新', 'Refresh'), () => refresh(), { className: 'pa24-quiet', disabled: refreshing }),
-                button('grid', manage ? L('完成（Esc）', 'Done (Esc)') : L('管理卡片', 'Manage cards'), toggleManage, { className: manage ? 'pa24-manage-done' : 'pa24-quiet', 'aria-pressed': manage ? 'true' : 'false' }),
+                tab !== 'home' && button('grid', manage ? L('完成（Esc）', 'Done (Esc)') : L('管理卡片', 'Manage cards'), toggleManage, { className: manage ? 'pa24-manage-done' : 'pa24-quiet', 'aria-pressed': manage ? 'true' : 'false' }),
                 lastRefreshAt && h('span', { className: 'pa24-meta', role: 'status' }, L('已更新 ', 'Updated ') + date(lastRefreshAt, tz)))),
             manage && h('div', { className: 'pa24-notice pa24-tone-blue' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, L('管理态', 'Manage')), L(' · 点卡片顶部「隐藏」收起（再点「显示」恢复）；偏好保存在本浏览器，按分类分别记忆；Esc 退出。', ' · Use Hide at the top of a card to tuck it away (Show brings it back); preferences persist in this browser, remembered per category; Esc exits.'), hideNote && h('p', { className: 'pa24-meta', style: { marginTop: 4 } }, hideNote))),
             config?.mode === 'demo' && !noticeClosed && h('div', { className: 'pa24-notice pa24-tone-amber' }, icon('info', { width: 18, height: 18 }), h('div', null, h('strong', null, L('体验模式', 'Demo mode')), L(' · 未连接飞书；数据保存在本机数据库，不会发到飞书。', ' · Not connected to Feishu; data stays in the local database and never reaches Feishu.')), h('button', { type: 'button', className: 'pa24-quiet', 'aria-label': L('关闭体验模式提示', 'Dismiss demo-mode notice'), onClick: () => setNoticeClosed(true) }, icon('close', { width: 15, height: 15 }))),
@@ -3569,8 +3758,8 @@ window.__ModuleLoader__.load({
             wecom && h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与身份', 'CLI & identity')), statusBadge(wecom.cli.state !== 'ok' || wecom.identity.state === 'error' ? 'error' : wecom.identity.state === 'ok' ? 'ok' : 'warn', wecom.cli.state !== 'ok' ? L('CLI 不可用', 'CLI unavailable') : wecom.identity.state === 'ok' ? undefined : L('身份待核验', 'Identity needs verification'))),
               fields([
-                [L('CLI 状态', 'CLI status'), wecom.cli.message],
-                [L('机器人绑定与授权真人', 'Bot binding & authorized user'), wecom.identity.message],
+                [L('CLI 状态', 'CLI status'), technicalText(wecom.cli.message)],
+                [L('机器人绑定与授权真人', 'Bot binding & authorized user'), technicalText(wecom.identity.message)],
                 [L('推送目标', 'Push target'), wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : L('未解析', 'Unresolved')],
               ])),
             wecom && h('section', { className: 'pa24-card' },
@@ -3579,10 +3768,10 @@ window.__ModuleLoader__.load({
                 ? h('p', { className: 'pa24-meta' }, L('没有已启用的企微渠道（三渠道均为 feishu）。', 'No WeCom channel is enabled (all three channels are on feishu).'))
                 : (wecom.services ?? []).map(s => h('div', { key: s.id, className: 'pa24-resource' },
                     h('div', { className: 'pa24-row' },
-                      h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, serviceMeta[s.id] || s.id), h('p', null, s.message)),
+                      h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, serviceMeta[s.id] || s.id), h('p', null, technicalText(s.message))),
                       serviceBadge(s)),
-                    s.helpMessage && h('p', { className: 'pa24-note pa24-meta' }, s.helpMessage))),
-              h('details', null, h('summary', null, L('下一步（nextSteps）', 'Next steps')), (wecom.nextSteps ?? []).map((n, i) => h('p', { key: i, className: 'pa24-note' }, n)))),
+                    s.helpMessage && h('p', { className: 'pa24-note pa24-meta' }, technicalText(s.helpMessage)))),
+              h('details', null, h('summary', null, L('下一步（nextSteps）', 'Next steps')), (wecom.nextSteps ?? []).map((n, i) => h('p', { key: i, className: 'pa24-note' }, technicalText(n))))),
             !wecom && h('section', { className: 'pa24-card' }, empty('bot', 'blue', L('尚未检查企微接入', 'WeCom access not checked yet'), L('点击右上方「检查企微接入」发起一次只读检查：CLI 可执行、机器人绑定与授权真人、按启用域的服务级授权探测。', 'Click “Check WeCom access” above for a read-only pass: CLI binary, bot binding and authorized user, and service-level probes per enabled domain.'), button('chat', L('让24私助带我做接入', 'Walk me through it'), openRobot, { className: 'pa24-primary' }))));
         }
 

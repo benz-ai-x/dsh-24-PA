@@ -73,6 +73,14 @@ for (const backend of ['sqlite', 'postgres']) describe(`全局运行档案 (${ba
     await db.query('update pa24.skill_run set snapshot = $2 where id = $1', ['r29', JSON.stringify({ name: '能力', plan: { title: '可见的计划标题' } })]);
     expect((await list({ query: '可见的计划标题' })).rows.map(row => row.id)).toEqual(['r29']);
   });
+  it('待我处理与未解决筛选和摘要使用同一口径', async () => {
+    const summary = await history.summary({ workspaceBinding: 'binding' });
+    expect((await list({ kind: 'work', attention: 'waiting', range: 'all' })).rows.map(row => row.id)).toEqual(['w2']);
+    expect((await list({ kind: 'runs', attention: 'unresolved', range: 'all' })).total).toBe(summary.unresolved);
+    await expect(list({ kind: 'work', attention: 'unresolved' })).rejects.toThrow(/只适用于执行记录/);
+    await expect(list({ kind: 'runs', attention: 'waiting' })).rejects.toThrow(/只适用于助理交办/);
+    await expect(list({ attention: 'other' })).rejects.toThrow(/待处理筛选无效/);
+  });
   it('暂停取消的未启动排队只计未执行，原始记录仍可核对', async () => {
     await db.query("insert into pa24.digest_plan (id, kind, title, session_id, schedule_spec) values ('plan-a','task','排队计划','parent','{}')");
     await db.query("update pa24.skill_run set status = 'pending' where id = 'r0'");

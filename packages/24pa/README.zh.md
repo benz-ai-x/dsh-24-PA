@@ -14,9 +14,9 @@ kind: "package-bundle"
 
 **从“提醒我”到“帮我准备这一周”——把对话变成有条理、可审核、能跟进的行动，同时把控制权留在自己手里。**
 
-`@benz-ai-x/dsh-24pa` 是运行在 [dsh](https://github.com/deepseek-ai/deepseek-harness) 上的自托管 AI 私人助理插件。本地 DSH 会话与飞书机器人围绕同一位主人的工作区协调七类业务 Worker；电脑端工作区另以十六张能力卡片承接 Agent Skills、定时任务、日程、待办、结构化记忆、手写审核与送达证据。
+`@benz-ai-x/dsh-24pa` 是运行在 [dsh](https://github.com/deepseek-ai/deepseek-harness) 上的自托管 AI 私人助理插件。本地 DSH 会话与飞书机器人围绕同一位主人的工作区协调七类业务 Worker；电脑端首页集中展示关键数据、今日日程、优先待办和助理状态，原四分类十六张能力卡片承接 Agent Skills、定时任务、结构化记忆、手写审核与送达证据。24PA 自有面板及对话草稿均支持中英文切换。
 
-![24私助电脑端工作区，展示 Skill 管理、定时任务、日程、待办与运行记录](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
+![24私助电脑端首页，展示关键数据、今日日程、优先待办与助理状态](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
 
 ## 为什么是24私助？
 

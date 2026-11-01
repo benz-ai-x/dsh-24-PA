@@ -14,9 +14,9 @@ kind: "package-bundle"
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
-`@benz-ai-x/dsh-24pa` is a self-hosted AI personal-assistant plugin for [dsh](https://github.com/deepseek-ai/deepseek-harness). Local DSH sessions and a Feishu bot coordinate seven business workers in one owner-bound workspace; the desktop workspace adds sixteen capability cards for agent skills, scheduled tasks, calendars, todos, structured memory, handwriting review, and delivery evidence.
+`@benz-ai-x/dsh-24pa` is a self-hosted AI personal-assistant plugin for [dsh](https://github.com/deepseek-ai/deepseek-harness). Local DSH sessions and a Feishu bot coordinate seven business workers in one owner-bound workspace. The desktop home brings key metrics, today's calendar, priority todos, and assistant status into one view, while sixteen capability cards across four categories cover agent skills, scheduled tasks, structured memory, handwriting review, and delivery evidence. All 24PA-owned panels and chat drafts support both Chinese and English.
 
-![24PA desktop workspace showing Skill management, scheduled tasks, calendars, todos, and run history](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
+![24PA desktop home showing key metrics, today's calendar, priority todos, and assistant status](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
 
 ## Why 24PA?
 

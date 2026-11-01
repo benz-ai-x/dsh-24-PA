@@ -63,6 +63,7 @@ beforeEach(async () => {
     slots: { inject: (_name, fn) => fn(), register: (spec, view) => { if (spec.name === 'main') Panel = view; } }, uiWorkspace: { openSession: () => {} } });
   container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container);
   await act(async () => root.render(React.createElement(Panel)));
+  await act(async () => container.querySelector('#pa24-tab-work').click());
   const card = [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：待办'));
   expect(card).toBeTruthy(); card.focus(); expect(win.document.activeElement).toBe(card); await act(async () => card.click());
   sourceFailed = false;

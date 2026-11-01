@@ -31,6 +31,7 @@ it.each(['light', 'dark'])('%s 窄屏提醒 DOM 保留实际日历归属，首�
   });
   container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container);
   await act(async () => root.render(React.createElement(Panel)));
+  await act(async () => container.querySelector('#pa24-tab-work').click());
   const card = [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：日程'));
   expect(card).toBeTruthy(); card.focus(); expect(win.document.activeElement).toBe(card); await act(async () => card.click());
   expect(container.textContent).toContain('企微日历'); expect(container.textContent).toContain('wecom-event-1'); expect(container.textContent).toContain('日历 App 提醒');

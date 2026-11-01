@@ -60,6 +60,20 @@ describe('面板动作注册表（arch-2 seam 直测）', () => {
     expect(await response.json()).toEqual({ ok: true, value: { workspaceBinding: 'binding-a', entries: [] } });
   });
 
+  it('home RPC 返回同一工作区的组合快照并传递绑定', async () => {
+    let route, received;
+    const home = { calendar: { count: 2 }, todos: { counts: { open: 3 } }, review: { count: 1 }, plans: { total: 1 }, runs: { runs24: 4 }, observedAt: '2026-11-01T02:00:00Z', workspaceBinding: 'binding-a' };
+    const runtime = {
+      inspectWorkspace: async work => work(),
+      homeSnapshot: async payload => { received = payload; return home; },
+    };
+    registerPanel({ effect: setup => setup(), connection: { fetch: { register: value => { route = value; } } } }, runtime);
+    const response = await route.fetch(new Request('http://localhost/api/24pa', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ endpoint: PANEL_RPC.endpoints.home, payload: { workspaceBinding: 'binding-a' } }) }));
+    expect(received).toEqual({ workspaceBinding: 'binding-a' });
+    expect(await response.json()).toEqual({ ok: true, value: home });
+  });
+
   it('重载失败经 RPC 传输结构化 saved_not_applied 证据', async () => {
     let route;
     const evidence = { state: 'saved_not_applied', savedHash: 'disk-hash', activeHash: 'runtime-hash' };
