@@ -115,6 +115,12 @@ function closure(records: Record<string, Record<string, any>[]>) {
   for (const table of ['skill_run_session', 'skill_run_input', 'skill_run_call', 'skill_run_resume', 'skill_run_native', 'skill_run_review']) relation(table, 'run_id', 'skill_run');
   for (const table of ['worker_run_input', 'worker_run_call']) relation(table, 'run_id', 'worker_run');
   relation('work_change', 'work_item_id', 'work_item');
+  relation('work_planning', 'work_item_id', 'work_item');
+  relation('work_planning_revision', 'record_id', 'work_planning');
+  for (const plan of rows('work_planning')) {
+    const saved = rows('work_planning_revision').find(row => row.record_id === plan.id && row.revision === plan.revision);
+    if (!saved || JSON.stringify(saved.record?.content) !== JSON.stringify(plan.content)) errors.push(`工作规划当前版本与修订记录不一致：${plan.id}`);
+  }
   relation('work_item', 'parent_work_item_id', 'work_item');
   relation('work_item', 'active_skill_run_id', 'skill_run'); relation('work_item', 'active_worker_run_id', 'worker_run');
   for (const table of ['plan_trigger', 'task_plan_run_outcome', 'task_plan_notice', 'task_plan_delivery']) relation(table, 'run_id', 'skill_run');

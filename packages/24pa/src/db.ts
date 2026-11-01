@@ -896,4 +896,17 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       `create index if not exists backup_record_scope_idx on pa24.backup_record (workspace_id, started_at)`,
     ],
   },
+  {
+    version: 32,
+    statements: [
+      `create table if not exists pa24.work_planning (
+        id text primary key, revision int not null, content jsonb not null,
+        work_item_id text not null, updated_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.work_planning_revision (
+        request_key text primary key, record_id text not null, revision int not null,
+        record jsonb not null, created_at timestamptz not null default now(), unique (record_id, revision)
+      )`,
+    ],
+  },
 ];

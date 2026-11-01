@@ -407,3 +407,9 @@ Open **Operations & maintenance → Models & budgets** to inspect actual models,
 When a limit is reached, the original input, progress, and independent blocker are preserved. Review the original session and run, then prepare and explicitly confirm a scoped one-run permit. It authorizes only the next model request in that session; a retry consumes another permit. Native child sessions show their own waits, while input, authorization, dependency, stop, timeout, and the owner's pause on future plans remain in force. Already dispatched requests may continue to accrue charges; native calendar reminders, result saving, and delivery continue.
 
 Migration 30 appends the budget ledger and complete-input fields with unlimited defaults. Keep the migrated ledger when rolling back application code; do not delete budget rows manually to bypass a limit or resume a run. See the [budget and input-recovery contract](../../docs/research/2026-10-23-Manticore-M08预算与输入恢复契约.md) for evidence, recovery, and acceptance boundaries.
+
+## Everyday work methods
+
+Confirm 1–3 near-term outcomes in chat, then ask 24PA to plan your day. Proposals explain priorities, next actions, and tradeoffs. An adopted plan remains available for the evening review; Home shows the same records and provides reviewable chat drafts. Clear small requests proceed directly; consequential tradeoffs prompt a discussion.
+
+The `daily-planning` and `daily-review` agent Skills use the model. Run them on demand or explicitly enable a schedule. In workspace settings, enable the Skill worker and calendar or digest role, and add the selected names to the business Skill allowlist. Existing digest templates are retained. Adopting a daily plan does not create calendar events; time blocks require separate explicit adoption.

@@ -165,3 +165,9 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.1-rc.5.3 --registry=http
 ---
 
 包：[`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · 当前版本：[`v0.2.1-rc.5.3`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.1-rc.5.3)
+
+## 日常工作方法
+
+在对话中说明近期最重要的1–3个成果，再请24私助安排今天。助理会给出重点、理由、下一步和待取舍事项；确认采纳后，日终复盘会对照同一份安排。首页“今日工作”展示这些记录，按钮生成可检查的对话草稿。明确小事直接办理，关键冲突才讨论。
+
+“今日规划”（`daily-planning`）与“日终复盘”（`daily-review`）是智能 Skill，会调用模型。按需执行或在定时任务中明确启用；需要在参数配置开启 Skill 业务角色、calendar 或 digest 职责，并将所用名称加入业务 Skill 放行范围。既有晨报与复盘模板不会自动换绑。确认每日计划不会自动写日历，时间块仍需明确采纳。

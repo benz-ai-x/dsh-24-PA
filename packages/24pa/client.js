@@ -702,6 +702,7 @@ window.__ModuleLoader__.load({
             const captureHome = () => rpc('home', { workspaceBinding }, abort.signal).then(home => {
               if (!home || home.workspaceBinding !== workspaceBinding || homeKeys.some(key => home[key] === undefined)) throw new Error(L('首页响应或工作区不匹配，请刷新重试。', 'The home response or workspace changed. Refresh and retry.'));
               for (const key of homeKeys) out[key] = home[key];
+              out.workPlanning = home.workPlanning ?? null;
               out.homeObservedAt = home.observedAt;
             }).catch(error => { for (const key of homeKeys) { errors[key] = error.message; originalErrors[key] = error.originalMessage || error.message; } });
             void Promise.all([
@@ -3502,6 +3503,48 @@ window.__ModuleLoader__.load({
                 : h('p', { className: 'pa24-meta' }, extra._errors?.plans || (rawPlans ? L('计划摘要响应不完整', 'Incomplete plan summary') : L('正在读取计划摘要…', 'Reading plan summary…'))),
               h('button', { type: 'button', className: 'pa24-quiet', onClick: () => plans?.next ? helpers.openPlan(plans.next.id) : helpers.openCard('digest') }, L('管理定时任务', 'Manage scheduled tasks'), icon('arrow', { width: 13, height: 13 }))));
         }
+        function HomeWorkPlanning({ helpers }) {
+          const [draft, setDraft] = React.useState(''), [notice, setNotice] = React.useState('');
+          const data = helpers.extra.workPlanning, plan = data?.plan, accepted = plan?.content.accepted;
+          const review = data?.review || data?.previousReview;
+          const focuses = data?.focus?.content.items || [];
+          const current = accepted?.items || plan?.content.items || [];
+          const makeDraft = kind => {
+            const context = data ? L(`工作日期 ${data.date}（${data.timeZone}），近期重点版本 ${data.focus?.revision ?? 0}，每日计划版本 ${plan?.revision ?? 0}。`, `Work date ${data.date} (${data.timeZone}), focus revision ${data.focus?.revision ?? 0}, daily plan revision ${plan?.revision ?? 0}.`) : '';
+            const requests = {
+              focus: L('请先读取当前近期重点，和我确认近期最重要的1–3个成果及完成标准，再按我的明确选择更新。', 'Read my current focus and help me confirm 1–3 near-term outcomes and completion criteria before updating my choices.'),
+              plan: L('请核对已确认重点、真实日程待办和最近复盘，提出今天最值得做的事、理由和下一步。时间不够时给出取舍选项。先讨论，未采纳前不写入日历。', 'Check confirmed focus, actual calendars and todos, and the latest review. Propose today’s priorities, reasons, and next actions. Explain tradeoffs if time is short. Discuss before adopting; do not create calendar events yet.'),
+              review: L('请读取当天已采纳安排及最新业务状态，复盘进展并提出后续调整。未知原因不要推断，只问影响下一步的关键问题。', 'Read the adopted plan and current work status, review progress, and propose adjustments. Do not infer unknown causes; ask only a question that affects the next step.'),
+            };
+            setDraft(`${context}\n${requests[kind]}`.trim()); setNotice('');
+          };
+          const renderItems = (items, confirmed) => h('div', { className: 'pa24-home-list' }, items.map(item => h('article', { className: 'pa24-home-todo-row', key: item.id },
+            h('div', { className: 'pa24-home-todo-main' }, h('strong', null, item.title), h('span', { className: 'pa24-meta' }, confirmed ? L('已采纳', 'Adopted') : L('建议', 'Proposed'))),
+            h('p', null, item.outcome), h('p', { className: 'pa24-meta' }, L('优先理由：', 'Why: ') + item.reason),
+            h('p', null, L('下一步：', 'Next: ') + item.nextAction),
+            h('p', { className: 'pa24-meta' }, item.estimateMinutes == null ? L('估时待确认', 'Estimate unknown') : L(`预计 ${item.estimateMinutes} 分钟`, `Estimated ${item.estimateMinutes} minutes`),
+              item.start ? ` · ${calendarTime(item.start, helpers.tz)}–${calendarTime(item.end, helpers.tz)}` : L(' · 尚未安排时间块', ' · No time block yet')))));
+          const statusLabels = { completed: L('已完成', 'Completed'), progress: L('推进中', 'In progress'), blocked: L('受阻', 'Blocked'), changed: L('主动调整', 'Adjusted'), unknown: L('待核实', 'Unknown') };
+          return h('section', { className: 'pa24-card pa24-home-board', 'data-testid': 'home-work-planning', 'aria-label': L('今日工作', 'Today’s work') },
+            h('div', { className: 'pa24-home-board-head' }, h('div', null, h('h2', null, icon('tasks'), L('今日工作', 'Today’s work')), h('p', null, L('围绕重要成果安排，保留你的取舍。', 'Plan around meaningful outcomes and keep your decisions.'))),
+              h('div', { className: 'pa24-row' }, helpers.button('chat', L('调整重点', 'Edit focus'), () => makeDraft('focus')), helpers.button('chat', L('讨论安排', 'Discuss plan'), () => makeDraft('plan')), helpers.button('note', L('开始复盘', 'Review day'), () => makeDraft('review')))),
+            !data ? h('p', { role: 'status', className: 'pa24-meta' }, helpers.extra._errors?.calendar || L('规划记录暂不可用，请刷新重试。', 'Planning records unavailable. Refresh to retry.')) : h(React.Fragment, null,
+              h('div', { className: 'pa24-home-planning-focus' }, h('h3', null, L('近期重点', 'Near-term focus')), focuses.length ? h('ul', null, focuses.map(focus => h('li', { key: focus.id }, h('strong', null, focus.title), ' — ', focus.outcome,
+                focus.until && h('span', { className: 'pa24-meta' }, L(` · 适用至 ${focus.until}`, ` · Through ${focus.until}`), focus.until < data.date ? L('（待更新）', ' (needs updating)') : '')))) : h('p', { className: 'pa24-meta' }, L('先确认近期最重要的1–3个成果，助理才能据此安排。', 'Confirm 1–3 near-term outcomes to guide your plans.'))),
+              current.length ? renderItems(current, !!accepted) : h('p', { className: 'pa24-meta' }, L('今天还没有工作安排。可以从讨论安排开始。', 'No work plan for today yet. Start by discussing a plan.')),
+              accepted && plan.revision > accepted.revision && h('details', null, h('summary', null, L('查看尚未采纳的新建议', 'View the new proposal')), renderItems(plan.content.items, false)),
+              plan?.content.decisions?.length > 0 && h('div', { role: 'note' }, h('h3', null, L('待你决定', 'Your decision needed')), h('ul', null, plan.content.decisions.map((decision, index) => h('li', { key: index }, decision)))),
+              plan?.content.evidence.missing?.length > 0 && h('p', { className: 'pa24-meta', role: 'status' }, L('数据缺失：', 'Missing data: ') + plan.content.evidence.missing.map(technicalText).join(L('；', '; '))),
+              review && h('details', null, h('summary', null, L(`复盘 · ${review.content.date}`, `Review · ${review.content.date}`)),
+                h('p', { className: 'pa24-meta' }, L(`对照已采纳版本 ${review.content.acceptedRevision}`, `Compared with adopted revision ${review.content.acceptedRevision}`)),
+                h('ul', null, review.content.results.map(result => h('li', { key: result.itemId }, `${statusLabels[result.status] || statusLabels.unknown} · ${result.detail}`))),
+                h('h4', null, L('后续调整建议', 'Suggested adjustments')), h('ul', null, review.content.adjustments.map((value, index) => h('li', { key: index }, value))),
+                review.content.question && h('p', null, L('待澄清：', 'Clarification: ') + review.content.question)),
+              h('p', { className: 'pa24-meta' }, L('建议与采纳分别保留；采纳计划不会自动创建日程。', 'Proposals and adopted plans are kept separately. Adoption does not create calendar events.'))),
+            draft && h('div', { className: 'pa24-home-planning-draft' }, h('label', null, L('对话草稿', 'Chat draft'), h('textarea', { readOnly: true, rows: 4, value: draft, style: { width: '100%' } })),
+              helpers.button('chat', L('复制并打开对话', 'Copy and open chat'), async () => { try { await navigator.clipboard.writeText(draft); await helpers.openRobot(); setNotice(L('已复制，请核对后发送。', 'Copied. Review and send in chat.')); } catch { setNotice(L('请手动复制草稿并打开对话。', 'Copy the draft manually and open chat.')); } }),
+              helpers.button('close', L('关闭草稿', 'Close draft'), () => setDraft('')), notice && h('p', { role: 'status' }, notice)));
+        }
         function HomeOverview(helpers) {
           const { extra, tz } = helpers;
           if (!helpers.workspace) return h('section', { className: 'pa24-home', 'data-testid': 'home-overview' }, empty('bot', 'blue', L('先绑定你的工作区', 'Bind your workspace first'), L('绑定后，首页会在这里汇总你的日程、待办和需要处理的事项。', 'Once bound, this home will bring together your calendar, todos, and items needing attention.'), h('button', { type: 'button', className: 'pa24-primary', onClick: () => helpers.openCard('workspace') }, L('前往工作区与配置', 'Open workspace & config'))));
@@ -3524,6 +3567,7 @@ window.__ModuleLoader__.load({
               h(HomeMetric, { name: 'chat', label: L('待我处理交办', 'Work awaiting me'), value: runs?.waiting_work, detail: loading('runs') || (runs ? L(`进行中 ${runs.active_work} · 异常交办 ${runs.failed_work}`, `${runs.active_work} active · ${runs.failed_work} failed work`) : ''), onClick: () => helpers.openRuns({ kind: 'work', range: 'all', includeUnresolved: true, attention: 'waiting' }), tone: 'violet', testId: 'home-metric-work' }),
               h(HomeMetric, { name: 'note', label: L('待审资料', 'Materials to review'), value: review?.count, detail: loading('review') || (review ? L(`退回 ${review.counts?.returned ?? 0} · 需重审 ${review.counts?.needs_rereview ?? 0} · 核验异常 ${review.counts?.verificationUnknown ?? 0}`, `${review.counts?.returned ?? 0} returned · ${review.counts?.needs_rereview ?? 0} re-review · ${review.counts?.verificationUnknown ?? 0} unknown`) : ''), onClick: () => helpers.openCard('review'), tone: 'danger', testId: 'home-metric-review' }),
               h(HomeMetric, { name: 'alert', label: L('需处理运行', 'Unresolved runs'), value: runs?.unresolved, detail: loading('runs') || (runs ? L(`未执行事件 ${runs.unresolved_events} · 24 小时失败 ${runs.failed24}`, `${runs.unresolved_events} unexecuted events · ${runs.failed24} failed in 24h`) : ''), onClick: () => helpers.openRuns({ kind: 'runs', range: 'all', includeUnresolved: true, attention: 'unresolved' }), tone: 'amber', testId: 'home-metric-runs' })),
+            h(HomeWorkPlanning, { helpers, key: helpers.state.workspaceBinding }),
             h('div', { className: 'pa24-home-boards' }, h(HomeCalendarBoard, { data: calendar, error: problem('calendar'), helpers }), h(HomeTodoBoard, { data: todos, error: problem('todos'), helpers })),
             h(HomeAssistantStatus, { helpers }));
         }

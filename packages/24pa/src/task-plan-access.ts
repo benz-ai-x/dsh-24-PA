@@ -15,6 +15,9 @@ const writes: Record<string, { domain: SourceDomain; capability: SourceCapabilit
 const scopeCapability = (domain: SourceDomain, capability: SourceCapability): SourceCapability =>
   domain === 'todo' && ['update', 'cancel'].includes(capability) ? 'read' : capability;
 const reads = new Set(['calendar_sources', 'calendar_query', 'calendar_busy', 'task_get', 'task_list', 'memo_find']);
+// Planning drafts are workspace-local business records. They cannot adopt a
+// proposal, confirm goals, write memory, or modify an external object.
+const planningDrafts = new Set(['planning_context', 'daily_plan_save', 'daily_review_save']);
 const canonical = (value: any): any => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 export const taskPlanFingerprint = (value: unknown): string => skillHash(JSON.stringify(canonical(value)));
@@ -70,7 +73,7 @@ export class TaskPlanAccess {
     if (!authorization.skill.contract?.actions?.includes(action)) throw new Error('此操作不在本计划授权范围内。');
     const write = writes[action];
     if (!write) {
-      if (!reads.has(action)) throw new Error('此后台动作尚未获准。');
+      if (!reads.has(action) && !planningDrafts.has(action)) throw new Error('此后台动作尚未获准。');
       return args;
     }
     const binding = authorization.targets.find(row => row.target.domain === write.domain && row.capability === write.capability);
@@ -86,7 +89,7 @@ export class TaskPlanAccess {
     return { ...values, sourceId: binding.target.sourceId, channel: binding.target.platform, _sourceTarget: binding.target };
   }
   private checkAction(action: string): void {
-    if (!writes[action] && !reads.has(action)) throw new Error(`后台动作 ${action} 尚无可核验的固定授权目标；请改为已支持的业务动作后启用。`);
+    if (!writes[action] && !reads.has(action) && !planningDrafts.has(action)) throw new Error(`后台动作 ${action} 尚无可核验的固定授权目标；请改为已支持的业务动作后启用。`);
     this.deps.checkAction?.(action);
   }
 }

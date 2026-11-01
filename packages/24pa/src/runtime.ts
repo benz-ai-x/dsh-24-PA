@@ -47,6 +47,7 @@ import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { candidateParameters, materialFingerprint } from './material-draft.js';
 import { WecomChannels, WECOM_CALENDAR_ID, wecomRepeatRule, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
+import { WorkPlanning } from './work-planning.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
 import { noteDerivedContent } from './note-derivation.js';
 import { OutboxDelivery, DeliveryHeld, checkDeliveryHold } from './outbox-delivery.js';
@@ -471,14 +472,15 @@ export class PaRuntime {
     if (!this.config || !this.repos) throw new Error('尚未绑定工作区。');
     if (input.workspaceBinding !== undefined) this.assertWorkspaceBinding(String(input.workspaceBinding));
     const workspaceBinding = this.workspaceBinding;
-    const [calendar, todos, review, plans, runs] = await Promise.all([
+    const [calendar, todos, review, plans, runs, workPlanning] = await Promise.all([
       this.calendarSnapshot({ workspaceBinding, period: 'day', offset: 0, limit: 50 }),
       this.todoSnapshot({ workspaceBinding, status: 'open', deadline: 'all', offset: 0, limit: 50 }),
       this.reviewQueue(),
       this.taskPlans.summary({ workspaceBinding }),
       this.runHistory.summary({ workspaceBinding }),
+      this.workPlanning.snapshot(),
     ]);
-    return { calendar, todos, review, plans, runs, observedAt: new Date().toISOString(), workspaceBinding };
+    return { calendar, todos, review, plans, runs, workPlanning, observedAt: new Date().toISOString(), workspaceBinding };
   }
 
   async todoSnapshot(input: Record<string, unknown> = {}): Promise<unknown> {
@@ -559,6 +561,22 @@ export class PaRuntime {
   /** Recurring-digest & daily-planning service (F32): plans/build/render/
    *  delivery; F19 voice + F40/F41 skill tracks extend here. The runtime
    *  keeps role bindings, the follow-up tick and channel selection. */
+  private readonly workPlanning = new WorkPlanning({
+    repo: () => this.repos!.workPlanning, timeZone: () => this.config!.timeZone,
+    todos: () => this.sourceTodo.query({ status: 'all', deadline: 'all' }, true, false),
+    calendar: args => this.sourceCalendar.all(args),
+    work: () => this.repos!.workItems.list(undefined, 1000), waiting: () => this.repos!.waiting.list('waiting'),
+    bufferMinutes: () => this.digest.preferenceBufferMinutes(),
+  });
+  // Native tools require lossless JSON; ledger rows and source facts contain Dates.
+  private async planningResult(operation: Promise<unknown>): Promise<unknown> {
+    return JSON.parse(JSON.stringify(await operation));
+  }
+  private readonly planningActions = {
+    planning_context: (args: Record<string, unknown>) => this.planningResult(this.workPlanning.context(args)),
+    daily_plan_save: (args: Record<string, unknown>, item: WorkItemRow) => this.planningResult(this.workPlanning.savePlan(args, item)),
+    daily_review_save: (args: Record<string, unknown>, item: WorkItemRow) => this.planningResult(this.workPlanning.saveReview(args, item)),
+  };
   private readonly digest: DigestService = new DigestService({
     ...this.baseChannelDeps(),
     cli: () => ({ bin: this.options.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
@@ -577,6 +595,7 @@ export class PaRuntime {
     ownerNotification: (key, report) => this.ownerNotification(key, report),
     waitingFollowups: () => this.waitingFollowups,
     skillCatalog: () => this.skillCatalog,
+    planningContext: (date, timeZone) => this.planningResult(this.workPlanning.context({ date, timeZone })),
   });
 
   /** Panel surface (digest.supervise action): stable runtime face (F32). */
@@ -796,8 +815,9 @@ export class PaRuntime {
   private skillBusinessAction(action: string): WorkerActionHandler {
     if (['skill_run', 'skill_resource', 'skill_wait'].includes(action)) throw new Error('运行控制与资源读取不作为额外业务动作授权。');
     const matches = this.roles.list().filter(role => role.id !== 'skill' && role.available && this.config?.enabledWorkers.includes(role.id) && Object.hasOwn(role.actions, action));
-    if (matches.length !== 1) throw new Error(`业务动作未获准或执行职责不唯一：${action}`);
-    return matches[0]!.actions[action]!;
+    const handlers = [...new Set(matches.map(role => role.actions[action]!))];
+    if (handlers.length !== 1) throw new Error(`业务动作未获准或执行职责不唯一：${action}`);
+    return handlers[0]!;
   }
 
   /** Built-in, auditable action implementations a registered role may bind (P44). */
@@ -916,6 +936,7 @@ export class PaRuntime {
       actions: {
         digest_build: async (args, item) => this.digest.digestBuild(item, args),
         digest_deliver: async (args, item) => this.digest.digestDeliver(item, args),
+        ...this.planningActions,
       },
     });
     this.roles.register({
@@ -926,6 +947,9 @@ export class PaRuntime {
       available: true,
       actions: {
         calendar_sources: async () => this.sourceRegistry.list(),
+        ...this.planningActions,
+        focus_update: (args, item) => this.planningResult(this.workPlanning.updateFocus(args, item)),
+        daily_plan_confirm: (args, item) => this.planningResult(this.workPlanning.confirmPlan(args, item)),
         calendar_query: async args => this.calendarQuery(args),
         calendar_busy: async args => this.calendarBusy(args),
         calendar_create: async (args, item) => this.calendarWrite(item, 'create', args),
@@ -2498,7 +2522,13 @@ export class PaRuntime {
           }
           if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
           if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
-          const authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
+          let authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
+          if (run.snapshot.plan && Object.hasOwn(this.planningActions, action)) {
+            const timeZone = run.snapshot.plan.configuration.timeZone;
+            const date = localDay(run.snapshot.plan.triggeredAt, timeZone).date;
+            if ((args.date !== undefined && args.date !== date) || (args.timeZone !== undefined && args.timeZone !== timeZone)) throw new Error('规划日期和时区必须使用本次计划的原发生窗口。');
+            authorized = { ...authorized, date, timeZone };
+          }
           return await this.skillBusinessAction(action)(authorized, item, this);
         }
         const role = this.roles.get(item.role);

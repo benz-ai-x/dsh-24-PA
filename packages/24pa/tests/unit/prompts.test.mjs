@@ -23,11 +23,12 @@ describe('PROMPTS_VERSION 与 Lead 分节（A1/B1）', () => {
     expect(PROMPTS_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it('Lead 规则拆为 4 个有序 section，各带 ## 标题且顺序递增', () => {
+  it('Lead 规则包含工作方法且各节有序、各带标题', () => {
     expect(LEAD_SECTIONS.map(s => s.name)).toEqual([
       '24pa-identity-capability',
       '24pa-coordination',
       '24pa-business-domains',
+      '24pa-work-methods',
       '24pa-safety-reporting',
     ]);
     const orders = LEAD_SECTIONS.map(s => s.order);

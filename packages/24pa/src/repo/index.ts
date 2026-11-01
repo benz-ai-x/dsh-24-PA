@@ -1,6 +1,7 @@
 // Split from repo.ts (round-3 review): the Repos facade — the unchanged
 // seam every caller already uses (repo.ts is now a barrel re-exporting this).
 import { ModelBudgetRepo } from './model-budget.js';
+import { WorkPlanningRepo } from './work-planning.js';
 import type { PaDb } from '../db.js';
 import { BackupRepo } from './backup.js';
 import { CalendarEventRow, CalendarRepo, CalendarSyncRow } from './calendar.js';
@@ -31,6 +32,7 @@ import { DataChannel, ProjectRepo, ProjectRow, TaskRepo, TaskRow } from './task.
 import { ActionOperationRepo, ActionOperationRow, OperationStatus, WorkItemRepo, WorkItemRow, WorkItemStatus } from './work.js';
 
 export interface Repos {
+  workPlanning: WorkPlanningRepo;
   backups: BackupRepo;
   modelBudget: ModelBudgetRepo;
   inbox: InboxRepo;
@@ -70,6 +72,7 @@ export interface Repos {
 
 export function createRepos(db: PaDb): Repos {
   return {
+    workPlanning: new WorkPlanningRepo(db),
     backups: new BackupRepo(db),
     modelBudget: new ModelBudgetRepo(db),
     inbox: new InboxRepo(db),

@@ -6,6 +6,7 @@
 // 执行轨（spec 2.11）：metadata.track＝'template'（确定性组装，不过模型）或
 // 'agent'（任务指令进模型回合，F41 交付）；缺省按 agent。
 
+import { WORK_METHOD_SKILLS } from './work-methods.js';
 export type SkillTrack = 'template' | 'agent';
 
 export interface TaskSkill {
@@ -132,7 +133,7 @@ export const WORKER_PERSONA_SKILLS: readonly { name: string; description: string
       '- 每条信息带来源；数据缺失如实列出，不显示为零。',
       '## 边界',
       '- 重点与容量是建议，事实与建议必须分开标注。',
-      '- 不修改任务/日历，不写长期记忆，不自动延期任何未完成任务；只产出简报文本并交给宿主投递。',
+      '- 不修改任务/日历，不写长期记忆，不自动延期任何未完成任务；可经 planning_context 读取规划，daily_plan_save/daily_review_save 保存建议和复盘，不能确认近期重点或采纳安排。报告交给宿主投递。',
       '## 输出要求（四栏结构）',
       '- 事实：实际状态逐条列出，带来源与同步时间/新鲜度。',
       '- 建议：重点与容量建议，与事实分开标注。',
@@ -163,6 +164,7 @@ export const WORKER_PERSONA_SKILLS: readonly { name: string; description: string
       '## 输出要求',
       '- 结果交回发起会话，附具体日期、起止、时区、日历名称及标识、默认值、实际影响和回读差异。',
       '- plan_today/plan_preview 按四栏组织：事实（当日日程与任务实际状态，带同步时间）、建议（重点/容量/冲突/候选时间块，与事实分开）、来源（日程/任务标识）、缺失（取不到的数据逐项注明）。plan_adopt 写入后回读回执。',
+      '- 日常规划优先 planning_context：围绕已确认近期重点选择成果、理由、下一步，daily_plan_save 保存建议。focus_update/daily_plan_confirm 仅凭本次主人明确 instruction 及读取版本；采纳不创建日程。daily_review_save 对照采纳版本，未知原因只问关键疑点，不自动延期或写记忆。',
     ].join('\n'),
     metadata: { track: 'template', kind: 'worker-persona', pa24: true, role: 'calendar', variant: 'full' },
   },
@@ -346,6 +348,7 @@ export class SkillCatalog {
   /** 全量内置件（任务件＋向导件；向导件仅在指南可读时出现）。 */
   builtinAll(): { name: string; description: string; whenToUse: string; content: string; source: 'runtime'; metadata: Record<string, unknown> }[] {
     return [
+      ...WORK_METHOD_SKILLS.map(s => ({ ...s, source: 'runtime' as const })),
       ...BUILTIN_TASK_SKILLS.map(s => ({ name: s.name, description: s.description, whenToUse: s.whenToUse, content: s.content, source: 'runtime' as const, metadata: { ...s.metadata } })),
       ...WORKER_PERSONA_SKILLS.map(s => ({ name: s.name, description: s.description, whenToUse: s.whenToUse, content: s.content, source: 'runtime' as const, metadata: { ...s.metadata } })),
       ...setupGuideSkills(this.readGuide).map(s => ({ ...s, source: 'runtime' as const })),
@@ -425,7 +428,7 @@ export class SkillCatalog {
   async meta(name: string): Promise<Record<string, unknown>> {
     const def = await this.registry?.get(name, { cwd: this.cwd() ?? undefined });
     if (def?.metadata && typeof def.metadata === 'object') return def.metadata;
-    const builtin = BUILTIN_TASK_SKILLS.find(s => s.name === name)?.metadata;
+    const builtin = this.builtinAll().find(s => s.name === name)?.metadata;
     return builtin ? { ...builtin } : {};
   }
 
