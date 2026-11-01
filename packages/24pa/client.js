@@ -252,10 +252,10 @@ window.__ModuleLoader__.load({
             setView({ status: 'loading', data: null, error: '' });
             void rpc(key, payload, abort.signal).then(data => {
               if (!abort.signal.aborted) setView({ status: 'ready', data, error: '' });
-            }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.message }); });
+            }).catch(error => { if (!abort.signal.aborted) setView({ status: 'error', data: null, error: error.originalMessage || error.message }); });
             return () => abort.abort();
           }, [...deps, retry]);
-          return [view, () => setRetry(v => v + 1)];
+          return [{ ...view, error: technicalText(view.error) }, () => setRetry(v => v + 1)];
         };
 
         function MemoryHistory({ id, workspace, binding }) {
@@ -493,9 +493,9 @@ window.__ModuleLoader__.load({
         const openRobot = async () => { const r = await rpc('action', { type: 'robot.open' }); ctx.uiWorkspace.openSession(r.sessionId); };
         function usePanelActions() {
           const [busy, setBusy] = React.useState(false), [error, setError] = React.useState('');
-          const run = async fn => { setBusy(true); setError(''); try { return await fn(); } catch (e) { setError(e.message); return null; } finally { setBusy(false); } };
+          const run = async fn => { setBusy(true); setError(''); try { return await fn(); } catch (e) { setError(e.originalMessage || e.message); return null; } finally { setBusy(false); } };
           const button = (name, label, fn, props = {}) => h('button', { type: 'button', disabled: busy, onClick: () => void run(fn), ...props }, name && icon(name), label);
-          return { busy, error, run, button };
+          return { busy, error: technicalText(error), run, button };
         }
 
         // F17: 工作区管理两张卡（绑定/切换 + 生效配置）独立成组件，F35 起
@@ -716,7 +716,8 @@ window.__ModuleLoader__.load({
             ]).then(() => { if (!abort.signal.aborted) setView({ binding: workspaceBinding, status: 'ready', data: out, errors, originalErrors }); });
             return () => abort.abort();
           }, [workspacePath, tick, workspaceBinding]);
-          return view.binding === workspaceBinding ? { ...(view.data || {}), _status: view.status, _errors: view.errors || {}, _originalErrors: view.originalErrors || {} } : { _status: 'loading', _errors: {}, _originalErrors: {} };
+          const localizedErrors = Object.fromEntries(Object.entries(view.originalErrors || view.errors || {}).map(([key, message]) => [key, technicalText(message)]));
+          return view.binding === workspaceBinding ? { ...(view.data || {}), _status: view.status, _errors: localizedErrors, _originalErrors: view.originalErrors || {} } : { _status: 'loading', _errors: {}, _originalErrors: {} };
         };
         const capLine = (label, value) => h('div', { className: 'pa24-cap-line' }, h('span', { className: 'pa24-muted' }, label), h('b', null, value));
         // F35: 模式显示词收敛一处（config/workspace 两卡 label＋body 共用）。
@@ -1128,7 +1129,7 @@ window.__ModuleLoader__.load({
             setView(old => ({ key: args, data: old.key === args ? old.data : null, busy: true, error: '', mode: 'read' }));
             void rpc('todos', JSON.parse(args), abort.signal).then(result => {
               if (!abort.signal.aborted && epoch === sequence.current) setView({ key: args, data: validate(result), busy: false, error: '', mode: 'read' });
-            }).catch(error => { if (!abort.signal.aborted && epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.message, mode: 'read' })); });
+            }).catch(error => { if (!abort.signal.aborted && epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.originalMessage || error.message, mode: 'read' })); });
             return () => { abort.abort(); sequence.current++; };
           }, [args, readEpoch]);
           React.useEffect(() => { if (model.draftFocus && model.draft) { draftRef.current?.focus(); draftRef.current?.scrollIntoView?.({ block: 'nearest' }); } }, [model.draftFocus, binding]);
@@ -1140,7 +1141,7 @@ window.__ModuleLoader__.load({
               if (epoch !== sequence.current) return;
               const result = sourceId ? validate(await rpc('todos', request)) : verified;
               if (epoch === sequence.current) { setView({ key: args, data: result, busy: false, error: '', mode: 'read' }); reloadSources(); await helpers.refresh(); }
-            } catch (error) { if (epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.message, mode: 'verify' })); }
+            } catch (error) { if (epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.originalMessage || error.message, mode: 'verify' })); }
           };
           const change = (key, value) => { model[key] = value; if (key !== 'offset' && key !== 'draft') model.offset = 0; redraw(); };
           const select = (label, key, options) => h('label', { className: 'pa24-field' }, label, h('select', { value: model[key], onChange: event => change(key, event.target.value) }, options.map(([value, title]) => h('option', { key: value, value }, title))));
@@ -1224,7 +1225,7 @@ window.__ModuleLoader__.load({
           const conclusion = todo ? L('全部完成', 'everything is complete') : L('全部空闲', 'complete availability');
           if (error) return h('div', { className: 'pa24-notice pa24-tone-danger' + (compact ? ' pa24-source-compact' : ''), role: 'alert', 'data-testid': 'source-query-state' }, icon('alert'), h('div', null,
             h('strong', null, data ? L('读取失败，以下保留旧观察', 'Read failed; saved observations remain below') : L(`${itemName}读取失败`, `${itemName} read failed`)),
-            h('p', null, error), !compact && h('p', { className: 'pa24-meta' }, data ? L('当前筛选尚未重新读取，旧结果不代表现时平台状态。', 'This filter has not been read again; old results do not prove current platform state.') : L(`尚未取得可展示的${itemName}，读取失败不会替换为空结果。`, `No displayable ${itemName} were obtained; a failed read is not an empty result.`)),
+            h('p', null, technicalText(error)), !compact && h('p', { className: 'pa24-meta' }, data ? L('当前筛选尚未重新读取，旧结果不代表现时平台状态。', 'This filter has not been read again; old results do not prove current platform state.') : L(`尚未取得可展示的${itemName}，读取失败不会替换为空结果。`, `No displayable ${itemName} were obtained; a failed read is not an empty result.`)),
             h('button', { type: 'button', onClick: onRetry, disabled: busy }, icon('refresh'), retryLabel || L('重试读取', 'Retry read'))));
           if (!data) return busy ? h('div', { className: 'pa24-notice pa24-tone-neutral' + (compact ? ' pa24-source-compact' : ''), role: 'status', 'data-testid': 'source-query-state' }, icon('refresh', { className: 'pa24-spin' }), h('div', null, verifying ? L('正在按明确操作核验原平台；完成前不把旧观察当作本次结果。', 'Verifying the platforms after an explicit request; old observations are not presented as this result.') : L('正在读取保存的来源观察；普通查阅不访问原平台。', 'Reading saved source observations; ordinary browsing does not access the platforms.'))) : null;
           const enabled = data.sources.filter(row => row.state !== 'disabled'), failed = enabled.some(row => row.state === 'failed');
@@ -1368,7 +1369,7 @@ window.__ModuleLoader__.load({
             setView(old => ({ key: args, data: old.key === args ? old.data : null, busy: true, error: '', mode: 'read' }));
             void rpc('calendar', JSON.parse(args), abort.signal).then(result => {
               if (!abort.signal.aborted && epoch === sequence.current) setView({ key: args, data: validateView(result), busy: false, error: '', mode: 'read' });
-            }).catch(error => { if (!abort.signal.aborted && epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.message, mode: 'read' })); });
+            }).catch(error => { if (!abort.signal.aborted && epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.originalMessage || error.message, mode: 'read' })); });
             return () => { abort.abort(); sequence.current++; };
           }, [args, readEpoch]);
           React.useEffect(() => { if (draftFocus && draft) { draftRef.current?.focus(); draftRef.current?.scrollIntoView?.({ block: 'nearest' }); } }, [draftFocus]);
@@ -1380,7 +1381,7 @@ window.__ModuleLoader__.load({
               if (epoch !== sequence.current) return;
               const result = sourceId ? validateView(await rpc('calendar', request)) : verified;
               if (epoch === sequence.current) { setView({ key: args, data: result, busy: false, error: '', mode: 'read' }); reloadSources(); await helpers.refresh(); }
-            } catch (error) { if (epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.message, mode: 'verify' })); }
+            } catch (error) { if (epoch === sequence.current) setView(old => ({ ...old, busy: false, error: error.originalMessage || error.message, mode: 'verify' })); }
           };
           const change = setter => value => { setter(value); setOffset(0); };
           const changeDay = value => { if (/^\d{4}-\d{2}-\d{2}$/.test(value)) change(setDay)(value); };

@@ -190,3 +190,18 @@ it('英文界面切换覆盖首页、对话草稿和后台技术错误', async (
   expect(container.querySelector('[data-testid=home-todo-board]').textContent).toContain('The local read failed.');
   expect(container.textContent).not.toContain('本地读取离线');
 });
+
+it('已显示的技术错误在语言切换后随之更新', async () => {
+  scenario = 'error'; await refresh();
+  expect(container.querySelector('[data-testid=home-calendar-board]').textContent).toContain('本地读取离线');
+  language = 'en'; localeSnapshot = { active: 'en', locales: [], revision: 1 };
+  await act(async () => localeListener());
+  expect(container.querySelector('[data-testid=home-calendar-board]').textContent).toContain('The local read failed.');
+  expect(container.querySelector('[data-testid=home-calendar-board]').textContent).not.toContain('本地读取离线');
+  await click(metric('home-metric-calendar'));
+  expect(container.querySelector('[data-testid=calendar-detail]').textContent).toContain('The local read failed.');
+  expect(container.querySelector('[data-testid=calendar-detail]').textContent).not.toContain('本地读取离线');
+  language = 'zh'; localeSnapshot = { active: 'zh', locales: [], revision: 2 };
+  await act(async () => localeListener());
+  expect(container.querySelector('[data-testid=calendar-detail]').textContent).toContain('本地读取离线');
+});
