@@ -14,7 +14,8 @@ beforeEach(async () => {
 });
 afterEach(async () => { for (const rt of runtimes) await rt.stop(); await rm(root, { recursive: true, force: true }); });
 async function runtime() {
-  let agent = { session: { header: { cwd: path, agentPreset: 'pa24' } }, ctx: {} };
+  const session = { header: { cwd: path, agentPreset: 'pa24' }, *ownEvents() {} };
+  let agent = { session, ctx: {} };
   const ctx = { get: () => null, skills: { register: () => () => {}, get: async name => name === 'chosen' ? structuredClone(definition) : undefined, list: async () => [definition] },
     workspaceRegistry: { create: async p => ({ id: p, path: p, title: '24私助' }) },
     sessionController: { create: async () => {}, rename: async () => {}, resolveAgent: async () => ({ agent }) },
@@ -22,7 +23,7 @@ async function runtime() {
   };
   const rt = new PaRuntime(ctx, { stateDirectory: root, workspacePath: '', env: {}, reminderTickMs: 60000, larkCliBin: 'missing', wecomCliBin: 'missing', cliTimeoutMs: 1000 });
   runtimes.push(rt); await rt.bind(path);
-  agent = { id: await rt.openLocalSession(), session: { header: { cwd: path, agentPreset: 'pa24' } }, ctx: {} };
+  agent = { id: await rt.openLocalSession(), session, ctx: {} };
   return { rt, agent, ctx };
 }
 const args = { worker: 'skill', title: '执行选定任务', instruction: '完成', skill: 'chosen' };
