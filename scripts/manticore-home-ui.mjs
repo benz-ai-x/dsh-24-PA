@@ -82,8 +82,9 @@ if (process.argv.includes('--work-methodology')) {
   };
   await invoke('确认近期成果', { action: 'focus_update', expectedRevision: 0, focuses: [{ id: 'client', title: '客户汇报', outcome: '完成可供客户评审的汇报初稿' }], instruction: '确认近期重点是客户汇报' });
   const items = [{ id: 'draft', title: '客户汇报初稿', outcome: '完成三页有证据的核心方案', reason: '推进已确认的客户成果，提前暴露关键缺口', nextAction: '先整理客户提出的三个关键问题', focusId: 'client', estimateMinutes: 60 }];
-  await invoke('提出今日安排', { action: 'daily_plan_save', focusRevision: 1, date: day.date, expectedRevision: 0, items });
-  await invoke('采纳今日安排', { action: 'daily_plan_confirm', date: day.date, expectedRevision: 1, selectedItemIds: ['draft'], instruction: '确认采纳安排' });
+  const decision = '先完成汇报初稿，再补充客户反馈。';
+  await invoke('提出今日安排', { action: 'daily_plan_save', focusRevision: 1, date: day.date, expectedRevision: 0, items, decisions: [decision] });
+  await invoke('采纳今日安排', { action: 'daily_plan_confirm', date: day.date, expectedRevision: 1, selectedItemIds: ['draft'], resolvedDecisions: [decision], instruction: '确认采纳安排；先完成汇报初稿，再补充客户反馈。' });
   await invoke('记录日终复盘', { action: 'daily_review_save', date: day.date, expectedRevision: 0, acceptedRevision: 2, results: [{ itemId: 'draft', status: 'unknown', detail: '已确认目标，实际成果仍待核对' }], adjustments: ['下次安排先补齐客户输入'], question: '还缺少哪项客户信息？' });
   await invoke('保存新的建议', { action: 'daily_plan_save', focusRevision: 1, date: day.date, expectedRevision: 2, items: [{ ...items[0], id: 'feedback', title: '先确认客户反馈', nextAction: '列出待澄清的客户问题' }], decisions: ['若客户输入仍缺失，先完成已知部分，或将重点切换到另一项已确认成果。'] });
 }

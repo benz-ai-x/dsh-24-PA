@@ -48,7 +48,7 @@ async function legacyLedger(storage, path, { paths = [path], owners = ['owner-a'
   // Keep this fixture aligned with additive migrations without erasing the
   // legacy rows whose ownership admission is being tested.
   for (const migration of MIGRATIONS.filter(row => row.version >= 22)) for (const sql of migration.statements) {
-    const added = sql.match(/^alter table (pa24\.\w+) add column if not exists (\w+)/);
+    const added = sql.match(/^alter table (pa24\.\w+) add column (?:if not exists )?(\w+)/);
     if (added) await db.query(`alter table ${added[1]} drop column ${added[2]}`);
   }
   await db.query('delete from pa24.schema_migrations where version >= 17');
