@@ -58,6 +58,7 @@ beforeEach(async () => {
   mod.factory(() => React).apply({ effect: fn => fn(), locale: { register: () => () => {}, bind: () => key => key, resolveText: ({ zh }) => zh, subscribe: () => () => {}, getSnapshot: () => 'zh' }, slots: { inject: (_name, fn) => fn(), register: (spec, view) => { if (spec.name === 'main') Panel = view; } }, uiWorkspace: { openSession: () => {} } });
   container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container);
   await act(async () => root.render(React.createElement(Panel)));
+  await act(async () => container.querySelector('#pa24-tab-work').click());
   await click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：Skill 管理')));
 });
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.restoreAllMocks(); });

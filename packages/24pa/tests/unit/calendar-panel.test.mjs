@@ -32,6 +32,7 @@ beforeEach(async () => {
     }
     if (req.endpoint === 'sources' && sourceFailed === true) return { ok: true, json: async () => ({ ok: false, error: { message: '来源服务离线' } }) };
     const value = req.endpoint === 'snapshot' ? { workspace: { path: '/workspace-' + binding, config: { ...DEFAULT_CONFIG } }, workspaceBinding: binding, work: [], outbox: [], secrets: {}, readiness: { items: [] } }
+      : req.endpoint === 'home' ? { workspaceBinding: binding, observedAt: '2026-10-23T01:30:00Z', calendar: calendarResponse(req.payload, false), todos: {}, review: {}, plans: {}, runs: {} }
       : req.endpoint === 'calendar' || (req.endpoint === 'action' && req.payload.type === 'calendar.verify') ? calendarResponse(req.payload, req.endpoint === 'action')
       : req.endpoint === 'sources' ? sourceFailed === 'shape' ? { workspaceBinding: binding, entries: null } : sourceFailed === 'binding' ? { workspaceBinding: 'stale-workspace', entries } : { workspaceBinding: binding, entries }
       : req.endpoint === 'reminders' ? { rules: [], occurrences: [] }
@@ -45,6 +46,7 @@ beforeEach(async () => {
     slots: { inject: (_name, fn) => fn(), register: (spec, view) => { if (spec.name === 'main') Panel = view; } }, uiWorkspace: { openSession: () => {} } });
   container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container);
   await act(async () => root.render(React.createElement(Panel)));
+  await act(async () => container.querySelector('#pa24-tab-work').click());
   overviewText = container.textContent;
   const card = [...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：日程'));
   expect(card).toBeTruthy(); card.focus(); expect(win.document.activeElement).toBe(card); await act(async () => card.click());

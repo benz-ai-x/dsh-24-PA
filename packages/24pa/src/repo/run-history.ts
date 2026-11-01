@@ -3,6 +3,7 @@ import type { PaDb } from '../db.js';
 export type HistoryKind = 'runs' | 'work' | 'events' | 'legacy';
 export interface HistoryFilter {
   kind: HistoryKind; from: Date | null; to: Date | null; includeUnresolved: boolean;
+  attention?: 'waiting' | 'unresolved';
   query?: string; status?: string; deliveryStatus?: string; source?: string;
   workId?: string; planId?: string; skillId?: string; versionId?: string; offset: number; limit: number;
 }
@@ -42,6 +43,7 @@ const RUN_UNRESOLVED = `(r.status in ('waiting', 'needs_reconciliation', 'stoppi
   or (r.stop_reason = 'blocked' and ${PLAN_BLOCKED('r.plan_id')})
   or (r.status in ('failed', 'timed_out') and not exists (select 1 from ${EXECUTIONS} later
     where later.work_item_id = r.work_item_id and later.created_at > r.created_at and later.status = 'completed')))`;
+const WORK_WAITING = `(r.status in ('waiting_input', 'needs_reconciliation') or (r.status = 'completed' and r.acceptance_required = true and r.acceptance_status in ('pending','returned')))`;
 
 /** Read projections keep executions, work goals and non-execution events
  * separate. Counts use the entire matching ledger, never a recent-row cache. */
@@ -88,6 +90,8 @@ export class RunHistoryRepo {
       search = ['r.id', 'p.title', 'r.error']; unresolved = "r.status not in ('model_done', 'sent')";
       if (filter.planId) clauses.push(`r.plan_id = ${bind(filter.planId)}`);
     }
+    if (filter.attention === 'waiting') clauses.push(WORK_WAITING);
+    if (filter.attention === 'unresolved') clauses.push(unresolved);
     if (filter.status) clauses.push(`r.status = ${bind(filter.status)}`);
     if (filter.query?.trim()) {
       const query = bind(`%${filter.query.trim().toLowerCase().replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`);
@@ -120,7 +124,7 @@ export class RunHistoryRepo {
       sum(case when r.created_at >= $1 and ${DELIVERY_UNKNOWN} then 1 else 0 end) as delivery_unknown24,
       sum(case when ${RUN_UNRESOLVED} then 1 else 0 end) as unresolved from ${EXECUTIONS} r where ${EXECUTION_RECORD}`);
     const work = await counts(`select count(*) as work_total, sum(case when r.status in ('accepted', 'queued', 'running') then 1 else 0 end) as active_work,
-      sum(case when r.status in ('waiting_input', 'needs_reconciliation') or (r.status = 'completed' and r.acceptance_required = true and r.acceptance_status in ('pending','returned')) then 1 else 0 end) as waiting_work,
+      sum(case when ${WORK_WAITING} then 1 else 0 end) as waiting_work,
       sum(case when r.status = 'failed' then 1 else 0 end) as failed_work,
       sum(case when r.created_at >= $1 then 1 else 0 end) as work24 from pa24.work_item r`);
     const events = await counts(`select (select count(*) from pa24.digest_occurrence) as legacy_total, count(*) as event_total,
