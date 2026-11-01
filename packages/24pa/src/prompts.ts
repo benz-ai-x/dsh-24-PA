@@ -132,7 +132,7 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     version: 1,
   },
   calendar: {
-    brief: 'calendar_sources（登记、默认目标和已存检查）、calendar_query/calendar_busy（多来源、角色/时间筛选、分页与新鲜度）、calendar_create/update/cancel/reminders（固定原目标的操作与回读）、meeting_schedule、plan_today/plan_preview/plan_adopt、meeting_prep_*、overview_today；planning_context {date?} 读取近期重点/建议/采纳/复盘；focus_update {expectedRevision,focuses:[{id,title,outcome,until?}],instruction}；daily_plan_save {date,expectedRevision,items,decisions?,workWindows?,instruction?}；daily_plan_confirm {date,expectedRevision,selectedItemIds,instruction}；daily_review_save {date,expectedRevision,acceptedRevision,results,adjustments?,question?}。',
+    brief: 'calendar_sources（登记、默认目标和已存检查）、calendar_query/calendar_busy（多来源、角色/时间筛选、分页与新鲜度）、calendar_create/update/cancel/reminders（固定原目标的操作与回读）、meeting_schedule、plan_today/plan_preview/plan_adopt、meeting_prep_*、overview_today；planning_context {date?} 读取近期重点/建议/采纳/复盘；focus_update {expectedRevision,focuses:[{id,title,outcome,until?}],instruction}；daily_plan_save {date,expectedRevision,focusRevision,items,decisions?,workWindows?,instruction?}；daily_plan_confirm {date,expectedRevision,selectedItemIds,instruction}；daily_review_save {date,expectedRevision,acceptedRevision,results,adjustments?,question?}。',
     doneCriteria: '读操作带新鲜度说明；写操作取得平台回执（日程标识）后交回；规划建议按事实/建议/来源/缺失四栏给出。',
     version: 3,
   },

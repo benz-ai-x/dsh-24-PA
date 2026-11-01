@@ -48,6 +48,7 @@ import { candidateParameters, materialFingerprint } from './material-draft.js';
 import { WecomChannels, WECOM_CALENDAR_ID, wecomRepeatRule, type WecomDiagnostics } from './wecom-channels.js';
 import { DigestService } from './digest-service.js';
 import { WorkPlanning } from './work-planning.js';
+import { fixedPlanningWindow } from './work-planning-validation.js';
 import { ExternalOperations, isCandidateOperation } from './external-operations.js';
 import { noteDerivedContent } from './note-derivation.js';
 import { OutboxDelivery, DeliveryHeld, checkDeliveryHold } from './outbox-delivery.js';
@@ -567,6 +568,7 @@ export class PaRuntime {
     calendar: args => this.sourceCalendar.all(args),
     work: () => this.repos!.workItems.list(undefined, 1000), waiting: () => this.repos!.waiting.list('waiting'),
     bufferMinutes: () => this.digest.preferenceBufferMinutes(),
+    isBackground: async id => (await this.repos!.digests.workSource(id))?.kind === 'schedule',
   });
   // Native tools require lossless JSON; ledger rows and source facts contain Dates.
   private async planningResult(operation: Promise<unknown>): Promise<unknown> {
@@ -595,7 +597,6 @@ export class PaRuntime {
     ownerNotification: (key, report) => this.ownerNotification(key, report),
     waitingFollowups: () => this.waitingFollowups,
     skillCatalog: () => this.skillCatalog,
-    planningContext: (date, timeZone) => this.planningResult(this.workPlanning.context({ date, timeZone })),
   });
 
   /** Panel surface (digest.supervise action): stable runtime face (F32). */
@@ -2526,15 +2527,15 @@ export class PaRuntime {
           if (run.snapshot.plan && Object.hasOwn(this.planningActions, action)) {
             const timeZone = run.snapshot.plan.configuration.timeZone;
             const date = localDay(run.snapshot.plan.triggeredAt, timeZone).date;
-            if ((args.date !== undefined && args.date !== date) || (args.timeZone !== undefined && args.timeZone !== timeZone)) throw new Error('规划日期和时区必须使用本次计划的原发生窗口。');
-            authorized = { ...authorized, date, timeZone };
+            authorized = fixedPlanningWindow(authorized, date, timeZone);
           }
           return await this.skillBusinessAction(action)(authorized, item, this);
         }
         const role = this.roles.get(item.role);
         const handler = role?.actions[String(args.action ?? '')];
         if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
-        return await handler(args, item, this);
+        const bounded = Object.hasOwn(this.planningActions, String(args.action ?? '')) ? await this.digest.planningArgs(item, args) : args;
+        return await handler(bounded, item, this);
       } catch (error) {
         if (!(error instanceof SourcePreparationError)) throw error;
         const reason = `本次尚未提交平台写入，需补充或修复后继续：${error.message}`.slice(0, 2000);

@@ -50,7 +50,7 @@ it('近期重点→建议→采纳→复盘→原生定时建议→重启：首�
     await invoke('确认近期成果', { action: 'focus_update', expectedRevision: 0, focuses: [{ id: 'client', title: '客户方案', outcome: '交付可评审的初稿' }], instruction: '本人确认近期重点是客户方案' });
     const todos = await host.api('action', { type: 'todos.verify', workspaceBinding: binding });
     const item = { id: 'draft', title: '客户方案初稿', outcome: '交付初稿', reason: '推进主人确认的近期成果', nextAction: '整理客户需求', focusId: 'client', references: [{ kind: 'todo', id: todos.tasks[0].objectId }], estimateMinutes: 60 };
-    await invoke('提出今日安排', { action: 'daily_plan_save', date, expectedRevision: 0, items: [item] });
+    await invoke('提出今日安排', { action: 'daily_plan_save', focusRevision: 1, date, expectedRevision: 0, items: [item] });
     expect((await host.api('home', { workspaceBinding: binding })).workPlanning.plan.content.accepted).toBeNull();
     await invoke('采纳今日安排', { action: 'daily_plan_confirm', date, expectedRevision: 1, selectedItemIds: ['draft'], instruction: '确认采纳方案' });
     await appendFile(state + '.tasks.jsonl', JSON.stringify({ ...task, status: 'completed' }) + '\n');
@@ -58,25 +58,30 @@ it('近期重点→建议→采纳→复盘→原生定时建议→重启：首�
     const reviewed = await host.api('home', { workspaceBinding: binding });
     expect(reviewed.workPlanning.review.content.results[0]).toMatchObject({ status: 'completed', evidence: 'platform' });
 
-    await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [
-      { tool: { name: 'pa24_work', input: { action: 'planning_context' } } },
-      { tool: { name: 'pa24_work', input: { action: 'daily_plan_save', expectedRevision: 2, items: [{ ...item, id: 'feedback', title: '核对客户反馈', references: [] }] } } },
-      { text: '新建议已保存，原采纳安排仍保留。' },
-    ] }));
-    const change = payload => host.api('action', { workspaceBinding: binding, requestId: randomUUID(), ...payload });
-    const created = await change({ type: 'plan.change', op: 'save', title: '智能今日规划', skillId: 'builtin:daily-planning', timing: { type: 'once', at: new Date(Date.now() + 5000).toISOString() }, delivery: { channel: 'none' } });
-    const preview = await host.api('plans.preview', { id: created.plan.id, workspaceBinding: binding });
-    await change({ type: 'plan.change', op: 'enable', id: created.plan.id, expectedRevision: created.plan.revision, confirm: true, fingerprint: preview.fingerprint });
-    let run;
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      const inspection = await host.api('plans.inspect', { id: created.plan.id, workspaceBinding: binding });
-      const id = inspection.triggers.rows.find(row => row.run_id)?.run_id;
-      if (id) { run = (await host.api('skills.run', { runId: id, workspaceBinding: binding })).run; if (!['pending', 'running', 'waiting'].includes(run.status)) break; }
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    expect(run?.status, JSON.stringify(run)).toBe('completed');
+    const scheduled = async (skillId, input) => {
+      await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [
+        { tool: { name: 'pa24_work', input: { action: 'planning_context' } } },
+        { tool: { name: 'pa24_work', input } },
+        { text: '业务记录已保存，原采纳安排仍保留。' },
+      ] }));
+      const change = payload => host.api('action', { workspaceBinding: binding, requestId: randomUUID(), ...payload });
+      const created = await change({ type: 'plan.change', op: 'save', title: skillId, skillId, timing: { type: 'once', at: new Date(Date.now() + 5000).toISOString() }, delivery: { channel: 'none' } });
+      const preview = await host.api('plans.preview', { id: created.plan.id, workspaceBinding: binding });
+      await change({ type: 'plan.change', op: 'enable', id: created.plan.id, expectedRevision: created.plan.revision, confirm: true, fingerprint: preview.fingerprint });
+      let run;
+      const deadline = Date.now() + 45000;
+      while (Date.now() < deadline) {
+        const inspection = await host.api('plans.inspect', { id: created.plan.id, workspaceBinding: binding });
+        const id = inspection.triggers.rows.find(row => row.run_id)?.run_id;
+        if (id) { run = (await host.api('skills.run', { runId: id, workspaceBinding: binding })).run; if (!['pending', 'running', 'waiting'].includes(run.status)) break; }
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      expect(run?.status, JSON.stringify(run)).toBe('completed');
+    };
+    await scheduled('builtin:daily-planning', { action: 'daily_plan_save', focusRevision: 1, expectedRevision: 2, items: [{ ...item, id: 'feedback', title: '核对客户反馈', references: [] }] });
+    await scheduled('builtin:daily-review', { action: 'daily_review_save', expectedRevision: 1, acceptedRevision: 2, results: [{ itemId: 'draft', status: 'completed', detail: '原待办已核验完成' }], adjustments: ['明天先确认客户反馈'] });
     const home = await host.api('home', { workspaceBinding: binding });
+    expect(home.workPlanning.review.revision).toBe(2);
     expect(home.workPlanning.plan.revision).toBe(3); expect(home.workPlanning.plan.content.accepted.items[0].id).toBe('draft');
     expect(home.workPlanning.plan.content.items[0].id).toBe('feedback');
     const models = llm.requests.length, calls = await readFile(state + '.calls.jsonl', 'utf8');

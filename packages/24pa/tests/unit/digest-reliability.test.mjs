@@ -74,6 +74,22 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
   };
   const outbox = () => repos.outbox.recent(50);
 
+  it('新工作方法只能从明确放行的通用 Skill/定时任务运行', async () => {
+    for (const skill of ['daily-planning', 'daily-review']) await expect(digest.digestEnable({ kind: 'once', afterSeconds: 10, skill })).rejects.toThrow(/不支持旧简报入口/);
+    await plan('daily-planning');
+    await expect(digest.digestBuild(await item('work'), { planId: 'plan' })).rejects.toThrow(/不支持旧简报入口/);
+  });
+
+  it('定时来源规划动作须绑定原窗口，跨天和时区变更不改写发生日期', async () => {
+    await plan();
+    const work = await admittedItem('scheduled', new Date('2026-10-19T00:00:00Z'), scheduledSession('2026-10-18T00:00:00.000Z'));
+    await expect(digest.planningArgs(work, {})).rejects.toThrow(/原计划发生窗口/);
+    await digest.digestBuild(work, { planId: 'plan' }); config.timeZone = 'UTC';
+    expect(await digest.planningArgs(work, { action: 'planning_context' })).toMatchObject({ date: '2026-10-18', timeZone: 'Asia/Shanghai' });
+    await expect(digest.planningArgs(work, { date: '2026-10-19' })).rejects.toThrow(/原发生窗口/);
+    await expect(digest.planningArgs(work, { timeZone: 'UTC' })).rejects.toThrow(/原发生窗口/);
+  });
+
   it('已完成/已取消任务不进入待办事实和负荷，待办仍保留', async () => {
     await plan();
     const save = repos.tasks.save.bind(repos.tasks);

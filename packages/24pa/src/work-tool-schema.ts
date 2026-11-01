@@ -17,6 +17,7 @@ export const workToolProperties = {
   projectId: string,
   goal: string,
   expectedRevision: { type: 'integer', minimum: 0, description: '规划当前版本，新记录为 0；先 planning_context 读取。' },
+  focusRevision: { type: 'integer', minimum: 0, description: 'daily_plan_save 必填：生成建议所依据的近期重点版本，未设置时为 0。' },
   acceptedRevision: { type: 'integer', minimum: 1, description: '复盘所依据的主人已采纳版本。' },
   focuses: { type: 'array', maxItems: 3, items: { type: 'object', required: ['id', 'title', 'outcome'], properties: { id: string, title: string, outcome: string, until: { type: ['string', 'null'] } }, additionalProperties: false } },
   items: { type: 'array', maxItems: 3, items: { type: 'object', required: ['id', 'title', 'outcome', 'reason', 'nextAction'], properties: {

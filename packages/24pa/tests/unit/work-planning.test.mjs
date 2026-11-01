@@ -23,7 +23,7 @@ const item = (patch = {}) => ({ id: 'proposal', title: '客户方案初稿', out
   references: [{ kind: 'todo', id: 'todo-without-deadline' }], estimateMinutes: 60, start: null, end: null, ...patch });
 
 for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭环 ${storage}`, () => {
-  let db, cluster, root, repo, service, todoFacts, calendarFacts, calls;
+  let db, cluster, root, repo, service, todoFacts, calendarFacts, calls, scheduled;
   beforeAll(async () => {
     root = await mkdtemp(join(tmpdir(), 'pa24-method-'));
     if (storage === 'postgres') { cluster = await startPgCluster(); db = new PaDatabase(cluster.dsn); }
@@ -32,16 +32,16 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
   }, 120000);
   afterAll(async () => { await db?.close(); await cluster?.stop(); if (root) await rm(root, { recursive: true, force: true }); });
   beforeEach(async () => {
-    await db.query('delete from pa24.work_planning_revision'); await db.query('delete from pa24.work_planning'); calls = 0;
+    await db.query('delete from pa24.work_planning_revision'); await db.query('delete from pa24.work_planning'); calls = 0; scheduled = false;
     todoFacts = { fresh: true, complete: true, message: '已核验', tasks: [
       { objectId: 'urgent-low-impact', summary: '归档旧资料', status: 'open', dueDate: previous, stale: false },
       { objectId: 'todo-without-deadline', summary: '客户方案', status: 'open', dueAt: null, dueDate: null, stale: false },
     ] };
     calendarFacts = { fresh: true, complete: true, events: [] };
     service = new WorkPlanning({ repo: () => repo, timeZone: () => zone, todos: async () => { calls++; return todoFacts; },
-      calendar: async () => { calls++; return calendarFacts; }, work: async () => [], waiting: async () => [] });
+      calendar: async () => { calls++; return calendarFacts; }, work: async () => [], waiting: async () => [], isBackground: async () => scheduled });
   });
-  const save = (patch = {}, actor = owner) => service.savePlan({ date, expectedRevision: 0, items: [item()], ...patch }, actor);
+  const save = (patch = {}, actor = owner) => service.savePlan({ date, focusRevision: 1, expectedRevision: 0, items: [item()], ...patch }, actor);
   const confirm = (revision = 1) => service.confirmPlan({ date, expectedRevision: revision, selectedItemIds: ['proposal'], instruction: '确认采纳方案' }, owner);
 
   it('无截止的重要事项可进入规划，建议与采纳分离，新建议不覆盖已采纳快照', async () => {
@@ -89,7 +89,31 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
     await service.updateFocus(focusArgs, owner); await save();
     await service.updateFocus({ ...focusArgs, expectedRevision: 1, focuses: [{ ...focusArgs.focuses[0], until: previous }] }, owner);
     await expect(confirm()).rejects.toThrow(/近期重点已改变/);
-    await expect(save({ expectedRevision: 1 })).rejects.toThrow(/过期/);
+    await expect(save({ expectedRevision: 1, focusRevision: 2 })).rejects.toThrow(/过期/);
+  });
+
+  it('保存前校验最初读取的重点版本，不把旧建议改标为新目标', async () => {
+    await service.updateFocus(focusArgs, owner);
+    await service.updateFocus({ ...focusArgs, expectedRevision: 1, focuses: [{ ...focusArgs.focuses[0], outcome: '准备演示' }] }, owner);
+    await expect(save()).rejects.toThrow(/近期重点版本/);
+    expect((await service.snapshot(date)).plan).toBeNull();
+  });
+
+  it('采纳前重新核算无时间块重点的负荷，并保存当前证据', async () => {
+    await service.updateFocus(focusArgs, owner);
+    await save({ workWindows: [{ start: at(9), end: at(12) }], instruction: '工作时段9点至12点', items: [item({ estimateMinutes: 90 })] });
+    calendarFacts.events = [{ start: at(9), end: at(11), freeBusy: 'busy' }];
+    await expect(confirm()).rejects.toThrow(/取舍/);
+    expect((await service.snapshot(date)).plan.content.accepted).toBeNull();
+    await save({ expectedRevision: 1, items: [item({ estimateMinutes: 30 })] });
+    expect((await confirm(2)).content.accepted.evidence).toMatchObject({ capacityMinutes: 60, estimateMinutes: 30 });
+  });
+
+  it('Schedule 来源的普通 calendar Worker 也不能代主人确认', async () => {
+    await service.updateFocus(focusArgs, owner); await save(); scheduled = true;
+    await expect(service.updateFocus({ ...focusArgs, expectedRevision: 1 }, owner)).rejects.toThrow(/交互式/);
+    await expect(confirm()).rejects.toThrow(/交互式/);
+    await expect(save({ expectedRevision: 1, workWindows: [{ start: at(9), end: at(12) }], instruction: '工作时段9点至12点' })).rejects.toThrow(/交互式/);
   });
 
   it('复盘核对采纳快照；日程结束和未知原因不构成完成，调整供次日读取', async () => {

@@ -22,11 +22,11 @@ const methodSkill = (review: boolean) => ({
       : '结合有效近期重点、承诺影响、截止、下一步和等待依赖选至多三项，重要且无截止也纳入。读取 previousReview.content.adjustments 作为候选参考，已采纳决定不反复询问。没有近期重点时提出暂定安排，并请求主人简短确认近期成果。',
     review
       ? '使用 daily_review_save {date,expectedRevision:review?.revision??0,acceptedRevision:plan.content.accepted.revision,results:[{itemId,status,detail}],adjustments,question}。结果覆盖全部采纳项；调整最多三项，关键问题最多一个，已经在复盘中提出且事实未变时不重复。'
-      : '使用 daily_plan_save {date,expectedRevision:plan?.revision??0,items:[{id,title,outcome,reason,nextAction,focusId,references:[{kind,id}],estimateMinutes,start,end}],decisions}。未知估时和时间块填 null。只能用已确认工作时段，不能在后台设置工作时段；若需要排期却无时段，先给不含时间块的建议。已知过载时必须列出取舍选项及影响。',
+      : '使用 daily_plan_save {date,expectedRevision:plan?.revision??0,focusRevision:focus?.revision??0,items:[{id,title,outcome,reason,nextAction,focusId,references:[{kind,id}],estimateMinutes,start,end}],decisions}。未知估时和时间块填 null。只能用已确认工作时段，不能在后台设置工作时段；若需要排期却无时段，先给不含时间块的建议。已知过载时必须列出取舍选项及影响。',
     '## 完成标准与边界',
     '以保存回执为准输出简短结果：重点/实际进展、理由、下一步、需要主人决定的事项和数据缺失。事实与建议分开；引用对象及规划记录版本。仅保存建议与复盘，不确认或改写近期重点，不采纳计划，不修改任务、日程或记忆，不自动开启新计划。',
     '复盘回执 content.questionRepeated 为 true 时不再次追问该问题；已保存的待澄清记录仍保留。',
-    '如由 digest_build 交接并提供 planId/windowKey，依既有 digest_deliver 交付当前报告；原生 Skill 运行直接返回最终报告，由已有投递流程送达。',
+    '从已放行的 Skill 或通用定时任务入口运行，直接返回最终报告，由已有投递流程送达；不绑定旧简报入口。',
   ].join('\n'),
   metadata: {
     track: 'agent', kind: review ? 'evening' : 'morning', tools: ['pa24_work', 'pa24_memory'],

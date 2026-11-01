@@ -24,6 +24,10 @@ export function planningDate(value: unknown, timeZone: string): string {
   if (day.date !== value) throw new Error('工作日期无效。');
   return value;
 }
+export function fixedPlanningWindow(args: Record<string, unknown>, date: string, timeZone: string) {
+  if ((args.date !== undefined && args.date !== date) || (args.timeZone !== undefined && args.timeZone !== timeZone)) throw new Error('规划日期和时区必须使用本次计划的原发生窗口。');
+  return { ...args, date, timeZone };
+}
 export function planningWindows(value: unknown, date: string, timeZone: string): PlanningWindow[] {
   const day = localDay(date, timeZone);
   const windows = planningList(value ?? [], 8).map(raw => {

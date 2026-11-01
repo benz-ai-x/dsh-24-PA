@@ -15,6 +15,7 @@ interface PlanningDeps {
   work(): Promise<WorkItemRow[]>;
   waiting(): Promise<WaitingItemRow[]>;
   bufferMinutes?(): Promise<number>;
+  isBackground(workId: string): Promise<boolean>;
 }
 
 /** Method decisions live in business records, not long-term memory. Only
@@ -52,8 +53,8 @@ export class WorkPlanning {
   private requestKey(action: string, item: WorkItemRow, args: Record<string, unknown>) {
     return taskPlanFingerprint([item.id, action, args]);
   }
-  private confirmation(args: Record<string, unknown>, item: WorkItemRow): string {
-    if (item.role !== 'calendar' || item.execution_mode === 'skill') throw new Error('只有交互式日程 Worker 可以确认近期重点或采纳安排。');
+  private async confirmation(args: Record<string, unknown>, item: WorkItemRow): Promise<string> {
+    if (item.role !== 'calendar' || item.execution_mode === 'skill' || await this.deps.isBackground(item.id)) throw new Error('只有交互式日程 Worker 可以确认近期重点或采纳安排。');
     const quote = planningText(args.instruction, '本人指令依据');
     if (!item.instruction.includes(quote)) throw new Error('确认依据必须来自本次主人委托，不能由模型补造。');
     return quote;
@@ -63,7 +64,7 @@ export class WorkPlanning {
   }
 
   async updateFocus(args: Record<string, unknown>, item: WorkItemRow) {
-    const confirmation = this.confirmation(args, item), replay = await this.replay<FocusSet>('focus_update', args, item);
+    const confirmation = await this.confirmation(args, item), replay = await this.replay<FocusSet>('focus_update', args, item);
     if (replay) return replay;
     const items = planningList(args.focuses, 3).map(raw => {
       const row = planningObject(raw);
@@ -86,6 +87,7 @@ export class WorkPlanning {
   async savePlan(args: Record<string, unknown>, item: WorkItemRow) {
     const replay = await this.replay<DailyWorkPlan>('daily_plan_save', args, item); if (replay) return replay;
     const facts = await this.context(args), items = planningItems(args.items), expected = planningRevision(args.expectedRevision);
+    if (planningRevision(args.focusRevision) !== (facts.focus?.revision ?? 0)) throw new Error('近期重点版本已改变，请重新读取并生成建议。');
     if ((facts.plan?.revision ?? 0) !== expected) {
       const completed = await this.replay<DailyWorkPlan>('daily_plan_save', args, item); if (completed) return completed;
       throw new Error('规划版本已改变，请重新读取。');
@@ -93,7 +95,7 @@ export class WorkPlanning {
     this.validateReferences(items, facts);
     const oldWindows = facts.plan?.content.workWindows ?? [];
     const windows = planningWindows(args.workWindows ?? oldWindows, facts.date, facts.timeZone);
-    if (JSON.stringify(windows) !== JSON.stringify(oldWindows)) this.confirmation(args, item);
+    if (taskPlanFingerprint(windows) !== taskPlanFingerprint(oldWindows)) await this.confirmation(args, item);
     const { free, capacityMinutes } = planningAvailability(windows, facts.calendar?.events ?? [], facts.calendar?.fresh ?? false, facts.bufferMinutes);
     const placed = items.filter((row): row is WorkPlanItem & { start: string; end: string } => !!row.start && !!row.end);
     if (placed.some(row => !free.some(window => Date.parse(window.start) <= Date.parse(row.start) && Date.parse(row.end) <= Date.parse(window.end)))) throw new Error('候选时间块没有位于已确认且核验空闲的工作时段内。');
@@ -108,7 +110,7 @@ export class WorkPlanning {
   }
 
   async confirmPlan(args: Record<string, unknown>, item: WorkItemRow) {
-    const confirmation = this.confirmation(args, item), replay = await this.replay<DailyWorkPlan>('daily_plan_confirm', args, item); if (replay) return replay;
+    const confirmation = await this.confirmation(args, item), replay = await this.replay<DailyWorkPlan>('daily_plan_confirm', args, item); if (replay) return replay;
     const facts = await this.context(args), plan = facts.plan, expected = planningRevision(args.expectedRevision);
     if (!plan || plan.revision !== expected) {
       const completed = await this.replay<DailyWorkPlan>('daily_plan_confirm', args, item); if (completed) return completed;
@@ -120,7 +122,10 @@ export class WorkPlanning {
     const items = plan.content.items.filter(row => ids.includes(row.id));
     this.validateReferences(items, facts);
     if (items.some(row => row.start && row.end && !facts.availability.free.some(window => Date.parse(window.start) <= Date.parse(row.start!) && Date.parse(row.end!) <= Date.parse(window.end)))) throw new Error('日程已改变或未完整核验，请先调整候选时间块。');
-    const content = { ...plan.content, accepted: { revision: expected + 1, confirmedAt: new Date().toISOString(), confirmation, items, evidence: plan.content.evidence } };
+    const estimateMinutes = items.reduce((sum, row) => sum + (row.estimateMinutes ?? 0), 0), capacityMinutes = facts.availability.capacityMinutes;
+    if (capacityMinutes !== null && estimateMinutes > capacityMinutes && (!plan.content.decisions.length || capacityMinutes !== plan.content.evidence.capacityMinutes)) throw new Error('当前可用时间不足，请重新给出取舍选项并讨论后再采纳。');
+    const evidence = { observedAt: facts.observedAt, missing: facts.missing, focusRevision: facts.focus?.revision ?? 0, capacityMinutes, estimateMinutes, unknownEstimates: items.filter(row => row.estimateMinutes === null).length };
+    const content = { ...plan.content, accepted: { revision: expected + 1, confirmedAt: new Date().toISOString(), confirmation, items, evidence } };
     return this.deps.repo().save(facts.planId, expected, content, item.id, this.requestKey('daily_plan_confirm', item, args), [{ id: 'focus', revision: facts.focus?.revision ?? 0 }]);
   }
 
@@ -128,17 +133,17 @@ export class WorkPlanning {
     const replay = await this.replay<DailyWorkReview>('daily_review_save', args, item); if (replay) return replay;
     const facts = await this.context(args), accepted = facts.plan?.content.accepted;
     if (!accepted || args.acceptedRevision !== accepted.revision) throw new Error('请先读取主人采纳的计划版本，再据此复盘。');
-    const results: ReviewResult[] = planningList(args.results, 3).map(raw => {
+    const results: ReviewResult[] = await Promise.all(planningList(args.results, 3).map(async raw => {
       const row = planningObject(raw), planned = accepted.items.find(entry => entry.id === row.itemId);
       if (!planned || !['completed', 'progress', 'blocked', 'changed', 'unknown'].includes(String(row.status))) throw new Error('复盘项必须对应已采纳重点，状态须明确。');
-      const quote = typeof row.instruction === 'string' && row.instruction.trim() ? this.confirmation({ instruction: row.instruction }, item) : null;
+      const quote = typeof row.instruction === 'string' && row.instruction.trim() ? await this.confirmation({ instruction: row.instruction }, item) : null;
       const completed = planned.references.length > 0 && planned.references.every(ref => ref.kind === 'todo'
         ? facts.todos?.fresh && facts.todos.tasks.some(task => task.objectId === ref.id && task.status === 'completed' && !task.stale)
         : facts.work.some(work => work.id === ref.id && work.status === 'completed' && !['pending', 'returned'].includes(work.acceptanceStatus ?? 'none')));
       if (row.status === 'completed' && !completed && !quote) throw new Error('完成结论缺少当前业务状态或本人说明，不能推断为完成。');
       if (['progress', 'blocked', 'changed'].includes(String(row.status)) && !quote) throw new Error('进展和受阻原因缺少本人说明，请标记未知并提出关键问题。');
       return { itemId: planned.id, status: row.status as ReviewResult['status'], detail: planningText(row.detail, '复盘说明'), evidence: quote ? 'owner' : completed && row.status === 'completed' ? 'platform' : 'unknown' };
-    });
+    }));
     if (results.length !== accepted.items.length || new Set(results.map(row => row.itemId)).size !== results.length) throw new Error('复盘须覆盖每一项已采纳重点且不能重复。');
     const adjustments = planningList(args.adjustments ?? [], 3).map(value => planningText(value, '调整建议'));
     const question = args.question ? planningText(args.question, '关键问题') : null;
