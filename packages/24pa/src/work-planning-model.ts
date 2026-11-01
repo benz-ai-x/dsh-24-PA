@@ -9,7 +9,7 @@ export interface WorkPlanItem {
 export interface PlanningWindow { start: string; end: string }
 export interface PlanningEvidence {
   observedAt: string; missing: string[]; focusRevision: number;
-  capacityMinutes: number | null; estimateMinutes: number; unknownEstimates: number;
+  capacityMinutes: number | null; capacityBasis: string; estimateMinutes: number; unknownEstimates: number;
 }
 export interface AcceptedWorkPlan {
   revision: number; confirmedAt: string; confirmation: string; items: WorkPlanItem[];

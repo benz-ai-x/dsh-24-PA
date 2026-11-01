@@ -96,7 +96,7 @@ export class WorkPlanning {
     const oldWindows = facts.plan?.content.workWindows ?? [];
     const windows = planningWindows(args.workWindows ?? oldWindows, facts.date, facts.timeZone);
     if (taskPlanFingerprint(windows) !== taskPlanFingerprint(oldWindows)) await this.confirmation(args, item);
-    const { free, capacityMinutes } = planningAvailability(windows, facts.calendar?.events ?? [], facts.calendar?.fresh ?? false, facts.bufferMinutes);
+    const { free, capacityMinutes, capacityBasis } = planningAvailability(windows, facts.calendar?.events ?? [], facts.calendar?.fresh ?? false, facts.bufferMinutes);
     const placed = items.filter((row): row is WorkPlanItem & { start: string; end: string } => !!row.start && !!row.end);
     if (placed.some(row => !free.some(window => Date.parse(window.start) <= Date.parse(row.start) && Date.parse(row.end) <= Date.parse(window.end)))) throw new Error('候选时间块没有位于已确认且核验空闲的工作时段内。');
     if (placed.some((row, index) => placed.slice(index + 1).some(other => Date.parse(row.start) < Date.parse(other.end) && Date.parse(other.start) < Date.parse(row.end)))) throw new Error('候选时间块互相重叠。');
@@ -104,7 +104,7 @@ export class WorkPlanning {
     const decisions = planningList(args.decisions ?? [], 3).map(value => planningText(value, '待决策事项'));
     if (capacityMinutes !== null && estimateMinutes > capacityMinutes && !decisions.length) throw new Error('今日重点超过可用时间，请给出取舍选项及影响。');
     const content: DailyWorkPlan = { date: facts.date, timeZone: facts.timeZone, items, decisions, workWindows: windows,
-      evidence: { observedAt: facts.observedAt, missing: facts.missing, focusRevision: facts.focus?.revision ?? 0, capacityMinutes, estimateMinutes, unknownEstimates: items.filter(row => row.estimateMinutes === null).length },
+      evidence: { observedAt: facts.observedAt, missing: facts.missing, focusRevision: facts.focus?.revision ?? 0, capacityMinutes, capacityBasis, estimateMinutes, unknownEstimates: items.filter(row => row.estimateMinutes === null).length },
       accepted: facts.plan?.content.accepted ?? null };
     return this.deps.repo().save(facts.planId, expected, content, item.id, this.requestKey('daily_plan_save', item, args), [{ id: 'focus', revision: facts.focus?.revision ?? 0 }]);
   }
@@ -123,8 +123,8 @@ export class WorkPlanning {
     this.validateReferences(items, facts);
     if (items.some(row => row.start && row.end && !facts.availability.free.some(window => Date.parse(window.start) <= Date.parse(row.start!) && Date.parse(row.end!) <= Date.parse(window.end)))) throw new Error('日程已改变或未完整核验，请先调整候选时间块。');
     const estimateMinutes = items.reduce((sum, row) => sum + (row.estimateMinutes ?? 0), 0), capacityMinutes = facts.availability.capacityMinutes;
-    if (capacityMinutes !== null && estimateMinutes > capacityMinutes && (!plan.content.decisions.length || capacityMinutes !== plan.content.evidence.capacityMinutes)) throw new Error('当前可用时间不足，请重新给出取舍选项并讨论后再采纳。');
-    const evidence = { observedAt: facts.observedAt, missing: facts.missing, focusRevision: facts.focus?.revision ?? 0, capacityMinutes, estimateMinutes, unknownEstimates: items.filter(row => row.estimateMinutes === null).length };
+    if (capacityMinutes !== null && estimateMinutes > capacityMinutes && (!plan.content.decisions.length || facts.availability.capacityBasis !== plan.content.evidence.capacityBasis)) throw new Error('当前可用时间不足，请重新给出取舍选项并讨论后再采纳。');
+    const evidence = { observedAt: facts.observedAt, missing: facts.missing, focusRevision: facts.focus?.revision ?? 0, capacityMinutes, capacityBasis: facts.availability.capacityBasis, estimateMinutes, unknownEstimates: items.filter(row => row.estimateMinutes === null).length };
     const content = { ...plan.content, accepted: { revision: expected + 1, confirmedAt: new Date().toISOString(), confirmation, items, evidence } };
     return this.deps.repo().save(facts.planId, expected, content, item.id, this.requestKey('daily_plan_confirm', item, args), [{ id: 'focus', revision: facts.focus?.revision ?? 0 }]);
   }

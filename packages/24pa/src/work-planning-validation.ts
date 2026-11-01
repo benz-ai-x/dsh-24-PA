@@ -1,4 +1,5 @@
 import { absoluteInstant, localDay } from './calendar-time.js';
+import { taskPlanFingerprint } from './task-plan-access.js';
 import type { PlanningReference, PlanningWindow, WorkPlanItem } from './work-planning-model.js';
 
 export function planningObject(value: unknown): Record<string, unknown> {
@@ -62,7 +63,9 @@ export function planningAvailability(windows: PlanningWindow[], events: (Plannin
     start: new Date(Date.parse(event.start) - bufferMinutes * 60000).toISOString(), end: new Date(Date.parse(event.end) + bufferMinutes * 60000).toISOString(),
   }));
   const free = fresh ? freePlanningWindows(remaining, busy) : [];
-  return { free, capacityMinutes: windows.length && fresh ? free.reduce((sum, window) => sum + (Date.parse(window.end) - Date.parse(window.start)) / 60000, 0) : null };
+  const capacityBasis = taskPlanFingerprint({ windows, fresh, busy: busy.filter(event => windows.some(window => overlaps(window, event)))
+    .sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end)) });
+  return { free, capacityBasis, capacityMinutes: windows.length && fresh ? free.reduce((sum, window) => sum + (Date.parse(window.end) - Date.parse(window.start)) / 60000, 0) : null };
 }
 
 export function planningItems(value: unknown): WorkPlanItem[] {

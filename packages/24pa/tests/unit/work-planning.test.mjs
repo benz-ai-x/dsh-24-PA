@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -116,6 +116,16 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
     await expect(save({ expectedRevision: 1, workWindows: [{ start: at(9), end: at(12) }], instruction: '工作时段9点至12点' })).rejects.toThrow(/交互式/);
   });
 
+  it('已讨论的过载安排不会因几秒自然流逝反复要求确认', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(at(9)));
+    try {
+      await service.updateFocus(focusArgs, owner);
+      await save({ workWindows: [{ start: at(9), end: at(12) }], instruction: '工作时段9点至12点', items: [item({ estimateMinutes: 240 })], decisions: ['只完成核心部分，剩余后续安排'] });
+      vi.setSystemTime(new Date(Date.parse(at(9)) + 30000));
+      expect((await confirm()).content.accepted.evidence.capacityMinutes).toBe(179.5);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('复盘核对采纳快照；日程结束和未知原因不构成完成，调整供次日读取', async () => {
     await service.updateFocus(focusArgs, owner); await save(); await confirm();
     const review = { date, expectedRevision: 0, acceptedRevision: 2, results: [{ itemId: 'proposal', status: 'completed', detail: '方案完成' }], adjustments: ['明天先核对客户反馈'] };
@@ -174,7 +184,7 @@ it('可用容量扣除已过去的时间及会议缓冲，失败读取不产生�
   const windows = [{ start: at(9), end: at(12) }], meetings = [{ start: at(10), end: at(11), freeBusy: 'busy' }];
   expect(planningAvailability(windows, meetings, true, 15, new Date(at(9).replace(':00:00', ':30:00'))).capacityMinutes).toBe(60);
   expect(planningAvailability(windows, meetings, true, 0, new Date(at(12))).capacityMinutes).toBe(0);
-  expect(planningAvailability(windows, meetings, false, 15, new Date(at(9)))).toEqual({ free: [], capacityMinutes: null });
+  expect(planningAvailability(windows, meetings, false, 15, new Date(at(9)))).toMatchObject({ free: [], capacityMinutes: null });
 });
 
 it('两个智能 Skill 可在固定后台授权中运行，但没有确认或外部写动作', async () => {
