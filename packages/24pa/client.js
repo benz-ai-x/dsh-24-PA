@@ -1735,7 +1735,11 @@ window.__ModuleLoader__.load({
           const fresh = preset => edit({ title: preset ? L(...({ morning: ['智能工作晨报', 'Intelligent morning brief'], evening: ['晚间复盘', 'Evening review'], weekly: ['周回顾', 'Weekly review'] })[preset]) : '', skillId: preset === 'morning' ? 'builtin:daily-planning' : preset ? 'builtin:digest-' + preset : '',
             timing: { type: preset === 'weekly' ? 'weekly' : 'daily', time: preset === 'evening' ? '21:00:00' : '09:00:00', weekdays: [5] }, timeZone: config?.timeZone || 'Asia/Shanghai',
             executionLimitMs: 900000, parameters: {}, selectors: {}, delivery: { channel: config?.ownerOpenId ? config.notifyChannel : config?.notifyChannel === 'wecom' ? 'wecom' : 'none', mode: 'always', voice: false, overrideQuiet: false } });
-          const formPayload = () => { const { parametersText, ...form } = view.form; return { ...form, parameters: JSON.parse(parametersText) }; };
+          const formPayload = () => {
+            const { parametersText, ...form } = view.form, parameters = JSON.parse(parametersText);
+            if (form.skillId === 'builtin:daily-planning' && parameters?.date === '') delete parameters.date;
+            return { ...form, parameters };
+          };
           const saveDraft = async save => { try {
             const form = formPayload(); if (save) await change({ ...form, op: 'save' }, 'form'); else { model.update({ busy: true, draft: null, draftError: '' }); const draft = await rpc('plans.draft', { ...form, workspaceBinding: binding }); if (draft.workspaceBinding === binding && model.getSnapshot().form === view.form) model.update({ draft }); }
           } catch (error) { model.update({ draftError: error.message }); } finally { if (!save) model.update({ busy: false }); } };

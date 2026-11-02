@@ -123,6 +123,18 @@ describe('M02 管理界面', () => {
     expect(requests.some(row => row.endpoint === 'action')).toBe(false);
   });
 
+  it('智能晨报日期填写后清空，预览与保存恢复使用计划触发日期', async () => {
+    await open('定时任务'); await click(button('晨报预设'));
+    const workDate = () => field('工作日期（可选，YYYY-MM-DD；定时晨报留空）');
+    await change(workDate(), '2026-11-02'); await click(button('校验并预览时间'));
+    expect(requests.filter(row => row.endpoint === 'plans.draft').at(-1).payload.parameters).toEqual({ date: '2026-11-02' });
+    await change(workDate(), ''); expect(button('保存为暂停').disabled).toBe(true);
+    await click(button('校验并预览时间')); await click(button('保存为暂停'));
+    expect(requests.filter(row => row.endpoint === 'plans.draft').at(-1).payload.parameters).toEqual({});
+    expect(requests.filter(row => row.endpoint === 'action' && row.payload.op === 'save').at(-1).payload.parameters).toEqual({});
+    expect(plan.task_config.parameters).toEqual({});
+  });
+
   it('原晨报先暂停再切换，保存保留计划身份、时间与投递选择', async () => {
     plan.status = 'active'; plan.owner_enabled = true; plan.schedule_id = 'native';
     await open('定时任务'); await click(button('项目晨报'));
