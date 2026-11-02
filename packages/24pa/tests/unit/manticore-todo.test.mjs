@@ -52,6 +52,39 @@ describe('M04 原生待办读取', () => {
     expect(result.items[0].roles.values).toContain('responsible'); expect(result.items[0].roles.values).not.toContain('following');
     expect(result.state).toBe('partial'); expect(result.reason).toMatch(/真实账号/);
   });
+  it('企微零项页省略 items 时继续游标，并接受同样省略数组的末页', async () => {
+    const pages = [
+      { items_count: 0, has_more: true, next_cursor: 'next' },
+      { items: [{ todo_id: 'x', title: '分页待办', status: 'finished' }], items_count: 1, has_more: true, next_cursor: 'last' },
+      { items_count: 0, has_more: false },
+    ];
+    const calls = [], reader = new SourceTodoReader({ timeZone: () => 'Asia/Shanghai', lark: async () => ({}), wecom: async args => { calls.push(args); return { data: pages.shift() }; } });
+    const result = await reader.read(target('wecom'));
+    expect(result.items.map(row => row.nativeId)).toEqual(['x']);
+    expect(result.items[0].body.status).toBe('completed');
+    expect(result.state).toBe('partial'); expect(result.reason).toMatch(/真实账号/);
+    expect(calls.map(args => args.includes('--cursor') ? args.at(-1) : null)).toEqual([null, 'next', 'last']);
+  });
+  it('企微只有零项空页时保留覆盖范围提示，不把缺省数组报成读取失败', async () => {
+    const reader = new SourceTodoReader({ timeZone: () => 'Asia/Shanghai', lark: async () => ({}), wecom: async args => ({ data: args.includes('--cursor')
+      ? { items_count: 0, has_more: false } : { items_count: 0, has_more: true, next_cursor: 'next' } }) });
+    const result = await reader.read(target('wecom'));
+    expect(result.items).toEqual([]); expect(result.state).toBe('partial'); expect(result.reason).toMatch(/真实账号/);
+  });
+  it.each([
+    ['wecom', { has_more: false }],
+    ['wecom', { items_count: 1, has_more: false }],
+    ['wecom', { items_count: '0', has_more: false }],
+    ['wecom', { items: null, items_count: 0, has_more: false }],
+    ['wecom', { items_count: 0 }],
+    ['wecom', { items_count: 0, has_more: true }],
+    ['wecom', { items_count: 0, has_more: true, next_cursor: 'repeated' }],
+    ['feishu', { items_count: 0, has_more: false }],
+  ])('%s 缺少明确空页或分页证据时仍拒绝猜测', async (platform, data) => {
+    const read = async () => ({ data });
+    const result = await new SourceTodoReader({ timeZone: () => 'Asia/Shanghai', lark: read, wecom: read }).read(target(platform));
+    expect(result.state).toBe('failed'); expect(result.items).toEqual([]); expect(result.reason).toMatch(/数组|分页|游标/);
+  });
   it('企微只有名字或无责任状态不能当本人负责，失败详情不能当删除', async () => {
     const reader = new SourceTodoReader({ timeZone: () => 'Asia/Shanghai', lark: async () => ({}), wecom: async args => ({ data: { items: args[1] === 'get' ? [{ todo_id: 'x', success: false }] : [{ todo_id: 'x', title: 'x', status: 'proceed', followers: [{ userid: 'owner' }] }], has_more: false } }) });
     expect((await reader.read(target('wecom'))).items[0].roles.values).not.toContain('responsible');

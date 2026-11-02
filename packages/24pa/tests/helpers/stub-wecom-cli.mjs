@@ -137,8 +137,10 @@ if (plain[0] === 'todo' && plain[1] === 'list') {
   if (statuses.length > 2 || statuses.some(value => !['proceed', 'finished'].includes(value))) failErrorBody(40058, "'status_filter' 不合法，要求为 数值范围 [finished,proceed]");
   const selected = statuses.length ? statuses : ['proceed'];
   const all = [...todos.values()].filter(t => !t.deleted && selected.includes(t.status));
-  const offset = Number(argOf('--cursor') ?? 0), size = Number(argOf('--limit') ?? 10), items = all.slice(offset, offset + size);
-  ok({ items, items_count: items.length, has_more: offset + size < all.length, next_cursor: offset + size < all.length ? String(offset + size) : '' });
+  const cursor = argOf('--cursor');
+  if (state.todoEmptyFirstPage && !cursor) ok({ items_count: 0, has_more: true, next_cursor: 'after-empty' });
+  const offset = cursor === 'after-empty' ? 0 : Number(cursor ?? 0), size = Number(argOf('--limit') ?? 10), items = all.slice(offset, offset + size);
+  ok({ ...(items.length ? { items } : {}), items_count: items.length, has_more: offset + size < all.length, next_cursor: offset + size < all.length ? String(offset + size) : '' });
 }
 
 if (plain[0] === 'todo' && plain[1] === 'finish') {

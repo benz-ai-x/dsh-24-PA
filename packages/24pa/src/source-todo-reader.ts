@@ -30,8 +30,12 @@ export class SourceTodoReader {
             : ['task', '+get-related-tasks', '--as', 'user', '--include-complete', '--page-limit', '1', ...(cursor ? ['--page-token', cursor] : [])])
           : await this.deps.wecom(wecomTodoListArgs(20, cursor));
         const data = response.data;
-        if (!Array.isArray(data?.items) || typeof data.has_more !== 'boolean') throw new Error('待办列表缺少数组或明确分页结束标志。');
-        for (const raw of data.items) {
+        // CLI 1.3.4 omits items on explicit zero-count pages, including
+        // intermediate pages. An absent array alone is not empty-list proof.
+        const pageItems = Array.isArray(data?.items) ? data.items
+          : target.platform === 'wecom' && data?.items === undefined && data?.items_count === 0 ? [] : null;
+        if (!pageItems || typeof data.has_more !== 'boolean') throw new Error('待办列表缺少数组或明确分页结束标志。');
+        for (const raw of pageItems) {
           let item: ObservedSourceItem;
           if (target.platform === 'feishu') {
             const guid = string(raw?.guid);

@@ -96,20 +96,25 @@ it('读取非助理待办全部分页，角色覆盖按来源默认；企微范�
   changed.entries.find(row => row.id === 'project').filter = 'responsible'; await saveSources(changed);
   const personal = await host.api('todos', { workspaceBinding: binding, sourceId: 'personal', offset: 4, limit: 2 }); expect(personal.total).toBe(5); expect(personal.tasks).toHaveLength(1);
 });
-it('#258 企微已完成待办跨页读取，来源检查与每页请求使用独立状态参数', async () => {
+it('#258 企微空页后继续读取已完成待办，来源检查与每页请求使用独立状态参数', async () => {
   const before = (await journal(wecomState + '.calls.jsonl')).length;
-  for (let index = 0; index < 21; index++) await appendFile(wecomState + '.todos.jsonl', JSON.stringify({ todo_id: `issue258-done-${index}`, title: `已完成待办 ${index}`, status: 'finished', user_status: 'finished', creator: { userid: 'wou_test_owner' }, followers: [{ userid: 'wou_test_owner', user_status: 'finished' }], deadline: null }) + '\n');
-  const result = await host.api('action', { type: 'todos.verify', workspaceBinding: binding, sourceId: 'wecom', limit: 50 });
-  expect(result.count).toBe(22);
-  expect(result.tasks.filter(row => row.status === 'completed')).toHaveLength(21);
-  expect(result.tasks.find(row => row.guid === 'native-wc').status).toBe('open');
-  expect(result.sources[0]).toMatchObject({ state: 'partial', reason: expect.stringContaining('真实账号') });
-  const listCalls = (await journal(wecomState + '.calls.jsonl')).slice(before).map(row => row.args).filter(args => args[0] === 'todo' && args[1] === 'list');
-  expect(listCalls).toEqual([
-    ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '1'],
-    ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '20'],
-    ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '20', '--cursor', '20'],
-  ]);
+  const original = await readFile(wecomState, 'utf8');
+  await writeFile(wecomState, JSON.stringify({ ...JSON.parse(original), todoEmptyFirstPage: true }));
+  try {
+    for (let index = 0; index < 21; index++) await appendFile(wecomState + '.todos.jsonl', JSON.stringify({ todo_id: `issue258-done-${index}`, title: `已完成待办 ${index}`, status: 'finished', user_status: 'finished', creator: { userid: 'wou_test_owner' }, followers: [{ userid: 'wou_test_owner', user_status: 'finished' }], deadline: null }) + '\n');
+    const result = await host.api('action', { type: 'todos.verify', workspaceBinding: binding, sourceId: 'wecom', limit: 50 });
+    expect(result.count).toBe(22);
+    expect(result.tasks.filter(row => row.status === 'completed')).toHaveLength(21);
+    expect(result.tasks.find(row => row.guid === 'native-wc').status).toBe('open');
+    expect(result.sources[0]).toMatchObject({ state: 'partial', reason: expect.stringContaining('真实账号') });
+    const listCalls = (await journal(wecomState + '.calls.jsonl')).slice(before).map(row => row.args).filter(args => args[0] === 'todo' && args[1] === 'list');
+    expect(listCalls).toEqual([
+      ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '1'],
+      ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '20'],
+      ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '20', '--cursor', 'after-empty'],
+      ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '20', '--cursor', '20'],
+    ]);
+  } finally { await writeFile(wecomState, original); }
 });
 it('本地和飞书两入口同次创建本人负责，明确项目只写一个来源，不另派执行', async () => {
   const before = (await host.api('snapshot')).work.length;
