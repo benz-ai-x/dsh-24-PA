@@ -70,6 +70,15 @@ it('近期重点→建议→采纳→复盘→原生定时建议→重启：首�
     const reviewed = await host.api('home', { workspaceBinding: binding });
     expect(reviewed.workPlanning.review.content.results[0]).toMatchObject({ status: 'completed', evidence: 'platform' });
 
+    const contextWork = await invoke('读取次日晨报依据', { action: 'planning_context', date: localDay(date, zone, 1).date });
+    const contextRun = await host.api('worker.run', { runId: contextWork.active_worker_run_id, workspaceBinding: binding });
+    const contextCall = contextRun.calls.find(call => call.args?.action === 'planning_context');
+    expect(contextCall?.status, JSON.stringify(contextRun.calls)).toBe('succeeded');
+    const prior = contextCall.result.value.previousDay;
+    expect(prior.date).toBe(date);
+    expect(prior.review.content.results[0]).toMatchObject({ itemId: 'draft', status: 'completed' });
+    expect(prior.reviewedPlan.content.accepted).toMatchObject({ revision: 2, items: [{ id: 'draft', outcome: '交付初稿' }] });
+
     const scheduled = async (skillId, input) => {
       await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [
         { tool: { name: 'pa24_work', input: { action: 'planning_context' } } },
@@ -89,8 +98,11 @@ it('近期重点→建议→采纳→复盘→原生定时建议→重启：首�
         await new Promise(resolve => setTimeout(resolve, 100));
       }
       expect(run?.status, JSON.stringify(run)).toBe('completed');
+      return run;
     };
-    await scheduled('builtin:daily-planning', { action: 'daily_plan_save', focusRevision: 1, expectedRevision: 2, items: [{ ...item, id: 'feedback', title: '核对客户反馈', references: [] }] });
+    const morningRun = await scheduled('builtin:daily-planning', { action: 'daily_plan_save', focusRevision: 1, expectedRevision: 2, items: [{ ...item, id: 'feedback', title: '核对客户反馈', references: [] }] });
+    expect(morningRun.contract.expectedResult).toContain('智能工作晨报');
+    expect(morningRun.mode).toBe('business');
     await scheduled('builtin:daily-review', { action: 'daily_review_save', expectedRevision: 1, acceptedRevision: 2, results: [{ itemId: 'draft', status: 'completed', detail: '原待办已核验完成' }], adjustments: ['明天先确认客户反馈'] });
     const home = await host.api('home', { workspaceBinding: binding });
     expect(home.workPlanning.review.revision).toBe(2);
@@ -102,5 +114,25 @@ it('近期重点→建议→采纳→复盘→原生定时建议→重启：首�
     ready = await host.waitUntil(row => !!row.workspaceBinding && !!row.workspace?.localSessionId);
     const restored = await host.api('home', { workspaceBinding: ready.workspaceBinding });
     expect(restored.workPlanning.plan.content.accepted.items[0].id).toBe('draft'); expect(restored.workPlanning.review.content.adjustments).toEqual(['明天先确认客户反馈']);
+
+    const changePlan = input => host.api('action', { type: 'plan.change', workspaceBinding: ready.workspaceBinding, requestId: randomUUID(), ...input });
+    const checkPlan = (row, rebind = false) => host.api('plans.preview', { id: row.id, rebind, workspaceBinding: ready.workspaceBinding });
+    const enablePlan = async (row, rebind = false) => {
+      const checked = await checkPlan(row, rebind);
+      return (await changePlan({ op: 'enable', id: row.id, expectedRevision: row.revision, rebind, confirm: true, fingerprint: checked.fingerprint })).plan;
+    };
+    let legacy = (await changePlan({ op: 'save', title: '保留原时间的晨报', skillId: 'builtin:digest-morning',
+      timing: { type: 'once', at: new Date(Date.now() + 86400000).toISOString() }, delivery: { channel: 'none' } })).plan;
+    legacy = await enablePlan(legacy);
+    legacy = (await changePlan({ op: 'pause', id: legacy.id, expectedRevision: legacy.revision })).plan;
+    const original = await host.api('plans.inspect', { id: legacy.id, workspaceBinding: ready.workspaceBinding });
+    let intelligent = (await changePlan({ op: 'save', ...original.form, id: legacy.id, expectedRevision: legacy.revision, skillId: 'builtin:daily-planning', parameters: {} })).plan;
+    await expect(checkPlan(intelligent)).rejects.toThrow(/显式重新配置/);
+    intelligent = await enablePlan(intelligent, true);
+    expect(intelligent.id).toBe(legacy.id);
+    expect(intelligent.schedule_spec).toEqual(original.plan.schedule_spec);
+    expect(intelligent.task_config.delivery).toEqual(original.plan.task_config.delivery);
+    expect(intelligent.task_authorization.skill.id).toBe('builtin:daily-planning');
+    await changePlan({ op: 'pause', id: intelligent.id, expectedRevision: intelligent.revision });
   } finally { await host?.stop(); await llm?.close(); await cluster?.stop(); await rm(root, { recursive: true, force: true }); }
 }, 180000);

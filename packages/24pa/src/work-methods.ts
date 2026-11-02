@@ -11,28 +11,40 @@ export const WORK_METHOD_PRINCIPLES = [
 
 const methodSkill = (review: boolean) => ({
   name: review ? 'daily-review' : 'daily-planning',
-  description: review ? '日终复盘：对照已采纳安排核对进展，提出后续调整（智能任务）' : '今日规划：围绕近期重点提出可执行安排与取舍（智能任务）',
-  whenToUse: review ? '主人要求日终复盘，或已启用的日终复盘计划触发。' : '主人要求安排今天工作，或已启用的今日规划计划触发。',
+  description: review ? '日终复盘：对照已采纳安排核对进展，提出后续调整（智能任务）' : '智能工作晨报：承接昨日进展，结合日程和截止安排今日工作（使用模型）',
+  whenToUse: review ? '主人要求日终复盘，或已启用的日终复盘计划触发。' : '主人要求晨报、安排今天工作，或已启用的智能晨报／今日规划计划触发。',
   content: [
     WORK_METHOD_PRINCIPLES,
     '## 本次任务',
     '调用 planning_context {date?} 读取当前工作日期、近期重点、每日计划、复盘及全部登记来源。使用参数或原计划窗口中的日期，不能把迟到运行改成今天。资料缺失明确列出，不捏造数据。',
     review
       ? '对照 plan.content.accepted；未采纳过计划时说明缺少对照依据，不编造复盘。逐项核对实际状态：completed 需业务完成证据；原因未确认时使用 unknown 并明确原因待核实。后台不能伪造主人说明，不凭日程结束推断完成。'
-      : '结合有效近期重点、承诺影响、截止、下一步和等待依赖选至多三项，重要且无截止也纳入。读取 previousReview.content.adjustments 作为候选参考，已采纳决定不反复询问。没有近期重点时提出暂定安排，并请求主人简短确认近期成果。',
+      : '先核对 previousDay：这是原工作日期的前一天，不是执行时刻的昨天。昨日进展只取该日复盘及 previousDay.reviewedPlan.content.accepted 中对应的成果，按 itemId 关联。当前 plan 可能后来重新采纳，不能拿它替代复盘引用的版本；reviewedPlan 缺失时保留缺口。复盘反映记录时核实的状态，不把最后同步时间、日程结束或当前完成状态说成昨日完成。',
+    ...(!review ? [
+      '没有昨日复盘时简短说明；previousReview 若来自更早日期，明确称“最近一次复盘（实际日期）”，仅把有依据的调整作为参考。未完成项按今天的价值与约束重新选择，不自动全部顺延；等待他人且目前不可推进的事项不占今日关键成果名额。',
+      '结合有效近期重点、承诺影响、截止、下一步和等待依赖选至多三项，重要且无截止也纳入。今天已到期、即将到期与已逾期分别核对；待办截止不是建议开始时间。来源 stale 或不完整时说明影响，不把无结果说成没有事项。没有近期重点时给暂定安排，仅询问会改变今天优先级的关键问题。',
+      '已有 plan.content.accepted 时以主人采纳的安排为基础，保留已解决的取舍。新事实影响安排才保存调整建议；没有实质变化就引用已保存的当天记录，不另造一套计划。先核对日历、已确认工作时段和缓冲；时间与估时未知就给执行顺序和第一步，不假设固定工时或每项三十分钟。',
+    ] : []),
     review
       ? '使用 daily_review_save {date,expectedRevision:review?.revision??0,acceptedRevision:plan.content.accepted.revision,results:[{itemId,status,detail}],adjustments,question}。结果覆盖全部采纳项；调整最多三项，关键问题最多一个，已经在复盘中提出且事实未变时不重复。'
-      : '使用 daily_plan_save {date,expectedRevision:plan?.revision??0,focusRevision:focus?.revision??0,items:[{id,title,outcome,reason,nextAction,focusId,references:[{kind,id}],estimateMinutes,start,end}],decisions}。未知估时和时间块填 null。只能用已确认工作时段，不能在后台设置工作时段；若需要排期却无时段，先给不含时间块的建议。已知过载时必须列出取舍选项及影响。',
+      : '需要保存新建议时使用 daily_plan_save {date,expectedRevision:plan?.revision??0,focusRevision:focus?.revision??0,items:[{id,title,outcome,reason,nextAction,focusId,references:[{kind,id}],estimateMinutes,start,end}],decisions}。未知估时和时间块填 null。只能用已确认工作时段，不能在后台设置工作时段；若需要排期却无时段，先给不含时间块的建议。已知过载时必须列出取舍选项及影响。',
+    ...(!review ? [
+      '## 晨报表达',
+      '按“今天怎么安排 → 昨日进展 → 固定安排与截止 → 今日工作建议 → 需要决定的事”组织。开头两三句话先讲主要成果、时间约束和顺序，正文以一至两分钟可读完为目标。昨日只保留影响今天的进展与阻碍；今天的会议与硬截止明确列出。每项工作建议说明要交付的成果、为什么优先、第一步和有依据的估时／时间块。',
+      '推荐时间使用当前工作日期和时区中的 HH:mm，全天事项单独注明。已有采纳项称“已确定安排”，新建议明确标注“建议”；只在确有取舍时提出一个关键问题。项目计数、等待、审核和笔记仅在影响今日安排时提及，不固定堆入正文。',
+      '优先用自然中文汇报；来源入口就近保留，版本和核验时间放在末尾。影响安排的数据缺失跟随相关事实或建议，不能藏在可删减附录里。结果和语音都必须保留这些关键限制；不输出“窗口”、内部编号和工具调用过程作为正文。',
+    ] : []),
     '## 完成标准与边界',
-    '以保存回执为准输出简短结果：重点/实际进展、理由、下一步、需要主人决定的事项和数据缺失。事实与建议分开；引用对象及规划记录版本。仅保存建议与复盘，不确认或改写近期重点，不采纳计划，不修改任务、日程或记忆，不自动开启新计划。',
+    review ? '以保存回执为准输出简短结果：实际进展、理由、下一步、需要主人决定的事项和数据缺失。' : '以本次保存回执或已核对的当天记录为准汇报；保存失败不能声称已保存。',
+    '事实与建议分开；引用对象及规划记录版本。仅保存建议与复盘，不确认或改写近期重点，不采纳计划，不修改任务、日程或记忆，不自动开启新计划。',
     '复盘回执 content.questionRepeated 为 true 时不再次追问该问题；已保存的待澄清记录仍保留。',
     '从已放行的 Skill 或通用定时任务入口运行，直接返回最终报告，由已有投递流程送达；不绑定旧简报入口。',
   ].join('\n'),
   metadata: {
     track: 'agent', kind: review ? 'evening' : 'morning', tools: ['pa24_work', 'pa24_memory'],
-    pa24: { schemaVersion: 1, mode: 'business', parameters: { date: { type: 'string', description: '工作日期 YYYY-MM-DD；省略使用工作区当天。' } },
-      expectedResult: review ? '可核对的日终复盘和明日候选调整。' : '围绕近期成果的今日重点、下一步和取舍建议。',
-      completionCriteria: '基于当前来源，保存可追溯的规划记录后汇报；缺少采纳计划或数据时如实说明。',
+    pa24: { schemaVersion: 1, mode: 'business', parameters: { date: { type: 'string', description: review ? '工作日期 YYYY-MM-DD；省略使用工作区当天。' : '工作日期 YYYY-MM-DD；定时晨报留空，使用计划触发日期。' } },
+      expectedResult: review ? '可核对的日终复盘和明日候选调整。' : '承接昨日进展、日程与截止的智能工作晨报，包含已保存的今日建议、第一步及必要取舍。',
+      completionCriteria: review ? '基于当前来源，保存可追溯的规划记录后汇报；缺少采纳计划或数据时如实说明。' : '基于当前来源和可追溯的昨日记录汇报；新建议保存成功后输出，无变化时引用已保存的当天安排。核对时间约束，保留来源缺失和主人采纳状态。',
       actions: ['planning_context', review ? 'daily_review_save' : 'daily_plan_save'] },
   },
 });

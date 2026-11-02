@@ -14,6 +14,11 @@ export class WorkPlanningRepo {
     return (await this.db.query<PlanningRow<T>>('select * from pa24.work_planning where id = $1', [id])).rows[0] ?? null;
   }
 
+  async revision<T extends PlanningContent>(id: string, revision: number): Promise<PlanningRow<T> | null> {
+    const row = (await this.db.query<{ record: PlanningRow<T> }>('select record from pa24.work_planning_revision where record_id = $1 and revision = $2', [id, revision])).rows[0];
+    return row ? { ...row.record, updated_at: new Date(row.record.updated_at) } : null;
+  }
+
   async receipt<T extends PlanningContent>(requestKey: string): Promise<PlanningRow<T> | null> {
     const row = (await this.db.query<{ record: PlanningRow<T> }>('select record from pa24.work_planning_revision where request_key = $1', [requestKey])).rows[0];
     return row ? { ...row.record, updated_at: new Date(row.record.updated_at) } : null;
