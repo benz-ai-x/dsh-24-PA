@@ -26,4 +26,3 @@ TypeError: Cannot read properties of undefined (reading 'definition')
       Tests  1 failed | 8 passed (9)
    Start at  20:57:18
    Duration  34.87s (transform 34ms, setup 0ms, collect 89ms, tests 34.60s, environment 0ms, prepare 38ms)
-
