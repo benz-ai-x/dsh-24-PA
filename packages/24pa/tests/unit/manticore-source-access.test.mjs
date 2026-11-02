@@ -46,7 +46,7 @@ describe('来源只读检查的实际 CLI 契约', () => {
     expect(result.capabilities).toMatchObject({ read: 'allowed', create: 'attemptable', update: 'unknown' });
     expect(result.message).toMatch(/创建权限尚未核验/);
   });
-  it('企微授权范围核对 bot 与真人；具体容器不伪装，待办 probe 使用显式状态数组', async () => {
+  it('企微授权范围核对 bot 与真人；具体容器不伪装，待办 probe 使用独立状态参数', async () => {
     const calls = [];
     const access = make(async () => { throw Error('不应访问飞书'); }, async args => {
       calls.push(args); return { raw: { extra_identity_context: context }, data: {} };
@@ -55,7 +55,7 @@ describe('来源只读检查的实际 CLI 契约', () => {
     const result = await access.check(row);
     expect(result.capabilities.create).toBe('attemptable');
     expect(result.identity).toEqual({ platform: 'wecom', ownerId: 'owner', authority: 'bot:bot-1' });
-    expect(calls.at(-1)).toEqual(['todo', 'list', '--status-filter', '["proceed"]', '--limit', '1']);
+    expect(calls.at(-1)).toEqual(['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '1']);
     const before = calls.length;
     expect((await access.check({ ...row, resourceKind: 'tasklist', resourceId: 'project-list' })).capabilities.read).toBe('adapter_unavailable');
     expect(calls).toHaveLength(before);

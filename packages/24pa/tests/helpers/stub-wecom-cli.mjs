@@ -128,7 +128,15 @@ if (plain[0] === 'todo' && plain[1] === 'list') {
     failErrcode(850003, 'authorization expired', '当前机器人「待办」使用权限已过期…[点击这里](https://work.weixin.qq.com/…)授权');
   }
   if (state.todoUnauthorized) failErrcode(850002, 'no authorization', '当前机器人未被授权「待办」…');
-  const statuses = JSON.parse(argOf('--status-filter') ?? '["proceed"]'), all = [...todos.values()].filter(t => !t.deleted && statuses.includes(t.status));
+  if (state.todoListError) failErrorBody(state.todoListError.code, state.todoListError.message);
+  // CLI 1.3.4 consumes scalar list values as separate argv tokens, not JSON.
+  const filterIndex = args.indexOf('--status-filter');
+  const values = filterIndex < 0 ? [] : args.slice(filterIndex + 1);
+  const nextFlag = values.findIndex(value => value.startsWith('--'));
+  const statuses = nextFlag < 0 ? values : values.slice(0, nextFlag);
+  if (statuses.length > 2 || statuses.some(value => !['proceed', 'finished'].includes(value))) failErrorBody(40058, "'status_filter' 不合法，要求为 数值范围 [finished,proceed]");
+  const selected = statuses.length ? statuses : ['proceed'];
+  const all = [...todos.values()].filter(t => !t.deleted && selected.includes(t.status));
   const offset = Number(argOf('--cursor') ?? 0), size = Number(argOf('--limit') ?? 10), items = all.slice(offset, offset + size);
   ok({ items, items_count: items.length, has_more: offset + size < all.length, next_cursor: offset + size < all.length ? String(offset + size) : '' });
 }

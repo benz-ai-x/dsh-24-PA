@@ -1,6 +1,6 @@
 import type { SourceTarget } from './source-registry.js';
 import type { ObservedSourceItem, SourceObservation } from './repo/source-projection.js';
-import { wecomObservedWallTime } from './wecom.js';
+import { wecomObservedWallTime, wecomTodoListArgs } from './wecom.js';
 
 export interface TodoPerson { id: string; name: string; state?: string }
 interface TodoReaderDeps {
@@ -28,7 +28,7 @@ export class SourceTodoReader {
           ? await this.deps.lark(target.resource.kind === 'tasklist'
             ? ['task', 'tasklists', 'tasks', '--as', 'user', '--tasklist-guid', target.resource.id, '--user-id-type', 'open_id', '--page-size', '100', ...(cursor ? ['--page-token', cursor] : [])]
             : ['task', '+get-related-tasks', '--as', 'user', '--include-complete', '--page-limit', '1', ...(cursor ? ['--page-token', cursor] : [])])
-          : await this.deps.wecom(['todo', 'list', '--status-filter', '["proceed","finished"]', '--limit', '20', ...(cursor ? ['--cursor', cursor] : [])]);
+          : await this.deps.wecom(wecomTodoListArgs(20, cursor));
         const data = response.data;
         if (!Array.isArray(data?.items) || typeof data.has_more !== 'boolean') throw new Error('待办列表缺少数组或明确分页结束标志。');
         for (const raw of data.items) {

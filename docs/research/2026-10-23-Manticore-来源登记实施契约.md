@@ -31,6 +31,23 @@ AGENTS.md 的 `sources` 保存来源登记、分域默认、公司／项目映�
 - 飞书 `event.attendees.list` 需要遍历 `has_more/page_token`；群参与者不能用已废弃的 `chat_members` 字段猜本人关系。已安装官方 Node SDK 1.74.0 的 `calendarEventAttendeeChatMember.list` 和类型声明给出 `GET /open-apis/calendar/v4/calendars/:calendar_id/events/:event_id/attendees/:attendee_id/chat_members`。固定 CLI 无对应 typed command，可用其原生 `api GET` 与同一固定 profile/user 身份，显式分页；不会引入另一个凭据机制。
 - 以上仅运行版本/help/schema、读官方源码与已安装 SDK；没有调用真实身份、资源或业务写入。S1 的配置、来源检查适配及并发编辑共 62 项隔离测试通过，S2 对象关联继续验收。
 
+## 2026-11-02 参数契约更正（#258）
+
+上述补充核查中 `--status-filter '["proceed"]'` 的写法错误，保留原记录用于追溯，后续实现以本节为准。[Issue #258](https://github.com/benz-ai-x/dsh-24-PA/issues/258) 提供同一机器人上的实际平台对照：JSON 数组字符串及数字状态均返回 40058，独立的 `proceed`、`finished` 参数成功。
+
+本机重新核验 `wecom-cli 1.3.4`（`f9b2815`）：`todo list --help` 声明 `--status-filter [<str>...]`；真实 CLI 的 `--dry-run` 将 JSON 数组字符串组装成 `status_filter: ["[\"proceed\"]"]`，独立参数才得到 `status_filter: ["proceed", "finished"]`。错误格式的 dry-run 也返回退出码 0，因此仅检查退出码不能证明参数符合平台枚举。此次未调用真实身份或待办；平台成功与 40058 证据来自 Issue，不能把本地预演视为真实账号验收。
+
+修复采用同一待办查询参数构造入口供来源检查、企微接入检查和业务分页复用：两种状态均显式传入独立 token，检查只读一项，业务每页二十项并保留原游标。模拟 CLI 按相同枚举与参数边界拒绝 JSON 字符串及数字状态；普通参数错误也必须使诊断下一步明确未通过。保留企微查询覆盖尚需真实账号核验的 partial 语义，不以参数修复扩大来源权限或承诺全量覆盖。
+
+本次验证以 `a6057384b3722499c54868e7a26007e4a2cc213d` 为比较基线，按用户要求直接修改 main 工作树。命令均在 `packages/24pa` 执行：
+
+- 先改契约测试再修实现：定向运行得到 4 项失败（两处错误参数、严格 CLI 返回 40058、诊断成功误报），修复后对应 16 项通过。
+- `npm run build`、`npm run preset:check` 通过。
+- `./node_modules/.bin/vitest run tests/unit/manticore-todo.test.mjs tests/unit/manticore-source-access.test.mjs tests/unit/wecom-todo-contract.test.mjs tests/unit/wecom-channels.test.mjs tests/unit/wecom.test.mjs tests/unit/wecom-setup.test.mjs`：6 文件、75 项全部通过，包含 SQLite 与隔离 PostgreSQL 待办流程。
+- 分别以 `PA24_E2E_STORAGE=sqlite`、`PA24_E2E_STORAGE=postgres` 运行 `./node_modules/.bin/vitest run tests/e2e/manticore-todo.e2e.mjs tests/e2e/f16.e2e.mjs tests/e2e/manticore-health.e2e.mjs`：每种后端均 3 文件、17 项通过。真实 Loader 覆盖两种状态共 22 项跨页读取、创建／修改／完成、诊断、身份变化、授权异常及重启缓存；平台与模型为隔离替身。
+- 修复后的实际入口再次经过真实 CLI 1.3.4 本地 dry-run：来源检查、接入检查和业务读取均组装为独立枚举数组；隔离注入 40058 后，服务状态与下一步提示均为未通过。无真实业务请求。
+- Standards 与 Spec 独立审查均为 0 项发现，固定实现及测试补丁 SHA-256 为 `4c3340faa23fe281591399507023bea318e86e7ea54d8a7c9bb31d983ba68736`；该快照不含随后补充的本段验收记录。真实账号验证、版本发布和部署未执行。
+
 ## 已落地的查询和办理边界
 
 schema 20 分开保存来源登记、权限身份证据、平台对象、来源成员及观察。平台对象按领域／平台／真实身份／原生对象标识区分；同一会议的副本只有原组织者日历和实例 ID 相同才合并。成员保留各自完整快照、角色、忙闲、提醒、权限及核验时间，后读副本不改写另一来源的旧正文。合并结果只在所有所选位置都为 free 时视为空闲。

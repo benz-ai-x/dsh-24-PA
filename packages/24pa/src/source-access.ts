@@ -1,7 +1,7 @@
 import type { PaConfig } from './config.js';
 import type { SourceRegistration } from './source-config.js';
 import { unknownCapabilities, type SourceEvidence, type SourceIdentity } from './source-registry.js';
-import { wecomWallTime } from './wecom.js';
+import { wecomTodoListArgs, wecomWallTime } from './wecom.js';
 
 interface SourceAccessDeps {
   config(): PaConfig;
@@ -87,7 +87,7 @@ export class SourceAccess {
     const now = new Date(), end = new Date(now.getTime() + 60_000), zone = this.deps.config().timeZone;
     await this.deps.wecom(source.domain === 'calendar'
       ? ['calendar', 'schedules', 'list', '--begin-time', wecomWallTime(now, zone), '--end-time', wecomWallTime(end, zone)]
-      : ['todo', 'list', '--status-filter', '["proceed"]', '--limit', '1']);
+      : wecomTodoListArgs(1));
     return { ...result, state: 'verified', identity, resource: { kind: 'authorized_scope', id: 'authorized' }, role: 'authorized_scope',
       capabilities: { ...result.capabilities, read: 'allowed', create: 'attemptable' },
       message: '当前真人授权范围可读；创建权限尚未核验，仅可按明确授权尝试，平台拒绝须如实报告，实际写入以回执为准。此范围不是可指定的公司／项目日历容器，既有对象覆盖和逐项角色须另行核验。' };

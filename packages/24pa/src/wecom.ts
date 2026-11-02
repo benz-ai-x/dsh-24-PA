@@ -51,6 +51,11 @@ export interface WecomCliResult {
 
 const PREFIX_FIELDS = ['security_notice', 'extra_identity_context', 'help_instruction'] as const;
 
+/** Scalar list flags take separate argv tokens in CLI 1.3.4, unlike JSON --items. */
+export function wecomTodoListArgs(limit: number, cursor?: string): string[] {
+  return ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', String(limit), ...(cursor ? ['--cursor', cursor] : [])];
+}
+
 function stripPrefixFields(parsed: Record<string, any>): Record<string, any> {
   const data: Record<string, any> = {};
   for (const [key, value] of Object.entries(parsed)) {

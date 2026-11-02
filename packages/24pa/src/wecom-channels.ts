@@ -6,7 +6,7 @@ import { observeCalendar } from './calendar-observation.js';
 // runtime; wecom-cli is not idempotent so every write goes through staged
 // operations first (spec 1.6).
 
-import { runWecomCli, WecomCliError, wecomWallTime, wecomParseWallTime, wecomObservedWallTime } from './wecom.js';
+import { runWecomCli, WecomCliError, wecomWallTime, wecomParseWallTime, wecomObservedWallTime, wecomTodoListArgs } from './wecom.js';
 import { text, nowIso, isoDate, parseZonedRange, parseDue, eventFingerprint } from './util.js';
 import { taskPlanKey, saveTaskObservation } from './task-lifecycle.js';
 import { isCandidateOperation } from './external-operations.js';
@@ -493,7 +493,7 @@ export class WecomChannels {
     // 3. Per-service authorization probes (read-only) for enabled domains.
     const probes: Array<{ id: WecomServiceCheck['id']; enabled: boolean; args: readonly string[] }> = [
       { id: 'calendar', enabled: effectiveSources(this.deps.config()).entries.some(row => row.enabled && row.platform === 'wecom' && row.domain === 'calendar'), args: ['calendar', 'schedules', 'list'] },
-      { id: 'todo', enabled: effectiveSources(this.deps.config()).entries.some(row => row.enabled && row.platform === 'wecom' && row.domain === 'todo'), args: ['todo', 'list'] },
+      { id: 'todo', enabled: effectiveSources(this.deps.config()).entries.some(row => row.enabled && row.platform === 'wecom' && row.domain === 'todo'), args: wecomTodoListArgs(1) },
       { id: 'push', enabled: this.deps.config().notifyChannel === 'wecom', args: [] },
     ];
     for (const probe of probes) {
@@ -521,7 +521,12 @@ export class WecomChannels {
         else if (state === 'unavailable') nextSteps.push(`该企业未开放「${probe.id === 'calendar' ? '日程' : '待办'}」机器人能力（853006），无法由助理侧修复。`);
       }
     }
-    if (nextSteps.length === 0) nextSteps.push('企微渠道检查通过。服务级授权会过期（实测日程授权曾过期），异常时回到本检查。');
+    if (nextSteps.length === 0) {
+      const failed = services.filter(service => !['ok', 'skipped', 'unverified'].includes(service.state));
+      nextSteps.push(failed.length
+        ? `企微渠道检查未通过（${failed.map(service => service.id === 'calendar' ? '日程' : service.id === 'todo' ? '待办' : '推送').join('、')}）；请查看对应服务的错误，修复后重新检查。`
+        : '企微渠道检查通过。服务级授权会过期（实测日程授权曾过期），异常时回到本检查。');
+    }
     const result: WecomDiagnostics = { checkedAt, cli, auth: { state: identity.state === 'ok' ? 'ok' : 'error', message: identity.message }, identity, services, nextSteps };
     this.wecomDiagnostics = this.safe(result);
     return this.wecomDiagnostics;

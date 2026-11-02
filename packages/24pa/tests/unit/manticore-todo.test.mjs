@@ -45,7 +45,10 @@ describe('M04 原生待办读取', () => {
       return { data: { items: second ? [{ todo_id: 'native-other', title: '原生待办', status: 'proceed', user_status: 'accept', creator: { userid: 'other' }, followers: [{ userid: 'owner', user_status: 'accept' }], deadline: null }] : [], has_more: !second, next_cursor: second ? '' : 'next' } };
     } });
     const result = await reader.read(target('wecom'));
-    expect(calls).toHaveLength(2); expect(calls[0]).toContain('["proceed","finished"]');
+    expect(calls).toEqual([
+      ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '20'],
+      ['todo', 'list', '--status-filter', 'proceed', 'finished', '--limit', '20', '--cursor', 'next'],
+    ]);
     expect(result.items[0].roles.values).toContain('responsible'); expect(result.items[0].roles.values).not.toContain('following');
     expect(result.state).toBe('partial'); expect(result.reason).toMatch(/真实账号/);
   });
