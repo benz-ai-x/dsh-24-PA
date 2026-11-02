@@ -93,6 +93,41 @@ it('新目标建立独立关联交办，只带显式选择的上下文', async (
   expect(child.work.parent_work_item_id).toBe(work.id); expect(child.work.instruction).toBe('只携带我选定的结论A');
   expect((await inspect(work.id)).runs.total).toBe(1); expect(child.runs.total).toBe(1);
 }, 60000);
+it('非法业务动作保留失败而不冻结原运行，原生交办工具正常查询日期与运行', async () => {
+  const title = '不支持的待办动作';
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch',
+    delegate: { worker: 'tasks', title, instruction: '只核对动作名称，不创建或删除业务对象' },
+    workerAction: { action: 'task_delete', guid: 'not-dispatched' },
+    workerReply: '不支持 task_delete；没有执行删除，需使用 task_cancel 并核实影响范围。' }));
+  const sessionId = (await host.api('snapshot')).workspace.localSessionId;
+  await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: title }] } });
+  const snapshot = await host.waitUntil(v => v.work.some(w => w.title === title && ['completed', 'needs_reconciliation', 'failed'].includes(w.status)));
+  const work = snapshot.work.find(w => w.title === title);
+  expect(work.status).toBe('completed');
+  const run = await detail(work.active_worker_run_id);
+  expect(run.calls).toHaveLength(1);
+  expect(run.calls[0]).toMatchObject({ tool: 'pa24_work', status: 'failed', result: { value: { status: 'rejected', businessExecuted: false, action: 'task_delete' } } });
+  expect(run.calls[0].result.value.allowedActions).toContain('task_cancel');
+  expect(run.execution.blocks).toHaveLength(0);
+
+  for (const action of ['list', 'inspect']) {
+    const start = llm.requests.length;
+    await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_jobs', input: { action, workId: work.id } }, leadReply: '查询回执已返回。' }));
+    await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: `查询原交办 ${action} ${work.id}` }] } });
+    const results = () => llm.requests.slice(start).filter(request => request.tools.includes('pa24_jobs')).flatMap(request => request.toolResults);
+    const returned = await until(results, values => values.some(value => value.includes('lossless JSON') || value.includes(work.id) && value.includes(action === 'list' ? '"items"' : '"runs"')));
+    expect(returned.join('\n')).not.toContain('lossless JSON');
+    const value = JSON.parse(returned.find(value => value.includes(work.id) && value.includes(action === 'list' ? '"items"' : '"runs"')));
+    const item = action === 'list' ? value.items.find(item => item.id === work.id) : value.work;
+    expect(item).toMatchObject({ id: work.id, status: 'completed' });
+    expect(item.created_at).toMatch(/^\d{4}-.*Z$/);
+    if (action === 'inspect') {
+      expect(value.runs.rows[0]).toMatchObject({ id: work.active_worker_run_id });
+      expect(value.runs.rows[0].created_at).toMatch(/^\d{4}-.*Z$/);
+    }
+  }
+}, 600000);
+
 it('真实工具写入后回执丢失阻断后续模型，重启和迟到补充不重做，核对后接续新运行', async () => {
   const title = '真实工具未知回执'; await script(title);
   const configured = JSON.parse(await readFile(scriptPath, 'utf8'));

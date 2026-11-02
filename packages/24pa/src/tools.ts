@@ -94,7 +94,9 @@ export function apply(ctx: DshContext) {
     '查询助理交办及全部关联运行；补充未结束交办，明确接续已结束交办，停止、接受/退回需验收的交付物，或以本人选定的instruction建立关联新目标。停止不会撤销既有业务动作。',
     { action: { type: 'string', enum: ['list', 'inspect', 'continue', 'stop', 'supplement', 'accept', 'return', 'new-goal'] }, workId: string, instruction: string, requestId: string, expectedRevision: { type: 'integer' }, title: string, worker: string, completionCriteria: string, acceptanceRequired: { type: 'boolean' } },
     ['action'],
-    (args, exec) => runtime.control(args, exec.agent!),
+    // Repositories retain Date values internally; the host validates lossless
+    // JSON before rendering, including nested runs and change receipts.
+    async (args, exec) => JSON.parse(JSON.stringify(await runtime.control(args, exec.agent!))),
   );
 
   register(

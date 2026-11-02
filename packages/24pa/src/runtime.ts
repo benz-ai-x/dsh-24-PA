@@ -2565,8 +2565,13 @@ export class PaRuntime {
           return await this.skillBusinessAction(action)(authorized, item, this);
         }
         const role = this.roles.get(item.role);
-        const handler = role?.actions[String(args.action ?? '')];
-        if (!handler) throw new Error(`此 Worker 没有执行这项操作的权限（${item.role}/${String(args.action ?? '')}）。`);
+        const action = String(args.action ?? '');
+        const handler = role && Object.hasOwn(role.actions, action) ? role.actions[action] : undefined;
+        // No handler has run: report a correctable business rejection without
+        // turning it into an ambiguous host/tool failure after dispatch.
+        if (!handler) return { status: 'rejected', businessExecuted: false, action,
+          reason: `此 Worker 不支持这项操作（${item.role}/${action}），未执行业务动作；请使用当前职责允许的动作。`,
+          allowedActions: Object.keys(role?.actions ?? {}) };
         if (['focus_update', 'daily_plan_confirm', 'daily_plan_save', 'daily_review_save'].includes(String(args.action))) await this.workerRuns.observe(agent.session, true);
         const bounded = Object.hasOwn(this.planningActions, String(args.action ?? '')) ? await this.digest.planningArgs(item, args) : args;
         return await handler(bounded, item, this);

@@ -135,8 +135,10 @@ export class WorkerRuns {
           // acknowledgement after a write. Only its pre-dispatch cancellation
           // proves that this call did not execute.
           const unknown = (result.isError || call.signal.aborted) && result.error?.info?.code !== 'ABORTED_BEFORE_DISPATCH';
+          const business = result.value as { status?: unknown; businessExecuted?: unknown } | undefined;
+          const rejected = call.name === 'pa24_work' && business?.status === 'rejected' && business.businessExecuted === false;
           if (unknown) this.blocked.add(active.run.id);
-          await active.context.repos.workerRuns.callResult(key, unknown ? 'unknown' : result.isError ? 'failed' : 'succeeded', result);
+          await active.context.repos.workerRuns.callResult(key, unknown ? 'unknown' : result.isError || rejected ? 'failed' : 'succeeded', result);
           if (unknown) this.clock.disarm(active.run.id);
           // Business tools can return a structured partial result while an
           // external operation remains unknown. That still blocks new steps.

@@ -3,7 +3,7 @@
 const string = { type: 'string' };
 
 export const workToolProperties = {
-  action: string,
+  action: { type: 'string', description: '使用当前 Worker 职责允许的动作；取消或删除待办用 task_cancel，并按来源身份明确 effect 影响范围；没有 task_delete 动作。' },
   resourcePath: string,
   taskId: string,
   guid: string,
