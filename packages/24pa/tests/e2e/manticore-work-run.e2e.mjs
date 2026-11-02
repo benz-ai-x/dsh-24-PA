@@ -21,7 +21,7 @@ beforeAll(async () => {
   effectPath = join(root, 'tool-effects.jsonl'); await writeFile(effectPath, '');
   const storage = process.env.PA24_E2E_STORAGE === 'postgres' ? 'postgres' : 'sqlite';
   if (storage === 'postgres') cluster = await startPgCluster();
-  await writeFile(join(workspace, 'AGENTS.md'), '# 隔离交办验证\n\n```json\n' + JSON.stringify({ ...DEFAULT_CONFIG, storage, maxWorkers: 2 }) + '\n```\n');
+  await writeFile(join(workspace, 'AGENTS.md'), '# 隔离交办验证\n\n```json\n' + JSON.stringify({ ...DEFAULT_CONFIG, storage, maxWorkers: 2, enabledWorkers: ['memo', 'tasks'] }) + '\n```\n');
   scriptPath = join(root, 'script.json'); await writeFile(scriptPath, '{}');
   llm = await startMockLlm({ scriptPath, logPath: join(root, 'requests.json'), recordInputs: true });
   env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', PA24_TEST_WORK_EFFECT: effectPath, DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, ...(cluster ? { PA24_PG_DSN: cluster.dsn } : {}) };
@@ -114,7 +114,12 @@ it('非法业务动作保留失败而不冻结原运行，原生交办工具正�
     const start = llm.requests.length;
     await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_jobs', input: { action, workId: work.id } }, leadReply: '查询回执已返回。' }));
     await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: `查询原交办 ${action} ${work.id}` }] } });
-    const results = () => llm.requests.slice(start).filter(request => request.tools.includes('pa24_jobs')).flatMap(request => request.toolResults);
+    const results = () => llm.requests.slice(start).filter(request => request.tools.includes('pa24_jobs')).flatMap(request => request.toolResults).flatMap(text => {
+      try {
+        const content = JSON.parse(text);
+        return Array.isArray(content) ? content.filter(block => block.type === 'text').map(block => block.text) : [text];
+      } catch { return [text]; }
+    });
     const returned = await until(results, values => values.some(value => value.includes('lossless JSON') || value.includes(work.id) && value.includes(action === 'list' ? '"items"' : '"runs"')));
     expect(returned.join('\n')).not.toContain('lossless JSON');
     const value = JSON.parse(returned.find(value => value.includes(work.id) && value.includes(action === 'list' ? '"items"' : '"runs"')));
