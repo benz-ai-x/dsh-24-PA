@@ -35,18 +35,37 @@ export class WorkPlanning {
     ]);
     return { ...identity, focus, plan, review, previousReview, observedAt: new Date().toISOString() };
   }
+
+  private async previousDay(date: string, timeZone: string) {
+    const previous = this.identity(localDay(date, timeZone, -1).date, timeZone), repo = this.deps.repo();
+    const [plan, review] = await Promise.all([
+      repo.get<DailyWorkPlan>(previous.planId), repo.get<DailyWorkReview>(previous.reviewId),
+    ]);
+    const revision = review?.content.acceptedRevision;
+    let reviewedPlan = revision === undefined ? null : plan?.revision === revision ? plan : await repo.revision<DailyWorkPlan>(previous.planId, revision);
+    const missing: string[] = [];
+    if (!review) missing.push('昨日未记录复盘；当前完成状态不能说明进展发生于昨日。');
+    if (review && (!reviewedPlan || reviewedPlan.content.accepted?.revision !== revision
+      || reviewedPlan.content.date !== previous.date || reviewedPlan.content.timeZone !== timeZone)) {
+      reviewedPlan = null;
+      missing.push('昨日复盘对应的采纳版本无法读取；不能用后来的计划解释原复盘。');
+    }
+    return { date: previous.date, timeZone, plan, review, reviewedPlan, missing };
+  }
+
   async context(args: Record<string, unknown> = {}) {
     const snapshot = await this.snapshot(args.date, args.timeZone), day = localDay(snapshot.date, snapshot.timeZone), missing: string[] = [];
-    const [todos, calendar, work, waiting, bufferMinutes] = await Promise.all([
+    const [todos, calendar, work, waiting, bufferMinutes, previousDay] = await Promise.all([
       this.deps.todos().catch(error => { missing.push(`待办：${(error as Error).message}`); return null; }),
       this.deps.calendar({ from: day.from.toISOString(), to: day.to.toISOString() }).catch(error => { missing.push(`日历：${(error as Error).message}`); return null; }),
       this.deps.work(), this.deps.waiting(),
       this.deps.bufferMinutes?.() ?? Promise.resolve(0),
+      this.previousDay(snapshot.date, snapshot.timeZone),
     ]);
     if (todos && !todos.fresh) missing.push(`待办范围未完整核验：${todos.message}`);
     if (calendar && !calendar.fresh) missing.push('日历范围未完整核验，不能认定空闲。');
     if (work.length >= 1000) missing.push('助理交办超过单次读取上限，未覆盖全部历史。');
-    return { ...snapshot, todos, calendar, work: work.map(row => ({ id: row.id, title: row.title, status: row.status,
+    return { ...snapshot, previousDay, todos, calendar, work: work.map(row => ({ id: row.id, title: row.title, status: row.status,
       acceptanceStatus: row.acceptance_status, progress: row.progress, completionCriteria: row.completion_criteria })),
       waiting, missing, bufferMinutes, availability: planningAvailability(snapshot.plan?.content.workWindows ?? [], calendar?.events ?? [], calendar?.fresh ?? false, bufferMinutes),
       message: '来源为当前核验状态；完成时刻和受阻原因不能由同步时间推断。近期重点和采纳结果必须依据本人指令；建议仅保存为提议。' };

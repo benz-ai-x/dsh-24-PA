@@ -1,0 +1,28 @@
+
+ RUN  v2.1.9 /private/tmp/pa24-morning-rebuild-20261102/packages/24pa
+
+ ✓ tests/e2e/manticore-task-plan.e2e.mjs (8 tests) 25605ms
+   ✓ 公开旧计划迁移沿用原生调度，重启后只生成一份模板结果 12646ms
+   ✓ 真实原生时钟触发模板，读取列表不执行，结果保存且零模型请求 4392ms
+   ✓ 暂停后立即运行保持暂停；业务子会话不唤醒父模型，结果与参数留档 502ms
+   ✓ 等待时暂停计划并重启，修改全局渠道后原运行仍能沿固定快照继续 2035ms
+   ✓ 全局名额占用时另一计划保持排队；暂停取消未启动运行且不影响在途任务 455ms
+   ✓ 计划原快照重跑保留时间范围、参数和原交办；当前配置预览读取已确认的新参数 500ms
+   ✓ 公开管理查询与导出保留真实执行、交办和原投递，重启后读取不触发业务 2171ms
+ ❯ tests/e2e/work-methodology.e2e.mjs (1 test | 1 failed) 11443ms
+   × 近期重点→建议→采纳→复盘→原生定时建议→重启：首页与对话共享记录 11442ms
+     → Cannot read properties of undefined (reading 'definition')
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/work-methodology.e2e.mjs > 近期重点→建议→采纳→复盘→原生定时建议→重启：首页与对话共享记录
+TypeError: Cannot read properties of undefined (reading 'definition')
+ ❯ tests/e2e/work-methodology.e2e.mjs:104:32
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 8 passed (9)
+   Start at  20:57:15
+   Duration  37.32s (transform 35ms, setup 0ms, collect 90ms, tests 37.05s, environment 0ms, prepare 40ms)

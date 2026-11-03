@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/pa24-morning-rebuild-20261102/packages/24pa
+
+ ✓ tests/e2e/work-methodology.e2e.mjs (1 test) 16878ms
+   ✓ 近期重点→建议→采纳→复盘→原生定时建议→重启：首页与对话共享记录 16878ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  21:00:02
+   Duration  17.03s (transform 33ms, setup 0ms, collect 63ms, tests 16.88s, environment 0ms, prepare 21ms)

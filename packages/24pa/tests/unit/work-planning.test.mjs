@@ -152,6 +152,46 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
     expect(accepted.content.accepted.resolvedDecisions).toEqual(['先完成方案，暂缓归档']);
   });
 
+  it('晨报的昨日进展绑定复盘时的采纳版本，不被后来的建议或重新采纳替换', async () => {
+    await service.updateFocus(focusArgs, owner); await save(); await confirm();
+    todoFacts.tasks[1].status = 'completed';
+    await service.saveReview({ date, expectedRevision: 0, acceptedRevision: 2,
+      results: [{ itemId: 'proposal', status: 'completed', detail: '初稿已核验完成' }] }, background);
+    await save({ expectedRevision: 2, items: [item({ title: '重新安排的方案', outcome: '后来采纳的成果' })] });
+    await confirm(3);
+    const before = (await db.query('select count(*) as n from pa24.work_planning_revision')).rows[0].n;
+    const context = await service.context({ date: next });
+    expect(context.previousDay.date).toBe(date);
+    expect(context.previousDay.review.content.acceptedRevision).toBe(2);
+    expect(context.previousDay.plan.content.accepted.revision).toBe(4);
+    expect(context.previousDay.reviewedPlan.revision).toBe(2);
+    expect(context.previousDay.reviewedPlan.content.accepted.items[0].outcome).toBe('一份可评审的初稿');
+    expect(context.previousDay.missing).toEqual([]);
+    expect((await db.query('select count(*) as n from pa24.work_planning_revision')).rows[0].n).toBe(before);
+
+    await db.query('delete from pa24.work_planning_revision where record_id = $1 and revision = $2', [`day:${zone}:${date}`, 2]);
+    const incomplete = await service.context({ date: next });
+    expect(incomplete.previousDay.reviewedPlan).toBeNull();
+    expect(incomplete.previousDay.review.content.acceptedRevision).toBe(2);
+    expect(incomplete.previousDay.missing.join('')).toContain('不能用后来的计划');
+  });
+
+  it('晨报区分昨天与更早复盘；未知昨日进展不阻止今天的来源查询', async () => {
+    await service.updateFocus(focusArgs, owner); await save(); await confirm();
+    await service.saveReview({ date, expectedRevision: 0, acceptedRevision: 2,
+      results: [{ itemId: 'proposal', status: 'unknown', detail: '进展尚未核实' }], adjustments: ['核对客户反馈'] }, background);
+    const later = localDay(date, zone, 3).date;
+    const context = await service.context({ date: later });
+    expect(context.previousDay.date).toBe(localDay(later, zone, -1).date);
+    expect(context.previousDay.plan).toBeNull();
+    expect(context.previousDay.review).toBeNull();
+    expect(context.previousDay.reviewedPlan).toBeNull();
+    expect(context.previousDay.missing.join('')).toContain('昨日未记录复盘');
+    expect(context.previousReview.content.date).toBe(date);
+    expect(context.todos.tasks).toHaveLength(2);
+    expect(context.calendar.fresh).toBe(true);
+  });
+
   it('无关来源失败不抹掉已核验完成依据；关联对象过期仍拒绝完成', async () => {
     await service.updateFocus(focusArgs, owner); await save(); await confirm();
     todoFacts.fresh = false; todoFacts.message = '无关来源 B 暂不可用'; todoFacts.tasks[1].status = 'completed';

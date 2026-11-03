@@ -44,7 +44,7 @@ describe('F32：DigestService 接口直测', () => {
 });
 
 describe('F19：口播变体与语音入队', () => {
-  it('buildSpokenVariant：剥元数据行（syncedAt/来源/URL/缺失节/页脚）', async () => {
+  it('buildSpokenVariant：剥元数据，保留影响安排的缺失', async () => {
     const report = [
       '【晨报】窗口 2026-10-18',
       '',
@@ -67,7 +67,22 @@ describe('F19：口播变体与语音入队', () => {
     expect(spoken).not.toContain('（来源：');
     expect(spoken).not.toContain('https://');
     expect(spoken).not.toContain('三、数据缺失');
+    expect(spoken).toContain('日历同步失败');
     expect(spoken).not.toContain('来源：飞书');
+  });
+
+  it('智能晨报口播保留截止、来源缺失及后续取舍，链接转为可听名称', () => {
+    const spoken = buildSpokenVariant([
+      '## 今天怎么安排', '**建议**先完成方案，16:00 截止。',
+      '三、数据缺失', '公司日历暂未核验，13:00 是否空闲仍未知。',
+      '## 需要决定的事', '若下午另有会议，是否先缩小验证范围？',
+      '参见[客户方案](https://example.com/plan)。', '来源：核验记录。',
+    ].join('\n'));
+    expect(spoken).toContain('建议先完成方案，16:00 截止。');
+    expect(spoken).toContain('13:00 是否空闲仍未知');
+    expect(spoken).toContain('是否先缩小验证范围');
+    expect(spoken).toContain('参见客户方案。');
+    expect(spoken).not.toMatch(/https?:|\*\*|##|来源：核验记录/);
   });
 
   it('buildSpokenVariant：超限截断并播报提示', async () => {

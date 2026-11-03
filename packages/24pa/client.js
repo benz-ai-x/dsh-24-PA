@@ -1646,8 +1646,11 @@ window.__ModuleLoader__.load({
             h('section', { className: 'pa24-form-section' }, h('h3', { className: 'pa24-form-section-title' }, icon('note'), L('任务内容', 'Task content')),
               field(L('名称', 'Name'), text(form.title, value => set('title', value), { maxLength: 120 })),
               field('Skill', options(form.skillId, value => setForm({ ...form, skillId: value, parametersText: '{}' }), [['', L('选择任务或模板', 'Choose a task or template')], ...(catalog?.entries || []).filter(entry => ['task', 'template'].includes(entry.type)).map(entry => [entry.id, entry.name + ' · ' + (entry.source === 'builtin' ? L('内置原件', 'Built-in') : entry.source === 'managed' ? L('受管', 'Managed') : L('工作区', 'Workspace'))])])),
+              form.skillId === 'builtin:daily-planning' && h('p', { className: 'pa24-note' }, L('智能工作晨报会使用模型：结合昨日进展、日程和截止，保存今日工作建议。采纳由你决定，已有采纳安排会保留。定时运行请将工作日期留空。', 'The intelligent morning brief uses the model to combine prior progress, calendar commitments and deadlines into a saved daily proposal. You decide what to adopt; accepted plans remain intact. Leave the work date blank for scheduled runs.')),
               error && h('p', { role: 'alert', className: 'pa24-error' }, error),
-              Object.entries(parameterFields).map(([name, definition]) => field(name + (definition.required ? ' *' : '') + (definition.description ? ' · ' + definition.description : ''),
+              Object.entries(parameterFields).map(([name, definition]) => field(form.skillId === 'builtin:daily-planning' && name === 'date'
+                ? L('工作日期（可选，YYYY-MM-DD；定时晨报留空）', 'Work date (optional, YYYY-MM-DD; leave blank for scheduled briefs)')
+                : name + (definition.required ? ' *' : '') + (definition.description ? ' · ' + definition.description : ''),
                 h('input', { type: definition.type === 'boolean' ? 'checkbox' : ['integer', 'number'].includes(definition.type) ? 'number' : 'text',
                   ...(definition.type === 'boolean' ? { checked: parameters?.[name] ?? definition.default ?? false } : { value: parameters?.[name] ?? definition.default ?? '', step: definition.type === 'integer' ? 1 : 'any' }),
                   disabled: !parameters, onChange: event => { const value = definition.type === 'boolean' ? event.target.checked : ['integer', 'number'].includes(definition.type) ? Number(event.target.value) : event.target.value;
@@ -1729,14 +1732,19 @@ window.__ModuleLoader__.load({
             catch (error) { model.update({ error: error.message }); } finally { model.update({ busy: false }); }
           };
           const edit = form => update({ selected: form.id || null, form: { ...form, parameters: form.parameters || {}, parametersText: JSON.stringify(form.parameters || {}, null, 2) }, draft: null });
-          const fresh = preset => edit({ title: preset ? L(...({ morning: ['晨报', 'Morning digest'], evening: ['晚间复盘', 'Evening review'], weekly: ['周回顾', 'Weekly review'] })[preset]) : '', skillId: preset ? 'builtin:digest-' + preset : '',
+          const fresh = preset => edit({ title: preset ? L(...({ morning: ['智能工作晨报', 'Intelligent morning brief'], evening: ['晚间复盘', 'Evening review'], weekly: ['周回顾', 'Weekly review'] })[preset]) : '', skillId: preset === 'morning' ? 'builtin:daily-planning' : preset ? 'builtin:digest-' + preset : '',
             timing: { type: preset === 'weekly' ? 'weekly' : 'daily', time: preset === 'evening' ? '21:00:00' : '09:00:00', weekdays: [5] }, timeZone: config?.timeZone || 'Asia/Shanghai',
             executionLimitMs: 900000, parameters: {}, selectors: {}, delivery: { channel: config?.ownerOpenId ? config.notifyChannel : config?.notifyChannel === 'wecom' ? 'wecom' : 'none', mode: 'always', voice: false, overrideQuiet: false } });
-          const formPayload = () => { const { parametersText, ...form } = view.form; return { ...form, parameters: JSON.parse(parametersText) }; };
+          const formPayload = () => {
+            const { parametersText, ...form } = view.form, parameters = JSON.parse(parametersText);
+            if (form.skillId === 'builtin:daily-planning' && parameters?.date === '') delete parameters.date;
+            return { ...form, parameters };
+          };
           const saveDraft = async save => { try {
             const form = formPayload(); if (save) await change({ ...form, op: 'save' }, 'form'); else { model.update({ busy: true, draft: null, draftError: '' }); const draft = await rpc('plans.draft', { ...form, workspaceBinding: binding }); if (draft.workspaceBinding === binding && model.getSnapshot().form === view.form) model.update({ draft }); }
           } catch (error) { model.update({ draftError: error.message }); } finally { if (!save) model.update({ busy: false }); } };
           const p = detail?.plan, selectedRow = list.data?.rows.find(row => row.id === p?.id), disabled = view.busy;
+          const skillChanged = p?.task_config && p.task_authorization?.skill?.id && p.task_authorization.skill.id !== p.task_config.skillId;
           const button = (label, fn, { name, ...extra } = {}) => h('button', { key: label, type: 'button', disabled, onClick: () => void fn(), ...extra }, name && icon(name), label);
           const summary = extra.plans, summaryMetrics = summary ? [
             ['calendarClock', 'blue', L('下一次运行', 'Next run'), summary.next ? date(summary.next.at, summary.next.timeZone || tz) : L('暂无已核验触发时间', 'No verified occurrence'), summary.next ? summary.next.title + ' · ' + (summary.next.timeZone || tz) : L('当前没有可核验触发', 'No verified schedule')],
@@ -1784,15 +1792,17 @@ window.__ModuleLoader__.load({
               p.lifecycle?.error && h('p', { role: 'alert' }, p.lifecycle.error),
               h('div', { className: 'pa24-row' },
                 p.task_config && !p.recycled_at && !p.delete_when_idle && button(L('暂停未来运行', 'Pause future runs'), () => change({ op: 'pause', id: p.id, expectedRevision: p.revision })),
-                p.task_config && !p.recycled_at && !p.delete_when_idle && button(L('核验并启用', 'Verify and enable'), () => preview('plans.preview', 'enable')),
+                p.task_config && !p.recycled_at && !p.delete_when_idle && button(skillChanged ? L('核验新 Skill 并启用', 'Verify new skill and enable') : L('核验并启用', 'Verify and enable'), () => preview('plans.preview', 'enable', skillChanged ? { rebind: true } : {})),
                 p.task_config && !p.recycled_at && !p.delete_when_idle && button(L('立即运行 · 先预览', 'Run now · preview'), () => preview('plans.run-preview', 'run')),
                 p.task_config && !p.recycled_at && button(L('编辑配置', 'Edit configuration'), () => edit({ ...detail.form, id: p.id, expectedRevision: p.revision }), { disabled: disabled || p.status === 'active' || !!p.schedule_id || !!p.lifecycle }),
+                p.task_config?.skillId === 'builtin:digest-morning' && !p.recycled_at && !p.delete_when_idle && button(L('改用智能工作晨报', 'Use intelligent morning brief'), () => edit({ ...detail.form, id: p.id, expectedRevision: p.revision, skillId: 'builtin:daily-planning', parameters: {} }), { disabled: disabled || p.status === 'active' || !!p.schedule_id || !!p.lifecycle }),
                 p.task_config && button(L('复制为新计划', 'Copy plan'), () => edit({ ...detail.form, title: p.title + L(' 副本', ' copy') })),
                 p.recycled_at && button(L('还原为暂停', 'Restore paused'), () => change({ op: 'restore', id: p.id, expectedRevision: p.revision })),
                 button(L('查看全部运行', 'View all runs'), () => helpers.openRuns({ planId: p.id, range: 'all' })),
                 detail.legacyHistory?.length > 0 && button(L('查看旧简报历史', 'View legacy digest history'), () => helpers.openRuns({ kind: 'legacy', planId: p.id, range: 'all' }), { name: 'history' })),
               p.status === 'active' && p.task_config && h('p', { className: 'pa24-meta' }, L('修改配置前先暂停；当前运行继续使用原快照。', 'Pause before editing; in-flight runs keep their snapshot.')),
               !p.task_config && h('div', { className: 'pa24-note' }, h('p', null, L('保留原计划时间、状态和历史；核验当前身份与投递后升级。', 'Retain timing, state and history; verify current identity and delivery before adoption.')),
+                p.skill === 'digest-morning' && h('p', null, L('切换智能晨报：先按原 Skill 完成迁移，再暂停并选择「改用智能工作晨报」。沿用同一计划，保留原时间和历史。', 'To switch to the intelligent brief, adopt this plan with its original skill, then pause it and choose Use intelligent morning brief. The same plan retains its timing and history.')),
                 h('label', { className: 'pa24-field' }, L('原 Skill 来源', 'Original skill source'), h('select', { value: view.migrationSkill || '', onChange: event => update({ migrationSkill: event.target.value }) }, h('option', { value: '' }, L('请选择原来源', 'Select original source')), (catalog?.entries || []).filter(entry => (entry.internalName || entry.name) === p.skill).map(entry => h('option', { key: entry.id, value: entry.id }, entry.name + ' · ' + entry.source)))),
                 button(L('预览旧计划迁移', 'Preview legacy migration'), () => preview('plans.migration-preview', 'migrate', { skillId: view.migrationSkill || undefined }))),
               p.task_config && !p.recycled_at && h('details', null, h('summary', null, L('重配目标与删除', 'Rebind or delete')),

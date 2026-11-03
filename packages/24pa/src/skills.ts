@@ -247,8 +247,8 @@ export const BUILTIN_TASK_SKILLS: readonly { name: string; description: string; 
   },
   {
     name: 'digest-morning',
-    description: '晨报：当日计划的事实聚合与建议（模板轨，确定性组装）',
-    whenToUse: '晨报计划到点投递，或主人要求「出晨报/今日概览」。',
+    description: '固定模板晨报：当日事项概览（不调用模型，保留既有计划）',
+    whenToUse: '既有模板晨报计划触发，或主人明确选择免模型的固定模板概览；安排今日工作使用 daily-planning。',
     content: [
       '按「事实与建议分开」的契约组装晨报：',
       '1. 事实（来自实际对象）：日历今日日程、到期/计划中待办、进行中等待事项、待审手写数、已审核笔记、项目进展——逐项带来源；',

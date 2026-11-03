@@ -1,0 +1,145 @@
+Browser tab: 1, Title: "DeepSeek Harness", URL: "http://127.0.0.1:61725/".
+1 AXWebArea DeepSeek Harness, URL: 127.0.0.1:61725/
+	2 container
+		3 button 新建会话
+		4 button 收起侧边栏
+		5 button 新建会话
+		6 container 全局面板
+			7 button 插件
+			8 button 自动化任务
+			9 button 24私助工作区
+			10 pop up button (collapsed) Description: 更多, Secondary Actions: Expand
+		11 text 工作区
+		12 container
+			13 button (collapsed) Description: 搜索会话, Secondary Actions: Expand
+			14 text field (settable)
+		15 button 视图选项
+		16 button 添加工作区
+		17 outline 会话
+			18 container
+				19 row (expanded) 24私助, Secondary Actions: Collapse
+					20 text 24私助
+				21 row (selectable) 新会话
+					22 text 新会话
+		23 pop up button (collapsed) Description: 账号菜单, Secondary Actions: Expand
+		24 container
+			25 heading 24私助, Value: 1
+				26 text 24私助
+			27 text 日常交给我，重要的事由你决定。
+			28 button 与24私助对话
+			29 button 刷新
+			115 checkbox 管理卡片, Value: 0
+			236 text 已更新 2026/11/2 21:28:29
+		30 container
+			31 text 体验模式  · 未连接飞书；数据保存在本机数据库，不会发到飞书。
+		32 button 关闭体验模式提示
+		33 tab group 24私助工作区导航
+			34 tab (selectable, settable, boolean) 首页, Value: 0, ID: pa24-tab-home
+			35 tab (selected, settable, boolean) 事务与计划 该分类有 2 张卡片需要关注（角标按卡片计，健康卡内的数字按检查项计）, Description: 该分类有 2 张卡片需要关注（角标按卡片计，健康卡内的数字按检查项计）, ID: pa24-tab-work, Value: 1
+事务与计划
+2
+			36 tab (selectable, settable, boolean) 知识与资料, Value: 0, ID: pa24-tab-knowledge
+			37 tab (selectable, settable, boolean) 接入与设置, Value: 0, ID: pa24-tab-setup
+			38 tab (selectable, settable, boolean) 运行与维护 该分类有 1 张卡片需要关注（角标按卡片计，健康卡内的数字按检查项计）, Description: 该分类有 1 张卡片需要关注（角标按卡片计，健康卡内的数字按检查项计）, ID: pa24-tab-ops, Value: 0
+运行与维护
+1
+		39 container Description: 事务与计划 该分类有 2 张卡片需要关注（角标按卡片计，健康卡内的数字按检查项计）, ID: pa24-content
+			116 button 返回卡片
+			117 heading 定时任务时间 + Skill · 晨报与复盘预设, Value: 2
+				118 text 定时任务 时间 + Skill · 晨报与复盘预设
+			119 container
+				120 heading 定时任务, Value: 2
+					121 text 定时任务
+				122 text 时间 + Skill。保存、启用、单次执行和投递分别留档。
+				123 button 新建计划
+				124 text 下一次运行 暂无已核验触发时间 当前没有可核验触发 启用 0 当前启用的计划 暂停 / 未启用 2 不进入未来触发 需处理 0 依赖、权限、预算或其他阻断
+				125 button 晨报预设
+				126 button 复盘预设
+				127 button 周回顾预设
+				128 button 刷新
+				237 text 操作已保存，原历史保留。 搜索计划
+				199 text field (settable) 搜索计划
+				200 text 计划状态
+				201 pop up button (collapsed, settable) 计划状态, Value: 全部未回收, Secondary Actions: Expand
+					202 menu
+						203 (selected) 全部未回收
+						204 启用
+						205 暂停
+						206 需处理
+						207 回收站
+				208 text 按 Skill 筛选
+				209 pop up button (collapsed, settable) 按 Skill 筛选, Value: 全部 Skill, Secondary Actions: Expand
+					210 menu
+						211 (selected) 全部 Skill
+						212 daily-planning · builtin
+						213 daily-review · builtin
+						214 waiting-followup · builtin
+						215 digest-morning · builtin
+						216 digest-evening · builtin
+						217 digest-weekly · builtin
+						218 handwriting-review-flow · builtin
+						219 meeting-prep · builtin
+						220 worker-persona-memo · builtin
+						221 worker-persona-tasks · builtin
+						222 worker-persona-skill · builtin
+						223 worker-persona-digest · builtin
+						224 worker-persona-calendar · builtin
+						225 worker-persona-reminders · builtin
+						226 worker-persona-handwriting · builtin
+						227 worker-persona-memo-simple · builtin
+						228 feishu-setup-flow · builtin
+						229 wecom-setup-flow · builtin
+				230 text 匹配计划 2 计划 / Skill 时间规则 下次运行 状态 最近执行
+				238 checkbox 日期清空验收, Value: 1
+				239 text daily-planning
+				240 text 时间规则 每天 09:00:00 · Asia/Shanghai 下次运行 暂无已核验触发时间 状态 已暂停 最近执行 暂无执行
+				231 checkbox 原模板晨报, Value: 0
+				232 text daily-planning
+				233 text 时间规则 每天 08:30:00 · Asia/Shanghai 下次运行 暂无已核验触发时间 状态 已暂停 最近执行 暂无执行
+				241 heading 日期清空验收, Value: 3
+					242 text 日期清空验收
+				243 text 已暂停
+				244 text 主人选择：暂停
+				245 text 固定时区：Asia/Shanghai · 累计时限 15 分钟
+				246 button 暂停未来运行
+				247 button 核验并启用
+				248 button 立即运行 · 先预览
+				249 button 编辑配置
+				250 button 复制为新计划
+				251 button 查看全部运行
+				252 button (collapsed) 重配目标与删除, Secondary Actions: Expand
+					253 text 重配目标与删除
+				254 container
+					255 button (expanded) 配置、原关联与迁移凭据, Secondary Actions: Collapse
+						256 text 配置、原关联与迁移凭据
+					257 text {
+  "schedule": {
+    "daily": {
+      "time": "09:00:00",
+      "time_zone": "Asia/Shanghai"
+    }
+  },
+  "configuration": {
+    "version": 1,
+    "skillId": "builtin:daily-planning",
+    "parameters": {},
+    "timeZone": "Asia/Shanghai",
+    "executionLimitMs": 900000,
+    "delivery": {
+      "channel": "none",
+      "mode": "always",
+      "voice": false,
+      "overrideQuiet": false
+    },
+    "selectors": {},
+    "missedTtlMs": 3600000,
+    "deliveryTtlMs": 3600000
+  },
+  "authorization": null,
+  "migration": null
+}
+				234 button (collapsed) 兼容与历史, Secondary Actions: Expand
+					235 text 兼容与历史
+		114 text 数据保存在本机（业务账本随工作区配置，默认 SQLite、可选 PostgreSQL）；参数可经表单或对话维护，界面只显示真实结果。
+
+The focused UI element is 255 button (expanded) 配置、原关联与迁移凭据, Secondary Actions: Collapse
