@@ -8,17 +8,42 @@ interface SourceAccessDeps {
   lark(args: string[]): Promise<{ data: any }>;
   wecom(args: string[]): Promise<{ data: any; raw: unknown }>;
   observeWecomIdentity?(identity: SourceIdentity): Promise<void>;
+  /** 冷令牌竞态重读前的等待毫秒数；生产默认 1.5s，测试注入 0。 */
+  identityRetryDelayMs?: number;
 }
+
+/** lark-cli 对过期用户令牌走惰性刷新：`auth status --verify` 自己触发刷新并
+ * 逐一验证成功后，首个回执仍可能带着刷新前的存活性（生产 08:00 定时触发实
+ * 测：刷新与 user_info 均 200，身份仍被判为未核验一致）。应用与主人绑定已
+ * 匹配而仅存活性过期时重读一次再判死；绑定不符不重试。 */
+const FEISHU_IDENTITY_MISMATCH = '固定飞书 profile 的应用、有效用户令牌与主人身份尚未核验一致。';
 
 /** Read-only, versioned adapter evidence. Resource roles never replace object-level checks. */
 export class SourceAccess {
   constructor(private readonly deps: SourceAccessDeps) {}
   async identity(platform: 'feishu' | 'wecom'): Promise<SourceIdentity> {
     if (platform === 'feishu') {
-      const { data: auth } = await this.deps.lark(['auth', 'status', '--verify']);
-      const user = auth?.identities?.user;
-      if (auth?.verified !== true || user?.tokenStatus !== 'valid' || !user?.openId || user.openId !== this.deps.config().ownerOpenId
-        || typeof auth?.appId !== 'string' || !auth.appId) throw new Error('固定飞书 profile 的应用、有效用户令牌与主人身份尚未核验一致。');
+      const ownerOpenId = this.deps.config().ownerOpenId;
+      const read = async () => (await this.deps.lark(['auth', 'status', '--verify'])).data;
+      const consistent = (auth: any) => {
+        const user = auth?.identities?.user;
+        return auth?.verified === true && user?.tokenStatus === 'valid' && typeof user?.openId === 'string' && !!user.openId
+          && user.openId === ownerOpenId && typeof auth?.appId === 'string' && !!auth.appId ? user : null;
+      };
+      let auth = await read();
+      let user = consistent(auth);
+      if (!user) {
+        // 只有应用与主人绑定匹配、仅令牌存活性过期才值得重读；绑定不符是配置
+        // 问题，重读只会掩盖真实不一致。
+        const observed = auth?.identities?.user;
+        const retryable = typeof auth?.appId === 'string' && !!auth.appId
+          && typeof observed?.openId === 'string' && observed.openId === ownerOpenId;
+        if (!retryable) throw new Error(FEISHU_IDENTITY_MISMATCH);
+        await new Promise(resolve => setTimeout(resolve, this.deps.identityRetryDelayMs ?? 1500));
+        auth = await read();
+        user = consistent(auth);
+        if (!user) throw new Error(FEISHU_IDENTITY_MISMATCH);
+      }
       return { platform, ownerId: user.openId, authority: `app:${auth.appId}` };
     }
     const response = await this.deps.wecom(['identity', 'whoami']);
