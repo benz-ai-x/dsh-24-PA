@@ -8,7 +8,7 @@ interface SourceAccessDeps {
   lark(args: string[]): Promise<{ data: any }>;
   wecom(args: string[]): Promise<{ data: any; raw: unknown }>;
   observeWecomIdentity?(identity: SourceIdentity): Promise<void>;
-  /** 冷令牌竞态重读前的等待毫秒数；生产默认 1.5s，测试注入 0。 */
+  /** 惰性刷新竞态重读前的等待毫秒数；生产默认 1.5s，测试注入 0。 */
   identityRetryDelayMs?: number;
 }
 
@@ -16,7 +16,7 @@ interface SourceAccessDeps {
  * 后，首个回执仍可能带着刷新前的一致性结论（#261 生产实测：刷新与
  * user_info 均 200，身份仍被判为未核验一致）。绑定匹配而结论未过时重读一
  * 次再判死；绑定不符不重试。证据与取舍见
- * docs/research/晨报定时触发-飞书令牌惰性刷新竞态研究.md */
+ * docs/research/2026-11-05-晨报定时触发-飞书令牌惰性刷新竞态.md */
 const FEISHU_IDENTITY_MISMATCH = '固定飞书 profile 的应用、有效用户令牌与主人身份尚未核验一致。';
 const FEISHU_IDENTITY_REREAD_DELAY_MS = 1500;
 
