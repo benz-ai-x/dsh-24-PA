@@ -32,12 +32,12 @@ describe('来源只读检查的实际 CLI 契约', () => {
     let calls = 0;
     const access = make(async args => { calls++; if (args[0] !== 'auth') throw Error('不应读取资源'); return { data: { ...auth, verified: false } }; });
     await expect(access.check(source())).rejects.toThrow(/身份/);
-    // 冷令牌竞态：绑定匹配而存活性过期时先重读一次（共两次 auth 调用），再判死。
+    // 绑定匹配而核验结论未过（verified=false、令牌仍 valid）：先重读一次再判死。
     expect(calls).toBe(2);
     const ambiguous = make(async args => ({ data: args[0] === 'auth' ? auth : { calendars: [{ user_id: 'owner', calendar: { calendar_id: 'a' } }, { user_id: 'owner', calendar: { calendar_id: 'b' } }] } }));
     await expect(ambiguous.check(source())).rejects.toThrow(/唯一/);
   });
-  it('冷令牌竞态：首个回执报过期、重读一次即恢复一致；绑定不符不重试', async () => {
+  it('令牌过期后的惰性刷新：首个回执仍报旧态、重读一次即恢复；绑定不符或应用缺失不重试', async () => {
     let reads = 0;
     const recovered = make(async args => {
       if (args[0] !== 'auth') throw Error('不应读取资源');
@@ -53,7 +53,7 @@ describe('来源只读检查的实际 CLI 契约', () => {
       wrongOwner++;
       return { data: { appId: 'app', verified: true, identities: { user: { openId: 'other', tokenStatus: 'valid' } } } };
     });
-    await expect(mismatch.identity('feishu')).rejects.toThrow(/身份/);
+    await expect(mismatch.identity('feishu')).rejects.toThrow('固定飞书 profile 的应用、有效用户令牌与主人身份尚未核验一致。');
     expect(wrongOwner).toBe(1);
     let missing = 0;
     const noGrant = make(async args => {
@@ -63,6 +63,14 @@ describe('来源只读检查的实际 CLI 契约', () => {
     });
     await expect(noGrant.identity('feishu')).rejects.toThrow(/身份/);
     expect(missing).toBe(1);
+    let noApp = 0;
+    const missingApp = make(async args => {
+      if (args[0] !== 'auth') throw Error('不应读取资源');
+      noApp++;
+      return { data: { verified: true, identities: { user: { openId: 'owner', tokenStatus: 'valid' } } } };
+    });
+    await expect(missingApp.identity('feishu')).rejects.toThrow(/身份/);
+    expect(noApp).toBe(1);
   });
   it('清单 owner 与 creator 分开；群成员不是已证实的本人编辑权限', async () => {
     const access = make(async args => ({ data: args[0] === 'auth' ? auth : { tasklist: { guid: 'list', creator: { id: 'owner', type: 'user' }, owner: { id: 'someone', type: 'user' }, members: [{ id: 'chat', type: 'chat', role: 'editor' }] } } }));

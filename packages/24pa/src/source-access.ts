@@ -12,11 +12,13 @@ interface SourceAccessDeps {
   identityRetryDelayMs?: number;
 }
 
-/** lark-cli 对过期用户令牌走惰性刷新：`auth status --verify` 自己触发刷新并
- * 逐一验证成功后，首个回执仍可能带着刷新前的存活性（生产 08:00 定时触发实
- * 测：刷新与 user_info 均 200，身份仍被判为未核验一致）。应用与主人绑定已
- * 匹配而仅存活性过期时重读一次再判死；绑定不符不重试。 */
+/** 飞书用户令牌惰性刷新：`auth status --verify` 自己触发刷新并逐一验证成功
+ * 后，首个回执仍可能带着刷新前的一致性结论（#261 生产实测：刷新与
+ * user_info 均 200，身份仍被判为未核验一致）。绑定匹配而结论未过时重读一
+ * 次再判死；绑定不符不重试。证据与取舍见
+ * docs/research/晨报定时触发-飞书令牌惰性刷新竞态研究.md */
 const FEISHU_IDENTITY_MISMATCH = '固定飞书 profile 的应用、有效用户令牌与主人身份尚未核验一致。';
+const FEISHU_IDENTITY_REREAD_DELAY_MS = 1500;
 
 /** Read-only, versioned adapter evidence. Resource roles never replace object-level checks. */
 export class SourceAccess {
@@ -25,23 +27,23 @@ export class SourceAccess {
     if (platform === 'feishu') {
       const ownerOpenId = this.deps.config().ownerOpenId;
       const read = async () => (await this.deps.lark(['auth', 'status', '--verify'])).data;
-      const consistent = (auth: any) => {
+      const boundToOwner = (auth: any) => typeof auth?.appId === 'string' && !!auth.appId
+        && auth?.identities?.user?.openId === ownerOpenId;
+      const verifiedUser = (auth: any) => {
         const user = auth?.identities?.user;
-        return auth?.verified === true && user?.tokenStatus === 'valid' && typeof user?.openId === 'string' && !!user.openId
-          && user.openId === ownerOpenId && typeof auth?.appId === 'string' && !!auth.appId ? user : null;
+        return boundToOwner(auth) && auth?.verified === true && user?.tokenStatus === 'valid'
+          && typeof user?.openId === 'string' && !!user.openId ? user : null;
       };
       let auth = await read();
-      let user = consistent(auth);
+      let user = verifiedUser(auth);
       if (!user) {
-        // 只有应用与主人绑定匹配、仅令牌存活性过期才值得重读；绑定不符是配置
-        // 问题，重读只会掩盖真实不一致。
-        const observed = auth?.identities?.user;
-        const retryable = typeof auth?.appId === 'string' && !!auth.appId
-          && typeof observed?.openId === 'string' && observed.openId === ownerOpenId;
-        if (!retryable) throw new Error(FEISHU_IDENTITY_MISMATCH);
-        await new Promise(resolve => setTimeout(resolve, this.deps.identityRetryDelayMs ?? 1500));
+        // 绑定已匹配而一致性结论未过（verified/tokenStatus 可能仍是刷新前的
+        // 旧态）：隔刷新完成所需的时间重读一次。绑定不符是配置问题，重读只
+        // 会掩盖真实不一致。
+        if (!boundToOwner(auth)) throw new Error(FEISHU_IDENTITY_MISMATCH);
+        await new Promise(resolve => setTimeout(resolve, this.deps.identityRetryDelayMs ?? FEISHU_IDENTITY_REREAD_DELAY_MS));
         auth = await read();
-        user = consistent(auth);
+        user = verifiedUser(auth);
         if (!user) throw new Error(FEISHU_IDENTITY_MISMATCH);
       }
       return { platform, ownerId: user.openId, authority: `app:${auth.appId}` };
