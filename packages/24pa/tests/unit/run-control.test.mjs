@@ -218,10 +218,14 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     } finally { runs.dispose(); }
   });
 
-  it('启动即败的运行可人工核对结算：宿主目录查无该会话不阻断核对', async () => {
+  it.each([
+    ['name', () => Object.assign(new Error(`session "${randomUUID()}" not found`), { name: 'SessionPersistenceNotFoundError' })],
+    ['code', () => Object.assign(new Error('session was not found'), { code: 'SESSION_QUERY_SESSION_NOT_FOUND' })],
+    ['message-only', () => new Error(`session "pa24-skill-${randomUUID()}" not found`)],
+  ])('启动即败的运行可人工核对结算：宿主目录查无该会话（%s 形态）不阻断核对', async (_kind, absent) => {
     await repos.skillRuns.transition(run.id, 'needs_reconciliation', '启动未完成：宿主拒绝准入');
     const host = { sessions: { get: () => null, flush: async () => true }, get: () => undefined,
-      subagents: { listDescendants: async () => { throw Object.assign(new Error(`session "${run.session_id}" not found`), { name: 'SessionPersistenceNotFoundError' }); } },
+      subagents: { listDescendants: async () => { throw absent(); } },
       sessionController: { cancel: () => {}, resolveAgent: async () => ({ error: new Error('不在测试范围') }) } };
     const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
       permissionHash: () => 'allowed', sourceSession: async () => 'source', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });

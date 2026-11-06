@@ -241,7 +241,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     expect((await repos.skillRuns.list(entry.id)).total).toBe(1);
   });
 
-  it('启动即败（会话未创建）按已知失败结算，不进待核对互锁', async () => {
+  it('启动即败（会话未创建）按已知失败结算，不进待核对互锁；history 查询失败仍走待核对', async () => {
     const source = '---\n' + JSON.stringify({ name: 'agent', description: '本地运行', metadata: { track: 'agent', tools: [], pa24: {
       schemaVersion: 1, mode: 'local', parameters: {}, expectedResult: '本地结果', completionCriteria: '返回正文' } } }) + '\n---\n本地正文';
     const entry = await publish(await change({ op: 'save', displayName: '启动失败验证', version: {
@@ -251,7 +251,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
       sourceSession: async () => 'source', tools: async () => [], permissionHash: () => 'permission', checkBusiness() {}, startBusiness: async () => {}, checkTemplate() {},
       template: async () => '', lease: work => work(), control: work => work(), detached: work => work() });
     runs.host.createLocal = async () => { throw new Error('subagents below parent "source" are draining; the operation was not admitted'); };
-    runs.host.history = async () => { throw new Error(`session "pa24-skill-x" not found`); };
+    runs.host.history = async () => null;
     try {
       const base = { id: 'managed:' + entry.id, workspaceBinding: 'binding' }, preview = await runs.preview(base);
       const first = await runs.start({ ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint });
@@ -261,7 +261,15 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
       const second = await runs.start({ ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint });
       expect(second.repeated).toBe(false);
       expect(second.run.status).toBe('failed');
-      expect((await repos.skillRuns.list(entry.id)).total).toBe(2);
+      // 计划重叠互锁同源查询：failed 运行不算在跑（plan_trigger admit 用）。
+      const planRow = await plan(entry);
+      await db.query('update pa24.skill_run set plan_id = $2 where id = $1', [first.run.id, planRow.id]);
+      expect(await repos.taskPlans.activeRuns(planRow.id)).toHaveLength(0);
+      // history 查询失败（会话可能在、宿主可能已受理输入）不能当查无：仍待核对。
+      runs.host.history = async () => { throw new Error('checkpoint unavailable'); };
+      const third = await runs.start({ ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint });
+      expect(third.run.status).toBe('needs_reconciliation');
+      await expect(runs.start({ ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint })).rejects.toThrow(/待核对/);
     } finally { runs.dispose(); }
   });
 
