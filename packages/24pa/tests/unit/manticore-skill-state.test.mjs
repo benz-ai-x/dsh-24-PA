@@ -241,6 +241,30 @@ for (const backend of ['sqlite', 'postgres']) describe(`Manticore Skill、计划
     expect((await repos.skillRuns.list(entry.id)).total).toBe(1);
   });
 
+  it('启动即败（会话未创建）按已知失败结算，不进待核对互锁', async () => {
+    const source = '---\n' + JSON.stringify({ name: 'agent', description: '本地运行', metadata: { track: 'agent', tools: [], pa24: {
+      schemaVersion: 1, mode: 'local', parameters: {}, expectedResult: '本地结果', completionCriteria: '返回正文' } } }) + '\n---\n本地正文';
+    const entry = await publish(await change({ op: 'save', displayName: '启动失败验证', version: {
+      package_data: makeSkillPackage([{ path: 'SKILL.md', bytes: Buffer.from(source) }]), definition: parseSkillMarkdown(source), validation_error: null } }));
+    const packages = new SkillPackages({ context: () => ({ cwd: '/workspace', binding: 'binding', repo: repos.skills }), registry: null, plans: async () => [], pausePlan: async () => {}, check: async () => [] });
+    const runs = new SkillRuns({ host: {}, context: () => ({ cwd: '/workspace', binding: 'binding', repos }), packages,
+      sourceSession: async () => 'source', tools: async () => [], permissionHash: () => 'permission', checkBusiness() {}, startBusiness: async () => {}, checkTemplate() {},
+      template: async () => '', lease: work => work(), control: work => work(), detached: work => work() });
+    runs.host.createLocal = async () => { throw new Error('subagents below parent "source" are draining; the operation was not admitted'); };
+    runs.host.history = async () => { throw new Error(`session "pa24-skill-x" not found`); };
+    try {
+      const base = { id: 'managed:' + entry.id, workspaceBinding: 'binding' }, preview = await runs.preview(base);
+      const first = await runs.start({ ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint });
+      expect(first.run.status).toBe('failed');
+      expect(first.run.progress).toMatch(/启动未完成/);
+      // 待核对互锁不拦新运行：同 Skill 可直接再次接纳（生产症状＝晨报无法补发）。
+      const second = await runs.start({ ...base, requestId: randomUUID(), confirm: true, fingerprint: preview.fingerprint });
+      expect(second.repeated).toBe(false);
+      expect(second.run.status).toBe('failed');
+      expect((await repos.skillRuns.list(entry.id)).total).toBe(2);
+    } finally { runs.dispose(); }
+  });
+
   it('旧运行收到迟到证据并重新核对，不停止正在接续的交办', async () => {
     const entry = await publish(await create()), input = await admission(entry), original = await repos.skillRuns.admit(input);
     await repos.skillRuns.transition(original.id, 'running', '原执行');

@@ -218,6 +218,22 @@ for (const backend of ['sqlite', 'postgres']) describe(`运行控制持久账本
     } finally { runs.dispose(); }
   });
 
+  it('启动即败的运行可人工核对结算：宿主目录查无该会话不阻断核对', async () => {
+    await repos.skillRuns.transition(run.id, 'needs_reconciliation', '启动未完成：宿主拒绝准入');
+    const host = { sessions: { get: () => null, flush: async () => true }, get: () => undefined,
+      subagents: { listDescendants: async () => { throw Object.assign(new Error(`session "${run.session_id}" not found`), { name: 'SessionPersistenceNotFoundError' }); } },
+      sessionController: { cancel: () => {}, resolveAgent: async () => ({ error: new Error('不在测试范围') }) } };
+    const runs = new SkillRuns({ host, context: () => ({ binding: 'binding', cwd: '/workspace', repos }), packages: {},
+      permissionHash: () => 'allowed', sourceSession: async () => 'source', lease: fn => fn(), control: fn => fn(), detached: fn => fn(), template: async () => '' });
+    try {
+      const evidence = await repos.skillRuns.evidence(run.id);
+      await runs.review({ runId: run.id, requestId: randomUUID(), confirm: true, fingerprint: evidence.fingerprint,
+        summary: '启动被宿主拒绝，无任何已执行动作', completed: '无', remaining: '无', calls: [], native: [], workspaceBinding: 'binding' });
+      expect((await repos.skillRuns.get(run.id)).status).toBe('stopped');
+      expect((await repos.workItems.get(run.work_item_id)).status).toBe('stopped');
+    } finally { runs.dispose(); }
+  });
+
   it('原生回合未闭合时保留已持久等待，running 仍需核对', async () => {
     const message = { id: randomUUID(), role: 'user', source: { kind: 'user', rpcId: run.request_id }, content: [{ type: 'text', text: '原始任务' }] };
     const session = { id: run.session_id, header: { cwd: '/workspace' }, ownEvents: () => [
