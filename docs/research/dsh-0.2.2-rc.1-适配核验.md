@@ -22,6 +22,10 @@
 
 **未覆盖**：飞书通道、企微通道、子代理真实派发、schedule 原生投递——生产升级后观察（晨报 08:00＝首个真实 schedule 投递）。回滚锚＝旧 deployments/dsh-0.2.1-rc.5 目录＋start.sh exec 行。
 
+## API 移植（PR #266，#265 的编译/运行时缺口）
+
+0.2.2 重写 Schedule 请求面：`create(sessionId, 键控request)` → `create({title,prompt,timing 判别联合,target})`（归属进 `target.sessionId`）；`update({sessionId,id,expected,change,title,prompt})` → `edit({id,action,patch,expectedUpdatedAt})`（删除也走 edit）；`RecurringScheduleRecord` 新增 rrule 变体（无 `.time`）。处置＝`schedule-bridge.ts` 能力探测方言、对内统一旧面；内部键控时间面与全部业务代码不变。**#265 教训：发布流程曾吞掉 tsc 失败（`npm run build 2>&1 | tail -1` 空输出）——发版前必须显式核对 tsc 退出码**；真实服务级验证（digest-reliability 直连 0.2.2 ScheduleService）才是方言移植的有效回路，类型编译通过≠请求面兼容。
+
 ## 踩坑记录
 
 - 冒烟工作区 AGENTS.md：配置校验要求多个字符串字段**显式存在**（folderToken/appIdEnv…），最小 json 会连环报「必须为字符串」；正解＝DEFAULT_CONFIG 全字段生成（tests/helpers/runtime.mjs 同款）。
