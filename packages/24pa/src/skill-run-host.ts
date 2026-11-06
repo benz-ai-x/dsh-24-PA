@@ -20,6 +20,15 @@ export interface RunToolResult { isError?: boolean; content?: ContentBlock[]; va
 export interface RunActivation { runId: string; id: string; provider: string; local: boolean; stopReason?: string; lastAssistantMessage?: ContentBlock[] }
 export interface RunDescendant { kind: 'child' | 'diagnostic'; id: string; parentId: string; mode?: 'continuable' | 'one-shot' | 'external'; activity?: string; reason?: string }
 export interface RunJob { id: string; owner?: string; status: string; detail?: string }
+/** 宿主「会话不存在」的三种形态：持久层原始错误（无 code、按 name 认）、
+ * 远程边界映射后的 code、以及跨序列化后仅剩的 message。 */
+const sessionAbsent = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'SessionPersistenceNotFoundError') return true;
+  if ((error as Error & { code?: unknown }).code === 'SESSION_QUERY_SESSION_NOT_FOUND') return true;
+  return /^session "[^"]+" not found$/.test(error.message);
+};
+
 interface NativeSubagents {
   listDescendants(id: string, signal?: AbortSignal): Promise<RunDescendant[]>;
   listChildren(id: string, signal?: AbortSignal): Promise<{ id: string }[]>;
@@ -293,7 +302,14 @@ export class SkillRunHost {
   }
   async descendants(run: SkillRunRow): Promise<RunDescendant[]> {
     if (!this.subagents().listDescendants) throw new Error('宿主缺少原生子任务归属核对接口。');
-    return this.subagents().listDescendants(run.session_id);
+    try {
+      return await this.subagents().listDescendants(run.session_id);
+    } catch (error) {
+      // 启动即败的运行从未在宿主里创建会话，目录查无此会话＝没有可核对的
+      // 后代，不构成核对失败；其余错误（目录损坏、服务不可用）照常上抛。
+      if (sessionAbsent(error)) return [];
+      throw error;
+    }
   }
   async directChild(owner: string, child: string): Promise<boolean> {
     return (await this.subagents().listChildren(owner)).some(row => row.id === child);

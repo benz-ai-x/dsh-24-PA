@@ -253,7 +253,15 @@ export class SkillRuns {
     } catch (error) {
       await this.diagnostic(run.id, 'launch', error);
       const native = await this.host.history(run).catch(() => undefined);
-      await this.block(run, `启动未完成：${errorText(error)}${native ? '；请核对原会话，不重复提交。' : ''}`);
+      if (native === null) {
+        // 持久层查无此会话＝没有任何已受理的原生动作，没有未知结果可核
+        // 对：按已知失败结算，不进待核对互锁（进互锁会让同 Skill 的新运
+        // 行全部被挡，且核对路径查无会话自身会失败）。history 查询失败
+        // （undefined）不能当查无——会话可能在，宿主可能已受理输入。
+        await repo.transition(run.id, 'failed', `启动未完成：${errorText(error)}`);
+        return false;
+      }
+      await this.block(run, `启动未完成：${errorText(error)}；请核对原会话，不重复提交。`);
     }
     return true;
   }
