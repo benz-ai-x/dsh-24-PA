@@ -9,6 +9,7 @@ import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { ScheduleService, renderReminderFraming, renderRecurringReminderBatchFraming } from '@deepseek-ai/dsh-schedule';
+import { bridgeScheduleService } from '../../lib/schedule-bridge.js';
 
 const catalog = new SkillCatalog({
   register: () => () => {},
@@ -370,13 +371,15 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     // Exercise installed create/update/catalog/history/delete; replace storage
     // and Session ownership only, preserving the host history semantics.
     const native = Object.create(ScheduleService.prototype);
-    Object.assign(native, { getDomain: async () => ({ table: () => table }), serialize: async fn => fn(), reminderTargetRefusal: () => undefined, emitChanged: () => {}, retention: { days: 90, records: 1000 } });
-    deps.nativeSchedule = () => native; deps.notifyOwner = async () => {};
+    native.notifications = Promise.resolve();
+    Object.assign(native, { ctx: { get: () => undefined, agents: { get: () => undefined }, sessionPersistence: { stat: async () => ({ header: {} }) } }, getDomain: async () => ({ table: () => table }), serialize: async fn => fn(), reminderTargetRefusal: () => undefined, emitChanged: () => {}, retention: { days: 90, records: 1000 }, limits: { retention: { days: 90, records: 1000 } } });
+    deps.nativeSchedule = () => bridgeScheduleService(native); deps.notifyOwner = async () => {};
     const enabled = await digest.digestEnable({ kind: 'morning', time: '08:00:00', skill: 'custom-brief' });
     const before = await repos.digests.getPlan(enabled.planId);
     const at = new Date(Date.now() - 120000).toISOString(), oldPrompt = table.get(before.schedule_id).record.prompt;
     const oldRecord = { scheduledAt: at, deliveredAt: at, messageId: 'old-native', prompt: oldPrompt };
     table.get(before.schedule_id).deliveryHistory.records.push(oldRecord);
+    table.get(before.schedule_id).lastDelivery = { scheduledAt: oldRecord.scheduledAt, deliveredAt: oldRecord.deliveredAt, messageId: oldRecord.messageId };
     const stale = await admittedItem('old-before-build', new Date(), session([
       { type: 'turn/start', data: { turn: 1 } },
       { type: 'user/message', data: { id: 'old-native', source: { kind: 'schedule' }, content: [{ type: 'text', text: renderReminderFraming({ id: before.schedule_id, prompt: oldPrompt, scheduledAt: at }) }] } },
@@ -389,7 +392,9 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     const observed = (await digest.superviseDigests(1)).results[0];
     expect(observed).toMatchObject({ action: 'checked', overdue: [], previousUnconfirmed: [oldRecord] });
     expect(observed.warnings.join('')).toContain('旧安排'); expect((await repos.digests.getPlan(before.id)).status).toBe('active');
-    table.get(before.schedule_id).deliveryHistory.records.push({ ...oldRecord, messageId: 'new-native', prompt: table.get(before.schedule_id).record.prompt });
+    const newRecord = { ...oldRecord, messageId: 'new-native', prompt: table.get(before.schedule_id).record.prompt };
+    table.get(before.schedule_id).deliveryHistory.records.push(newRecord);
+    table.get(before.schedule_id).lastDelivery = { scheduledAt: newRecord.scheduledAt, deliveredAt: newRecord.deliveredAt, messageId: newRecord.messageId };
     const missed = (await digest.superviseDigests(1)).results[0];
     expect(missed.action).toBe('paused_unconfirmed'); expect(missed.overdue.map(row => row.messageId)).toEqual(['new-native']);
   });

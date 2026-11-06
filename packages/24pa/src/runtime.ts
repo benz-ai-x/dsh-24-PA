@@ -3,6 +3,7 @@ import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
+import { bridgeScheduleService } from './schedule-bridge.js';
 import { TaskPlanService } from './task-plan-service.js';
 import { TaskPlanEngine } from './task-plan-engine.js';
 import { PlanResults } from './plan-results.js';
@@ -3138,14 +3139,15 @@ export class PaRuntime {
   private nativeSchedule(): NativeScheduleService | null {
     const service = this.ctx.get('schedule') as NativeScheduleService | null;
     if (!service || typeof service.create !== 'function') return null;
-    // Native schedule mutations start future host timers. They must not carry
-    // the creating tool's lease into a later Lead/Worker turn.
+    // 方言差异（0.2.1 键控 vs 0.2.2 timing/edit）统一在桥里转换；这里只负责
+    // 让原生定时变更脱离发起回合的租约（定时器晚于回合存活）。
+    const bridged = bridgeScheduleService(service as unknown as Record<string, unknown>);
     return {
-      create: (...args) => this.executions.detached(() => service.create(...args)),
-      delete: request => this.executions.detached(() => service.delete(request)),
-      history: request => this.executions.detached(() => service.history(request)),
-      ...(service.update ? { update: (request: Parameters<NonNullable<NativeScheduleService['update']>>[0]) => this.executions.detached(() => service.update!(request)) } : {}),
-      ...(service.catalog ? { catalog: () => this.executions.detached(() => service.catalog!()) } : {}),
+      create: (...args) => this.executions.detached(() => bridged.create(...args)),
+      delete: request => this.executions.detached(() => bridged.delete(request)),
+      history: request => this.executions.detached(() => bridged.history(request)),
+      ...(bridged.update ? { update: (request: Parameters<NonNullable<NativeScheduleService['update']>>[0]) => this.executions.detached(() => bridged.update!(request)) } : {}),
+      ...(bridged.catalog ? { catalog: () => this.executions.detached(() => bridged.catalog!()) } : {}),
     };
   }
 
