@@ -18,15 +18,20 @@ export function bridgeScheduleService(service: AnySchedule): NativeScheduleServi
     })) as { id: string; scheduledAt?: string } & Record<string, unknown>,
     delete: async (request: { sessionId: string; id: string }) => service.edit({ id: request.id, action: 'delete' }),
     history: async (request: Parameters<NativeScheduleService['history']>[0]) => service.history(request),
-    update: service.edit ? async (request: Parameters<NonNullable<NativeScheduleService['update']>>[0]) => {
+    update: async (request: Parameters<NonNullable<NativeScheduleService['update']>>[0]) => {
+      // change 已是 planTimingChange（＝nativeTiming）产出的判别联合；
+      // nativeTiming 对该形状幂等（planTimingRequest 只认 selector 键）。
       const result = await service.edit({
         id: request.id, action: 'update',
         patch: { title: request.title, prompt: request.prompt, timing: nativeTiming(request.change) },
         expectedUpdatedAt: request.expected?.updatedAt ?? null,
       });
-      return { id: request.id, updated: result?.id !== undefined, record: result?.id !== undefined ? entry(result) : undefined,
-        code: result?.id !== undefined ? undefined : 'schedule_conflict' };
-    } : undefined,
+      // 0.2.2 的 edit 不抛冲突：未命中/冲突都以 {id, code} 返回，成功条目
+      // 无 code 但必有 kind——按 code 判别，不能按 id（每个变体都有 id）。
+      const missed = result?.code !== undefined;
+      return { id: request.id, updated: !missed, record: missed ? undefined : entry(result),
+        code: missed ? result.code : undefined };
+    },
     ...(service.catalog ? { catalog: async () => (await service.catalog()).map((row: AnySchedule) => entry(row)) } : {}),
   };
 }
