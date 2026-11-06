@@ -1,4 +1,4 @@
-# dsh 0.2.2-rc.1 适配核验（插件 0.2.2-rc.1.1 / PR #265）
+# dsh 0.2.2-rc.1 适配核验（插件 0.2.2-rc.1.1 / PR #265＋#266）
 
 2026-11-06。同模式先例：#114/#118（alpha 线）、rc.3（484449e）、rc.4（b4dccaf）、rc.5（4803ec7）。
 
@@ -30,3 +30,10 @@
 
 - 冒烟工作区 AGENTS.md：配置校验要求多个字符串字段**显式存在**（folderToken/appIdEnv…），最小 json 会连环报「必须为字符串」；正解＝DEFAULT_CONFIG 全字段生成（tests/helpers/runtime.mjs 同款）。
 - `dsh plugin add` 首次失败＝pnpm 构建脚本门（protobufjs），补 allowBuilds 后重跑即过；错误日志（pnpm.log）只留命令行，需手动复跑看真因。
+
+## 生产部署（8010，2026-11-06 14:20–14:27，部署与核验分两会话）
+
+- 全栈：宿主＝`deployments/dsh-0.2.2-rc.1` 目录形态（start.sh exec 指其 `node_modules/.bin/dsh`；全局 `/usr/local/bin/dsh` 仍 0.2.1-rc.5，不作为实例证据）＋mcp-client/双 subagent 各 0.2.2-rc.1＋research-graph@0.2.1-rc.5.2 豁免（14:26 首启豁免未生效被 skip，重办后 14:27 轮加载正常）。
+- 插件 0.2.2-rc.1.1＝**含 #266 方言桥的制品**：发布顺序为先合 #266 再打包（版本号沿用 .1.1，无 .1.2）；tag `v0.2.2-rc.1.1` 指向 5a87eef（#266 之后），npm 与 GitHub Release 同制品（SHA-1 `79600707…`，tarball 含 `lib/schedule-bridge.js` 与 plan-time `nativeTiming`）。
+- 核验：当前轮启动零 error／零 skip；readiness **6/6**（host 行指纹＝dsh 0.2.2-rc.1＋插件 0.2.2-rc.1.1＋飞书 SDK 1.74.0；飞书 sdk-ws 长连接已启动）；SQLite 账本 ok；智能晨报 daily 计划 active，宿主 `storages/schedule.json` 记录在位（schedule-0a29fb56 → feishu 会话）；旧 morning 计划 stopped（规格 2.17 智能晨报取代）。
+- 待真实业务观察：schedule 原生投递＝次日 08:00 晨报窗口；企微通道、子代理真实派发待首跑。
