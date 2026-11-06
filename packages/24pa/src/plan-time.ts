@@ -2,32 +2,44 @@ import {
   createAtScheduleRecord, createEveryScheduleRecord, createDailyScheduleRecord,
   createWeeklyScheduleRecord, createCronScheduleRecord, isRecurringScheduleRecord,
   resolveRecurringOccurrence, ScheduleId,
-  type ScheduleRecord, type ScheduleCreateRequest, type ScheduleTimingChange,
+  type AtInput, type DailyInput, type WeeklyInput, type CronInput,
+  type ScheduleRecord, type ScheduleTiming,
 } from '@deepseek-ai/dsh-schedule';
 
+/** 内部时间规则仍是按键选择（计划草稿、冻结与存储共用）；与宿主请求的
+ * 转换集中在 runtime 的原生 Schedule 适配层（0.2.1 键控 / 0.2.2 timing 联合）。 */
 const selectors = ['at', 'every_seconds', 'daily', 'weekly', 'cron'] as const;
-type Timing = Pick<ScheduleCreateRequest, typeof selectors[number]>;
+type KeyedTiming = Partial<Record<typeof selectors[number], unknown>>;
 
 /** The native rule is shared by preview, creation, edits and receipt recovery. */
-export function planTimingRequest(spec: Record<string, unknown>): Timing {
+export function planTimingRequest(spec: Record<string, unknown>): KeyedTiming {
   const keys = selectors.filter(key => spec[key] != null);
   if (keys.length !== 1) throw new Error('计划须且只能选择一种时间规则。');
-  const key = keys[0]!;
-  return { [key]: spec[key] } as Timing;
+  return { [keys[0]!]: spec[keys[0]!] };
 }
 
-export function planTimingChange(spec: Record<string, unknown>): ScheduleTimingChange {
-  const timing = planTimingRequest(spec), key = Object.keys(timing)[0]!;
-  return { kind: key === 'every_seconds' ? 'every' : key, ...timing } as ScheduleTimingChange;
+/** 0.2.2 宿主请求的 timing 判别联合；0.2.1 的 timing 编辑（change）同为该形状。
+ * 计划草稿的键控值在此收口为宿主输入类型，校验由宿主的 create* 构造器承担。 */
+export function nativeTiming(spec: Record<string, unknown>): ScheduleTiming {
+  const timing = planTimingRequest(spec);
+  if (timing.at != null) return { kind: 'at', at: timing.at as AtInput };
+  if (timing.every_seconds != null) return { kind: 'every', every_seconds: timing.every_seconds as number };
+  if (timing.daily != null) return { kind: 'daily', daily: timing.daily as DailyInput };
+  if (timing.weekly != null) return { kind: 'weekly', weekly: timing.weekly as WeeklyInput };
+  return { kind: 'cron', cron: timing.cron as CronInput };
 }
+
+/** 兼容旧调用名：计划调整传递的 timing 编辑载荷与 nativeTiming 同形。 */
+export const planTimingChange = nativeTiming;
 
 function build(spec: Record<string, unknown>, now: number): ScheduleRecord {
-  const timing = planTimingRequest(spec), id = ScheduleId('pa24-time-validation');
-  if (timing.at != null) return createAtScheduleRecord(id, 'plan', timing.at, now, 'plan');
-  if (timing.every_seconds != null) return createEveryScheduleRecord(id, 'plan', timing.every_seconds, now, 'plan');
-  if (timing.daily != null) return createDailyScheduleRecord(id, 'plan', timing.daily, now, 'plan');
-  if (timing.weekly != null) return createWeeklyScheduleRecord(id, 'plan', timing.weekly, now, 'plan');
-  return createCronScheduleRecord(id, 'plan', timing.cron!, now, 'plan');
+  const timing = nativeTiming(spec), id = ScheduleId('pa24-time-validation');
+  if (timing.kind === 'at') return createAtScheduleRecord(id, 'plan', timing.at, now, 'plan');
+  if (timing.kind === 'every') return createEveryScheduleRecord(id, 'plan', timing.every_seconds, now, 'plan');
+  if (timing.kind === 'daily') return createDailyScheduleRecord(id, 'plan', timing.daily, now, 'plan');
+  if (timing.kind === 'weekly') return createWeeklyScheduleRecord(id, 'plan', timing.weekly, now, 'plan');
+  if (timing.kind === 'cron') return createCronScheduleRecord(id, 'plan', timing.cron, now, 'plan');
+  throw new Error('不支持的原生时间规则：rrule。');
 }
 
 /** Relative one-shot input becomes one immutable instant before any mutation. */
@@ -54,7 +66,7 @@ export function samePlanTiming(record: Record<string, any>, spec: Record<string,
   const target = build(spec, Date.now());
   if (record.kind !== target.kind) return false;
   if (target.kind === 'every') return record.everySeconds === target.everySeconds;
-  if (target.kind === 'at' || target.kind === 'after') return false;
+  if (target.kind === 'at' || target.kind === 'after' || target.kind === 'rrule') return false;
   const zone = (value: string) => new Intl.DateTimeFormat('en', { timeZone: value }).resolvedOptions().timeZone;
   if (!record.timeZone || zone(record.timeZone) !== zone(target.timeZone)) return false;
   if (target.kind === 'cron') return record.expression === target.expression;
