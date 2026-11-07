@@ -1,8 +1,8 @@
 # 24私助周期服务一致性改进规格
 
-规格增量：2.18-draft。修订日期：2026-11-07（Asia/Shanghai）。本轮范围已由主人确认：**仅改进对话与面板的一致性，不强制迁移旧计划，不改版桌面导航，保留语音功能。** 尚未开发、验收或部署；现行已交付行为继续按 2.17 及既有契约核验。
+规格增量：2.18-draft。修订日期：2026-11-08（Asia/Shanghai）。本轮范围已由主人确认：**仅改进对话与面板的一致性，不强制迁移旧计划，不改版桌面导航，保留语音功能。** 2026-11-08 已实现并完成隔离验收，交付归 [PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275)；合并与关闭按远端状态核验。未发版或部署 8010。
 
-父规格：[#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)。总事项：[#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)。唯一实施事项：F50 / [#271](https://github.com/benz-ai-x/dsh-24-PA/issues/271)，故事 160，一个主交付 PR，待创建。沿用原文件路径以保持引用；本轮不再是删除功能的计划，也不作为后续 Ontology 建模的强制前置。
+父规格：[#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)。总事项：[#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)。唯一实施事项：F50 / [#271](https://github.com/benz-ai-x/dsh-24-PA/issues/271)，故事 160，一个主交付 [PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275)。沿用原文件路径以保持引用；本轮不再是删除功能的计划，也不作为后续 Ontology 建模的强制前置。
 
 原 F49 / `#270`、F51 / `#272` 均按主人要求删除；故事 159、161 及原 RED-01–18 编号仅作追溯，不安排实施，不复用为其他要求。
 
@@ -12,9 +12,9 @@
 
 | 已核实的差异 | 本轮用户结果 | 依据 |
 |---|---|---|
-| 现有对话 `digest_control` 遇到通用计划，会要求去定时任务管理入口。 | 同一已授权主人可用对话或现有面板管理同一计划，不因计划新旧被迫换入口。 | [旧控制入口](../../packages/24pa/src/digest-service.ts#L168)、[对话动作](../../packages/24pa/src/runtime.ts#L994)、[面板计划入口](../../packages/24pa/src/panel.ts#L141) |
-| 对话旧创建接口未指定 Skill 时默认固定模板；面板晨报预设默认智能规划。 | 相同创建意图和选择得到一致的运行方式，事前知道是否使用模型。 | [旧默认](../../packages/24pa/src/digest-service.ts#L127)、[面板默认](../../packages/24pa/client.js#L1735)、[已确认晨报契约](24PA-晨报重构-实施计划.md) |
-| 通用计划管理与原地迁移已经存在，旧计划还承担实际服务。 | 复用已实现能力，原计划继续可用；不为统一接口让主人重建或搬迁服务。 | [计划服务](../../packages/24pa/src/task-plan-service.ts#L51)、[既有迁移](../../packages/24pa/src/task-plan-migration.ts#L19) |
+| 现有对话 `digest_control` 遇到通用计划，会要求去定时任务管理入口。 | 同一已授权主人可用对话或现有面板管理同一计划，不因计划新旧被迫换入口。 | [旧控制入口](https://github.com/benz-ai-x/dsh-24-PA/blob/3d7c7064683e613bf9b2698bf563a4a5f96923e6/packages/24pa/src/digest-service.ts#L168)、[对话动作](https://github.com/benz-ai-x/dsh-24-PA/blob/3d7c7064683e613bf9b2698bf563a4a5f96923e6/packages/24pa/src/runtime.ts#L994)、[面板计划入口](https://github.com/benz-ai-x/dsh-24-PA/blob/3d7c7064683e613bf9b2698bf563a4a5f96923e6/packages/24pa/src/panel.ts#L141) |
+| 对话旧创建接口未指定 Skill 时默认固定模板；面板晨报预设默认智能规划。 | 相同创建意图和选择得到一致的运行方式，事前知道是否使用模型。 | [旧默认](https://github.com/benz-ai-x/dsh-24-PA/blob/3d7c7064683e613bf9b2698bf563a4a5f96923e6/packages/24pa/src/digest-service.ts#L127)、[面板默认](https://github.com/benz-ai-x/dsh-24-PA/blob/3d7c7064683e613bf9b2698bf563a4a5f96923e6/packages/24pa/client.js#L1735)、[已确认晨报契约](24PA-晨报重构-实施计划.md) |
+| 通用计划管理与原地迁移已经存在，旧计划还承担实际服务。 | 复用已实现能力，原计划继续可用；不为统一接口让主人重建或搬迁服务。 | [计划服务](https://github.com/benz-ai-x/dsh-24-PA/blob/3d7c7064683e613bf9b2698bf563a4a5f96923e6/packages/24pa/src/task-plan-service.ts#L51)、[既有迁移](https://github.com/benz-ai-x/dsh-24-PA/blob/3d7c7064683e613bf9b2698bf563a4a5f96923e6/packages/24pa/src/task-plan-migration.ts#L19) |
 
 以上是接口与默认行为事实，不等于主人已遭遇上述问题。收益以实际跨入口操作能否保持同一计划和结果验收，不以删除行数、入口数量或迁移数量验收。
 
@@ -93,8 +93,8 @@ flowchart LR
 
 ## 交付与非目标
 
-#269 只跟踪 #271，一个主功能 PR。当前授权为工单和规格调整，未启动产品实现。完成条件是上述跨入口流程和既有计划回归通过；旧计划仍存在不阻止交付。按[交付流程](../agents/delivery.md)记录实现、验证和合并，功能 PR 合并且验收通过后才关闭 #271。
+#269 只跟踪 #271，一个主功能 PR。主人已于 2026-11-08 授权实施、验证与交付；[PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275) 已实现并完成隔离验收，详见[实现与验收记录](../research/2026-11-08-plan-consistency-implementation.md)。完成条件是上述跨入口流程和既有计划回归通过；旧计划仍存在不阻止交付。按[交付流程](../agents/delivery.md)记录实现、验证和合并，功能 PR 合并且验收通过后才关闭 #271。
 
-既有代码审查的基线验证记录仍可追溯：当时 build / preset:check 通过，unit 为 1,673 通过、15 失败、1 跳过；15 项在本机链接宿主选择 executor 阶段失败，未验证到原业务断言。实施前需对齐受支持宿主和测试装配，不将历史结果当作本次新行为验收，也不以跳过测试掩盖。依据见[主审记录](../research/2026-11-07-24PA-code-pruning-audit.md)。本次只改文档和工单，不重跑产品测试。
+既有代码审查的基线验证记录仍可追溯：当时 build / preset:check 通过，unit 为 1,673 通过、15 失败、1 跳过；15 项在本机链接宿主选择 executor 阶段失败，未验证到原业务断言。实施前需对齐受支持宿主和测试装配，不将历史结果当作本次新行为验收，也不以跳过测试掩盖。依据见[主审记录](../research/2026-11-07-24PA-code-pruning-audit.md)。上述数字属于实施前历史；本次已对齐宿主并完成构建、全量单元回归、最终增量复验及双后端真实 Loader/Session 验收，结果见本次实现记录。
 
 本轮不进行语音退役、旧计划强制迁移/批量停用、桌面整体改版、闲置代码专项、图片/OCR 退出、编程能力裁剪或存储后端撤销；原 D01–D03 不构成本轮决策任务。也不实现 Ontology 平台、图数据库、自动长期记忆或新渠道，不变更生产配置。历史研究中的其他建议不构成当前实施范围。

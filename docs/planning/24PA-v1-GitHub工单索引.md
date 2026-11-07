@@ -45,7 +45,7 @@ v1 后续功能（规格 1.3–2.1）：F13＝[#60](https://github.com/benz-ai-x
 
 ## 周期服务一致性增量（规格 2.18-draft，2026-11-07）
 
-总规格 [#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)，父规格 [#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)，契约见[一致性规格](24PA-Ontology前置减法-SPEC.md)。主人已确认范围收窄；仅保留以下实施事项，尚未开发，状态及标签保持原样。
+总规格 [#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)，父规格 [#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)，契约见[一致性规格](24PA-Ontology前置减法-SPEC.md)。主人已确认范围收窄；以下实施事项已实现并完成隔离验收，主交付 [PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275)，证据见[实现与验收记录](../research/2026-11-08-plan-consistency-implementation.md)。合并后依条件回写关闭，未发版或部署 8010。
 
 | 功能 | 事项 | 故事 | 当前范围 |
 |---|---|---|---|

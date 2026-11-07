@@ -84,7 +84,7 @@ F04 使用 F03 的实际任务查询呈现日程变更的关联影响，外部�
 
 ## 周期服务一致性改进（规格 2.18-draft，2026-11-07）
 
-总事项 [#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)，完整契约见[一致性规格](24PA-Ontology前置减法-SPEC.md)。范围已由主人确认，仅 F50；尚未实施，主 PR 待创建。F49/F51 撤回，原工单 `#270`、`#272` 已删除，相关编号不重用。
+总事项 [#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)，完整契约见[一致性规格](24PA-Ontology前置减法-SPEC.md)。范围已由主人确认，仅 F50；已实现并完成隔离验收，主交付 [PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275)，证据见[实现与验收记录](../research/2026-11-08-plan-consistency-implementation.md)。合并后核对远端并关闭对应事项。F49/F51 撤回，原工单 `#270`、`#272` 已删除，相关编号不重用。
 
 | 功能与主事项 | 故事及完整交付结果 | 前置与保留边界 | 验收 |
 |---|---|---|---|
