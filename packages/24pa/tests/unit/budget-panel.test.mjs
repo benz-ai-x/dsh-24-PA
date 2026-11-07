@@ -35,6 +35,7 @@ beforeEach(async () => {
         value = { message: '一次放行已保存，只解除预算阻断。' }; budget = { ...budget, waiting: [] };
       } else if (req.payload.type === 'workspace.config-update') { config = { ...config, budget: validateBudget(req.payload.config.budget) }; value = snapshot(); }
       else if (req.endpoint === 'snapshot' || req.endpoint === 'action') value = snapshot();
+      else if (req.endpoint === 'workspace.config-impact') { if (req.payload.config.budget) validateBudget(req.payload.config.budget); value = { workspaceBinding: binding, version: 'impact-version', kinds: { identity: false, targets: false, postgres: false } }; }
       else if (req.endpoint === 'workspace.evidence') value = { state: 'applied', savedHash: 'saved-1', activeHash: 'active-1', impacts: {} };
       else if (req.endpoint === 'memory') value = { items: [], total: 0 };
       else if (req.endpoint === 'digests') value = { plans: [], skills: [] };

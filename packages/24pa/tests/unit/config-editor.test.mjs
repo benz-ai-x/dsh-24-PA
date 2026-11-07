@@ -123,6 +123,22 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     await click(button('保存并重载'));
     expect(requests.filter(row => row.payload.type === 'workspace.config-update').at(-1).payload.expectedImpactVersion).toBe('impact-version');
   });
+  it('来源分项权限保留授权尝试与未知，修改资源后旧证据不再表示当前可用', async () => {
+    const normal = fetch.getMockImplementation();
+    fetch.mockImplementation(async (...args) => {
+      const response = await normal(...args);
+      if (JSON.parse(args[1].body).endpoint !== 'sources') return response;
+      const result = await response.json();
+      result.value.entries[0] = { ...result.value.entries[0], evidence: { state: 'partial', capabilities: { read: 'allowed', create: 'attemptable', update: 'unknown', cancel: 'denied' } } };
+      return { ok: true, json: async () => result };
+    });
+    await click(button('重置来源'));
+    const article = container.querySelector('.pa24-sources article');
+    expect(article.textContent).toContain('读取：当前范围允许 · 创建：授权后可尝试，未验证可写 · 修改：未核验 · 取消：无权');
+    await change([...article.querySelectorAll('label')].find(row => row.textContent.startsWith('资源标识')).control, 'another-resource');
+    expect(article.textContent).toContain('读取：待重新核验');
+    expect(article.textContent).not.toContain('读取：当前范围允许');
+  });
   it('首次改旧日历默认会物化来源，保留原来源并把新默认写回配置源', async () => {
     const before = effectiveSources(saved).entries[0];
     await change(field('calendarId'), 'new-calendar'); await click(button('保存并重载'));

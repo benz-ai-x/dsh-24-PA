@@ -19,7 +19,7 @@ describe('保存前影响读取与实际写入边界', () => {
     const before = await source(), entries = effectiveSources(f.rt.config);
     entries.entries[0].name = '只改名称';
     expect((await preview({ sources: entries })).kinds).toEqual({ identity: false, targets: false, postgres: false });
-    expect((await preview({ tts: { voice: 'another' } })).kinds).toEqual({ identity: false, targets: false, postgres: false });
+    expect((await preview({ tts: { voice: 'zh_female_cancan_uranus_bigtts' } })).kinds).toEqual({ identity: false, targets: false, postgres: false });
     entries.defaults.calendar = null;
     expect((await preview({ sources: entries })).kinds.targets).toBe(true);
     const identity = await preview({ larkProfile: 'other' });

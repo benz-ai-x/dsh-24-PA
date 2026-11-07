@@ -42,7 +42,7 @@ beforeEach(async () => {
     } else if (req.endpoint === 'action' && req.payload.type === 'health.test.cleanup') {
       value = { ...health.tests[0], cleanup: { state: 'accepted', message: '清理已接纳，原回执保留' } }; health = { ...health, tests: [value] };
     } else if (req.endpoint === 'action' && req.payload.type === 'health.check') value = { evidence: health.evidence };
-    else if (req.endpoint === 'workspace.evidence') value = { state: 'saved_not_applied', savedHash: 'file-new', activeHash: 'runtime-old', loadedAt: '2026-10-22T01:00:00Z', impacts: { work: 3, outbox: 2, reviews: 1 }, message: '在途归属保留' };
+    else if (req.endpoint === 'workspace.evidence') value = { state: 'saved_not_applied', savedHash: 'file-new', activeHash: 'saved-1', loadedAt: '2026-10-22T01:00:00Z', impacts: { work: 3, outbox: 2, reviews: 1 }, message: '在途归属保留' };
     else if (req.endpoint === 'snapshot' || req.endpoint === 'action') value = snapshot();
     else if (req.endpoint === 'health') value = { capabilities: [], connectionEvidence: health };
     else if (req.endpoint === 'memory') value = { items: [], total: 0 };
@@ -106,12 +106,15 @@ describe('M07 接入与配置：真实 React DOM 操作', () => {
     await openCard('飞书');
     const row = [...container.querySelectorAll('.pa24-resource')].find(node => node.textContent.includes('旧配置证据已过期'));
     await click([...row.querySelectorAll('button')].find(node => node.textContent === '定位修复配置'));
-    const context = container.querySelector('[aria-label="修复上下文"]'); expect(context.textContent).toContain('old-config'); expect(context.textContent).toContain('feishuAppId'); expect(context.textContent).toContain('旧配置证据已过期');
+    const context = container.querySelector('[aria-label="修复上下文"]'); expect(context.textContent).toContain('旧配置证据已过期'); expect(context.textContent).not.toContain('old-config'); expect(container.querySelector('[data-config-field=feishuAppId]')).toBeTruthy();
     await click(button('修复后只读重验'));
     expect(requests.find(row => row.payload.type === 'health.check').payload).toMatchObject({ scopes: ['feishu'], workspaceBinding: 'binding-a' });
   });
-  it('参数卡分别显示源文件与运行版本、在途影响，无秘密回显', async () => {
-    await openCard('参数配置'); expect(container.textContent).toContain('源文件已有更新，尚未生效'); expect(container.textContent).toContain('file-new'); expect(container.textContent).toContain('runtime-old');
-    expect(container.textContent).toContain('进行中交办'); expect(container.textContent).toContain('待审版本'); expect([...container.querySelectorAll('input[type=password]')].every(input => input.value === '')).toBe(true);
+  it('参数卡只显示未生效状态，诊断版本与统计留在工作区，密钥无回显', async () => {
+    await openCard('参数配置'); expect(container.textContent).toContain('已保存未生效，当前仍使用旧配置');
+    expect(container.textContent).not.toContain('file-new'); expect(container.textContent).not.toContain('进行中交办');
+    expect([...container.querySelectorAll('input[type=password]')].every(input => input.value === '')).toBe(true);
+    await click(button('返回卡片')); await openCard('工作区与配置');
+    expect(container.textContent).toContain('file-new'); expect(container.textContent).toContain('进行中交办'); expect(container.textContent).toContain('待审版本');
   });
 });
