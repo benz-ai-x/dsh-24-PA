@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fixture, join, readFile } from '../helpers/runtime.mjs';
-import { effectiveSources } from '../../lib/source-config.js';
+import { effectiveSources, sourceConfigurationFingerprint } from '../../lib/source-config.js';
+import { writeWorkspaceConfiguration } from '../../lib/workspace-config.js';
 import { readSecretStore, writeSecretStore } from '../../lib/secrets.js';
 
 let f, workspace, binding;
@@ -25,6 +26,20 @@ describe('保存前影响读取与实际写入边界', () => {
     expect(identity.kinds.identity).toBe(true); expect(identity.impacts.outbox).toBe(0);
     expect(await source()).toBe(before); expect(await readSecretStore(workspace)).toEqual({});
     expect(f.prompts).toEqual([]);
+  });
+  it('来源名称保存也预告磁盘尚未生效的身份与凭据，不将附带应用伪装成普通改名', async () => {
+    const sources = effectiveSources(f.rt.config), sourceHash = sourceConfigurationFingerprint(sources);
+    sources.entries[0].name = '只改名称';
+    await writeWorkspaceConfiguration(workspace, { larkProfile: 'pending-profile' }, async () => {});
+    await writeSecretStore(workspace, { feishuAppSecret: 'pending-secret' });
+    expect(f.rt.config.larkProfile).toBe('default');
+    const shown = await preview({ sources });
+    expect(shown).toMatchObject({ pendingSavedChanges: true, kinds: { identity: true, targets: false } });
+    expect(shown.impacts.outbox).toBe(0);
+    await f.rt.updateWorkspaceConfig({ sources }, binding, sourceHash, undefined, shown.version);
+    expect(f.rt.config.larkProfile).toBe('pending-profile');
+    expect(f.rt.secretStatusSnapshot().feishuAppSecret.set).toBe(true);
+    expect((await f.rt.configurationEvidence(binding)).state).toBe('applied');
   });
   it('说明后新增未决投递会在写入前拒绝，重新读取仍保留实际身份阻断', async () => {
     const patch = { larkProfile: 'other' }, before = await source(), shown = await preview(patch);

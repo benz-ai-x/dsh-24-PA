@@ -3174,9 +3174,10 @@ window.__ModuleLoader__.load({
           if (impact.pending) return h('p', { role: 'status', className: 'pa24-meta' }, L('正在核对本次修改…', 'Checking this change…'));
           if (impact.error) return h('div', { role: 'alert', className: 'pa24-error' }, impact.error, ' ', h('button', { type: 'button', onClick: impact.refresh }, L('重新核对', 'Check again')));
           const data = impact.data, kinds = data?.kinds;
-          if (!kinds || !Object.values(kinds).some(Boolean)) return null;
+          if (!kinds || !data.pendingSavedChanges && !Object.values(kinds).some(Boolean)) return null;
           const count = key => Number.isFinite(data.impacts?.[key]) ? data.impacts[key] : L('未核验', 'Unverified');
           return h('div', { className: 'pa24-example', role: 'status', style: { flex: '1 1 100%' }, 'aria-label': L('本次修改的影响', 'Impact of this change') },
+            data.pendingSavedChanges && h('p', null, L('此前已保存但未生效的配置也将一起应用，请核对本次影响。', 'Previously saved changes are not active yet and will also be applied. Review the combined impact.')),
             kinds.identity && h('p', null, L(`身份变更前需核对：进行中交办 ${count('work')} 项、待发或未知投递 ${count('outbox')} 条、待审 ${count('reviews')} 份。已有归属和阻断规则继续适用。`, `Before an identity change, review active work: ${count('work')}; pending/unknown deliveries: ${count('outbox')}; pending reviews: ${count('reviews')}. Existing ownership and blockers still apply.`)),
             kinds.identity && data.activeWork && h('p', null, L('仍有未结束的工作或运行，请先完成或停止。', 'Unfinished work or runs remain. Complete or stop them first.')),
             kinds.targets && h('p', null, L('新的请求使用修改后的渠道、来源或落点；已有对象、计划和待发保留原目标。变更的来源需重新核验，具体受影响数量尚未核验。', 'New requests use the changed channel, source or destination. Existing objects, plans and deliveries retain their targets. Changed sources need verification; the affected count is unverified.')),

@@ -37,12 +37,12 @@ import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
-import { template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
+import { template, ConfigError, validateConfig, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
 import { runLarkCli, sendLarkAudioMessage } from './lark.js';
 import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
 import { writeSecretStore, secretStatus, resolveSecret, secretRefs, secretEnvironment, SECRET_KEYS, type SecretKey, type SecretStore, type SecretStatus } from './secrets.js';
-import { readWorkspaceConfiguration, writeWorkspaceConfiguration, type WorkspaceConfiguration } from './workspace-config.js';
+import { readWorkspaceConfiguration, writeWorkspaceConfiguration, mergeWorkspaceConfiguration, type WorkspaceConfiguration } from './workspace-config.js';
 import { configurationImpactKinds } from './config-impact.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
@@ -1580,14 +1580,19 @@ export class PaRuntime {
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new ConfigError('配置补丁必须是对象。');
     if (!Array.isArray(secretKeys) || secretKeys.some(key => !(SECRET_KEYS as readonly string[]).includes(key))) throw new ConfigError('未知密钥字段。');
     const current = await readWorkspaceConfiguration(this.workspace.statePath);
-    const kinds = configurationImpactKinds(current.config, patch, secretKeys);
+    // Parameter/source saves reload the merged disk config; secret saves only apply
+    // the secret store against the active config. Include previously saved differences.
+    const next = secretKeys.length ? this.config : validateConfig(mergeWorkspaceConfiguration({ ...current.config }, patch));
+    const pendingSecrets = SECRET_KEYS.filter(key => !isDeepStrictEqual(current.secrets[key], this.secretStore[key]));
+    const pendingSavedChanges = pendingSecrets.length > 0 || !secretKeys.length && !isDeepStrictEqual(current.config, this.config);
+    const kinds = configurationImpactKinds(this.config, { ...next, sources: effectiveSources(next) }, [...new Set([...secretKeys, ...pendingSecrets])]);
     const impacts = kinds.identity ? await this.repos.health.impacts() : null;
     const activeWork = kinds.identity ? await this.hasActiveWork() : null;
     // A per-runtime salt keeps the receipt opaque even when a credential has low entropy.
     // It covers the actual editing inputs and both disk and active versions.
     const version = hash(JSON.stringify([this.configurationEditKey, binding, current.sourceHash, this.sourceHash,
       current.secrets, this.secretStore, SECRET_KEYS.map(key => this.secretValue(key)), patch, [...secretKeys].sort(), kinds, impacts, activeWork]));
-    return { workspaceBinding: binding, version, kinds, impacts, activeWork, storage: current.config.storage };
+    return { workspaceBinding: binding, version, kinds, impacts, activeWork, pendingSavedChanges, storage: this.config.storage };
   }
 
   private async assertConfigurationImpact(patch: Record<string, unknown>, keys: string[], expected?: string): Promise<void> {
