@@ -4,6 +4,7 @@ import type { ScheduleRecord } from '@deepseek-ai/dsh-schedule';
 import type { DigestRepo, DigestPlanRow } from './repo.js';
 import type { NativeScheduleService } from './host.js';
 import { digestWakePrompt } from './prompts.js';
+import type { TaskPlanConfiguration } from './task-plan.js';
 
 export interface PlanIntent {
   id: string;
@@ -15,6 +16,7 @@ export interface PlanIntent {
   targetStatus: 'active' | 'paused' | 'stopped';
   expected?: Record<string, unknown>;
   error?: string;
+  settings?: { voice: boolean; task_config?: TaskPlanConfiguration };
 }
 type NewPlan = Omit<DigestPlanRow, 'created_at' | 'updated_at' | 'revision' | 'lifecycle' | 'schedule_id' | 'status'>;
 type Context = { repo: DigestRepo; native: NativeScheduleService | null };
@@ -62,10 +64,13 @@ export class PlanLifecycle {
     return next;
   }
 
-  async enable(input: NewPlan): Promise<DigestPlanRow> {
+  async enable(input: NewPlan, options: { createOnce?: boolean } = {}): Promise<DigestPlanRow> {
     return this.run(input.id, async ctx => {
       if (!ctx.native) throw new Error('当前 Host 未提供原生 Schedule 服务。');
       let plan = await ctx.repo.getPlan(input.id);
+      // A creation receipt is the stable plan ID. Retrying that creation may
+      // settle its current intent, but must never override a later owner stop.
+      if (plan && options.createOnce) return this.settle(ctx, plan);
       if (plan?.lifecycle) {
         const operation = plan.lifecycle.operation;
         plan = await this.settle(ctx, plan);
@@ -103,9 +108,10 @@ export class PlanLifecycle {
     });
   }
 
-  async resume(id: string): Promise<DigestPlanRow> {
+  async resume(id: string, expectedRevision?: number): Promise<DigestPlanRow> {
     return this.run(id, async ctx => {
       let plan = await this.required(ctx, id);
+      this.checkRevision(plan, expectedRevision);
       if (plan.lifecycle) {
         const operation = plan.lifecycle.operation;
         plan = await this.settle(ctx, plan);
@@ -119,12 +125,13 @@ export class PlanLifecycle {
     });
   }
 
-  async adjust(id: string, spec: Record<string, unknown>, kind: string): Promise<DigestPlanRow> {
+  async adjust(id: string, spec: Record<string, unknown>, kind: string, expectedRevision?: number, settings?: PlanIntent['settings']): Promise<DigestPlanRow> {
     return this.run(id, async ctx => {
       let plan = await this.required(ctx, id);
+      this.checkRevision(plan, expectedRevision);
       if (plan.lifecycle && plan.lifecycle.phase !== 'conflict') plan = await this.settle(ctx, plan);
       if (plan.status === 'paused' && !plan.schedule_id && !plan.lifecycle) {
-        return ctx.repo.comparePlan(plan, { schedule_spec: freezePlanTiming(spec), kind });
+        return ctx.repo.comparePlan(plan, { schedule_spec: freezePlanTiming(spec), kind, ...settings });
       }
       if (!plan.schedule_id) throw new Error('计划没有可调整的原生任务，请恢复或重新开启。');
       if (!ctx.native?.catalog || !ctx.native.update) throw new Error('当前 Host 缺少 Schedule catalog/update，不能安全调整。');
@@ -132,14 +139,22 @@ export class PlanLifecycle {
       if (!entry || entry.status !== 'active') throw new Error('原生计划已结束或不存在，请重新设置。');
       const { sessionId: _session, status: _status, lastDelivery: _delivery, ...expected } = entry;
       const intent = this.intent('update', { ...plan, kind }, freezePlanTiming(spec));
+      if (settings) intent.settings = settings;
       intent.expected = expected;
       plan = await ctx.repo.comparePlan(plan, { status: 'paused', lifecycle: intent });
       return this.settle(ctx, plan);
     });
   }
 
-  async configure(id: string, patch: Pick<Partial<DigestPlanRow>, 'voice' | 'skill'>): Promise<void> {
-    await this.run(id, async ctx => { await this.required(ctx, id); await ctx.repo.updatePlan(id, patch); });
+  async configure(id: string, patch: Pick<Partial<DigestPlanRow>, 'voice' | 'skill' | 'task_config'>, expectedRevision?: number): Promise<void> {
+    await this.run(id, async ctx => {
+      const plan = await this.required(ctx, id); this.checkRevision(plan, expectedRevision);
+      if (plan.lifecycle) throw new Error('原生计划变更尚待核对，请核对后再调整配置。');
+      await ctx.repo.comparePlan(plan, patch);
+    });
+  }
+  private checkRevision(plan: DigestPlanRow, expected?: number) {
+    if (expected !== undefined && plan.revision !== expected) throw new Error('计划已有其他修改，请刷新后重试。');
   }
 
   async recover(): Promise<Array<{ planId: string; error?: string }>> {
@@ -215,7 +230,7 @@ export class PlanLifecycle {
         plan = await ctx.repo.comparePlan(plan, { schedule_id: String(record.id), lifecycle: { ...intent, operation: 'delete', phase: 'pending' } });
         return await this.settle(ctx, plan);
       }
-      return await ctx.repo.comparePlan(plan, { schedule_id: String(record.id), status: 'active', kind: intent.kind, schedule_spec: intent.spec, schedule_generation: intent.id, lifecycle: null });
+      return await ctx.repo.comparePlan(plan, { schedule_id: String(record.id), status: 'active', kind: intent.kind, schedule_spec: intent.spec, ...intent.settings, schedule_generation: intent.id, lifecycle: null });
     } catch (error) {
       const intent = plan.lifecycle;
       if (intent) await ctx.repo.comparePlan(plan, { lifecycle: { ...intent, phase: intent.phase === 'conflict' ? 'conflict' : intent.phase === 'pending' ? 'pending' : 'unknown', error: (error as Error).message } }).catch(() => {});

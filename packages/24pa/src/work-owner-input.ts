@@ -6,6 +6,8 @@ export interface WorkOwnerInput {
   kind: 'session' | 'panel' | 'feishu';
   sourceId: string;
   turn?: number;
+  /** Trusted runtime identity at admission; never supplied by model arguments. */
+  authority?: string;
   messages: { id: string; text: string }[];
 }
 

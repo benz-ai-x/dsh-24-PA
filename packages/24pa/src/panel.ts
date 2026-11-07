@@ -51,6 +51,7 @@ export const PANEL_RPC = {
     plan: 'plans.inspect',
     planDraft: 'plans.draft',
     planPreview: 'plans.preview',
+    planSettingsPreview: 'plans.settings-preview',
     planRunPreview: 'plans.run-preview',
     planMigrationPreview: 'plans.migration-preview',
     runHistory: 'runs',
@@ -145,6 +146,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.plan) return respond({ ok: true, value: await runtime.taskPlans.inspect(payload) });
             if (endpoint === E.planDraft) return respond({ ok: true, value: await runtime.taskPlans.draft(payload) });
             if (endpoint === E.planPreview) return respond({ ok: true, value: await runtime.taskPlans.preview(payload) });
+            if (endpoint === E.planSettingsPreview) return respond({ ok: true, value: await runtime.taskPlans.settingsPreview(payload) });
             if (endpoint === E.planMigrationPreview) return respond({ ok: true, value: await runtime.taskPlans.migrationPreview(payload) });
             if (endpoint === E.runHistory) return respond({ ok: true, value: await runtime.runHistory.list(payload) });
             if (endpoint === E.runSummary) return respond({ ok: true, value: await runtime.runHistory.summary(payload) });

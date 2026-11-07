@@ -81,6 +81,24 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期计划配置恢复
     await service.recoverPlans(); plan = await repos.digests.getPlan(plan.id);
     expect(plan.schedule_id).toBeNull(); expect(plan.lifecycle.error).toMatch(/多个|歧义/); expect(creates).toBe(1);
   });
+  it.each(['recover', 'pause', 'stop'])('自定义计划创建回执丢失后 %s，旧确认重试只核对原计划且不覆盖后续选择', async op => {
+    const definition = { name: 'standup-prep', description: '原自定义简报', content: '按主人要求准备简报', source: 'project-dsh', metadata: {} };
+    deps.skillCatalog = () => new SkillCatalog({ list: async () => [definition], get: async () => definition });
+    const input = { kind: 'morning', skill: 'standup-prep', time: '08:00:00', voice: true, intentKey: 'owner-preview-1' };
+    const delivery = { channel: 'feishu', target: 'owner', configurationKey: 'same-owner' };
+    const preview = await service.customPlanPreview(input, delivery), create = native.create;
+    expect(await repos.digests.listPlans()).toEqual([]);
+    native.create = async (...args) => { await create(...args); throw new Error('reply lost'); };
+    await expect(service.customPlanCreate(input, delivery, preview.fingerprint)).rejects.toThrow('reply lost');
+    native.create = create;
+    if (op !== 'recover') await service.digestControl({ planId: preview.planId, op });
+    rebuild();
+    const result = await service.customPlanCreate(input, delivery, preview.fingerprint);
+    expect(result.plan).toMatchObject({ id: preview.planId, voice: true, status: op === 'recover' ? 'active' : op === 'pause' ? 'paused' : 'stopped' });
+    await service.customPlanCreate(input, delivery, preview.fingerprint);
+    expect(creates).toBe(1); expect(entries).toHaveLength(op === 'recover' ? 1 : 0);
+    expect(await repos.taskPlans.get(preview.planId)).toMatchObject({ task_config: null, task_authorization: null });
+  });
   it('暂停先阻止业务运行，删除失败保留ID；重建后继续清理 paused 计划', async () => {
     const result = await enable(); const del = native.delete;
     native.delete = async () => { expect((await repos.digests.getPlan(result.planId)).status).toBe('paused'); throw new Error('delete offline'); };

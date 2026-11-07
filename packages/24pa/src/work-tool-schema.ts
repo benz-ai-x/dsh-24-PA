@@ -71,6 +71,7 @@ export const workToolProperties = {
   linkTaskGuid: string,
   linkEventId: string,
   planId: string,
+  previewId: { type: 'string', description: '周期计划预览返回的标识；确认时原样提供，不自行生成。' },
   afterSeconds: { type: 'integer' },
   timeZone: string,
   text: string,

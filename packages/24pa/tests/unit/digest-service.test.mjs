@@ -110,7 +110,7 @@ describe('F19：口播变体与语音入队', () => {
       repos: () => ({
         digests: {
           getPlan: async () => plan,
-          updatePlan: async (id, patch) => { updated.push([id, patch]); return { ...plan, ...patch }; },
+          comparePlan: async (row, patch) => { updated.push([row.id, patch]); return { ...row, ...patch }; },
         },
       }),
     });
@@ -159,7 +159,7 @@ describe('F40：计划绑定任务 skill', () => {
       skillCatalog: () => fallback,
       repos: () => ({ digests: {
         getPlan: async () => planRow('digest-evening'),
-        updatePlan: async (id, patch) => { updated.push([id, patch]); return { id, ...patch }; },
+        comparePlan: async (row, patch) => { updated.push([row.id, patch]); return { ...row, ...patch }; },
       } }),
     });
     const service = new DigestService(deps);
@@ -167,6 +167,19 @@ describe('F40：计划绑定任务 skill', () => {
     expect(updated[0][1]).toEqual({ skill: 'digest-weekly' });
     expect(r.skill).toBe('digest-weekly');
     await expect(service.digestControl({ planId: 'dig-morning-x', op: 'skill', skill: 'ghost' })).rejects.toThrow(/不存在/);
+  });
+
+  it.each(['daily-planning', 'daily-review', 'contract-report'])('项目契约 Skill %s 留给通用授权，无契约时仍不能绕过旧入口限制', async name => {
+    const metadata = { tools: ['pa24_run'], pa24: { schemaVersion: 1, mode: 'business', parameters: {}, expectedResult: 'Owner plan', completionCriteria: 'Return the owner plan', actions: [] } };
+    const definition = { name, description: '项目业务 Skill', content: '按主人选择执行', source: 'project-dsh', metadata };
+    const catalog = new SkillCatalog({ list: async () => [definition], get: async () => definition });
+    const native = { create: vi.fn() }, service = new DigestService({ ...enableDeps(catalog), nativeSchedule: () => native });
+    const input = { kind: 'morning', time: '08:00:00', skill: name, intentKey: 'contract-preview' };
+    await expect(service.customPlanPreview(input, null)).resolves.toBeNull();
+    expect(native.create).not.toHaveBeenCalled();
+    delete metadata.pa24;
+    await expect(service.customPlanPreview(input, null)).rejects.toThrow();
+    expect(native.create).not.toHaveBeenCalled();
   });
 
 

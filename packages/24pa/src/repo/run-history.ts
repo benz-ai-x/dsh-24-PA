@@ -1,4 +1,5 @@
 import type { PaDb } from '../db.js';
+import { legacyDeliveryStatus, legacyExecutionStatus } from './legacy-plan-history.js';
 
 export type HistoryKind = 'runs' | 'work' | 'events' | 'legacy';
 export interface HistoryFilter {
@@ -86,7 +87,8 @@ export class RunHistoryRepo {
       if (filter.source) clauses.push(`r.source = ${bind(filter.source)}`);
     } else {
       table = 'pa24.digest_occurrence r left join pa24.digest_plan p on p.id = r.plan_id';
-      fields = 'r.id, p.title, r.plan_id, r.window_key, r.status, r.error as progress, r.report, r.outbox_key, r.created_at, r.updated_at';
+      fields = `r.id, p.title, r.plan_id, r.window_key, r.status, ${legacyExecutionStatus} as execution_status,
+        ${legacyDeliveryStatus} as delivery_status, r.error as progress, r.report, r.outbox_key, r.created_at, r.updated_at`;
       search = ['r.id', 'p.title', 'r.error']; unresolved = "r.status not in ('model_done', 'sent')";
       if (filter.planId) clauses.push(`r.plan_id = ${bind(filter.planId)}`);
     }
@@ -108,6 +110,9 @@ export class RunHistoryRepo {
     const rows = (await this.db.query<Record<string, unknown>>(`select ${fields} from ${table} ${where}
       order by r.created_at desc, r.id limit ${bind(filter.limit)} offset ${bind(filter.offset)}`, values)).rows
       .map(row => {
+        // Delivery subqueries make this a mixed-table projection. Decode the
+        // legacy report explicitly; PostgreSQL has already decoded its jsonb.
+        if (filter.kind === 'legacy' && this.db.kind === 'sqlite' && typeof row.report === 'string') return { ...row, report: JSON.parse(row.report) };
         if (filter.kind !== 'work') return row;
         return { ...row,
           ...(typeof row.progress_detail === 'string' ? { progress_detail: JSON.parse(row.progress_detail) } : {}),

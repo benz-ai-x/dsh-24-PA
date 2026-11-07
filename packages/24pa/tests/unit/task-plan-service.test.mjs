@@ -14,7 +14,7 @@ import { TaskPlanEngine } from '../../lib/task-plan-engine.js';
 import { digestWindowKey, digestPeriod } from '../../lib/digest-period.js';
 import { PaRuntime } from '../../lib/runtime.js';
 import { SourceRegistry, unknownCapabilities } from '../../lib/source-registry.js';
-import { createDailyScheduleRecord, createEveryScheduleRecord, createAtScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
+import { createDailyScheduleRecord, createWeeklyScheduleRecord, createEveryScheduleRecord, createAtScheduleRecord, ScheduleId } from '@deepseek-ai/dsh-schedule';
 import { startPgCluster } from '../helpers/pg.mjs';
 
 for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务 (${backend})`, () => {
@@ -53,9 +53,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
       create: async (sessionId, request) => { creates++; const id = ScheduleId(`native-${randomUUID()}`);
         const record = request.every_seconds ? createEveryScheduleRecord(id, request.prompt, request.every_seconds, Date.now(), request.title)
           : request.at ? createAtScheduleRecord(id, request.prompt, request.at, Date.now(), request.title)
+          : request.weekly ? createWeeklyScheduleRecord(id, request.prompt, request.weekly, Date.now(), request.title)
           : createDailyScheduleRecord(id, request.prompt, request.daily, Date.now(), request.title);
         nativeRows.push({ ...record, sessionId, status: 'active' }); return record; },
       catalog: async () => structuredClone(nativeRows),
+      update: async ({ id, sessionId, change, prompt, title }) => {
+        const record = change.weekly ? createWeeklyScheduleRecord(id, prompt, change.weekly, Date.now(), title)
+          : createDailyScheduleRecord(id, prompt, change.daily, Date.now(), title);
+        nativeRows = nativeRows.map(row => row.id === id ? { ...record, sessionId, status: 'active' } : row);
+        return { id, updated: true, record };
+      },
       delete: async ({ id }) => { nativeRows = nativeRows.filter(row => row.id !== id); return { deleted: true }; },
     };
     plans = new PlanLifecycle({ repo: () => repos.digests, native: () => native });
@@ -82,6 +89,82 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
       timeContext: digestPeriod(row.kind, 'Asia/Tokyo', at, 'schedule'), skill: { ...version.definition,
         metadata: { ...version.definition.metadata, pa24Identity: { versionId: version.id } } } });
   };
+  const settings = async (row, values, requestId = randomUUID()) => {
+    const input = command('settings', row, { settings: values, requestId });
+    const preview = await service.settingsPreview(input);
+    return { input: { ...input, fingerprint: preview.fingerprint, confirm: true }, preview };
+  };
+  it('PC-01 共用晨报预设，明确模板选择不会被智能默认覆盖；草稿不写账本', async () => {
+    const before = await repos.taskPlans.summary();
+    const smart = await service.draft({ preset: 'morning', workspaceBinding: 'binding' });
+    expect(smart).toMatchObject({ title: '智能工作晨报', configuration: { skillId: 'builtin:daily-planning', timeZone: 'Asia/Shanghai', delivery: { channel: 'feishu', voice: false } } });
+    const fixed = await service.draft({ preset: 'morning', skillId: 'builtin:digest-morning', workspaceBinding: 'binding' });
+    expect(fixed).toMatchObject({ title: '固定模板晨报', configuration: { skillId: 'builtin:digest-morning' } });
+    expect(await repos.taskPlans.summary()).toEqual(before);
+  });
+  it('PC-02/03 已启用计划调整时间与语音保留同一 ID、原生 ID、授权及主人选择', async () => {
+    const row = await enable(await create({ timeZone: 'Asia/Tokyo' }));
+    const { input } = await settings(row, { time: '10:30', voice: true });
+    const changed = (await service.change(input)).plan;
+    expect(changed).toMatchObject({ id: row.id, status: 'active', owner_enabled: true, schedule_id: row.schedule_id,
+      voice: true, task_authorization: row.task_authorization, skill: row.skill,
+      schedule_spec: { daily: { time: '10:30:00', time_zone: 'Asia/Tokyo' } }, task_config: { timeZone: 'Asia/Tokyo', delivery: { voice: true } } });
+    expect(nativeRows.find(item => item.id === row.schedule_id).time.slice(0, 8)).toBe('10:30:00');
+    expect((await service.change(input)).repeated).toBe(true); expect(creates).toBe(1);
+    await expect(service.change({ ...input, requestId: randomUUID() })).rejects.toThrow(/其他修改/);
+    const paused = (await service.change(command('pause', changed))).plan;
+    const pauseEdit = await settings(paused, { voice: false });
+    expect((await service.change(pauseEdit.input)).plan).toMatchObject({ status: 'paused', owner_enabled: false, schedule_id: null });
+  });
+  it('PC-04 旧计划改时刻、暂停、恢复不迁移，原时区、每周日期、语音与 Skill 留存', async () => {
+    const old = await plans.enable({ id: `legacy-${randomUUID()}`, kind: 'weekly', title: '旧周报', skill: entry.name, voice: true,
+      session_id: 'fixed-access', schedule_spec: { weekly: { time: '08:30:00', time_zone: 'Asia/Tokyo', weekdays: [2, 6] } }, last_window: null });
+    const change = await settings(old, { time: '10:00:00' });
+    const adjusted = (await service.change(change.input)).plan;
+    expect(adjusted).toMatchObject({ id: old.id, task_config: null, task_authorization: null, skill: old.skill, voice: true, schedule_id: old.schedule_id,
+      schedule_spec: { weekly: { time: '10:00:00', time_zone: 'Asia/Tokyo', weekdays: [2, 6] } } });
+    const paused = (await service.change(command('pause', adjusted))).plan;
+    const preview = await service.preview({ id: old.id, workspaceBinding: 'binding' });
+    expect(preview.message).toContain('不补固定授权');
+    const resumed = (await service.change(command('enable', paused, { confirm: true, fingerprint: preview.fingerprint }))).plan;
+    expect(resumed).toMatchObject({ id: old.id, status: 'active', task_config: null, task_authorization: null, voice: true, skill: old.skill, schedule_spec: adjusted.schedule_spec });
+    expect(await repos.taskPlans.migration(old.id)).toBeNull();
+    await expect(service.change(command('save', resumed, { title: '不得暗中迁移', skillId: `managed:${entry.id}`, timing: { type: 'daily' } }))).rejects.toThrow(/隐式迁移/);
+  });
+  it('PC-05 旧执行与音频/全文投递分开，部分送达和未知如实展示；读取无写入', async () => {
+    const row = await legacy(), run = await oldClaim(row, new Date());
+    const notifications = ['text', 'audio'].map((kind, index) => ({ kind, channel: 'feishu', target: 'owner-a', dedupKey: `digest:${run.row.id}${index ? ':voice' : ''}`, content: { text: '原报告' } }));
+    await repos.digests.completeRun({ planId: row.id, occurrenceId: run.row.id, report: '原结果', notifications });
+    const outboxes = (await repos.outbox.recent()).filter(box => box.dedup_key.startsWith(`digest:${run.row.id}`));
+    await repos.outbox.mark(outboxes.find(box => box.kind === 'text').id, { status: 'sent', messageId: 'text-receipt' });
+    await repos.outbox.mark(outboxes.find(box => box.kind === 'audio').id, { status: 'failed' });
+    const before = await repos.taskPlans.get(row.id);
+    expect((await service.list({ workspaceBinding: 'binding', query: row.id })).rows[0].recentRun).toMatchObject({ id: run.row.id, kind: 'legacy', status: 'completed', delivery_status: 'partial' });
+    await repos.outbox.mark(outboxes.find(box => box.kind === 'audio').id, { status: 'unknown' });
+    expect(await repos.taskPlans.recentRun(row.id)).toMatchObject({ status: 'completed', delivery_status: 'unknown' });
+    const history = await repos.runHistory.list({ kind: 'legacy', planId: row.id, from: null, to: null, includeUnresolved: true, offset: 0, limit: 20 });
+    expect(history.rows[0]).toMatchObject({ execution_status: 'completed', delivery_status: 'unknown' });
+    expect(await repos.taskPlans.get(row.id)).toEqual(before);
+  });
+  it('PC-07 调整预览后固定投递身份改变，确认失败且原时间/语音不变', async () => {
+    const row = await enable(await create()), change = await settings(row, { voice: true });
+    owner = 'owner-b';
+    await expect(service.change(change.input)).rejects.toThrow(/身份|主人|接入/);
+    expect(await repos.taskPlans.get(row.id)).toEqual(row);
+  });
+  it('PC-08 原生更新时间已落地但回执丢失，重建生命周期从原意图恢复且只保留一个触发', async () => {
+    const row = await enable(await create()), change = await settings(row, { time: '11:30:00', timeZone: 'America/New_York', voice: true });
+    const update = native.update; let calls = 0;
+    native.update = async input => { calls++; await update(input); throw new Error('原生更新回执丢失'); };
+    await expect(service.change(change.input)).rejects.toThrow(/回执丢失/);
+    const pending = await repos.taskPlans.get(row.id);
+    expect(pending).toMatchObject({ owner_enabled: true, lifecycle: { phase: 'unknown', settings: { voice: true, task_config: { timeZone: 'America/New_York' } } } });
+    const restarted = new PlanLifecycle({ repo: () => repos.digests, native: () => native });
+    expect((await restarted.recover()).find(result => result.planId === row.id)).toEqual({ planId: row.id });
+    expect(await repos.taskPlans.get(row.id)).toMatchObject({ id: row.id, status: 'active', owner_enabled: true, lifecycle: null, voice: true,
+      task_config: { timeZone: 'America/New_York', delivery: { voice: true } }, schedule_id: row.schedule_id });
+    expect(calls).toBe(1); expect(nativeRows.filter(record => record.id === row.schedule_id)).toHaveLength(1);
+  });
   it('重配目标保留暂停选择且预览携带计划固定时区；重复确认不改启停', async () => {
     let row = await create({ timeZone: 'America/New_York' });
     row = (await service.change(command('pause', await enable(row)))).plan;

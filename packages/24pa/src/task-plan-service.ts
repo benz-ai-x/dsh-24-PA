@@ -3,12 +3,16 @@ import type { TaskPlanRow } from './repo/task-plan.js';
 import type { SkillManagement } from './skill-management.js';
 import type { SkillRuns } from './skill-runs.js';
 import type { PlanLifecycle } from './plan-lifecycle.js';
-import { taskPlanDraft, taskPlanTimeZone } from './task-plan.js';
+import { taskPlanDraft, taskPlanPreset, taskPlanTimeZone } from './task-plan.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { previewPlanTimes } from './plan-time.js';
 import { TaskPlanMigration, type PlanMigrationContext } from './task-plan-migration.js';
+import { planSettings, planSettingsForm } from './task-plan-settings.js';
 
-interface PlanContext extends PlanMigrationContext { sessionId: string; repos: Repos }
+interface PlanContext extends PlanMigrationContext {
+  sessionId: string; repos: Repos;
+  legacyDelivery?: { channel: string; target: string | null; configurationKey: string };
+}
 interface TaskPlanServiceDeps {
   context(): PlanContext | null;
   skills: SkillRuns;
@@ -75,7 +79,7 @@ export class TaskPlanService {
   }
   async inspect(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);
-    return { plan: row, form: row.task_config ? taskPlanForm(row) : null, blocks: await context.repos.taskPlans.blocks(row.id),
+    return { plan: row, form: row.task_config ? taskPlanForm(row) : null, settings: planSettingsForm(row, context.timeZone), blocks: await context.repos.taskPlans.blocks(row.id),
       migration: await context.repos.taskPlans.migration(row.id),
       legacyHistory: await context.repos.digests.occurrencesOf(row.id),
       triggers: await context.repos.planTriggers.list(row.id, Math.max(0, Math.floor(Number(input.offset) || 0))),
@@ -104,14 +108,74 @@ export class TaskPlanService {
   }
   async preview(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);
+    if (!row.task_config) {
+      this.legacyManageable(context, row);
+      const delivery = this.legacyDelivery(context);
+      return { ...await this.executionMode(context, row), legacy: true, planId: row.id, revision: row.revision, timeZone: taskPlanTimeZone(row, context.timeZone), legacyDelivery: delivery,
+        nextTimes: previewPlanTimes(row.schedule_spec).times, voice: row.voice, skill: row.skill,
+        fingerprint: taskPlanFingerprint([row.id, row.revision, row.schedule_spec, row.skill, row.voice, delivery]), workspaceBinding: context.binding,
+        messageEn: 'Keep the original plan, skill and notification configuration without migration or pinned authorization. The current setting does not prove platform access or delivery. Voice still includes full text.',
+        message: '继续原计划，不迁移、不补固定授权、不改变 Skill。旧计划沿用当前通知配置；历史没有固定投递授权，当前配置不代表平台已核验或送达。语音仍附完整文本。' };
+    }
     const prepared = await this.preflight(context, row, input.rebind === true);
-    return { planId: row.id, revision: row.revision, timeZone: row.task_config!.timeZone, authorization: prepared.authorization, nextTimes: prepared.nextTimes,
+    return { executionMode: prepared.prepared.mode, usesModel: prepared.prepared.mode !== 'template', planId: row.id, revision: row.revision, timeZone: row.task_config!.timeZone, voice: row.voice, skill: row.skill, authorization: prepared.authorization, nextTimes: prepared.nextTimes,
       fingerprint: prepared.fingerprint, workspaceBinding: context.binding,
+      messageEn: input.rebind === true ? 'Confirm the new fixed targets while retaining the on/off choice. In-flight runs keep their original snapshot.' : 'Verification reads current capabilities and targets. Activation or repair follows the selected action; in-flight runs keep their snapshot.',
       message: input.rebind === true ? '确认后更新固定目标，保留原启停选择。在途运行继续使用原快照。' : '核验只读取当前能力与目标；启用或解除阻断按所选操作办理。在途运行继续使用原快照。' };
   }
   async draft(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding);
-    return { ...taskPlanDraft(input, context.timeZone), workspaceBinding: context.binding };
+    const form = input.preset ? taskPlanPreset(input, context) : { ...input };
+    let legacySkillName: string | undefined;
+    if (input.skill) {
+      const name = String(input.skill), catalog = await this.deps.management.list(context.binding);
+      const candidates = catalog.entries.filter(entry => entry.id === name || ('internalName' in entry ? entry.internalName : entry.name) === name);
+      if (candidates.length !== 1 || (!name.includes(':') && candidates[0]!.source !== 'managed' && catalog.discovery !== 'complete')) throw new Error('Skill 来源缺失或有同名项，请从目录明确选择来源编号。');
+      form.skillId = candidates[0]!.id;
+      if (candidates[0]!.source === 'project-dsh') legacySkillName = candidates[0]!.name;
+    }
+    if (!input.title && input.preset === 'morning' && form.skillId === 'builtin:digest-morning') form.title = '固定模板晨报';
+    return { ...taskPlanDraft(form, context.timeZone), form, legacySkillName, workspaceBinding: context.binding };
+  }
+  async creationPreview(input: Record<string, unknown>) {
+    const context = this.context(input.workspaceBinding), draft = await this.draft(input);
+    const prepared = await this.deps.skills.preparePlan(draft.configuration, context.sessionId);
+    const authorization = await this.deps.access.authorize(draft.configuration, prepared.skill, null);
+    return { ...draft, authorization, voice: draft.configuration.delivery.voice, timeZone: draft.configuration.timeZone,
+      executionMode: prepared.mode,
+      usesModel: prepared.mode !== 'template',
+      fingerprint: taskPlanFingerprint([draft.title, draft.kind, draft.configuration, draft.scheduleSpec, planAuthorizationScope(authorization)]),
+      message: draft.configuration.skillId === 'builtin:daily-planning'
+        ? '智能工作晨报使用模型，保存今日工作建议；不会自动采纳或改动已采纳安排。确认后保存并启用，尚未执行或投递。'
+        : '确认后保存并启用；保存、启用、执行和投递分别记录。' };
+  }
+  private legacyManageable(context: PlanContext, row: TaskPlanRow) {
+    if (!['morning', 'evening', 'weekly', 'once'].includes(row.kind)) throw new Error('此计划由原业务流程管理，请从对应业务入口操作。');
+    if (row.session_id !== context.sessionId || row.recycled_at || row.delete_when_idle) throw new Error('计划归属或状态已改变，请刷新后核对。');
+  }
+  private legacyDelivery(context: PlanContext) {
+    return context.legacyDelivery ?? { channel: context.deliveryChannel ?? 'none', target: null, configurationKey: context.binding };
+  }
+  private async executionMode(context: PlanContext, row: TaskPlanRow) {
+    const catalog = await this.deps.management.list(context.binding);
+    const candidates = catalog.entries.filter(entry => row.task_config ? entry.id === row.task_config.skillId : ('internalName' in entry ? entry.internalName : entry.name) === row.skill);
+    const selected = candidates.length === 1 ? candidates[0] : undefined;
+    const track = selected && 'track' in selected ? selected.track : undefined;
+    return { executionMode: track ?? 'unknown', usesModel: track ? track !== 'template' : null };
+  }
+  async settingsPreview(input: Record<string, unknown>) {
+    const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);
+    if (input.expectedRevision !== undefined && input.expectedRevision !== row.revision) throw new Error('计划已有其他修改，请刷新后重试。');
+    if (row.recycled_at || row.delete_when_idle || row.lifecycle) throw new Error('计划正在删除或仍有原生变更待核对，请先核对原状态。');
+    if (!row.task_config) this.legacyManageable(context, row);
+    const settings = planSettings(row, input.settings, context.timeZone);
+    if (row.task_authorization) await this.deps.access.verify(row.task_authorization);
+    const legacyDelivery = row.task_config ? null : this.legacyDelivery(context);
+    return { ...settings, ...await this.executionMode(context, row), legacy: !row.task_config, planId: row.id, revision: row.revision, skill: row.skill, authorization: row.task_authorization,
+      legacyDelivery, workspaceBinding: context.binding,
+      fingerprint: taskPlanFingerprint([row.id, row.revision, settings.scheduleSpec, settings.configuration, settings.voice, row.task_authorization, legacyDelivery]),
+      messageEn: 'Change only the selected timing or voice settings. Keep the on/off choice, skill, parameters, delivery targets and history.',
+      message: '只修改本次选定的时间或语音；原启停选择、Skill、参数、投递目标和历史保留。' };
   }
   async migrationPreview(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), row = await this.required(context, input.id);
@@ -131,11 +195,29 @@ export class TaskPlanService {
         && !await repo.repeated(identity('authorization')) && !await repo.repeated(identity('choice')) && !await repo.repeated(identity('delete'))) throw new Error('计划已有其他修改，请刷新后重试。');
       let result: TaskPlanRow;
       if (op === 'save' || op === 'copy') {
+        if (row && !row.task_config) throw new Error('旧计划不能通过保存配置隐式迁移；请使用时间与语音调整，或主动选择迁移。');
         const draft = taskPlanDraft(op === 'copy' && row ? { ...taskPlanForm(row), title: `${row.title} 副本`.slice(0, 120), ...(input.form as Record<string, unknown> ?? {}) } : input, context.timeZone);
         const skill = await this.deps.management.inspect(draft.configuration.skillId, context.binding);
         result = await repo.save({ ...identity(), ...(op === 'save' && row ? { id: row.id, expectedRevision: row.revision } : {}),
           title: draft.title, kind: draft.kind, skill: 'internalName' in skill ? skill.internalName : skill.name,
           sessionId: context.sessionId, scheduleSpec: draft.scheduleSpec, configuration: draft.configuration });
+      } else if (op === 'settings' && row) {
+        const check = await this.settingsPreview(input);
+        if (input.confirm !== true || input.fingerprint !== check.fingerprint) throw new Error('计划设置、权限或目标已改变，请重新预览。');
+        const settings = { voice: check.voice, ...(check.configuration ? { task_config: check.configuration } : {}) };
+        if (check.timingChanged) await this.deps.lifecycle.adjust(row.id, check.scheduleSpec, check.kind, row.revision, settings);
+        else await this.deps.lifecycle.configure(row.id, settings, row.revision);
+        result = await repo.remember(identity(), await this.required(context, row.id));
+      } else if (op === 'enable' && row && !row.task_config) {
+        const check = await this.preview(input);
+        if (input.confirm !== true || input.fingerprint !== check.fingerprint) throw new Error('旧计划或当前投递配置已改变，请重新预览。');
+        if (row.status !== 'active') await this.deps.lifecycle.resume(row.id, row.revision);
+        result = await repo.remember(identity(), await this.required(context, row.id));
+      } else if (['pause', 'stop'].includes(op) && row && !row.task_config) {
+        this.legacyManageable(context, row);
+        const stopped = await this.deps.lifecycle.stop(row.id, op === 'stop' ? 'stopped' : 'paused', row.revision);
+        if (stopped.warning) throw new Error(stopped.warning);
+        result = await repo.remember(identity(), await this.required(context, row.id));
       } else if (op === 'migrate' && row) {
         const check = await this.migration.preview(context, row, input);
         if (input.confirm !== true || input.fingerprint !== check.fingerprint) throw new Error('原配置、来源或授权已改变，请重新预览迁移。');

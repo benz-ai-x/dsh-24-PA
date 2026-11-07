@@ -9,6 +9,7 @@ import { lockPlanSkill } from './skill.js';
 import type { ResolvedTaskSkill } from '../skills.js';
 import type { SkillPackage } from '../skill-package.js';
 import { assertTaskPlanEnabled } from './task-plan.js';
+import type { TaskPlanConfiguration } from '../task-plan.js';
 
 export interface DigestPlanRow {
   id: string;
@@ -26,6 +27,7 @@ export interface DigestPlanRow {
   voice: boolean;
   /** F40（spec 2.11）：绑定的任务 skill 名（内置 digest-* 或工作区自定义）。 */
   skill: string;
+  task_config?: TaskPlanConfiguration | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -95,15 +97,16 @@ export class DigestRepo {
     });
   }
 
-  async comparePlan(plan: DigestPlanRow, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'kind' | 'lifecycle' | 'schedule_generation'>>): Promise<DigestPlanRow> {
+  async comparePlan(plan: DigestPlanRow, patch: Partial<Pick<DigestPlanRow, 'schedule_id' | 'schedule_spec' | 'status' | 'kind' | 'lifecycle' | 'schedule_generation' | 'voice' | 'skill' | 'task_config'>>): Promise<DigestPlanRow> {
     return this.db.withTransaction(async tx => {
-    if (patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') await lockPlanSkill(tx, plan.skill, plan.id);
+    if (patch.skill !== undefined || patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') await lockPlanSkill(tx, patch.skill ?? plan.skill, plan.id, patch.skill !== undefined);
     if (patch.status === 'active' || patch.lifecycle?.targetStatus === 'active') await assertTaskPlanEnabled(tx, plan.id);
     const sets = ['updated_at = now()', 'revision = revision + 1'];
     const values: unknown[] = [plan.id, plan.revision ?? 0];
-    digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle']);
+    digestPatch(sets, values, patch, ['schedule_spec', 'lifecycle', 'task_config']);
     const result = await tx.query<DigestPlanRow>(`update pa24.digest_plan set ${sets.join(', ')} where id = $1 and revision = $2 returning *`, values);
     if (!result.rows[0]) throw new Error('计划状态已变化，请读取当前状态后重试。');
+    if (patch.skill !== undefined) await tx.query('delete from pa24.skill_plan_block where plan_id = $1', [plan.id]);
     return result.rows[0];
     });
   }

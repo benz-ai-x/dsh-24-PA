@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { bootHost } from '../helpers/host.mjs';
+import { seedLegacyPlan } from '../helpers/legacy-plan-fixture.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
@@ -41,7 +42,7 @@ const inspect = id => host.api('plans.inspect', { id, workspaceBinding: binding 
 const until = async (read, check) => {
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) { const value = await read(); if (check(value)) return value; await new Promise(resolve => setTimeout(resolve, 75)); }
-  throw new Error('计划验证等待超时：' + JSON.stringify(await read()) + '\n' + host.logs().slice(-8000));
+  throw new Error('计划验证等待超时：' + JSON.stringify(await read()) + '\n' + JSON.stringify(host.logs()).slice(-8000));
 };
 const change = (op, row, extra = {}) => host.api('action', { type: 'plan.change', op, requestId: randomUUID(), workspaceBinding: binding,
   ...(row ? { id: row.id, expectedRevision: row.revision } : {}), ...extra });
@@ -71,13 +72,7 @@ const business = async (tools = [], actions = []) => {
 const requestsFor = run => llm.requests.filter(request => (request.inputs ?? []).some(message => (message.content ?? []).some(part => part.type === 'text' && part.text === `[24PA skill run: ${run.id}]`)));
 
 it('公开旧计划迁移沿用原生调度，重启后只生成一份模板结果', async () => {
-  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker: 'reminders', title: '迁移原简报计划', instruction: '开启一次原简报' },
-    leadReply: '已登记。', workerAction: { action: 'digest_enable', kind: 'once', afterSeconds: 12 }, workerReply: '已保存原计划。' }));
-  const snapshot = await host.api('snapshot');
-  await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId,
-    mode: 'queue', content: [{ type: 'text', text: '开启一次原简报以验证迁移。' }], clientTimeZone: 'Asia/Shanghai' } });
-  await host.waitUntil(value => value.work.some(work => work.title === '迁移原简报计划' && work.status === 'completed'), { timeoutMs: 15000, label: '原简报计划建立' });
-  const row = (await host.api('plans', { workspaceBinding: binding })).rows.find(row => !row.task_config && row.kind === 'once');
+  const row = await seedLegacyPlan(host, cluster?.dsn, { kind: 'once', afterSeconds: 12 });
   expect(row?.schedule_id).toBeTruthy(); expect(row.schedule_generation).toBeTruthy();
   const before = llm.requests.length;
   const preview = await host.api('plans.migration-preview', { id: row.id, skillId: 'builtin:digest-morning', workspaceBinding: binding });
@@ -103,7 +98,7 @@ it('真实原生时钟触发模板，读取列表不执行，结果保存且零�
   const result = await until(() => detail(runId), value => value.run.status === 'completed');
   expect(result.run).toMatchObject({ plan_id: row.id, trigger_kind: 'schedule', mode: 'template', skill_id: 'builtin:digest-morning', delivery_status: 'not_requested' });
   expect(result.run.plan).toMatchObject({ triggeredAt: at, configuration: { timeZone: 'Pacific/Honolulu' } });
-  expect(result.run.result).toContain('晨报'); expect(llm.requests).toHaveLength(before);
+  expect(result.run.result).toContain('晨报'); expect(llm.requests, JSON.stringify(llm.requests.slice(before))).toHaveLength(before);
   expect((await inspect(row.id)).triggers.total).toBe(1);
 }, 60000);
 

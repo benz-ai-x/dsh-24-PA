@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { seedLegacyPlan } from '../helpers/legacy-plan-fixture.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -72,6 +73,16 @@ const rmdScript = (title, workerAction) => ({
   workerAction,
   workerReply: '已完成。',
 });
+
+const confirmPlanPreview = async (preview, title) => {
+  const previewId = preview.match(/"previewId":"([^"]+)"/)?.[1];
+  const instruction = `确认计划 ${previewId.slice(0, 8)}`;
+  await writeScript(rmdScript(title, { action: 'digest_control', op: 'confirm', previewId, instruction }));
+  const before = llm.log.length;
+  await inject(ownerEvent(title, { text: instruction }));
+  await waitWorkItem(title, title);
+  await waitToolResult('pa24_work', '"plan":', title, 60_000, before);
+};
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'pa24-f09-'));
@@ -203,12 +214,8 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     await inject(ownerEvent('evt-e0b', { text: '收尾任务完成了' }));
     await waitWorkItem('完成收尾任务', '收尾任务完成');
 
-    await writeScript(rmdScript('开启晚间回顾', { action: 'digest_enable', kind: 'evening', time: '20:30:00' }));
-    let before = llm.log.length;
-    await inject(ownerEvent('evt-e1', { text: '开启每天 20 点 30 分的晚间回顾' }));
-    await waitWorkItem('开启晚间回顾', '晚间回顾开启');
-    const enabled = await waitToolResult('pa24_work', 'planId', '晚间回执', 60_000, before);
-    const planId = (enabled.match(/"planId":"(dig-[^"]+)"/) || [])[1];
+    const { id: planId } = await seedLegacyPlan(host, cluster.dsn, { kind: 'evening', time: '20:30:00' });
+    let before;
     // 直接委派一次 digest_build（不等 20:30，验证内容渲染与幂等键）
     await writeScript({
       mode: 'dispatch',
@@ -237,16 +244,17 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     before = llm.log.length;
     await inject(ownerEvent('evt-e3', { text: '晚间回顾改到 21 点' }));
     await waitWorkItem('调整晚间回顾', '调整完成');
-    const adjusted = await waitToolResult('pa24_work', '已按新安排调整', '调整回执', 60_000, before);
-    expect(adjusted).toContain(planId);
+    const adjustPreview = await waitToolResult('pa24_work', 'previewId', '调整预览', 60_000, before);
+    await confirmPlanPreview(adjustPreview, '确认调整晚间回顾');
+    expect((await host.api('digests')).plans.find(row => row.planId === planId).schedule.daily.time).toBe('21:00:00');
     expect((await rows(`select count(*)::int as n from pa24.digest_plan where id='${planId}'`))[0].n).toBe(1);
     // F19（spec 2.3）：per-plan 语音开关（迁移 v12 的 voice 列读写，引擎仍为 none 时投递降级文本）
     await writeScript(rmdScript('改为语音版', { action: 'digest_control', planId, op: 'voice', voice: true }));
     before = llm.log.length;
     await inject(ownerEvent('evt-e3v', { text: '晚间回顾改成语音版' }));
     await waitWorkItem('改为语音版', '语音开关完成');
-    const voiced = await waitToolResult('pa24_work', '语音版', '语音开关回执', 60_000, before);
-    expect(voiced).toContain('全文文本兜底');
+    const voicePreview = await waitToolResult('pa24_work', 'previewId', '语音预览', 60_000, before);
+    await confirmPlanPreview(voicePreview, '确认语音版');
     expect((await rows(`select voice from pa24.digest_plan where id='${planId}'`))[0].voice).toBeTruthy();
     // F40（spec 2.11）：任务 skill 绑定＋面板三动作（改时间/换 skill/立即运行一次）
     const view = await host.api('digests');
@@ -274,12 +282,8 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
 
   it('P24/P25：once 晨报经原生 Schedule 唤醒 Lead→digest Worker→Outbox，事实与建议分离', async () => {
     // 一次性晨报（3 秒后），复用真实原生 Schedule
-    await writeScript(rmdScript('开启晨报', { action: 'digest_enable', kind: 'once', afterSeconds: 3 }));
+    const { id: planId } = await seedLegacyPlan(host, cluster.dsn, { kind: 'once', afterSeconds: 3 });
     let before = llm.log.length;
-    await inject(ownerEvent('evt-d1', { text: '三秒后给我出一期晨报试试' }));
-    await waitWorkItem('开启晨报', '计划开启完成');
-    const enabled = await waitToolResult('pa24_work', 'planId', '计划回执', 60_000, before);
-    const planId = (enabled.match(/"planId":"(dig-[^"]+)"/) || [])[1];
     expect((await rows(`select schedule_id is not null and status='active' as ok from pa24.digest_plan where id='${planId}'`))[0].ok).toBe(true);
 
     // Schedule 触发 → 接入会话收到带标记的 prompt → mock 委派 digest Worker
@@ -327,12 +331,7 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
     expect((await rows(`select count(*)::int as n from pa24.outbox where dedup_key like 'digest:${planId}%'`))[0].n).toBe(1);
 
     // 无法归属的投递：once 计划 2 秒后再触发，但 Lead 不委派（直接回复）
-    await writeScript(rmdScript('开启无归属晨报', { action: 'digest_enable', kind: 'once', afterSeconds: 2 }));
-    before = llm.log.length;
-    await inject(ownerEvent('evt-d3', { text: '再开一期会失败的晨报' }));
-    await waitWorkItem('开启无归属晨报', '无归属计划开启');
-    const enabled = await waitToolResult('pa24_work', 'planId', '无归属计划回执', 60_000, before);
-    const planId2 = (enabled.match(/"planId":"(dig-[^"]+)"/) || [])[1];
+    const { id: planId2 } = await seedLegacyPlan(host, cluster.dsn, { kind: 'once', afterSeconds: 2 });
     // Lead 收到唤醒但不委派（脚本只回文本）→ 等投递发生
     await writeScript({ mode: 'dispatch', leadReply: '这期先不做了。' });
     await new Promise(r => setTimeout(r, 6000));
@@ -344,13 +343,7 @@ describe('F09 每日规划与定期回顾（真实 Loader + 隔离 PG）', () =>
 
   it('P24：重启后原生 Schedule 续跑，业务状态按账本恢复，不补发过期窗口', async () => {
     // 新 once 计划 8 秒后触发；在触发前重启
-    await writeScript(rmdScript('重启晨报', { action: 'digest_enable', kind: 'once', afterSeconds: 8 }));
-    let before = llm.log.length;
-    await inject(ownerEvent('evt-d4', { text: '八秒后出一期晨报（会中途重启）' }));
-    await waitWorkItem('重启晨报', '重启计划开启');
-    const enabled = await waitToolResult('pa24_work', 'planId', '重启计划回执', 60_000, before);
-    const planId = (enabled.match(/"planId":"(dig-[^"]+)"/) || [])[1];
-
+    const { id: planId } = await seedLegacyPlan(host, cluster.dsn, { kind: 'once', afterSeconds: 8 });
     await host.stop({ keepRoot: true });
     host = await bootHost({ root: hostRoot, env: bootEnv });
     await host.waitUntil(
@@ -395,14 +388,18 @@ describe('F41：agent 轨任务 skill', () => {
     }
     expect(listed, '目录应发现工作区 skill').toBeTruthy();
     expect(listed.track).toBe('agent');
-    // 开计划绑定自定义 skill（经 reminders Worker 路由）
-    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '开自定义晨报', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'digest_enable', kind: 'weekly', time: '08:00:00', weekdays: [1], skill: 'e2e-custom-brief', voice: true }, workerReply: 'ok' });
+    // 原有无通用任务契约的自定义 Skill 仍通过公开对话创建，先预览再由主人确认。
+    await writeScript(rmdScript('预览自定义晨报', { action: 'digest_enable', kind: 'weekly', time: '08:00:00', weekdays: [1], skill: 'e2e-custom-brief', voice: true }));
     let before = llm.log.length;
-    await inject(ownerEvent('evt-f41a', { text: '开启自定义 skill 晨报' }));
-    await waitWorkItem('开自定义晨报', '自定义晨报开启');
-    const enabled = await waitToolResult('pa24_work', '"skill":"e2e-custom-brief"', '绑定回执', 60_000, before);
-    const planId = (enabled.match(/"planId":"(dig-[^"]+)"/) || [])[1];
-    expect(planId).toBeTruthy();
+    await inject(ownerEvent('evt-f41a', { text: '用原来的自定义 Skill 创建语音周报。' }));
+    await waitWorkItem('预览自定义晨报', '自定义预览', 60_000);
+    const preview = await waitToolResult('pa24_work', 'previewId', '自定义预览回执', 60_000, before);
+    expect((await host.api('digests')).plans.some(row => row.skill === 'e2e-custom-brief')).toBe(false);
+    await confirmPlanPreview(preview, '确认自定义晨报');
+    const created = (await host.api('digests')).plans.find(row => row.skill === 'e2e-custom-brief'), planId = created?.planId;
+    expect(planId).toBeTruthy(); expect(created.voice).toBe(true);
+    const saved = await host.api('plans.inspect', { id: planId, workspaceBinding: (await host.api('snapshot')).workspaceBinding });
+    expect(saved.plan.task_config).toBeNull(); expect(saved.plan.task_authorization).toBeNull();
     // 委派 digest Worker：digest_build → agent 轨交接
     await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '出自定义晨报', instruction: 'x', planId }, leadReply: '已生成。', workerAction: { action: 'digest_build', planId }, workerFollowupAction: { action: 'digest_deliver', planId, report: '自定义简报：今日无到期事项（e2e 数据面为空，达到完成标准的可用部分已列出）。' }, workerReply: '已交付。' });
     before = llm.log.length;
@@ -420,6 +417,33 @@ describe('F41：agent 轨任务 skill', () => {
     // 会前准备计划绑定 meeting-prep（存量迁移口径）
     const all = (await host.api('digests')).plans;
     expect(all.every(p => p.skill)).toBe(true);
+  });
+
+  it('显式选择与内置同名的项目 Skill，仍按原兼容能力创建语音计划', async () => {
+    const skillsDir = join(workspace, '.dsh', 'skills');
+    await mkdir(skillsDir, { recursive: true });
+    await writeFile(join(skillsDir, 'digest-evening.md'), '---\nname: digest-evening\ndescription: 主人自定义晚报\n---\n按主人原有要求生成晚报，不冒充固定模板。\n');
+    const workspaceBinding = (await host.api('snapshot')).workspaceBinding;
+    let selected;
+    for (let i = 0; i < 20 && !selected; i++) {
+      const catalog = await host.api('skills.catalog', { workspaceBinding });
+      selected = catalog.entries.find(row => row.source === 'project-dsh' && row.name === 'digest-evening');
+      if (!selected) await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    expect(selected?.id).toMatch(/^project-dsh:digest-evening:/);
+    await writeScript(rmdScript('预览同名项目晚报', { action: 'digest_enable', op: 'new', kind: 'evening', time: '20:00:00', skill: selected.id, voice: true }));
+    const before = llm.log.length, oldIds = new Set((await host.api('digests')).plans.map(row => row.planId));
+    await inject(ownerEvent('evt-f41-shadow', { text: '另建一份晚报，使用明确选中的工作区同名 Skill，保留语音。' }));
+    await waitWorkItem('预览同名项目晚报', '同名项目预览');
+    const preview = await waitToolResult('pa24_work', 'previewId', '同名项目预览回执', 60_000, before);
+    expect(preview).toContain('"legacy":true'); expect(preview).toContain('"usesModel":true');
+    expect(preview).toContain('"skill":"digest-evening"'); expect(preview).toContain('"voice":true');
+    expect((await host.api('digests')).plans.map(row => row.planId).filter(id => !oldIds.has(id))).toEqual([]);
+    await confirmPlanPreview(preview, '确认同名项目晚报');
+    const created = (await host.api('digests')).plans.filter(row => !oldIds.has(row.planId));
+    expect(created).toHaveLength(1);
+    const saved = await host.api('plans.inspect', { id: created[0].planId, workspaceBinding });
+    expect(saved.plan).toMatchObject({ skill: 'digest-evening', voice: true, task_config: null, task_authorization: null });
   });
 });
 

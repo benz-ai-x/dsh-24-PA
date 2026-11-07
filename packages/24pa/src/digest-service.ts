@@ -14,6 +14,9 @@ import { PlanLifecycle } from './plan-lifecycle.js';
 import type { ResolvedTaskSkill, SkillDefinitionLike } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
+import { taskPlanTimeZone } from './task-plan.js';
+import { taskPlanFingerprint } from './task-plan-access.js';
+import { previewPlanTimes } from './plan-time.js';
 import { fixedPlanningWindow } from './work-planning-validation.js';
 import { localDay } from './calendar-time.js';
 import { checkExecution } from './execution-cancellation.js';
@@ -117,7 +120,7 @@ export class DigestService {
   digestEnable(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {
     return this.withPlanWork(() => this.enablePlan(args, intentKey));
   }
-  private async enablePlan(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {
+  private async legacyDraft(args: Record<string, unknown>, intentKey?: string) {
     const kind = String(args.kind ?? '');
     if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('计划类型：morning/evening/weekly（daily/weekly 定时）或 once（一次性，演示与测试）。');
     const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
@@ -125,11 +128,11 @@ export class DigestService {
     if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务，无法建立智能计划。');
     // F40/F41（spec 2.11）：绑定任务 skill；缺省按类型映射内置件，点名须在目录中（模板/agent 双轨均可绑定）。
     const skill = args.skill ? String(args.skill) : kind === 'once' ? 'digest-morning' : `digest-${kind}`;
-    await this.requireSkill(skill);
+    const definition = await this.requireSkill(skill);
     const title = { morning: '晨报', evening: '晚间回顾', weekly: '每周回顾', once: '一次性简报' }[kind]!;
     const id = kind === 'once'
       ? `dig-once-${hash(this.deps.workspace()!.statePath + JSON.stringify({ intentKey: intentKey ?? null, kind, at: args.at ?? null, afterSeconds: args.afterSeconds ?? null, skill, voice: args.voice === true })).slice(0, 24)}`
-      : `dig-${kind}-${hash(this.deps.workspace()!.statePath + kind).slice(0, 8)}`;
+      : `dig-${kind}-${hash(this.deps.workspace()!.statePath + kind + (intentKey ?? '')).slice(0, intentKey ? 24 : 8)}`;
     let request: Record<string, unknown>;
     if (kind === 'once') {
       const seconds = Number(args.afterSeconds ?? 0);
@@ -145,7 +148,7 @@ export class DigestService {
         ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays!)].sort() }, title: `[24PA] ${title}` }
         : { daily: { time: String(args.time), time_zone: timeZone }, title: `[24PA] ${title}` };
     }
-    const plan = await this.plans.enable({
+    const plan: Parameters<PlanLifecycle['enable']>[0] = {
       id,
       kind,
       title,
@@ -155,7 +158,37 @@ export class DigestService {
       // F19：开启时可选语音版（引擎取工作区 tts 配置，默认文本）。
       voice: args.voice === true,
       skill,
+    };
+    return { plan, definition };
+  }
+
+  /** Explicit pre-contract custom skills keep their existing digest path. This
+   * is not a fallback from a failed generic authorization or a schema upgrade. */
+  async customPlanPreview(args: Record<string, unknown>, delivery: unknown) {
+    const skill = String(args.skill ?? '');
+    if (!skill) return null;
+    // Contract skills belong to generic authorization, including project
+    // overrides of work-method names and skills that declare pa24_run.
+    if (skillContract(await this.deps.skillCatalog().resolve(skill))) return null;
+    const { plan, definition } = await this.legacyDraft(args, String(args.intentKey));
+    if (skillContract(definition)) return null; // Definition changed during the read.
+    const timing = previewPlanTimes(plan.schedule_spec);
+    plan.schedule_spec = timing.spec;
+    return { plan, planId: plan.id, legacy: true, skill, voice: plan.voice, timeZone: taskPlanTimeZone(plan, this.deps.config().timeZone),
+      executionMode: definition.track, usesModel: definition.track !== 'template', legacyDelivery: delivery, nextTimes: timing.times,
+      fingerprint: taskPlanFingerprint([plan, definition, delivery]),
+      messageEn: `Create with the existing custom digest capability without adding a task contract or pinned authorization. ${definition.track === 'template' ? 'Run the fixed template without a model' : 'Use a model'} and the current notification configuration. Voice includes full text. Confirmation enables the plan; no execution or delivery has occurred.`,
+      message: `沿原自定义简报能力新建，不补任务契约或固定授权；${definition.track === 'template' ? '固定模板不使用模型' : '使用模型'}，沿当前通知配置投递。语音仍附完整文本。确认后启用，尚未执行或投递。` };
+  }
+  customPlanCreate(args: Record<string, unknown>, delivery: unknown, fingerprint: string) {
+    return this.withPlanWork(async () => {
+      const preview = await this.customPlanPreview(args, delivery);
+      if (!preview || preview.fingerprint !== fingerprint) throw new Error('原自定义 Skill、计划或通知配置已改变，请重新预览。');
+      return { plan: await this.plans.enable(preview.plan, { createOnce: true }) };
     });
+  }
+  private async enablePlan(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {
+    const draft = await this.legacyDraft(args, intentKey), plan = await this.plans.enable(draft.plan), { skill, title } = plan;
     return {
       planId: plan.id,
       skill,
@@ -171,6 +204,7 @@ export class DigestService {
   private async controlPlan(args: Record<string, unknown>): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(String(args.planId ?? ''));
     if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
+    if (args.expectedRevision !== undefined && args.expectedRevision !== plan.revision) throw new Error('计划已有其他修改，请刷新后重试。');
     if (upgradedPlan(plan)) throw new Error('此计划使用通用定时任务配置，请从定时任务管理入口操作。');
     const op = String(args.op ?? '');
     if (plan.kind === 'waiting_followup' && !['pause', 'stop'].includes(op)) throw new Error('等待检查点请用 waiting_control 管理，不能更换任务 skill 或执行规则。');
@@ -184,13 +218,13 @@ export class DigestService {
       // F40/F41（spec 2.11）：per-plan 任务 skill 切换（须在目录中，双轨可绑）。
       const skill = String(args.skill ?? '');
       await this.requireSkill(skill);
-      await this.plans.configure(plan.id, { skill });
+      await this.plans.configure(plan.id, { skill }, plan.revision);
       return { planId: plan.id, skill, message: `本计划任务 skill 已切换为 ${skill}。` };
     }
     if (op === 'voice') {
       // F19（spec 2.3）：per-plan 语音开关（引擎取工作区 tts 配置）。
       const voice = args.voice === true;
-      await this.plans.configure(plan.id, { voice });
+      await this.plans.configure(plan.id, { voice }, plan.revision);
       return { planId: plan.id, voice, message: voice ? '本计划改为语音版＋全文文本兜底。' : '本计划改为纯文本。' };
     }
     if (op === 'resume') {
@@ -203,7 +237,7 @@ export class DigestService {
       if (plan.kind === 'waiting_followup') throw new Error('等待检查点请用 waiting_control 调整，不能换成简报计划。');
       const kind = String(args.kind ?? plan.kind);
       if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('调整后的计划类型无效。');
-      const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
+      const timeZone = String(args.timeZone ?? taskPlanTimeZone(plan, this.deps.config().timeZone));
       let request: Record<string, unknown>;
       if (kind === 'once') {
         const seconds = Number(args.afterSeconds ?? 0);
@@ -215,10 +249,10 @@ export class DigestService {
         if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new Error('调整需要新的本地时间 HH:mm:ss。');
         const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined;
         request = kind === 'weekly'
-          ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays ?? [1])].sort() } }
+          ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays ?? plan.schedule_spec.weekly?.weekdays ?? [1])].sort() } }
           : { daily: { time: String(args.time), time_zone: timeZone } };
       }
-      const adjusted = await this.plans.adjust(plan.id, { ...request, time_zone: timeZone }, kind);
+      const adjusted = await this.plans.adjust(plan.id, { ...request, time_zone: timeZone }, kind, plan.revision);
       return { planId: plan.id, scheduleId: adjusted.schedule_id, message: '计划已按新安排调整（同一计划保留历史，只影响以后）。' };
     }
     throw new Error('未知计划操作（pause/resume/stop/adjust/voice/skill）。');
@@ -229,6 +263,7 @@ export class DigestService {
     const view = [];
     for (const plan of plans) {
       const occurrences = await this.deps.repos().digests.occurrencesOf(plan.id, 3);
+      const recentRun = await this.deps.repos().taskPlans.recentRun(plan.id);
       view.push({
         planId: plan.id,
         managed: upgradedPlan(plan),
@@ -240,8 +275,9 @@ export class DigestService {
         pendingChange: plan.lifecycle ? { operation: plan.lifecycle.operation, phase: plan.lifecycle.phase, error: plan.lifecycle.error ?? null } : null,
         lastWindow: plan.last_window,
         voice: plan.voice,
+        recentRun,
         skill: plan.skill,
-        recent: occurrences.map(o => ({ window: o.window_key, status: o.status, completedAt: isoDate(o.completed_at) })),
+        recent: upgradedPlan(plan) ? (recentRun ? [recentRun] : []) : occurrences.map(o => ({ window: o.window_key, status: o.status, completedAt: isoDate(o.completed_at) })),
       });
     }
     return { plans: view };
