@@ -770,6 +770,8 @@ export class PaRuntime {
       lifecycle: this.digest.plans, access: this.taskPlanAccess, gate: (key, work) => this.gate(key, work) });
     this.planConversation = new PlanConversation({ plans: this.taskPlans,
       context: () => { const context = planContext(); return context ? { ...context, authority: this.planConversationAuthority() } : null; },
+      customPreview: input => this.digest.customPlanPreview(input, planContext()?.legacyDelivery),
+      customCreate: (input, fingerprint) => this.digest.customPlanCreate(input, planContext()?.legacyDelivery, fingerprint),
       ownerInput: item => this.adoptedOwnerInput(item), legacyControl: input => this.digest.digestControl(input), gate: (key, work) => this.gate(key, work) });
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });

@@ -388,9 +388,18 @@ describe('F41：agent 轨任务 skill', () => {
     }
     expect(listed, '目录应发现工作区 skill').toBeTruthy();
     expect(listed.track).toBe('agent');
-    // 旧格式自定义计划继续可运行；新建统一入口另由 F50 验证。
-    const { id: planId } = await seedLegacyPlan(host, cluster.dsn, { kind: 'weekly', time: '08:00:00', weekdays: [1], skill: 'e2e-custom-brief', voice: true });
-    let before;
+    // 原有无通用任务契约的自定义 Skill 仍通过公开对话创建，先预览再由主人确认。
+    await writeScript(rmdScript('预览自定义晨报', { action: 'digest_enable', kind: 'weekly', time: '08:00:00', weekdays: [1], skill: 'e2e-custom-brief', voice: true }));
+    let before = llm.log.length;
+    await inject(ownerEvent('evt-f41a', { text: '用原来的自定义 Skill 创建语音周报。' }));
+    await waitWorkItem('预览自定义晨报', '自定义预览', 60_000);
+    const preview = await waitToolResult('pa24_work', 'previewId', '自定义预览回执', 60_000, before);
+    expect((await host.api('digests')).plans.some(row => row.skill === 'e2e-custom-brief')).toBe(false);
+    await confirmPlanPreview(preview, '确认自定义晨报');
+    const created = (await host.api('digests')).plans.find(row => row.skill === 'e2e-custom-brief'), planId = created?.planId;
+    expect(planId).toBeTruthy(); expect(created.voice).toBe(true);
+    const saved = await host.api('plans.inspect', { id: planId, workspaceBinding: (await host.api('snapshot')).workspaceBinding });
+    expect(saved.plan.task_config).toBeNull(); expect(saved.plan.task_authorization).toBeNull();
     // 委派 digest Worker：digest_build → agent 轨交接
     await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '出自定义晨报', instruction: 'x', planId }, leadReply: '已生成。', workerAction: { action: 'digest_build', planId }, workerFollowupAction: { action: 'digest_deliver', planId, report: '自定义简报：今日无到期事项（e2e 数据面为空，达到完成标准的可用部分已列出）。' }, workerReply: '已交付。' });
     before = llm.log.length;

@@ -15,6 +15,8 @@ import type { ResolvedTaskSkill, SkillDefinitionLike } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
 import { taskPlanTimeZone } from './task-plan.js';
+import { taskPlanFingerprint } from './task-plan-access.js';
+import { previewPlanTimes } from './plan-time.js';
 import { fixedPlanningWindow } from './work-planning-validation.js';
 import { localDay } from './calendar-time.js';
 import { checkExecution } from './execution-cancellation.js';
@@ -118,7 +120,7 @@ export class DigestService {
   digestEnable(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {
     return this.withPlanWork(() => this.enablePlan(args, intentKey));
   }
-  private async enablePlan(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {
+  private async legacyDraft(args: Record<string, unknown>, intentKey?: string) {
     const kind = String(args.kind ?? '');
     if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('计划类型：morning/evening/weekly（daily/weekly 定时）或 once（一次性，演示与测试）。');
     const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
@@ -126,11 +128,11 @@ export class DigestService {
     if (!schedule) throw new Error('当前 Host 未提供原生 Schedule 服务，无法建立智能计划。');
     // F40/F41（spec 2.11）：绑定任务 skill；缺省按类型映射内置件，点名须在目录中（模板/agent 双轨均可绑定）。
     const skill = args.skill ? String(args.skill) : kind === 'once' ? 'digest-morning' : `digest-${kind}`;
-    await this.requireSkill(skill);
+    const definition = await this.requireSkill(skill);
     const title = { morning: '晨报', evening: '晚间回顾', weekly: '每周回顾', once: '一次性简报' }[kind]!;
     const id = kind === 'once'
       ? `dig-once-${hash(this.deps.workspace()!.statePath + JSON.stringify({ intentKey: intentKey ?? null, kind, at: args.at ?? null, afterSeconds: args.afterSeconds ?? null, skill, voice: args.voice === true })).slice(0, 24)}`
-      : `dig-${kind}-${hash(this.deps.workspace()!.statePath + kind).slice(0, 8)}`;
+      : `dig-${kind}-${hash(this.deps.workspace()!.statePath + kind + (intentKey ?? '')).slice(0, intentKey ? 24 : 8)}`;
     let request: Record<string, unknown>;
     if (kind === 'once') {
       const seconds = Number(args.afterSeconds ?? 0);
@@ -146,7 +148,7 @@ export class DigestService {
         ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays!)].sort() }, title: `[24PA] ${title}` }
         : { daily: { time: String(args.time), time_zone: timeZone }, title: `[24PA] ${title}` };
     }
-    const plan = await this.plans.enable({
+    const plan: Parameters<PlanLifecycle['enable']>[0] = {
       id,
       kind,
       title,
@@ -156,7 +158,35 @@ export class DigestService {
       // F19：开启时可选语音版（引擎取工作区 tts 配置，默认文本）。
       voice: args.voice === true,
       skill,
+    };
+    return { plan, definition };
+  }
+
+  /** Explicit pre-contract custom skills keep their existing digest path. This
+   * is not a fallback from a failed generic authorization or a schema upgrade. */
+  async customPlanPreview(args: Record<string, unknown>, delivery: unknown) {
+    const skill = String(args.skill ?? '');
+    if (!skill || ['daily-planning', 'daily-review', 'digest-morning', 'digest-evening', 'digest-weekly'].includes(skill)) return null;
+    const definition = await this.requireSkill(skill);
+    if (skillContract(definition)) return null;
+    const { plan } = await this.legacyDraft(args, String(args.intentKey));
+    const timing = previewPlanTimes(plan.schedule_spec);
+    plan.schedule_spec = timing.spec;
+    return { plan, planId: plan.id, legacy: true, skill, voice: plan.voice, timeZone: taskPlanTimeZone(plan, this.deps.config().timeZone),
+      executionMode: definition.track, usesModel: definition.track !== 'template', legacyDelivery: delivery, nextTimes: timing.times,
+      fingerprint: taskPlanFingerprint([plan, definition, delivery]),
+      messageEn: `Create with the existing custom digest capability without adding a task contract or pinned authorization. ${definition.track === 'template' ? 'Run the fixed template without a model' : 'Use a model'} and the current notification configuration. Voice includes full text. Confirmation enables the plan; no execution or delivery has occurred.`,
+      message: `沿原自定义简报能力新建，不补任务契约或固定授权；${definition.track === 'template' ? '固定模板不使用模型' : '使用模型'}，沿当前通知配置投递。语音仍附完整文本。确认后启用，尚未执行或投递。` };
+  }
+  customPlanCreate(args: Record<string, unknown>, delivery: unknown, fingerprint: string) {
+    return this.withPlanWork(async () => {
+      const preview = await this.customPlanPreview(args, delivery);
+      if (!preview || preview.fingerprint !== fingerprint) throw new Error('原自定义 Skill、计划或通知配置已改变，请重新预览。');
+      return { plan: await this.plans.enable(preview.plan), repeated: false };
     });
+  }
+  private async enablePlan(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {
+    const draft = await this.legacyDraft(args, intentKey), plan = await this.plans.enable(draft.plan), { skill, title } = plan;
     return {
       planId: plan.id,
       skill,

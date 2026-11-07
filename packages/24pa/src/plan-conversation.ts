@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Repos, WorkItemRow } from './repo.js';
 import type { TaskPlanRow } from './repo/task-plan.js';
+import type { DigestService } from './digest-service.js';
 import type { TaskPlanService } from './task-plan-service.js';
 import type { WorkOwnerInput } from './work-owner-input.js';
 import type { TaskPlanAuthorization } from './task-plan.js';
@@ -26,6 +27,8 @@ export class PlanConversation {
     context(): ConversationContext | null; plans: TaskPlanService;
     ownerInput(item: WorkItemRow): Promise<WorkOwnerInput | null>;
     legacyControl(input: Record<string, unknown>): Promise<unknown>;
+    customPreview(input: Record<string, unknown>): ReturnType<DigestService['customPlanPreview']>;
+    customCreate(input: Record<string, unknown>, fingerprint: string): ReturnType<DigestService['customPlanCreate']>;
     gate<T>(key: string, work: () => Promise<T>): Promise<T>;
     now?(): number;
   }) {}
@@ -72,8 +75,12 @@ export class PlanConversation {
       ...(kind === 'once' ? { at: input.at ?? new Date((this.deps.now?.() ?? Date.now()) + Number(input.afterSeconds ?? 0) * 1000).toISOString() } : {}) });
     const form = { ...draft.form, timing: { ...draft.form.timing as object, ...(input.time ? { time: input.time } : {}), ...(input.weekdays ? { weekdays: input.weekdays } : {}) },
       delivery: { ...draft.configuration.delivery, ...(input.voice === undefined ? {} : { voice: input.voice }), ...(input.channel ? { channel: input.channel } : {}) } };
-    const value = await this.deps.plans.creationPreview(form);
-    return this.offer({ ...form, serviceKind: kind, existingPlanIds: matches.map(row => row.id).sort() },
+    const legacyInput = { kind, skill: draft.legacySkillName,
+      time: String((form.timing as Record<string, unknown>).time ?? '').replace(/^(\d{2}:\d{2})$/, '$1:00'), weekdays: (form.timing as Record<string, unknown>).weekdays, at: draft.scheduleSpec.at,
+      timeZone: draft.configuration.timeZone, voice: form.delivery.voice, intentKey: randomUUID() };
+    const custom = await this.deps.customPreview(legacyInput);
+    const value = custom ?? await this.deps.plans.creationPreview(form);
+    return this.offer({ ...form, ...(custom ? { legacyInput, legacyPlanId: custom.planId } : {}), serviceKind: kind, existingPlanIds: matches.map(row => row.id).sort() },
       { ...value, ...(matches.length ? { existingPlans: matches.map(row => ({ planId: row.id, title: row.title, status: row.status })),
         message: `将额外新建一份计划，现有 ${matches.length} 份同类计划保留。${value.message}` } : {}) }, item, source, true);
   }
@@ -117,6 +124,10 @@ export class PlanConversation {
       if (preview.result) return preview.result;
       if (!preview.create) {
         preview.result = await this.deps.plans.change({ ...preview.input, requestId: preview.id, fingerprint: preview.value.fingerprint, confirm: true });
+      } else if (preview.input.legacyInput) {
+        const ids = (await this.candidates(preview.input.serviceKind)).filter(row => row.id !== preview.input.legacyPlanId).map(row => row.id).sort();
+        if (taskPlanFingerprint(ids) !== taskPlanFingerprint(preview.input.existingPlanIds)) throw new Error('同类计划已改变，请重新预览，未重复创建。');
+        preview.result = await this.deps.customCreate(preview.input.legacyInput as Record<string, unknown>, preview.value.fingerprint);
       } else {
         if (!preview.created) {
           if (taskPlanFingerprint((await this.candidates(preview.input.serviceKind)).map(row => row.id).sort()) !== taskPlanFingerprint(preview.input.existingPlanIds)) throw new Error('预览后同类计划已改变，请重新选择或预览，未重复创建。');

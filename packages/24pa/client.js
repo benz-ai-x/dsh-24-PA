@@ -1629,7 +1629,7 @@ window.__ModuleLoader__.load({
         function PlanAuthorization({ value, config }) {
           const auth = value.authorization, timeZone = value.timeZone || value.configuration?.timeZone;
           return h('div', { className: 'pa24-note' },
-            value.message && h('p', null, value.message), (value.notices || []).map((note, i) => h('p', { key: i }, note)),
+            value.message && h('p', null, L(value.message, value.messageEn || technicalText(value.message))), (value.notices || []).map((note, i) => h('p', { key: i }, note)),
             value.scheduleSpec && h('p', null, L('调整后的时间：', 'Timing after change: ') + planTimingLabel({ schedule_spec: value.scheduleSpec, kind: value.kind })),
             typeof value.voice === 'boolean' && h('p', null, L('语音：', 'Voice: ') + (value.voice ? L('语音并附完整文本', 'Voice plus full text') : L('纯文本', 'Text only'))),
             value.executionMode && h('p', null, L('执行方式：', 'Execution: ') + (value.usesModel === true ? L('使用模型', 'Uses the model') : value.usesModel === false ? L('固定模板，不调用模型', 'Fixed template, no model call') : L('原 Skill 来源待核对', 'Original skill source needs verification'))),

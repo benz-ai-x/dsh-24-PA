@@ -4,7 +4,7 @@ import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { taskPlanDraft, taskPlanPreset } from '../../lib/task-plan.js';
 import { planSettingsForm } from '../../lib/task-plan-settings.js';
-let React, act, createRoot, win, root, container, binding, requests, plan, run, fault, delayed, savedBlob, intervals, work, emptyHistory;
+let React, act, createRoot, win, root, container, binding, requests, plan, run, fault, delayed, savedBlob, intervals, work, emptyHistory, language;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 const form = () => ({ title: '项目晨报', skillId: 'builtin:digest-morning', parameters: { title: '项目晨报正文' }, timeZone: 'Asia/Shanghai', timing: { type: 'daily', time: '09:00:00' }, executionLimitMs: 900000, selectors: {}, delivery: { channel: 'none', mode: 'always', voice: false, overrideQuiet: false } });
 const auth = () => ({ skill: { id: 'builtin:digest-morning', name: 'digest-morning', versionId: 'builtin-v1', tools: [], resources: [] }, targets: [], delivery: null });
@@ -23,7 +23,7 @@ const change = async (node, value) => { expect(node).toBeTruthy(); await act(asy
 }); };
 const open = async title => { await click(container.querySelector('#pa24-tab-work')); await click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：' + title))); };
 beforeEach(async () => {
-  binding = 'binding-a'; requests = []; fault = null; delayed = null; savedBlob = null; intervals = []; emptyHistory = false; win.localStorage.clear();
+  language = 'zh'; binding = 'binding-a'; requests = []; fault = null; delayed = null; savedBlob = null; intervals = []; emptyHistory = false; win.localStorage.clear();
   const draft = taskPlanDraft(form(), 'Asia/Shanghai');
   plan = { id: 'plan-a', kind: 'daily', title: '项目晨报', revision: 1, skill: 'digest-morning', status: 'paused', owner_enabled: false, task_config: draft.configuration, task_authorization: auth(), schedule_spec: draft.scheduleSpec, schedule_id: null, recycled_at: null, blocks: [], nextTimes: draft.nextTimes };
   work = { id: 'work-a', title: '原交办目标', instruction: '原请求', status: 'completed', origin: 'local', delivery: 'local', result: '原交付物', progress_detail: { stage: '等待主人确认', completed: '原资料已核对', next: '交付结果和出处' }, revision: 1, execution_mode: 'worker', acceptance_required: true, acceptance_status: 'pending', completion_criteria: '核对交付物' };
@@ -50,7 +50,7 @@ beforeEach(async () => {
       else if (endpoint === 'plans') { const empty = p.state === 'recycled' || (p.query && !plan.title.includes(p.query)); value = { rows: empty ? [] : [structuredClone(plan)], total: empty ? 0 : 1, offset: p.offset, limit: 20 }; }
       else if (endpoint === 'plans.inspect') value = { plan: structuredClone(plan), form: plan.task_config ? { ...form(), title: plan.title } : null, settings: planSettingsForm(plan, 'Asia/Shanghai'), blocks: plan.blocks, activeRuns: [], legacyHistory: plan.legacyHistory || [] };
       else if (endpoint === 'plans.draft') { const form = p.preset ? taskPlanPreset(p, { timeZone: 'Asia/Shanghai', deliveryChannel: 'none' }) : p; value = { ...taskPlanDraft(form, 'Asia/Shanghai'), form }; }
-      else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview', 'plans.settings-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, timeZone: plan.task_config?.timeZone || 'Asia/Shanghai', fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标' };
+      else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview', 'plans.settings-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, timeZone: plan.task_config?.timeZone || 'Asia/Shanghai', fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标', messageEn: 'Current targets verified'  };
       else if (endpoint === 'runs') {
         const matched = !emptyHistory && (!p.query || '项目晨报'.includes(p.query));
         const runRows = matched ? Array.from({ length: p.offset ? 11 : 20 }, (_, index) => ({ id: !index && !p.offset ? 'run-a' : 'run-' + (index + p.offset), title: '项目晨报', record_kind: run.run.record_kind || 'skill', skill_id: 'builtin:digest-morning', skill_name: '项目晨报', version_id: index === 1 ? null : 'v1', status: 'completed', delivery_status: index === 1 ? 'failed' : 'partial', summary: '结果摘要', source: 'schedule', created_at: new Date().toISOString() })) : [];
@@ -81,7 +81,7 @@ beforeEach(async () => {
   }));
   let mod, Panel; win.__ModuleLoader__ = { load: value => { mod = value; } };
   new Function('window', 'document', 'navigator', source)(win, win.document, win.navigator);
-  mod.factory(() => React).apply({ effect: fn => fn(), locale: { register: () => () => {}, bind: () => key => key, resolveText: ({ zh }) => zh, subscribe: () => () => {}, getSnapshot: () => 'zh' }, slots: { inject: (_name, fn) => fn(), register: (spec, view) => { if (spec.name === 'main') Panel = view; } }, uiWorkspace: { openSession: () => {} } });
+  mod.factory(() => React).apply({ effect: fn => fn(), locale: { register: () => () => {}, bind: () => key => key, resolveText: value => value[language], subscribe: () => () => {}, getSnapshot: () => language }, slots: { inject: (_name, fn) => fn(), register: (spec, view) => { if (spec.name === 'main') Panel = view; } }, uiWorkspace: { openSession: () => {} } });
   container = win.document.createElement('div'); win.document.body.append(container); root = createRoot(container); await act(async () => root.render(React.createElement(Panel)));
 });
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.restoreAllMocks(); });
@@ -481,4 +481,14 @@ it('F50 调整预览失败不显示可确认操作，旧计划历史使用正确
   expect(container.textContent).toContain('离线读取失败'); expect(button('确认执行此操作')).toBeUndefined();
   fault = null; await click(button('查看全部运行'));
   expect(requests.filter(row => row.endpoint === 'runs').at(-1).payload).toMatchObject({ kind: 'legacy', planId: 'plan-a', range: 'all' });
+});
+
+it('F50 英文预览读取服务端英文提示，保留原计划核验与调整', async () => {
+  plan.kind = 'morning'; plan.task_config = null; plan.task_authorization = null;
+  await open('定时任务'); await click(button('项目晨报'));
+  language = 'en'; await click(managerButton('刷新'));
+  await click(button('Verify and enable'));
+  expect(container.textContent).toContain('Current targets verified'); expect(container.textContent).not.toContain('已核验当前目标');
+  await change(field('Time'), '10:30'); await click(button('Preview timing and voice changes'));
+  expect(container.textContent).toContain('Current targets verified'); expect(container.textContent).not.toContain('已核验当前目标');
 });

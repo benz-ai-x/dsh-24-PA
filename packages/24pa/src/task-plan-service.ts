@@ -114,24 +114,28 @@ export class TaskPlanService {
       return { ...await this.executionMode(context, row), legacy: true, planId: row.id, revision: row.revision, timeZone: taskPlanTimeZone(row, context.timeZone), legacyDelivery: delivery,
         nextTimes: previewPlanTimes(row.schedule_spec).times, voice: row.voice, skill: row.skill,
         fingerprint: taskPlanFingerprint([row.id, row.revision, row.schedule_spec, row.skill, row.voice, delivery]), workspaceBinding: context.binding,
+        messageEn: 'Keep the original plan, skill and notification configuration without migration or pinned authorization. The current setting does not prove platform access or delivery. Voice still includes full text.',
         message: '继续原计划，不迁移、不补固定授权、不改变 Skill。旧计划沿用当前通知配置；历史没有固定投递授权，当前配置不代表平台已核验或送达。语音仍附完整文本。' };
     }
     const prepared = await this.preflight(context, row, input.rebind === true);
     return { executionMode: prepared.prepared.mode, usesModel: prepared.prepared.mode !== 'template', planId: row.id, revision: row.revision, timeZone: row.task_config!.timeZone, voice: row.voice, skill: row.skill, authorization: prepared.authorization, nextTimes: prepared.nextTimes,
       fingerprint: prepared.fingerprint, workspaceBinding: context.binding,
+      messageEn: input.rebind === true ? 'Confirm the new fixed targets while retaining the on/off choice. In-flight runs keep their original snapshot.' : 'Verification reads current capabilities and targets. Activation or repair follows the selected action; in-flight runs keep their snapshot.',
       message: input.rebind === true ? '确认后更新固定目标，保留原启停选择。在途运行继续使用原快照。' : '核验只读取当前能力与目标；启用或解除阻断按所选操作办理。在途运行继续使用原快照。' };
   }
   async draft(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding);
     const form = input.preset ? taskPlanPreset(input, context) : { ...input };
+    let legacySkillName: string | undefined;
     if (input.skill) {
       const name = String(input.skill), catalog = await this.deps.management.list(context.binding);
       const candidates = catalog.entries.filter(entry => entry.id === name || ('internalName' in entry ? entry.internalName : entry.name) === name);
       if (candidates.length !== 1 || (!name.includes(':') && candidates[0]!.source !== 'managed' && catalog.discovery !== 'complete')) throw new Error('Skill 来源缺失或有同名项，请从目录明确选择来源编号。');
       form.skillId = candidates[0]!.id;
+      if (candidates[0]!.source === 'project-dsh') legacySkillName = candidates[0]!.name;
     }
     if (!input.title && input.preset === 'morning' && form.skillId === 'builtin:digest-morning') form.title = '固定模板晨报';
-    return { ...taskPlanDraft(form, context.timeZone), form, workspaceBinding: context.binding };
+    return { ...taskPlanDraft(form, context.timeZone), form, legacySkillName, workspaceBinding: context.binding };
   }
   async creationPreview(input: Record<string, unknown>) {
     const context = this.context(input.workspaceBinding), draft = await this.draft(input);
@@ -170,6 +174,7 @@ export class TaskPlanService {
     return { ...settings, ...await this.executionMode(context, row), legacy: !row.task_config, planId: row.id, revision: row.revision, skill: row.skill, authorization: row.task_authorization,
       legacyDelivery, workspaceBinding: context.binding,
       fingerprint: taskPlanFingerprint([row.id, row.revision, settings.scheduleSpec, settings.configuration, settings.voice, row.task_authorization, legacyDelivery]),
+      messageEn: 'Change only the selected timing or voice settings. Keep the on/off choice, skill, parameters, delivery targets and history.',
       message: '只修改本次选定的时间或语音；原启停选择、Skill、参数、投递目标和历史保留。' };
   }
   async migrationPreview(input: Record<string, unknown>) {
