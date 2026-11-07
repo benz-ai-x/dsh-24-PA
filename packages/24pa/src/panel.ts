@@ -30,6 +30,7 @@ export const PANEL_RPC = {
     healthSnapshot: 'health.snapshot',
     healthTestPreview: 'health.test.preview',
     configEvidence: 'workspace.evidence',
+    configImpact: 'workspace.config-impact',
     notesQueue: 'notes.queue',
     materials: 'materials',
     minutes: 'minutes',
@@ -125,6 +126,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
             if (endpoint === E.healthSnapshot) return respond({ ok: true, value: await runtime.healthSnapshot(payload.workspaceBinding) });
             if (endpoint === E.healthTestPreview) return respond({ ok: true, value: await runtime.connectionTest(payload, 'preview') });
             if (endpoint === E.configEvidence) return respond({ ok: true, value: await runtime.configurationEvidence(payload.workspaceBinding) });
+            if (endpoint === E.configImpact) return respond({ ok: true, value: await runtime.configurationImpact((payload.config ?? {}) as Record<string, unknown>, (payload.secretKeys ?? []) as string[], requiredBinding(payload)) });
             if (endpoint === E.skillsCatalog) return respond({ ok: true, value: await runtime.skillManagement.list(payload.workspaceBinding) });
             if (endpoint === E.skillsInspect) return respond({ ok: true, value: await runtime.skillManagement.inspect(payload.id, payload.workspaceBinding) });
             if (endpoint === E.skillsExport) return respond({ ok: true, value: await runtime.skillManagement.exportMarkdown(payload.id, payload.fingerprint, payload.workspaceBinding, typeof payload.versionId === 'string' ? payload.versionId : undefined) });
@@ -246,13 +248,13 @@ const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
   [PANEL_RPC.actions.workspaceConfigUpdate]: (runtime, payload) => {
     const config = payload.config as Record<string, unknown> | undefined;
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw new ConfigError('缺少配置补丁。');
-    return runtime.updateWorkspaceConfig(config, requiredBinding(payload), str(payload.expectedSourcesHash), str(payload.expectedConfigHash)).then(() => snapshot(runtime));
+    return runtime.updateWorkspaceConfig(config, requiredBinding(payload), str(payload.expectedSourcesHash), str(payload.expectedConfigHash), str(payload.expectedImpactVersion)).then(() => snapshot(runtime));
   },
   // F36: 密钥值进工作区密钥库（.24pa/secrets.json，0600），与 AGENTS.md 解耦。
   [PANEL_RPC.actions.workspaceSecretUpdate]: (runtime, payload) => {
     const values = payload.values as Record<string, unknown> | undefined;
     if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ConfigError('缺少密钥补丁。');
-    return runtime.updateWorkspaceSecrets(values, requiredBinding(payload)).then(() => snapshot(runtime));
+    return runtime.updateWorkspaceSecrets(values, requiredBinding(payload), str(payload.expectedImpactVersion)).then(() => snapshot(runtime));
   },
   [PANEL_RPC.actions.connectionCheck]: runtime => runtime.checkAccess(),
   [PANEL_RPC.actions.connectionWecomCheck]: runtime => runtime.wecomCheck(),

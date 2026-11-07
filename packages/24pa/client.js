@@ -101,7 +101,7 @@ window.__ModuleLoader__.load({
       .pa24 :is(button,input,textarea,select,summary,a,[tabindex]):focus-visible{outline:3px solid var(--pa-blue);outline-offset:3px}.pa24 input,.pa24 select{min-height:42px;width:100%;font:inherit;padding:10px 12px;border:1px solid var(--pa-line);border-radius:10px;background:var(--pa-surface);color:var(--pa-ink)}
       .pa24-icon-tile{width:40px;height:40px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--tone-bg);color:var(--tone)}.pa24-tone-blue{--tone:var(--pa-blue);--tone-bg:var(--pa-blue-bg)}.pa24-tone-green{--tone:var(--pa-green);--tone-bg:var(--pa-green-bg)}.pa24-tone-violet{--tone:var(--pa-violet);--tone-bg:var(--pa-violet-bg)}.pa24-tone-amber{--tone:var(--pa-amber);--tone-bg:var(--pa-amber-bg)}.pa24-tone-danger{--tone:var(--pa-danger);--tone-bg:var(--pa-danger-bg)}.pa24-tone-neutral{--tone:var(--pa-muted);--tone-bg:var(--pa-soft)}.pa24-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;background:var(--tone-bg);color:var(--tone);font-size:11px;font-weight:600;line-height:1.7;white-space:nowrap}
       .pa24-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:16px}.pa24-identity{display:flex;align-items:center;gap:12px}.pa24-brand{width:44px;height:44px;border-radius:11px;background:var(--pa-brand);color:#fff;display:inline-flex;align-items:center;justify-content:center}.pa24-brand svg{width:24px;height:24px}.pa24-title-row{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.pa24-tagline{color:var(--pa-muted);font-size:13px}
-      
+
       .pa24-notice{display:flex;gap:10px;align-items:flex-start;padding:12px 15px;border:1px solid color-mix(in srgb,var(--tone) 16%,transparent);border-radius:12px;color:var(--tone);background:var(--tone-bg);font-size:12px;margin-bottom:20px}.pa24-notice>svg{margin-top:1px}.pa24-notice>div{flex:1;min-width:0}
       .pa24-error{padding:16px;border:1px solid var(--pa-danger);border-radius:12px;background:var(--pa-danger-bg);margin:14px 0;color:var(--pa-danger);overflow-wrap:anywhere}
       .pa24-tabs{display:flex;gap:6px;border-bottom:1px solid var(--pa-line);margin:0 0 18px;overflow-x:auto;scrollbar-width:thin;padding:3px 0 10px}.pa24-tabs button{flex-shrink:0;min-height:40px;padding:8px 12px;background:transparent;border:1px solid transparent;border-radius:9px;color:var(--pa-muted);font-weight:500}.pa24-tabs button[aria-selected=true]{background:var(--tone-bg);color:var(--tone);font-weight:650}
@@ -198,6 +198,11 @@ window.__ModuleLoader__.load({
             [/日程响应不完整/, 'The calendar response is incomplete. Retry reading.'],
             [/待办响应或工作区不匹配|待办响应不完整/, 'The todo response is incomplete or belongs to another workspace. Retry reading.'],
             [/来源配置已变更|工作区配置已变更/, 'Configuration changed. Reload and merge your changes before saving.'],
+            [/配置或变更影响已变化/, 'Configuration or impacts changed. Review the updated impact and save again. Your input is retained; nothing was written.'],
+            [/密钥已保存但尚未生效|表单保存后重载失败/, 'Saved but not active. The previous configuration remains active. Review Workspace & config, then retry loading.'],
+            [/PostgreSQL 连接变化不能热重载/, 'The active PostgreSQL connection cannot be changed here. Update the connection through the migration/rebinding procedure in the setup guide. Nothing was written.'],
+            [/已登记的账本主人不能/, 'The ledger owner cannot be transferred or cleared. Use a separate workspace and empty ledger.'],
+            [/maxWorkers.*整数/, 'Parallelism must be an integer from 1 to 8.'],
             [/缺少工作区绑定标识/, 'Workspace binding is missing. Refresh and retry.'],
             [/来源服务离线/, 'The source service is offline.'],
             [/原平台离线/, 'The source platform is offline.'],
@@ -518,7 +523,7 @@ window.__ModuleLoader__.load({
               button('folder', L('绑定所选工作区', 'Bind selected workspace'), () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path, className: 'pa24-primary' }),
               h('div', { className: 'pa24-helper' }, L('当前目录', 'Current directory'), h('p', { className: 'pa24-meta' }, workspace ? workspace.path : L('未绑定', 'Not bound')))),
             h('section', { className: 'pa24-card' },
-              sectionHead('code', L('当前生效配置', 'Effective configuration'), L('配置源是工作区 AGENTS.md；凭据值由服务器环境或 CLI 授权保存。', 'The source is the workspace AGENTS.md; secret values live in the server environment or CLI auth.'),
+              sectionHead('code', L('当前生效配置', 'Effective configuration'), L('配置保存在工作区；密钥另存于工作区密钥库、服务器环境或 CLI 授权。', 'Configuration lives in the workspace; credentials use its secret store, server environment or CLI authorization.'),
                 h('div', { className: 'pa24-row' },
                   button('code', L('打开参数表单', 'Open config form'), openConfig, { className: 'pa24-quiet' }),
                   button('chat', L('通过对话修改配置', 'Change config in chat'), openRobot, { className: 'pa24-quiet' }),
@@ -653,14 +658,21 @@ window.__ModuleLoader__.load({
 
         // F35: 设置「24私助」分区整体迁回主面板——「工作区与配置」卡的二级
         // 详情＝WorkspaceCards（绑定/切换＋生效配置/重载）＋健康与预算；
-        // 复用既有组件与 RPC，零新增端点。path 受控于本组件（详情返回即弃）；
+        // 复用配置保存服务；维护表单只呈现引用名与 PG 凭据。
         // 动作成功后立即重读快照（原设置分区 reloadAfter 的即时性，不等轮询）。
         function WorkspaceDetail({ helpers }) {
           const [path, setPath] = React.useState('');
+          const [maintenance, setMaintenance] = React.useState(false), [dirty, setDirty] = React.useState(false);
           const refreshAfter = fn => async () => { const r = await fn(); await helpers.refresh(); return r; };
           const wButton = (name, label, fn, props) => helpers.button(name, label, refreshAfter(fn), props);
+          if (maintenance) return h('div', null,
+            h('button', { type: 'button', className: 'pa24-quiet', onClick: () => {
+              if (!dirty || window.confirm(L('维护配置有未保存修改，确定放弃吗？', 'Discard unsaved maintenance changes?'))) setMaintenance(false);
+            } }, L('返回工作区', 'Back to workspace')),
+            h(ConfigFormDetail, { key: helpers.state.workspaceBinding, helpers, maintenance: true, onDirtyChange: setDirty }));
           return h('div', null,
             h(ConfigurationEvidence, { state: helpers.state }),
+            h('button', { type: 'button', className: 'pa24-quiet', onClick: () => setMaintenance(true) }, L('维护配置', 'Maintain configuration')),
             h(WorkspaceCards, { snapshot: helpers.state, busy: helpers.busy, button: wButton, openRobot: helpers.openRobot, openConfig: () => helpers.openCard('config'), path, onPathChange: setPath }),
             h(HealthBlock, { data: helpers.extra.health }));
         }
@@ -2887,7 +2899,7 @@ window.__ModuleLoader__.load({
             detail: helpers => h(BackupDetail, { ...helpers, key: helpers.state.workspaceBinding }),
           },
           {
-            id: 'config', cat: 'setup', tone: 'blue', icon: 'code', title: ['参数配置', 'Configuration'], sub: ['七组配置 · 校验写回', 'Seven sections · validated write-back'], action: ['打开表单', 'Open form'],
+            id: 'config', cat: 'setup', tone: 'blue', icon: 'code', title: ['参数配置', 'Configuration'], sub: ['身份、资源与运行偏好', 'Identity, resources & preferences'], action: ['打开表单', 'Open form'],
             tier: ({ state }) => (state.workspace?.configError ? 'warn' : 'ok'),
             body: ({ config, state }) => (config ? h('div', null,
               capLine(L('模式', 'Mode'), modeLabel(config)),
@@ -2936,7 +2948,7 @@ window.__ModuleLoader__.load({
         // F33/P60: 参数配置表单——七组配置（F36 增密钥组）。保存＝workspace.config-update
         // （服务端校验→AGENTS.md 唯一 json 块替换→重载）；失败保留输入并显示
         // 字段级错误。storage/version/密钥引用名不在表单（白名单在服务端强制）。
-        function SourceSettings({ helpers, domain = null, onApplied, onVerified, onDirtyChange }) {
+        function SourceSettings({ helpers, domain = null, onApplied, onVerified, onDirtyChange, compact = false }) {
           const binding = helpers.state.workspaceBinding;
           const [data, setData] = React.useState(null), [draft, setDraft] = React.useState(null), [baseline, setBaseline] = React.useState(null);
           const [busy, setBusy] = React.useState(false), [feedback, setFeedback] = React.useState(null), [failure, setFailure] = React.useState(null);
@@ -2957,8 +2969,13 @@ window.__ModuleLoader__.load({
           };
           React.useEffect(() => { load(true); return () => { epoch.current++; }; }, [binding]);
           const domainView = value => !domain ? value : { entries: value.entries.filter(row => row.domain === domain), defaults: { [domain]: value.defaults[domain] }, mappings: value.mappings.filter(row => row.domain === domain), ...(domain === 'calendar' ? { meetingDurationMinutes: value.meetingDurationMinutes } : {}) };
-          const dirty = Boolean(draft && (JSON.stringify(domainView(draft)) !== (baseline ? JSON.stringify(domainView(JSON.parse(baseline.config))) : '') || data?.legacy));
-          React.useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+          const edited = Boolean(draft && JSON.stringify(domainView(draft)) !== (baseline ? JSON.stringify(domainView(JSON.parse(baseline.config))) : ''));
+          const dirty = edited || !!data?.legacy;
+          const submitted = draft && { ...draft,
+            entries: draft.entries.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]))),
+            mappings: draft.mappings.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]))) };
+          const impact = useConfigurationImpact(binding, submitted ? { sources: submitted } : {}, [], dirty);
+          React.useEffect(() => { onDirtyChange?.(edited); }, [edited, onDirtyChange]);
           const update = patch => { setDraft(value => ({ ...value, ...patch })); setFeedback(null); };
           const edit = (id, patch) => { setDraft(value => ({ ...value, entries: value.entries.map(row => row.id === id ? { ...row, ...patch } : row) })); setFeedback(null); };
           const input = (label, value, change, props = {}) => h('label', { className: 'pa24-field' }, label,
@@ -2981,7 +2998,7 @@ window.__ModuleLoader__.load({
               if (binding !== currentBinding.current) return;
               const evidence = error.evidence;
               setFeedback(evidence?.state === 'saved_not_applied'
-                ? { ok: false, state: 'saved_not_applied', savedHash: evidence.savedHash, activeHash: evidence.activeHash, message: error.message || String(error) }
+                ? { ok: false, state: 'saved_not_applied', savedHash: evidence.savedHash, activeHash: evidence.activeHash, message: L('已保存未生效。', 'Saved but not active. ') + (error.message || String(error)) }
                 : { ok: false, message: error.message || String(error) });
             }
             finally { if (binding === currentBinding.current) setBusy(false); }
@@ -3001,10 +3018,9 @@ window.__ModuleLoader__.load({
           });
           const save = () => run(async () => {
             const owner = binding, request = ++epoch.current;
-            const submitted = { ...draft,
-              entries: draft.entries.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]))),
-              mappings: draft.mappings.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]))) };
-            const updated = await rpc('action', { type: 'workspace.config-update', workspaceBinding: owner, config: { sources: submitted }, expectedSourcesHash: baseline.hash });
+            let updated;
+            try { updated = await rpc('action', { type: 'workspace.config-update', workspaceBinding: owner, config: { sources: submitted }, expectedSourcesHash: baseline.hash, expectedImpactVersion: impact.data?.version }); }
+            catch (error) { impact.refresh(); throw error; }
             const expectedHash = updated?.workspace?.sourceHash;
             const applied = await read(owner);
             const evidence = await rpc('workspace.evidence', { workspaceBinding: owner });
@@ -3014,7 +3030,7 @@ window.__ModuleLoader__.load({
             if (!matches || evidence.state !== 'applied' || !evidenceMatches) {
               setData(applied);
               setFeedback({ ok: false, state: 'saved_not_applied', savedHash: evidence.savedHash, activeHash: evidence.activeHash,
-                message: L('源文件已保存，但本次来源未确认生效（saved_not_applied）；草稿和当前默认保持不变。', 'The source file changed, but these sources are not confirmed active (saved_not_applied). Your draft and current defaults are preserved.') });
+                message: L('来源已保存未生效；草稿和当前默认保持不变，请到工作区与配置核对。', 'Sources are saved but not active. Your draft and current defaults are preserved; check Workspace & config.') });
               return;
             }
             setData(applied); setDraft(JSON.parse(JSON.stringify(applied.config)));
@@ -3028,13 +3044,13 @@ window.__ModuleLoader__.load({
           const editableDomains = domain ? [domain] : ['calendar', 'todo'];
           return h('section', { id: domain ? `pa24-${domain}-sources-editor` : 'pa24-sources', tabIndex: -1, className: 'pa24-card pa24-sources' },
             sectionHead(domain === 'todo' ? 'tasks' : 'calendar', domain ? domainLabel(domain) + L('来源', ' sources') : L('日历与待办来源', 'Calendar & todo sources'), L('登记需要查询和使用的资源。默认来源仅用于创建；查询覆盖全部启用来源。', 'Register the resources you use. Defaults select creation targets; queries cover all enabled sources.')),
-            h('p', { className: 'pa24-helper' }, domain === 'todo'
+            !compact && h('p', { className: 'pa24-helper' }, domain === 'todo'
               ? L('默认写入与核验状态是独立事实。旧默认即使停用、只读或失权也保留并显示阻断，不自动改投；既有对象和计划不改绑。', 'Default write targets and verification are independent. Disabled, read-only, or unauthorized defaults remain visibly blocked; existing objects and plans are not rebound.')
               : L('日历和待办均按已登记来源查询与办理。创建时使用明确指定或唯一匹配的来源；修改、完成和取消沿原对象办理。', 'Calendars and todos use registered sources. Creation uses the explicitly selected or uniquely matched source; changes, completion and cancellation retain the original object.')),
             failure && h('div', { role: 'alert', className: 'pa24-error' }, failure, h('button', { type: 'button', onClick: () => load(!draft) }, L('重试读取', 'Retry'))),
             !draft && !failure && h('p', { role: 'status' }, L('正在读取来源…', 'Loading sources…')),
             draft && h('fieldset', { disabled: busy, style: { border: 0, padding: 0, margin: 0, minWidth: 0 } },
-              data.legacy && h('p', { className: 'pa24-helper' }, L('已按原配置准备迁移候选。保存保留旧对象和关联，不创建远端日历或待办。身份与真实资源请逐项检查。', 'Migration candidates preserve existing objects and links without creating remote resources. Check identity and resources individually.')),
+              data.legacy && h('p', { className: 'pa24-helper' }, compact ? L('原配置的来源尚未保存，请核对身份和资源。', 'Sources from the prior configuration are unsaved. Check identity and resources.') : L('已按原配置准备迁移候选。保存保留旧对象和关联，不创建远端日历或待办。身份与真实资源请逐项检查。', 'Migration candidates preserve existing objects and links without creating remote resources. Check identity and resources individually.')),
               h('div', { className: 'pa24-actions' }, editableDomains.map(kind => h('button', { key: kind, type: 'button', onClick: () => add(kind) }, kind === 'calendar' ? L('添加日历来源', 'Add calendar') : L('添加待办来源', 'Add todo source')))),
               domain === 'todo' && h('p', { className: 'pa24-helper' }, L('登记仅表示准备使用。保存后由本人完成平台授权，再执行只读检查和待办范围核验；未核验来源不进入成功聚合或写入。', 'Registration only records intended use. After saving, the owner authorizes the platform, then runs read-only and todo-scope verification. Unverified sources do not enter successful aggregation or writes.')),
               visibleEntries.length === 0 && h('p', { className: 'pa24-helper' }, L('尚未登记来源；保存空列表会移除原登记，不恢复旧默认。', 'No sources registered. Saving this empty list removes registrations and keeps defaults empty.')),
@@ -3063,13 +3079,19 @@ window.__ModuleLoader__.load({
                       ? [['all', sourceRoleLabel('all')], ['involved', sourceRoleLabel('involved')]]
                       : ['all', 'responsible', 'following', 'assigned', 'creator'].map(value => [value, sourceRoleLabel(value)]))),
                   defaultState && h('p', { className: 'pa24-warning' }, defaultState),
-                  source.platform === 'wecom' && h('p', { className: 'pa24-meta' }, L('授权范围不是独立日历容器。具体公司或项目日历须由相应接口验证；不能靠名称模拟。', 'An authorized scope is not a calendar container. Company/project calendars require matching API verification.')),
+                  source.resourceKind === 'authorized_scope' && h('p', { className: 'pa24-meta' }, L('这是当前账号的授权范围，并非独立日历或清单。', 'This is the account’s authorized scope, not a separate calendar or list.')),
                   h('div', { className: 'pa24-actions' },
                     h('label', { className: 'pa24-check' }, h('input', { type: 'checkbox', checked: source.enabled, onChange: event => edit(source.id, { enabled: event.target.checked }) }), L('启用来源', 'Enable source')),
                     h('button', { type: 'button', disabled: !unchanged || !source.enabled, onClick: () => check(source.id) }, domain === 'todo' ? evidence?.state === 'failed' ? L('重试检查并核验', 'Retry check & verify') : L('检查并核验待办', 'Check & verify todo') : L('只读检查', 'Check access')),
                     h('button', { type: 'button', onClick: () => remove(source.id) }, L('移除登记', 'Remove registration'))),
                   !unchanged && h('p', { className: 'pa24-meta' }, L('有未保存修改；先保存来源再检查。', 'Save the source before checking changes.')),
-                  evidence && unchanged ? h('div', { className: evidence.state === 'failed' ? 'pa24-error' : 'pa24-helper' },
+                  compact ? h('div', { className: 'pa24-source-capabilities' },
+                    h('p', { className: 'pa24-meta' }, [
+                      [L('读取', 'Read'), 'read'], [L('创建', 'Create'), 'create'], [L('修改', 'Update'), 'update'], [source.domain === 'calendar' ? L('取消', 'Cancel') : L('完成', 'Complete'), 'cancel'],
+                    ].map(([name, key]) => name + '：' + (unchanged ? ({ allowed: L('当前范围允许', 'Allowed in scope'), attemptable: L('授权后可尝试，未验证可写', 'Authorized attempt; write access unverified'), denied: L('无权', 'Denied'), adapter_unavailable: L('接入待完善', 'Adapter unavailable') })[evidence?.capabilities?.[key]] || L('未核验', 'Unverified') : L('待重新核验', 'Recheck required'))).join(' · ')),
+                    (!evidence || !unchanged || evidence.state === 'failed') && h('p', { className: evidence?.state === 'failed' ? 'pa24-error' : 'pa24-meta' }, evidence?.state === 'failed' && unchanged ? technicalText(evidence.message) : L('保存后授权并检查；登记不代表可用。', 'Save, authorize and check; registration alone does not prove access.')),
+                    h('button', { type: 'button', className: 'pa24-quiet', onClick: () => helpers.openCard(source.domain === 'calendar' ? 'reminders' : 'work') }, L('前往来源详情', 'Open source details')))
+                  : evidence && unchanged ? h('div', { className: evidence.state === 'failed' ? 'pa24-error' : 'pa24-helper' },
                     h('p', null, technicalText(evidence.message)),
                     fields([[L('实际身份', 'Verified identity'), evidence.identity ? evidence.identity.ownerId + ' · ' + evidence.identity.authority : L('未核验', 'Unverified')],
                       [L('实际资源', 'Resolved resource'), evidence.resource?.id || L('待解析', 'Unresolved')], [L('读取', 'Read'), capabilityLabel(evidence.capabilities?.read)], [L('创建', 'Create'), capabilityLabel(evidence.capabilities?.create)],
@@ -3090,11 +3112,13 @@ window.__ModuleLoader__.load({
                   h('button', { type: 'button', onClick: () => update({ mappings: draft.mappings.filter((_row, i) => i !== index) }) }, L('移除对应关系', 'Remove mapping')));
               }),
               h('button', { type: 'button', onClick: () => update({ mappings: [...draft.mappings, { domain: domain || 'calendar', kind: 'project', name: '', sourceId: '' }] }) }, L('添加对应关系', 'Add mapping')),
-              h('p', { className: 'pa24-meta' }, L('明确来源优先于对应关系和默认值。移除登记保留远端对象与历史；未保存的修改不生效。', 'Explicit sources override mappings and defaults. Removing a registration preserves remote objects and history; unsaved edits do not apply.')),
+              !compact && h('p', { className: 'pa24-meta' }, L('明确来源优先于对应关系和默认值。移除登记保留远端对象与历史；未保存的修改不生效。', 'Explicit sources override mappings and defaults. Removing a registration preserves remote objects and history; unsaved edits do not apply.')),
               h('div', { className: 'pa24-source-save' },
-                h('button', { type: 'button', className: 'pa24-primary', disabled: !dirty, onClick: save }, busy ? L('处理中…', 'Working…') : L('保存来源并重载', 'Save & reload sources')),
+                h(ConfigurationImpact, { impact }),
+                h('button', { type: 'button', className: 'pa24-primary', disabled: !dirty || !impact.ready, onClick: save }, busy ? L('处理中…', 'Working…') : L('保存来源并重载', 'Save & reload sources')),
+                h('button', { type: 'button', className: 'pa24-quiet', disabled: !dirty, onClick: () => { setFeedback(null); void load(true); } }, L('重置来源', 'Reset sources')),
                 feedback && h('div', { role: feedback.ok ? 'status' : 'alert', className: feedback.ok ? 'pa24-helper' : 'pa24-error' }, h('p', null, feedback.message),
-                  feedback.state === 'saved_not_applied' && h('p', { className: 'pa24-meta' }, L(`saved_not_applied · 源文件版本 ${feedback.savedHash || '无法读取'} · 生效版本 ${feedback.activeHash || '无法读取'}`, `saved_not_applied · Saved version ${feedback.savedHash || 'Unavailable'} · Active version ${feedback.activeHash || 'Unavailable'}`))),
+                  !compact && feedback.state === 'saved_not_applied' && h('p', { className: 'pa24-meta' }, L(`saved_not_applied · 源文件版本 ${feedback.savedHash || '无法读取'} · 生效版本 ${feedback.activeHash || '无法读取'}`, `saved_not_applied · Saved version ${feedback.savedHash || 'Unavailable'} · Active version ${feedback.activeHash || 'Unavailable'}`))),
                 dirty && h('p', { className: 'pa24-meta' }, L('来源修改通过此按钮单独保存。', 'Save source changes with this button.')))));
         }
 
@@ -3127,23 +3151,59 @@ window.__ModuleLoader__.load({
               h('div', { className: 'pa24-drawer-body' }, h(SourceSettings, { helpers, domain, onApplied, onVerified, onDirtyChange: setDirty }))));
         }
 
-        function ConfigurationEvidence({ state }) {
+        function useConfigurationImpact(binding, config, secretKeys = [], enabled = true) {
+          const signature = JSON.stringify({ config, secretKeys: [...secretKeys].sort() });
+          const changed = enabled && (Object.keys(config).length > 0 || secretKeys.length > 0);
+          const [view, setView] = React.useState(null), [tick, setTick] = React.useState(0);
+          React.useEffect(() => {
+            if (!changed) return;
+            const abort = new AbortController();
+            setView(null);
+            void rpc('workspace.config-impact', { workspaceBinding: binding, ...JSON.parse(signature) }, abort.signal)
+              .then(data => {
+                if (data?.workspaceBinding !== binding || !data.version) throw new Error(L('配置影响读取失败，请重试。', 'Unable to read change impacts. Retry.'));
+                if (!abort.signal.aborted) setView({ binding, signature, data });
+              }).catch(error => { if (!abort.signal.aborted) setView({ binding, signature, error: error.message }); });
+            return () => abort.abort();
+          }, [binding, signature, changed, tick]);
+          const current = view?.binding === binding && view?.signature === signature ? view : null;
+          return { ...(current || {}), pending: changed && !current, ready: !changed || !!current?.data, refresh: () => setTick(value => value + 1) };
+        }
+
+        function ConfigurationImpact({ impact }) {
+          if (impact.pending) return h('p', { role: 'status', className: 'pa24-meta' }, L('正在核对本次修改…', 'Checking this change…'));
+          if (impact.error) return h('div', { role: 'alert', className: 'pa24-error' }, impact.error, ' ', h('button', { type: 'button', onClick: impact.refresh }, L('重新核对', 'Check again')));
+          const data = impact.data, kinds = data?.kinds;
+          if (!kinds || !Object.values(kinds).some(Boolean)) return null;
+          const count = key => Number.isFinite(data.impacts?.[key]) ? data.impacts[key] : L('未核验', 'Unverified');
+          return h('div', { className: 'pa24-example', role: 'status', style: { flex: '1 1 100%' }, 'aria-label': L('本次修改的影响', 'Impact of this change') },
+            kinds.identity && h('p', null, L(`身份变更前需核对：进行中交办 ${count('work')} 项、待发或未知投递 ${count('outbox')} 条、待审 ${count('reviews')} 份。已有归属和阻断规则继续适用。`, `Before an identity change, review active work: ${count('work')}; pending/unknown deliveries: ${count('outbox')}; pending reviews: ${count('reviews')}. Existing ownership and blockers still apply.`)),
+            kinds.identity && data.activeWork && h('p', null, L('仍有未结束的工作或运行，请先完成或停止。', 'Unfinished work or runs remain. Complete or stop them first.')),
+            kinds.targets && h('p', null, L('新的请求使用修改后的渠道、来源或落点；已有对象、计划和待发保留原目标。变更的来源需重新核验，具体受影响数量尚未核验。', 'New requests use the changed channel, source or destination. Existing objects, plans and deliveries retain their targets. Changed sources need verification; the affected count is unverified.')),
+            kinds.postgres && h('p', null, data.storage === 'postgres'
+              ? L('当前使用 PostgreSQL。活跃连接变化需按原流程重新绑定，本次保存不会热切换或迁移数据。', 'PostgreSQL is active. Connection changes require rebinding through the existing procedure; saving does not hot-swap or migrate data.')
+              : L('当前使用 SQLite。保存 PG 凭据仅作后续准备，不切换账本或迁移数据。', 'SQLite is active. PG credentials are saved for later use; the ledger and data stay in place.')));
+        }
+
+        function ConfigurationEvidence({ state, concise = false, revision }) {
           const binding = state.workspaceBinding, [view, setView] = React.useState({ data: null, error: '' }), [tick, setTick] = React.useState(0);
           React.useEffect(() => { let live = true; setView({ data: null, error: '' });
             void rpc('workspace.evidence', { workspaceBinding: binding }).then(data => { if (live) setView({ data, error: '' }); }).catch(error => { if (live) setView({ data: null, error: error.message }); });
             return () => { live = false; };
-          }, [binding, state.workspace?.sourceHash, tick]);
-          return h('section', { className: 'pa24-card' }, sectionHead('folder', L('配置来源与生效', 'Saved and active configuration'), L('源文件保存成功和运行时生效分别核验。', 'Saved source and active runtime are verified separately.'),
+          }, [binding, state.workspace?.sourceHash, tick, revision]);
+          const evidenceState = view.data?.activeHash === state.workspace?.sourceHash ? view.data?.state : 'unknown';
+          const status = { applied: L('已保存并生效', 'Saved and active'), saved_not_applied: L('已保存未生效，当前仍使用旧配置', 'Saved but not active; prior configuration is still in use'), source_error: L('读取失败，当前仍使用旧配置', 'Read failed; prior configuration is still in use') }[evidenceState] || L('配置状态待核验', 'Configuration state unverified');
+          return h('section', { className: 'pa24-card' }, sectionHead('folder', concise ? L('配置状态', 'Configuration status') : L('配置来源与生效', 'Saved and active configuration'), null,
             h('button', { type: 'button', className: 'pa24-quiet', onClick: () => setTick(value => value + 1) }, icon('refresh'), L('读取配置状态', 'Read configuration status'))),
             view.error && h('p', { className: 'pa24-error', role: 'alert' }, view.error), !view.data && !view.error && h('p', { role: 'status' }, L('正在读取配置来源…', 'Reading configuration source…')),
-            view.data && h('div', null, fields([
-              [L('当前状态', 'State'), { applied: L('已保存并生效', 'Saved and active'), saved_not_applied: L('源文件已有更新，尚未生效', 'Saved changes are not active'), source_error: L('源文件读取失败，旧配置仍生效', 'Source read failed; prior config remains active') }[view.data.state]],
+            view.data && h('div', null, concise ? h('p', { role: 'status' }, status) : fields([
+              [L('当前状态', 'State'), status],
               [L('源文件版本', 'Saved version'), view.data.savedHash?.slice(0, 16) || L('无法读取', 'Unavailable')], [L('生效版本', 'Active version'), view.data.activeHash?.slice(0, 16)],
               [L('生效时间', 'Loaded at'), date(view.data.loadedAt, tzOf(state))], [L('进行中交办', 'Active work'), view.data.impacts?.work], [L('待发或未知投递', 'Pending or unknown deliveries'), view.data.impacts?.outbox], [L('待审版本', 'Pending reviews'), view.data.impacts?.reviews], [L('保留的定时任务', 'Retained plans'), view.data.impacts?.plans],
-            ]), view.data.error && h('p', { role: 'alert', className: 'pa24-error' }, view.data.error), h('p', { className: 'pa24-meta' }, view.data.message)));
+            ]), view.data.error && h('p', { role: 'alert', className: 'pa24-error' }, view.data.error), !concise && h('p', { className: 'pa24-meta' }, view.data.message)));
         }
 
-        function ConfigFormDetail({ helpers }) {
+        function ConfigFormDetail({ helpers, maintenance = false, onDirtyChange }) {
           const { config, state } = helpers;
           // arch-4: the voice list rides the snapshot's configMeta (single
           // source in config.ts) — client.js no longer carries a second copy.
@@ -3186,7 +3246,7 @@ window.__ModuleLoader__.load({
           React.useEffect(() => {
             const field = helpers.repairContext?.field;
             if (!field) return;
-            const node = field === 'sources' ? document.getElementById('pa24-sources') : [...document.querySelectorAll('label')].find(label => label.textContent.includes(`（${field}）`))?.control;
+            const node = field === 'sources' ? document.getElementById('pa24-sources') : [...document.querySelectorAll('[data-config-field]')].find(node => node.dataset.configField === field);
             node?.scrollIntoView?.({ block: 'center' }); node?.focus?.();
           }, [helpers.repairContext]);
           const [busy, setBusy] = React.useState(false);
@@ -3196,22 +3256,22 @@ window.__ModuleLoader__.load({
           const authOpenId = state.diagnostics?.auth?.openId;
           // F34: diagnostics 未加载时不再断言「尚未取得授权身份」（走查 P3）。
           const diagChecked = !!(state.diagnostics && state.diagnostics.checkedAt);
-          const withFieldId = (node, id) => {
+          const withFieldId = (node, id, field) => {
             let assigned = false;
             const visit = current => {
               if (!React.isValidElement(current)) return current;
-              if ((current.type === 'input' || current.type === 'select') && !assigned) {
+              if (['input', 'select', 'textarea'].includes(current.type) && !assigned) {
                 assigned = true;
-                return React.cloneElement(current, { id });
+                return React.cloneElement(current, { id, 'data-config-field': field });
               }
               if (current.props?.children) return React.cloneElement(current, undefined, ...React.Children.map(current.props.children, visit));
               return current;
             };
             return visit(node);
           };
-          const row = (label, control, hint) => {
-            const id = 'pa24-field-' + String(label).replace(/[^\p{L}\p{N}]+/gu, '-');
-            return h('div', { key: id, className: 'pa24-form-row' }, h('label', { htmlFor: id }, label), h('div', { style: { minWidth: 0 } }, withFieldId(control, id), hint && h('p', { className: 'pa24-meta', style: { marginTop: 2, marginBottom: 0 } }, hint)));
+          const row = (field, label, control, hint) => {
+            const id = 'pa24-field-' + field.replaceAll('.', '-');
+            return h('div', { key: id, className: 'pa24-form-row' }, h('label', { htmlFor: id }, label), h('div', { style: { minWidth: 0 } }, withFieldId(control, id, field), hint && h('p', { className: 'pa24-meta', style: { marginTop: 2, marginBottom: 0 } }, hint)));
           };
           const txt = (value, onSet, extra = {}) => h('input', { type: 'text', value, onChange: e => onSet(e.target.value), ...extra });
           const sel = (options, value, onSet) => h('select', { value, onChange: e => onSet(e.target.value) }, options.map(([v, l]) => h('option', { key: v, value: v }, l)));
@@ -3247,10 +3307,7 @@ window.__ModuleLoader__.load({
             const canonical = makeForm(saved);
             setForm(canonical); setBaseline(canonical);
           };
-          const save = async () => {
-            const ownerBinding = state.workspaceBinding;
-            setBusy(true);
-            try {
+          const configurationPatch = () => {
               const normalized = normalize(form), original = normalize(baseline);
               const patch = Object.fromEntries(Object.entries(normalized).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(original[key])));
               if (patch.tts) patch.tts = Object.fromEntries(Object.entries(normalized.tts).filter(([key, value]) => value !== original.tts[key]));
@@ -3269,38 +3326,50 @@ window.__ModuleLoader__.load({
                 if (Object.keys(routes).length) patch.workerModels = routes;
                 else delete patch.workerModels;
               }
-              const saved = Object.keys(patch).length ? await rpc('action', { type: 'workspace.config-update', config: patch, workspaceBinding: ownerBinding, expectedConfigHash: configHash.current }) : state;
+              return patch;
+          };
+          const patch = configurationPatch();
+          const configImpact = useConfigurationImpact(state.workspaceBinding, patch, [], configDirty);
+          const save = async () => {
+            const ownerBinding = state.workspaceBinding;
+            setBusy(true);
+            try {
+              const saved = Object.keys(patch).length ? await rpc('action', { type: 'workspace.config-update', config: patch, workspaceBinding: ownerBinding, expectedConfigHash: configHash.current, expectedImpactVersion: configImpact.data?.version }) : state;
               if (liveBinding.current !== ownerBinding) return;
               configHash.current = saved.workspace.sourceHash;
               adoptSaved(saved.workspace.config);
               await helpers.refresh().catch(() => {});
               setSaveState({ ok: true, message: L('已保存并重载生效。', 'Saved and reloaded.') });
-            } catch (e) { if (liveBinding.current === ownerBinding) setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
+            } catch (e) { if (liveBinding.current === ownerBinding) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); configImpact.refresh(); } }
             finally { if (liveBinding.current === ownerBinding) setBusy(false); }
           };
           // F36: 密钥组——只写不回显；非空＝写入密钥库，勾选清除＝清空该位，
           // 其余不动。走独立 action（workspace.secret-update），与 AGENTS.md 解耦。
           const SECRET_FIELDS = [
-            ['feishuAppId', L('飞书 App ID（feishuAppId）', 'Feishu App ID (feishuAppId)')],
-            ['feishuAppSecret', L('飞书 App Secret（feishuAppSecret）', 'Feishu App Secret (feishuAppSecret)')],
-            ['pgDsn', L('PostgreSQL DSN（pgDsn）', 'PostgreSQL DSN (pgDsn)')],
-            ['volcTtsKey', L('豆包 TTS Key（volcTtsKey）', 'Volcengine TTS key (volcTtsKey)')],
-          ];
+            ['feishuAppId', L('飞书 App ID', 'Feishu App ID')],
+            ['feishuAppSecret', L('飞书 App Secret', 'Feishu App Secret')],
+            ['pgDsn', L('PostgreSQL DSN', 'PostgreSQL DSN')],
+            ['volcTtsKey', L('豆包语音密钥', 'Volcengine voice key')],
+          ].filter(([key]) => maintenance ? key === 'pgDsn' : key !== 'pgDsn');
           const secretPlaceholder = (secrets, key) => {
             const s = secrets && secrets[key];
             return s && s.set ? (s.source === 'env' ? L('已设置（来源：环境变量）', 'Set (from env var)') : L('已设置（来源：密钥库）', 'Set (from secret store)')) : L('未设置——在此填写', 'Not set — enter here');
           };
           const secretHelper = (secrets, key, clearing) => clearing
             ? L('保存后将清除密钥库中的该值（环境变量不受影响）。', 'Saving clears this value from the store (env vars, if any, stay).')
-            : L('留空保存＝保持不变；填写后保存＝写入密钥库。', 'Leave blank to keep; enter a value to store it.');
+            : secrets?.[key]?.source === 'env' ? L('当前使用环境变量，修改这里不会覆盖它。', 'An environment variable is in use; edits here do not override it.')
+            : L('留空保持；填写后替换。', 'Leave blank to keep; enter to replace.');
           const [secretDraft, setSecretDraft] = React.useState({});
           const [secretClears, setSecretClears] = React.useState({});
           const secretDirty = Object.values(secretDraft).some(value => String(value || '').trim()) || Object.values(secretClears).some(Boolean);
-          const dirty = configDirty || secretDirty;
+          const [sourceDirty, setSourceDirty] = React.useState(false);
+          const dirty = configDirty || secretDirty || sourceDirty;
+          const secretKeys = SECRET_FIELDS.filter(([key]) => String(secretDraft[key] || '').trim() || secretClears[key]).map(([key]) => key);
+          const secretImpact = useConfigurationImpact(state.workspaceBinding, {}, secretKeys, secretDirty);
           React.useEffect(() => {
-            helpers.setFormDirty(dirty);
+            helpers.setFormDirty(dirty); onDirtyChange?.(dirty);
             return () => helpers.setFormDirty(false);
-          }, [dirty]);
+          }, [dirty, onDirtyChange]);
           const reset = () => {
             configHash.current = state.workspace?.sourceHash;
             adoptSaved(config);
@@ -3320,12 +3389,12 @@ window.__ModuleLoader__.load({
             if (!changed) { setSaveState({ ok: true, message: L('密钥无改动。', 'No secret changes.') }); return; }
             setBusy(true);
             try {
-              await rpc('action', { type: 'workspace.secret-update', values, workspaceBinding: ownerBinding });
+              await rpc('action', { type: 'workspace.secret-update', values, workspaceBinding: ownerBinding, expectedImpactVersion: secretImpact.data?.version });
               if (liveBinding.current !== ownerBinding) return;
               setSecretDraft({}); setSecretClears({});
               await helpers.refresh().catch(() => {});
               if (liveBinding.current === ownerBinding) setSaveState({ ok: true, message: L('密钥已保存到工作区密钥库。', 'Secrets saved to the workspace store.') });
-            } catch (e) { if (liveBinding.current === ownerBinding) setSaveState({ ok: false, message: (e && e.message) || String(e) }); }
+            } catch (e) { if (liveBinding.current === ownerBinding) { setSaveState({ ok: false, message: (e && e.message) || String(e) }); secretImpact.refresh(); } }
             finally { if (liveBinding.current === ownerBinding) setBusy(false); }
           };
           const tryVoice = async () => {
@@ -3338,46 +3407,46 @@ window.__ModuleLoader__.load({
           // F34: 保存/试听反馈随保存栏展示（sticky 常驻视口底）——原先渲染在
           // 表单顶部，用户在表单中下部点保存时错误在视口外不可见（走查 S6）。
           return h('fieldset', { disabled: busy, style: { border: 0, padding: 0, margin: 0, minWidth: 0 } },
-            sectionHead('code', null, L('保存＝校验→写回 AGENTS.md 配置块→重载生效；工作规则不受影响，校验失败保留原文。', 'Save = validate → rewrite the AGENTS.md config block → reload; prose rules untouched, file kept on validation failure.'), null, 'blue'),
+            maintenance && sectionHead('code', L('维护配置', 'Maintain configuration'), L('环境变量引用与 PostgreSQL 凭据。', 'Environment references and PostgreSQL credentials.')),
             helpers.repairContext && h('section', { className: 'pa24-card', 'aria-label': L('修复上下文', 'Repair context') },
               h('h2', null, L('本次修复依据', 'Repair evidence')), h('p', null, helpers.repairContext.message),
-              h('p', { className: 'pa24-meta' }, L('定位字段：', 'Field: ') + helpers.repairContext.field + ' · ' + L('诊断配置：', 'Diagnostic config: ') + helpers.repairContext.configVersion?.slice(0, 16)),
+
               h('p', null, helpers.repairContext.impact), helpers.repairContext.nextSteps.map((step, index) => h('p', { key: index }, step)),
               h('button', { type: 'button', disabled: busy, onClick: () => void helpers.run(async () => {
                 const scope = helpers.repairContext.scope.startsWith('source:') ? 'sources' : helpers.repairContext.scope.split('.')[0];
                 await rpc('action', { type: 'health.check', workspaceBinding: state.workspaceBinding, scopes: [scope] }); await helpers.refresh(); helpers.openCard('healthcheck');
               }) }, L('修复后只读重验', 'Recheck after repair'))),
-            h(ConfigurationEvidence, { state }),
-            h(SourceSettings, { key: state.workspaceBinding, helpers }),
-            h('section', { className: 'pa24-card' },
+            h(ConfigurationEvidence, { state, concise: true, revision: saveState }),
+             !maintenance && h(SourceSettings, { key: state.workspaceBinding, helpers, compact: true, onDirtyChange: setSourceDirty }),
+            !maintenance && h('section', { className: 'pa24-card' },
               h('h2', null, L('模式与身份', 'Mode & identity')),
-              row(L('模式（mode）', 'Mode (mode)'), sel([['demo', L('体验模式', 'Demo')], ['feishu', L('飞书模式', 'Feishu')]], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('飞书应用凭据需在环境变量中就位（引用名见下方）。', 'Feishu app credentials must be present in env vars (see below).') : null),
-              row(L('lark-cli profile（larkProfile）', 'lark-cli profile (larkProfile)'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 固定 profile 名。', 'The pinned lark-cli profile name.')),
-              row(L('主人 OpenID（ownerOpenId）', 'Owner OpenID (ownerOpenId)'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
+              row('mode', L('模式', 'Mode'), sel([['demo', L('体验模式', 'Demo')], ['feishu', L('飞书模式', 'Feishu')]], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('需要已设置的飞书应用凭据。', 'Feishu app credentials are required.') : null),
+              row('larkProfile', L('lark-cli profile', 'lark-cli profile'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 固定 profile 名。', 'The pinned lark-cli profile name.')),
+              row('ownerOpenId', L('主人 OpenID', 'Owner OpenID'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
                 h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),
                 L('身份字段只读；一键应用当前 CLI 授权的 open_id' + (authOpenId ? '' : diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）') + '。', 'Identity is read-only; one-click apply of the CLI-authorized open_id' + (authOpenId ? '' : diagChecked ? ' (checked, not yet acquired)' : ' (run a check under Access to acquire)') + '.')),
-              row(L('业务 skill 放行面（extraBusinessSkills）', 'Business skills (extraBusinessSkills)'), h('textarea', { rows: 2, value: form.extraSkills, onChange: e => set('extraSkills', e.target.value), placeholder: 'standup-prep, my-routine' }, null), L('逗号或换行分隔的 kebab-case skill 名；点名目录外名会被过滤并在健康里提示。', 'Comma/newline-separated kebab-case skill names; unknown names are filtered with a health note.')),
-              row(L('时区（timeZone）', 'Time zone (timeZone)'), h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
+              row('extraBusinessSkills', L('业务 skill 放行面', 'Business skills'), h('textarea', { rows: 2, value: form.extraSkills, onChange: e => set('extraSkills', e.target.value), placeholder: 'standup-prep, my-routine' }, null), L('逗号或换行分隔的 kebab-case skill 名；点名目录外名会被过滤并在健康里提示。', 'Comma/newline-separated kebab-case skill names; unknown names are filtered with a health note.')),
+              row('timeZone', L('时区', 'Time zone'), h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
                 h('datalist', { id: 'pa24-tz-list' }, ['Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'UTC'].map(z => h('option', { key: z, value: z })))), L('IANA 时区名，保存时即时校验。', 'IANA timezone name; validated on save.'))),
-            h('section', { className: 'pa24-card' },
+            !maintenance && h('section', { className: 'pa24-card' },
               h('h2', null, L('渠道选择', 'Channels')),
-              row(L('日程渠道（calendarChannel）', 'Calendar channel (calendarChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.calendarChannel, v => set('calendarChannel', v)), L('日程事件的写入渠道。', 'Where calendar events are written.')),
-              row(L('待办渠道（todoChannel）', 'Todo channel (todoChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.todoChannel, v => set('todoChannel', v)), L('待办的写入渠道。', 'Where todos are written.')),
-              row(L('推送渠道（notifyChannel）', 'Push channel (notifyChannel)'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.notifyChannel, v => set('notifyChannel', v)), L('智能跟进与汇报的推送出口；时钟提醒使用日历渠道。企微为单向推送，收信仍在飞书。', 'Agent follow-up and digest outlet; clock reminders use the calendar channel. WeCom is outbound only.'))),
-            h('section', { className: 'pa24-card' },
+              row('calendarChannel', L('日程渠道', 'Calendar channel'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.calendarChannel, v => set('calendarChannel', v)), L('日程事件的写入渠道。', 'Where calendar events are written.')),
+              row('todoChannel', L('待办渠道', 'Todo channel'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.todoChannel, v => set('todoChannel', v)), L('待办的写入渠道。', 'Where todos are written.')),
+              row('notifyChannel', L('推送渠道', 'Push channel'), sel([['feishu', L('飞书', 'Feishu')], ['wecom', L('企微', 'WeCom')]], form.notifyChannel, v => set('notifyChannel', v)), L('智能跟进与汇报的推送出口；时钟提醒使用日历渠道。企微为单向推送，收信仍在飞书。', 'Agent follow-up and digest outlet; clock reminders use the calendar channel. WeCom is outbound only.'))),
+            !maintenance && h('section', { className: 'pa24-card' },
               h('h2', null, L('飞书资源', 'Feishu resources')),
-              row(L('飞书文件夹（folderToken）', 'Feishu folder (folderToken)'), txt(form.folderToken, v => set('folderToken', v), { onBlur: e => set('folderToken', extractToken(e.target.value)), placeholder: L('粘贴文件夹链接或 token', 'Paste folder link or token') })),
-              row(L('知识库节点（wikiNodeToken，可选）', 'Wiki node (wikiNodeToken, optional)'), txt(form.wikiNodeToken, v => set('wikiNodeToken', v), { onBlur: e => set('wikiNodeToken', extractToken(e.target.value)), placeholder: L('粘贴知识库节点链接或 token，留空回退文件夹', 'Paste wiki node link or token; empty falls back to the folder') }), L('已配置时备忘与手写待审文档建到该节点下；留空沿用 folderToken。', 'When set, memos and pending review docs land under this node; empty keeps folderToken.')),
-              row(L('任务清单（tasklistId）', 'Task list (tasklistId)'), txt(form.tasklistId, v => set('tasklistId', v), { onBlur: e => set('tasklistId', extractToken(e.target.value)), placeholder: L('粘贴任务清单链接或 guid', 'Paste task-list link or guid') })),
-              row(L('日历（calendarId）', 'Calendar (calendarId)'), txt(form.calendarId, v => set('calendarId', v), { placeholder: 'primary' }), L('默认 primary（本人日历）。', 'Defaults to primary (your calendar).'))),
-            h('section', { className: 'pa24-card' },
+              row('folderToken', L('飞书文件夹', 'Feishu folder'), txt(form.folderToken, v => set('folderToken', v), { onBlur: e => set('folderToken', extractToken(e.target.value)), placeholder: L('粘贴文件夹链接或 token', 'Paste folder link or token') })),
+              row('wikiNodeToken', L('知识库节点（可选）', 'Wiki node'), txt(form.wikiNodeToken, v => set('wikiNodeToken', v), { onBlur: e => set('wikiNodeToken', extractToken(e.target.value)), placeholder: L('粘贴知识库节点链接或 token，留空回退文件夹', 'Paste wiki node link or token; empty falls back to the folder') }), L('备忘与待审文档存入此节点；留空使用上方文件夹。', 'Memos and review documents go here; leave blank to use the folder above.')),
+              row('tasklistId', L('任务清单', 'Task list'), txt(form.tasklistId, v => set('tasklistId', v), { onBlur: e => set('tasklistId', extractToken(e.target.value)), placeholder: L('粘贴任务清单链接或 guid', 'Paste task-list link or guid') })),
+              row('calendarId', L('日历', 'Calendar'), txt(form.calendarId, v => set('calendarId', v), { placeholder: 'primary' }), L('默认 primary（本人日历）。', 'Defaults to primary (your calendar).'))),
+            !maintenance && h('section', { className: 'pa24-card' },
               h('h2', null, L('运行参数', 'Runtime')),
-              row(L('并发数（maxWorkers）', 'Parallelism (maxWorkers)'), h('input', { type: 'number', min: 1, max: 8, step: 1, value: form.maxWorkers, onChange: e => set('maxWorkers', e.target.value) }), L('1–8 的整数。', 'An integer from 1 to 8.')),
-              row(L('详细诊断保留天数（diagnosticRetentionDays）', 'Diagnostic retention (days)'), h('input', { type: 'number', min: 1, max: 3650, step: 1, value: form.diagnosticRetentionDays, onChange: e => set('diagnosticRetentionDays', e.target.value) }), L('默认 90 天；仅清理技术诊断，运行快照、结果和动作回执长期保留。', 'Default: 90 days. Snapshots, results and action receipts remain.')),
-              row(L('启用的 Worker（enabledWorkers）', 'Enabled workers (enabledWorkers)'), h('div', { style: { minWidth: 0 } }, WORKER_IDS.map(r =>
-                h('label', { key: r, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.enabledWorkers.includes(r), onChange: e => toggleIn('enabledWorkers')(r, e.target.checked) }), roleName(r) + '（' + r + '）')))),
-              row(L('模型路由（workerModels）', 'Model routes (workerModels)'), h('div', { style: { minWidth: 0 } },
+              row('maxWorkers', L('并发数', 'Parallelism'), h('input', { type: 'number', min: 1, max: 8, step: 1, value: form.maxWorkers, onChange: e => set('maxWorkers', e.target.value) }), L('1–8 的整数。', 'An integer from 1 to 8.')),
+              row('diagnosticRetentionDays', L('详细诊断保留天数', 'Diagnostic retention (days)'), h('input', { type: 'number', min: 1, max: 3650, step: 1, value: form.diagnosticRetentionDays, onChange: e => set('diagnosticRetentionDays', e.target.value) }), L('默认 90 天；仅清理技术诊断，运行快照、结果和动作回执长期保留。', 'Default: 90 days. Snapshots, results and action receipts remain.')),
+              row('enabledWorkers', L('启用的 Worker', 'Enabled workers'), h('div', { style: { minWidth: 0 } }, WORKER_IDS.map(r =>
+                h('label', { key: r, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.enabledWorkers.includes(r), onChange: e => toggleIn('enabledWorkers')(r, e.target.checked) }), roleName(r))))),
+              row('workerModels', L('模型路由', 'Model routes'), h('div', { style: { minWidth: 0 } },
                 roleRows.length ? roleRows.map(role => h('div', { key: role, className: 'pa24-row', style: { flexWrap: 'nowrap', marginBottom: 6 } },
                   h('span', { style: { width: 86, fontSize: 12, color: 'var(--pa-muted)', flexShrink: 0 } }, roleName(role)),
                   txt(wmGet(role).provider || '', v => wmSet(role, { provider: v }), { placeholder: L('provider（留空继承默认）', 'provider (blank inherits default)'), 'aria-label': roleName(role) + L(' provider', ' provider') }),
@@ -3387,43 +3456,48 @@ window.__ModuleLoader__.load({
                 L('按角色覆盖 provider/model，留空即继承默认路由。', 'Per-role provider/model overrides; blank fields inherit the default route.'),
                 form.enabledWorkers.includes('handwriting') && !(form.workerModels.handwriting && (form.workerModels.handwriting.model || form.workerModels.handwriting.provider)) && h('p', { className: 'pa24-meta', style: { color: 'var(--pa-amber)' } }, L('已启用手写整理但未配置视觉模型路由——该能力将不可用。', 'Handwriting is enabled without a vision model route and will be unavailable.'))),
               h(BudgetConfigFields, { value: form.budget, onChange: value => set('budget', value) }),
-              h('details', { id: 'pa24-extra-tools', style: { marginTop: 4 } }, h('summary', null, L('extraLocalTools（高级，默认收起）', 'extraLocalTools (advanced, collapsed)')),
+              h('details', { id: 'pa24-extra-tools', style: { marginTop: 4 } }, h('summary', null, L('本地扩展工具', 'Local extra tools')),
                 h('div', { style: { minWidth: 0, paddingTop: 6 } }, KNOWN_EXTRA.map(x =>
                   h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),
                   h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat.'))))),
             // F36: 密钥值只写不回显——进工作区密钥库（.24pa/secrets.json，0600），
             // 永不进 AGENTS.md/系统提示/备份；环境变量（下方引用名）存在时优先。
             h('section', { className: 'pa24-card' },
-              h('h2', null, L('密钥（工作区密钥库）', 'Secrets (workspace store)')),
-              SECRET_FIELDS.map(([key, label]) => row(label, h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
-                txt(secretDraft[key] || '', v => setSecretDraft(d => ({ ...d, [key]: v })), { type: 'password', autoComplete: 'new-password', placeholder: secretPlaceholder(state.secrets, key), style: { flex: 1, minWidth: 0 } }),
-                h('button', { type: 'button', className: 'pa24-quiet', 'aria-pressed': secretClears[key] ? 'true' : 'false', onClick: () => setSecretClears(c => ({ ...c, [key]: !c[key] })) }, secretClears[key] ? L('撤销清除', 'Undo clear') : L('清除', 'Clear'))),
+              h('h2', null, maintenance ? L('PostgreSQL 凭据', 'PostgreSQL credentials') : L('密钥', 'Secrets')),
+              SECRET_FIELDS.map(([key, label]) => row(key, label, h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
+                txt(secretDraft[key] || '', v => { setSecretDraft(d => ({ ...d, [key]: v })); setSecretClears(c => ({ ...c, [key]: false })); setSaveState(null); }, { type: 'password', autoComplete: 'new-password', placeholder: secretPlaceholder(state.secrets, key), style: { flex: 1, minWidth: 0 } }),
+                h('button', { type: 'button', className: 'pa24-quiet', 'aria-pressed': secretClears[key] ? 'true' : 'false', onClick: () => {
+                  const clear = !secretClears[key]; setSecretClears(c => ({ ...c, [key]: clear }));
+                  if (clear) setSecretDraft(d => ({ ...d, [key]: '' })); setSaveState(null);
+                } }, secretClears[key] ? L('撤销清除', 'Undo clear') : L('清除', 'Clear'))),
                 secretHelper(state.secrets, key, secretClears[key]))),
+              h(ConfigurationImpact, { impact: secretImpact }),
               h('div', { className: 'pa24-row' },
-                h('button', { type: 'button', className: 'pa24-quiet', disabled: busy || !secretDirty, onClick: () => void saveSecrets() }, icon('shield', { width: 15, height: 15 }), L('保存密钥', 'Save secrets')),
-                h('span', { className: 'pa24-meta' }, L('只写不回显；保存到工作区密钥库，AGENTS.md 与备份不含密钥值。', 'Write-only; saved to the workspace secret store — AGENTS.md and backups never contain secret values.')))),
-            h('section', { className: 'pa24-card' },
-              h('h2', null, L('存储与密钥引用', 'Storage & secret refs')),
-              row(L('存储（storage）', 'Storage (storage)'), h('strong', null, config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'), L('切换存储后端涉及数据迁移，请按初始化指南的迁移流程办理。', 'Switching backends involves data migration — follow the migration procedure in the init guide.')),
-              row(L('App ID 引用（appIdEnv）', 'App ID ref (appIdEnv)'), txt(form.appIdEnv, v => set('appIdEnv', v), { placeholder: 'PA24_FEISHU_APP_ID' }), L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')),
-              row(L('App Secret 引用（appSecretEnv）', 'App Secret ref (appSecretEnv)'), txt(form.appSecretEnv, v => set('appSecretEnv', v), { placeholder: 'PA24_FEISHU_APP_SECRET' }), L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')),
-              row(L('PG DSN 引用（pgDsnEnv）', 'PG DSN ref (pgDsnEnv)'), txt(form.pgDsnEnv, v => set('pgDsnEnv', v), { placeholder: 'PA24_PG_DSN' }), config.storage === 'sqlite' ? L('SQLite 模式不使用。', 'Unused under SQLite.') : L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.'))),
-            h('section', { className: 'pa24-card', id: 'pa24-tts-config' },
+                h('button', { type: 'button', className: 'pa24-quiet', disabled: busy || !secretDirty || !secretImpact.ready, onClick: () => void saveSecrets() }, icon('shield', { width: 15, height: 15 }), L('保存密钥', 'Save secrets')),
+                h('span', { className: 'pa24-meta' }, L('只写不回显。密钥通过此按钮单独保存。', 'Write-only. Save secrets separately with this button.')))),
+            maintenance && h('section', { className: 'pa24-card' },
+              h('h2', null, L('环境变量引用', 'Environment variable references')),
+              row('storage', L('存储', 'Storage'), h('strong', null, config.storage === 'postgres' ? 'PostgreSQL' : 'SQLite'), L('切换存储后端涉及数据迁移，请按初始化指南的迁移流程办理。', 'Switching backends involves data migration — follow the migration procedure in the init guide.')),
+              row('appIdEnv', L('App ID 引用', 'App ID ref'), txt(form.appIdEnv, v => set('appIdEnv', v), { placeholder: 'PA24_FEISHU_APP_ID' }), L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')),
+              row('appSecretEnv', L('App Secret 引用', 'App Secret ref'), txt(form.appSecretEnv, v => set('appSecretEnv', v), { placeholder: 'PA24_FEISHU_APP_SECRET' }), L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.')),
+              row('tts.volcKeyEnv', L('语音密钥引用', 'Voice key reference'), txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('可选：环境变量优先；密钥值在参数配置中填写。', 'Optional: environment values take priority; enter the key in Configuration.')),
+              row('pgDsnEnv', L('PG DSN 引用', 'PG DSN ref'), txt(form.pgDsnEnv, v => set('pgDsnEnv', v), { placeholder: 'PA24_PG_DSN' }), config.storage === 'sqlite' ? L('SQLite 模式不使用。', 'Unused under SQLite.') : L('可选：环境变量引用名；同名环境变量存在时优先于密钥库。', 'Optional env-var reference; a set env var overrides the secret store.'))),
+            !maintenance && h('section', { className: 'pa24-card', id: 'pa24-tts-config' },
               h('h2', null, L('语音 TTS（晨报复盘）', 'Voice TTS (digests)')),
-              row(L('语音引擎（tts.engine）', 'Voice engine (tts.engine)'), sel([['none', L('不启用', 'Off')], ['melo', L('Melo 本地', 'Melo local')], ['volcengine', L('豆包云', 'Volcengine')]], form.tts.engine, v => setTts('engine', v))),
-              form.tts.engine === 'volcengine' && row(L('音色（tts.voice）', 'Voice (tts.voice)'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
+              row('tts.engine', L('语音引擎', 'Voice engine'), sel([['none', L('不启用', 'Off')], ['melo', L('Melo 本地', 'Melo local')], ['volcengine', L('豆包云', 'Volcengine')]], form.tts.engine, v => setTts('engine', v))),
+              form.tts.engine === 'volcengine' && row('tts.voice', L('音色', 'Voice'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 sel(form.tts.voice && !VOICES.some(o => o.value === form.tts.voice) ? [[form.tts.voice, form.tts.voice], ...VOICES.map(o => [o.value, o.label])] : VOICES.map(o => [o.value, o.label]), form.tts.voice, v => setTts('voice', v)),
                 h('button', { type: 'button', className: 'pa24-quiet', disabled: busy, onClick: () => void tryVoice() }, icon('chat', { width: 15, height: 15 }), L('试听', 'Sample'))), L('试听发送到飞书，使用当前已保存的配置。', 'The sample goes to Feishu using the saved config.')),
-              form.tts.engine === 'volcengine' && row(L('密钥引用（tts.volcKeyEnv）', 'Key env ref (tts.volcKeyEnv)'), txt(form.tts.volcKeyEnv, v => setTts('volcKeyEnv', v), { placeholder: 'VOLC_TTS_KEY' }), L('可选：环境变量引用名（优先于密钥库）；密钥本体在「密钥」组填写。', 'Optional env-var reference (overrides the store); the key itself goes in the Secrets group.')),
-              form.tts.engine === 'melo' && row(L('部署目录（tts.meloDir）', 'Deploy dir (tts.meloDir)'), txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),
+              form.tts.engine === 'melo' && row('tts.meloDir', L('部署目录', 'Deploy dir'), txt(form.tts.meloDir, v => setTts('meloDir', v), { placeholder: '/opt/melo-tts' }), L('melo 部署目录（绝对路径）。', 'melo deployment directory (absolute path).'))),
             // F34: 保存栏与三个分组同层级（此前被嵌进「运行参数」section，
             // sticky 包含块被钳制导致首屏不可见——走查 P1 回归锚点见
             // client.test.mjs「表单结构守卫」）；保存/试听反馈随栏展示。
             h('div', { className: 'pa24-form-actions' },
+              h(ConfigurationImpact, { impact: configImpact }),
               saveState && h('div', { role: saveState.ok ? 'status' : 'alert', className: saveState.ok ? 'pa24-example' : 'pa24-error', style: { flex: '1 1 100%', margin: 0 } }, icon(saveState.ok ? 'check' : 'alert', { width: 16, height: 16 }), h('span', { style: { minWidth: 0, overflowWrap: 'anywhere' } }, saveState.message)),
-              h('button', { type: 'button', className: 'pa24-quiet', disabled: busy || !dirty, onClick: reset }, icon('close', { width: 16, height: 16 }), L('重置修改', 'Reset changes')),
-              h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !configDirty, onClick: () => void save() }, icon('check', { width: 16, height: 16 }), busy ? L('保存中…', 'Saving…') : L('保存并重载', 'Save & reload')),
-              h('span', { className: 'pa24-meta', role: 'status' }, configDirty ? L('参数有未保存修改', 'Unsaved configuration changes') : secretDirty ? L('密钥有未保存修改，请点「保存密钥」', 'Unsaved secrets — use Save secrets') : L('保存后立即重载生效；对话修改与表单等价（同一配置源）。', 'Reload applies immediately; chat edits and the form share the same config source.'))));
+              h('button', { type: 'button', className: 'pa24-quiet', disabled: busy || (!configDirty && !secretDirty), onClick: reset }, icon('close', { width: 16, height: 16 }), L('重置修改', 'Reset changes')),
+              h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !configDirty || !configImpact.ready, onClick: () => void save() }, icon('check', { width: 16, height: 16 }), busy ? L('保存中…', 'Saving…') : L('保存并重载', 'Save & reload')),
+              h('span', { className: 'pa24-meta', role: 'status' }, configDirty ? L('参数有未保存修改', 'Unsaved configuration changes') : secretDirty ? L('密钥有未保存修改，请点「保存密钥」', 'Unsaved secrets — use Save secrets') : L('参数无未保存修改', 'No unsaved parameter changes'))));
         }
 
         const homeCoverage = data => {

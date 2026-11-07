@@ -1,7 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
-import ToolRuntime from '@deepseek-ai/dsh-tools';
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
+import { installToolRuntime, executeTool } from '../helpers/tool-runtime.mjs';
 import { apply } from '../../lib/tools.js';
 import { fixture } from '../helpers/runtime.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
@@ -19,12 +18,12 @@ for (const storage of ['sqlite', 'postgres']) describe(`交办公共工具 / ${s
     const lead = f.agents.get(await f.rt.openLocalSession());
     const { workId } = await f.rt.delegate({ worker: 'tasks', title: '核对待办', instruction: '仅核对已有待办，不创建或删除' }, lead);
     const child = f.agents.get(workId);
-    ctx = new Context(); await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime);
+    ctx = new Context(); await installToolRuntime(ctx);
     child.ctx = ctx;
     await f.rt.workerRuns.attach(child);
     apply({ get: () => f.rt, on: () => {}, effect: fn => fn(), tools: ctx.tools, systemPrompt: { section: () => () => {} } });
     let sequence = 0;
-    const call = (name, args, agent = lead) => ctx.tools.execute({ callId: 'jobs-' + sequence++, name, arguments: args, agent, signal: new AbortController().signal });
+    const call = (name, args, agent = lead) => executeTool(ctx, { callId: 'jobs-' + sequence++, name, arguments: args, agent, signal: new AbortController().signal });
     return { lead, child, workId, call };
   }
 

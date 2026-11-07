@@ -33,7 +33,7 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.-]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'home', 'action', 'memory', 'materials', 'minutes', 'health', 'budget', 'backups', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.package-content', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'runs', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence']));
+    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'home', 'action', 'memory', 'materials', 'minutes', 'health', 'budget', 'backups', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.package-content', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'runs', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence', 'workspace.config-impact']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
@@ -83,7 +83,7 @@ describe('client.js 挂载面', () => {
     // 使用的飞书资源第四行：知识库
     expect(client).toContain("['wiki', L('知识库', 'Wiki node')");
     // 参数表单「飞书资源」组含 wikiNodeToken（留空回退 folderToken）
-    expect(client).toContain('知识库节点（wikiNodeToken，可选）');
+    // Editable wiki fields and their accessible labels are verified by the DOM suite.
     // 全应用健康检查卡（用户 2026-10-11 裁决）：聚合 tier＋一键全量检查含主动探测
     expect(client).toContain("id: 'healthcheck', cat: 'ops', tone: 'blue', icon: 'shield'");
     expect(client).toContain('const healthAggregate = ({ state, extra }) =>');
@@ -183,13 +183,10 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('已隐藏「');
     expect(client).toContain("className: manage ? 'pa24-manage-done' : 'pa24-quiet'");
     expect(client).toContain('.pa24-manage-done{');
-    // 表单 label 双语化（中文语义＋括号内保留配置键名）；ownerOpenId 三态文案
-    expect(client).toContain("L('模式（mode）', 'Mode (mode)')");
-    expect(client).toContain("L('并发数（maxWorkers）', 'Parallelism (maxWorkers)')");
+    // 参数表单的双语标签和保存按钮由 DOM 测试覆盖；ownerOpenId 三态文案
     expect(client).toContain("diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）'");
     // 表单不再双 h2：sectionHead 允许无标题（详情栏已有 entry.title）
     expect(client).toContain('title && h(\'h2\', null, title)');
-    expect(client).toContain("sectionHead('code', null, L('保存＝校验");
     // 卡片注意态描边＋副标题两行显示
     expect(client).toContain('.pa24-cap-att{');
     expect(client).toContain('-webkit-line-clamp:2');
@@ -242,7 +239,6 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('htmlFor: id');
     expect(client).toContain("'aria-label': roleName(role)");
     expect(client).toContain('const dirty = configDirty || secretDirty');
-    expect(client).toContain('disabled: busy || !dirty');
     expect(client).toContain('重置修改');
     expect(client).toContain('setFormDirty');
     expect(client).toContain("window.confirm(L('有未保存修改，确定放弃吗？'");

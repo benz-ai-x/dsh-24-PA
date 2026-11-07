@@ -2,9 +2,9 @@ import { afterEach, expect, it } from 'vitest';
 import { chmod } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import ToolRuntime, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools';
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools';
 import { Context } from '@deepseek-ai/cordis';
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
+import { installToolRuntime, executeTool } from '../helpers/tool-runtime.mjs';
 import { apply } from '../../lib/tools.js';
 import { fixture, join, readFile, writeFile } from '../helpers/runtime.mjs';
 
@@ -23,14 +23,14 @@ async function setup(entry = source('first')) {
   const local = f.agents.get(await f.rt.openLocalSession());
   const delegated = await f.rt.delegate({ worker: 'tasks', title: '核对原待办', instruction: '本人明确办理待办与分派' }, local);
   const child = f.agents.get(delegated.workId), ctx = new Context();
-  await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime); cleanups.push(() => ctx.fiber.dispose());
+  await installToolRuntime(ctx); cleanups.push(() => ctx.fiber.dispose());
   let definition;
   apply({ get: () => f.rt, on: () => {}, effect: fn => fn(), tools: { register: value => { if (value.name === 'pa24_work') definition = value; return () => {}; } }, systemPrompt: { section: () => () => {} } });
   ctx.tools.register(definition);
   let callId = 0;
   const execute = async args => {
     expect(validateJsonSchemaValue(definition.parameters, args)).toEqual([]);
-    return ctx.tools.execute({ callId: 'todo-' + callId++, name: 'pa24_work', arguments: args, agent: child, signal: new AbortController().signal });
+    return executeTool(ctx, { callId: 'todo-' + callId++, name: 'pa24_work', arguments: args, agent: child, signal: new AbortController().signal });
   };
   const run = async args => { const result = await execute(args); expect(result.isError, JSON.stringify(result)).toBe(false); return result.value; };
   const calls = async () => (await readFile(state + '.calls.jsonl', 'utf8')).trim().split('\n').map(JSON.parse);
