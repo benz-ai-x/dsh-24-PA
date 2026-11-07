@@ -1,7 +1,6 @@
 import { beforeAll, afterAll, beforeEach, afterEach, describe, it, expect } from 'vitest';
-import ToolRuntime from '@deepseek-ai/dsh-tools';
 import { Context } from '@deepseek-ai/cordis';
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
+import { installToolRuntime, executeTool } from '../helpers/tool-runtime.mjs';
 import { randomUUID } from 'node:crypto';
 import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
@@ -135,11 +134,11 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
     let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
     const hook = await journal(item), ctx = new Context(); let writes = 0;
     try {
-      await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime);
+      await installToolRuntime(ctx);
       ctx.tools.register({ name: 'save_file', description: 'test write', parameters: { type: 'object', properties: {} },
         output: { schema: { type: 'object' }, render: () => [] },
         execute: async () => { writes++; throw Error('write completed but acknowledgement lost'); } });
-      const result = await hook.execute(() => ctx.tools.execute({ callId: 'real-tool', name: 'save_file', arguments: {}, signal: new AbortController().signal }));
+      const result = await hook.execute(() => executeTool(ctx, { callId: 'real-tool', name: 'save_file', arguments: {}, signal: new AbortController().signal }));
       expect(result.isError).toBe(true); expect(writes).toBe(1);
       const detail = await repos.workerRuns.detail(item.active_worker_run_id);
       expect(detail.calls[0].status).toBe('unknown'); expect(detail.run.status).toBe('needs_reconciliation');

@@ -37,12 +37,13 @@ import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
-import { template, ConfigError, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
+import { template, ConfigError, validateConfig, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './tools.js';
 import { runLarkCli, sendLarkAudioMessage } from './lark.js';
 import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
 import { writeSecretStore, secretStatus, resolveSecret, secretRefs, secretEnvironment, SECRET_KEYS, type SecretKey, type SecretStore, type SecretStatus } from './secrets.js';
-import { readWorkspaceConfiguration, writeWorkspaceConfiguration, type WorkspaceConfiguration } from './workspace-config.js';
+import { readWorkspaceConfiguration, writeWorkspaceConfiguration, mergeWorkspaceConfiguration, type WorkspaceConfiguration } from './workspace-config.js';
+import { configurationImpactKinds } from './config-impact.js';
 import { SdkFeishuTransport, FakeFeishuTransport, inspectAccess, cliOptions, type FeishuTransport, type InboundEvent, type AccessDiagnostics } from './feishu.js';
 import { HandwritingPipeline } from './handwriting-pipeline.js';
 import { candidateParameters, materialFingerprint } from './material-draft.js';
@@ -195,6 +196,7 @@ export class PaRuntime {
   config: PaConfig | null = null;
   private instructions = '';
   private sourceHash = '';
+  private readonly configurationEditKey = randomUUID();
   private loadedAt: string | null = null;
   private configError: string | null = null;
 
@@ -1488,10 +1490,11 @@ export class PaRuntime {
    * 覆盖），先跑完整校验器再原子写回唯一 ```json 块（工作规则区逐字节不变），
    * 随后走与 reload 相同的装载路径。storage/version 不在表单白名单。
    */
-  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding, expectedSourcesHash?: string, expectedConfigHash?: string): Promise<void> {
+  async updateWorkspaceConfig(patch: Record<string, unknown>, expectedBinding = this.workspaceBinding, expectedSourcesHash?: string, expectedConfigHash?: string, expectedImpactVersion?: string): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
     return this.transition(async () => {
       this.assertWorkspaceBinding(expectedBinding);
+      await this.assertConfigurationImpact(patch, [], expectedImpactVersion);
       await writeWorkspaceConfiguration(this.workspace!.statePath, patch, (config, secrets) => this.checkWorkspaceConfiguration(config, secrets), { expectedSourcesHash, expectedConfigHash });
       try {
         await this.loadWorkspaceConfig();
@@ -1537,13 +1540,14 @@ export class PaRuntime {
    * 表单密钥更新：非空字符串＝写入密钥库，空串＝清除该位，缺省＝不动。
    * 与 AGENTS.md 完全解耦（密钥值永不进配置块）；feishu 凭据变化时重连通道。
    */
-  async updateWorkspaceSecrets(values: Record<string, unknown>, expectedBinding = this.workspaceBinding): Promise<void> {
+  async updateWorkspaceSecrets(values: Record<string, unknown>, expectedBinding = this.workspaceBinding, expectedImpactVersion?: string): Promise<void> {
     if (!this.workspace) throw new Error('尚未绑定工作区。');
     if (!values || typeof values !== 'object' || Array.isArray(values)) throw new ConfigError('密钥补丁必须是对象。');
     const unknown = Object.keys(values).filter(k => !(SECRET_KEYS as readonly string[]).includes(k));
     if (unknown.length) throw new ConfigError(`未知密钥字段：${unknown.join('、')}。`);
     return this.transition(async () => {
       this.assertWorkspaceBinding(expectedBinding);
+      await this.assertConfigurationImpact({}, Object.keys(values), expectedImpactVersion);
       const next: SecretStore = { ...(await readWorkspaceConfiguration(this.workspace!.statePath)).secrets };
       for (const key of SECRET_KEYS) {
         if (!(key in values)) continue;
@@ -1555,13 +1559,46 @@ export class PaRuntime {
       }
       await this.checkWorkspaceConfiguration(this.config!, next);
       await writeSecretStore(this.workspace!.statePath, next);
-      const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next);
-      const connection = reconnect || (this.config?.mode === 'feishu' && !this.transport) ? await this.prepareTransport(this.config!, next) : null;
-      this.secretStore = next;
-      this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null;
-      // 凭据可能刚到位/被清除：feishu 模式下按新解析结果重连（与配置保存同口径）。
-      if (connection) await this.activateTransport(connection);
+      try {
+        const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next);
+        const connection = reconnect || (this.config?.mode === 'feishu' && !this.transport) ? await this.prepareTransport(this.config!, next) : null;
+        this.secretStore = next;
+        this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null;
+        if (connection) await this.activateTransport(connection);
+      } catch (error) {
+        throw Object.assign(new Error(`密钥已保存但尚未生效，当前连接保持原状：${this.sanitizeDiagnostic(redactDiagnostic((error as Error).message, Object.values(next)))}`), {
+          code: 'workspace_config_not_applied', evidence: { state: 'saved_not_applied' },
+        });
+      }
     });
+  }
+
+  /** Read-only and local: no platform checks, model calls or secret values in the response. */
+  async configurationImpact(patch: Record<string, unknown>, secretKeys: string[], binding: string) {
+    this.assertWorkspaceBinding(binding);
+    if (!this.workspace || !this.config || !this.repos) throw new Error('尚未绑定工作区。');
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new ConfigError('配置补丁必须是对象。');
+    if (!Array.isArray(secretKeys) || secretKeys.some(key => !(SECRET_KEYS as readonly string[]).includes(key))) throw new ConfigError('未知密钥字段。');
+    const current = await readWorkspaceConfiguration(this.workspace.statePath);
+    // Parameter/source saves reload the merged disk config; secret saves only apply
+    // the secret store against the active config. Include previously saved differences.
+    const next = secretKeys.length ? this.config : validateConfig(mergeWorkspaceConfiguration({ ...current.config }, patch));
+    const pendingSecrets = SECRET_KEYS.filter(key => !isDeepStrictEqual(current.secrets[key], this.secretStore[key]));
+    const pendingSavedChanges = pendingSecrets.length > 0 || !secretKeys.length && !isDeepStrictEqual(current.config, this.config);
+    const kinds = configurationImpactKinds(this.config, { ...next, sources: effectiveSources(next) }, [...new Set([...secretKeys, ...pendingSecrets])]);
+    const impacts = kinds.identity ? await this.repos.health.impacts() : null;
+    const activeWork = kinds.identity ? await this.hasActiveWork() : null;
+    // A per-runtime salt keeps the receipt opaque even when a credential has low entropy.
+    // It covers the actual editing inputs and both disk and active versions.
+    const version = hash(JSON.stringify([this.configurationEditKey, binding, current.sourceHash, this.sourceHash,
+      current.secrets, this.secretStore, SECRET_KEYS.map(key => this.secretValue(key)), patch, [...secretKeys].sort(), kinds, impacts, activeWork]));
+    return { workspaceBinding: binding, version, kinds, impacts, activeWork, pendingSavedChanges, storage: this.config.storage };
+  }
+
+  private async assertConfigurationImpact(patch: Record<string, unknown>, keys: string[], expected?: string): Promise<void> {
+    if (!expected) return; // Existing non-panel callers retain their authorization and checks.
+    const current = await this.configurationImpact(patch, keys, this.workspaceBinding!);
+    if (current.version !== expected) throw new ConfigError('配置或变更影响已变化，请核对更新后的说明再保存；当前输入保留，尚未写入。');
   }
 
   private async hasActiveWork(): Promise<boolean> {
@@ -1588,7 +1625,7 @@ export class PaRuntime {
     const appId = env[config.appIdEnv];
     const appSecret = env[config.appSecretEnv];
     if (!appId || !appSecret) {
-      return inactive(`feishu 模式缺少凭据（${config.appIdEnv}/${config.appSecretEnv}）：在面板「工作区与配置 → 密钥」填写，或设置同名环境变量；机器人未启动。`);
+      return inactive(`feishu 模式缺少凭据（${config.appIdEnv}/${config.appSecretEnv}）：在面板「接入与设置 → 参数配置 → 密钥」填写，或设置同名环境变量；机器人未启动。`);
     }
     const transport = (this.env.PA24_TRANSPORT || '').trim() === 'fake' ? new FakeFeishuTransport(appId) : new SdkFeishuTransport(appId, appSecret);
     let settle!: (active: boolean) => void;
@@ -4229,11 +4266,14 @@ export class PaRuntime {
   async configurationEvidence(binding?: unknown): Promise<unknown> {
     if (binding !== undefined) this.assertWorkspaceBinding(typeof binding === 'string' ? binding : null);
     if (!this.workspace || !this.config || !this.repos) throw new Error('尚未绑定工作区。');
-    let savedHash: string | null = null, error: string | null = null;
-    try { savedHash = (await readWorkspaceConfiguration(this.workspace.statePath)).sourceHash; }
+    let savedHash: string | null = null, error: string | null = null, secretsApplied = false;
+    try {
+      const saved = await readWorkspaceConfiguration(this.workspace.statePath);
+      savedHash = saved.sourceHash; secretsApplied = isDeepStrictEqual(saved.secrets, this.secretStore);
+    }
     catch (failure) { error = this.sanitizeDiagnostic((failure as Error).message); }
     return { path: this.workspace.statePath, activeHash: this.sourceHash, savedHash, loadedAt: this.loadedAt,
-      state: error ? 'source_error' : savedHash === this.sourceHash ? 'applied' : 'saved_not_applied', error,
+      state: error ? 'source_error' : savedHash === this.sourceHash && secretsApplied ? 'applied' : 'saved_not_applied', error,
       impacts: await this.repos.health.impacts(), configVersion: this.connectionVersion(),
       message: '源文件和生效配置分别标识；更换默认来源不迁移旧对象、计划或待发。身份变更前先核对进行中交办、待审版本与原渠道回执。' };
   }

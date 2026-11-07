@@ -6,6 +6,7 @@ import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG, CONFIG_FIELDS } from '../../lib/config.js';
 import { readWorkspaceConfiguration, writeWorkspaceConfiguration } from '../../lib/workspace-config.js';
 import { effectiveSources, sourceConfigurationFingerprint } from '../../lib/source-config.js';
+import { configurationImpactKinds } from '../../lib/config-impact.js';
 
 let React, createRoot, act, win, root, container, saved, requests, failSave, workspacePath, pendingSave, binding, pollSnapshots, evidenceState, reloadEvidence;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
@@ -18,7 +19,7 @@ beforeAll(async () => {
 });
 const snapshot = () => ({ workspace: { path: '/test/workspace', config: structuredClone(saved), sourceHash: 'same-version' }, workspaceBinding: binding, configMeta: { fields: CONFIG_FIELDS }, work: [], outbox: [], secrets: {}, readiness: { items: [] } });
 const button = label => [...container.querySelectorAll('button')].find(node => node.textContent === label);
-const field = name => [...container.querySelectorAll('label')].find(node => node.textContent.includes(`（${name}）`))?.control;
+const field = name => container.querySelector(`[data-config-field="${name}"]`);
 const modelField = (role, key) => container.querySelector(`input[aria-label="${role} ${key}"]`);
 const click = async node => { expect(node).toBeTruthy(); await act(async () => { node.click(); await pendingSave; }); };
 const openConfig = async () => click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：参数配置')));
@@ -43,6 +44,7 @@ beforeEach(async () => {
   binding = 'binding-a'; saved = structuredClone(DEFAULT_CONFIG); requests = []; failSave = false; pendingSave = Promise.resolve(); evidenceState = 'applied'; reloadEvidence = null;
   workspacePath = await mkdtemp(join(tmpdir(), 'pa24-config-editor-'));
   win.localStorage.clear();
+  win.confirm = vi.fn(() => true);
   vi.stubGlobal('fetch', vi.fn(async (_url, init) => {
     const req = JSON.parse(init.body); requests.push(req);
     if (req.endpoint === 'action' && req.payload.type === 'workspace.config-update') {
@@ -65,6 +67,7 @@ beforeEach(async () => {
     }
     const sources = effectiveSources(saved);
     const value = req.endpoint === 'sources' ? { workspaceBinding: binding, config: sources, configHash: sourceConfigurationFingerprint(sources), legacy: saved.sources === null, entries: sources.entries, removed: [] }
+      : req.endpoint === 'workspace.config-impact' ? { workspaceBinding: binding, version: 'impact-version', storage: saved.storage, kinds: configurationImpactKinds(saved, req.payload.config, req.payload.secretKeys), impacts: { work: 0, outbox: 0, reviews: 0 } }
       : req.endpoint === 'workspace.evidence' ? { state: evidenceState, savedHash: evidenceState === 'applied' ? 'same-version' : 'saved-version', activeHash: evidenceState === 'applied' ? 'same-version' : 'active-version', loadedAt: '2026-10-25T00:00:00Z', impacts: {} }
       : req.endpoint === 'snapshot' || req.endpoint === 'action' ? snapshot() : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : req.endpoint === 'digests' ? { plans: [], skills: [] } : {};
     return { ok: true, json: async () => ({ ok: true, value }) };
@@ -86,6 +89,56 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); await rm(workspacePath, { recursive: true, force: true }); vi.restoreAllMocks(); });
 
 describe('工作区参数编辑：真实 React DOM 用户操作', () => {
+  it('日常页去除版本与字段代码，保留语音；SQLite 下从维护入口准备 PG 值和引用', async () => {
+    expect(container.querySelector('fieldset').textContent).not.toMatch(/源文件版本|生效版本|进行中交办|PostgreSQL|ownerOpenId|workerModels|校验→写回/);
+    expect(field('tts.engine')).toBeTruthy(); expect(field('volcTtsKey')).toBeTruthy();
+    expect(field('pgDsn')).toBeNull(); expect(field('pgDsnEnv')).toBeNull();
+    await click(button('返回卡片'));
+    await click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：工作区与配置')));
+    await click(button('维护配置'));
+    expect(field('pgDsn')).toBeTruthy(); expect(field('pgDsnEnv')).toBeTruthy(); expect(field('tts.volcKeyEnv')).toBeTruthy();
+    expect(requests.filter(row => row.endpoint === 'action')).toEqual([]);
+    await change(field('pgDsn'), 'prepared-pg-fixture');
+    expect(container.textContent).toContain('仅作后续准备');
+    expect(requests.filter(row => row.endpoint === 'workspace.config-impact').every(row => !JSON.stringify(row).includes('prepared-pg-fixture'))).toBe(true);
+    await click(button('保存密钥'));
+    expect(requests.find(row => row.payload.type === 'workspace.secret-update').payload.values).toEqual({ pgDsn: 'prepared-pg-fixture' });
+    await change(field('pgDsnEnv'), 'NEXT_PG_DSN'); await click(button('保存并重载'));
+    expect(saved.pgDsnEnv).toBe('NEXT_PG_DSN'); expect(saved.storage).toBe('sqlite');
+    expect(requests.find(row => row.payload.type === 'workspace.config-update').payload.config).toEqual({ pgDsnEnv: 'NEXT_PG_DSN' });
+  });
+  it('身份影响必须先读到再允许保存；普通参数不显示统计或增加确认', async () => {
+    await change(field('maxWorkers'), '3');
+    expect(container.querySelector('[aria-label="本次修改的影响"]')).toBeNull();
+    await click(button('保存并重载')); expect(win.confirm).not.toHaveBeenCalled();
+    let release;
+    const wait = new Promise(resolve => { release = resolve; }), normal = fetch.getMockImplementation();
+    fetch.mockImplementation(async (...args) => { if (JSON.parse(args[1].body).endpoint === 'workspace.config-impact') await wait; return normal(...args); });
+    await change(field('larkProfile'), 'next-profile');
+    expect(button('保存并重载').disabled).toBe(true);
+    expect(requests.filter(row => row.payload.type === 'workspace.config-update')).toHaveLength(1);
+    await act(async () => { release(); await wait; });
+    expect(container.textContent).toContain('身份变更前需核对');
+    expect(button('保存并重载').disabled).toBe(false);
+    await click(button('保存并重载'));
+    expect(requests.filter(row => row.payload.type === 'workspace.config-update').at(-1).payload.expectedImpactVersion).toBe('impact-version');
+  });
+  it('来源分项权限保留授权尝试与未知，修改资源后旧证据不再表示当前可用', async () => {
+    const normal = fetch.getMockImplementation();
+    fetch.mockImplementation(async (...args) => {
+      const response = await normal(...args);
+      if (JSON.parse(args[1].body).endpoint !== 'sources') return response;
+      const result = await response.json();
+      result.value.entries[0] = { ...result.value.entries[0], evidence: { state: 'partial', capabilities: { read: 'allowed', create: 'attemptable', update: 'unknown', cancel: 'denied' } } };
+      return { ok: true, json: async () => result };
+    });
+    await click(button('重置来源'));
+    const article = container.querySelector('.pa24-sources article');
+    expect(article.textContent).toContain('读取：当前范围允许 · 创建：授权后可尝试，未验证可写 · 修改：未核验 · 取消：无权');
+    await change([...article.querySelectorAll('label')].find(row => row.textContent.startsWith('资源标识')).control, 'another-resource');
+    expect(article.textContent).toContain('读取：待重新核验');
+    expect(article.textContent).not.toContain('读取：当前范围允许');
+  });
   it('首次改旧日历默认会物化来源，保留原来源并把新默认写回配置源', async () => {
     const before = effectiveSources(saved).entries[0];
     await change(field('calendarId'), 'new-calendar'); await click(button('保存并重载'));
@@ -95,13 +148,13 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(requests.filter(req => req.payload.type === 'source.check')).toHaveLength(0);
   });
   it('来源浏览只读；旧配置一次保存后物化且不重复迁移', async () => {
-    expect(container.querySelector('.pa24-sources').textContent).toContain('迁移候选');
+    expect(container.querySelector('.pa24-sources').textContent).toContain('原配置的来源尚未保存');
     expect(requests.filter(row => row.payload.type === 'source.check')).toHaveLength(0);
     await click(button('保存来源并重载'));
     expect(saved.sources.entries).toHaveLength(2);
     expect(saved.sources.defaults.calendar).toBe('legacy-calendar-feishu');
     expect(button('保存来源并重载').disabled).toBe(true);
-    expect(container.querySelector('.pa24-sources').textContent).not.toContain('迁移候选');
+    expect(container.querySelector('.pa24-sources').textContent).not.toContain('原配置的来源尚未保存');
   });
   it('新增项目日历默认按本人参与筛选，保存后进入同一配置源', async () => {
     await click(button('添加日历来源'));
@@ -137,22 +190,22 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(saved.sources.entries[0].name).toBe('其他会话修改');
     expect([...article.querySelectorAll('input')][0].value).toBe('我的草稿');
   });
-  it('来源写后未生效保留草稿并显示 saved_not_applied 源文件与生效版本差异', async () => {
+  it('来源写后未生效保留草稿，日常页反馈语义状态而不重复技术版本', async () => {
     const article = container.querySelector('.pa24-sources article'), input = [...article.querySelectorAll('label')].find(row => row.textContent.startsWith('来源名称')).control;
     await change(input, '尚未生效的草稿');
     evidenceState = 'saved_not_applied';
     const evidenceCalls = requests.filter(req => req.endpoint === 'workspace.evidence').length;
     await click(button('保存来源并重载'));
     const alert = container.querySelector('.pa24-sources [role=alert]');
-    expect(alert.textContent).toContain('saved_not_applied');
-    expect(alert.textContent).toContain('saved-version');
-    expect(alert.textContent).toContain('active-version');
+    expect(alert.textContent).toContain('已保存未生效');
+    expect(alert.textContent).not.toContain('saved-version');
+    expect(alert.textContent).not.toContain('active-version');
     expect(requests.filter(req => req.endpoint === 'workspace.evidence').length).toBeGreaterThan(evidenceCalls);
     expect(input.value).toBe('尚未生效的草稿');
     expect(button('保存来源并重载').disabled).toBe(false);
     expect(container.querySelector('.pa24-sources').textContent).not.toContain('来源已保存并重载；新登记或变更的范围需要只读检查。');
   });
-  it('写盘后重载失败按结构化证据显示实际 Hash 并保留来源草稿', async () => {
+  it('写盘后重载失败按结构化证据保留来源草稿，技术 Hash 留给排障', async () => {
     const article = container.querySelector('.pa24-sources article'), input = [...article.querySelectorAll('label')].find(row => row.textContent.startsWith('来源名称')).control;
     await change(input, '写盘成功但重载失败的草稿'); failSave = 'reload';
     await click(button('保存来源并重载'));
@@ -160,9 +213,9 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     const alert = container.querySelector('.pa24-sources [role=alert]');
     expect((await readWorkspaceConfiguration(workspacePath)).sourceHash).toBe(reloadEvidence.savedHash);
     expect(reloadEvidence.savedHash).not.toBe(reloadEvidence.activeHash);
-    expect(alert.textContent).toContain('saved_not_applied');
-    expect(alert.textContent).toContain(reloadEvidence.savedHash);
-    expect(alert.textContent).toContain(reloadEvidence.activeHash);
+    expect(alert.textContent).toContain('已保存未生效');
+    expect(alert.textContent).not.toContain(reloadEvidence.savedHash);
+    expect(alert.textContent).not.toContain(reloadEvidence.activeHash);
     expect(input.value).toBe('写盘成功但重载失败的草稿');
     expect(button('保存来源并重载').disabled).toBe(false);
   });
@@ -245,9 +298,36 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(button('保存密钥').disabled).toBe(false);
     expect(container.textContent).toContain('密钥有未保存修改');
     await click(button('保存密钥'));
-    expect(requests.filter(r => r.endpoint === 'action').map(r => r.payload)).toEqual([{ type: 'workspace.secret-update', workspaceBinding: 'binding-a', values: { feishuAppSecret: 'new-test-key' } }]);
+    expect(requests.filter(r => r.endpoint === 'action').map(r => r.payload)).toEqual([{ type: 'workspace.secret-update', workspaceBinding: 'binding-a', values: { feishuAppSecret: 'new-test-key' }, expectedImpactVersion: 'impact-version' }]);
     expect(field('feishuAppSecret').value).toBe('');
     expect(button('保存密钥').disabled).toBe(true);
+  });
+  it('明确清除覆盖已输入的替换值，重新输入则撤销清除', async () => {
+    await change(field('volcTtsKey'), 'replacement-fixture');
+    const clear = field('volcTtsKey').closest('.pa24-field')?.querySelector('[aria-pressed]') || field('volcTtsKey').parentElement.querySelector('[aria-pressed]');
+    await click(clear);
+    expect(field('volcTtsKey').value).toBe('');
+    await click(button('保存密钥'));
+    expect(requests.filter(r => r.payload.type === 'workspace.secret-update').at(-1).payload.values).toEqual({ volcTtsKey: '' });
+    await click(clear); await change(field('volcTtsKey'), 'second-fixture');
+    expect(clear.getAttribute('aria-pressed')).toBe('false');
+    await click(button('保存密钥'));
+    expect(requests.filter(r => r.payload.type === 'workspace.secret-update').at(-1).payload.values).toEqual({ volcTtsKey: 'second-fixture' });
+  });
+  it('证据过期或离线均不显示已生效，恢复后可以重读', async () => {
+    const normal = fetch.getMockImplementation();
+    fetch.mockImplementation(async (...args) => {
+      if (JSON.parse(args[1].body).endpoint === 'workspace.evidence') return { ok: true, json: async () => ({ ok: true, value: { state: 'applied', activeHash: 'obsolete-version' } }) };
+      return normal(...args);
+    });
+    await click(button('读取配置状态'));
+    expect(container.querySelector('fieldset').textContent).toContain('配置状态待核验');
+    fetch.mockImplementation(async (...args) => { if (JSON.parse(args[1].body).endpoint === 'workspace.evidence') throw Error('offline fixture'); return normal(...args); });
+    await click(button('读取配置状态'));
+    expect(container.querySelector('fieldset').textContent).toContain('offline fixture');
+    expect(container.querySelector('fieldset').textContent).not.toContain('已保存并生效');
+    fetch.mockImplementation(normal); await click(button('读取配置状态'));
+    expect(container.querySelector('fieldset').textContent).toContain('已保存并生效');
   });
   it('参数保存不丢弃独立密钥草稿，未保存离开仍受保护', async () => {
     await change(field('maxWorkers'), '3'); await change(field('feishuAppSecret'), 'still-unsaved');

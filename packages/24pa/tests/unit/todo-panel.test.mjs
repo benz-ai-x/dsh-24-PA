@@ -51,6 +51,7 @@ beforeEach(async () => {
     if (req.endpoint === 'workspace.evidence' && evidenceGate?.remaining) { evidenceGate.remaining -= 1; await evidenceGate.promise; }
     const value = req.endpoint === 'snapshot' || (req.endpoint === 'action' && req.payload.type === 'workspace.config-update') ? { workspace: { path: '/workspace-' + binding, config: { ...DEFAULT_CONFIG }, sourceHash }, workspaceBinding: binding, work: [], outbox: [], secrets: {}, readiness: { items: [] } }
       : req.endpoint === 'todos' || (req.endpoint === 'action' && req.payload.type === 'todos.verify') ? todoResponse(req.payload, req.endpoint === 'action')
+      : req.endpoint === 'workspace.config-impact' ? { workspaceBinding: binding, version: 'source-impact-version', kinds: { targets: true }, storage: 'sqlite' }
       : req.endpoint === 'sources' ? catalog() : req.endpoint === 'reminders' ? { rules: [], occurrences: [] }
       : req.endpoint === 'workspace.evidence' ? { state: evidenceState, savedHash: evidenceState === 'applied' ? sourceHash : 'saved-version', activeHash: evidenceState === 'applied' ? sourceHash : 'active-version', impacts: {} }
       : req.endpoint === 'health' ? { capabilities: [] } : req.endpoint === 'memory' ? { items: [], total: 0, matched: 0 } : {};

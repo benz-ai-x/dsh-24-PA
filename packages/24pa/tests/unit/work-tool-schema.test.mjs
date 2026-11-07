@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import ToolRuntime, { validateJsonSchemaValue, assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools';
+import { validateJsonSchemaValue, assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools';
 import { Context } from '@deepseek-ai/cordis';
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
+import { installToolRuntime, executeTool } from '../helpers/tool-runtime.mjs';
 import { PaRuntime } from '../../lib/runtime.js';
 import { apply } from '../../lib/tools.js';
 
@@ -44,9 +44,9 @@ describe('真实注册的 Worker 模型接口', () => {
     const args = { action: 'progress', stage: '整理资料', completed: '核对输入', next: '保存结果' };
     expect(validateJsonSchemaValue(registeredWork(undefined, 'pa24_run').parameters, args)).toEqual([]);
     try {
-      await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime);
+      await installToolRuntime(ctx);
       ctx.tools.register(registeredWork(async value => { received = value; return value; }, 'pa24_run'));
-      const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: 'progress', name: 'pa24_run', arguments: args });
+      const result = await executeTool(ctx, { signal: new AbortController().signal, callId: 'progress', name: 'pa24_run', arguments: args });
       expect(result.isError).not.toBe(true); expect(received).toEqual(args);
     } finally { await ctx.fiber.dispose(); }
   });
@@ -59,9 +59,9 @@ describe('真实注册的 Worker 模型接口', () => {
   it('实际 ToolRuntime 将任务编号完整交给 handler（独立于 schema 校验测试）', async () => {
     const ctx = new Context(); let received;
     try {
-      await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime);
+      await installToolRuntime(ctx);
       ctx.tools.register(registeredWork(async args => { received = args; return { received: args }; }));
-      await ctx.tools.execute({ signal: new AbortController().signal, callId: 'contract', name: 'pa24_work', arguments: { action: 'task_get', taskId: 't1' } });
+      await executeTool(ctx, { signal: new AbortController().signal, callId: 'contract', name: 'pa24_work', arguments: { action: 'task_get', taskId: 't1' } });
       expect(received).toEqual({ action: 'task_get', taskId: 't1' });
     } finally { await ctx.fiber.dispose(); }
   });
