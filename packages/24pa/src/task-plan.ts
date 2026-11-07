@@ -40,6 +40,21 @@ export function taskPlanTimeZone(row: TaskPlanTimingSource, fallback: string): s
   return String(row.task_config?.timeZone ?? spec?.daily?.time_zone ?? spec?.weekly?.time_zone ?? spec?.cron?.time_zone ?? spec?.time_zone ?? fallback);
 }
 
+/** Shared creation defaults. An existing plan never passes through presets. */
+export function taskPlanPreset(input: Record<string, unknown>, defaults: { timeZone: string; deliveryChannel?: TaskPlanConfiguration['delivery']['channel'] }) {
+  const preset = String(input.preset ?? '');
+  if (!['morning', 'evening', 'weekly', 'once'].includes(preset)) throw new Error('请选择晨报、晚间复盘、周回顾或一次性简报。');
+  return {
+    title: ({ morning: '智能工作晨报', evening: '晚间复盘', weekly: '周回顾', once: '一次性简报' })[preset]!,
+    skillId: preset === 'morning' ? 'builtin:daily-planning' : `builtin:digest-${preset === 'once' ? 'morning' : preset}`,
+    timing: preset === 'once' ? { type: 'once', at: input.at }
+      : { type: preset === 'weekly' ? 'weekly' : 'daily', time: preset === 'evening' ? '21:00:00' : '09:00:00', weekdays: [5] },
+    timeZone: defaults.timeZone, parameters: {}, selectors: {}, executionLimitMs: 900000,
+    delivery: { channel: defaults.deliveryChannel ?? 'none', mode: 'always', voice: false, overrideQuiet: false },
+    ...input,
+  };
+}
+
 function object(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${field} 须为对象。`);
   return value as Record<string, unknown>;

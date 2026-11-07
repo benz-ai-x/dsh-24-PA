@@ -6,6 +6,7 @@ import { lockPlanSkill, type SkillEntryRow } from './skill.js';
 import { SkillRunRepo, type SkillRunRow } from './skill-run.js';
 import { digestWindowKey } from '../digest-period.js';
 import { taskPlanFingerprint } from '../task-plan-access.js';
+import { legacyDeliveryStatus, legacyExecutionStatus } from './legacy-plan-history.js';
 
 export interface TaskPlanRow extends DigestPlanRow {
   revision: number;
@@ -47,6 +48,12 @@ export class TaskPlanRepo {
     if (!row) return null;
     if (row.request_hash !== input.requestHash || !row.result) throw new Error('计划操作标识已用于其他内容，请刷新后重试。');
     return restored(row.result);
+  }
+  /** For a trusted owner-message identity whose command has no mutable fields
+   * (pause/stop). Replays return its original receipt, never a new owner choice. */
+  async ownerChoiceReceipt(requestId: string): Promise<TaskPlanRow | null> {
+    const row = (await this.db.query<{ result: TaskPlanRow | null }>('select result from pa24.task_plan_change where request_id = $1', [requestId])).rows[0];
+    return row?.result ? restored(row.result) : null;
   }
   async remember(input: ChangeIdentity, row: TaskPlanRow): Promise<TaskPlanRow> { return this.change(input, async () => row); }
   private async change(input: ChangeIdentity, work: (tx: PaQueryer) => Promise<TaskPlanRow>): Promise<TaskPlanRow> {
@@ -234,10 +241,12 @@ export class TaskPlanRepo {
     return { rows, total, offset, limit };
   }
   async recentRun(id?: string) {
-    return (await this.db.query<{ id: string; plan_id: string; status: string; delivery_status: string; created_at: Date }>(`select r.id, r.plan_id, r.status, r.delivery_status, r.created_at
+    return (await this.db.query<{ id: string; plan_id: string; status: string; delivery_status: string; created_at: Date; kind: 'runs' | 'legacy' }>(`select * from (select r.id, r.plan_id, r.status, r.delivery_status, r.created_at, 'runs' as kind
       from pa24.skill_run r where ${id ? 'r.plan_id = $1' : 'r.plan_id is not null'}
       and not exists (select 1 from pa24.plan_trigger t where t.run_id = r.id and t.status in ('skipped', 'expired', 'rejected'))
-      order by r.created_at desc, r.id limit 1`, id ? [id] : [])).rows[0] ?? null;
+      union all select r.id, r.plan_id, ${legacyExecutionStatus}, ${legacyDeliveryStatus}, r.created_at, 'legacy' as kind
+      from pa24.digest_occurrence r ${id ? 'where r.plan_id = $1' : ''}) recent
+      order by recent.created_at desc, recent.id limit 1`, id ? [id] : [])).rows[0] ?? null;
   }
   async summary() {
     const row = (await this.db.query<Record<string, string | number | null>>(`select count(*) as total,

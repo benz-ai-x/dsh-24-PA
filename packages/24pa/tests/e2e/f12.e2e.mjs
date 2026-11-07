@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { seedLegacyPlan } from '../helpers/legacy-plan-fixture.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const run = promisify(execFile);
@@ -88,11 +89,8 @@ afterAll(async () => {
 describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () => {
   it('P37：归档检查列出原生计划与外部提醒；执行需确认、外部提醒默认保留；取消零副作用', async () => {
     // 空闲但有计划：开一个 digest 计划（不触发）＋一条 PG 提醒
-    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '开晚间回顾计划', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'digest_enable', kind: 'evening', time: '23:30:00' }, workerReply: 'ok' });
-    let before = llm.log.length;
-    await inject(ownerEvent('evt-m1', { text: '开启每天 23 点半的晚间回顾' }));
-    await waitWorkItem('开晚间回顾计划', '计划开启');
-    await waitToolResult('pa24_work', 'planId', '计划回执', 60_000, before);
+    const legacyPlan = await seedLegacyPlan(host, cluster.dsn, { kind: 'evening', time: '23:30:00' });
+    let before;
 
     // F45：时钟型 daily 走日历渠道（feishu 在线）
     await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '设外部提醒', instruction: 'x' }, leadReply: 'ok', workerAction: { action: 'reminder_create', kind: 'daily', time: '09:00:00', text: '晨间例行' }, workerReply: 'ok' });
@@ -117,7 +115,7 @@ describe('F12 运行维护与数据恢复（真实 Loader + 隔离 PG）', () =>
     await promptLocal('f12-chk-1', '归档前检查一下运行状态');
     const check = await waitToolResult('pa24_maintenance', 'nativeSchedules', '检查回执', 60_000, before);
     expect(check).toContain('nativeSchedules');
-    expect(check).toContain('dig-evening');
+    expect(check).toContain(legacyPlan.id);
     expect(check).toContain('externalPgReminders');
     expect(check).toContain('reminderRules');
     expect(check).toContain('晨间例行');

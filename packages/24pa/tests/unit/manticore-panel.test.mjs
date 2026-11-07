@@ -2,7 +2,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
-import { taskPlanDraft } from '../../lib/task-plan.js';
+import { taskPlanDraft, taskPlanPreset } from '../../lib/task-plan.js';
+import { planSettingsForm } from '../../lib/task-plan-settings.js';
 let React, act, createRoot, win, root, container, binding, requests, plan, run, fault, delayed, savedBlob, intervals, work, emptyHistory;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 const form = () => ({ title: '项目晨报', skillId: 'builtin:digest-morning', parameters: { title: '项目晨报正文' }, timeZone: 'Asia/Shanghai', timing: { type: 'daily', time: '09:00:00' }, executionLimitMs: 900000, selectors: {}, delivery: { channel: 'none', mode: 'always', voice: false, overrideQuiet: false } });
@@ -38,18 +39,18 @@ beforeEach(async () => {
       let value;
       if (endpoint === 'snapshot') value = { workspace: { path: '/workspace', config: DEFAULT_CONFIG }, work: [], outbox: [], readiness: { items: [] } };
       else if (endpoint === 'home') value = { calendar: {}, todos: {}, review: {},
-        plans: plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config.timeZone } },
+        plans: plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config?.timeZone || 'Asia/Shanghai' } },
         runs: emptyHistory ? { runs24: 0, failed24: 0, delivery_failed24: 0, delivery_unknown24: 0, unresolved: 0, unresolved_events: 0, unexecuted24: 0, active_work: 0, waiting_work: 0, failed_work: 0, run_total: 0, work_total: 0, event_total: 0, legacy_total: 0, empty: true, observedAt: new Date().toISOString() } : { runs24: 31, failed24: 2, delivery_failed24: 1, delivery_unknown24: 2, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, empty: false, observedAt: new Date().toISOString() }, observedAt: new Date().toISOString() };
-      else if (endpoint === 'plans.summary') value = plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config.timeZone } };
+      else if (endpoint === 'plans.summary') value = plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config?.timeZone || 'Asia/Shanghai' } };
       else if (endpoint === 'runs.summary') value = emptyHistory ? { runs24: 0, failed24: 0, delivery_failed24: 0, delivery_unknown24: 0, unresolved: 0, unresolved_events: 0, unexecuted24: 0, active_work: 0, waiting_work: 0, failed_work: 0, run_total: 0, work_total: 0, event_total: 0, legacy_total: 0, empty: true, observedAt: new Date().toISOString() } : { runs24: 31, failed24: 2, delivery_failed24: 1, delivery_unknown24: 2, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, empty: false, observedAt: new Date().toISOString() };
       else if (endpoint === 'skills.catalog') value = { entries: [{ id: 'builtin:daily-planning', name: 'daily-planning', type: 'task', source: 'builtin' }, ...['morning', 'evening', 'weekly'].map(kind => ({ id: 'builtin:digest-' + kind, name: 'digest-' + kind, type: 'template', source: 'builtin' }))], discovery: 'complete' };
       else if (endpoint === 'skills.inspect') value = p.id === 'builtin:daily-planning'
         ? { id: p.id, type: 'task', metadata: { track: 'agent', pa24: { parameters: { date: { type: 'string' } } } } }
         : { id: p.id, type: 'template', metadata: { track: 'template', pa24: true } };
       else if (endpoint === 'plans') { const empty = p.state === 'recycled' || (p.query && !plan.title.includes(p.query)); value = { rows: empty ? [] : [structuredClone(plan)], total: empty ? 0 : 1, offset: p.offset, limit: 20 }; }
-      else if (endpoint === 'plans.inspect') value = { plan: structuredClone(plan), form: { ...form(), title: plan.title }, blocks: plan.blocks, activeRuns: [], legacyHistory: plan.legacyHistory || [] };
-      else if (endpoint === 'plans.draft') value = taskPlanDraft(p, 'Asia/Shanghai');
-      else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, timeZone: plan.task_config.timeZone, fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标' };
+      else if (endpoint === 'plans.inspect') value = { plan: structuredClone(plan), form: plan.task_config ? { ...form(), title: plan.title } : null, settings: planSettingsForm(plan, 'Asia/Shanghai'), blocks: plan.blocks, activeRuns: [], legacyHistory: plan.legacyHistory || [] };
+      else if (endpoint === 'plans.draft') { const form = p.preset ? taskPlanPreset(p, { timeZone: 'Asia/Shanghai', deliveryChannel: 'none' }) : p; value = { ...taskPlanDraft(form, 'Asia/Shanghai'), form }; }
+      else if (['plans.preview', 'plans.run-preview', 'plans.migration-preview', 'plans.settings-preview'].includes(endpoint)) value = { planId: plan.id, revision: plan.revision, timeZone: plan.task_config?.timeZone || 'Asia/Shanghai', fingerprint: 'plan-fingerprint-' + plan.revision, authorization: auth(), nextTimes: plan.nextTimes, message: '已核验当前目标' };
       else if (endpoint === 'runs') {
         const matched = !emptyHistory && (!p.query || '项目晨报'.includes(p.query));
         const runRows = matched ? Array.from({ length: p.offset ? 11 : 20 }, (_, index) => ({ id: !index && !p.offset ? 'run-a' : 'run-' + (index + p.offset), title: '项目晨报', record_kind: run.run.record_kind || 'skill', skill_id: 'builtin:digest-morning', skill_name: '项目晨报', version_id: index === 1 ? null : 'v1', status: 'completed', delivery_status: index === 1 ? 'failed' : 'partial', summary: '结果摘要', source: 'schedule', created_at: new Date().toISOString() })) : [];
@@ -66,6 +67,7 @@ beforeEach(async () => {
         if (p.type === 'plan.change') {
           if (p.op === 'save') { const draft = taskPlanDraft(p, 'Asia/Shanghai'); plan = { ...plan, title: p.title, task_config: draft.configuration, task_authorization: p.id ? plan.task_authorization : null, schedule_spec: draft.scheduleSpec, revision: plan.revision + 1, status: 'paused', owner_enabled: false }; }
           if (p.op === 'enable') { expect(p.fingerprint).toBe('plan-fingerprint-' + plan.revision); plan.task_authorization = { ...auth(), skill: { ...auth().skill, id: plan.task_config.skillId } }; plan.status = 'active'; plan.owner_enabled = true; plan.schedule_id = 'native'; plan.revision++; }
+          if (p.op === 'settings') { expect(p.fingerprint).toBe('plan-fingerprint-' + plan.revision); if (p.settings.time) plan.schedule_spec.daily.time = p.settings.time; if (p.settings.voice !== undefined) plan.voice = p.settings.voice; plan.revision++; }
           if (p.op === 'pause') { plan.status = 'paused'; plan.owner_enabled = false; plan.schedule_id = null; plan.revision++; }
           value = p.op === 'run' ? { trigger: { status: 'queued' }, run: run.run } : { plan: structuredClone(plan) };
         } else if (p.type === 'work.change') { expect(p.expectedRevision).toBe(work.revision); work.revision++; if (p.op === 'accept') work.acceptance_status = 'accepted'; value = { work: structuredClone(work) }; } else if (p.type === 'plan.delivery') value = { deliveries: run.deliveries };
@@ -457,4 +459,26 @@ describe('M02 管理界面', () => {
     expect(blank.textContent).toContain('此类档案尚无记录'); expect(blank.textContent).toContain('普通查看不会启动运行'); expect(blank.querySelector('svg path').getAttribute('d')).toContain('M3 12a9 9');
     expect(requests.filter(row => row.endpoint === 'action')).toHaveLength(0);
   });
+});
+
+for (const legacy of [false, true]) it(`F50 ${legacy ? '旧' : '通用'}启用计划可只改时间，预览与确认保留语音和其他字段`, async () => {
+  if (legacy) { plan.kind = 'morning'; plan.task_config = null; plan.task_authorization = null; }
+  plan.status = 'active'; plan.owner_enabled = !legacy; plan.schedule_id = 'original-native'; plan.voice = true;
+  await open('定时任务'); await click(button('项目晨报'));
+  if (legacy) expect(container.textContent).toContain('旧计划可继续使用，无需迁移');
+  await change(field('时刻'), '10:30'); await click(button('预览时间与语音调整'));
+  expect(plan.schedule_spec.daily.time).toBe('09:00:00');
+  expect(button('确认执行此操作').disabled).toBe(true);
+  await click(field('确认本计划的工具、资源、目标和此项操作')); await click(button('确认执行此操作'));
+  expect(plan).toMatchObject({ id: 'plan-a', status: 'active', schedule_id: 'original-native', voice: true });
+  expect(requests.find(row => row.endpoint === 'action' && row.payload.op === 'settings').payload).toMatchObject({ id: 'plan-a', expectedRevision: 1, settings: { time: '10:30' }, confirm: true });
+  expect(plan.task_config === null).toBe(legacy);
+});
+it('F50 调整预览失败不显示可确认操作，旧计划历史使用正确类别', async () => {
+  plan.kind = 'morning'; plan.task_config = null; plan.task_authorization = null;
+  await open('定时任务'); await click(button('项目晨报')); await change(field('时刻'), '10:30');
+  fault = 'plans.settings-preview'; await click(button('预览时间与语音调整'));
+  expect(container.textContent).toContain('离线读取失败'); expect(button('确认执行此操作')).toBeUndefined();
+  fault = null; await click(button('查看全部运行'));
+  expect(requests.filter(row => row.endpoint === 'runs').at(-1).payload).toMatchObject({ kind: 'legacy', planId: 'plan-a', range: 'all' });
 });

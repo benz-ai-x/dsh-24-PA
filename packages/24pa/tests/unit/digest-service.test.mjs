@@ -110,7 +110,7 @@ describe('F19：口播变体与语音入队', () => {
       repos: () => ({
         digests: {
           getPlan: async () => plan,
-          updatePlan: async (id, patch) => { updated.push([id, patch]); return { ...plan, ...patch }; },
+          comparePlan: async (row, patch) => { updated.push([row.id, patch]); return { ...row, ...patch }; },
         },
       }),
     });
@@ -159,7 +159,7 @@ describe('F40：计划绑定任务 skill', () => {
       skillCatalog: () => fallback,
       repos: () => ({ digests: {
         getPlan: async () => planRow('digest-evening'),
-        updatePlan: async (id, patch) => { updated.push([id, patch]); return { id, ...patch }; },
+        comparePlan: async (row, patch) => { updated.push([row.id, patch]); return { ...row, ...patch }; },
       } }),
     });
     const service = new DigestService(deps);

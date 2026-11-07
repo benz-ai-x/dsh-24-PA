@@ -14,6 +14,7 @@ import { PlanLifecycle } from './plan-lifecycle.js';
 import type { ResolvedTaskSkill, SkillDefinitionLike } from './skills.js';
 import { isoDate, hash } from './util.js';
 import { DailyPlanning } from './daily-planning.js';
+import { taskPlanTimeZone } from './task-plan.js';
 import { fixedPlanningWindow } from './work-planning-validation.js';
 import { localDay } from './calendar-time.js';
 import { checkExecution } from './execution-cancellation.js';
@@ -171,6 +172,7 @@ export class DigestService {
   private async controlPlan(args: Record<string, unknown>): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(String(args.planId ?? ''));
     if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
+    if (args.expectedRevision !== undefined && args.expectedRevision !== plan.revision) throw new Error('计划已有其他修改，请刷新后重试。');
     if (upgradedPlan(plan)) throw new Error('此计划使用通用定时任务配置，请从定时任务管理入口操作。');
     const op = String(args.op ?? '');
     if (plan.kind === 'waiting_followup' && !['pause', 'stop'].includes(op)) throw new Error('等待检查点请用 waiting_control 管理，不能更换任务 skill 或执行规则。');
@@ -184,13 +186,13 @@ export class DigestService {
       // F40/F41（spec 2.11）：per-plan 任务 skill 切换（须在目录中，双轨可绑）。
       const skill = String(args.skill ?? '');
       await this.requireSkill(skill);
-      await this.plans.configure(plan.id, { skill });
+      await this.plans.configure(plan.id, { skill }, plan.revision);
       return { planId: plan.id, skill, message: `本计划任务 skill 已切换为 ${skill}。` };
     }
     if (op === 'voice') {
       // F19（spec 2.3）：per-plan 语音开关（引擎取工作区 tts 配置）。
       const voice = args.voice === true;
-      await this.plans.configure(plan.id, { voice });
+      await this.plans.configure(plan.id, { voice }, plan.revision);
       return { planId: plan.id, voice, message: voice ? '本计划改为语音版＋全文文本兜底。' : '本计划改为纯文本。' };
     }
     if (op === 'resume') {
@@ -203,7 +205,7 @@ export class DigestService {
       if (plan.kind === 'waiting_followup') throw new Error('等待检查点请用 waiting_control 调整，不能换成简报计划。');
       const kind = String(args.kind ?? plan.kind);
       if (!['morning', 'evening', 'weekly', 'once'].includes(kind)) throw new Error('调整后的计划类型无效。');
-      const timeZone = String(args.timeZone ?? this.deps.config().timeZone);
+      const timeZone = String(args.timeZone ?? taskPlanTimeZone(plan, this.deps.config().timeZone));
       let request: Record<string, unknown>;
       if (kind === 'once') {
         const seconds = Number(args.afterSeconds ?? 0);
@@ -215,10 +217,10 @@ export class DigestService {
         if (!/^\d{2}:\d{2}:\d{2}$/.test(String(args.time ?? ''))) throw new Error('调整需要新的本地时间 HH:mm:ss。');
         const weekdays = Array.isArray(args.weekdays) ? (args.weekdays as number[]) : undefined;
         request = kind === 'weekly'
-          ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays ?? [1])].sort() } }
+          ? { weekly: { time: String(args.time), time_zone: timeZone, weekdays: [...new Set(weekdays ?? plan.schedule_spec.weekly?.weekdays ?? [1])].sort() } }
           : { daily: { time: String(args.time), time_zone: timeZone } };
       }
-      const adjusted = await this.plans.adjust(plan.id, { ...request, time_zone: timeZone }, kind);
+      const adjusted = await this.plans.adjust(plan.id, { ...request, time_zone: timeZone }, kind, plan.revision);
       return { planId: plan.id, scheduleId: adjusted.schedule_id, message: '计划已按新安排调整（同一计划保留历史，只影响以后）。' };
     }
     throw new Error('未知计划操作（pause/resume/stop/adjust/voice/skill）。');
@@ -229,6 +231,7 @@ export class DigestService {
     const view = [];
     for (const plan of plans) {
       const occurrences = await this.deps.repos().digests.occurrencesOf(plan.id, 3);
+      const recentRun = await this.deps.repos().taskPlans.recentRun(plan.id);
       view.push({
         planId: plan.id,
         managed: upgradedPlan(plan),
@@ -240,8 +243,9 @@ export class DigestService {
         pendingChange: plan.lifecycle ? { operation: plan.lifecycle.operation, phase: plan.lifecycle.phase, error: plan.lifecycle.error ?? null } : null,
         lastWindow: plan.last_window,
         voice: plan.voice,
+        recentRun,
         skill: plan.skill,
-        recent: occurrences.map(o => ({ window: o.window_key, status: o.status, completedAt: isoDate(o.completed_at) })),
+        recent: upgradedPlan(plan) ? (recentRun ? [recentRun] : []) : occurrences.map(o => ({ window: o.window_key, status: o.status, completedAt: isoDate(o.completed_at) })),
       });
     }
     return { plans: view };

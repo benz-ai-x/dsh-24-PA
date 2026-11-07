@@ -5,6 +5,7 @@ import { consumedTurn } from './host-turn.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { bridgeScheduleService } from './schedule-bridge.js';
 import { TaskPlanService } from './task-plan-service.js';
+import { PlanConversation } from './plan-conversation.js';
 import { TaskPlanEngine } from './task-plan-engine.js';
 import { PlanResults } from './plan-results.js';
 import type { TaskPlanAuthorization } from './task-plan.js';
@@ -559,6 +560,7 @@ export class PaRuntime {
   readonly skillPackages: SkillPackages;
   readonly skillRuns: SkillRuns;
   readonly taskPlans: TaskPlanService;
+  private readonly planConversation: PlanConversation;
   readonly runHistory: RunHistory;
   readonly planEngine: TaskPlanEngine;
   private readonly planResults: PlanResults;
@@ -573,12 +575,16 @@ export class PaRuntime {
     work: () => this.repos!.workItems.list(undefined, 1000), waiting: () => this.repos!.waiting.list('waiting'),
     bufferMinutes: () => this.digest.preferenceBufferMinutes(),
     isBackground: async id => (await this.repos!.digests.workSource(id))?.kind === 'schedule',
-    ownerInput: async item => {
-      if (!item.execution_id || !item.active_worker_run_id) return null;
-      const input = (await this.repos!.workerRuns.inputs(item.active_worker_run_id)).find(row => row.execution_id === item.execution_id);
-      return input?.status === 'adopted' ? input.scope.ownerInput ?? null : null;
-    },
+    ownerInput: item => this.adoptedOwnerInput(item),
   });
+  private async adoptedOwnerInput(item: WorkItemRow): Promise<WorkOwnerInput | null> {
+    if (!item.execution_id || !item.active_worker_run_id) return null;
+    const input = (await this.repos!.workerRuns.inputs(item.active_worker_run_id)).find(row => row.execution_id === item.execution_id);
+    return input?.status === 'adopted' ? input.scope.ownerInput ?? null : null;
+  }
+  private planConversationAuthority() {
+    return taskPlanFingerprint([this.workspaceBinding, this.config?.ownerOpenId, this.config?.mode, this.config?.larkProfile, this.config?.notifyChannel]);
+  }
   // Native tools require lossless JSON; ledger rows and source facts contain Dates.
   private async planningResult(operation: Promise<unknown>): Promise<unknown> {
     return JSON.parse(JSON.stringify(await operation));
@@ -756,9 +762,15 @@ export class PaRuntime {
     const planContext = () => this.workspace && this.workspaceBinding && this.repos && this.config && this.accessSessionId
       ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, sessionId: this.accessSessionId, timeZone: this.config.timeZone, repos: this.repos,
         diagnosticRetentionDays: this.config.diagnosticRetentionDays,
+        legacyDelivery: { channel: this.config.mode === 'demo' ? 'local' : this.config.notifyChannel,
+          target: this.config.mode === 'demo' ? this.accessSessionId : this.config.notifyChannel === 'feishu' ? this.config.ownerOpenId : null,
+          configurationKey: taskPlanFingerprint([this.planConversationAuthority(), this.sourceConnectionHash(this.config.notifyChannel)]) },
         deliveryChannel: this.config.notifyChannel === 'wecom' ? 'wecom' as const : this.config.ownerOpenId ? 'feishu' as const : 'none' as const } : null;
     this.taskPlans = new TaskPlanService({ context: planContext, skills: this.skillRuns, management: this.skillManagement,
       lifecycle: this.digest.plans, access: this.taskPlanAccess, gate: (key, work) => this.gate(key, work) });
+    this.planConversation = new PlanConversation({ plans: this.taskPlans,
+      context: () => { const context = planContext(); return context ? { ...context, authority: this.planConversationAuthority() } : null; },
+      ownerInput: item => this.adoptedOwnerInput(item), legacyControl: input => this.digest.digestControl(input), gate: (key, work) => this.gate(key, work) });
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });
     this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess, silence: this.silencePolicy, binding: () => this.workspaceBinding });
@@ -993,9 +1005,9 @@ export class PaRuntime {
         reminder_skip: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '跳过'); return this.reminders!.skipThis(String(args.ruleId ?? ''), String(args.reason ?? '')); },
         reminder_snooze: async args => { await this.reminderRouter.rejectDelegated(String(args.ruleId ?? ''), '稍后'); return this.reminders!.snooze(String(args.ruleId ?? ''), Number(args.seconds ?? 0), String(args.reason ?? '')); },
         reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
-        digest_enable: async (args, item) => this.digest.digestEnable(args, item.id),
-        digest_control: async args => this.digest.digestControl(args),
-        digest_list: async () => this.digest.digestList(),
+        digest_enable: (args, item) => this.planningResult(this.planConversation.enable(args, item)),
+        digest_control: (args, item) => this.planningResult(this.planConversation.control(args, item)),
+        digest_list: args => this.planningResult(this.planConversation.list(args)),
       },
     });
     this.roles.register({
@@ -1820,7 +1832,7 @@ export class PaRuntime {
       if ('error' in parent) throw parent.error;
       this.workerParents.add(item.parent_session_id);
       const messageId = await this.executions.detached(() => this.ctx.subagents.sendMessage(parent.agent, item.child_session_id!, [{ type: 'text', text: input },
-        ...(item.role === 'calendar' ? [{ type: 'text', text: workOwnerInputPrompt(item.execution_scope?.ownerInput) }] : []), workExecutionContent(item)], { signal: this.lifetime.signal })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
+        ...(['calendar', 'reminders'].includes(item.role) ? [{ type: 'text', text: workOwnerInputPrompt(item.execution_scope?.ownerInput) }] : []), workExecutionContent(item)], { signal: this.lifetime.signal })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
       return typeof messageId === 'string' ? messageId : undefined;
     },
     quiesce: async item => {
@@ -2153,7 +2165,7 @@ export class PaRuntime {
     try {
       await this.inboxLifecycle.admit(item.child_session_id, inboxEventId, `followup:${inboxEventId}`, async () => {
         const resumed = await this.workLifecycle.resume(item.id, `[本人补充] ${input}\n\n[路由依据：引用原事项「${item.title}」]`, true,
-          { kind: 'feishu', sourceId: inboxEventId, messages: [{ id: inboxEventId, text: input }] });
+          { kind: 'feishu', sourceId: inboxEventId, authority: this.planConversationAuthority(), messages: [{ id: inboxEventId, text: input }] });
         return resumed.acceptedMessageId;
       });
     } catch (error) {
@@ -2259,7 +2271,7 @@ export class PaRuntime {
       }
     }
     if (!await this.ctx.sessions.flush(agent.session)) throw new Error('主人输入尚未持久化，请稍后重试。');
-    return input;
+    return { ...input, authority: this.planConversationAuthority() };
   }
 
   async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string; completionCriteria?: string; acceptanceRequired?: boolean; parentWorkId?: string }, agent: DshAgent, panelInput?: WorkOwnerInput): Promise<unknown> {
@@ -2286,7 +2298,8 @@ export class PaRuntime {
       if (args.parentWorkId && !await this.repos!.workItems.get(args.parentWorkId)) throw new Error('关联的原交办不存在。');
       const title = text(args.title, 200);
       const instruction = text(args.instruction);
-      const ownerInput = args.worker === 'calendar' ? panelInput ?? await this.captureOwnerInput(agent) : null;
+      const ownerInput = ['calendar', 'reminders'].includes(args.worker)
+        ? panelInput ? { ...panelInput, authority: this.planConversationAuthority() } : await this.captureOwnerInput(agent) : null;
       let note: NoteRow | null = null;
       if (String(args.worker) === 'handwriting') {
         if (!args.noteId || !String(args.noteId).trim()) throw new Error('手写整理需要携带 noteId（先由飞书拍照收集原稿，编号形如 N-1）。');
@@ -2428,7 +2441,7 @@ export class PaRuntime {
     }
     if (runPrompt) prompt = runPrompt;
     if (!runPrompt) prompt.push({ type: 'text', text: '处理过程中使用 pa24_run action=progress 记录真实阶段、已完成内容、下一步。缺少主人信息或外部结果时使用 action=wait 并说明所需内容。最终结果包含摘要、实际动作、产物或出处、未完成问题和接续建议；对照完成标准判断，不以已创建待办代替业务完成。' });
-    if (item.role === 'calendar') prompt.push({ type: 'text', text: workOwnerInputPrompt(item.execution_scope?.ownerInput) });
+    if (['calendar', 'reminders'].includes(item.role)) prompt.push({ type: 'text', text: workOwnerInputPrompt(item.execution_scope?.ownerInput) });
     prompt.push(workExecutionContent(item));
     if (item.active_worker_run_id) await this.repos.workerRuns.freeze(item.active_worker_run_id, { persona, prompt, modelRoute: modelRoute ?? null,
       tools: ['pa24_work', 'pa24_memory', 'pa24_run', ...(roleDef.tools ?? [])], completionCriteria: item.completion_criteria ?? null });
@@ -2504,7 +2517,7 @@ export class PaRuntime {
             } else {
               const instruction = text(input.instruction, 20000);
               const ownerInput = requester ? await this.captureOwnerInput(requester)
-                : { kind: 'panel' as const, sourceId: requestId, messages: [{ id: requestId, text: instruction }] };
+                : { kind: 'panel' as const, sourceId: requestId, authority: this.planConversationAuthority(), messages: [{ id: requestId, text: instruction }] };
               await this.workLifecycle.resume(id, instruction, input.op === 'supplement', ownerInput);
             }
             result = { work: await this.repos!.workItems.get(id), run: await this.repos!.workerRuns.current(id) };
@@ -2610,7 +2623,7 @@ export class PaRuntime {
         if (!handler) return { status: 'rejected', businessExecuted: false, action,
           reason: `此 Worker 不支持这项操作（${item.role}/${action}），未执行业务动作；请使用当前职责允许的动作。`,
           allowedActions: Object.keys(role?.actions ?? {}) };
-        if (['focus_update', 'daily_plan_confirm', 'daily_plan_save', 'daily_review_save'].includes(String(args.action))) await this.workerRuns.observe(agent.session, true);
+        if (['focus_update', 'daily_plan_confirm', 'daily_plan_save', 'daily_review_save', 'digest_enable', 'digest_control'].includes(String(args.action))) await this.workerRuns.observe(agent.session, true);
         const bounded = Object.hasOwn(this.planningActions, String(args.action ?? '')) ? await this.digest.planningArgs(item, args) : args;
         return await handler(bounded, item, this);
       } catch (error) {

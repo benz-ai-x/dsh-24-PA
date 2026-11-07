@@ -12,11 +12,13 @@ export function bridgeScheduleService(service: AnySchedule): NativeScheduleServi
   const entry = (row: AnySchedule) => row && row.sessionId === undefined && row.target?.sessionId !== undefined
     ? { ...row, sessionId: row.target.sessionId } : row;
   if (!modern) return service as unknown as NativeScheduleService;
+  // These plans act for their owning access session. Pass that native actor
+  // so management does not inject a schedule-change notice back into itself.
   return {
     create: async (sessionId: string, request: Record<string, unknown>) => entry(await service.create({
       title: request.title, prompt: request.prompt, timing: nativeTiming(request), target: { kind: 'session', sessionId },
-    })) as { id: string; scheduledAt?: string } & Record<string, unknown>,
-    delete: async (request: { sessionId: string; id: string }) => service.edit({ id: request.id, action: 'delete' }),
+    }, sessionId)) as { id: string; scheduledAt?: string } & Record<string, unknown>,
+    delete: async (request: { sessionId: string; id: string }) => service.edit({ id: request.id, action: 'delete' }, request.sessionId),
     history: async (request: Parameters<NativeScheduleService['history']>[0]) => service.history(request),
     update: async (request: Parameters<NonNullable<NativeScheduleService['update']>>[0]) => {
       // change 已是 planTimingChange（＝nativeTiming）产出的判别联合；
@@ -25,7 +27,7 @@ export function bridgeScheduleService(service: AnySchedule): NativeScheduleServi
         id: request.id, action: 'update',
         patch: { title: request.title, prompt: request.prompt, timing: nativeTiming(request.change) },
         expectedUpdatedAt: request.expected?.updatedAt ?? null,
-      });
+      }, request.sessionId);
       // 0.2.2 的 edit 不抛冲突：未命中/冲突都以 {id, code} 返回，成功条目
       // 无 code 但必有 kind——按 code 判别，不能按 id（每个变体都有 id）。
       const missed = result?.code !== undefined;

@@ -137,9 +137,9 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     version: 3,
   },
   reminders: {
-    brief: 'reminder_create（once/daily/weekly 原生日历）、reminder_list/cancel/status（稍后/改期由 App 办理）、digest_enable/control/list。',
+    brief: 'reminder_create（once/daily/weekly 原生日历）、reminder_list/cancel/status（稍后/改期由 App 办理）。digest_list {query?,offset?} 读同一计划及执行/投递；digest_enable {kind:morning/evening/weekly/once,op?:new,time?,timeZone?,weekdays?,voice?,skill?} 预览新计划，晨报默认 daily-planning，明确固定模板可选 digest-morning；已有同类先选择原计划，明确另建则 op:new 并展示现有计划后确认新增；digest_control {planId,op:pause/resume/adjust/voice/skill/stop,time?,timeZone?,weekdays?,at?,voice?,instruction?} 操作原计划。先展示预览，再让主人回复返回的 confirmationText；digest_control {op:confirm,previewId,instruction:主人完整原文} 才确认。暂停/停止/换旧 Skill 也须 instruction 原文。旧计划不迁移。',
     doneCriteria: '平台接受状态（规则/实例编号）已返回；绑定来源的提醒已带来源标识。',
-    version: 1,
+    version: 2,
   },
   handwriting: {
     brief: 'note_submit（转写/摘要/AI建议/疑点/候选行动/相对日期）、notes_search。',

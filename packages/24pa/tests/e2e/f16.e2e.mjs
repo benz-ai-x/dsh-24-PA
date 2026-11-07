@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { bootHost } from '../helpers/host.mjs';
+import { seedLegacyPlan } from '../helpers/legacy-plan-fixture.mjs';
 import { waitWorkerToolError } from '../helpers/worker-run.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -248,10 +249,7 @@ describe('F16 企微日程待办渠道（真实 Loader + 隔离 PG + 桩 wecom-c
     expect((await cluster.query("select count(*) from pa24.reminder_occurrence")).trim()).toBe('0');
 
     // 独立验证无飞书传输时的智能内容 Outbox；时钟规则不借此启动旧引擎。
-    await writeScript({ mode: 'dispatch', delegate: { worker: 'reminders', title: '建立简报计划', instruction: '创建一次简报计划' }, leadReply: '已安排。', workerAction: { action: 'digest_enable', kind: 'once', afterSeconds: 3600 }, workerReply: '已创建。' });
-    await prompt('一小时后给我简报，并允许现在手动查看');
-    await waitToolResult('计划已开启', '简报计划');
-    const planId = (await cluster.query("select id from pa24.digest_plan where kind='once'")).trim();
+    const { id: planId } = await seedLegacyPlan(host, cluster.dsn, { kind: 'once', afterSeconds: 3600 });
     await writeScript({ mode: 'dispatch', delegate: { worker: 'digest', title: '立即生成简报', instruction: '本人要求现在手动生成', planId }, leadReply: '已安排。', workerAction: { action: 'digest_build', planId }, workerReply: '已生成。' });
     await prompt('现在生成这份简报');
     for (let i = 0; i < 90; i++) {
