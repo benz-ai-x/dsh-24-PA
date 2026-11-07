@@ -18,6 +18,10 @@ import { fixedPlanningWindow } from './work-planning-validation.js';
 import { localDay } from './calendar-time.js';
 import { checkExecution } from './execution-cancellation.js';
 import { digestPeriod, digestWindowKey, type DigestPeriod } from './digest-period.js';
+
+/** 旧简报入口各处共用的「已升级」守卫：task_config 计划走定时任务管理，
+ * 不再从 digest 视角认领、展示或监督。 */
+const upgradedPlan = (plan: DigestPlanRow): boolean => !!('task_config' in plan && plan.task_config);
 import { captureDigestTrigger } from './digest-trigger.js';
 import { skillContract } from './skill-package.js';
 import type { SourceCalendar } from './source-calendar.js';
@@ -167,7 +171,7 @@ export class DigestService {
   private async controlPlan(args: Record<string, unknown>): Promise<unknown> {
     const plan = await this.deps.repos().digests.getPlan(String(args.planId ?? ''));
     if (!plan) throw new Error('计划不存在；请先用 digest_enable 开启。');
-    if ('task_config' in plan && plan.task_config) throw new Error('此计划使用通用定时任务配置，请从定时任务管理入口操作。');
+    if (upgradedPlan(plan)) throw new Error('此计划使用通用定时任务配置，请从定时任务管理入口操作。');
     const op = String(args.op ?? '');
     if (plan.kind === 'waiting_followup' && !['pause', 'stop'].includes(op)) throw new Error('等待检查点请用 waiting_control 管理，不能更换任务 skill 或执行规则。');
     const schedule = this.deps.nativeSchedule();
@@ -227,7 +231,7 @@ export class DigestService {
       const occurrences = await this.deps.repos().digests.occurrencesOf(plan.id, 3);
       view.push({
         planId: plan.id,
-        managed: !!('task_config' in plan && plan.task_config),
+        managed: upgradedPlan(plan),
         kind: plan.kind,
         title: plan.title,
         status: plan.status,
@@ -660,10 +664,10 @@ export class DigestService {
     const results = [];
     for (const plan of await this.deps.repos().digests.listPlans('active')) {
       if (!plan.schedule_id) continue;
-      // 已升级为通用运行的计划（task_config）完成记录在任务运行侧，旧简报表
-      // 没有它们的回执；按空表监督会把首次当前代次投递误判为漏发而暂停拆除，
-      // 其唤醒由会话历史恢复路径核对，不进入本监督。
-      if ((plan as { task_config?: unknown }).task_config) continue;
+      // 已升级为定时任务的计划完成记录在任务运行侧，旧简报表没有它们的回
+      // 执；按空表监督会把首次当前代次投递误判为漏发而暂停拆除，其唤醒由会
+      // 话历史恢复路径核对，不进入本监督。
+      if (upgradedPlan(plan)) continue;
       const completed = await this.deps.repos().digests.completedSources(plan.id);
       const observation = await inspectDigestDeliveries(schedule, plan, completed, graceMs, Date.now());
       if (!observation.overdue.length) { results.push({ planId: plan.id, action: 'checked', ...observation }); continue; }

@@ -315,7 +315,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     expect((await digest.superviseDigests(60000)).results[0]).toMatchObject({ action: 'paused_unconfirmed', unattributed: 1 }); expect(notices).toHaveLength(1);
   });
 
-  it('通用运行计划不按旧简报表监督：无回执也不误暂停拆除', async () => {
+  it('已升级定时任务不按旧简报表监督：无回执也不误暂停拆除', async () => {
     await plan();
     await db.query("update pa24.digest_plan set task_config = $1 where id = 'plan'", [JSON.stringify({ version: 1, skillId: 'managed:entry', timeZone: 'Asia/Shanghai', delivery: { channel: 'feishu', voice: false } })]);
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-19T04:00:00Z'));
