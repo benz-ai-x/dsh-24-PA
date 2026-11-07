@@ -64,10 +64,13 @@ export class PlanLifecycle {
     return next;
   }
 
-  async enable(input: NewPlan): Promise<DigestPlanRow> {
+  async enable(input: NewPlan, options: { createOnce?: boolean } = {}): Promise<DigestPlanRow> {
     return this.run(input.id, async ctx => {
       if (!ctx.native) throw new Error('当前 Host 未提供原生 Schedule 服务。');
       let plan = await ctx.repo.getPlan(input.id);
+      // A creation receipt is the stable plan ID. Retrying that creation may
+      // settle its current intent, but must never override a later owner stop.
+      if (plan && options.createOnce) return this.settle(ctx, plan);
       if (plan?.lifecycle) {
         const operation = plan.lifecycle.operation;
         plan = await this.settle(ctx, plan);

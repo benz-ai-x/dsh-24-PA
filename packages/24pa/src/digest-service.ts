@@ -166,7 +166,7 @@ export class DigestService {
    * is not a fallback from a failed generic authorization or a schema upgrade. */
   async customPlanPreview(args: Record<string, unknown>, delivery: unknown) {
     const skill = String(args.skill ?? '');
-    if (!skill || ['daily-planning', 'daily-review', 'digest-morning', 'digest-evening', 'digest-weekly'].includes(skill)) return null;
+    if (!skill) return null;
     const definition = await this.requireSkill(skill);
     if (skillContract(definition)) return null;
     const { plan } = await this.legacyDraft(args, String(args.intentKey));
@@ -182,7 +182,7 @@ export class DigestService {
     return this.withPlanWork(async () => {
       const preview = await this.customPlanPreview(args, delivery);
       if (!preview || preview.fingerprint !== fingerprint) throw new Error('原自定义 Skill、计划或通知配置已改变，请重新预览。');
-      return { plan: await this.plans.enable(preview.plan), repeated: false };
+      return { plan: await this.plans.enable(preview.plan, { createOnce: true }) };
     });
   }
   private async enablePlan(args: Record<string, unknown>, intentKey?: string): Promise<unknown> {

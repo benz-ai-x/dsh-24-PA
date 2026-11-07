@@ -15,9 +15,10 @@
 3. dsh `packages/schedule/schedule/src/index.ts` 的 `catalog()` 为只读目录；现有 24PA 宿主适配的 `update` 使用原记录 `expected` 比较。`update.ts` 保持同一原生 ID，规则变化才重新计算未来时间。继续依赖既有生命周期的唯一指令标识和 CAS，未知结果不盲目重建。
 4. 对话适配只接受当前已采用的主人输入（复用 `work-owner-input.ts` 与 Worker 输入回执）。先返回可读预览；启用／设置确认必须来自预览之后的新主人消息，并逐字引用原文。模型参数不构成确认。短期预览绑定工作区、来源、计划版本和授权指纹；重启／过期后重新预览。写入幂等仍使用持久服务回执。
 5. 旧计划的暂停、恢复、时间、语音通过同一面板服务兼容分支办理，不补固定授权，不换 Skill；迁移仍沿用独立的显式核验入口。既有等待追踪、会前准备、原生日历提醒及语音执行链保留。
-6. 原项目自定义 Skill 没有 `metadata.pa24` 契约时，继续走已有简报执行路径，新增只读预览与主人确认，不借机补契约或退役。目录选择使用真实来源 ID，并从已匹配目录项取得 Skill 名称；确认重新核对定义和通知配置指纹，避免把来源哈希误作 Skill 名。带通用契约的 Skill 仍走原通用授权，不在授权失败时回退。
+6. 原项目自定义 Skill 没有 `metadata.pa24` 契约时，继续走已有简报执行路径，新增只读预览与主人确认，不借机补契约或退役。目录选择使用真实来源 ID，并从已匹配目录项取得 Skill 名称；确认重新核对定义和通知配置指纹，避免把来源哈希误作 Skill 名。带通用契约的 Skill 仍走原通用授权，不在授权失败时回退。显式 project-dsh 来源即使与内置简报名相同也按实际定义办理，不用名字排除旧能力。
 7. 原生 Schedule 的 `create/edit/delete` 接受操作者会话参数。24PA 传入该计划归属会话，避免宿主将自己的调度写入作为外部 `[SCHEDULE CHANGE]` 插入下一轮、误触发模板计划的模型调用。单元桥接测试和真实 Loader 模板零模型断言均覆盖此行为。
-8. 旧历史查询的 SQLite 相关子查询包含 outbox 表，通用驱动的表名推断不能保证主表 `report` 被解码。投影处显式解析该 JSON，保留敏感字段过滤；PostgreSQL 与 SQLite 的运行历史回归均通过。
+8. 兼容创建使用由确认意图派生的稳定计划 ID，并在 `PlanLifecycle` 同一计划串行区内按 `createOnce` 处理：已有行只核对当前意图或读取当前结果；未知回执可恢复，后续主人暂停、停止或改期不会被旧确认重试覆盖。原 `digestEnable` 的既有显式重新开启语义不变。
+9. 旧历史查询的 SQLite 相关子查询包含 outbox 表，通用驱动的表名推断不能保证主表 `report` 被解码。投影处显式解析该 JSON，保留敏感字段过滤；PostgreSQL 与 SQLite 的运行历史回归均通过。
 
 ## 验证计划
 
@@ -28,14 +29,14 @@
 
 ## 结果
 
-主交付 [PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275)，实现 `4b39d64d4a49affe566c088ed071e0be45f04164`，兼容与双语修复 `5cc87ce666dd9c69ae2b533e06ca41adc490358e`。以下命令均在 `packages/24pa` 执行；最终文档提交不改变程序。生产 8010、真实账号和发布版本均未变更。
+主交付 [PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275)，实现 `4b39d64d4a49affe566c088ed071e0be45f04164`，兼容与双语修复 `5cc87ce666dd9c69ae2b533e06ca41adc490358e`。后续补齐同名来源与旧确认重试保护。以下命令均在 `packages/24pa` 执行；最终受测源代码的精确头 SHA 见 PR 双轴复审记录。生产 8010、真实账号和发布版本均未变更。
 
 | 层次 | 命令 / 证据 | 结果与所测范围 |
 |---|---|---|
-| 构建与预设 | `npm run build`；`npm run preset:sync`；`npm run preset:check` | 通过；宿主声明 0.2.2-rc.1，最终程序内容与 `5cc87ce` 一致。 |
+| 构建与预设 | `npm run build`；`npm run preset:sync`；`npm run preset:check` | 通过；宿主声明 0.2.2-rc.1，最终程序内容通过构建；精确头 SHA 见 PR 双轴复审记录。 |
 | 完整单元回归 | `npm exec -- vitest run tests/unit --fileParallelism --maxWorkers 2 --minWorkers 1` | 101 文件、1721 通过、1 跳过，533.04 秒。从 `4b39d64` 启动，期间产生审查修复，因此最终变更文件另做下行定向复验，不把这一轮当作最终增量验收。 |
-| 最终增量单元复验 | `npm exec -- vitest run tests/unit/task-plan-service.test.mjs tests/unit/plan-conversation.test.mjs tests/unit/digest-service.test.mjs tests/unit/manticore-panel.test.mjs` | `5cc87ce` 对应最终内容，4 文件 119 项通过，覆盖两种数据库、权限变化、伪造/过期确认、重试、旧计划保留与英文预览。一次受沙箱本地监听限制的尝试未完成 PG 组；按隔离 PG 所需权限重跑后全部通过。 |
-| 最终真实 Loader/Session | `DSH_BIN=/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js PA24_E2E_STORAGE=sqlite npm exec -- vitest run tests/e2e/f09.e2e.mjs tests/e2e/f50-plan-consistency.e2e.mjs`；同命令改 `PA24_E2E_STORAGE=postgres` | `5cc87ce` 对应最终内容，两后端各 2 文件 10 项通过；含公开对话创建自定义 Skill、预览无写入、主人确认、跨入口改期、语音、历史、重启、自愿迁移与真实原生调度。 |
+| 最终增量单元复验 | `npm exec -- vitest run tests/unit/task-plan-service.test.mjs tests/unit/plan-conversation.test.mjs tests/unit/digest-service.test.mjs tests/unit/manticore-panel.test.mjs tests/unit/plan-lifecycle.test.mjs` | 本 PR 最终内容，5 文件 159 项通过，覆盖两种数据库、权限变化、伪造/过期确认、重试、旧计划保留与英文预览，另覆盖未知创建回执后的暂停/停止与重启重试不得复活计划。一次受沙箱本地监听限制的尝试未完成 PG 组；按隔离 PG 所需权限重跑后全部通过。 |
+| 最终真实 Loader/Session | `DSH_BIN=/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js PA24_E2E_STORAGE=sqlite npm exec -- vitest run tests/e2e/f09.e2e.mjs tests/e2e/f50-plan-consistency.e2e.mjs`；同命令改 `PA24_E2E_STORAGE=postgres` | 本 PR 最终内容，两后端各 2 文件 11 项通过；含公开对话创建自定义 Skill（含显式选择与内置同名的项目来源）、预览无写入、主人确认、跨入口改期、语音、历史、重启、自愿迁移与真实原生调度。 |
 | 既有受影响流程 | `PA24_E2E_STORAGE=postgres` 的 `manticore-task-plan.e2e.mjs`、`f12.e2e.mjs`、`f16.e2e.mjs`，相同 `DSH_BIN`；SQLite 的 `manticore-task-plan.e2e.mjs` | `4b39d64` 对应内容：PG 定时任务 8 项、备份恢复 3 项、企微 4 项通过；SQLite 定时任务 8 项通过。后续兼容创建/预览修复由最终复验覆盖。 |
 | 历史与宿主适配复验 | `npm exec -- vitest run tests/unit/run-history.test.mjs tests/unit/schedule-bridge.test.mjs` | 35 项通过，涵盖 SQLite 旧报告过滤与原生操作者参数。 |
 
@@ -55,6 +56,6 @@ PC-01–03 由 `plan-conversation`、`task-plan-service` 与 F50 第一个真实
 
 ### 双轴审查与边界
 
-固定基线 `a5ab22dbbc30a6d5c82761250d30115e771b1ac3`，首次审查头 `4b39d64`：Standards 0 项；Spec 2 项 P2（原自定义 Skill 创建兼容、英文预览）。`5cc87ce` 修复两项并完成上述最终回归；最终文档头复审结论及确切 SHA 回写 PR，两个轴分别列出，全部清偿且远端头一致才合并。
+固定基线 `a5ab22dbbc30a6d5c82761250d30115e771b1ac3`，首次审查头 `4b39d64`：Standards 0 项；Spec 2 项 P2（原自定义 Skill 创建兼容、英文预览）。`5cc87ce` 修复两项。`7e5dfdd` 复核追加 Standards 2 项 P2（同名项目 Skill 分流、未知回执后旧确认不得覆盖后续停止），Spec 1 处 Manticore 状态同步遗漏；后续补齐并完成上述最终回归。最终头复审结论及确切 SHA 回写 PR，两个轴分别列出，全部清偿且远端头一致才合并。
 
 本轮未发现还需改变产品范围的未决项。隔离桩只替代模型／外部平台，验证了语音选择、发送记录和全文兜底，未把它称为真实模型质量、语音音质或真实平台投递验收。旧计划存在不是缺陷，也不影响本功能完成。

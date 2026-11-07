@@ -12,7 +12,7 @@ F52 / [#273](https://github.com/benz-ai-x/dsh-24-PA/issues/273) 根据主人“�
 
 ## 2026-11-07 周期服务一致性范围修订（2.18-draft）
 
-主人确认仅推进 F50 / [#271](https://github.com/benz-ai-x/dsh-24-PA/issues/271) 的对话与面板一致性规格，详见[一致性规格](24PA-Ontology前置减法-SPEC.md)及 [#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)，当前未实施。两端在等价授权条件下创建、查询、改期、暂停/恢复、选择语音和查结果，使用同一计划、同一业务规则及真实状态；新晨报默认与模型用量说明一致，旧模板不换绑。
+主人确认仅推进 F50 / [#271](https://github.com/benz-ai-x/dsh-24-PA/issues/271) 的对话与面板一致性规格，详见[一致性规格](24PA-Ontology前置减法-SPEC.md)及 [#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)。2026-11-08 已实现并完成隔离验收，主交付 [PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275)，[证据](../research/2026-11-08-plan-consistency-implementation.md)；合并与关闭按远端状态核验，未发版或部署 8010。两端在等价授权条件下创建、查询、改期、暂停/恢复、选择语音和查结果，使用同一计划、同一业务规则及真实状态；新晨报默认与模型用量说明一致，旧模板不换绑。
 
 旧计划无需迁移即可完成原支持的常用管理；不自动转通用计划、不因不迁移而停服。已有迁移仅在主人明确选择并完成原核验确认后办理。语音引擎/音色、试听、按计划开关、音频及全文兜底完整保留。
 

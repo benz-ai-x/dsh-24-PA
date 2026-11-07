@@ -418,6 +418,33 @@ describe('F41：agent 轨任务 skill', () => {
     const all = (await host.api('digests')).plans;
     expect(all.every(p => p.skill)).toBe(true);
   });
+
+  it('显式选择与内置同名的项目 Skill，仍按原兼容能力创建语音计划', async () => {
+    const skillsDir = join(workspace, '.dsh', 'skills');
+    await mkdir(skillsDir, { recursive: true });
+    await writeFile(join(skillsDir, 'digest-evening.md'), '---\nname: digest-evening\ndescription: 主人自定义晚报\n---\n按主人原有要求生成晚报，不冒充固定模板。\n');
+    const workspaceBinding = (await host.api('snapshot')).workspaceBinding;
+    let selected;
+    for (let i = 0; i < 20 && !selected; i++) {
+      const catalog = await host.api('skills.catalog', { workspaceBinding });
+      selected = catalog.entries.find(row => row.source === 'project-dsh' && row.name === 'digest-evening');
+      if (!selected) await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    expect(selected?.id).toMatch(/^project-dsh:digest-evening:/);
+    await writeScript(rmdScript('预览同名项目晚报', { action: 'digest_enable', op: 'new', kind: 'evening', time: '20:00:00', skill: selected.id, voice: true }));
+    const before = llm.log.length, oldIds = new Set((await host.api('digests')).plans.map(row => row.planId));
+    await inject(ownerEvent('evt-f41-shadow', { text: '另建一份晚报，使用明确选中的工作区同名 Skill，保留语音。' }));
+    await waitWorkItem('预览同名项目晚报', '同名项目预览');
+    const preview = await waitToolResult('pa24_work', 'previewId', '同名项目预览回执', 60_000, before);
+    expect(preview).toContain('"legacy":true'); expect(preview).toContain('"usesModel":true');
+    expect(preview).toContain('"skill":"digest-evening"'); expect(preview).toContain('"voice":true');
+    expect((await host.api('digests')).plans.map(row => row.planId).filter(id => !oldIds.has(id))).toEqual([]);
+    await confirmPlanPreview(preview, '确认同名项目晚报');
+    const created = (await host.api('digests')).plans.filter(row => !oldIds.has(row.planId));
+    expect(created).toHaveLength(1);
+    const saved = await host.api('plans.inspect', { id: created[0].planId, workspaceBinding });
+    expect(saved.plan).toMatchObject({ skill: 'digest-evening', voice: true, task_config: null, task_authorization: null });
+  });
 });
 
 describe('F44：任务 skill 受控接入（双门）', () => {
