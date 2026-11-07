@@ -315,6 +315,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`周期工作耐久交付
     expect((await digest.superviseDigests(60000)).results[0]).toMatchObject({ action: 'paused_unconfirmed', unattributed: 1 }); expect(notices).toHaveLength(1);
   });
 
+  it('通用运行计划不按旧简报表监督：无回执也不误暂停拆除', async () => {
+    await plan();
+    await db.query("update pa24.digest_plan set task_config = $1 where id = 'plan'", [JSON.stringify({ version: 1, skillId: 'managed:entry', timeZone: 'Asia/Shanghai', delivery: { channel: 'feishu', voice: false } })]);
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-19T04:00:00Z'));
+    const notices = []; deps.notifyOwner = async (...args) => notices.push(args);
+    deps.nativeSchedule = () => ({ history: async () => ({ records: [{ scheduledAt: '2026-10-18T00:00:00Z', deliveredAt: '2026-10-19T03:00:00Z', messageId: 'not-completed' }] }), delete: async () => ({ deleted: true }) });
+    const result = await digest.superviseDigests(60000);
+    expect(result.checked).toBe(0); expect(notices).toHaveLength(0);
+    expect((await repos.digests.getPlan('plan')).status).toBe('active');
+  });
   it('历史逐页核对消息与发生身份，完成一次不能抵消另一次消息', async () => {
     await plan(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-19T04:00:00Z'));
     const work = await admittedItem('done', new Date(), scheduledSession('2026-10-18T00:00:00.000Z'));

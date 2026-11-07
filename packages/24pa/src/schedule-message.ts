@@ -8,6 +8,9 @@ export function scheduleReminders(message: RunInput): NativeReminder[] | null {
   if (message.source?.kind !== 'schedule') return null;
   if (!message.id) throw new Error('宿主计划消息缺少可核验的消息标识。');
   const text = message.content.map(block => block.type === 'text' ? block.text : '').join('\n');
+  // 0.2.2 宿主的计划变更通知自带 schedule 来源，但明确声明「不是投递、无需
+  // 动作」且其中展示字段不可信；与被引用框定的普通消息一样永不作为触发准入。
+  if (text.startsWith('[SCHEDULE CHANGE]\n')) return null;
   let reminders: unknown;
   try {
     if (text.startsWith('[SCHEDULE REMINDER BATCH]\n')) reminders = JSON.parse(text.match(/^reminders_json: (.+)$/m)?.[1] ?? 'null');

@@ -660,6 +660,10 @@ export class DigestService {
     const results = [];
     for (const plan of await this.deps.repos().digests.listPlans('active')) {
       if (!plan.schedule_id) continue;
+      // 已升级为通用运行的计划（task_config）完成记录在任务运行侧，旧简报表
+      // 没有它们的回执；按空表监督会把首次当前代次投递误判为漏发而暂停拆除，
+      // 其唤醒由会话历史恢复路径核对，不进入本监督。
+      if ((plan as { task_config?: unknown }).task_config) continue;
       const completed = await this.deps.repos().digests.completedSources(plan.id);
       const observation = await inspectDigestDeliveries(schedule, plan, completed, graceMs, Date.now());
       if (!observation.overdue.length) { results.push({ planId: plan.id, action: 'checked', ...observation }); continue; }

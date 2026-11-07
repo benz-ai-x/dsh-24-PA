@@ -37,3 +37,12 @@
 - 插件 0.2.2-rc.1.1＝**含 #266 方言桥的制品**：发布顺序为先合 #266 再打包（版本号沿用 .1.1，无 .1.2）；tag `v0.2.2-rc.1.1` 指向 5a87eef（#266 之后），npm 与 GitHub Release 同制品（SHA-1 `79600707…`，tarball 含 `lib/schedule-bridge.js` 与 plan-time `nativeTiming`）。
 - 核验：当前轮启动零 error／零 skip；readiness **6/6**（host 行指纹＝dsh 0.2.2-rc.1＋插件 0.2.2-rc.1.1＋飞书 SDK 1.74.0；飞书 sdk-ws 长连接已启动）；SQLite 账本 ok；智能晨报 daily 计划 active，宿主 `storages/schedule.json` 记录在位（schedule-0a29fb56 → feishu 会话）；旧 morning 计划 stopped（规格 2.17 智能晨报取代）。
 - 待真实业务观察：schedule 原生投递＝次日 08:00 晨报窗口；企微通道、子代理真实派发待首跑。
+
+## 首次原生投递复盘（2026-11-07 08:00–08:10，两个缺陷）
+
+**业务本身成功**：08:00 唤醒（旧 BATCH 信封，19 条历史全部可解析）→ 触发准入 → daily-planning skill 运行 → 08:01:56 文本＋语音 outbox 均 sent，run outcome completed。**但 08:10:02 计划被自毁**（暂停＋原生 schedule 删除＋主人通知「超过宽限仍无对应完成回执」），随后 recover() 每轮询重抛刷屏（至 16:15 约 7.3 万条 journal 行）。
+
+- **缺陷一（pa24 潜伏 bug，与 0.2.2 无关）**：`digest supervise` 漏加「已升级」守卫——task_config 计划的完成记录在任务运行侧（task_plan_run_outcome／task_plan_delivery），`completedSources` 只读旧简报表（digest_occurrence＋digest_work_binding），对 skill 计划恒为空 → 当前代次的首次投递超 10 分钟宽限＝误判漏发 → `plans.stop` 暂停＋拆除。此前未触发仅因每天 09:41 的例行编辑轮换了 schedule 代次（旧投递归 previousUnconfirmed 不算 overdue）。修复＝supervise 跳过 task_config 计划（与 digest.ts 其余三处「已升级」守卫对齐）；其唤醒核对由会话历史恢复路径负责。
+- **缺陷二（#266 接收面缺口）**：0.2.2 新增 `[SCHEDULE CHANGE]` 通知（计划在会话外被变更时投给会话，自带 schedule 来源、明确「不是投递、无需动作」）——`scheduleReminders` 只认 REMINDER 两信封，遇 CHANGE 抛「宿主计划消息格式无法核验」→ 消费/恢复路径中断、恢复备忘录永不落 → 每个轮询周期全量重跑＝刷屏。0.2.2 宿主消息信封全集＝REMINDER／REMINDER BATCH／CHANGE 三种。修复＝CHANGE 前缀直接返回 null（与被引用框定同待遇，永不作为触发准入）。
+- 生产证据链：会话存储 zstd 逐条复检（19 条 REMINDER 全 OK、1 条 CHANGE NO-ENVELOPE）；`schedule.json` 现为 0 条；outbox #71＝自毁通知；计划行 updated_at 与 CHANGE 消息时间同毫秒级吻合。
+- 生产恢复：修复版部署后走 `plan.change` op=enable（preview→fingerprint→confirm）重新启用智能晨报并重建原生 schedule；次晨 08:00 复验。
