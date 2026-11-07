@@ -167,9 +167,11 @@ export class DigestService {
   async customPlanPreview(args: Record<string, unknown>, delivery: unknown) {
     const skill = String(args.skill ?? '');
     if (!skill) return null;
-    const definition = await this.requireSkill(skill);
-    if (skillContract(definition)) return null;
-    const { plan } = await this.legacyDraft(args, String(args.intentKey));
+    // Contract skills belong to generic authorization, including project
+    // overrides of work-method names and skills that declare pa24_run.
+    if (skillContract(await this.deps.skillCatalog().resolve(skill))) return null;
+    const { plan, definition } = await this.legacyDraft(args, String(args.intentKey));
+    if (skillContract(definition)) return null; // Definition changed during the read.
     const timing = previewPlanTimes(plan.schedule_spec);
     plan.schedule_spec = timing.spec;
     return { plan, planId: plan.id, legacy: true, skill, voice: plan.voice, timeZone: taskPlanTimeZone(plan, this.deps.config().timeZone),
