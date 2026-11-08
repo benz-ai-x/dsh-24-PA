@@ -88,7 +88,7 @@ for (const kind of ['sqlite', 'postgres']) describe(`M09 ${kind} durable records
   }, 180_000);
   it('schema stamps do not certify a ledger with a missing required table or column', async () => {
     const f = await fixture(kind);
-    for (const ddl of ['alter table pa24.outbox drop column target', 'drop table pa24.outbox']) {
+    for (const ddl of ['alter table pa24.outbox drop column target', 'drop table pa24.outbox' + (kind === 'postgres' ? ' cascade' : '')]) {
       await f.db.query(ddl);
       const created = await f.create();
       const result = await inspectRecovery(f.context, created.backupDir, join(f.root, randomUUID()), false);

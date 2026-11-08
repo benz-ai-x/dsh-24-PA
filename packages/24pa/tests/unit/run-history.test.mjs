@@ -261,7 +261,7 @@ it('真实运行时按实际凭据引用与密钥库脱敏，包含引号、反�
     await writeSecretStore(path, { volcTtsKey: secrets[3] }); await f.rt.bind(path);
     await f.rt.db.query("insert into pa24.digest_occurrence (id, plan_id, window_key, report) values ('legacy','plan','window',$1)", [JSON.stringify(secrets.join(' | '))]);
     const result = await f.rt.runHistory.export({ workspaceBinding: f.rt.workspaceBinding, kind: 'legacy', range: 'all' });
-    expect(JSON.parse(result.content).rows[0].report).toBe(secrets.map(() => '[已脱敏]').join(' | '));
+    expect(JSON.parse(result.content).rows[0].report).toBe(secrets.map(() => '[已隐藏]').join(' | '));
   } finally { await f.cleanup(); }
 });
 

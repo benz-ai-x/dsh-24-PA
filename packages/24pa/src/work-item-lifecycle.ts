@@ -3,7 +3,7 @@ import type { WorkItemRepo, WorkItemRow } from './repo/work.js';
 import type { NewOutbox } from './repo/outbox.js';
 import type { WorkCompletion } from './work-completion.js';
 import type { WorkOwnerInput } from './work-owner-input.js';
-import { splitWeixinText } from './weixin-protocol.js';
+import { sameWeixinIdentity, splitWeixinText } from './weixin-protocol.js';
 
 /** The single-host admission gate owns capacity for new work AND continuations.
  * Native child operations stay behind the host adapter; durable state stays in
@@ -231,11 +231,13 @@ export class WorkItemLifecycle {
                 const source = ref?.docUrl ? `\n出处：${ref.docUrl}\n操作编号：${ref.operationId}` : '';
                 if (row.origin === 'weixin') {
                   if (!row.delivery_target) throw new Error('微信事项缺少原结果目标，保留结果待核对。');
+                  const input = row.execution_scope?.ownerInput ?? row.owner_input;
+                  const inboxEventId = input?.kind === 'weixin' && input.remoteIdentity && sameWeixinIdentity(input.remoteIdentity, row.delivery_target) ? input.sourceId : undefined;
                   return splitWeixinText(`「${row.title}」${failed ? '未完成' : '已完成'}：\n${result}${source}`).map((part, index) => ({
                     dedupKey: `${dedupKey}:segment:${index}`, channel: 'weixin' as const, target: row.delivery_target!.ownerId,
                     kind: 'text' as const, content: { text: part }, deliveryTarget: row.delivery_target!,
                     association: { workItemId: row.id, workerRunId: row.active_worker_run_id ?? undefined,
-                      inboxEventId: row.owner_input?.kind === 'weixin' ? row.owner_input.sourceId : undefined }, segmentGroup: dedupKey, segmentIndex: index,
+                      inboxEventId }, segmentGroup: dedupKey, segmentIndex: index,
                   }));
                 }
                 return row.origin === 'local'

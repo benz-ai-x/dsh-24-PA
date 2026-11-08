@@ -800,6 +800,11 @@ export class PaRuntime {
         return this.planConversationAuthority(binding.session_id);
       },
       businessResult: row => this.remotePlanResult(row),
+      legacyBuiltin: async name => {
+        if (!['digest-morning', 'digest-evening', 'digest-weekly'].includes(name)) return false;
+        try { return (await this.skillCatalog.resolve(name, ['pa24_work', 'pa24_memory'])).source === 'builtin'; }
+        catch { return false; }
+      },
       customPreview: input => this.digest.customPlanPreview(input, planContext()?.legacyDelivery),
       customCreate: (input, fingerprint) => this.digest.customPlanCreate(input, planContext()?.legacyDelivery, fingerprint),
       ownerInput: item => this.adoptedOwnerInput(item), legacyControl: input => this.digest.digestControl(input), gate: (key, work) => this.gate(key, work) });
@@ -2208,11 +2213,16 @@ export class PaRuntime {
             await this.weixin.enqueue(`weixin-reply:${inboxId}`, weixinIdentity(binding), { inboxEventId: inboxId }, evidence.text);
           }, evidence.state === 'canceled' ? '原输入已取消，不重复执行。' : undefined);
         } else {
-          // A completed Worker may already have an explicit original-input result.
-          const results = (await this.repos.outbox.byInbox(row.event_id)).filter(out => out.association?.workItemId);
-          const completed = [];
-          for (const result of results) { const work = await this.repos.workItems.get(result.association!.workItemId!); if (work && ['completed', 'failed', 'stopped'].includes(work.status)) completed.push(work); }
-          if (completed.length) await this.inboxLifecycle.complete(row.target_session, new Set([row.request_id]), async () => {});
+          // Follow the adopted input through its durable WorkerRun even when a
+          // continuation reports to the work's original (different) entrance.
+          const results = await this.repos.workerRuns.ownerInputResults(row.event_id);
+          const complete = results.length > 0 && results.every(result => {
+            const source = result.scope.ownerInput;
+            return result.scope.workspaceId === this.backupWorkspaceId && source?.kind === 'weixin' && source.remoteIdentity &&
+              sameWeixinIdentity(source.remoteIdentity, weixinIdentity(binding)) && result.adopted === 'adopted' &&
+              ['completed', 'failed'].includes(result.status) && !!result.outbox_key;
+          });
+          if (complete) await this.inboxLifecycle.complete(row.target_session, new Set([row.request_id]), async () => {});
           else if ('reason' in evidence && row.error !== evidence.reason) await this.repos.inbox.mark(row.event_id, { status: 'admitted', error: evidence.reason });
         }
       } catch {
@@ -2777,7 +2787,9 @@ export class PaRuntime {
       if (remote && !await this.captureOwnerInput(agent)) throw new Error('需要当前微信主人实际消费的原始指令才能调整交办。');
       if (['supplement', 'accept', 'return', 'new-goal'].includes(args.action)) {
         const result = await this.changeWork({ ...args, op: args.action, confirm: true, requestId: args.requestId ?? randomUUID(), expectedRevision: args.expectedRevision ?? item.revision, workspaceBinding: this.workspaceBinding }, agent);
-        return remote ? { work: this.remoteWorkView((await repos.workItems.get(id))!) } : result;
+        if (!remote) return result;
+        const workId = args.action === 'new-goal' ? (result as { workId: string }).workId : id;
+        return { work: this.remoteWorkView((await repos.workItems.get(workId))!) };
       }
       if (item.id.startsWith('pa24-material-')) throw new Error('资料直接操作请回原资料核对回执后明确重试，不能作为模型 Worker 接续或停止。');
       if (item.execution_mode === 'skill') {

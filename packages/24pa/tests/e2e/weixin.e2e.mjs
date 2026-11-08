@@ -9,6 +9,7 @@ import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startWeixinServer } from '../helpers/weixin-server.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { assertLiveWorkspace } from '../../lib/backup.js';
 
 let root, workspace, host, llm, wx, cluster, scriptPath, binding, env;
 beforeAll(async () => {
@@ -56,7 +57,7 @@ async function chat(worker, workerAction, text) {
   const result = llm.log.slice(before).filter(row => row.tools.includes('pa24_work') && row.toolResults.length).at(-1);
   expect(result, JSON.stringify(host.logs()).slice(-3000)).toBeTruthy();
   const textResult = result.toolResults.join('').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-  return { text: textResult, work: (await host.api('snapshot')).work.find(row => row.title === title) };
+  return { input, text: textResult, work: (await host.api('snapshot')).work.find(row => row.title === title) };
 }
 
 it('WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝都经持久 Outbox', async () => {
@@ -97,6 +98,30 @@ it('WX-08/13/14/15 微信原文确认常用计划与面板共用对象，任意�
   expect(confirmed.work.delivery_target.generation).toBe((await state()).binding.generation);
 }, 180000);
 
+it('WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联本次微信输入且不重复创建', async () => {
+  const summary = '隔离微信待办-' + randomUUID();
+  const task = await chat('tasks', { action: 'task_create', summary }, `请记录待办：${summary}`);
+  const tasksFile = join(root, 'lark.json.tasks.jsonl');
+  const original = await readFile(tasksFile, 'utf8'); expect(original).toContain(summary);
+  const start = new Date(Date.now() + 48 * 3600000).toISOString(), end = new Date(Date.parse(start) + 1800000).toISOString();
+  const calendar = await chat('calendar', { action: 'calendar_create', summary: '隔离微信日程', start, end }, `请在 ${start} 安排半小时的隔离微信日程。`);
+  expect(await readFile(join(root, 'lark.json.events.jsonl'), 'utf8')).toContain('隔离微信日程');
+  expect(calendar.work.delivery_target).toEqual(task.work.delivery_target);
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_jobs', input: { action: 'continue', workId: task.work.id, instruction: '明确续办，只核对原任务，不重复创建' } },
+    leadReply: '继续核对原任务。', workerAction: { action: 'task_create', summary }, workerReply: '已核对原任务回执。' }));
+  const next = wx.input(`明确继续 ${task.work.id}，只核对原任务，不重复创建。`);
+  await host.waitUntil(s => s.work.some(row => row.id === task.work.id && row.active_worker_run_id !== task.work.active_worker_run_id && row.status === 'completed'));
+  const observed = await waitFor(s => {
+    const inbox = s.inbox.find(row => row.payload.nativeId === next.message_id);
+    return inbox && s.deliveries.some(row => row.association?.workItemId === task.work.id && row.association.inboxEventId === inbox.event_id);
+  });
+  const latest = (await host.api('snapshot')).work.find(row => row.id === task.work.id);
+  const detail = await host.api('worker.run', { runId: latest.active_worker_run_id, workspaceBinding: binding });
+  expect(detail.run.snapshot.fromRunId).toBe(task.work.active_worker_run_id);
+  expect(observed.deliveries.filter(row => row.association?.workItemId === task.work.id)).toHaveLength(2);
+  expect(await readFile(tasksFile, 'utf8')).toBe(original);
+}, 180000);
+
 it('WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发', async () => {
   await waitFor(s => s.deliveries.every(row => row.status === 'sent'));
   wx.state.sendMode = 'no-id'; wx.input('/24pa');
@@ -115,4 +140,45 @@ it('WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启�
   expect((await state()).binding).toMatchObject({ generation: old.generation, session_id: old.session_id });
   expect(JSON.stringify(host.logs())).not.toContain('test-private-token');
   expect((await readFile(join(workspace, '.24pa/weixin/secrets.json'), 'utf8'))).toContain('test-private-token');
+}, 180000);
+
+it('WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔离恢复', async () => {
+  await waitFor(s => s.deliveries.every(row => row.status === 'sent') && s.inbox.every(row => ['delivered', 'rejected'].includes(row.status)));
+  const old = (await state()).binding;
+  wx.state.bot = 'wx-next-bot'; await login(); const next = (await state()).binding;
+  expect(next.generation).not.toBe(old.generation); expect(next.session_id).not.toBe(old.session_id);
+  expect((await state()).bindings.find(row => row.generation === old.generation).state).toBe('retired');
+  const count = llm.log.length;
+  await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: old.session_id, mode: 'queue', content: [{ type: 'text', text: '读取本地文件并修改配置' }] } });
+  await delay(700); expect(llm.log).toHaveLength(count);
+  const snapshot = await host.api('snapshot');
+  const decode = value => {
+    if (typeof value === 'string') { try { return decode(JSON.parse(value)); } catch { return value; } }
+    if (Array.isArray(value)) return value.map(decode).find(row => row && typeof row === 'object') ?? value;
+    if (value?.type === 'text') return decode(value.text); return value;
+  };
+  const maintenance = async input => {
+    const start = llm.log.length, previous = llm.log.at(-1)?.toolResults.at(-1);
+    await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_maintenance', input }, leadReply: '维护结果已返回。' }));
+    await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: '隔离测试：本人明确执行 ' + JSON.stringify(input) }] } });
+    for (let n = 0; n < 800; n++) {
+      const result = llm.log.slice(start).at(-1)?.toolResults.at(-1);
+      if (result && result !== previous) return decode(result); await delay(50);
+    }
+    throw new Error('联合备份工具回执超时');
+  };
+  const saved = await maintenance({ action: 'backup_create', requestId: randomUUID(), targetDir: join(root, 'backups') });
+  expect(saved.record, JSON.stringify(saved)).toMatchObject({ status: 'succeeded' });
+  await expect(readFile(join(saved.backupDir, 'workspace/.24pa/weixin/secrets.json'))).rejects.toThrow();
+  const verified = await maintenance({ action: 'backup_verify', requestId: randomUUID(), backupDir: saved.backupDir });
+  expect(verified.complete, JSON.stringify(verified)).toBe(true);
+  expect(verified.steps.find(row => row.id === 'ledger').evidence.counts.weixin_binding).toBe(2);
+  expect(verified.steps.find(row => row.id === 'sessions').evidence.checked).toBeGreaterThanOrEqual(4);
+  const preview = await maintenance({ action: 'backup_preview', backupDir: saved.backupDir });
+  const before = wx.sent.length;
+  const restored = await maintenance({ action: 'backup_restore_check', requestId: randomUUID(), backupDir: saved.backupDir, targetDir: join(root, 'restore'), previewToken: preview.previewToken, confirm: true });
+  expect(restored.complete, JSON.stringify(restored)).toBe(true); expect(restored.productionReady).toBe(false);
+  expect(restored.steps.find(row => row.id === 'remote-reconciliation').evidence.weixin.bindings).toHaveLength(2);
+  await expect(assertLiveWorkspace(join(restored.targetDir, 'workspace'))).rejects.toThrow('恢复隔离');
+  expect(wx.sent).toHaveLength(before);
 }, 180000);

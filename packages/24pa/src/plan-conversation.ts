@@ -45,6 +45,7 @@ export class PlanConversation {
     ownerInput(item: WorkItemRow): Promise<WorkOwnerInput | null>;
     sourceAuthority?(source: WorkOwnerInput): Promise<string>;
     businessResult?(row: TaskPlanRow): Promise<unknown>;
+    legacyBuiltin(skill: string): Promise<boolean>;
     legacyControl(input: Record<string, unknown>): Promise<unknown>;
     customPreview(input: Record<string, unknown>): ReturnType<DigestService['customPlanPreview']>;
     customCreate(input: Record<string, unknown>, fingerprint: string): ReturnType<DigestService['customPlanCreate']>;
@@ -66,8 +67,12 @@ export class PlanConversation {
   }
   private async candidates(kind?: unknown, query?: unknown, remote = false) {
     const rows = await this.context().repos.digests.listPlans() as TaskPlanRow[];
-    return rows.filter(row => !row.recycled_at && (!remote || weixinPlanAllowed(row)) && (!kind || serviceKind(row) === kind)
+    const matches = rows.filter(row => !row.recycled_at && (!kind || serviceKind(row) === kind)
       && (!query || row.id === query || row.title.includes(String(query))));
+    return remote ? (await Promise.all(matches.map(async row => await this.remoteAllowed(row) ? row : null))).filter((row): row is TaskPlanRow => row !== null) : matches;
+  }
+  private async remoteAllowed(row: TaskPlanRow): Promise<boolean> {
+    return weixinPlanAllowed(row) && (!!row.task_config || await this.deps.legacyBuiltin(row.skill));
   }
   async list(input: Record<string, unknown>, item?: WorkItemRow) {
     const context = this.context();
@@ -117,7 +122,7 @@ export class PlanConversation {
     const legacyInput = { kind, skill: draft.legacySkillName,
       time: String((form.timing as Record<string, unknown>).time ?? '').replace(/^(\d{2}:\d{2})$/, '$1:00'), weekdays: (form.timing as Record<string, unknown>).weekdays, at: draft.scheduleSpec.at,
       timeZone: draft.configuration.timeZone, voice: form.delivery.voice, intentKey: randomUUID() };
-    const custom = await this.deps.customPreview(legacyInput);
+    const custom = source.kind === 'weixin' ? null : await this.deps.customPreview(legacyInput);
     const value = custom ?? await this.deps.plans.creationPreview(form);
     return this.offer({ ...form, ...(custom ? { legacyInput, legacyPlanId: custom.planId } : {}), serviceKind: kind, existingPlanIds: matches.map(row => row.id).sort() },
       { ...value, ...(matches.length ? { existingPlans: matches.map(row => ({ planId: row.id, title: row.title, status: row.status })),
@@ -127,7 +132,7 @@ export class PlanConversation {
     if (input.op === 'confirm') return this.confirm(input, item);
     const { context, source } = await this.owner(item);
     const row = input.planId ? await context.repos.taskPlans.get(String(input.planId)) : null;
-    if (source.kind === 'weixin' && (row && !weixinPlanAllowed(row) || !['pause', 'stop', 'resume', 'adjust', 'voice'].includes(String(input.op)))) throw this.refusal(item, '此计划或操作仅能在电脑端管理；微信支持常用计划的时间、启停和语音选择。');
+    if (source.kind === 'weixin' && (row && !await this.remoteAllowed(row) || !['pause', 'stop', 'resume', 'adjust', 'voice'].includes(String(input.op)))) throw this.refusal(item, '此计划或操作仅能在电脑端管理；微信支持常用计划的时间、启停和语音选择。');
     if (!row) return { selectionRequired: true, candidates: (await this.candidates(input.kind, input.query, source.kind === 'weixin')).map(row => ({ planId: row.id, title: row.title, status: row.status, skill: row.skill })),
       message: '请明确要操作的原计划编号；不会新建、覆盖或猜选同名计划。' };
     const base = { id: row.id, expectedRevision: row.revision, workspaceBinding: context.binding };
@@ -165,7 +170,7 @@ export class PlanConversation {
       if (!preview.create) {
         if (source.kind === 'weixin') {
           const row = await context.repos.taskPlans.get(String(preview.input.id));
-          if (!row || !weixinPlanAllowed(row)) throw this.refusal(item, '原计划已不在微信业务范围内，请到电脑端核对。');
+          if (!row || !await this.remoteAllowed(row)) throw this.refusal(item, '原计划已不在微信业务范围内，请到电脑端核对。');
         }
         preview.result = await this.deps.plans.change({ ...preview.input, requestId: preview.id, fingerprint: preview.value.fingerprint, confirm: true });
       } else if (preview.input.legacyInput) {
