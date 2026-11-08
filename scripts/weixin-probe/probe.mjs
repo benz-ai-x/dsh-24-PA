@@ -54,6 +54,12 @@ export class Probe {
       if (saved) Object.assign(item, saved);
       else if (item.status === 'sending') item.status = 'unknown';
     }
+    // A crash can occur after a rejection receipt is durable but before the
+    // loop records its terminal stop. Recover the stop from that same receipt.
+    if (steps && this.state.deliveries.some(item => item.status === 'rejected' &&
+        steps.some(step => step.kind === item.kind && step.context === 'original'))) {
+      this.state.notificationStopReason = 'original_context_rejected';
+    }
     this.restorePending = !steps && this.credentials && this.deliveryBasis('immediate') !== 'pending' &&
       !this.state.deliveries.some(x => x.kind === 'delayed');
     if (this.restorePending) {
@@ -310,9 +316,12 @@ export class Probe {
     };
     try {
       while (this.enabled && !signal.aborted) {
-        if (this.state.deliveries.some(row => row.status === 'unknown' && this.deliveryBasis(row.kind) === 'pending')) return stop('review_required');
+        if (this.state.deliveries.some(row => ['sending', 'unknown'].includes(row.status) && this.deliveryBasis(row.kind) === 'pending')) return stop('review_required');
+        if (this.state.deliveries.some(item => item.status === 'rejected' &&
+            this.steps.some(step => step.kind === item.kind && step.context === 'original'))) return stop('original_context_rejected', true);
         if (this.state.deliveries.some(row => row.ret === -14 || row.errcode === -14)) return stop('poll_error', true);
-        const step = this.steps.find(row => !this.state.deliveries.some(item => item.kind === row.kind));
+        const pending = this.steps.filter(row => !this.state.deliveries.some(item => item.kind === row.kind));
+        const step = pending[0];
         if (!step) return stop('await_visible_receipts');
         const requestedCursorHash = digest(this.state.cursor);
         const response = await this.transport('ilink/bot/getupdates', {
@@ -332,7 +341,11 @@ export class Probe {
           if (this.state.inboundCount !== this.state.inputCount) return stop('new_inbound', true);
           const age = this.clock() - this.state.inputAt;
           if (age > step.afterMs + MAX_LATENESS_MS) return stop('missed_window', true);
-          if (age >= step.afterMs) {
+          if (pending[1] && age >= pending[1].afterMs) return stop('missed_window', true);
+          const previous = this.state.deliveries.at(-1);
+          const previousStep = previous && this.steps.find(item => item.kind === previous.kind);
+          const earliest = step.afterMs + (previousStep ? Math.max(0, previous.elapsedMs - previousStep.afterMs) : 0);
+          if (age >= earliest) {
             await this.send(step.kind, signal);
             const sent = this.state.deliveries.find(item => item.kind === step.kind);
             if (step.context === 'original' && sent?.status === 'rejected') return stop('original_context_rejected', true);

@@ -147,3 +147,61 @@ test('receipt evidence uses the observed native ID shape and keeps unknown, HTTP
   }
   assert.equal(notificationReceipt({ http: 429, data: { message_id: '42' } }).status, 'unknown');
 });
+
+for (const boundary of ['receipt', 'ledger']) test(`a crash after durable original-context rejection (${boundary}) cannot release the next request`, async () => {
+  let clock = 1000000;
+  const probe = fixture({ clock: () => clock, transport: async () => ({ http: 200, data: { ret: -7 } }) });
+  seed(probe); clock += 60_000; probe.enabled = true;
+  if (boundary === 'receipt') {
+    const save = probe.save.bind(probe); let writes = 0;
+    probe.save = () => { if (++writes === 2) throw Error('fixture ledger failure'); save(); };
+    await assert.rejects(() => probe.send('notification-1', new AbortController().signal));
+  } else await probe.send('notification-1', new AbortController().signal);
+  assert.equal(probe.state.deliveries[0].status, 'rejected');
+  assert.equal(probe.state.notificationStopReason, undefined);
+  let calls = 0;
+  const restored = new Probe(probe.directory, { notificationSteps: steps, clock: () => clock + 60_000,
+    transport: async () => { calls++; return batch(); } });
+  assert.equal(restored.state.notificationStopReason, 'original_context_rejected');
+  await assert.rejects(() => restored.activate(scope(restored)));
+  assert.equal(calls, 0); assert.equal(restored.state.deliveries.length, 1);
+});
+
+test('receipt persistence failure blocks same-process reactivation without skipping the in-flight request', async () => {
+  let clock = 1000000, calls = 0;
+  const probe = fixture({ clock: () => clock, transport: async endpoint => {
+    calls++;
+    return endpoint.endsWith('getupdates') ? batch() : { http: 200, data: { ret: 0 } };
+  } });
+  seed(probe); clock += 60_000;
+  rmSync(probe.receiptsDirectory, { recursive: true });
+  await probe.activate(scope(probe)); await probe.worker;
+  assert.equal(probe.phase, 'probe_error'); assert.equal(probe.state.deliveries[0].status, 'sending');
+  assert.equal(calls, 2);
+  await probe.stop(); clock += 60_000;
+  await probe.activate(scope(probe)); await probe.worker;
+  assert.equal(probe.phase, 'review_required'); assert.equal(probe.state.deliveries.length, 1);
+  assert.equal(calls, 2);
+});
+
+test('overlapping due times are stopped instead of catching up multiple notifications in a burst', async () => {
+  let clock = 1000000, calls = 0;
+  const probe = fixture({ clock: () => clock, transport: async endpoint => {
+    calls++; assert.ok(endpoint.endsWith('getupdates')); return batch();
+  } });
+  seed(probe); clock += 125_000;
+  await probe.activate(scope(probe)); await probe.worker;
+  assert.equal(probe.phase, 'missed_window'); assert.equal(probe.state.deliveries.length, 0); assert.equal(calls, 1);
+});
+
+test('polling lateness does not compress the confirmed spacing between successive sends', async () => {
+  let clock = 1000000, polls = 0; const sent = [];
+  const probe = fixture({ clock: () => clock, transport: async endpoint => {
+    if (endpoint.endsWith('getupdates')) { if (++polls > 1) clock += 10_000; return batch(); }
+    sent.push(clock); return { http: 200, data: { ret: 0 } };
+  } });
+  seed(probe); clock += 65_000;
+  await probe.activate(scope(probe)); await probe.worker;
+  assert.deepEqual(sent, [1065000, 1125000]);
+  assert.equal(probe.state.deliveries[1].sincePreviousSendMs, 60_000);
+});
