@@ -21,7 +21,9 @@ if (existsSync(lockFile)) {
   unlinkSync(lockFile);
 }
 const fd = openSync(lockFile, 'wx', 0o600); writeFileSync(fd, String(process.pid)); closeSync(fd);
-let probe = new Probe(directory);
+const planArg = process.argv.indexOf('--notification-plan');
+const probeOptions = planArg < 0 ? {} : { notificationSteps: JSON.parse(readFileSync(resolve(process.argv[planArg + 1] ?? ''), 'utf8')) };
+let probe = new Probe(directory, probeOptions);
 const capability = randomBytes(24).toString('hex');
 const page = readFileSync(new URL('./index.html', import.meta.url));
 let origin;
@@ -54,12 +56,12 @@ const server = createServer(async (req, res) => {
         case '/login': await probe.startLogin(); break;
         case '/verify': probe.submitCode(data.code); break;
         case '/activate':
-          if (data.scope !== 'owner-two-test-replies') return send(400, { error: 'test_scope_required' });
-          await probe.activate(); break;
+          if (data.scope !== (probe.publicState().notification?.scope ?? 'owner-two-test-replies')) return send(400, { error: 'test_scope_required' });
+          await probe.activate(data.scope); break;
         case '/stop': await probe.stop(); break;
         case '/restore': {
           await probe.stop(); const oldRun = probe.state.run;
-          probe = new Probe(directory); if (probe.state.run !== oldRun) throw new Error('restore_failed');
+          probe = new Probe(directory, probeOptions); if (probe.state.run !== oldRun) throw new Error('restore_failed');
           probe.event('component_restored'); break;
         }
         case '/visible': probe.confirmVisible(data.kind); break;

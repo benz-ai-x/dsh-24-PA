@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 
-test('loopback page is idle, API requires the local capability and same origin, and one process owns a directory', async () => {
+for (const notifications of [false, true]) test(`${notifications ? 'notification' : 'basic'} loopback page is idle, capability protected, and single consumer`, async () => {
   const directory = mkdtempSync(join(tmpdir(), '24pa-weixin-server-unit-'));
-  const child = spawn(process.execPath, ['server.mjs', '--state-dir', directory], { cwd: new URL('.', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['server.mjs', '--state-dir', directory, ...(notifications ? ['--notification-plan', 'notification-plan.example.json'] : [])], { cwd: new URL('.', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     const url = await new Promise((resolve, reject) => {
       let output = '';
@@ -21,13 +21,21 @@ test('loopback page is idle, API requires the local capability and same origin, 
     assert.equal((await fetch(`${url.origin}/status`)).status, 403);
     assert.equal((await fetch(`${url.origin}/status`, { headers: { ...auth, Origin: 'https://other.test' } })).status, 403);
     const state = await (await fetch(`${url.origin}/status`, { headers: auth })).json();
-    assert.equal(state.phase, 'unbound'); assert.equal(state.recentEvents.length, 0); assert.equal(state.deliveries.length, 0);
+    assert.equal(state.phase, 'unbound'); assert.equal(state.recentEvents.length, notifications ? 1 : 0); assert.equal(state.deliveries.length, 0);
+    if (notifications) {
+      assert.equal(state.notification.steps.length, 3);
+      assert.equal(state.notification.decision, 'unverified');
+      assert.equal(state.gateA.status, 'not_applicable');
+      assert.equal((await fetch(`${url.origin}/activate`, { method: 'POST', headers: auth, body: JSON.stringify({ scope: 'owner-two-test-replies' }) })).status, 400);
+    }
     assert.equal((await fetch(`${url.origin}/activate`, { method: 'POST', headers: auth, body: '{}' })).status, 400);
     const duplicate = spawn(process.execPath, ['server.mjs', '--state-dir', directory], { cwd: new URL('.', import.meta.url), stdio: 'ignore' });
     assert.notEqual((await once(duplicate, 'exit'))[0], 0);
     assert.equal((await fetch(`${url.origin}/status`, { headers: auth })).status, 200);
   } finally {
-    const done = once(child, 'exit'); child.kill('SIGTERM'); await done;
+    if (child.exitCode === null && child.signalCode === null) {
+      const done = once(child, 'exit'); child.kill('SIGTERM'); await done;
+    }
     rmSync(directory, { recursive: true, force: true });
   }
 });

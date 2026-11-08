@@ -110,7 +110,7 @@ export function admit(message, identity, challenge) {
   const m = message && typeof message === 'object' ? message : {};
   const stable = typeof m.message_id === 'string' && /^[1-9]\d*$/.test(m.message_id);
   if (!identity.owner || !identity.bot || m.from_user_id !== identity.owner || m.to_user_id !== identity.bot ||
-      m.group_id || m.message_type !== 1) return { reason: 'identity_or_group', id: stable ? m.message_id : null };
+      m.group_id || m.message_type !== 1 || m.message_state !== 2) return { reason: 'identity_or_group', id: stable ? m.message_id : null };
   if (!stable) return { reason: 'missing_message_id', id: null };
   if (!Array.isArray(m.item_list) || m.item_list.length !== 1 || m.item_list[0]?.type !== 1 ||
       m.item_list[0]?.text_item?.text !== challenge) return { reason: 'outside_test_scope', id: m.message_id };
