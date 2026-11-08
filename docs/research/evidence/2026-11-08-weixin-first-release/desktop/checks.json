@@ -1,0 +1,31 @@
+{
+  "checks": [
+    "zh-CN:loading+keyboard",
+    "read-only empty",
+    "keyboard QR request",
+    "candidate+impact+explicit activation",
+    "zh-CN:light:1280x800:no-overflow",
+    "zh-CN:light:1440x900:no-overflow",
+    "zh-CN:light:1920x1080:no-overflow",
+    "zh-CN:dark:1280x800:no-overflow",
+    "zh-CN:dark:1440x900:no-overflow",
+    "zh-CN:dark:1920x1080:no-overflow",
+    "unknown verification without resend",
+    "zh-CN:action error",
+    "zh-CN:offline disabled",
+    "zh-CN:recovered",
+    "en-US:loading+keyboard",
+    "en-US:light:1280x800:no-overflow",
+    "en-US:light:1440x900:no-overflow",
+    "en-US:light:1920x1080:no-overflow",
+    "en-US:dark:1280x800:no-overflow",
+    "en-US:dark:1440x900:no-overflow",
+    "en-US:dark:1920x1080:no-overflow",
+    "en-US:action error",
+    "en-US:offline disabled",
+    "en-US:recovered"
+  ],
+  "realHost": true,
+  "externalServices": "isolated mocks",
+  "screenshotsContainRealCredentials": false
+}
