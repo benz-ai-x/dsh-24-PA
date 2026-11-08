@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "run": "eb76d956-0dd9-42d0-a627-d191749a4eec",
+  "protocol": {
+    "commit": "874637a0dbc24050f72d1385add4fc6170a2d726",
+    "version": "2.4.10",
+    "clientVersion": "132106",
+    "appId": "bot"
+  },
+  "createdAt": "2026-11-08T14:27:44.378Z",
+  "exportedAt": "2026-11-08T14:36:55.890Z",
+  "account": {
+    "botHash": "eade1a9ae8c5542a44d26ef52852eac5850abf870b8002eb83fab7b1ed0209e2",
+    "ownerHash": "4ba42a54adfb08e44de3218d1f66693e45d23cbc98edc97e5c3e4d920b20d067",
+    "apiHost": "ilinkai.weixin.qq.com"
+  },
+  "requestedDelayMs": 120000,
+  "restored": 1,
+  "lastSuccessfulPollAt": "2026-11-08T14:35:20.606Z",
+  "events": [
+    {
+      "at": "2026-11-08T14:28:17.656Z",
+      "type": "qr_created",
+      "http": 200
+    },
+    {
+      "at": "2026-11-08T14:28:31.730Z",
+      "type": "login_status",
+      "status": "confirmed"
+    },
+    {
+      "at": "2026-11-08T14:28:31.736Z",
+      "type": "login_confirmed",
+      "http": 200
+    },
+    {
+      "at": "2026-11-08T14:28:36.670Z",
+      "type": "owner_activated_test"
+    },
+    {
+      "at": "2026-11-08T14:28:49.476Z",
+      "type": "inbound",
+      "reason": "test_input",
+      "messageHash": "b66c4299b94a89fd72c104461220fb88e5ac9fc599b0ea19841638fd254454d8",
+      "idDigits": 19,
+      "fromMatches": true,
+      "toMatches": true,
+      "hasSessionId": false,
+      "typeIsUser": true,
+      "stateIsFinished": true
+    },
+    {
+      "at": "2026-11-08T14:28:49.479Z",
+      "type": "batch_committed",
+      "count": 1,
+      "cursorChanged": true,
+      "cursorHash": "7cd2dff17fbb8cdaa90ba4115e9f21bff7219f58e54a3479a8271d00732e66fc"
+    },
+    {
+      "at": "2026-11-08T14:28:49.482Z",
+      "type": "read_contract_observed",
+      "http": 200,
+      "shape": {
+        "kind": "object",
+        "keyCount": 3,
+        "retType": "undefined",
+        "errcodeType": "undefined",
+        "messageIdType": "undefined"
+      },
+      "status": "read_success",
+      "basis": "observed_update_envelope_without_error_codes"
+    },
+    {
+      "at": "2026-11-08T14:34:23.493Z",
+      "type": "stopped"
+    },
+    {
+      "at": "2026-11-08T14:34:23.762Z",
+      "type": "state_restored_after_immediate",
+      "cursorHash": "7cd2dff17fbb8cdaa90ba4115e9f21bff7219f58e54a3479a8271d00732e66fc"
+    },
+    {
+      "at": "2026-11-08T14:35:02.361Z",
+      "type": "owner_activated_test"
+    },
+    {
+      "at": "2026-11-08T14:35:20.608Z",
+      "type": "recovery_poll_observed",
+      "requestedCursorHash": "7cd2dff17fbb8cdaa90ba4115e9f21bff7219f58e54a3479a8271d00732e66fc",
+      "count": 0
+    },
+    {
+      "at": "2026-11-08T14:36:44.460Z",
+      "type": "stopped"
+    }
+  ],
+  "deliveries": [
+    {
+      "kind": "immediate",
+      "clientId": "24pa-probe-2fd21acc-6b98-48e4-8138-261800897878",
+      "status": "unknown",
+      "startedAt": "2026-11-08T14:28:49.484Z",
+      "elapsedMs": 5,
+      "newInbound": 0,
+      "lastSuccessfulPollAt": "2026-11-08T14:28:49.482Z",
+      "http": 200,
+      "shape": {
+        "kind": "object",
+        "keyCount": 1,
+        "retType": "undefined",
+        "errcodeType": "undefined",
+        "messageIdType": "string"
+      },
+      "finishedAt": "2026-11-08T14:28:49.895Z",
+      "hasNativeId": false
+    },
+    {
+      "kind": "delayed",
+      "clientId": "24pa-probe-ba4650ec-20ed-41d2-8eed-14c3f8b2425b",
+      "status": "unknown",
+      "startedAt": "2026-11-08T14:35:20.611Z",
+      "elapsedMs": 391132,
+      "newInbound": 0,
+      "lastSuccessfulPollAt": "2026-11-08T14:35:20.606Z",
+      "http": 200,
+      "shape": {
+        "kind": "object",
+        "keyCount": 1,
+        "retType": "undefined",
+        "errcodeType": "undefined",
+        "messageIdType": "string"
+      },
+      "finishedAt": "2026-11-08T14:35:21.035Z",
+      "hasNativeId": true,
+      "nativeIdHash": "aa981b672ef2f979a1e6b994d99ef53714bfa29ca4e6d9213559bc1440cb96d6"
+    }
+  ],
+  "visibleReceipts": {
+    "immediate": {
+      "at": "2026-11-08T14:29:00.910Z",
+      "basis": "owner_confirmed_in_local_probe",
+      "clientId": "24pa-probe-2fd21acc-6b98-48e4-8138-261800897878"
+    },
+    "delayed": {
+      "at": "2026-11-08T14:35:47.890Z",
+      "basis": "owner_confirmed_in_local_probe",
+      "clientId": "24pa-probe-ba4650ec-20ed-41d2-8eed-14c3f8b2425b"
+    }
+  },
+  "gateA": {
+    "status": "observed",
+    "pending": [],
+    "receiptBasis": {
+      "immediate": "owner_visible_reconciliation",
+      "delayed": "owner_visible_reconciliation"
+    },
+    "notificationB": "unverified"
+  },
+  "limits": [
+    "No business integration",
+    "No proactive-send/window/quota guarantee",
+    "No proven server idempotency",
+    "Replay tests are offline evidence",
+    "newInbound counts observed messages, not a proof of an empty server queue"
+  ]
+}
