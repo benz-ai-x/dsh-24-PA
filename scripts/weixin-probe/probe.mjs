@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { admit, apiBase, DEFAULT_BASE, PROTOCOL, receipt, request, withBaseInfo } from './protocol.mjs';
+import { admit, apiBase, DEFAULT_BASE, PROTOCOL, receipt, request, updatesResult, withBaseInfo } from './protocol.mjs';
 
 const digest = value => createHash('sha256').update(String(value)).digest('hex');
 const now = () => new Date().toISOString();
@@ -224,8 +224,8 @@ export class Probe {
           body: withBaseInfo({ get_updates_buf: this.state.cursor }),
         });
         if (!this.enabled || signal.aborted) return;
-        const status = receipt(response);
-        if (status.status !== 'accepted') {
+        const status = updatesResult(response);
+        if (status.status !== 'read_success') {
           this.event('poll_error', status);
           if (status.ret === -14 || status.errcode === -14 || ++failures >= 3) {
             this.enabled = false; this.phase = 'poll_error'; return;
@@ -233,7 +233,11 @@ export class Probe {
           await delay(failures * 1000, undefined, { signal }); continue;
         }
         failures = 0; this.consume(response.data);
-        this.state.lastSuccessfulPollAt = now(); this.save();
+        this.state.lastSuccessfulPollAt = now();
+        if (!this.state.events.some(x => x.type === 'read_contract_observed' && x.basis === status.basis)) {
+          this.state.events.push({ at: now(), type: 'read_contract_observed', ...status });
+        }
+        this.save();
         if (this.restorePending) {
           this.state.recoveredAfterImmediate = true; this.restorePending = false;
           this.event('recovery_poll_observed', { requestedCursorHash: requestedCursor, count: response.data.msgs?.length ?? 0 });

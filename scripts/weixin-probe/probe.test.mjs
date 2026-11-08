@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Probe, atomicJson } from './probe.mjs';
-import { admit, apiBase, headers, parseWire, receipt, request, withBaseInfo } from './protocol.mjs';
+import { admit, apiBase, headers, parseWire, receipt, request, updatesResult, withBaseInfo } from './protocol.mjs';
 
 const dirs = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -41,6 +41,17 @@ test('receipt requires explicit ret zero, separates optional native ID, and fail
   assert.equal(receipt({ http: 200, data: { ret: -14 } }).status, 'rejected');
   assert.equal(receipt({ http: 200, data: { ret: 0, errcode: -14 } }).status, 'rejected');
   for (const http of [null, 403, 500, 302]) assert.equal(receipt({ http, data: { ret: 0 } }).status, 'unknown');
+});
+
+test('the observed read envelope may omit zero error codes without weakening send acknowledgement', () => {
+  const observed = { http: 200, data: { msgs: [], get_updates_buf: 'fixture-cursor', sync_buf: 'fixture-legacy-cursor' } };
+  assert.equal(updatesResult(observed).status, 'read_success');
+  assert.equal(receipt(observed).status, 'unknown');
+  for (const data of [{}, { msgs: [], get_updates_buf: 123 }, { msgs: {}, get_updates_buf: 'x' },
+    { ...observed.data, ret: '0' }, { ...observed.data, errcode: 12 }, { ...observed.data, errmsg: 'failure' }]) {
+    assert.notEqual(updatesResult({ http: 200, data }).status, 'read_success');
+  }
+  assert.equal(updatesResult({ http: 500, data: observed.data }).status, 'unknown');
 });
 
 test('protocol headers identify the probe without falsely identifying it as OpenClaw', () => {

@@ -63,6 +63,21 @@ export function receipt(response) {
   return { ...base, status: 'accepted', ...(nativeId ? { nativeId } : {}) };
 }
 
+// Read success has its own contract. The observed getupdates envelope omits zero error codes.
+// This does not relax sendmessage acknowledgement: an empty send response remains unknown.
+export function updatesResult(response) {
+  const observation = receipt(response);
+  const d = response.data;
+  if (observation.status === 'rejected') return observation;
+  if (!response.http || response.http < 200 || response.http >= 300 || !d || Array.isArray(d) ||
+      typeof d !== 'object' || !Array.isArray(d.msgs) || typeof d.get_updates_buf !== 'string' ||
+      d.ret !== undefined && d.ret !== 0 || d.errcode !== undefined && d.errcode !== 0 ||
+      d.sync_buf !== undefined && typeof d.sync_buf !== 'string' ||
+      d.ret === undefined && d.errmsg !== undefined && d.errmsg !== '') return { ...observation, status: 'unknown' };
+  return { ...observation, status: 'read_success',
+    basis: d.ret === 0 ? 'explicit_zero_and_update_envelope' : 'observed_update_envelope_without_error_codes' };
+}
+
 export async function request(endpoint, { base = DEFAULT_BASE, token, body, signal, timeout = 15_000, fetcher = fetch } = {}) {
   const method = body === undefined ? 'GET' : 'POST';
   const url = new URL(endpoint, `${apiBase(base)}/`);
