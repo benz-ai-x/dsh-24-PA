@@ -69,7 +69,7 @@ v1 后续功能（规格 1.3–2.1）：F13＝[#60](https://github.com/benz-ai-x
 
 | 范围 | GitHub Issue | 故事/验收 | 状态与门槛 |
 |---|---|---|---|
-| 首版 WX-R01 + F53 + F54 | [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) | 163–164；WX-01–16/20/21、T21 | 打开、已领取；A 通过，功能分支已实现/隔离验证/部署，[Draft PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)，正式账号验收及合并待完成 |
+| 首版 WX-R01 + F53 + F54 | [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) | 163–164；WX-01–16/20/21、T21 | 打开、已领取；A 通过，功能分支已实现/隔离验证/部署，[PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)；按后续明确指令办理合并/[发布](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.4)，正式账号验收待完成 |
 | 后续 F55 周期结果通知 | [#281](https://github.com/benz-ai-x/dsh-24-PA/issues/281) | 165；WX-17–19/21 | 打开；依赖 #279 合并验收及结论 B 覆盖目标场景；不计首版、不标 ready-for-agent |
 | 原总规格、研究、计划管理分票 | #277、#278、#280 | 编号及原正文保留 | 归并关闭（not planned）；范围转入 Spec 与 #279，不是实现完成或 A/B 已通过 |
 
