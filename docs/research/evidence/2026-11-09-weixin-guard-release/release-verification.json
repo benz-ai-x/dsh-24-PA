@@ -1,0 +1,12 @@
+{
+  "version": "0.2.2-rc.1.5",
+  "sha256": "47ce23ee9bcb4974339891f0fe38b85a142097b22b99c1a6d184a600432f3dd3",
+  "size": 710319,
+  "localNpmGithubArtifactsMatch": true,
+  "activeTags": {
+    "latest": "0.2.2-rc.1.5",
+    "dsh-0.2.2-rc.1": "0.2.2-rc.1.5"
+  },
+  "historicTagsPreserved": true,
+  "host": "0.2.2-rc.1"
+}
