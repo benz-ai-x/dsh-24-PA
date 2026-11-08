@@ -497,7 +497,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
   it('原生 pre-step 消费计划不调用模型；混合输入保留普通对话和旧计划', async () => {
     const row = await enable(await create()), scheduled = message(reminder(row));
     let nextCalls = 0;
-    const runtime = { accessSessionId: 'fixed-access', executions: { run: work => work() }, planEngine: engine };
+    const runtime = { weixin: { remote: () => null }, accessSessionId: 'fixed-access', executions: { run: work => work() }, planEngine: engine };
     const agent = { id: 'fixed-access' };
     expect(await PaRuntime.prototype.planStep.call(runtime, agent, [scheduled], async () => { nextCalls++; return { kind: 'enter', messages: [scheduled] }; })).toEqual({ kind: 'reject' });
     expect(nextCalls).toBe(0);

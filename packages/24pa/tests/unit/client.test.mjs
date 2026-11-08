@@ -33,7 +33,7 @@ describe('client.js 挂载面', () => {
     expect(client.match(/const openRobot = async/g)?.length).toBe(1);
     // 面板只读端点与既有 action 端点分工稳定
     const endpoints = [...client.matchAll(/rpc\('([a-z.-]+)'/g)].map(m => m[1]);
-    expect(new Set(endpoints)).toEqual(new Set(['snapshot', 'home', 'action', 'memory', 'materials', 'minutes', 'health', 'budget', 'backups', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.package-content', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'runs', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence', 'workspace.config-impact']));
+    expect(new Set(endpoints)).toEqual(new Set(['weixin', 'snapshot', 'home', 'action', 'memory', 'materials', 'minutes', 'health', 'budget', 'backups', 'roles', 'reminders', 'digests', 'skills.catalog', 'skills.inspect', 'skills.package-content', 'skills.runs', 'skills.run', 'skills.preview', 'sources', 'calendar', 'todos', 'plans', 'plans.draft', 'plans.inspect', 'runs', 'runs.export', 'runs.diagnostics', 'work.inspect', 'worker.run', 'health.snapshot', 'health.test.preview', 'workspace.evidence', 'workspace.config-impact']));
   });
 
   it('企微接入模块（F20→F26 卡片化）：接入卡片、检查动作、诊断四态与 helpMessage 原文', () => {
@@ -45,7 +45,7 @@ describe('client.js 挂载面', () => {
     }
   });
 
-  it('能力卡片体系（F26/P58）：首页 + 四分类 tab、16 卡注册表、角标聚合、管理态与详情导航', () => {
+  it('能力卡片体系（F26/P58）：首页 + 四分类 tab、17 卡注册表、角标聚合、管理态与详情导航', () => {
     // 一级导航＝首页 / 事务与计划 / 知识与资料 / 接入与设置 / 运行与维护
     expect(client).toContain("const CATEGORY_TABS = [['home', 'sunrise', 'blue'], ['work', 'grid', 'blue'], ['knowledge', 'memory', 'violet'], ['setup', 'plug', 'green'], ['ops', 'shield', 'amber']];");
     expect(client).toContain("const [tab, setTab] = React.useState('home')");
@@ -53,9 +53,9 @@ describe('client.js 挂载面', () => {
     expect(client).toContain("work: 'Work & plans', knowledge: 'Knowledge & content', setup: 'Connections & setup', ops: 'Operations & maintenance'");
     // 注册表驱动：注册即生卡；每卡必有 tier（角标聚合纯函数）＋body＋detail
     const ids = [...client.matchAll(/id: '([a-z]+)', cat: '(work|knowledge|setup|ops)'/g)].map(m => m[1]);
-    expect(ids).toEqual(['skills', 'work', 'activity', 'reminders', 'review', 'memory', 'digest', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'healthcheck', 'storage', 'config', 'budget']);
+    expect(ids).toEqual(['skills', 'work', 'activity', 'reminders', 'review', 'memory', 'digest', 'feishu', 'weixin', 'wecom', 'qwennote', 'wiki', 'workspace', 'healthcheck', 'storage', 'config', 'budget']);
     expect((client.match(/^            tier: /gm) || []).length).toBe(ids.length);
-    expect(client).toContain("const CARD_ORDER = ['skills', 'work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];");
+    expect(client).toContain("const CARD_ORDER = ['skills', 'work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'weixin', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];");
     // tab 角标＝分类内 warn/error 卡片数，error 转红
     expect(client).toContain('const chipOf = cat =>');
     expect(client).toContain("chip.tone === 'error' ? ' error' : ''");
@@ -64,8 +64,8 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('const CATEGORY_MIGRATION = {');
     expect(client).toContain('pa24-manage');
     expect(client).toContain('管理卡片');
-    // 接入进度只覆盖四个接入卡
-    expect(client).toContain("const ACCESS_CARD_IDS = new Set(['feishu', 'wecom', 'qwennote', 'wiki'])");
+    // 接入进度只覆盖五个接入卡
+    expect(client).toContain("const ACCESS_CARD_IDS = new Set(['feishu', 'weixin', 'wecom', 'qwennote', 'wiki'])");
     expect(client).toContain("cat === 'setup' && !manage");
     // 二级详情：返回卡片导航＋原视图平移（飞书详情全量保留）
     expect(client).toContain("'返回卡片'");
@@ -115,7 +115,7 @@ describe('client.js 挂载面', () => {
     expect(client).not.toContain('.pa24-settings{');
     // 一屏一主按钮：页头对话＋工作/记忆/提醒/晨报空态 CTA＋新建 Skill＋工作区卡绑定＋全量健康检查；
     // 未开放的知识库不再提供误导性的主 CTA。
-    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(17); // 首页绑定入口，以及参数、来源、日程/待办、明确测试、预算放行、定时暂停保存与创建日程分别提交
+    expect((client.match(/className: 'pa24-primary'/g) || []).length).toBe(18); // 首页绑定入口，以及参数、来源、日程/待办、明确测试、预算放行、定时暂停保存与创建日程分别提交
     expect(client).toContain("{ disabled: busy || !path, className: 'pa24-primary' }");
     // 统一状态语法：四档 STATUS 映射共享，诊断徽章仅覆盖原因词；
     // 「长连接已启动」为 SPEC §13 第 381 行锚定术语保留

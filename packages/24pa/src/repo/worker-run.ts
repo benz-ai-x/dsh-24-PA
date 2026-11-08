@@ -114,6 +114,13 @@ export class WorkerRunRepo {
   async inputs(id: string): Promise<WorkerInputRow[]> {
     return (await this.db.query<WorkerInputRow>('select * from pa24.worker_run_input where run_id = $1 order by created_at, execution_id', [id])).rows;
   }
+  async ownerInputResults(sourceId: string): Promise<{ scope: WorkExecutionScope; adopted: string; status: string; outbox_key: string | null }[]> {
+    return (await this.db.query<{ scope: WorkExecutionScope; adopted: string; status: string; outbox_key: string | null }>(`
+      select i.scope, i.status as adopted, r.status, o.dedup_key as outbox_key
+      from pa24.worker_run_input i join pa24.worker_run r on r.id = i.run_id
+      left join pa24.outbox o on o.dedup_key = r.outbox_key
+      where i.scope->'ownerInput'->>'sourceId' = $1`, [sourceId])).rows;
+  }
   async freeze(id: string, execution: Record<string, unknown>): Promise<void> {
     await this.db.withTransaction(async tx => {
       const run = (await tx.query<WorkerRunRow>('select * from pa24.worker_run where id = $1 for update', [id])).rows[0];

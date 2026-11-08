@@ -75,7 +75,7 @@ export function apply(ctx: DshContext) {
           schema: { type: 'object', additionalProperties: true },
           render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
         },
-        execute,
+        execute: async (args, exec) => { await runtime.assertCall(exec.agent); return execute(args, exec); },
       }),
     );
 

@@ -15,11 +15,12 @@ export interface InboxRow {
   error: string | null;
   created_at: Date;
   processed_at: Date | null;
+  binding_generation?: string | null;
 }
 
 export interface NewInbox {
   eventId: string;
-  source: 'feishu' | 'local' | 'panel';
+  source: 'feishu' | 'local' | 'panel' | 'weixin';
   kind: 'message' | 'card' | 'command';
   payload: unknown;
 }
@@ -61,6 +62,8 @@ export class InboxRepo {
       `update pa24.inbox set status = 'processing'
        where event_id in (
          select event_id from pa24.inbox where status = 'received'
+         and (source <> 'weixin' or exists (select 1 from pa24.weixin_binding b
+           where b.generation = pa24.inbox.binding_generation and b.state = 'active' and b.enabled = true))
          order by created_at limit $1 for update skip locked
        ) returning *`,
       [limit],
@@ -108,5 +111,12 @@ export class InboxRepo {
   async get(eventId: string): Promise<InboxRow | null> {
     const result = await this.db.query<InboxRow>('select * from pa24.inbox where event_id = $1', [eventId]);
     return result.rows[0] ?? null;
+  }
+  async weixinRows(generation: string, offset = 0): Promise<InboxRow[]> {
+    return (await this.db.query<InboxRow>('select * from pa24.inbox where binding_generation = $1 order by created_at desc, event_id limit 50 offset $2', [generation, offset])).rows;
+  }
+  async forRequest(requestId: string, sessionId: string): Promise<InboxRow | null> {
+    const rows = (await this.db.query<InboxRow>('select * from pa24.inbox where request_id = $1 and target_session = $2', [requestId, sessionId])).rows;
+    return rows.length === 1 ? rows[0]! : null;
   }
 }

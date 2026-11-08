@@ -2,6 +2,7 @@
 // seam every caller already uses (repo.ts is now a barrel re-exporting this).
 import { ModelBudgetRepo } from './model-budget.js';
 import { WorkPlanningRepo } from './work-planning.js';
+import { WeixinRepo } from './weixin.js';
 import type { PaDb } from '../db.js';
 import { BackupRepo } from './backup.js';
 import { CalendarEventRow, CalendarRepo, CalendarSyncRow } from './calendar.js';
@@ -32,6 +33,7 @@ import { DataChannel, ProjectRepo, ProjectRow, TaskRepo, TaskRow } from './task.
 import { ActionOperationRepo, ActionOperationRow, OperationStatus, WorkItemRepo, WorkItemRow, WorkItemStatus } from './work.js';
 
 export interface Repos {
+  weixin: WeixinRepo;
   workPlanning: WorkPlanningRepo;
   backups: BackupRepo;
   modelBudget: ModelBudgetRepo;
@@ -72,6 +74,7 @@ export interface Repos {
 
 export function createRepos(db: PaDb): Repos {
   return {
+    weixin: new WeixinRepo(db),
     workPlanning: new WorkPlanningRepo(db),
     backups: new BackupRepo(db),
     modelBudget: new ModelBudgetRepo(db),
@@ -131,3 +134,4 @@ export * from './source.js';
 export * from './source-projection.js';
 
 export * from './backup.js';
+export * from './weixin.js';

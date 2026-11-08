@@ -149,6 +149,7 @@ window.__ModuleLoader__.load({
       .pa24-form-row{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--pa-line)}.pa24-form-row:last-child{border-bottom:0}.pa24-form-row>label{font-size:12px;color:var(--pa-muted)}.pa24-form-row input[type=text],.pa24-form-row input[type=number],.pa24-form-row select{min-height:36px}
       .pa24-backups>.pa24-section-head{flex-wrap:wrap}.pa24-backups>.pa24-section-head>button{flex-shrink:0;white-space:nowrap}
       .pa24-health{min-width:0;overflow-wrap:anywhere}.pa24-health .pa24-example{display:block}.pa24-health .pa24-example .pa24-check{display:flex;margin:12px 0}.pa24-health .pa24-check input{flex:0 0 18px;width:18px;height:18px}.pa24-health select{max-width:100%}
+      .pa24-weixin{min-width:0;overflow-wrap:anywhere}.pa24-weixin .pa24-example{display:block}.pa24-weixin .pa24-example>label{display:block;margin:12px 0}.pa24-weixin .pa24-example>label.pa24-row{display:flex}.pa24-weixin .pa24-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.pa24-weixin .pa24-example>button{margin:6px 8px 0 0}
       .pa24-check{display:inline-flex;align-items:center;gap:6px;margin:0 16px 0 0;font-size:13px;min-height:32px;cursor:pointer}.pa24-check input{width:15px;height:15px;min-height:0}
       .pa24-source-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;margin:12px 0}.pa24-source-fields label{display:flex;flex-direction:column;gap:5px;min-width:0}.pa24-sources input,.pa24-sources select{max-width:100%;box-sizing:border-box}.pa24-sources .pa24-check input{width:18px;flex:0 0 18px}.pa24-source-save{position:sticky;bottom:72px;background:var(--pa-surface);border-top:1px solid var(--pa-line);padding:12px 0;margin-top:16px;z-index:2}.pa24-source-save p{margin:6px 0 0}.pa24-sources .pa24-job{overflow-wrap:anywhere}
       .pa24-calendar-detail{min-width:0;overflow-wrap:anywhere}.pa24-calendar-detail>.pa24-section-head{flex-wrap:wrap}.pa24-calendar-detail>.pa24-section-head>div{min-width:0}.pa24-calendar-detail .pa24-notice{margin:12px 0 16px}.pa24-calendar-detail .pa24-notice button{margin-top:10px}.pa24-calendar-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 16px}.pa24-calendar-metric{min-width:0;padding:13px 14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-surface)}.pa24-calendar-metric>span,.pa24-calendar-metric>small{display:block;color:var(--pa-muted);font-size:11px}.pa24-calendar-metric>strong{display:block;margin:4px 0;font-size:22px;line-height:1.25;font-variant-numeric:tabular-nums}.pa24-calendar-next{display:flex;align-items:center;gap:16px;min-width:0;margin:0 0 16px;padding:16px 18px;border:1px solid var(--pa-line);border-left:3px solid var(--pa-blue);border-radius:14px;background:var(--pa-surface)}.pa24-calendar-next-time{display:flex;align-items:center;gap:8px;min-width:78px;color:var(--pa-blue);font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}.pa24-calendar-next-body{flex:1;min-width:0}.pa24-calendar-next-body h3{margin:7px 0 4px;font-size:17px;overflow-wrap:anywhere}.pa24-calendar-next-empty{color:var(--pa-muted);border-left-color:var(--pa-line)}.pa24-calendar-next-empty h3{margin-bottom:4px}.pa24-calendar-layout{display:grid;grid-template-columns:minmax(0,1fr) 292px;gap:16px;align-items:start}.pa24-calendar-main{min-width:0}.pa24-calendar-timeline{padding:14px 16px}.pa24-calendar-toolbar{border-bottom:1px solid var(--pa-line);margin-bottom:2px}.pa24-calendar-toolbar .pa24-source-fields{grid-template-columns:repeat(2,minmax(0,1fr));margin:8px 0 12px}.pa24-date-navigation{display:grid;grid-template-columns:auto minmax(150px,1fr) auto auto;gap:8px;align-items:end}.pa24-date-navigation>button:first-child svg{transform:rotate(180deg)}.pa24-date-navigation label{display:flex;flex-direction:column;gap:5px;min-width:0;color:var(--pa-muted);font-size:12px}.pa24-agenda-row{display:grid;grid-template-columns:68px minmax(0,1fr);gap:14px;padding:15px 0;border-bottom:1px solid var(--pa-line)}.pa24-agenda-row:last-child{border-bottom:0}.pa24-agenda-time{padding-top:10px;text-align:right;font-size:13px;font-weight:650;font-variant-numeric:tabular-nums}.pa24-agenda-time small{display:block;margin-top:3px;color:var(--pa-muted);font-size:10px;font-weight:400}.pa24-event-card{min-width:0;padding:12px 14px;border:1px solid var(--pa-line);border-radius:12px;background:var(--pa-soft)}.pa24-event-card>.pa24-row{align-items:flex-start}.pa24-event-card h3{min-width:0;overflow-wrap:anywhere}.pa24-event-card>.pa24-meta{margin-top:5px}.pa24-event-location{padding:10px 0 0;margin-top:10px;border-top:1px solid var(--pa-line)}.pa24-event-location>.pa24-row{gap:6px}.pa24-event-location .pa24-row:last-child{margin-top:7px}.pa24-event-location button,.pa24-event-location .pa24-link-button{min-height:32px;padding:5px 9px;font-size:12px}.pa24-calendar-page-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:14px}.pa24-calendar-page-footer button:first-child svg{transform:rotate(180deg)}.pa24-source-scope{margin:0;padding:15px 16px}.pa24-source-scope>div:first-child h3{display:flex;align-items:center;gap:7px}.pa24-source-scope>div:first-child svg{width:17px;height:17px}.pa24-source-evidence{padding:13px 0;border-top:1px solid var(--pa-line)}.pa24-source-evidence:first-of-type{margin-top:10px}.pa24-source-evidence:last-child{padding-bottom:0}.pa24-source-evidence .pa24-row{align-items:flex-start;gap:6px}.pa24-source-evidence strong{min-width:0;overflow-wrap:anywhere}.pa24-source-evidence p{margin-top:5px}.pa24-source-evidence button{min-height:32px;margin:5px 0 0 -8px;padding:4px 8px;font-size:12px}.pa24-source-reason{color:var(--pa-amber);font-size:12px;overflow-wrap:anywhere}.pa24-source-catalog-error{margin:12px 0;padding:10px;border:1px solid var(--pa-danger);border-radius:10px;color:var(--pa-danger);font-size:12px}.pa24-source-catalog-error button{margin-top:8px;min-height:32px;padding:4px 8px}.pa24-calendar-draft textarea{display:block;width:100%;max-width:100%;min-height:120px;margin:12px 0;padding:12px;resize:vertical;border:1px solid var(--pa-line);border-radius:10px;background:var(--pa-soft);color:var(--pa-ink);font:inherit;line-height:1.65}@container(max-width:880px){.pa24-calendar-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.pa24-calendar-layout{grid-template-columns:minmax(0,1fr)}.pa24-source-scope{margin-bottom:16px}.pa24-source-evidence{display:inline-block;vertical-align:top;width:calc(50% - 12px);margin-right:20px}.pa24-source-evidence:nth-of-type(even){margin-right:0}}
@@ -685,7 +686,7 @@ window.__ModuleLoader__.load({
         const CATEGORY_MIGRATION = {
           skills: 'work',
           work: 'work', activity: 'work', reminders: 'work', digest: 'work', review: 'knowledge', memory: 'knowledge',
-          feishu: 'setup', wecom: 'setup', qwennote: 'setup', wiki: 'setup', workspace: 'setup', config: 'setup',
+          feishu: 'setup', weixin: 'setup', wecom: 'setup', qwennote: 'setup', wiki: 'setup', workspace: 'setup', config: 'setup',
           healthcheck: 'ops', storage: 'ops', budget: 'ops',
         };
         const readHiddenPrefs = () => {
@@ -769,6 +770,90 @@ window.__ModuleLoader__.load({
         // F34: 「需注意」档位统一口径——卡片描边、接入进度行与 tab 角标共用。
         const ATTENTION_TIERS = ['warn', 'error', 'missing'];
 
+        const weixinPhase = value => ({ unbound: L('尚未绑定', 'Not bound'), stopped: L('已停止', 'Stopped'), connecting: L('正在连接', 'Connecting'), polling: L('正在收信', 'Receiving'), needs_login: L('需要重新登录', 'Sign in again'), error: L('连接待恢复', 'Connection needs attention'), idle: L('等待扫码登录', 'Ready to sign in'), requesting: L('正在获取二维码', 'Getting QR code'), wait: L('请用本人微信扫码', 'Scan with your own WeChat'), scaned: L('请在微信确认授权', 'Confirm in WeChat'), need_verifycode: L('请输入微信验证码', 'Enter WeChat verification code'), candidate: L('候选身份待确认', 'Review candidate identity'), expired: L('二维码已过期', 'QR code expired') }[value] || value);
+        function WeixinDetail({ state, tz }) {
+          const binding = state.workspaceBinding;
+          const [data, setData] = React.useState(null), [error, setError] = React.useState(''), [busy, setBusy] = React.useState(false);
+          const [generation, setGeneration] = React.useState(''), [offset, setOffset] = React.useState(0);
+          const [preview, setPreview] = React.useState(null), [approved, setApproved] = React.useState(false), [code, setCode] = React.useState('');
+          const [review, setReview] = React.useState(null), [evidence, setEvidence] = React.useState(''), [note, setNote] = React.useState('');
+          const epoch = React.useRef(0), live = React.useRef(true), request = React.useRef(null);
+          const load = async () => {
+            const id = ++epoch.current;
+            try { const value = await rpc('weixin', { workspaceBinding: binding, generation: generation || undefined, offset });
+              if (live.current && id === epoch.current && value.workspaceBinding === binding) { setData(value); setError(''); } }
+            catch (failure) { if (live.current && id === epoch.current) setError(failure.message); }
+          };
+          React.useEffect(() => { live.current = true; void load(); const timer = setInterval(load, 5000); return () => { live.current = false; epoch.current++; clearInterval(timer); }; }, [binding, generation, offset]);
+          const act = async (action, fields = {}) => {
+            setBusy(true); setNote(''); epoch.current++;
+            try {
+              const payload = { type: 'weixin.change', action, workspaceBinding: binding, generation: generation || undefined, offset, ...fields };
+              const key = JSON.stringify(payload);
+              if (request.current?.key !== key) request.current = { key, id: globalThis.crypto.randomUUID() };
+              const value = await rpc('action', { ...payload, requestId: request.current.id });
+              if (!live.current || value.workspaceBinding !== binding) return;
+              if (action === 'preview') { setPreview(value); setApproved(false); }
+              else { setData(value); setPreview(null); setReview(null); setApproved(false); setEvidence(''); setCode(''); setNote(L('已保存，请核对当前状态。', 'Saved. Review the current state.')); }
+              setError(''); request.current = null;
+            } catch (failure) { if (live.current) setError(failure.message); }
+            finally { if (live.current) setBusy(false); }
+          };
+          const choose = value => { setReview(value); setEvidence(''); setApproved(false); setPreview(null); };
+          const actionButton = (label, action, fields, primary = false) => h('button', { type: 'button', disabled: busy || !data || !!error, className: primary ? 'pa24-primary' : '', onClick: () => void act(action, fields) }, label);
+          const current = data?.binding, impact = preview?.impact;
+          return h('div', { className: 'pa24-weixin', 'data-testid': 'weixin-detail' },
+            h('section', { className: 'pa24-card' }, sectionHead('chat', L('微信 ClawBot', 'WeChat ClawBot'), L('本人私聊文字交办、进度查询与常用计划管理。定时结果的微信通知尚未开放。', 'Private text requests, work progress, and common plans. Scheduled WeChat notifications are not enabled.'), h('button', { type: 'button', disabled: busy, onClick: () => void load() }, L('刷新状态', 'Refresh'))),
+              !data && !error && h('p', { role: 'status' }, L('正在读取微信状态…', 'Loading WeChat state…')),
+              error && h('p', { role: 'alert', className: 'pa24-note' }, error), note && h('p', { role: 'status' }, note),
+              data && h(React.Fragment, null,
+                h('p', { role: 'status' }, badge(error ? L('状态读取失败', 'State unavailable') : weixinPhase(data.phase), !error && data.phase === 'polling' ? 'blue' : 'amber', !error && data.phase === 'polling' ? 'check' : 'info')),
+                data.error && h('p', { className: 'pa24-note' }, technicalText(data.error)),
+                current && fields([[L('绑定账号', 'Bot account'), current.account_id], [L('本人微信', 'Owner identity'), current.owner_id], [L('最近收信', 'Last received'), date(current.last_received_at, tz)], [L('最近接纳回执', 'Last send acceptance'), date(current.last_sent_at, tz)]]),
+                h('p', { className: 'pa24-meta' }, data.verified ? L('此绑定已有收信和发送接纳记录；接纳回执不等于本人已读。', 'This binding has received input and send acceptance records. Acceptance does not prove the owner read the message.') : L('此绑定尚未完成收发验证。绑定后从微信发送 /24pa 查看帮助。', 'Receive/send verification is pending. Send /24pa from WeChat after binding.')),
+                h('div', { className: 'pa24-actions' }, actionButton(current ? L('重新扫码登录', 'Sign in again') : L('扫码绑定微信', 'Bind WeChat'), 'login', {}, !current),
+                  current && actionButton(current.enabled ? L('停止微信入口', 'Stop WeChat') : L('启用原绑定', 'Enable binding'), 'preview', { op: current.enabled ? 'disable' : 'enable' }),
+                  current && actionButton(L('预览解绑', 'Preview unbind'), 'preview', { op: 'retire' })),
+                data.loginPhase !== 'idle' && h('section', { className: 'pa24-example' },
+                  h('p', { role: 'status' }, weixinPhase(data.loginPhase)),
+                  data.qrImage && !error && h('img', { src: data.qrImage, alt: L('微信登录二维码', 'WeChat sign-in QR code'), width: 256, height: 256, style: { background: '#fff', display: 'block', margin: '12px 0' } }),
+                  data.expiresAt && h('p', { className: 'pa24-meta' }, L('本地有效期：', 'Local expiry: ') + date(data.expiresAt, tz)),
+                  data.loginPhase === 'need_verifycode' && h('label', null, L('微信验证码', 'WeChat verification code'), h('input', { value: code, inputMode: 'numeric', autoComplete: 'off', onChange: event => setCode(event.target.value), maxLength: 8 }), actionButton(L('提交验证码', 'Submit code'), 'code', { code })),
+                  data.candidate && h(React.Fragment, null, fields([[L('候选账号', 'Candidate bot'), data.candidate.accountId], [L('候选本人身份', 'Candidate owner'), data.candidate.ownerId]]), actionButton(L('预览启用此身份', 'Preview activation'), 'preview', { op: 'activate' }, true)),
+                  actionButton(L('取消本次登录', 'Cancel sign-in'), 'cancel', {})),
+                preview && h('section', { className: 'pa24-example', 'aria-label': L('微信绑定变更预览', 'WeChat binding change preview') },
+                  h('h3', null, L('确认绑定变更', 'Confirm binding change')),
+                  fields([[L('原身份', 'Current identity'), preview.current ? `${preview.current.accountId} / ${preview.current.ownerId}` : L('无', 'None')], [L('新身份', 'Candidate identity'), preview.candidate ? `${preview.candidate.accountId} / ${preview.candidate.ownerId}` : L('原身份', 'Unchanged')]]),
+                  h('p', null, L(`受影响：${impact?.inbox.length || 0} 条输入、${impact?.work.length || 0} 个交办、${impact?.deliveries.length || 0} 条未结投递，其中 ${impact?.unknown.length || 0} 条发送待核对。`, `Affected: ${impact?.inbox.length || 0} inputs, ${impact?.work.length || 0} work items, ${impact?.deliveries.length || 0} unsettled deliveries (${impact?.unknown.length || 0} need verification).`)),
+                  h('p', null, preview.sameIdentity ? L('同一身份续期会保留原会话和收信位置。', 'Renewing the same identity preserves the session and receive cursor.') : L('切换身份或解绑前须处理原绑定未结记录；停止入口允许原在途工作保存结果。', 'Resolve unsettled records before changing identity or unbinding. Stopping allows in-flight work to save results.')),
+                  h('label', { className: 'pa24-row' }, h('input', { type: 'checkbox', style: { width: 'auto' }, checked: approved, onChange: event => setApproved(event.target.checked) }), L('我已核对身份与上述影响', 'I reviewed the identities and effects')),
+                  h('button', { type: 'button', className: 'pa24-primary', disabled: busy || !!error || !approved, onClick: () => void act('apply', { previewId: preview.previewId, confirm: true }) }, L('确认应用', 'Apply confirmed change'))))),
+            data && h('section', { className: 'pa24-card' }, sectionHead('history', L('原绑定记录与核对', 'Binding records and verification'), L('所有记录保留原身份。补投只发送原结果，不重新执行业务。', 'Records keep their original identity. Retry sends the saved result without rerunning the work.')),
+              h('label', null, L('查看绑定历史', 'Binding history'), h('select', { value: generation || data.generation || '', onChange: event => { setGeneration(event.target.value); setOffset(0); setReview(null); } }, data.bindings.map(row => h('option', { key: row.generation, value: row.generation }, row.account_id + ' / ' + row.owner_id + ' · ' + (row.state === 'retired' ? L('已退休', 'Retired') : row.enabled ? L('启用', 'Enabled') : L('停止', 'Stopped')))))),
+              review && h('section', { className: 'pa24-example', role: 'region', 'aria-label': L('核对原记录', 'Verify original record') },
+                h('h3', null, L('核对原记录', 'Verify original record')),
+                h('p', { className: 'pa24-meta' }, review.eventId || L('投递编号 ', 'Delivery ') + review.id),
+                h('p', null, review.action === 'input-close' ? L('仅关闭这条已核对输入，不证明业务成功，也不会重新执行。原会话仍在运行或排队时不能关闭。', 'Close this verified input without claiming success or rerunning it. Running or queued input cannot be closed.') : review.op === 'retry' ? L('确认微信中未收到后补投原内容。未知发送仍有重复风险，请先核对微信。', 'Retry the original content after checking it was not received. An unknown send can still result in a duplicate.') : review.op === 'received' ? L('本人确认已在微信看到这条原内容，仅补记，不再发送。', 'Confirm you saw this original content in WeChat. Record only; do not send again.') : L('放弃这条未发送投递，业务结果仍保留。分段消息需逐条核对。', 'Abandon this unsent delivery and retain the result. Verify each segment separately.')),
+                h('label', null, L('本人核对依据', 'Your verification evidence'), h('input', { value: evidence, maxLength: 2000, onChange: event => setEvidence(event.target.value) })),
+                h('label', { className: 'pa24-row' }, h('input', { type: 'checkbox', style: { width: 'auto' }, checked: approved, onChange: event => setApproved(event.target.checked) }), L('我已核对原记录，确认以上操作', 'I verified the original record and confirm this action')),
+                h('button', { type: 'button', disabled: busy || !!error || !approved || !evidence.trim(), onClick: () => void act(review.action, { ...review, evidence, confirm: true }) }, L('保存核对', 'Save verification'))),
+              h('h3', null, L('投递记录', 'Deliveries')),
+              !data.deliveries.length && h('p', null, L('本页暂无投递记录。', 'No deliveries on this page.')),
+              data.deliveries.map(row => h('article', { key: row.id, className: 'pa24-job' }, h('div', { className: 'pa24-row pa24-between' }, h('strong', null, L('投递 ', 'Delivery ') + row.id), badgeOf(row.status)),
+                h('p', { className: 'pa24-meta' }, L('原收件人：', 'Original recipient: ') + row.target + (row.segment_group ? L(' · 段 ', ' · Segment ') + (row.segment_index + 1) : '')),
+                h('details', null, h('summary', null, L('查看原内容与关联', 'Original content and references')), h('p', { className: 'pa24-note' }, row.content?.text), fields([[L('原消息', 'Input'), row.association?.inboxEventId], [L('原交办', 'Work item'), row.association?.workItemId], [L('平台消息号', 'Platform message ID'), row.message_id || L('未返回', 'Not returned')]])),
+                row.last_error && h('p', { className: 'pa24-meta' }, technicalText(row.last_error)),
+                h('div', { className: 'pa24-actions' }, (row.status === 'unknown' ? [['received', L('我已收到', 'I received it')], ['retry', L('核对后补投', 'Verify and retry')]] : row.status === 'failed' ? [['retry', L('核对后补投', 'Verify and retry')], ['abandon', L('放弃未发送投递', 'Abandon unsent delivery')]] : row.status === 'pending' && !row.acceptance ? [['abandon', L('放弃未发送投递', 'Abandon unsent delivery')]] : []).map(([op, label]) => h('button', { type: 'button', key: op, disabled: busy, onClick: () => choose({ action: 'delivery', op, id: Number(row.id), revision: row.revision, generation: row.binding_generation }) }, label))))),
+              h('h3', null, L('收信记录', 'Received inputs')),
+              !data.inbox.length && h('p', null, L('本页暂无收信记录。', 'No inputs on this page.')),
+              data.inbox.map(row => h('article', { key: row.event_id, className: 'pa24-job' }, h('p', { className: 'pa24-note' }, row.payload.text || L('未接纳的消息', 'Rejected message')), h('p', { className: 'pa24-meta' }, row.event_id),
+                h('p', null, ({ received: L('已保存，待处理', 'Saved, awaiting processing'), processing: L('正在接纳', 'Admitting'), admitted: L('已接纳，完成待核对', 'Admitted, completion pending'), delivered: L('输入已闭合', 'Input closed'), rejected: L('已拒绝', 'Rejected'), duplicate: L('重复输入', 'Duplicate') })[row.status]),
+                row.error && h('p', { className: 'pa24-meta' }, technicalText(row.error)),
+                h('button', { type: 'button', onClick: () => ctx.uiWorkspace.openSession(row.target_session) }, L('查看原会话', 'Open original session')),
+                ['received', 'admitted'].includes(row.status) && h('button', { type: 'button', disabled: busy || current?.enabled, onClick: () => choose({ action: 'input-close', eventId: row.event_id, generation: row.binding_generation }) }, L('停止入口后核对关闭', 'Stop entry, then verify closure')))),
+              h('div', { className: 'pa24-actions' }, h('button', { type: 'button', disabled: busy || offset === 0, onClick: () => setOffset(Math.max(0, offset - 50)) }, L('上一页', 'Previous page')), h('button', { type: 'button', disabled: busy || data.inbox.length < 50 && data.deliveries.length < 50, onClick: () => setOffset(offset + 50) }, L('下一页', 'Next page')))));
+        }
+
         function WorkDetail({ state, extra, button, busy, workspace, openRobot }) {
           const items = state.work || [];
           const activeItems = items.filter(j => ACTIVE_WORK.includes(j.status));
@@ -782,7 +867,7 @@ window.__ModuleLoader__.load({
           ];
           const jobCard = j => h('article', { className: 'pa24-job', key: j.id },
             h('div', { className: 'pa24-row pa24-between' }, h('h3', null, j.title), badgeOf(j.status)),
-            h('p', { className: 'pa24-meta' }, (j.origin === 'local' ? L('dsh 会话', 'dsh session') : L('飞书', 'Feishu')) + ' · ' + roleName(j.role)),
+            h('p', { className: 'pa24-meta' }, (j.origin === 'local' ? L('dsh 会话', 'dsh session') : j.origin === 'weixin' ? L('微信', 'WeChat') : L('飞书', 'Feishu')) + ' · ' + roleName(j.role)),
             j.progress && h('p', { className: 'pa24-note' }, j.progress),
             j.result && h('details', null, h('summary', null, L('查看处理结果', 'View result')), h('div', { className: 'pa24-note' }, j.result)),
             j.child_session_id && button('external', L('查看 Worker 会话', 'Open worker session'), () => ctx.uiWorkspace.openSession({ childSessionId: j.child_session_id, parentSessionId: j.parent_session_id, mode: 'continuable' }), { className: 'pa24-quiet' }),
@@ -810,7 +895,7 @@ window.__ModuleLoader__.load({
         function ActivityDetail({ state, button, openCard, tz }) {
           const workEvents = (state.work || []).map(j => ({
             id: 'work-' + j.id, at: j.updated_at || j.created_at, title: j.title, status: j.status,
-            meta: (j.origin === 'local' ? L('本地会话', 'Local session') : L('飞书', 'Feishu')) + ' · ' + roleName(j.role), item: j, kind: 'work',
+            meta: (j.origin === 'local' ? L('本地会话', 'Local session') : j.origin === 'weixin' ? L('微信', 'WeChat') : L('飞书', 'Feishu')) + ' · ' + roleName(j.role), item: j, kind: 'work',
           }));
           const outboxKind = kind => ({ text: L('文本', 'Text'), card: L('卡片', 'Card'), audio: L('语音', 'Audio') }[kind] || kind);
           const outboxEvents = (state.outbox || []).map(o => ({
@@ -2047,7 +2132,7 @@ window.__ModuleLoader__.load({
           const field = (label, node) => h('label', { key: label, className: 'pa24-field' }, label, node);
           const select = (key, entries) => h('select', { value: filters[key] || '', onChange: event => set(key, event.target.value) }, entries.map(([value, label]) => h('option', { key: value, value }, label)));
           const statuses = { runs: ['pending', 'running', 'waiting', 'stopping', 'completed', 'failed', 'stopped', 'timed_out', 'needs_reconciliation'], work: ['accepted', 'queued', 'running', 'waiting_input', 'completed', 'failed', 'stopped', 'needs_reconciliation'], events: ['skipped', 'rejected', 'expired'], legacy: ['delivering', 'model_done', 'sent', 'unconfirmed'] };
-          const sourceValues = { runs: ['manual', 'schedule', 'trial', 'rerun', 'continuation'], work: ['local', 'feishu'], events: ['manual', 'schedule', 'continuation'], legacy: [] };
+          const sourceValues = { runs: ['manual', 'schedule', 'trial', 'rerun', 'continuation'], work: ['local', 'feishu', 'weixin'], events: ['manual', 'schedule', 'continuation'], legacy: [] };
           const views = [['runs', 'play', L('执行记录', 'Executions')], ['work', 'tasks', L('助理交办', 'Work items')], ['events', 'clock', L('未执行事件', 'Unexecuted events')]];
           const changeKind = kind => {
             if (!statuses[kind] || kind === filters.kind) return;
@@ -2059,7 +2144,7 @@ window.__ModuleLoader__.load({
           };
           const clearFilters = () => model.update({ filters: { kind: filters.kind, range: '7', includeUnresolved: true }, offset: 0, selectedRun: null, workId: null, workOffset: 0 });
           const summary = extra.runs, active = view.selectedRun, legacy = filters.kind === 'legacy';
-          const sourceOptions = filters.kind === 'work' ? [['local', L('本地', 'Local')], ['feishu', L('飞书', 'Feishu')]] : [['manual', L('手工', 'Manual')], ['schedule', L('计划', 'Scheduled')], ...(filters.kind === 'runs' ? [['trial', L('试运行', 'Trial')], ['rerun', L('重跑', 'Rerun')], ['continuation', L('接续', 'Continuation')]] : filters.kind === 'events' ? [['continuation', L('接续', 'Continuation')]] : [])];
+          const sourceOptions = filters.kind === 'work' ? [['local', L('本地', 'Local')], ['feishu', L('飞书', 'Feishu')], ['weixin', L('微信', 'WeChat')]] : [['manual', L('手工', 'Manual')], ['schedule', L('计划', 'Scheduled')], ...(filters.kind === 'runs' ? [['trial', L('试运行', 'Trial')], ['rerun', L('重跑', 'Rerun')], ['continuation', L('接续', 'Continuation')]] : filters.kind === 'events' ? [['continuation', L('接续', 'Continuation')]] : [])];
           const advancedFields = [...(!legacy ? ['source', 'skillId'] : []), 'planId', ...(!legacy ? ['workId'] : []), ...(filters.kind === 'runs' ? ['versionId', 'deliveryStatus'] : [])];
           const advancedCount = advancedFields.filter(key => !!filters[key]).length + (filters.includeUnresolved === false ? 1 : 0);
           const clearAdvanced = () => model.update({ filters: { ...filters, source: undefined, planId: undefined, workId: undefined, skillId: undefined, versionId: undefined, deliveryStatus: undefined, includeUnresolved: true }, offset: 0, selectedRun: null, workId: null, workOffset: 0 });
@@ -2814,7 +2899,7 @@ window.__ModuleLoader__.load({
             detail: helpers => h(TaskPlansDetail, { key: helpers.state.workspaceBinding, ...helpers }),
           },
           {
-            id: 'feishu', cat: 'setup', tone: 'green', icon: 'plug', title: ['飞书', 'Feishu'], sub: ['唯一收信入口 · 发件与审核卡', 'The only inbound · outbound & review cards'], action: ['接入详情', 'Access details'],
+            id: 'feishu', cat: 'setup', tone: 'green', icon: 'plug', title: ['飞书', 'Feishu'], sub: ['私聊交办 · 发件与审核卡', 'Private requests · outbound & review cards'], action: ['接入详情', 'Access details'],
             tier: ({ state, config }) => {
               if (config?.mode !== 'feishu') return 'unchecked';
               if (!state.transport?.connected) return 'warn';
@@ -2830,6 +2915,13 @@ window.__ModuleLoader__.load({
               capLine(L('消息通道', 'Messaging'), state.transport && state.transport.connected ? L('长连接已启动', 'Connected') : L('未启动', 'Not started')),
               capLine(L('CLI 授权', 'CLI auth'), state.diagnostics && state.diagnostics.auth ? (state.diagnostics.auth.state === 'ok' ? L('有效', 'Valid') : state.diagnostics.auth.message) : L('尚未检查', 'Not checked'))),
             detail: helpers => h(FeishuDetail, helpers),
+          },
+          {
+            id: 'weixin', cat: 'setup', tone: 'green', icon: 'chat', title: ['微信 ClawBot', 'WeChat ClawBot'],
+            sub: ['本人私聊 · 文字交办与常用计划', 'Private text requests and common plans'], action: ['绑定与核对', 'Binding & verification'],
+            tier: ({ state }) => !state.weixin?.binding ? 'unchecked' : state.weixin.phase === 'polling' ? state.weixin.verified ? 'ok' : 'warn' : state.weixin.phase === 'stopped' ? 'unchecked' : 'error',
+            body: ({ state }) => h('div', null, capLine(L('微信入口', 'WeChat entry'), weixinPhase(state.weixin?.phase || 'unbound')), capLine(L('未结投递', 'Unsettled deliveries'), String(state.weixin?.impact?.deliveries.length || 0))),
+            detail: helpers => h(WeixinDetail, { key: helpers.state.workspaceBinding, state: helpers.state, tz: helpers.tz }),
           },
           {
             id: 'wecom', cat: 'setup', tone: 'amber', icon: 'bot', title: ['企业微信', 'WeCom'], sub: ['日程/待办第二渠道 · 单向推送', 'Second channel for calendar/todo · one-way push'], action: ['接入详情', 'Access details'],
@@ -2944,9 +3036,9 @@ window.__ModuleLoader__.load({
             detail: helpers => h(BudgetDetail, { key: helpers.state.workspaceBinding, helpers }),
           },
         ];
-        const CARD_ORDER = ['skills', 'work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];
+        const CARD_ORDER = ['skills', 'work', 'reminders', 'digest', 'activity', 'review', 'memory', 'feishu', 'weixin', 'wecom', 'qwennote', 'wiki', 'workspace', 'config', 'healthcheck', 'budget', 'storage'];
         CARDS.sort((a, b) => CARD_ORDER.indexOf(a.id) - CARD_ORDER.indexOf(b.id));
-        const ACCESS_CARD_IDS = new Set(['feishu', 'wecom', 'qwennote', 'wiki']);
+        const ACCESS_CARD_IDS = new Set(['feishu', 'weixin', 'wecom', 'qwennote', 'wiki']);
 
         // 二级详情：全应用健康检查——聚合结论＋运行就绪＋能力健康报告。
         function HealthReportDetail({ helpers }) {

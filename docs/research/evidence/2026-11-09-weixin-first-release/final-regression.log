@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-279-20261108/packages/24pa
+
+ ✓ tests/unit/client.test.mjs (15 tests) 22ms
+ ✓ tests/unit/work-tool-schema.test.mjs (40 tests) 18ms
+ ✓ tests/unit/weixin-panel.test.mjs (4 tests) 120ms
+ ✓ tests/unit/client-i18n.test.mjs (3 tests) 1ms
+
+ Test Files  4 passed (4)
+      Tests  62 passed (62)
+   Start at  00:05:06
+   Duration  1.33s (transform 287ms, setup 0ms, collect 817ms, tests 161ms, environment 0ms, prepare 72ms)
+

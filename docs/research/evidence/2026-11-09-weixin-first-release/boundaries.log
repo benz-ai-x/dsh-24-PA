@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-279-20261108/packages/24pa
+
+ ✓ tests/unit/weixin-plan-boundaries.test.mjs (4 tests) 3ms
+ ✓ tests/unit/weixin-recovery.test.mjs (6 tests) 3ms
+
+ Test Files  2 passed (2)
+      Tests  10 passed (10)
+   Start at  23:49:17
+   Duration  924ms (transform 294ms, setup 0ms, collect 729ms, tests 6ms, environment 0ms, prepare 41ms)
+

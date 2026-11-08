@@ -65,6 +65,7 @@ export const PANEL_RPC = {
     backups: 'backups',
     backupDetail: 'backups.detail',
     todos: 'todos',
+    weixin: 'weixin',
   },
   actions: {
     workspaceBind: 'workspace.bind',
@@ -100,6 +101,7 @@ export const PANEL_RPC = {
     calendarVerify: 'calendar.verify',
     todosVerify: 'todos.verify',
     testInject: 'test.inject',
+    weixinChange: 'weixin.change',
   },
 } as const;
 
@@ -124,6 +126,7 @@ export function registerPanel(ctx: DshContext, runtime: PaRuntime): void {
           if (endpoint === E.action) return respond({ ok: true, value: await action(runtime, payload) });
           if (endpoint === E.snapshot && runtime.closed) return respond({ ok: true, value: { ...runtime.snapshot(), work: [], outbox: [], configMeta: { fields: CONFIG_FIELDS } } });
           return await runtime.inspectWorkspace(async () => {
+            if (endpoint === E.weixin) return respond({ ok: true, value: await runtime.weixinDesktop(payload) });
             if (endpoint === E.healthSnapshot) return respond({ ok: true, value: await runtime.healthSnapshot(payload.workspaceBinding) });
             if (endpoint === E.healthTestPreview) return respond({ ok: true, value: await runtime.connectionTest(payload, 'preview') });
             if (endpoint === E.configEvidence) return respond({ ok: true, value: await runtime.configurationEvidence(payload.workspaceBinding) });
@@ -208,6 +211,7 @@ async function snapshot(runtime: PaRuntime): Promise<Record<string, unknown>> {
       ...base,
       work: repos ? await repos.workItems.list(undefined, 50) : [],
       outbox: repos ? await repos.outbox.recent(20) : [],
+      weixin: repos && runtime.workspace ? await runtime.weixin.snapshot() : null,
       // arch-4: the config field descriptors ride the snapshot so the form and
       // the voice list have one source (config.ts) — client.js carries no copy.
       configMeta: { fields: CONFIG_FIELDS },
@@ -231,6 +235,7 @@ function requiredBinding(payload: PanelAction): string {
 }
 
 const ACTION_HANDLERS: Readonly<Record<string, PanelActionHandler>> = {
+  [PANEL_RPC.actions.weixinChange]: (runtime, payload) => runtime.weixinDesktop(payload, String(payload.action ?? '')),
   [PANEL_RPC.actions.budgetRelease]: (runtime, payload) => runtime.releaseBudget(payload),
   [PANEL_RPC.actions.materialChange]: (runtime, payload) => runtime.changeMaterial(payload),
   [PANEL_RPC.actions.healthCheck]: (runtime, payload) => runtime.checkHealth(payload),

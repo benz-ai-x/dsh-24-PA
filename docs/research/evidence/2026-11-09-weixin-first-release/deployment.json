@@ -1,0 +1,296 @@
+{
+  "capturedAt": "2026-11-08T16:19:21.931Z",
+  "commit": "f26d833b59688cc6ef5183fed9eaad0b30324964",
+  "artifactSha256": "7cc6c8f742854a73eca0cda9dd6448abe72315c1e8cb8579c012c045d6f070ff",
+  "developmentBuild": true,
+  "npmPublished": false,
+  "startScriptUnchanged": true,
+  "startScriptSha256": "bd07ef4c071dd91376908ccb2da58a3a932408ccc3fff6ea57c0e0f48393348f",
+  "workspacePathUnchanged": true,
+  "storage": "sqlite",
+  "mode": "feishu",
+  "configHashUnchanged": true,
+  "readiness": [
+    {
+      "id": "host",
+      "state": "ok"
+    },
+    {
+      "id": "config",
+      "state": "ok"
+    },
+    {
+      "id": "postgres",
+      "state": "ok"
+    },
+    {
+      "id": "workspace",
+      "state": "ok"
+    },
+    {
+      "id": "feishu",
+      "state": "ok"
+    },
+    {
+      "id": "sessions",
+      "state": "ok"
+    }
+  ],
+  "transport": {
+    "name": "sdk-ws",
+    "connected": true
+  },
+  "plugins": {
+    "moduleStatusMultisetUnchanged": true,
+    "total": 218,
+    "enabled": 187,
+    "active": 187,
+    "disabled": 31,
+    "added": [],
+    "removed": [],
+    "installed": [
+      {
+        "name": "@deepseek-ai/dsh-subagent-claude-code",
+        "version": "0.2.2-rc.1",
+        "enabled": true
+      },
+      {
+        "name": "@deepseek-ai/dsh-subagent-codex",
+        "version": "0.2.2-rc.1",
+        "enabled": true
+      },
+      {
+        "name": "@benz-ai-x/dsh-24pa",
+        "version": "0.2.2-rc.1.3",
+        "enabled": true
+      },
+      {
+        "name": "@benz-ai-x/dsh-research-graph",
+        "version": "0.2.2-rc.1",
+        "enabled": true
+      }
+    ]
+  },
+  "ledger": {
+    "schema": 34,
+    "identitySame": true,
+    "sourceIdentitySame": true,
+    "integrity": [
+      {
+        "integrity_check": "ok"
+      }
+    ],
+    "foreignKeys": [],
+    "rowCountChanges": []
+  },
+  "weixin": {
+    "rpcOk": true,
+    "phase": "unbound",
+    "loginPhase": "expired",
+    "bound": false,
+    "bindings": 0,
+    "inbox": 0,
+    "deliveries": 0
+  },
+  "backup": {
+    "backupDir": "/root/24pa-backups/weixin-279-f26d833-20261109/joint/pa24-backup-2026-11-08T16-12-06-822Z-6c8055fc",
+    "complete": true,
+    "productionReady": false,
+    "steps": [
+      {
+        "id": "files",
+        "status": "passed",
+        "message": "备份完整：账本与全部清单/文件逐个摘要匹配。恢复顺序：停止 Host，先恢复到账本与文件的隔离暂存区，检查 schema、记忆 revision、来源与过期状态，并与目标比较；保留较新记忆，冲突由主人明确选择后再替换原路径，保留旧目录并补充凭据。核对外部对象和旧 Outbox 后再启动。在线快照不保证跨系统同一事务时点。"
+      },
+      {
+        "id": "isolation",
+        "status": "passed",
+        "message": "副本已写入执行隔离标记；检查器不装载 Agent、调度、入站或出站消费者。"
+      },
+      {
+        "id": "ledger",
+        "status": "passed",
+        "message": "实际账本已导入并读取，schema、主人、工作区与记录关联通过。",
+        "evidence": {
+          "schema": 33,
+          "versions": {
+            "node": "v24.22.0"
+          },
+          "counts": {
+            "schema_migrations": 33,
+            "binding": 2,
+            "workspace_state": 1,
+            "inbox": 8,
+            "work_item": 38,
+            "action_operation": 3,
+            "outbox": 69,
+            "memo": 0,
+            "message_route": 27,
+            "task": 1,
+            "project": 0,
+            "project_task": 0,
+            "calendar_event": 1,
+            "calendar_sync_state": 1,
+            "reminder_rule": 1,
+            "reminder_occurrence": 0,
+            "note_seq": 1,
+            "note": 0,
+            "note_page": 0,
+            "note_version": 0,
+            "review_token": 0,
+            "review_decision": 0,
+            "review_reminder": 0,
+            "outreach": 0,
+            "task_template": 0,
+            "task_template_instance": 0,
+            "waiting_item": 0,
+            "digest_plan": 2,
+            "digest_occurrence": 7,
+            "minutes": 0,
+            "digest_work_binding": 3,
+            "ledger_owner": 1,
+            "skill_entry": 0,
+            "skill_version": 0,
+            "skill_change": 0,
+            "skill_plan_block": 0,
+            "skill_run": 8,
+            "skill_run_call": 19,
+            "skill_run_input": 7,
+            "skill_run_session": 8,
+            "skill_run_native": 0,
+            "skill_run_review": 0,
+            "source_registry_state": 1,
+            "source_registration": 2,
+            "source_evidence": 2,
+            "source_object": 16,
+            "source_membership": 16,
+            "source_observation": 8,
+            "skill_run_control": 28,
+            "skill_run_resume": 0,
+            "task_plan_block": 1,
+            "task_plan_change": 22,
+            "plan_trigger": 17,
+            "skill_run_admission_guard": 4,
+            "task_plan_run_outcome": 8,
+            "task_plan_notice": 9,
+            "task_plan_delivery": 9,
+            "task_plan_delivery_change": 0,
+            "task_plan_migration": 1,
+            "run_diagnostic": 1,
+            "worker_run": 20,
+            "worker_run_input": 20,
+            "worker_run_call": 66,
+            "work_change": 22,
+            "health_evidence": 141,
+            "health_test": 0,
+            "health_monitor": 1,
+            "health_identity": 2,
+            "note_material": 0,
+            "note_action_link": 0,
+            "material_read_evidence": 0,
+            "budget_request": 77,
+            "budget_wait": 0,
+            "budget_release": 0,
+            "backup_record": 2,
+            "work_planning": 5,
+            "work_planning_revision": 5
+          }
+        }
+      },
+      {
+        "id": "materials",
+        "status": "passed",
+        "message": "实际原稿、裁片和账本审核快照关联通过；未推断远端文档仍有效。",
+        "evidence": {
+          "originals": 0,
+          "crops": 0,
+          "versions": 0
+        }
+      },
+      {
+        "id": "skills",
+        "status": "passed",
+        "message": "个人 Skill 不可变版本、资源内容和运行包快照逐项核验通过。",
+        "evidence": {
+          "versions": 0,
+          "runs": 8
+        }
+      },
+      {
+        "id": "sessions",
+        "status": "passed",
+        "message": "原生 Session 冷读、父子归属及必要附件检查通过。",
+        "evidence": {
+          "checked": 235,
+          "required": 40,
+          "formats": [
+            4
+          ],
+          "attachments": 131,
+          "failures": [],
+          "consumersStarted": 0
+        }
+      },
+      {
+        "id": "memory",
+        "status": "passed",
+        "message": "记忆权威 JSON 与派生审计可读取；尚未合并当前记忆。"
+      },
+      {
+        "id": "remote-reconciliation",
+        "status": "required",
+        "message": "切换前逐项查询原平台、身份和容器，核对旧运行、待发、已知远端对象与备份后动作。检查器没有发起外部请求或创建/重发对象。"
+      },
+      {
+        "id": "credentials",
+        "status": "required",
+        "message": "密钥和授权缓存未恢复；在隔离环境通过专门凭据机制重新配置并验证原身份，不能把环境引用名当授权通过。"
+      },
+      {
+        "id": "cutover",
+        "status": "required",
+        "message": "当前仅完成隔离检查。保留原目录，停止现场 Host 后按指南人工切换；禁止删除隔离标记后直接自动恢复旧计划或 Outbox。"
+      }
+    ],
+    "migration": {
+      "schema": 34,
+      "historicTablesChecked": 76,
+      "integrity": [
+        {
+          "integrity_check": "ok"
+        }
+      ],
+      "foreignKeys": []
+    }
+  },
+  "historicalStates": {
+    "work": [
+      {
+        "status": "completed",
+        "count": 26
+      },
+      {
+        "status": "stopped",
+        "count": 12
+      }
+    ],
+    "outbox": [
+      {
+        "status": "sent",
+        "count": 69
+      }
+    ]
+  },
+  "startupLog": {
+    "source": "pa24.service journal (process stdout/stderr)",
+    "lines": 31,
+    "errorFailureDisabledCompatibilityMatches": 0
+  },
+  "actualAccountAcceptance": {
+    "formalPlugin": "pending",
+    "reason": "owner chose to scan later",
+    "qrGenerated": true,
+    "bindingCreated": false,
+    "messagesSent": 0
+  }
+}

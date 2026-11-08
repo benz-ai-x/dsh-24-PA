@@ -913,4 +913,46 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
     version: 33,
     statements: [`alter table pa24.work_item add column owner_input jsonb`],
   },
+  {
+    version: 34,
+    statements: [
+      `create table if not exists pa24.weixin_binding (
+        generation text primary key, workspace_id text not null, account_id text not null,
+        owner_id text not null, session_id text not null unique, state text not null,
+        enabled boolean not null default false, session_ready boolean not null default false, version int not null default 1,
+        cursor text not null default '', last_received_at timestamptz, last_sent_at timestamptz,
+        created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+      )`,
+      `create unique index if not exists weixin_binding_active_idx on pa24.weixin_binding (workspace_id) where state = 'active'`,
+      `create table if not exists pa24.weixin_batch (
+        id text primary key, generation text not null references pa24.weixin_binding (generation),
+        receipts jsonb not null, created_at timestamptz not null default now()
+      )`,
+      `alter table pa24.inbox add column binding_generation text`,
+      `alter table pa24.work_item add column delivery_target jsonb`,
+      `alter table pa24.outbox add column binding_generation text`,
+      `alter table pa24.outbox add column delivery_target jsonb`,
+      `alter table pa24.outbox add column association jsonb`,
+      `alter table pa24.outbox add column client_id text`,
+      `alter table pa24.outbox add column acceptance jsonb`,
+      `alter table pa24.outbox add column segment_group text`,
+      `alter table pa24.outbox add column segment_index int not null default 0`,
+      `alter table pa24.outbox add column revision int not null default 0`,
+      `create index if not exists weixin_outbox_binding_idx on pa24.outbox (binding_generation, status)`,
+      `create table if not exists pa24.remote_message_route (
+        channel text not null, account_id text not null, generation text not null, message_id text not null,
+        association jsonb not null, created_at timestamptz not null default now(),
+        primary key (channel, account_id, generation, message_id)
+      )`,
+      `create table if not exists pa24.delivery_review (
+        request_id text primary key, outbox_id bigint not null references pa24.outbox (id),
+        actor_session_id text not null, action text not null, evidence jsonb not null,
+        created_at timestamptz not null default now()
+      )`,
+      `create table if not exists pa24.weixin_input_review (
+        event_id text primary key references pa24.inbox (event_id), request_id text not null unique,
+        actor_session_id text not null, evidence text not null, created_at timestamptz not null default now()
+      )`,
+    ],
+  },
 ];

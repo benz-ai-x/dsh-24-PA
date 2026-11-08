@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-08",
+  "sourceCommit": "2527f5d2c711e946f4d5b6e67b7de6c18de0a821",
+  "tree": "f1ba4e6b1cbbef78c2fc2536e0f83f7cc47a812a",
+  "pluginVersion": "0.2.2-rc.1.3",
+  "node": "v26.4.0",
+  "build": {
+    "command": "npm run build",
+    "exitCode": 0
+  },
+  "tests": {
+    "files": 12,
+    "passed": 145,
+    "failed": 0,
+    "durationSeconds": 636.78,
+    "exitCode": 0
+  },
+  "fullRead": {
+    "implementationFiles": 52,
+    "testFiles": 14,
+    "lines": 15680
+  },
+  "github": {
+    "firstRelease": 279,
+    "laterConditional": 281,
+    "consolidatedNotPlanned": [
+      277,
+      278,
+      280
+    ],
+    "parents": {
+      "279": 1,
+      "281": 1
+    },
+    "blockedBy": {
+      "279": [],
+      "280": [],
+      "281": [
+        279
+      ]
+    },
+    "readbackMatched": true
+  },
+  "limits": [
+    "No WeChat implementation",
+    "No real-account validation",
+    "No production changes",
+    "No full-repository defect-free claim"
+  ]
+}

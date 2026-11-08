@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
+import { MIGRATIONS } from '../../lib/db.js';
 import { WorkPlanningRepo } from '../../lib/repo/work-planning.js';
 import { WorkPlanning } from '../../lib/work-planning.js';
 import { startPgCluster } from '../helpers/pg.mjs';
@@ -234,10 +235,15 @@ for (const storage of ['sqlite', 'postgres']) describe(`工作方法的持久闭
     const before = (await service.snapshot(date)).plan;
     await db.query("insert into pa24.work_item (id,title,role,instruction,origin,parent_session_id,delivery,status) values ('legacy-work','历史交办','calendar','旧委派','local','parent','local:parent','completed')");
     await db.query('alter table pa24.work_item drop column owner_input');
-    await db.query('delete from pa24.schema_migrations where version = 33');
+    await db.query(`drop index if exists ${storage === 'sqlite' ? '' : 'pa24.'}weixin_outbox_binding_idx`);
+    for (const migration of MIGRATIONS.filter(row => row.version > 33)) for (const sql of migration.statements) {
+      const added = sql.match(/^alter table (pa24\.\w+) add column (?:if not exists )?(\w+)/);
+      if (added) await db.query(`alter table ${added[1]} drop column ${added[2]}`);
+    }
+    await db.query('delete from pa24.schema_migrations where version >= 33');
     expect(await db.schemaVersion()).toBe(32);
     await db.migrate();
-    expect(await db.schemaVersion()).toBe(33);
+    expect(await db.schemaVersion()).toBe(MIGRATIONS.at(-1).version);
     expect((await service.snapshot(date)).plan.content).toEqual(before.content);
     expect((await db.query("select owner_input from pa24.work_item where id = 'legacy-work'")).rows[0].owner_input).toBeNull();
   });

@@ -1,10 +1,11 @@
 import type { OutboxRepo, OutboxRow, MessageRouteRepo } from './repo.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
+import type { WeixinAcceptance } from './weixin-protocol.js';
 
 export interface DeliveryAdapter {
   available(): boolean;
   supports(kind: OutboxRow['kind']): boolean;
-  send(row: OutboxRow): Promise<{ messageId: string }>;
+  send(row: OutboxRow): Promise<{ messageId?: string; acceptance?: WeixinAcceptance }>;
 }
 export interface DeliveryHold { status: 'pending' | 'failed' | 'expired'; error: string; retryInMs?: number }
 /** Preparation completed, but no platform request has been dispatched. */
@@ -25,7 +26,7 @@ export class OutboxDelivery {
     repo(): OutboxRepo;
     routes(): MessageRouteRepo;
     adapters: Partial<Record<OutboxRow['channel'], DeliveryAdapter>>;
-    sent(row: OutboxRow, messageId: string): void | Promise<void>;
+    sent(row: OutboxRow, messageId: string | undefined): void | Promise<void>;
     sanitizeError?(error: unknown): string;
     beforeSend?(row: OutboxRow): Promise<DeliveryHold | null>;
     updated?(row: OutboxRow): Promise<void>;
@@ -61,8 +62,8 @@ export class OutboxDelivery {
     }
   }
   private async deliverRow(repo: OutboxRepo, row: OutboxRow): Promise<void> {
-    let messageId = row.message_id;
-    if (!messageId) {
+    let messageId = row.message_id ?? undefined, acceptance = row.acceptance ?? undefined;
+    if (!messageId && !acceptance) {
       const hold = await checkDeliveryHold(this.deps.beforeSend ? () => this.deps.beforeSend!(row) : undefined);
       if (hold) { await repo.mark(row.id, { ...hold, releaseAttempt: true }); return; }
       const adapter = this.deps.adapters[row.channel];
@@ -75,8 +76,9 @@ export class OutboxDelivery {
         return;
       }
       try {
-        messageId = (await adapter.send(row)).messageId;
-        if (!messageId) throw Object.assign(new Error('平台未返回消息回执；请先核对。'), { outcome: 'unknown' });
+        const receipt = await adapter.send(row);
+        messageId = receipt.messageId; acceptance = receipt.acceptance;
+        if (!messageId && !acceptance) throw Object.assign(new Error('平台未返回接纳依据；请先核对。'), { outcome: 'unknown' });
       } catch (error) {
         if (error instanceof DeliveryHeld) { await repo.mark(row.id, { ...error.hold, releaseAttempt: true }); return; }
         const unknown = (error as { outcome?: string })?.outcome !== 'failed';
@@ -86,20 +88,23 @@ export class OutboxDelivery {
       try {
         // Keep sending until routing is durable. Crash recovery sees this
         // receipt and repairs the local step without invoking the adapter.
-        await repo.mark(row.id, { status: 'sending', messageId });
+        await repo.mark(row.id, { status: 'sending', messageId, acceptance });
       } catch (error) {
-        await repo.mark(row.id, { status: 'unknown', messageId, error: `平台已确认，本地回执保存失败：${this.error(error)}` }).catch(() => {});
+        await repo.mark(row.id, { status: 'unknown', messageId, acceptance, error: `平台已确认，本地回执保存失败：${this.error(error)}` }).catch(() => {});
         return;
       }
       try { await this.deps.sent(row, messageId); }
       catch (error) { console.warn(`[pa24] 接入送达证据待补记：${this.error(error)}`); }
     }
     try {
-      if (row.channel === 'feishu') await this.route(row.dedup_key, messageId);
-      await repo.mark(row.id, { status: 'sent', messageId });
+      if (messageId && row.channel === 'feishu') await this.route(row.dedup_key, messageId);
+      if (messageId && row.channel === 'weixin' && row.delivery_target && row.association) {
+        await this.deps.routes().recordRemote('weixin', row.delivery_target.accountId, row.delivery_target.generation, messageId, row.association);
+      }
+      await repo.mark(row.id, { status: 'sent', messageId, acceptance });
     } catch (error) {
       // Retrying this row means routing only because message_id survives.
-      await repo.mark(row.id, { status: 'pending', messageId, error: `已送达，回复关联待补记：${this.error(error)}`, retryInMs: Math.min(60_000, 2000 * row.attempts) }).catch(() => {});
+      await repo.mark(row.id, { status: 'pending', messageId, acceptance, error: `已接纳，回复关联待补记：${this.error(error)}`, retryInMs: Math.min(60_000, 2000 * row.attempts) }).catch(() => {});
     }
   }
 

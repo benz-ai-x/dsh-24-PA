@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm version](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub release](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](packages/24pa/package.json)
-[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.3)
+[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.4)
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
@@ -19,6 +19,8 @@ kind: "package-bundle"
 ![24PA English desktop home showing key metrics, near-term focus, and an adopted daily plan](docs/assets/24pa-desktop-overview.en.jpg)
 
 *English desktop interface with sample data.*
+
+`0.2.2-rc.1.4` includes the first WeChat integration (#279): owner QR binding, private text requests, and common plan management. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](packages/24pa/weixin-setup.md). End-to-end acceptance with the owner’s account in the integrated plugin is still pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
 
 ## Why 24PA?
 
@@ -96,7 +98,7 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.1
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.3 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.4 --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile, open the 24PA workspace, and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`; the official npm registry is recommended because some mirrors lag behind.
@@ -110,7 +112,7 @@ Restart the same Profile, open the 24PA workspace, and choose the「24私助」p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.2-rc.1` | `0.2.2-rc.1.3` (current) |
+| `0.2.2-rc.1` | `0.2.2-rc.1.4` (current) |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8` (line frozen here) |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
@@ -167,7 +169,7 @@ They are written to the native calendar with an alert, so the model is not the r
 
 ---
 
-Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.2-rc.1.3`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.3)
+Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.2-rc.1.4`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.4)
 
 ## Everyday work methods
 

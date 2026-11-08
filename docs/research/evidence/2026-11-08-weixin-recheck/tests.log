@@ -1,0 +1,103 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-release-20261108/packages/24pa
+
+stderr | tests/unit/channel-reliability.test.mjs > 渠道可靠性：真实账本与模块 interface > 健康证据保存失败不覆盖已持久的送达回执，也不阻断回复关联
+[pa24] 接入送达证据待补记：health evidence unavailable
+
+ ✓ tests/unit/channel-reliability.test.mjs (42 tests) 18740ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书 GUID 读取改名与截止，保留计划字段；自身标记不误报，坏观察不标新鲜 3252ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 日期型截止在 Asia/Shanghai 原日期往返；datetime 保留实际时刻 309ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 日期型截止在 UTC 原日期往返；datetime 保留实际时刻 301ms
+   ✓ 渠道可靠性：真实账本与模块 interface > DST 重复小时保留已知 instant；远端新歧义/不存在时刻保持 stale 579ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 个人完成保持整项 open，重启重试不扩大授权；整项完成必须读回 620ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[]} 为 unknown，重复不能重发 2489ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[{"todo_id":"other","success":true}]} 为 unknown，重复不能重发 573ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 无有效目标回执 {"receipt":[{"todo_id":"tdstub-1"}]} 为 unknown，重复不能重发 542ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 明确拒绝可安全重试；单参与人整项完成后再次调用不写入 661ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 完成写入成功后读回失败，重启只补读回，不再发 finish 742ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同进程显式检查刷新授权身份；并发检查共用一次，失败不沿用旧目标 689ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 企微无幂等键：创建成功后任务投影失败，重试仍只有一个远端对象 436ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书日程创建成功后投影失败，凭回执补账而不重复创建 446ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书创建回执与后续观察使用同一真实标题，不把自身前缀误判为来源变更 477ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 计划投入与估时修改有独立操作身份，并且不调用空的远端 update 587ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 任务远端修改成功后来源通知失败，只补本地通知、不重复远端修改 634ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 当前渠道切换只改变新建，已有对象的查看/修改/完成/删除仍走自身 channel 433ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 相对提醒备份失败跨重启仍沿用原时间、渠道与操作身份 873ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书提醒原生创建携带 IANA 时区、重复规则、五分钟偏移与稳定幂等键 666ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同步只裁决原渠道与日历内的来源，空窗口也通知无提醒规则的会前计划来源 445ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 飞书嵌套时间、全天包含式结束日与空标题保留；坏条目令整个观察不完整 507ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 来源通知失败可重试且未发布完整观察，跨归属同ID不能覆盖旧事件 924ms
+   ✓ 渠道可靠性：真实账本与模块 interface > 同步状态的日历ID跨渠道碰撞不能报告成功或覆盖原渠道新鲜度 462ms
+ ✓ tests/unit/runtime-ownership.test.mjs (17 tests) 1153ms
+stderr | tests/unit/transport-activation.test.mjs > 已持久接收的飞书委托归属 > 会话等待及待回传期间拒绝切换；原会话完成后才可激活 B
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+stderr | tests/unit/transport-activation.test.mjs > 快速 turn/end 等待接纳落账，回传始终返回飞书发起入口
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失败后，下一回合仍绑定自己的输入并重试原结果
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+[pa24] 回合结算待核对：disk temporarily unavailable
+
+stderr | tests/unit/transport-activation.test.mjs > 第一回合回传落账失败后，下一回合仍绑定自己的输入并重试原结果
+[pa24] 模型用量等待持久事件补录：Cannot read properties of undefined (reading 'cwd')
+
+ ✓ tests/unit/transport-activation.test.mjs (14 tests) 1070ms
+ ✓ tests/unit/workspace-activation.test.mjs (14 tests) 1950ms
+ ✓ tests/unit/backup-recovery.test.mjs (19 tests) 242344ms
+   ✓ M09 sqlite durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 29965ms
+   ✓ M09 sqlite durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 627ms
+   ✓ M09 sqlite durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 29299ms
+   ✓ M09 sqlite durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 120074ms
+   ✓ M09 postgres durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved 1685ms
+   ✓ M09 postgres durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 1669ms
+   ✓ M09 postgres durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 2570ms
+   ✓ M09 postgres durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 2495ms
+   ✓ M09 postgres durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 1639ms
+   ✓ M09 postgres durable records and isolated restore > actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity 2440ms
+   ✓ old backup merge retains current changes and purges old derived bodies, without modifying authority or backup 6249ms
+   ✓ corrupt current JSON and pending audit block restoration; existing or source targets are untouched 11215ms
+   ✓ memory integrity rejects changeset even without tombstones; source and backup remain untouched 641ms
+   ✓ memory integrity rejects changed even without tombstones; source and backup remain untouched 29190ms
+   ✓ PG dump meta-command and server-program escape attempts fail in isolated restricted import 2267ms
+ ✓ tests/unit/backup.test.mjs (13 tests) 360014ms
+   ✓ workspace backup recovery coverage > schema 17 backup cannot report complete with damaged workspace identity 29986ms
+   ✓ workspace backup recovery coverage > concurrent external transactions leave a coherent two-table snapshot 518ms
+   ✓ workspace backup recovery coverage > restores memory, originals, revisions, skills, host data and the real SQLite ledger; excludes secrets and live locks 29216ms
+   ✓ workspace backup recovery coverage > detects removed content and a modified file-list manifest 60051ms
+   ✓ workspace backup recovery coverage > does not certify a legacy SQLite live-copy bundle as a consistent ledger snapshot 60051ms
+   ✓ workspace backup recovery coverage > snapshot-read failure preserves the source and an earlier verified backup; retry is restorable 120019ms
+   ✓ workspace backup recovery coverage > target-write failure preserves the source and an earlier verified backup; retry is restorable 30080ms
+   ✓ workspace backup recovery coverage > does not certify old empty manifests or a missing required collection 506ms
+   ✓ workspace backup recovery coverage > rejects symlinks and recursive destinations instead of silently collecting unrelated content 29199ms
+ ✓ tests/unit/plan-conversation.test.mjs (6 tests) 5330ms
+   ✓ PC-01/03 实际公共工具新建晨报与面板同默认，预览无写入，主人确认才启用且不重复 1472ms
+   ✓ PC-01 明确固定模板不会被智能默认改写，未放行智能能力不扩展维护权限 559ms
+   ✓ PC-02 面板创建的语音计划可从对话调整、暂停和恢复，同一身份与历史保留 1037ms
+   ✓ PC-06 同类与同名计划明确选择，预览后另入口已创建则不能重复创建 633ms
+   ✓ PC-07 保存与启用之间投递身份改变，保留暂停草稿而不采用新身份 654ms
+   ✓ PC-06/07 未采用、过期、换身份及换工作区的确认不能写入 974ms
+stderr | tests/unit/backup-panel.test.mjs > 三类持久事实按全量计数分页，查阅步骤不触发维护动作
+Each child in a list should have a unique "key" prop.
+
+Check the render method of `CardShell`. It was passed a child from CardGrid. See https://react.dev/link/warning-keys for more information.
+
+ ✓ tests/unit/backup-panel.test.mjs (6 tests) 202ms
+ ✓ tests/unit/config-impact.test.mjs (7 tests) 153ms
+ ✓ tests/unit/diagnostic-redaction.test.mjs (4 tests) 2ms
+ ✓ tests/unit/runtime-identity.test.mjs (2 tests) 1803ms
+   ✓ 健康检查前冻结的企微投递在首次检查、重复检查及重启后均保持有效 968ms
+   ✓ 来源先核验即建立稳定身份；换机器人后旧缓存和新投递授权均被阻断 835ms
+ ✓ tests/unit/pg-backup.test.mjs (1 test) 1125ms
+   ✓ 真实 LATIN1 库备份可恢复原始文字，不能经 UTF-8 有损解码 1125ms
+
+ Test Files  12 passed (12)
+      Tests  145 passed (145)
+   Start at  21:39:01
+   Duration  636.78s (transform 320ms, setup 0ms, collect 1.82s, tests 633.89s, environment 1ms, prepare 217ms)
+
+npm notice
+npm notice New major version of npm available! 11.17.0 -> 12.2.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2
+npm notice To update run: npm install -g npm@12.2.2
+npm notice

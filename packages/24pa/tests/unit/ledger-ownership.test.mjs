@@ -44,6 +44,7 @@ async function legacyLedger(storage, path, { paths = [path], owners = ['owner-a'
   await db.query('alter table pa24.digest_occurrence drop column skill_snapshot');
   await db.query('alter table pa24.digest_occurrence drop column plan_snapshot');
   await db.query(`drop index if exists ${storage === 'sqlite' ? '' : 'pa24.'}skill_run_plan_idx`);
+  await db.query(`drop index if exists ${storage === 'sqlite' ? '' : 'pa24.'}weixin_outbox_binding_idx`);
   // Newer plan columns must also be removed before replaying schema 17+.
   // Keep this fixture aligned with additive migrations without erasing the
   // legacy rows whose ownership admission is being tested.

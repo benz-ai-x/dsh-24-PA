@@ -5,7 +5,8 @@ import { consumedTurn } from './host-turn.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { bridgeScheduleService } from './schedule-bridge.js';
 import { TaskPlanService } from './task-plan-service.js';
-import { PlanConversation } from './plan-conversation.js';
+import { PlanConversation, WeixinPlanRefusal, weixinPlanAllowed } from './plan-conversation.js';
+import type { TaskPlanRow } from './repo/task-plan.js';
 import { TaskPlanEngine } from './task-plan-engine.js';
 import { PlanResults } from './plan-results.js';
 import type { TaskPlanAuthorization } from './task-plan.js';
@@ -32,6 +33,11 @@ import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
 import { workspaceLedgerIdentity } from './ledger-identity.js';
 import { InboxLifecycle } from './inbox-lifecycle.js';
+import { WeixinAccess } from './weixin-access.js';
+import { weixinIdentity } from './repo/weixin.js';
+import { sameWeixinIdentity, type WeixinEnvelope, type WeixinRequestFn } from './weixin-protocol.js';
+import { inspectWeixinInput, readWeixinSession } from './weixin-session.js';
+import type { InboxRow } from './repo/inbox.js';
 import { ModelBudgets } from './model-budgets.js';
 import { WorkerRuns } from './worker-runs.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
@@ -120,7 +126,7 @@ const SOURCE_LABELS: Record<'task' | 'calendar', string> = { task: '任务', cal
 /** Bounded grace before an unattributable delivery pauses its digest plan (P24). */
 export { DIGEST_UNCONFIRMED_GRACE_MS } from './digest-service.js';
 
-export type RuntimeRole = 'feishu-access' | 'local-robot' | 'worker' | null;
+export type RuntimeRole = 'feishu-access' | 'weixin-access' | 'local-robot' | 'worker' | null;
 export type ReadinessItem = { id: string; state: 'ok' | 'warn' | 'error' | 'info'; message: string; detail?: unknown };
 
 export class HostStartupError extends Error {
@@ -145,6 +151,7 @@ export interface RuntimeOptions {
   noteVerifyTickMs: number;
   reviewReminderTickMs: number;
   env?: Record<string, string | undefined>;
+  weixinRequest?: WeixinRequestFn;
 }
 
 /** F16: calendar projection namespace for the wecom channel. */
@@ -209,6 +216,7 @@ export class PaRuntime {
   private secretStore: SecretStore = {};
   private accessSessionId: string | null = null;
   private localSessionId: string | null = null;
+  readonly weixin: WeixinAccess;
   private preparingWorkspace: { workspace: WorkspaceInfo & { statePath: string }; config: PaConfig; accessSessionId: string; localSessionId: string; sessionNotices: { dedupKey: string; text: string }[]; extraToolResolution?: { requested: string[]; active: string[]; filtered: string[] } } | null = null;
   workspaceChanging = false;
 
@@ -235,13 +243,15 @@ export class PaRuntime {
     sanitizeError: error => this.sanitizeDiagnostic(String((error as Error)?.message ?? error)),
     sent: async (row, messageId) => {
       if (row.channel === 'local') return;
+      if (row.channel === 'weixin') { if (row.binding_generation) await this.repos!.weixin.sent(row.binding_generation); return; }
       this.lastSentAt = nowIso();
       await this.recordConnectionEvidence(`${row.channel}.${row.channel === 'wecom' ? 'push' : 'send'}`, '平台已接纳一条出站消息；不代表已读。',
         { target: row.target, outboxId: row.id, deliveryId: messageId, nativeMessageId: row.channel === 'feishu' ? messageId : null });
     },
-    beforeSend: row => this.planResults.beforeSend(row),
+    beforeSend: row => row.channel === 'weixin' ? this.weixin.beforeSend(row) : this.planResults.beforeSend(row),
     updated: row => this.planResults.updated(row),
     adapters: {
+      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row) },
       local: {
         available: () => !this.closed && !!this.config,
         supports: kind => kind === 'text',
@@ -582,12 +592,18 @@ export class PaRuntime {
     const input = (await this.repos!.workerRuns.inputs(item.active_worker_run_id)).find(row => row.execution_id === item.execution_id);
     return input?.status === 'adopted' ? input.scope.ownerInput ?? null : null;
   }
-  private planConversationAuthority() {
-    return taskPlanFingerprint([this.workspaceBinding, this.config?.ownerOpenId, this.config?.mode, this.config?.larkProfile, this.config?.notifyChannel]);
+  private planConversationAuthority(sessionId?: string) {
+    const remote = sessionId ? this.weixin.remote(sessionId) : null;
+    return taskPlanFingerprint([this.workspaceBinding, this.config?.ownerOpenId, this.config?.mode, this.config?.larkProfile, this.config?.notifyChannel,
+      ...(remote ? [remote.workspace_id, weixinIdentity(remote), remote.state, remote.enabled] : [])]);
   }
   // Native tools require lossless JSON; ledger rows and source facts contain Dates.
   private async planningResult(operation: Promise<unknown>): Promise<unknown> {
-    return JSON.parse(JSON.stringify(await operation));
+    try { return JSON.parse(JSON.stringify(await operation)); }
+    catch (error) {
+      if (error instanceof WeixinPlanRefusal) return { status: 'rejected', businessExecuted: false, message: error.message };
+      throw error;
+    }
   }
   private readonly planningActions = {
     planning_context: (args: Record<string, unknown>) => this.planningResult(this.workPlanning.context(args)),
@@ -664,6 +680,12 @@ export class PaRuntime {
   constructor(ctx: DshContext, options: RuntimeOptions) {
     this.ctx = ctx;
     this.options = options;
+    this.weixin = new WeixinAccess({ host: ctx, request: options.weixinRequest,
+      context: () => this.workspace && this.workspaceBinding && this.backupWorkspaceId && this.repos
+        ? { workspaceId: this.backupWorkspaceId, hostWorkspaceId: this.workspace.id, workspacePath: this.workspace.statePath,
+          binding: this.workspaceBinding, repo: this.repos.weixin, outbox: this.repos.outbox } : null,
+      available: () => !this.closed && !this.workspaceChanging,
+      execute: work => this.executions.detached(() => this.executions.run(work)), received: () => this.kickDispatcher() });
     this.skillPackages = new SkillPackages({
       context: () => this.workspace && this.workspaceBinding && this.repos?.skills
         ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repo: this.repos.skills } : null,
@@ -770,6 +792,19 @@ export class PaRuntime {
       lifecycle: this.digest.plans, access: this.taskPlanAccess, gate: (key, work) => this.gate(key, work) });
     this.planConversation = new PlanConversation({ plans: this.taskPlans,
       context: () => { const context = planContext(); return context ? { ...context, authority: this.planConversationAuthority() } : null; },
+      sourceAuthority: async source => {
+        if (source.kind !== 'weixin') return this.planConversationAuthority();
+        if (!source.remoteIdentity) throw new Error('微信计划操作缺少可信入口身份。');
+        const binding = await this.weixin.assertActive(source.remoteIdentity.sessionId);
+        if (!sameWeixinIdentity(weixinIdentity(binding), source.remoteIdentity)) throw new Error('微信计划操作的原身份已改变。');
+        return this.planConversationAuthority(binding.session_id);
+      },
+      businessResult: row => this.remotePlanResult(row),
+      legacyBuiltin: async name => {
+        if (!['digest-morning', 'digest-evening', 'digest-weekly'].includes(name)) return false;
+        try { return (await this.skillCatalog.resolve(name, ['pa24_work', 'pa24_memory'])).source === 'builtin'; }
+        catch { return false; }
+      },
       customPreview: input => this.digest.customPlanPreview(input, planContext()?.legacyDelivery),
       customCreate: (input, fingerprint) => this.digest.customPlanCreate(input, planContext()?.legacyDelivery, fingerprint),
       ownerInput: item => this.adoptedOwnerInput(item), legacyControl: input => this.digest.digestControl(input), gate: (key, work) => this.gate(key, work) });
@@ -793,6 +828,24 @@ export class PaRuntime {
   }
 
   async planStep(agent: DshAgent, messages: RunInput[], next: () => Promise<{ kind: 'reject' } | { kind: 'enter'; messages: RunInput[] }>) {
+    if (this.weixin.remote(agent.id)) {
+      try {
+        await this.assertCall(agent);
+        for (const message of messages) {
+          if (message.source?.kind === 'agent-instructions') continue;
+          if (message.source?.kind === 'user' && typeof message.source.rpcId === 'string') {
+            const row = await this.repos!.inbox.forRequest(message.source.rpcId, agent.id);
+            if (row?.source === 'weixin' && row.status === 'admitted' && row.binding_generation === this.weixin.remote(agent.id)?.generation) continue;
+          }
+          if (message.source?.kind === 'agent-message' && typeof message.source.senderSessionId === 'string') {
+            const work = this.workItemByChild.get(message.source.senderSessionId);
+            if (work?.parent_session_id === agent.id && work.origin === 'weixin') continue;
+          }
+          return { kind: 'reject' as const };
+        }
+        return next();
+      } catch { return { kind: 'reject' as const }; }
+    }
     if (agent.id !== this.accessSessionId) return next();
     try {
       return await this.executions.run(async () => {
@@ -1009,7 +1062,7 @@ export class PaRuntime {
         reminder_status: async args => this.reminders!.occurrenceStatus(String(args.occurrenceId ?? '')),
         digest_enable: (args, item) => this.planningResult(this.planConversation.enable(args, item)),
         digest_control: (args, item) => this.planningResult(this.planConversation.control(args, item)),
-        digest_list: args => this.planningResult(this.planConversation.list(args)),
+        digest_list: (args, item) => this.planningResult(this.planConversation.list(args, item)),
       },
     });
     this.roles.register({
@@ -1176,6 +1229,7 @@ export class PaRuntime {
   async stop(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.weixin.pause();
     this.skillRuns.dispose(); this.workerRuns.dispose();
     this.executions.stopAccepting();
     this.lifetime.abort();
@@ -1219,6 +1273,7 @@ export class PaRuntime {
     this.reminders?.stop();
     this.reminders = null;
     await this.outboxDelivery.pause();
+    await this.weixin.close();
     await this.transport?.close().catch(() => { });
     this.transport = null;
     await this.db?.close().catch(() => { });
@@ -1242,6 +1297,7 @@ export class PaRuntime {
     await this.workLifecycle.recover();
     await this.modelBudgets.poll();
     await this.skillRuns.recover();
+    await this.reconcileWeixinInputs();
   }
 
   /** After a restart, re-attach the in-memory role map from the durable ledger. */
@@ -1261,6 +1317,7 @@ export class PaRuntime {
         await this.reconcileAfterRestart();
         await this.digest.recoverPlans();
         await this.skillPackages.reconcilePlans();
+        await this.executions.detached(() => this.weixin.start());
       }
     });
   }
@@ -1297,6 +1354,7 @@ export class PaRuntime {
     let active: WorkItemRow[];
     let connection: Awaited<ReturnType<PaRuntime['prepareTransport']>> | undefined;
     try {
+      this.weixin.register(await repos.weixin.list());
       await repos.backups.interrupted();
       await repos.reminders.retireLegacy();
       await repos.waiting.retireLegacyNotifications();
@@ -1327,6 +1385,7 @@ export class PaRuntime {
       if (this.workspace && (await this.hasActiveWork())) throw new Error('有进行中的事项；请先完成或停止，再切换工作区。');
       if (this.closed) throw new Error('24私助已停止。');
       await this.retireWorkers();
+      await this.weixin.stop();
       await this.writeRuntimeJson(join(this.options.stateDirectory, 'workspace.json'), { path: real });
     } catch (error) {
       connection?.cancel();
@@ -1735,6 +1794,7 @@ export class PaRuntime {
 
   /** Tool construction may precede activation; this never authorizes business calls. */
   roleForToolMount(agent: DshAgent | undefined): RuntimeRole {
+    if (agent && this.weixin.remote(agent.id)) return 'weixin-access';
     const pending = this.preparingWorkspace;
     if (agent && pending && agent.session.header.cwd === pending.workspace.statePath) {
       if (agent.id === pending.accessSessionId) return 'feishu-access';
@@ -1746,6 +1806,8 @@ export class PaRuntime {
   /** Business access belongs exclusively to the currently activated workspace. */
   roleFor(agent: DshAgent | undefined): RuntimeRole {
     if (!agent || !this.workspace || agent.session.header.cwd !== this.workspace.statePath) return null;
+    const remote = this.weixin.remote(agent.id);
+    if (remote) return remote.workspace_id === this.backupWorkspaceId && remote.state === 'active' && remote.enabled ? 'weixin-access' : null;
     if (agent.id === this.accessSessionId) return 'feishu-access';
     if (this.workItemByChild.has(agent.id)) return 'worker';
     const header = agent.session.header;
@@ -1754,6 +1816,13 @@ export class PaRuntime {
     const preset = this.ctx.agentPresets?.composedPreset(agent.ctx as DshContext) ?? header.agentPreset;
     if (preset === 'pa24' && !agent.parentAgent) return 'local-robot';
     return null;
+  }
+  /** A mounted tool is not a lasting grant. Remote binding is checked on every call. */
+  async assertCall(agent: DshAgent | undefined): Promise<void> {
+    if (!agent || !this.weixin.remote(agent.id)) return;
+    await this.weixin.assertActive(agent.id);
+    if (agent.session.header.cwd !== this.workspace?.statePath || agent.parentAgent || agent.session.header.parentSession ||
+      (this.ctx.agentPresets?.composedPreset(agent.ctx as DshContext) ?? agent.session.header.agentPreset) !== 'pa24') throw new Error('微信会话身份或预设已改变。');
   }
 
   /** Whether a subagent provider currently resolves (F18): an absent provider bundle leaves its extras unmounted. */
@@ -2044,13 +2113,155 @@ export class PaRuntime {
         await this.planResults.reconcile();
         await this.taskPlans.reconcile();
         await this.runHistory.pruneDiagnostics();
+        await this.reconcileWeixinInputs();
       }
     }).catch(() => { /* Shutdown/transition refuses new leases; native evidence remains recoverable. */ }).finally(() => { this.pollingRuns = false; });
   }
 
-  private async processInbox(row: { event_id: string; kind: string; payload: any }): Promise<void> {
+  private async processWeixinInbox(row: InboxRow): Promise<void> {
+    const payload = row.payload as WeixinEnvelope;
+    let binding;
+    try { binding = await this.weixin.assertActive(payload.sessionId); }
+    catch {
+      await this.repos!.inbox.mark(row.event_id, { status: 'received', error: '微信绑定已停止，保留消息待原身份恢复。' }); return;
+    }
+    if (!row.binding_generation || row.binding_generation !== binding.generation || !sameWeixinIdentity(payload, weixinIdentity(binding)) ||
+        !payload.nativeId || payload.rejection || !payload.text.trim()) {
+      await this.repos!.inbox.mark(row.event_id, { status: 'rejected', error: '微信清洁收件与当前绑定不符。' }); return;
+    }
+    if (['/24pa', '/帮助'].includes(payload.text.trim())) {
+      await this.weixin.enqueue(`weixin-help:${row.event_id}`, weixinIdentity(binding), { inboxEventId: row.event_id },
+        '24私助已收到你的消息。你可以用文字交办日程、待办、备忘，查看进度，按事项编号补充、停止或继续，也可以管理晨报、复盘等常用计划。配置、资料审核和投递核对请到电脑端。周期结果的微信通知尚未开放。');
+      await this.repos!.inbox.mark(row.event_id, { status: 'delivered' }); return;
+    }
+    await this.weixin.sessions.ensure(binding, { id: this.workspace!.id, path: this.workspace!.statePath }, false);
+    await this.gate(binding.session_id, async () => {
+      await this.weixin.assertActive(binding.session_id);
+      await this.submitToSession(binding.session_id, `weixin:${row.event_id}`, [{ type: 'text', text: payload.text }], this.config!.timeZone, row.event_id);
+    });
+  }
+
+  async weixinDesktop(input: Record<string, unknown>, action?: string): Promise<unknown> {
+    return this.executions.run(async () => {
+      this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
+      if (!this.localSessionId || !this.repos) throw new Error('电脑端管理会话未就绪。');
+      const read = async () => {
+        const state = await this.weixin.loginState(), generation = typeof input.generation === 'string' ? input.generation : state.binding?.generation;
+        const offset = Number(input.offset ?? 0);
+        if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('页码无效。');
+        const bindings = (await this.repos!.weixin.list()).filter(row => row.workspace_id === this.backupWorkspaceId)
+          .map(({ cursor: _cursor, ...row }) => row);
+        if (generation && !bindings.some(row => row.generation === generation)) throw new Error('微信历史不属于此工作区。');
+        return { ...state, bindings, generation, offset, workspaceBinding: this.workspaceBinding,
+          inbox: generation ? await this.repos!.inbox.weixinRows(generation, offset) : [],
+          deliveries: generation ? await this.repos!.outbox.weixinRows(generation, offset) : [] };
+      };
+      if (!action) return read();
+      return this.gate('weixin-desktop', async () => {
+        if (action === 'login') await this.weixin.startLogin();
+        else if (action === 'cancel') this.weixin.cancelLogin();
+        else if (action === 'code') this.weixin.submitCode(String(input.code ?? ''));
+        else if (action === 'preview') {
+          if (!['activate', 'enable', 'disable', 'retire'].includes(String(input.op))) throw new Error('微信绑定操作无效。');
+          return { ...await this.weixin.preview(input.op as 'activate' | 'enable' | 'disable' | 'retire'), workspaceBinding: this.workspaceBinding };
+        } else if (action === 'apply') {
+          if (input.confirm !== true) throw new Error('请确认预览中的微信身份与影响。');
+          await this.weixin.apply(String(input.previewId ?? '')); this.inboxLifecycle.dispatch(); void this.kickDispatcher();
+        } else if (action === 'delivery' || action === 'input-close') {
+          const generation = String(input.generation ?? ''), binding = await this.repos!.weixin.get(generation);
+          const evidence = String(input.evidence ?? '').trim(), requestId = String(input.requestId ?? '');
+          if (binding.workspace_id !== this.backupWorkspaceId || input.confirm !== true || !evidence || evidence.length > 2000 || !/^[a-zA-Z0-9-]{16,100}$/.test(requestId)) throw new Error('请核对原微信身份，并填写本人核对依据。');
+          if (action === 'delivery') {
+            if (!['received', 'retry', 'abandon'].includes(String(input.op)) || !Number.isSafeInteger(input.id) || !Number.isSafeInteger(input.revision)) throw new Error('投递操作或版本无效。');
+            await this.repos!.outbox.review({ id: Number(input.id), revision: Number(input.revision), requestId, actorSessionId: this.localSessionId!,
+              generation, action: input.op as 'received' | 'retry' | 'abandon', evidence });
+          } else {
+            await this.gate(binding.session_id, async () => {
+              if (binding.enabled) throw new Error('先停止微信入口，再核对未结输入。');
+              const row = await this.repos!.inbox.get(String(input.eventId ?? ''));
+              if (!row || row.binding_generation !== generation) throw new Error('原输入身份不符。');
+              if (row.status === 'admitted' && row.request_id) {
+                const history = await readWeixinSession(this.ctx, binding.session_id);
+                const host = await this.ctx.sessionController.state?.({ sessionId: binding.session_id });
+                if (!host || host.running || host.queue?.some(item => item.rpcId === row.request_id) || inspectWeixinInput(history, row.request_id).state === 'queued') throw new Error('原会话仍在运行或排队，请先在原会话取消或完成；不会重复提交。');
+                this.inboxLifecycle.restore(row);
+                await this.inboxLifecycle.complete(binding.session_id, new Set([row.request_id]), async () => {
+                  await this.repos!.weixin.reviewInput({ eventId: row.event_id, generation, requestId, actorSessionId: this.localSessionId!, evidence });
+                }, '主人已核对关闭原输入；未证明原业务成功，未重新执行。');
+              } else await this.repos!.weixin.reviewInput({ eventId: row.event_id, generation, requestId, actorSessionId: this.localSessionId!, evidence });
+            });
+          }
+        } else throw new Error('未知微信管理操作。');
+        return read();
+      });
+    });
+  }
+
+  private async reconcileWeixinInputs(sessionId?: string): Promise<void> {
+    if (!this.repos || !this.workspace) return;
+    for (const row of await this.repos.inbox.listAdmitted()) {
+      if (row.source !== 'weixin' || !row.request_id || !row.target_session || sessionId && row.target_session !== sessionId) continue;
+      this.inboxLifecycle.restore(row);
+      try {
+        const envelope = row.payload as WeixinEnvelope, binding = await this.repos.weixin.get(row.binding_generation!);
+        if (binding.workspace_id !== this.backupWorkspaceId || !sameWeixinIdentity(envelope, weixinIdentity(binding)) || row.target_session !== binding.session_id) throw new Error('原微信输入归属无法核对。');
+        const history = await readWeixinSession(this.ctx, row.target_session);
+        if (history.id !== binding.session_id || history.header.cwd !== this.workspace.statePath || history.header.parentSession) throw new Error('原微信会话历史归属不符。');
+        const evidence = inspectWeixinInput(history, row.request_id);
+        if (evidence.state === 'complete' || evidence.state === 'canceled') {
+          await this.inboxLifecycle.complete(row.target_session, new Set([row.request_id]), async inboxId => {
+            await this.weixin.enqueue(`weixin-reply:${inboxId}`, weixinIdentity(binding), { inboxEventId: inboxId }, evidence.text);
+          }, evidence.state === 'canceled' ? '原输入已取消，不重复执行。' : undefined);
+        } else {
+          // Follow the adopted input through its durable WorkerRun even when a
+          // continuation reports to the work's original (different) entrance.
+          const results = await this.repos.workerRuns.ownerInputResults(row.event_id);
+          const complete = results.length > 0 && results.every(result => {
+            const source = result.scope.ownerInput;
+            return result.scope.workspaceId === this.backupWorkspaceId && source?.kind === 'weixin' && source.remoteIdentity &&
+              sameWeixinIdentity(source.remoteIdentity, weixinIdentity(binding)) && result.adopted === 'adopted' &&
+              ['completed', 'failed'].includes(result.status) && !!result.outbox_key;
+          });
+          if (complete) await this.inboxLifecycle.complete(row.target_session, new Set([row.request_id]), async () => {});
+          else if ('reason' in evidence && row.error !== evidence.reason) await this.repos.inbox.mark(row.event_id, { status: 'admitted', error: evidence.reason });
+        }
+      } catch {
+        const reason = '原微信输入持久记录待核对；未自动重发，请在电脑端核对原交办。';
+        if (row.error !== reason) await this.repos.inbox.mark(row.event_id, { status: 'admitted', error: reason }).catch(() => {});
+      }
+    }
+  }
+
+  private remoteBusinessWork(item: WorkItemRow): boolean {
+    return item.execution_mode !== 'skill' && !item.id.startsWith('pa24-material-') &&
+      !!this.config?.enabledWorkers.includes(item.role) && !['handwriting', 'minutes', 'digest'].includes(item.role) &&
+      (item.role !== 'skill' || !!item.skill && this.config.extraBusinessSkills.includes(item.skill));
+  }
+  private remoteWorkView(item: WorkItemRow) {
+    return { id: item.id, title: item.title, role: item.role, status: item.status, progress: item.progress,
+      result: item.result, revision: item.revision, createdAt: item.created_at, updatedAt: item.updated_at };
+  }
+  private async remotePlanResult(row: TaskPlanRow): Promise<unknown> {
+    if (!weixinPlanAllowed(row)) throw new Error('此计划不在微信业务范围内。');
+    const recent = await this.repos!.taskPlans.recentRun(row.id);
+    if (!recent) return { result: null, message: '此计划还没有运行结果。' };
+    const meta = { runId: recent.id, status: recent.status, ranAt: recent.created_at, deliveryStatus: recent.delivery_status };
+    if (recent.kind !== 'runs') return { ...meta, result: null, message: '旧计划缺少可核验的历史来源授权范围；结果请在电脑端查看，计划仍可常用管理。' };
+    const run = await this.repos!.skillRuns.get(recent.id);
+    const plan = run?.snapshot.plan;
+    if (!run || !plan || plan.id !== row.id || run.mode === 'local' || !plan.configuration.skillId.startsWith('builtin:') ||
+        plan.configuration.skillId !== row.task_config?.skillId) return { ...meta, result: null, message: '原运行不属于当前可披露的业务计划。' };
+    try {
+      await this.taskPlanAccess.verify(plan.authorization);
+      for (const domain of ['calendar', 'todo'] as const) await this.sourceRegistry.bind(domain, plan.configuration.selectors[domain], 'read', true);
+    } catch { return { ...meta, result: null, message: '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' }; }
+    return { ...meta, result: run.result, message: run.result ? '业务结果已保存；投递状态单独列出，不代表已读。' : '本次还没有可披露的结果正文。' };
+  }
+
+  private async processInbox(row: InboxRow): Promise<void> {
     return this.executions.run(async () => {
       if (!this.config || !this.repos) return;
+      if (row.source === 'weixin') { await this.processWeixinInbox(row); return; }
       const event = row.payload as InboundEvent;
       if (row.kind === 'card') {
         await this.handwriting.processReviewCard(row.event_id, event);
@@ -2192,7 +2403,7 @@ export class PaRuntime {
       ));
       if ('error' in result || !result.accepted) throw Object.assign('error' in result ? result.error : new Error('宿主未接纳输入。'), { outcome: 'rejected' });
     });
-    try { await this.ctx.sessions.flush(resolved.agent.session); }
+    try { if (!await this.ctx.sessions.flush(resolved.agent.session)) throw new Error('宿主未确认持久化。'); }
     catch (error) {
       if ((await this.repos!.inbox.get(inboxId))?.status === 'admitted') {
         await this.repos!.inbox.mark(inboxId, { status: 'admitted', error: `宿主已接纳，持久化待核对：${(error as Error).message}` });
@@ -2206,7 +2417,7 @@ export class PaRuntime {
     if (!this.closed && event.type === 'tool/result') {
       const binding = this.workspaceBinding;
       void this.executions.afterTransition(async () => {
-        if (binding !== this.workspaceBinding || !this.repos || !this.config || session.header.cwd !== this.workspace?.statePath || session.header.parentSession || session.header.origin === 'subagent' || session.header.agentPreset !== 'pa24' || session.id === this.accessSessionId) return;
+        if (binding !== this.workspaceBinding || !this.repos || !this.config || session.header.cwd !== this.workspace?.statePath || session.header.parentSession || session.header.origin === 'subagent' || session.header.agentPreset !== 'pa24' || session.id === this.accessSessionId || this.weixin.remote(session.id)) return;
         const callId = event.data.message?.toolCallId;
         const call = session.ownEvents().find(e => e.type === 'tool/call' && e.data.callId === callId && String(e.data.name).startsWith('mcp__qwennote__'));
         if (!call || !this.config.extraLocalTools.some(name => name === call.data.name || name === 'mcp__qwennote__*')) return;
@@ -2227,6 +2438,7 @@ export class PaRuntime {
     this.usage.modelRequests += 1;
     await this.modelBudgets.observe(session).catch(error => console.warn(`[pa24] 模型用量等待持久事件补录：${(error as Error).message}`));
     if (await this.skillRuns.onSession(session)) return;
+    if (this.weixin.remote(session.id)) { await this.reconcileWeixinInputs(session.id); return; }
     if (session.id === this.accessSessionId) await this.ctx.sessions.flush(session).catch(() => { });
     const turn = event.data.turn;
     const consumed = consumedTurn(session, turn);
@@ -2263,6 +2475,18 @@ export class PaRuntime {
   private async captureOwnerInput(agent: DshAgent): Promise<WorkOwnerInput | null> {
     const input = captureWorkOwnerInput(agent.session);
     if (!input) return null;
+    if (this.weixin.remote(agent.id)) {
+      const binding = await this.weixin.assertActive(agent.id); let sourceId = '';
+      for (const message of input.messages) {
+        const event = agent.session.ownEvents().find(row => row.type === 'user/message' && row.data.id === message.id);
+        const row = typeof event?.data.source?.rpcId === 'string' ? await this.repos!.inbox.forRequest(event.data.source.rpcId, agent.id) : null;
+        if (!row || row.source !== 'weixin' || row.status !== 'admitted' || row.binding_generation !== binding.generation ||
+            !sameWeixinIdentity(row.payload, weixinIdentity(binding)) || !row.payload.nativeId || !row.payload.text) return null;
+        message.text = row.payload.text; sourceId = row.event_id;
+      }
+      if (!await this.ctx.sessions.flush(agent.session)) throw new Error('微信主人输入尚未确认持久化。');
+      return { ...input, kind: 'weixin', sourceId, remoteIdentity: weixinIdentity(binding), authority: this.planConversationAuthority(agent.id) };
+    }
     if (agent.id === this.accessSessionId) {
       for (const message of input.messages) {
         const event = agent.session.ownEvents().find(row => row.type === 'user/message' && row.data.id === message.id);
@@ -2278,8 +2502,10 @@ export class PaRuntime {
 
   async delegate(args: { worker: string; title: string; instruction: string; noteId?: string; skill?: string; completionCriteria?: string; acceptanceRequired?: boolean; parentWorkId?: string }, agent: DshAgent, panelInput?: WorkOwnerInput): Promise<unknown> {
     return this.executions.run(async () => {
+      await this.assertCall(agent);
       const role = this.roleFor(agent);
-      if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('只有24私助会话可以委派 Worker。');
+      if (!['feishu-access', 'weixin-access', 'local-robot'].includes(role ?? '')) throw new Error('只有24私助会话可以委派 Worker。');
+      if (role === 'weixin-access' && ['handwriting', 'digest', 'minutes'].includes(args.worker)) throw new Error('微信首版仅支持文字业务交办，媒体和资料审核请到原入口办理。');
       const config = this.config!;
       const workspace = this.workspace;
       const roleDef = this.roles.get(String(args.worker));
@@ -2300,7 +2526,7 @@ export class PaRuntime {
       if (args.parentWorkId && !await this.repos!.workItems.get(args.parentWorkId)) throw new Error('关联的原交办不存在。');
       const title = text(args.title, 200);
       const instruction = text(args.instruction);
-      const ownerInput = ['calendar', 'reminders'].includes(args.worker)
+      const ownerInput = role === 'weixin-access' || ['calendar', 'reminders'].includes(args.worker)
         ? panelInput ? { ...panelInput, authority: this.planConversationAuthority() } : await this.captureOwnerInput(agent) : null;
       let note: NoteRow | null = null;
       if (String(args.worker) === 'handwriting') {
@@ -2323,7 +2549,8 @@ export class PaRuntime {
         if (!config.workerModels.handwriting) throw new Error('手写识别需要单独配置视觉模型路由（AGENTS.md workerModels.handwriting：provider/model）；主助理模型与识别模型分开配置。');
         this.assertFeishuLive('手写整理');
       }
-      const origin: 'feishu' | 'local' = agent.id === this.accessSessionId ? 'feishu' : 'local';
+      if (role === 'weixin-access' && !ownerInput) throw new Error('缺少当前微信主人实际消费的原文，不能委派。');
+      const origin = role === 'weixin-access' ? 'weixin' as const : agent.id === this.accessSessionId ? 'feishu' as const : 'local' as const;
       const id = `pa24-work-${args.worker}-${randomUUID()}`;
       const fresh = await this.workLifecycle.admit(async () => {
         if (this.workspace !== workspace) throw new Error('工作区已切换，请在当前工作区重新交办。');
@@ -2347,7 +2574,8 @@ export class PaRuntime {
           origin,
           parent_session_id: agent.id,
           child_session_id: id,
-          delivery: origin === 'feishu' ? `feishu:${config.ownerOpenId}` : `local:${agent.id}`,
+          delivery: origin === 'weixin' ? 'weixin' : origin === 'feishu' ? `feishu:${config.ownerOpenId}` : `local:${agent.id}`,
+          delivery_target: origin === 'weixin' ? weixinIdentity(await this.weixin.assertActive(agent.id)) : null,
           status: 'accepted',
         });
         try {
@@ -2480,6 +2708,7 @@ export class PaRuntime {
 
   async changeWork(input: Record<string, unknown>, requester?: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
+      if (requester) await this.assertCall(requester);
       this.assertWorkspaceBinding(typeof input.workspaceBinding === 'string' ? input.workspaceBinding : null);
       const requestId = String(input.requestId ?? ''), id = String(input.workId ?? '');
       if (!/^[a-zA-Z0-9-]{16,100}$/.test(requestId) || !Number.isSafeInteger(input.expectedRevision)) throw new Error('缺少有效操作标识或交办修订。');
@@ -2488,6 +2717,7 @@ export class PaRuntime {
       return this.gate(`work-control:${id}`, async () => {
         const controls = this.repos!.workControls, item = await this.repos!.workItems.get(id);
         if (!item) throw new Error('原交办不存在。');
+        if (requester && this.weixin.remote(requester.id) && (!this.remoteBusinessWork(item) || input.op === 'review')) throw new Error('此交办或核对操作仅可在电脑端办理。');
         if (item.id.startsWith('pa24-material-') && !['review', 'new-goal'].includes(String(input.op))) throw new Error('资料直接操作请在原资料详情核对回执并明确重试；不能启动或接续模型 Worker。');
         const { workspaceBinding: _binding, ...stable } = input;
         const hash = createHash('sha256').update(JSON.stringify(stable)).digest('hex');
@@ -2536,20 +2766,31 @@ export class PaRuntime {
 
   async control(args: { action: string; workId?: string; instruction?: string; requestId?: string; expectedRevision?: number; [key: string]: unknown }, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
+      await this.assertCall(agent);
       const role = this.roleFor(agent);
-      if (role !== 'feishu-access' && role !== 'local-robot') throw new Error('事项调度由24私助会话负责。');
+      if (!['feishu-access', 'weixin-access', 'local-robot'].includes(role ?? '')) throw new Error('事项调度由24私助会话负责。');
+      const remote = role === 'weixin-access';
       const repos = this.repos!;
       if (args.action === 'list') {
         const items = await repos.workItems.list(undefined, 50);
+        if (remote) return { items: items.filter(item => this.remoteBusinessWork(item)).map(item => this.remoteWorkView(item)) };
         return { items: items.map(({ instruction, result_ref, ...view }) => view) };
       }
       const id = String(args.workId ?? '');
       const item = await repos.workItems.get(id);
       if (!item) throw new Error('事项不存在。');
+      if (remote && !this.remoteBusinessWork(item)) throw new Error('此交办仅可在电脑端核对和操作。');
       if (args.action === 'inspect') {
+        if (remote) return this.remoteWorkView(item);
         return this.runHistory.work({ workId: id, workspaceBinding: this.workspaceBinding });
       }
-      if (['supplement', 'accept', 'return', 'new-goal'].includes(args.action)) return this.changeWork({ ...args, op: args.action, confirm: true, requestId: args.requestId ?? randomUUID(), expectedRevision: args.expectedRevision ?? item.revision, workspaceBinding: this.workspaceBinding }, agent);
+      if (remote && !await this.captureOwnerInput(agent)) throw new Error('需要当前微信主人实际消费的原始指令才能调整交办。');
+      if (['supplement', 'accept', 'return', 'new-goal'].includes(args.action)) {
+        const result = await this.changeWork({ ...args, op: args.action, confirm: true, requestId: args.requestId ?? randomUUID(), expectedRevision: args.expectedRevision ?? item.revision, workspaceBinding: this.workspaceBinding }, agent);
+        if (!remote) return result;
+        const workId = args.action === 'new-goal' ? (result as { workId: string }).workId : id;
+        return { work: this.remoteWorkView((await repos.workItems.get(workId))!) };
+      }
       if (item.id.startsWith('pa24-material-')) throw new Error('资料直接操作请回原资料核对回执后明确重试，不能作为模型 Worker 接续或停止。');
       if (item.execution_mode === 'skill') {
         const run = await repos.skillRuns.latestForWork(id);
@@ -2657,6 +2898,7 @@ export class PaRuntime {
    */
   async memoryTool(args: Record<string, unknown>, agent: DshAgent): Promise<unknown> {
     return this.executions.run(async () => {
+      await this.assertCall(agent);
       const role = this.roleFor(agent);
       if (!role || !this.memory || !this.workspace) throw new Error('记忆仅对绑定的 24私助 工作区会话开放。');
       const action = String(args.action ?? 'search');

@@ -128,6 +128,35 @@ function closure(records: Record<string, Record<string, any>[]>) {
   relation('task_plan_delivery', 'notice_id', 'task_plan_notice');
   for (const table of ['task_plan_delivery', 'task_plan_delivery_change']) relation(table, 'outbox_id', 'outbox');
   const runs = new Map([...rows('skill_run'), ...rows('worker_run')].map(row => [row.id, row]));
+  relation('weixin_batch', 'generation', 'weixin_binding', 'generation');
+  relation('inbox', 'binding_generation', 'weixin_binding', 'generation');
+  relation('outbox', 'binding_generation', 'weixin_binding', 'generation');
+  relation('remote_message_route', 'generation', 'weixin_binding', 'generation');
+  relation('delivery_review', 'outbox_id', 'outbox');
+  relation('weixin_input_review', 'event_id', 'inbox', 'event_id');
+  const checkWechatTarget = (target: any, id: unknown) => {
+    const binding = rows('weixin_binding').find(row => row.generation === target?.generation);
+    if (!binding || target.accountId !== binding.account_id || target.ownerId !== binding.owner_id || target.sessionId !== binding.session_id) errors.push(`微信固定目标与绑定不符：${id}`);
+  };
+  const checkWechatAssociation = (association: any, generation: string, id: unknown) => {
+    const input = rows('inbox').find(row => row.event_id === association?.inboxEventId);
+    const work = rows('work_item').find(row => row.id === association?.workItemId);
+    if (!association || !association.inboxEventId && !association.workItemId ||
+      association.inboxEventId && input?.binding_generation !== generation ||
+      association.workItemId && work?.delivery_target?.generation !== generation ||
+      association.workerRunId && runs.get(association.workerRunId)?.work_item_id !== association.workItemId) errors.push(`微信输入／工作关联不符：${id}`);
+  };
+  for (const row of rows('work_item').filter(row => row.origin === 'weixin')) checkWechatTarget(row.delivery_target, row.id);
+  for (const row of rows('outbox').filter(row => row.channel === 'weixin')) {
+    checkWechatTarget(row.delivery_target, row.id);
+    if (row.binding_generation !== row.delivery_target?.generation || row.target !== row.delivery_target?.ownerId) errors.push(`微信出站归属不符：${row.id}`);
+    checkWechatAssociation(row.association, row.binding_generation, row.id);
+  }
+  for (const row of rows('remote_message_route')) {
+    const binding = rows('weixin_binding').find(binding => binding.generation === row.generation);
+    if (row.channel !== 'weixin' || binding?.account_id !== row.account_id) errors.push(`微信消息路由归属不符：${row.message_id}`);
+    checkWechatAssociation(row.association, row.generation, row.message_id);
+  }
   for (const table of ['skill_run_control', 'run_diagnostic', 'budget_request', 'budget_wait', 'budget_release']) for (const row of rows(table)) {
     const run = runs.get(row.run_id);
     if (!run) { errors.push(`${table}.run_id 引用缺失：${row.run_id}`); continue; }
@@ -162,6 +191,7 @@ function sessionReferences(records: Record<string, Record<string, any>[]>, sourc
     || (records.skill_run_call ?? []).some(row => row.run_id === run.id)
     || (records.skill_run_native ?? []).some(row => row.run_id === run.id));
   for (const row of records.workspace_state ?? []) { add(row.local_session_id, null); add(row.feishu_session_id, null); }
+  for (const row of records.weixin_binding ?? []) if (row.session_ready || row.state === 'active') add(row.session_id, null);
   for (const row of records.work_item ?? []) {
     add(row.parent_session_id);
     if (row.child_session_id && row.status !== 'queued' && !row.active_skill_run_id && !row.active_worker_run_id) add(row.child_session_id, row.parent_session_id);
@@ -196,6 +226,9 @@ function reconciliation(records: Record<string, Record<string, any>[]>) {
     budget: { waiting: records.budget_wait ?? [], releases: (records.budget_release ?? []).map(row => choose(row, ['id', 'run_id', 'work_item_id', 'session_id', 'status', 'native_message_id'])) },
     health: { identities: records.health_identity ?? [], tests: (records.health_test ?? []).map(row => choose(row, ['id', 'status', 'plan', 'result', 'cleanup'])) },
     sources: records.source_registration ?? [],
+    weixin: { bindings: (records.weixin_binding ?? []).map(row => choose(row, ['generation', 'account_id', 'owner_id', 'session_id', 'state', 'enabled'])),
+      inputs: (records.inbox ?? []).filter(row => row.source === 'weixin' && ['received', 'processing', 'admitted'].includes(row.status)).map(row => choose(row, ['event_id', 'binding_generation', 'status', 'request_id', 'target_session', 'error'])),
+      message: '微信凭据与回复上下文未恢复；隔离恢复不收信、不发消息，须重新扫码核对原身份。' },
     plans: (records.digest_plan ?? []).filter(row => !['deleted', 'disabled'].includes(row.status)).map(row => choose(row, ['id', 'kind', 'status', 'schedule_id', 'session_id', 'owner_enabled', 'recycled_at'])),
     triggers: (records.plan_trigger ?? []).filter(row => !['completed', 'skipped', 'cancelled'].includes(row.status)).map(row => choose(row, ['id', 'plan_id', 'run_id', 'status', 'occurrence'])),
     remoteObjects: [
