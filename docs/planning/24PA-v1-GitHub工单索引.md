@@ -65,11 +65,11 @@ v1 后续功能（规格 1.3–2.1）：F13＝[#60](https://github.com/benz-ai-x
 
 ## 微信 ClawBot 接入增量（规格 2.20，2026-11-08 复核）
 
-父规格 [#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)，完整规范见[微信接入规格](24PA-微信ClawBot接入-SPEC.md)。首版一张实施单，后续一张条件事项；没有新增工单，没有开始功能实现或真实微信验收。
+父规格 [#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)，完整规范见[微信接入规格](24PA-微信ClawBot接入-SPEC.md)。首版一张实施单，后续一张条件事项。2026-11-09 更新：协议 A 已通过，首版已实现并完成隔离验证、桌面 T20 与 8010 部署；正式插件本人扫码/业务验收待完成。见[首版验收记录](../research/2026-11-09-weixin-first-release-acceptance.md)。
 
 | 范围 | GitHub Issue | 故事/验收 | 状态与门槛 |
 |---|---|---|---|
-| 首版 WX-R01 + F53 + F54 | [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) | 163–164；WX-01–16/20/21、T21 | 打开；基础结论 A 为票内首个检查点，尚未通过，不标 ready-for-agent；一个主功能 PR |
+| 首版 WX-R01 + F53 + F54 | [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) | 163–164；WX-01–16/20/21、T21 | 打开、已领取；A 通过，功能分支已实现/隔离验证/部署，[Draft PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)，正式账号验收及合并待完成 |
 | 后续 F55 周期结果通知 | [#281](https://github.com/benz-ai-x/dsh-24-PA/issues/281) | 165；WX-17–19/21 | 打开；依赖 #279 合并验收及结论 B 覆盖目标场景；不计首版、不标 ready-for-agent |
 | 原总规格、研究、计划管理分票 | #277、#278、#280 | 编号及原正文保留 | 归并关闭（not planned）；范围转入 Spec 与 #279，不是实现完成或 A/B 已通过 |
 

@@ -1,0 +1,25 @@
+{
+  "codeCommit": "f26d833b59688cc6ef5183fed9eaad0b30324964",
+  "unit": {
+    "files": 105,
+    "total": 1761,
+    "passed": 1760,
+    "skipped": 1,
+    "execution": "partitioned full suite with final targeted repairs, not a single all-green invocation",
+    "counts": {
+      "firstPartitionUnitPassed": 200,
+      "additionalRecoveryPassed": 6,
+      "remainingPartitionInitiallyPassed": 1551,
+      "remainingPartitionRepaired": 3
+    }
+  },
+  "realHostE2E": {
+    "sqlite": 5,
+    "postgres": 5,
+    "externalBoundaries": "mock LLM and platform services; actual Loader, Session and databases"
+  },
+  "desktopEvidence": "../2026-11-08-weixin-first-release/desktop/checks.json",
+  "formalAccountAcceptance": "pending; owner chose to scan later",
+  "npmPublished": false,
+  "merged": false
+}

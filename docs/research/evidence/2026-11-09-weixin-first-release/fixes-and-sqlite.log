@@ -1,0 +1,41 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-279-20261108/packages/24pa
+
+ ✓ tests/unit/task-plan-service.test.mjs (66 tests) 1721ms
+ ✓ tests/unit/run-history.test.mjs (31 tests) 1043ms
+ ✓ tests/unit/client.test.mjs (15 tests) 22ms
+ ✓ tests/unit/work-planning.test.mjs (40 tests) 1833ms
+   ✓ 工作方法的持久闭环 postgres > 备份恢复保留采纳快照、复盘与全部修订，并能继续版本校验 851ms
+ ✓ tests/unit/ledger-ownership.test.mjs (25 tests) 33607ms
+   ✓ sqlite 历史账本与身份恢复 > 联合备份保持隔离；空外部队列人工切换后可通过公开绑定检索原资料 29394ms
+   ✓ postgres 历史账本与身份恢复 > 联合备份保持隔离；空外部队列人工切换后可通过公开绑定检索原资料 363ms
+   ✓ 两个独立进程同时首次声明同一 PG 账本，只有赢家接纳并写业务 326ms
+ ✓ tests/unit/backup-recovery.test.mjs (19 tests) 242316ms
+   ✓ M09 sqlite durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 29963ms
+   ✓ M09 sqlite durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 627ms
+   ✓ M09 sqlite durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 29295ms
+   ✓ M09 sqlite durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 120064ms
+   ✓ M09 postgres durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved 1660ms
+   ✓ M09 postgres durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 1625ms
+   ✓ M09 postgres durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 2607ms
+   ✓ M09 postgres durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 2695ms
+   ✓ M09 postgres durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 1892ms
+   ✓ M09 postgres durable records and isolated restore > actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity 2544ms
+   ✓ old backup merge retains current changes and purges old derived bodies, without modifying authority or backup 6206ms
+   ✓ corrupt current JSON and pending audit block restoration; existing or source targets are untouched 10732ms
+   ✓ memory integrity rejects changeset even without tombstones; source and backup remain untouched 641ms
+   ✓ memory integrity rejects changed even without tombstones; source and backup remain untouched 29183ms
+   ✓ PG dump meta-command and server-program escape attempts fail in isolated restricted import 2250ms
+ ✓ tests/e2e/weixin.e2e.mjs (5 tests) 22874ms
+   ✓ WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝都经持久 Outbox 3090ms
+   ✓ WX-08/13/14/15 微信原文确认常用计划与面板共用对象，任意本地 Skill 被拒绝 4664ms
+   ✓ WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联本次微信输入且不重复创建 2585ms
+   ✓ WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发 9458ms
+   ✓ WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔离恢复 1529ms
+ ✓ tests/unit/weixin-plan-boundaries.test.mjs (4 tests) 3ms
+
+ Test Files  8 passed (8)
+      Tests  205 passed (205)
+   Start at  23:44:12
+   Duration  305.43s (transform 321ms, setup 0ms, collect 1.29s, tests 303.42s, environment 0ms, prepare 155ms)
+
