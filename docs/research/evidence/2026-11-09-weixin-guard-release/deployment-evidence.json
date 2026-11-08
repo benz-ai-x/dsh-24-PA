@@ -1,0 +1,176 @@
+{
+  "capturedAt": "2026-11-08T18:20:04.828Z",
+  "commit": "9ddd89a9ec51180352aa26018dfe849239aa6549",
+  "artifactSha256": "47ce23ee9bcb4974339891f0fe38b85a142097b22b99c1a6d184a600432f3dd3",
+  "developmentBuild": false,
+  "npmPublished": true,
+  "protectedFilesUnchanged": true,
+  "weixinIdentitySame": true,
+  "startScriptUnchanged": true,
+  "startScriptSha256": "bd07ef4c071dd91376908ccb2da58a3a932408ccc3fff6ea57c0e0f48393348f",
+  "workspacePathUnchanged": true,
+  "storage": "sqlite",
+  "mode": "feishu",
+  "configHashUnchanged": true,
+  "readiness": [
+    {
+      "id": "host",
+      "state": "ok"
+    },
+    {
+      "id": "config",
+      "state": "ok"
+    },
+    {
+      "id": "postgres",
+      "state": "ok"
+    },
+    {
+      "id": "workspace",
+      "state": "ok"
+    },
+    {
+      "id": "feishu",
+      "state": "ok"
+    },
+    {
+      "id": "sessions",
+      "state": "ok"
+    }
+  ],
+  "transport": {
+    "name": "sdk-ws",
+    "connected": true
+  },
+  "plugins": {
+    "moduleStatusMultisetUnchanged": true,
+    "total": 218,
+    "enabled": 187,
+    "active": 187,
+    "disabled": 31,
+    "added": [],
+    "removed": [],
+    "installed": [
+      {
+        "name": "@deepseek-ai/dsh-subagent-claude-code",
+        "version": "0.2.2-rc.1",
+        "enabled": true
+      },
+      {
+        "name": "@deepseek-ai/dsh-subagent-codex",
+        "version": "0.2.2-rc.1",
+        "enabled": true
+      },
+      {
+        "name": "@benz-ai-x/dsh-24pa",
+        "version": "0.2.2-rc.1.5",
+        "enabled": true
+      },
+      {
+        "name": "@benz-ai-x/dsh-research-graph",
+        "version": "0.2.2-rc.1",
+        "enabled": true
+      }
+    ]
+  },
+  "ledger": {
+    "schema": 34,
+    "identitySame": true,
+    "sourceIdentitySame": true,
+    "integrity": [
+      {
+        "integrity_check": "ok"
+      }
+    ],
+    "foreignKeys": [],
+    "rowCountChanges": []
+  },
+  "weixin": {
+    "rpcOk": true,
+    "phase": "stopped",
+    "loginPhase": "idle",
+    "bound": true,
+    "enabled": false,
+    "bindings": 1,
+    "inbox": 2,
+    "deliveries": 2
+  },
+  "backup": {
+    "complete": true,
+    "productionReady": false,
+    "migration": {
+      "schema": 34,
+      "historicTablesChecked": 81
+    },
+    "steps": [
+      {
+        "id": "files",
+        "status": "passed"
+      },
+      {
+        "id": "isolation",
+        "status": "passed"
+      },
+      {
+        "id": "ledger",
+        "status": "passed"
+      },
+      {
+        "id": "materials",
+        "status": "passed"
+      },
+      {
+        "id": "skills",
+        "status": "passed"
+      },
+      {
+        "id": "sessions",
+        "status": "passed"
+      },
+      {
+        "id": "memory",
+        "status": "passed"
+      },
+      {
+        "id": "remote-reconciliation",
+        "status": "required"
+      },
+      {
+        "id": "credentials",
+        "status": "required"
+      },
+      {
+        "id": "cutover",
+        "status": "required"
+      }
+    ]
+  },
+  "restoration": {
+    "capturedAt": "2026-11-08T18:21:02.484Z",
+    "authorizedBy": "owner explicitly allowed temporary pause and restore after fix",
+    "enabled": true,
+    "phase": "connecting",
+    "sameOriginalIdentity": true,
+    "accountSha256": "11b6fd6d990b0e67a81b0d33fa12c6352f024e5f37db10929e4c7dd4cf4aef66",
+    "ownerSha256": "4ba42a54adfb08e44de3218d1f66693e45d23cbc98edc97e5c3e4d920b20d067",
+    "generationSha256": "b162adcac1e7c93a1d811d9b25ed6be3317e8f06d79ee52c1cc79b47ceb7959c",
+    "sessionSha256": "029d3e9545cbed85f38ae1bd250a76172a0865b68ebdd98fbf153cb2a440387c",
+    "preservedInbox": 2,
+    "preservedDeliveries": 2
+  },
+  "logs": {
+    "capturedAt": "2026-11-08T18:22:39.013Z",
+    "serviceStartedAt": "Mon 2026-11-09 02:19:03 CST",
+    "journalLines": 33,
+    "patterns": {
+      "启动未完成": 0,
+      "plugin load failed": 0,
+      "Tool execution error": 0,
+      "FATAL": 0,
+      "Uncaught": 0,
+      "Unhandled": 0
+    },
+    "enabledInactive": 0,
+    "disabledUnchanged": 31
+  }
+}
