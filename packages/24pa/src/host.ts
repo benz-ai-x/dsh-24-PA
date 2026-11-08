@@ -184,6 +184,9 @@ export interface DshContext {
   tools: {
     register(definition: ToolDefinition): () => void;
     restrict(filter: { allow?: string[]; deny?: string[] }): void;
+    /** 0.2.2-rc.1 public scoped guard and executor; required by WeChat and business Worker admission. */
+    guard?(check: (exec: { agent?: DshAgent; name: string }) => string | undefined): () => void;
+    setExecutor?(executor: { describe(tools: readonly ToolDefinition[]): unknown; execute(input: unknown): Promise<unknown> }): () => void;
     /** Host-plane (global) view of mounted tools, name-projected (present since 0.2.0-rc.2); profile-level MCP tools mount there (F18). */
     schemas?(scope?: unknown): Array<{ name: string; [key: string]: unknown }>;
   };

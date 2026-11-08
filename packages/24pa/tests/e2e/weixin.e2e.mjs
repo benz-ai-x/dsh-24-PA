@@ -75,6 +75,18 @@ it('WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝�
   expect((await state()).inbox.filter(row => row.payload.nativeId === help.message_id)).toHaveLength(1);
   wx.input('你好，确认你能收到这段文字。'); await waitFor(s => s.inbox.some(row => row.payload.text.startsWith('你好') && row.status === 'delivered'));
   expect(llm.log[0].tools.sort()).toEqual(['pa24_delegate', 'pa24_jobs', 'pa24_memory']);
+  // Also run this suite with the official Agent Teams profile installed. Its
+  // Agent-local tools bypass Host restrict(), so force a call despite the
+  // filtered model catalog and verify the final execution boundary too.
+  const beforeDenied = llm.log.length;
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'team_task_create', input: { subject: 'must-not-create', description: 'isolated scope regression' } }, leadReply: '未创建宿主团队任务。' }));
+  const denied = wx.input('隔离验收：确认宿主团队任务不能代替助理交办。');
+  await waitFor(s => s.inbox.some(row => row.payload.nativeId === denied.message_id && row.status === 'delivered'));
+  const deniedCalls = llm.log.slice(beforeDenied);
+  expect(deniedCalls.every(row => !row.tools.includes('team_task_create'))).toBe(true);
+  expect(deniedCalls.flatMap(row => row.toolResults).join('\n')).toMatch(/业务会话授权范围|Unknown tool|unknown tool/);
+  const events = await host.remote('session/events', { request: { address: { kind: 'session', sessionId: active.binding.session_id }, maxMessages:30 } });
+  expect(events.records.some(row => row.event.type === 'team/task')).toBe(false);
   const serialized = JSON.stringify(await state()); expect(serialized).not.toMatch(/test-private|context_token|bot_token/);
   expect(wx.calls.find(row => row.endpoint.endsWith('get_bot_qrcode')).body.base_info).toBeUndefined();
   expect(media.message_id).not.toBe(outsider.message_id);
@@ -121,6 +133,30 @@ it('WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联�
   expect(observed.deliveries.filter(row => row.association?.workItemId === task.work.id)).toHaveLength(2);
   expect(await readFile(tasksFile, 'utf8')).toBe(original);
 }, 180000);
+
+it('WX-03/08 跨入口热续办业务 Worker 保持工具范围及原结果目标', async () => {
+  const local = (await host.api('snapshot')).workspace.localSessionId, title = 'WX-cross-entry-' + randomUUID();
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker: 'tasks', title, instruction: '只查询已有待办' },
+    leadReply: '已接纳。', workerAction: { action: 'task_list' }, workerReply: '本地业务已完成。' }));
+  await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: local, mode: 'queue', content: [{ type: 'text', text: title }] } });
+  const ready = await host.waitUntil(s => s.work.some(row => row.title === title && row.status === 'completed'));
+  const original = ready.work.find(row => row.title === title), before = llm.log.length;
+  expect(original.parent_session_id).toBe(local);
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_jobs', input: { action: 'continue', workId: original.id, instruction: '明确续办，核对原任务' } },
+    leadReply: '已续办原事项。', workerTool: { name: 'team_task_create', input: { subject: 'must-not-create', description: 'cross-entry regression' } }, workerReply: '已拒绝宿主团队任务。' }));
+  const input = wx.input(`明确继续 ${original.id}，核对原任务。`);
+  const completed = await host.waitUntil(s => s.work.some(row => row.id === original.id && row.active_worker_run_id !== original.active_worker_run_id && row.status === 'completed'));
+  await waitFor(s => s.inbox.some(row => row.payload.nativeId === input.message_id && row.status === 'delivered'));
+  const current = completed.work.find(row => row.id === original.id);
+  expect(current).toMatchObject({ id: original.id, parent_session_id: original.parent_session_id, child_session_id: original.child_session_id, delivery_target: original.delivery_target });
+  const requests = llm.log.slice(before).filter(row => row.tools.includes('pa24_work'));
+  expect(requests.length).toBeGreaterThan(0);
+  expect(requests.every(row => !row.tools.includes('team_task_create'))).toBe(true);
+  expect(requests.flatMap(row => row.toolResults).join('\n')).toMatch(/业务会话授权范围|Unknown tool|unknown tool/);
+  const events = await host.remote('session/events', { request: { address: { kind: 'subagent', parentSessionId: original.parent_session_id,
+    childSessionId: original.child_session_id, mode: 'continuable' }, maxMessages: 30 } });
+  expect(events.records.some(row => row.event.type === 'team/task')).toBe(false);
+}, 120000);
 
 it('WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发', async () => {
   await waitFor(s => s.deliveries.every(row => row.status === 'sent'));

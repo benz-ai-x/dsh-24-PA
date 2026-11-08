@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm version](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub release](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](package.json)
-[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.4)
+[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.5)
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
@@ -20,7 +20,9 @@ kind: "package-bundle"
 
 *English desktop interface with sample data.*
 
-`0.2.2-rc.1.4` includes the first WeChat integration (#279): owner QR binding, private text requests, and common plan management. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](weixin-setup.md). End-to-end acceptance with the owner’s account in the integrated plugin is still pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
+`0.2.2-rc.1.5` fixes scoped Host tools bypassing the WeChat business tool allowlist, including business work continued from another entry (#279). Owner QR binding, private text requests, and common plan management are included. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](weixin-setup.md). Owner QR binding and the help reply have been confirmed; business-flow acceptance after this fix is still pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
+
+This fix requires dsh `0.2.2-rc.1` and its native tool execution guard. Older hosts must use their matching plugin version in the table below.
 
 ## Why 24PA?
 
@@ -89,7 +91,7 @@ Requirements: Node.js `^22.19.0` or `>=24.0.0`, dsh `0.2.2-rc.1`, and no databas
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.1
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.4 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.5 --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`. For a new instance, follow the [initialization guide](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md) for the isolated directory, launch script, expected pnpm approval, token URL, and demo verification. Then tell the local assistant「帮我接通飞书」or use the bundled [Feishu setup guide](feishu-setup.md).
@@ -103,7 +105,7 @@ To remove the bundle, run `dsh plugin --profile <name> remove @benz-ai-x/dsh-24p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.2-rc.1` | `0.2.2-rc.1.4` (current) |
+| `0.2.2-rc.1` | `0.2.2-rc.1.5` (current) |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8` (line frozen here) |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
@@ -156,7 +158,7 @@ External CLI delegation rows ship enabled but stay dormant: `subagent_codex` and
 
 ### Failure and recovery
 
-Digests and meeting prep on a dsh 0.2.0-rc.2 host report「当前 Host 未提供原生 Schedule 服务」until the schedule companions above are installed; the registry `dsh-schedule@0.2.0-rc.1` is peer-incompatible and its row stays disabled. An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A fresh Profile ships an unresolved `allowBuilds` placeholder for `protobufjs` (a transitive dependency of the Feishu SDK), so the first install exits nonzero until you set it to `true` in the Profile `pnpm-workspace.yaml`; the package is fully added either way. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
+An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A fresh Profile ships an unresolved `allowBuilds` placeholder for `protobufjs` (a transitive dependency of the Feishu SDK), so the first install exits nonzero until you set it to `true` in the Profile `pnpm-workspace.yaml`; the package is fully added either way. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
 
 The reliability update adds schema migration v14 on both storage backends. It
 stores each digest WorkItem's trusted trigger and occurrence binding without
@@ -365,7 +367,7 @@ These limits define when this assistant needs special operational care. They are
 
 This Dev Note is working context for maintainers. Shipped behavior and limits live in the sections above and in the package code; historical verification counts belong to their dated evidence records rather than this living document.
 
-- **Multi-baseline verification** — the active release line is 0.2.2-rc.1. Regression runs select the runtime with `DSH_BIN` and append the 0.2.0-rc.2 schedule companions with `PA24_E2E_EXTRA_PLUGINS`; older baselines retain their documented compatibility paths.
+- **Host verification** — this release supports 0.2.2-rc.1 only. Regression runs select that runtime with `DSH_BIN`; scoped-tool tests additionally install the official Agent Teams profile through `PA24_E2E_EXTRA_PLUGINS`. Older hosts retain their separately published plugin versions.
 - **Preset patch is generated** — `cordis.patch.yml` is produced by `scripts/sync-preset.mjs` from the `@deepseek-ai/dsh-web-app` standard preset pinned as a devDependency; never edit it by hand. On a new dsh baseline, bump the pin and run `npm run preset:sync`; `npm run preset:check` and unit tests fail when the checked-in copy drifts.
 - **Local harness adjacency** — dev type-checking links vendored peers from an adjacent `deepseek-harness` checkout through `scripts/link-peer.mjs`; registry installs never depend on that checkout.
 

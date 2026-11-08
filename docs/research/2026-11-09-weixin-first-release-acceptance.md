@@ -2,6 +2,10 @@
 
 日期：2026-11-09（Asia/Shanghai）。关联 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279)、[Draft PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)、[规格 2.20](../planning/24PA-微信ClawBot接入-SPEC.md)。
 
+## 后续正式账号验收（01:33–01:41）
+
+本人已扫码、核对并启用，`/24pa` 帮助由平台接纳且本人确认可见。随后固定文字测试暴露了额外 Agent Teams 插件的会话工具绕过旧白名单：宿主创建 `task-1`，24私助交办账本为 0。按本人明确授权已停止微信入口并保留绑定，正在修复与复验；**不能判定交办已通过，#279 保持打开**。完整原生证据及修复测试见[会话工具权限记录](2026-11-09-weixin-scoped-tool-fix.md)。下文保留最初部署时点的事实。
+
 ## 后续发布指令
 
 本记录完成后，主人于 2026-11-09 明确要求 `commit push release`。本轮据此办理 `0.2.2-rc.1.4` 的合并与发布，实际结果以[发布记录](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.4)为准。下文的 Draft/未发布描述保留本记录时点的状态，后续发布不代表正式账号验收完成；#279 继续跟踪尚待本人扫码的真实流程。

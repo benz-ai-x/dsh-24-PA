@@ -1,0 +1,119 @@
+{
+  "capturedAt": "2026-11-08T17:55:32.530Z",
+  "source": "readonly formal Host session/events and business SQLite",
+  "sessionSha256": "029d3e9545cbed85f38ae1bd250a76172a0865b68ebdd98fbf153cb2a440387c",
+  "generationSha256": "b162adcac1e7c93a1d811d9b25ed6be3317e8f06d79ee52c1cc79b47ceb7959c",
+  "bindingEnabled": false,
+  "bindingState": "active",
+  "completeHistory": true,
+  "businessWorkCount": 0,
+  "modelTools": [
+    "interrupt_agent",
+    "list_agents",
+    "pa24_delegate",
+    "pa24_jobs",
+    "pa24_memory",
+    "send_message",
+    "spawn_teammate",
+    "team_task_create",
+    "team_task_get",
+    "team_task_list",
+    "team_task_update",
+    "wait_agent"
+  ],
+  "toolCalls": [
+    {
+      "seq": 20,
+      "name": "pa24_jobs",
+      "time": 1794159427672
+    },
+    {
+      "seq": 22,
+      "name": "list_agents",
+      "time": 1794159427686
+    },
+    {
+      "seq": 28,
+      "name": "pa24_jobs",
+      "time": 1794159440395
+    },
+    {
+      "seq": 34,
+      "name": "pa24_jobs",
+      "time": 1794159446934
+    },
+    {
+      "seq": 40,
+      "name": "team_task_create",
+      "time": 1794159460411
+    },
+    {
+      "seq": 47,
+      "name": "team_task_update",
+      "time": 1794159461334
+    },
+    {
+      "seq": 54,
+      "name": "team_task_update",
+      "time": 1794159468236
+    },
+    {
+      "seq": 61,
+      "name": "team_task_update",
+      "time": 1794159468776
+    }
+  ],
+  "teamTaskEvents": [
+    {
+      "seq": 41,
+      "time": 1794159460416
+    },
+    {
+      "seq": 48,
+      "time": 1794159461339
+    },
+    {
+      "seq": 55,
+      "time": 1794159468242
+    },
+    {
+      "seq": 62,
+      "time": 1794159468779
+    }
+  ],
+  "toolOutcomes": [
+    {
+      "seq": 21,
+      "isError": false
+    },
+    {
+      "seq": 23,
+      "isError": false
+    },
+    {
+      "seq": 29,
+      "isError": true
+    },
+    {
+      "seq": 35,
+      "isError": true
+    },
+    {
+      "seq": 42,
+      "isError": false
+    },
+    {
+      "seq": 49,
+      "isError": false
+    },
+    {
+      "seq": 56,
+      "isError": false
+    },
+    {
+      "seq": 63,
+      "isError": false
+    }
+  ],
+  "finalReplySha256": "2e71b05ebe0f3a8a296087d1b21a06a3a8056a05b06dac951b86b93e5e3349fd"
+}

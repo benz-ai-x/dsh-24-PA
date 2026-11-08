@@ -2,6 +2,8 @@ import { canFinishDispatchedStep } from './run-control.js';
 import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
+import { ROLE_TOOLS } from './local-tool-access.js';
+import type { BusinessToolPolicy } from './business-tool-scope.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { bridgeScheduleService } from './schedule-bridge.js';
 import { TaskPlanService } from './task-plan-service.js';
@@ -1803,6 +1805,22 @@ export class PaRuntime {
     return this.roleFor(agent);
   }
 
+  /** A business Worker may later be continued from WeChat without changing
+   * its native Agent, parent or reply target. Enforce its role from creation. */
+  businessToolPolicy(agent: DshAgent | undefined): BusinessToolPolicy | null {
+    if (!agent) return null;
+    if (this.weixin.remote(agent.id)) return { allow: ROLE_TOOLS['weixin-access']!, active: this.roleFor(agent) === 'weixin-access' };
+    const item = this.workItemByChild.get(agent.id);
+    if (item && item.execution_mode !== 'skill') return {
+      allow: [...ROLE_TOOLS.worker!, ...(this.roles.get(item.role)?.tools ?? [])], active: this.roleFor(agent) === 'worker',
+    };
+    const parent = agent.session.header.parentSession;
+    const parentId = agent.parentAgent?.id ?? (typeof parent === 'string' ? parent : parent?.id);
+    // An unregistered child has no business authority, even if a Host plugin
+    // tries to treat it as another Team Lead.
+    return parentId && this.weixin.remote(parentId) ? { allow: [], active: false } : null;
+  }
+
   /** Business access belongs exclusively to the currently activated workspace. */
   roleFor(agent: DshAgent | undefined): RuntimeRole {
     if (!agent || !this.workspace || agent.session.header.cwd !== this.workspace.statePath) return null;
@@ -2688,9 +2706,9 @@ export class PaRuntime {
         parent: parent.agent,
         prompt,
         persona,
-        // send_message arrives as an adjacent-agent scoped tool and is
-        // unaffected by global restrict(); the child can still report to
-        // its parent through the native continuation channel.
+        // Host toolFilter only restricts inherited registrations. WeChat
+        // Workers also receive a scoped catalog and execution guard; native
+        // completion still reports through the continuation channel.
         toolFilter: { allow: ['pa24_work', 'pa24_memory', 'pa24_run', ...(roleDef.tools ?? [])] },
         maxDepth: 1,
         ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } } : {}),

@@ -4,6 +4,7 @@ import type { DshContext, ToolRunContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
 import { LEAD_SECTIONS } from './prompts.js';
 import { LocalToolAccess, hostGlobalToolNames } from './local-tool-access.js';
+import { mountBusinessToolScope } from './business-tool-scope.js';
 export { resolveExtraLocalTools, qwennoteChannelState, hostGlobalToolNames } from './local-tool-access.js';
 
 // Agent-half plugin mounted inside the 24私助 preset. Tools are registered
@@ -24,7 +25,8 @@ export function apply(ctx: DshContext) {
   });
   ctx.effect(() => () => access.dispose());
   ctx.on('agent/created', async ({ agent }) => {
-    const delegated = await runtime.skillRuns.codingTools(agent);
+    const policy = runtime.businessToolPolicy(agent);
+    const delegated = policy ? null : await runtime.skillRuns.codingTools(agent);
     if (delegated) {
       await agent.ctx!.plugin({ name: 'pa24-skill-delegate-tools', inject: ['tools'], apply(child: DshContext) {
         child.tools.restrict({ allow: delegated });
@@ -40,6 +42,7 @@ export function apply(ctx: DshContext) {
         },
       } as any).await();
     });
+    if (policy) await mountBusinessToolScope(ctx, agent, current => runtime.businessToolPolicy(current));
   });
 
   // Lead guidance is registered as ordered sections from the single prompt
@@ -83,7 +86,7 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_delegate',
-    '将明确的本人委托交给专业 Worker（memo=备忘、tasks=待办、calendar=日程、reminders=提醒、handwriting=手写整理、skill=任务 skill；可用性以运行时校验为准，不可用会明确报错）。一段输入含多件事时分别委派。handwriting 必须携带 noteId（笔记编号 N-x）；skill 必须携带 skill 名且该名已在 extraBusinessSkills 放行。返回接纳编号；接纳不代表完成。',
+    '新建助理交办的入口：将明确的本人委托交给专业 Worker（memo=备忘、tasks=待办、calendar=日程、reminders=提醒、handwriting=手写整理、skill=任务 skill；可用性以运行时校验为准，不可用会明确报错）。一段输入含多件事时分别委派。handwriting 必须携带 noteId（笔记编号 N-x）；skill 必须携带 skill 名且该名已在 extraBusinessSkills 放行。只有返回的真实 workId 才是交办编号；接纳不代表完成。',
     { worker: string, title: string, instruction: string, noteId: string, skill: string, completionCriteria: string, acceptanceRequired: { type: 'boolean' }, parentWorkId: string },
     ['worker', 'title', 'instruction'],
     (args, exec) => runtime.delegate(args, exec.agent!),
@@ -91,7 +94,7 @@ export function apply(ctx: DshContext) {
 
   register(
     'pa24_jobs',
-    '查询助理交办及全部关联运行；补充未结束交办，明确接续已结束交办，停止、接受/退回需验收的交付物，或以本人选定的instruction建立关联新目标。停止不会撤销既有业务动作。',
+    '查询助理交办及全部关联运行；补充未结束交办，明确接续已结束交办，停止、接受/退回需验收的交付物。new-goal 必须提供已存在的 workId，才能以本人选定的 instruction 建立关联新目标；首次新建交办使用 pa24_delegate。停止不会撤销既有业务动作。',
     { action: { type: 'string', enum: ['list', 'inspect', 'continue', 'stop', 'supplement', 'accept', 'return', 'new-goal'] }, workId: string, instruction: string, requestId: string, expectedRevision: { type: 'integer' }, title: string, worker: string, completionCriteria: string, acceptanceRequired: { type: 'boolean' } },
     ['action'],
     // Repositories retain Date values internally; the host validates lossless
