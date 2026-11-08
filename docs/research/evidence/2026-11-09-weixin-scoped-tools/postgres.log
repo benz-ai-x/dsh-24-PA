@@ -1,0 +1,15 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-guard-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin.e2e.mjs (5 tests) 30977ms
+   ✓ WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝都经持久 Outbox 4143ms
+   ✓ WX-08/13/14/15 微信原文确认常用计划与面板共用对象，任意本地 Skill 被拒绝 4157ms
+   ✓ WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联本次微信输入且不重复创建 3092ms
+   ✓ WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发 10810ms
+   ✓ WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔离恢复 3177ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  01:54:49
+   Duration  31.14s (transform 38ms, setup 0ms, collect 73ms, tests 30.98s, environment 0ms, prepare 20ms)
+

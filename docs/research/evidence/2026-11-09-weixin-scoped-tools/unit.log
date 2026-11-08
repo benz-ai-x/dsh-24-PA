@@ -1,0 +1,19 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-guard-20261109/packages/24pa
+
+ ✓ tests/unit/worker-run.test.mjs (28 tests) 2687ms
+ ✓ tests/unit/weixin-ledger.test.mjs (15 tests) 1000ms
+ ✓ tests/unit/prompts.test.mjs (18 tests) 4ms
+ ✓ tests/unit/work-tool-schema.test.mjs (40 tests) 15ms
+ ✓ tests/unit/weixin-tool-scope.test.mjs (5 tests) 21ms
+ ✓ tests/unit/extra-tools.test.mjs (11 tests) 2ms
+ ✓ tests/unit/jobs-tool.test.mjs (8 tests) 1370ms
+ ✓ tests/unit/weixin-plan-boundaries.test.mjs (4 tests) 3ms
+ ✓ tests/unit/local-tool-access.test.mjs (7 tests) 4ms
+ ✓ tests/unit/weixin-recovery.test.mjs (6 tests) 3ms
+
+ Test Files  10 passed (10)
+      Tests  142 passed (142)
+   Start at  01:54:50
+   Duration  7.53s (transform 343ms, setup 0ms, collect 1.56s, tests 5.11s, environment 1ms, prepare 181ms)
+
