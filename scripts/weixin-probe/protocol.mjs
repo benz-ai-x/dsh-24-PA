@@ -51,15 +51,16 @@ export function receipt(response) {
   if (isObject) Object.assign(shape, { keyCount: Object.keys(data).length,
     retType: typeof data.ret, errcodeType: typeof data.errcode, messageIdType: typeof data.message_id });
   const errors = ['invalid_response', 'cancelled', 'network_or_timeout', 'body_read_or_timeout', 'response_too_large', 'transport_unknown'];
+  const nativeId = isObject && typeof data.message_id === 'string' && /^[1-9]\d*$/.test(data.message_id)
+    ? data.message_id : undefined;
   const base = { http: response.http ?? null, ...codes, shape,
+    ...(nativeId ? { nativeId } : {}),
     ...(errors.includes(response.error) ? { error: response.error } : {}) };
   if (response.http < 200 || response.http >= 300 || !response.http || !data ||
       typeof data !== 'object' || Array.isArray(data)) return { ...base, status: 'unknown' };
   if (Number.isSafeInteger(data.ret) && data.ret !== 0 ||
       Number.isSafeInteger(data.errcode) && data.errcode !== 0) return { ...base, status: 'rejected' };
   if (data.ret !== 0 || (data.errcode !== undefined && data.errcode !== 0)) return { ...base, status: 'unknown' };
-  const nativeId = typeof data.message_id === 'string' && /^[1-9]\d*$/.test(data.message_id)
-    ? data.message_id : undefined;
   return { ...base, status: 'accepted', ...(nativeId ? { nativeId } : {}) };
 }
 

@@ -37,6 +37,8 @@ test('receipt requires explicit ret zero, separates optional native ID, and fail
   assert.equal(receipt({ http: 200, data: [] }).shape.kind, 'array');
   assert.equal(receipt({ http: 200, error: 'invalid_response' }).error, 'invalid_response');
   assert.equal(receipt({ http: 200, data: { ret: 0, message_id: '18446744073709551615' } }).nativeId, '18446744073709551615');
+  const candidate = receipt({ http: 200, data: { message_id: '18446744073709551615' } });
+  assert.equal(candidate.status, 'unknown'); assert.equal(candidate.nativeId, '18446744073709551615');
   for (const data of [{}, { client_id: 'local' }, [], null, { ret: '0' }, { ret: 0, errcode: '0' }]) assert.equal(receipt({ http: 200, data }).status, 'unknown');
   assert.equal(receipt({ http: 200, data: { ret: -14 } }).status, 'rejected');
   assert.equal(receipt({ http: 200, data: { ret: 0, errcode: -14 } }).status, 'rejected');
@@ -228,4 +230,27 @@ test('failed recovery polling cannot release the delayed send or satisfy Gate A'
   assert.deepEqual(calls, ['ilink/bot/getupdates']);
   assert.equal(restored.state.deliveries.length, 1);
   assert.ok(restored.gateA().pending.includes('restore_and_cursor_observation'));
+});
+
+test('owner-visible reconciliation preserves unknown evidence and releases only the single delayed attempt after restore', async () => {
+  const p = create({ delayMs: 1 }); bind(p); p.event('login_confirmed'); p.consume(batch(p));
+  p.state.inputAt -= 1000;
+  p.state.deliveries.push({ kind: 'immediate', clientId: 'first', status: 'unknown', http: 200 }); p.save();
+  p.confirmVisible('immediate');
+  const calls = [];
+  const restored = new Probe(p.directory, { delayMs: 1, transport: async endpoint => {
+    calls.push(endpoint);
+    if (endpoint.endsWith('getupdates')) return { http: 200, data: batch(p, { msgs: [] }) };
+    return { http: 200, data: { message_id: '18446744073709551615' } };
+  } });
+  await restored.activate(); await restored.worker;
+  assert.deepEqual(calls, ['ilink/bot/getupdates', 'ilink/bot/sendmessage']);
+  assert.equal(restored.state.deliveries[0].status, 'unknown');
+  assert.equal(restored.state.deliveries[1].status, 'unknown');
+  assert.equal(restored.gateA().status, 'unverified');
+  restored.confirmVisible('delayed');
+  assert.equal(restored.gateA().status, 'observed');
+  assert.equal(restored.gateA().receiptBasis.immediate, 'owner_visible_reconciliation');
+  assert.equal(restored.gateA().receiptBasis.delayed, 'owner_visible_reconciliation');
+  restored.state.received.immediate.clientId = 'wrong'; assert.equal(restored.gateA().status, 'unverified');
 });

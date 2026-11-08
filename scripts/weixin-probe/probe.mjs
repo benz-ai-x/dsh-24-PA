@@ -43,7 +43,7 @@ export class Probe {
       if (saved) Object.assign(item, saved);
       else if (item.status === 'sending') item.status = 'unknown';
     }
-    this.restorePending = this.credentials && this.state.deliveries.some(x => x.kind === 'immediate' && x.status === 'accepted') &&
+    this.restorePending = this.credentials && this.deliveryBasis('immediate') !== 'pending' &&
       !this.state.deliveries.some(x => x.kind === 'delayed');
     if (this.restorePending) {
       this.state.restored++;
@@ -54,6 +54,12 @@ export class Probe {
   }
   save() { atomicJson(this.ledgerFile, this.state); }
   event(type, details = {}) { this.state.events.push({ at: now(), type, ...details }); this.save(); }
+  deliveryBasis(kind) {
+    const item = this.state.deliveries.find(x => x.kind === kind);
+    if (item?.status === 'accepted') return 'platform_response';
+    if (item?.status === 'unknown' && this.state.received[kind]?.clientId === item.clientId) return 'owner_visible_reconciliation';
+    return 'pending';
+  }
   publicState() {
     return {
       run: this.state.run, phase: this.phase, enabled: this.enabled, challenge: this.challenge,
@@ -72,11 +78,12 @@ export class Probe {
     if (!this.state.recoveredAfterImmediate) reasons.push('restore_and_cursor_observation');
     for (let i = 0; i < deliveries.length; i++) {
       const item = deliveries[i]; const kind = ['immediate', 'delayed'][i];
-      if (item?.status !== 'accepted') reasons.push(`${kind}_receipt`);
+      if (this.deliveryBasis(kind) === 'pending') reasons.push(`${kind}_receipt`);
       if (!this.state.received[kind]) reasons.push(`${kind}_visible`);
     }
     if (deliveries[1] && (deliveries[1].newInbound !== 0 || deliveries[1].elapsedMs < this.delayMs)) reasons.push('delay_conditions');
-    return { status: reasons.length ? 'unverified' : 'observed', pending: reasons, notificationB: 'unverified' };
+    return { status: reasons.length ? 'unverified' : 'observed', pending: reasons,
+      receiptBasis: Object.fromEntries(['immediate', 'delayed'].map(kind => [kind, this.deliveryBasis(kind)])), notificationB: 'unverified' };
   }
   exportEvidence() {
     // Deliberate allowlist: no raw account IDs, cursor, arbitrary message text, QR, codes, or tokens.
@@ -213,7 +220,7 @@ export class Probe {
     try {
       let failures = 0;
       while (this.enabled && !signal.aborted) {
-        const unresolved = this.state.deliveries.find(x => x.kind === 'immediate' && x.status !== 'accepted');
+        const unresolved = this.state.deliveries.some(x => x.kind === 'immediate') && this.deliveryBasis('immediate') === 'pending';
         if (unresolved) { this.enabled = false; this.phase = 'review_required'; return; }
         if (this.state.deliveries.some(x => x.kind === 'delayed')) {
           this.enabled = false; this.phase = 'await_visible_receipts'; return;
@@ -246,7 +253,7 @@ export class Probe {
           const immediate = this.state.deliveries.find(x => x.kind === 'immediate');
           if (!immediate) await this.send('immediate', signal);
           const first = this.state.deliveries.find(x => x.kind === 'immediate');
-          if (first?.status !== 'accepted') { this.enabled = false; this.phase = 'review_required'; return; }
+          if (this.deliveryBasis('immediate') === 'pending') { this.enabled = false; this.phase = 'review_required'; return; }
           if (!this.state.recoveredAfterImmediate) { this.enabled = false; this.phase = 'await_restore'; return; }
           if (Date.now() - this.state.inputAt >= this.delayMs) await this.send('delayed', signal);
           if (this.state.deliveries.some(x => x.kind === 'delayed')) {
