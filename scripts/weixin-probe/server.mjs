@@ -60,7 +60,7 @@ const server = createServer(async (req, res) => {
         case '/restore': {
           await probe.stop(); const oldRun = probe.state.run;
           probe = new Probe(directory); if (probe.state.run !== oldRun) throw new Error('restore_failed');
-          probe.state.restored++; probe.event('component_restored'); break;
+          probe.event('component_restored'); break;
         }
         case '/visible': probe.confirmVisible(data.kind); break;
         default: return send(404, { error: 'not_found' });

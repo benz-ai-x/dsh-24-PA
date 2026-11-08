@@ -32,7 +32,10 @@ test('uint64 identities stay exact, including escaped property names and nested 
 });
 
 test('receipt requires explicit ret zero, separates optional native ID, and fails closed on HTTP/shape errors', () => {
-  assert.deepEqual(receipt({ http: 200, data: { ret: 0 } }), { http: 200, ret: 0, status: 'accepted' });
+  assert.equal(receipt({ http: 200, data: { ret: 0 } }).status, 'accepted');
+  assert.equal(receipt({ http: 200, data: {} }).shape.keyCount, 0);
+  assert.equal(receipt({ http: 200, data: [] }).shape.kind, 'array');
+  assert.equal(receipt({ http: 200, error: 'invalid_response' }).error, 'invalid_response');
   assert.equal(receipt({ http: 200, data: { ret: 0, message_id: '18446744073709551615' } }).nativeId, '18446744073709551615');
   for (const data of [{}, { client_id: 'local' }, [], null, { ret: '0' }, { ret: 0, errcode: '0' }]) assert.equal(receipt({ http: 200, data }).status, 'unknown');
   assert.equal(receipt({ http: 200, data: { ret: -14 } }).status, 'rejected');
@@ -68,6 +71,7 @@ test('transport failures, malformed body and timeout while reading the body are 
     } })),
   });
   assert.equal(receipt(timeout).status, 'unknown');
+  assert.equal(timeout.http, 200); assert.equal(timeout.error, 'body_read_or_timeout');
 });
 
 test('only the QR-authenticated owner, expected bot, private text challenge and stable ID are admitted', () => {
@@ -137,7 +141,11 @@ test('immediate plus delayed replies have stable single attempts and require sep
     return { http: 200, data: batch(p) };
   } }); bind(p); p.event('login_confirmed');
   await p.activate(); await p.worker;
+  assert.equal(sends, 1); assert.equal(p.phase, 'await_restore');
+  const transport = p.transport; p = new Probe(p.directory, { delayMs: 1, transport });
+  await p.activate(); await p.worker;
   assert.equal(sends, 2); assert.equal(p.state.deliveries[1].newInbound, 0);
+  assert.ok(p.state.events.some(x => x.type === 'recovery_poll_observed'));
   assert.equal(p.gateA().status, 'unverified');
   p.confirmVisible('immediate'); p.confirmVisible('delayed'); assert.equal(p.gateA().status, 'observed');
   p.state.deliveries[1].newInbound = 1; assert.equal(p.gateA().status, 'unverified');
@@ -145,7 +153,10 @@ test('immediate plus delayed replies have stable single attempts and require sep
 });
 
 test('ret absent does not open the delayed send even if a local request ID exists', async () => {
-  let sends = 0; const p = create({ transport: async () => { sends++; return { http: 200, data: { client_id: 'local' } }; } });
+  let sends = 0; const p = create({ transport: async endpoint => {
+    if (endpoint.endsWith('getupdates')) return { http: 200, data: batch(p, { msgs: [] }) };
+    sends++; return { http: 200, data: { client_id: 'local' } };
+  } });
   bind(p); p.consume(batch(p)); await p.activate(); await p.worker;
   assert.equal(sends, 1); assert.equal(p.phase, 'review_required'); assert.equal(p.state.deliveries[0].status, 'unknown');
 });
@@ -177,4 +188,33 @@ test('QR login only creates a candidate and requires explicit owner activation',
   await p.startLogin(); await p.worker;
   assert.equal(p.phase, 'candidate'); assert.equal(p.enabled, false); assert.equal(p.qr, null);
   assert.equal(p.state.deliveries.length, 0); assert.ok(!JSON.stringify(p.exportEvidence()).includes('fixture'));
+});
+
+test('after a long stop, pending new inbound is observed before delayed send and prevents a clean delay conclusion', async () => {
+  const p = create({ delayMs: 1 }); bind(p); p.event('login_confirmed'); p.consume(batch(p));
+  p.state.inputAt -= 121_000;
+  p.state.deliveries.push({ kind: 'immediate', clientId: 'first', status: 'accepted', finishedAt: new Date().toISOString() }); p.save();
+  const calls = [];
+  const restored = new Probe(p.directory, { delayMs: 1, transport: async endpoint => {
+    calls.push(endpoint);
+    if (endpoint.endsWith('getupdates')) return { http: 200, data: batch(p, { msgs: [message(p, { message_id: '18446744073709551614', item_list: [{ type: 1, text_item: { text: 'new unrelated text' } }] })] }) };
+    return { http: 200, data: { ret: 0 } };
+  } });
+  await restored.activate(); await restored.worker;
+  assert.deepEqual(calls, ['ilink/bot/getupdates', 'ilink/bot/sendmessage']);
+  assert.equal(restored.state.deliveries[1].newInbound, 1);
+  assert.ok(restored.state.deliveries[1].lastSuccessfulPollAt);
+  restored.confirmVisible('immediate'); restored.confirmVisible('delayed');
+  assert.ok(restored.gateA().pending.includes('delay_conditions'));
+});
+
+test('failed recovery polling cannot release the delayed send or satisfy Gate A', async () => {
+  const p = create(); bind(p); p.consume(batch(p)); p.state.inputAt -= 121_000;
+  p.state.deliveries.push({ kind: 'immediate', clientId: 'first', status: 'accepted' }); p.save();
+  const calls = [];
+  const restored = new Probe(p.directory, { transport: async endpoint => { calls.push(endpoint); return { http: 200, data: { ret: -14 } }; } });
+  await restored.activate(); await restored.worker;
+  assert.deepEqual(calls, ['ilink/bot/getupdates']);
+  assert.equal(restored.state.deliveries.length, 1);
+  assert.ok(restored.gateA().pending.includes('restore_and_cursor_observation'));
 });

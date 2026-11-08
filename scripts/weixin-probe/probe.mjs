@@ -43,6 +43,13 @@ export class Probe {
       if (saved) Object.assign(item, saved);
       else if (item.status === 'sending') item.status = 'unknown';
     }
+    this.restorePending = this.credentials && this.state.deliveries.some(x => x.kind === 'immediate' && x.status === 'accepted') &&
+      !this.state.deliveries.some(x => x.kind === 'delayed');
+    if (this.restorePending) {
+      this.state.restored++;
+      this.state.recoveredAfterImmediate = false;
+      this.state.events.push({ at: now(), type: 'state_restored_after_immediate', cursorHash: digest(this.state.cursor) });
+    }
     this.save();
   }
   save() { atomicJson(this.ledgerFile, this.state); }
@@ -62,6 +69,7 @@ export class Probe {
     const reasons = [];
     if (!this.state.events.some(x => x.type === 'login_confirmed')) reasons.push('login');
     if (!this.state.events.some(x => x.type === 'inbound' && x.reason === 'test_input')) reasons.push('inbound');
+    if (!this.state.recoveredAfterImmediate) reasons.push('restore_and_cursor_observation');
     for (let i = 0; i < deliveries.length; i++) {
       const item = deliveries[i]; const kind = ['immediate', 'delayed'][i];
       if (item?.status !== 'accepted') reasons.push(`${kind}_receipt`);
@@ -75,11 +83,12 @@ export class Probe {
     return {
       schema: 1, run: this.state.run, protocol: PROTOCOL, createdAt: this.state.createdAt, exportedAt: now(),
       account: this.credentials ? { botHash: digest(this.credentials.bot), ownerHash: digest(this.credentials.owner), apiHost: new URL(this.credentials.base).host } : null,
-      requestedDelayMs: this.delayMs, restored: this.state.restored,
+      requestedDelayMs: this.delayMs, restored: this.state.restored, lastSuccessfulPollAt: this.state.lastSuccessfulPollAt ?? null,
       events: this.state.events.map(({ messageId, ...event }) => event),
       deliveries: this.state.deliveries.map(({ nativeId, ...item }) => ({ ...item, hasNativeId: Boolean(nativeId), ...(nativeId ? { nativeIdHash: digest(nativeId) } : {}) })),
       visibleReceipts: this.state.received, gateA: this.gateA(),
-      limits: ['No business integration', 'No proactive-send/window/quota guarantee', 'No proven server idempotency', 'Replay tests are offline evidence'],
+      limits: ['No business integration', 'No proactive-send/window/quota guarantee', 'No proven server idempotency',
+        'Replay tests are offline evidence', 'newInbound counts observed messages, not a proof of an empty server queue'],
     };
   }
   async startLogin() {
@@ -183,7 +192,8 @@ export class Probe {
   async send(kind, signal) {
     if (!this.enabled || signal.aborted || this.state.deliveries.some(x => x.kind === kind)) return;
     const item = { kind, clientId: `24pa-probe-${randomUUID()}`, status: 'sending', startedAt: now(),
-      elapsedMs: Date.now() - this.state.inputAt, newInbound: this.state.inboundCount - this.state.inputCount };
+      elapsedMs: Date.now() - this.state.inputAt, newInbound: this.state.inboundCount - this.state.inputCount,
+      lastSuccessfulPollAt: this.state.lastSuccessfulPollAt ?? null };
     this.state.deliveries.push(item); this.save();
     let response;
     try { response = await this.transport('ilink/bot/sendmessage', {
@@ -203,16 +213,12 @@ export class Probe {
     try {
       let failures = 0;
       while (this.enabled && !signal.aborted) {
-        if (this.state.inputAt) {
-          const immediate = this.state.deliveries.find(x => x.kind === 'immediate');
-          if (!immediate) await this.send('immediate', signal);
-          const first = this.state.deliveries.find(x => x.kind === 'immediate');
-          if (first?.status !== 'accepted') { this.enabled = false; this.phase = 'review_required'; return; }
-          if (Date.now() - this.state.inputAt >= this.delayMs) await this.send('delayed', signal);
-          if (this.state.deliveries.some(x => x.kind === 'delayed')) {
-            this.enabled = false; this.phase = 'await_visible_receipts'; return;
-          }
+        const unresolved = this.state.deliveries.find(x => x.kind === 'immediate' && x.status !== 'accepted');
+        if (unresolved) { this.enabled = false; this.phase = 'review_required'; return; }
+        if (this.state.deliveries.some(x => x.kind === 'delayed')) {
+          this.enabled = false; this.phase = 'await_visible_receipts'; return;
         }
+        const requestedCursor = digest(this.state.cursor);
         const response = await this.transport('ilink/bot/getupdates', {
           base: this.credentials.base, token: this.credentials.token, timeout: 35_000, signal,
           body: withBaseInfo({ get_updates_buf: this.state.cursor }),
@@ -227,6 +233,22 @@ export class Probe {
           await delay(failures * 1000, undefined, { signal }); continue;
         }
         failures = 0; this.consume(response.data);
+        this.state.lastSuccessfulPollAt = now(); this.save();
+        if (this.restorePending) {
+          this.state.recoveredAfterImmediate = true; this.restorePending = false;
+          this.event('recovery_poll_observed', { requestedCursorHash: requestedCursor, count: response.data.msgs?.length ?? 0 });
+        }
+        if (this.state.inputAt) {
+          const immediate = this.state.deliveries.find(x => x.kind === 'immediate');
+          if (!immediate) await this.send('immediate', signal);
+          const first = this.state.deliveries.find(x => x.kind === 'immediate');
+          if (first?.status !== 'accepted') { this.enabled = false; this.phase = 'review_required'; return; }
+          if (!this.state.recoveredAfterImmediate) { this.enabled = false; this.phase = 'await_restore'; return; }
+          if (Date.now() - this.state.inputAt >= this.delayMs) await this.send('delayed', signal);
+          if (this.state.deliveries.some(x => x.kind === 'delayed')) {
+            this.enabled = false; this.phase = 'await_visible_receipts'; return;
+          }
+        }
         await delay(100, undefined, { signal });
       }
     } catch {

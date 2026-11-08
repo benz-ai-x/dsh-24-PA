@@ -46,7 +46,13 @@ export function receipt(response) {
   for (const key of ['ret', 'errcode']) {
     if (Number.isSafeInteger(data?.[key])) codes[key] = data[key];
   }
-  const base = { http: response.http ?? null, ...codes };
+  const isObject = data !== null && typeof data === 'object' && !Array.isArray(data);
+  const shape = { kind: data === null ? 'null' : Array.isArray(data) ? 'array' : typeof data };
+  if (isObject) Object.assign(shape, { keyCount: Object.keys(data).length,
+    retType: typeof data.ret, errcodeType: typeof data.errcode, messageIdType: typeof data.message_id });
+  const errors = ['invalid_response', 'cancelled', 'network_or_timeout', 'body_read_or_timeout', 'response_too_large', 'transport_unknown'];
+  const base = { http: response.http ?? null, ...codes, shape,
+    ...(errors.includes(response.error) ? { error: response.error } : {}) };
   if (response.http < 200 || response.http >= 300 || !response.http || !data ||
       typeof data !== 'object' || Array.isArray(data)) return { ...base, status: 'unknown' };
   if (Number.isSafeInteger(data.ret) && data.ret !== 0 ||
@@ -61,12 +67,14 @@ export async function request(endpoint, { base = DEFAULT_BASE, token, body, sign
   const method = body === undefined ? 'GET' : 'POST';
   const url = new URL(endpoint, `${apiBase(base)}/`);
   if (url.origin !== apiBase(base) || !url.pathname.startsWith('/ilink/bot/')) throw new Error('invalid_endpoint');
+  let http = null;
   try {
     const res = await fetcher(url, {
       method, headers: headers(token, method), redirect: 'error',
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.any([AbortSignal.timeout(timeout), ...(signal ? [signal] : [])]),
     });
+    http = res.status;
     const chunks = []; let size = 0;
     for await (const chunk of res.body) {
       size += chunk.length;
@@ -75,9 +83,10 @@ export async function request(endpoint, { base = DEFAULT_BASE, token, body, sign
     }
     try { return { http: res.status, data: parseWire(Buffer.concat(chunks).toString('utf8')) }; }
     catch { return { http: res.status, error: 'invalid_response' }; }
-  } catch {
+  } catch (error) {
     // A socket error or abort is not evidence that a send failed before dispatch.
-    return { http: null, error: signal?.aborted ? 'cancelled' : 'network_or_timeout' };
+    return { http, error: signal?.aborted ? 'cancelled' : error?.message === 'response_too_large'
+      ? 'response_too_large' : http ? 'body_read_or_timeout' : 'network_or_timeout' };
   }
 }
 
