@@ -20,6 +20,8 @@ kind: "package-bundle"
 
 *English desktop interface with sample data.*
 
+WeChat first-release branch (#279): owner QR binding, private text requests, and common plan management. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](packages/24pa/weixin-setup.md). Release and real-account business acceptance remain tracked in PR #282.
+
 ## Why 24PA?
 
 - **More than a chatbot.** Move from a request to a work item, a Skill run, a platform object, and a traceable result — with schedules and follow-through built in.

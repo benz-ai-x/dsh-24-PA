@@ -1,6 +1,6 @@
 /** Diagnostics may quote platform errors, never credentials. Resource IDs and
  * identity IDs stay visible so the owner can identify the affected binding. */
-const sensitiveKey = (key: string): boolean => /(accesstoken|refreshtoken|secret|apikey|authorization|password)$/
+const sensitiveKey = (key: string): boolean => /(accesstoken|refreshtoken|bottoken|contexttoken|qrcode|qrcodeimgcontent|verifycode|secret|apikey|authorization|password)$/
   .test(key.toLowerCase().replace(/[_-]/g, ''));
 
 export function redactDiagnostic<T>(value: T, secrets: string[] = []): T {
@@ -10,7 +10,7 @@ export function redactDiagnostic<T>(value: T, secrets: string[] = []): T {
     return result
       .replace(/(authorization["']?\s*[=:]\s*["']?)(?:[A-Za-z]+\s+)?[^\s"',}<>]+/gi, '$1[已隐藏]')
       .replace(/\bBearer\s+[^\s"'<>]+/gi, 'Bearer [已隐藏]')
-      .replace(/((?:access_token|refresh_token|app_secret|client_secret|api_key|authorization|password)["']?\s*[=:]\s*["']?)[^\s"',}<>]+/gi, '$1[已隐藏]')
+      .replace(/((?:access[_-]?token|refresh[_-]?token|bot[_-]?token|context[_-]?token|qr[_-]?code(?:[_-]?img[_-]?content)?|verify[_-]?code|app_secret|client_secret|api_key|authorization|password)["']?\s*[=:]\s*["']?)[^\s"',}<>]+/gi, '$1[已隐藏]')
       .replace(/(postgres(?:ql)?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[已隐藏]@');
   };
   const visit = (item: any): any => typeof item === 'string' ? redact(item)

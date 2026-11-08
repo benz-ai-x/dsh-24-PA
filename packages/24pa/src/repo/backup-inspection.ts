@@ -2,7 +2,8 @@ import type { PaQueryer } from '../db.js';
 import { migrationColumns } from '../db-schema.js';
 
 const CONTENT_TABLES = [
-  'ledger_owner', 'schema_migrations', 'workspace_state', 'work_item', 'task', 'calendar_event',
+  'ledger_owner', 'schema_migrations', 'workspace_state', 'work_item', 'task', 'calendar_event', 'inbox',
+  'weixin_binding', 'weixin_batch', 'remote_message_route', 'delivery_review', 'weixin_input_review',
   'note', 'note_page', 'note_version', 'review_decision', 'note_material', 'note_action_link', 'material_read_evidence',
   'skill_entry', 'skill_version', 'skill_run', 'skill_run_session', 'skill_run_input', 'skill_run_call', 'skill_run_control', 'skill_run_resume', 'skill_run_native', 'skill_run_review', 'skill_plan_block',
   'worker_run', 'worker_run_input', 'worker_run_call', 'work_change', 'run_diagnostic',
@@ -50,7 +51,7 @@ export class BackupInspectionRepo {
     // node:sqlite only infers types declared in this build's migrations. Older
     // backups and independently integrated tables still retain JSON evidence.
     for (const rows of Object.values(records)) for (const row of rows) for (const [key, value] of Object.entries(row)) {
-      if (typeof value === 'string' && ['snapshot', 'package_data', 'definition', 'content', 'params', 'receipt', 'result_ref', 'record', 'draft', 'recognition', 'source', 'parameters', 'authorization_record', 'task_config', 'task_authorization', 'destination', 'state', 'message', 'recovery', 'start_data', 'end_data', 'recovery_data', 'accepted', 'observed', 'plan', 'cleanup'].includes(key)) {
+      if (typeof value === 'string' && ['payload', 'receipts', 'association', 'delivery_target', 'acceptance', 'evidence', 'snapshot', 'package_data', 'definition', 'content', 'params', 'receipt', 'result_ref', 'record', 'draft', 'recognition', 'source', 'parameters', 'authorization_record', 'task_config', 'task_authorization', 'destination', 'state', 'message', 'recovery', 'start_data', 'end_data', 'recovery_data', 'accepted', 'observed', 'plan', 'cleanup'].includes(key)) {
         try { row[key] = JSON.parse(value); } catch { /* Domain validation reports malformed JSON below. */ }
       }
     }

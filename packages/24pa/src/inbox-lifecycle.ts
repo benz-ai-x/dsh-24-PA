@@ -106,6 +106,12 @@ export class InboxLifecycle {
     await this.deps.repo()!.rejectForTarget(sessionId, error);
     this.replies.delete(sessionId);
   }
+  restore(row: InboxRow): void {
+    if (row.status !== 'admitted' || !row.target_session || !row.request_id) return;
+    const queue = this.replies.get(row.target_session) ?? [];
+    if (!queue.some(item => item.inboxId === row.event_id)) queue.push({ inboxId: row.event_id, requestId: row.request_id });
+    this.replies.set(row.target_session, queue);
+  }
 
   private flushReplies(): Promise<void> {
     if (this.finishing) return this.finishing;
@@ -124,6 +130,8 @@ export class InboxLifecycle {
   static async recover(repo: InboxRepo, interrupted: (row: InboxRow) => Promise<void>): Promise<void> {
     await repo.resetProcessing();
     for (const row of await repo.listAdmitted()) {
+      // WeChat reconciles the original persistent input instead of asking for a resend.
+      if (row.source === 'weixin') continue;
       await interrupted(row);
       await repo.mark(row.event_id, { status: 'rejected', error: '重启中断；请重新发送该消息' });
     }

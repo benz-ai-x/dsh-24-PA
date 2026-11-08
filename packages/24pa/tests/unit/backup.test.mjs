@@ -31,6 +31,9 @@ async function fixture() {
   }
   await writeFile(join(sources.workspace, '.24pa/secrets.json'), '{"appSecret":"never-backup"}');
   await writeFile(join(sources.workspace, '.24pa/secrets.json.pa24-tmp'), '{"appSecret":"interrupted-write"}');
+  await mkdir(join(sources.workspace, '.24pa/weixin'));
+  await writeFile(join(sources.workspace, '.24pa/weixin/secrets.json'), '{"bot_token":"wechat-never-backup","context_token":"private-context"}');
+  await writeFile(join(sources.workspace, '.24pa/weixin/secrets.json.interrupted.tmp'), '{"bot_token":"wechat-interrupted-write"}');
   await writeFile(join(sources.sessions, 'session.jsonl'), '{"turn":1}');
   await writeFile(join(sources.attachments, 'image.bin'), 'image');
   await writeFile(join(sources.storages, 'schedule.json'), '[]');
@@ -135,6 +138,8 @@ describe('workspace backup recovery coverage', () => {
     for (const [path, content] of Object.entries(f.assets)) expect(await readFile(join(restore, path), 'utf8')).toBe(content);
     await expect(readFile(join(restore, '.24pa/secrets.json'))).rejects.toThrow();
     await expect(readFile(join(restore, '.24pa/secrets.json.pa24-tmp'))).rejects.toThrow();
+    await expect(readFile(join(restore, '.24pa/weixin/secrets.json'))).rejects.toThrow();
+    await expect(readFile(join(restore, '.24pa/weixin/secrets.json.interrupted.tmp'))).rejects.toThrow();
     await expect(readFile(join(result.backupDir, 'dsh-state/host.lock'))).rejects.toThrow();
     await expect(readFile(join(result.backupDir, 'dsh-state/host.lock.d/owner-test.json'))).rejects.toThrow();
     expect(await readFile(join(result.backupDir, 'sessions/session.jsonl'), 'utf8')).toContain('turn');

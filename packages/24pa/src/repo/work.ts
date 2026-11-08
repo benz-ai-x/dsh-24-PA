@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { readLedgerOwner } from './ledger.js';
 import { executionCapacity, hasExecutionCapacity } from './execution-capacity.js';
 import type { WorkOwnerInput } from '../work-owner-input.js';
+import type { WeixinIdentity } from '../weixin-protocol.js';
 
 export interface WorkExecutionScope {
   workspaceId: string;
@@ -47,7 +48,8 @@ export interface WorkItemRow {
   owner_input?: WorkOwnerInput | null;
   skill?: string | null;
   skill_definition?: ResolvedTaskSkill | null;
-  origin: 'feishu' | 'local';
+  origin: 'feishu' | 'local' | 'weixin';
+  delivery_target?: WeixinIdentity | null;
   parent_session_id: string;
   child_session_id: string | null;
   delivery: string;
@@ -69,11 +71,17 @@ export class WorkItemRepo {
   async claimNext(limit = 2): Promise<WorkItemRow | null> {
     return this.db.withTransaction(async tx => {
       const available = await executionCapacity(tx, limit);
-      const candidates = (await tx.query<WorkItemRow>("select * from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted') order by created_at, id")).rows;
+      const candidates = (await tx.query<WorkItemRow>(`select * from pa24.work_item where execution_mode = 'worker' and status in ('queued', 'accepted')
+        and (origin <> 'weixin' or exists (select 1 from pa24.weixin_binding b
+          where b.session_id = pa24.work_item.parent_session_id and b.state = 'active' and b.enabled = true)) order by created_at, id`)).rows;
       // A queued standalone worker must not hide a child that can use its
       // active parent's existing slot: that parent may be awaiting the child.
       for (const candidate of candidates) {
         if (!available({ parentSessionId: candidate.parent_session_id })) continue;
+        if (candidate.origin === 'weixin') {
+          const binding = (await tx.query<{ enabled: boolean; state: string }>('select enabled, state from pa24.weixin_binding where session_id = $1 for update', [candidate.parent_session_id])).rows[0];
+          if (!binding?.enabled || binding.state !== 'active') continue;
+        }
         const result = await tx.query<WorkItemRow>(
           `update pa24.work_item set status = 'running', progress = 'Worker 正在处理', updated_at = now()
            where id = $1 and status in ('queued', 'accepted') returning *`, [candidate.id],
@@ -141,7 +149,7 @@ export class WorkItemRepo {
     return !!item.execution_scope?.workspaceId && (await readLedgerOwner(this.db))?.workspace_id === item.execution_scope.workspaceId;
   }
 
-  async finishWithDelivery(id: string, output: string, failed: boolean, delivery: NewOutbox, expected?: { executionId?: string; generation: number }): Promise<WorkItemRow | null> {
+  async finishWithDelivery(id: string, output: string, failed: boolean, delivery: NewOutbox | NewOutbox[], expected?: { executionId?: string; generation: number }): Promise<WorkItemRow | null> {
     return this.db.withTransaction(async tx => {
       const result = await tx.query<WorkItemRow>(
         `update pa24.work_item set status = $2, result = $3, progress = $4, revision = revision + 1,
@@ -153,17 +161,19 @@ export class WorkItemRepo {
           ...(expected ? [expected.generation] : []), ...(expected?.executionId ? [expected.executionId] : [])],
       );
       if (!result.rows[0]) return null;
-      await enqueueOutbox(tx, delivery);
-      await new WorkerRunRepo(this.db).finish(tx, result.rows[0], delivery.dedupKey);
+      const deliveries = Array.isArray(delivery) ? delivery : [delivery];
+      if (!deliveries.length) throw new Error('工作结果缺少持久投递。');
+      for (const entry of deliveries) await enqueueOutbox(tx, entry);
+      await new WorkerRunRepo(this.db).finish(tx, result.rows[0], deliveries[0]!.dedupKey);
       return result.rows[0];
     });
   }
 
   async insert(row: Omit<WorkItemRow, 'created_at' | 'updated_at' | 'progress' | 'result' | 'result_ref' | 'child_session_id'> & { child_session_id?: string }): Promise<WorkItemRow> {
     const result = await this.db.query<WorkItemRow>(
-      `insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, child_session_id, delivery, status, skill, skill_definition, completion_criteria, acceptance_required, parent_work_item_id, owner_input)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) returning *`,
-      [row.id, row.title, row.role, row.instruction, row.origin, row.parent_session_id, row.child_session_id ?? null, row.delivery, row.status, row.skill ?? null, row.skill_definition ? JSON.stringify(row.skill_definition) : null, row.completion_criteria ?? null, row.acceptance_required === true, row.parent_work_item_id ?? null, row.owner_input ? JSON.stringify(row.owner_input) : null],
+      `insert into pa24.work_item (id, title, role, instruction, origin, parent_session_id, child_session_id, delivery, status, skill, skill_definition, completion_criteria, acceptance_required, parent_work_item_id, owner_input, delivery_target)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) returning *`,
+      [row.id, row.title, row.role, row.instruction, row.origin, row.parent_session_id, row.child_session_id ?? null, row.delivery, row.status, row.skill ?? null, row.skill_definition ? JSON.stringify(row.skill_definition) : null, row.completion_criteria ?? null, row.acceptance_required === true, row.parent_work_item_id ?? null, row.owner_input ? JSON.stringify(row.owner_input) : null, row.delivery_target ? JSON.stringify(row.delivery_target) : null],
     );
     return result.rows[0]!;
   }

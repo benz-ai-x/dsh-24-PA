@@ -3,7 +3,8 @@ import { canceledInputIds } from './host-turn.js';
 
 /** Captured by trusted admission code, never accepted from model arguments. */
 export interface WorkOwnerInput {
-  kind: 'session' | 'panel' | 'feishu';
+  kind: 'session' | 'panel' | 'feishu' | 'weixin';
+  remoteIdentity?: import('./weixin-protocol.js').WeixinIdentity;
   sourceId: string;
   turn?: number;
   /** Trusted runtime identity at admission; never supplied by model arguments. */
