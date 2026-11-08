@@ -22,6 +22,8 @@ kind: "package-bundle"
 
 `0.2.2-rc.1.5` fixes scoped Host tools bypassing the WeChat business tool allowlist, including business work continued from another entry (#279). Owner QR binding, private text requests, and common plan management are included. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](packages/24pa/weixin-setup.md). Owner QR binding and the help reply have been confirmed; business-flow acceptance after this fix is still pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
 
+This fix requires dsh `0.2.2-rc.1` and its native tool execution guard. Older hosts must use their matching plugin version in the table below.
+
 ## Why 24PA?
 
 - **More than a chatbot.** Move from a request to a work item, a Skill run, a platform object, and a traceable result — with schedules and follow-through built in.

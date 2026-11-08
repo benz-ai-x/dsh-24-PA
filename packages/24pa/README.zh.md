@@ -20,6 +20,8 @@ kind: "package-bundle"
 
 `0.2.2-rc.1.5` 修复宿主会话工具绕过微信业务白名单的问题，覆盖从微信续办其他入口的业务交办（#279）。保留本人扫码绑定、私聊文字交办和常用计划管理；周期微信通知后置。使用方式见[微信接入指南](weixin-setup.md)。本人扫码和帮助回复已确认；修复后的真实业务流程仍待验收，进度见 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279)；协议实测与隔离验收见 [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)。
 
+本修复版仅支持 dsh `0.2.2-rc.1`，需要该版原生工具执行门禁；旧宿主使用下方版本表对应的既有插件版本。
+
 ## 为什么是24私助？
 
 - **不止聊天，更能跟进事情。** 从一句委托到助理交办、Skill 运行、平台对象与可追溯结果，把定时计划和后续跟进串在同一条工作链路里。
@@ -263,7 +265,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 
 本备注面向维护者。已交付行为与限制以正文章节和包代码为准；历史测试数量属于对应的 dated 验收记录，不作为本 living 文档的长期状态。
 
-- **多基线验证**——当前活跃发版线为 0.2.2-rc.1。回归运行用 `DSH_BIN` 选运行时，并以 `PA24_E2E_EXTRA_PLUGINS` 附加 0.2.0-rc.2 的 schedule 伴随件；旧基线沿用各自文档中的兼容路径。
+- **宿主验证**——本版仅支持 0.2.2-rc.1。回归用 `DSH_BIN` 选择该运行时；作用域工具验证以 `PA24_E2E_EXTRA_PLUGINS` 附加官方 Agent Teams profile。旧宿主继续使用各自已发布的插件版本。
 - **预设补丁为生成物**——`cordis.patch.yml` 由 `scripts/sync-preset.mjs` 对 devDependency 钉住的 `@deepseek-ai/dsh-web-app` 标准预设应用 delta 生成，勿手改；换新 dsh 基线时先改 pin 再跑 `npm run preset:sync`，`npm run preset:check` 与单测守护已提交副本不漂移。
 - **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
 

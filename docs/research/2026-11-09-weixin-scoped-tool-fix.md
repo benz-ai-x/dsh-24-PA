@@ -20,6 +20,10 @@
 
 可复用的公开接口为 `tools.guard` 和 `tools.setExecutor`；[`NativeToolExecutor`](https://github.com/deepseek-ai/deepseek-harness/blob/66491b05e3f05ad35bcdd4f6cd7ed26041d9e3db/packages/core/tool-executor-native/src/index.ts) 提供模型目录生成和完整原生执行。`guard` 在可扩展审批规则之后检查，因此其他规则返回 allow 也不能扩大业务权限。未改宿主源码、注册表私有字段或微信协议。
 
+### 发布兼容范围
+
+增量 Standards 复审核对官方旧版 `dsh-v0.2.1-rc.5`（`b830ec950faba0a46dda564be3e2d854afed94f1`）：该版没有 `NativeToolExecutor` 包或 `ToolsService.setExecutor`。不能继续宣称新业务门禁兼容全部历史宿主，也不能回退到旧白名单来掩盖缺口。`.1.5` 的 `engines.dsh`、两个宿主 peer、锁文件、版本守卫、四份 README 和初始化指南均收窄为实际验证的 `0.2.2-rc.1`；旧宿主继续使用版本表中的既有插件与历史 dist-tag。新宿主若缺少要求的接口仍拒绝装配。
+
 ## 修复范围
 
 - 微信 Lead 的模型目录限定为 `pa24_delegate / pa24_jobs / pa24_memory`；调用时再按当前角色及绑定状态检查。后来注册的会话工具和直接/嵌套调用同样受控。
@@ -33,7 +37,7 @@
 
 先用真实 Cordis / ToolsService / 原生执行器构造会话后挂载工具的回归：旧代码把 `team_task_create` 与未知会话工具暴露给模型，且停用检查未阻断；实际断言失败。修复后 6 项边界用例通过，包含模型目录、直接与嵌套执行、其他规则 allow、晚挂载、Worker、未知子会话、停用/退休及门禁缺失。
 
-从 `packages/24pa` 执行构建和 `preset:check` 均通过；受影响的 10 个单元文件共 **143 项通过**。这是定向回归，未称为重跑完整历史单元集。[日志](evidence/2026-11-09-weixin-scoped-tools/unit.log)
+从 `packages/24pa` 执行构建和 `preset:check` 均通过；受影响的 10 个单元文件共 **143 项通过**。另有 5 项预设及宿主版本守卫通过。这是定向回归，未称为重跑完整历史单元集。[日志](evidence/2026-11-09-weixin-scoped-tools/unit.log)
 
 真实 Loader / Session 矩阵均额外安装官方 `@deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1`，使用真实原生工具执行，只替换模型、微信和业务外部平台边界：
 
