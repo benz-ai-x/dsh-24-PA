@@ -8,7 +8,7 @@ import { apply } from '../../lib/tools.js';
 function registeredWork(work = async args => args, name = 'pa24_work') {
   const definitions = new Map();
   apply({
-    get: () => ({ workspaceRulesSection: () => '', work, runControl: work }), on: () => { }, effect: fn => fn(),
+    get: () => ({ workspaceRulesSection: () => '', assertCall: async () => {}, work, runControl: work }), on: () => { }, effect: fn => fn(),
     tools: { register: definition => { definitions.set(definition.name, definition); return () => { }; } },
     systemPrompt: { section: () => () => { } }
   });
