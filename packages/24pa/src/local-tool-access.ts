@@ -29,7 +29,7 @@ const STANDARD_CODING_TOOLS = [
   'ralph',
 ];
 
-const ROLE_TOOLS: Record<string, string[]> = {
+export const ROLE_TOOLS: Readonly<Record<string, readonly string[]>> = {
   // pa24_connection on the feishu entry is the read-only access wizard
   // (guide/check/wecom_guide/wecom_check): diagnostics over the chat the owner
   // already uses. Config writes stay local-only (ADR-0001) via pa24_workspace.

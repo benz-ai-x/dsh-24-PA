@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm 版本](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub 最新发布](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](package.json)
-[![dsh 基线](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.4)
+[![dsh 基线](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.5)
 
 **从“提醒我”到“帮我准备这一周”——把对话变成有条理、可审核、能跟进的行动，同时把控制权留在自己手里。**
 
@@ -18,7 +18,9 @@ kind: "package-bundle"
 
 ![24私助电脑端首页，展示关键数据、今日日程、优先待办与助理状态](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
 
-`0.2.2-rc.1.4` 提供微信首版（#279）：本人扫码绑定、私聊文字交办和常用计划管理；周期微信通知后置。使用方式见[微信接入指南](weixin-setup.md)。正式插件的本人扫码、收发与业务验收尚待完成，进度见 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279)；协议实测与隔离验收见 [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)。
+`0.2.2-rc.1.5` 修复宿主会话工具绕过微信业务白名单的问题，覆盖从微信续办其他入口的业务交办（#279）。保留本人扫码绑定、私聊文字交办和常用计划管理；周期微信通知后置。使用方式见[微信接入指南](weixin-setup.md)。本人扫码和帮助回复已确认；修复后的真实业务流程仍待验收，进度见 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279)；协议实测与隔离验收见 [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)。
+
+本修复版仅支持 dsh `0.2.2-rc.1`，需要该版原生工具执行门禁；旧宿主使用下方版本表对应的既有插件版本。
 
 ## 为什么是24私助？
 
@@ -87,7 +89,7 @@ kind: "package-bundle"
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.1
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.4 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.5 --registry=https://registry.npmjs.org
 ```
 
 重启同一个 Profile 并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`。全新实例请按[初始化指南](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md)完成隔离目录、启动脚本、pnpm 构建审批、带 token 的面板地址与 demo 验收；随后对本地助理说「帮我接通飞书」，或阅读随包[飞书接入指南](feishu-setup.md)。
@@ -101,7 +103,7 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.4 --registry=http
 
 | dsh 宿主 | 24私助包版本 |
 | --- | --- |
-| `0.2.2-rc.1` | `0.2.2-rc.1.4`（当前版本） |
+| `0.2.2-rc.1` | `0.2.2-rc.1.5`（当前版本） |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8`（该线停更于此） |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
@@ -152,7 +154,7 @@ schema 20 为两种账本增加来源登记、访问证据、平台对象、来�
 
 ### 失败与恢复
 
-dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会前准备如实报「当前 Host 未提供原生 Schedule 服务」；registry 的 `dsh-schedule@0.2.0-rc.1` peer 不匹配、其行保持禁用。未安装的外部 CLI provider 使工具缺席而非报错。同一 `$DSH_HOME/24pa` 上的第二个 pa24 宿主会因锁拒绝启动。全新 Profile 对 `protobufjs`（飞书 SDK 的传递依赖）自带未决的 `allowBuilds` 占位符，首次安装会以非零码结束，需在 Profile 的 `pnpm-workspace.yaml` 里把它设为 `true`；无论哪种结果包都已完整加入。 lark-cli 超时归类为结果未知——先核对飞书实际对象再决定是否重试；绝不盲目重放外部写入。
+未安装的外部 CLI provider 使工具缺席而非报错。同一 `$DSH_HOME/24pa` 上的第二个 pa24 宿主会因锁拒绝启动。全新 Profile 对 `protobufjs`（飞书 SDK 的传递依赖）自带未决的 `allowBuilds` 占位符，首次安装会以非零码结束，需在 Profile 的 `pnpm-workspace.yaml` 里把它设为 `true`；无论哪种结果包都已完整加入。 lark-cli 超时归类为结果未知——先核对飞书实际对象再决定是否重试；绝不盲目重放外部写入。
 
 -----
 
@@ -263,7 +265,7 @@ dsh 0.2.0-rc.2 宿主上，安装上述 schedule 伴随件之前，简报与会�
 
 本备注面向维护者。已交付行为与限制以正文章节和包代码为准；历史测试数量属于对应的 dated 验收记录，不作为本 living 文档的长期状态。
 
-- **多基线验证**——当前活跃发版线为 0.2.2-rc.1。回归运行用 `DSH_BIN` 选运行时，并以 `PA24_E2E_EXTRA_PLUGINS` 附加 0.2.0-rc.2 的 schedule 伴随件；旧基线沿用各自文档中的兼容路径。
+- **宿主验证**——本版仅支持 0.2.2-rc.1。回归用 `DSH_BIN` 选择该运行时；作用域工具验证以 `PA24_E2E_EXTRA_PLUGINS` 附加官方 Agent Teams profile。旧宿主继续使用各自已发布的插件版本。
 - **预设补丁为生成物**——`cordis.patch.yml` 由 `scripts/sync-preset.mjs` 对 devDependency 钉住的 `@deepseek-ai/dsh-web-app` 标准预设应用 delta 生成，勿手改；换新 dsh 基线时先改 pin 再跑 `npm run preset:sync`，`npm run preset:check` 与单测守护已提交副本不漂移。
 - **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
 

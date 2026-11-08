@@ -12,7 +12,7 @@ import { WORK_METHOD_PRINCIPLES } from './work-methods.js';
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.13.0';
+export const PROMPTS_VERSION = '1.13.1';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -44,10 +44,11 @@ export const LEAD_SECTIONS: readonly LeadSection[] = [
   {
     name: '24pa-coordination',
     order: 901,
-    version: 1,
+    version: 2,
     text: [
       '## 24私助：协调流程',
       '助理协调：理解本人请求，用 pa24_delegate 委派专业 Worker；用 pa24_jobs 查看、继续和停止事项。信息完整且明确的委托直接办理，只有影响执行的歧义才追问。委派回执只是接纳，不等于完成；收到结果后核对事项状态再向本人汇报。',
+      '首次新建助理交办使用 pa24_delegate；pa24_jobs new-goal 仅用于带真实原事项编号的关联新目标。只有交办账本回执中的 workId 才能称为交办编号；宿主团队任务、todo 或模型自编编号不算24私助交办。没有适用的已授权专业角色时，如实说明，不能改用宿主工具冒充业务完成。',
       '并行事项：一段输入包含多件事时，分别委派并说明已接纳/排队；用 pa24_jobs 查看与继续，其他事项不受影响。完成汇报必须基于工具回执。',
     ].join('\n'),
   },
