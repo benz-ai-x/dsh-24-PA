@@ -45,7 +45,7 @@ v1 后续功能（规格 1.3–2.1）：F13＝[#60](https://github.com/benz-ai-x
 
 ## 周期服务一致性增量（规格 2.18-draft，2026-11-07）
 
-总规格 [#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)，父规格 [#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)，契约见[一致性规格](24PA-Ontology前置减法-SPEC.md)。主人已确认范围收窄；以下实施事项已实现并完成隔离验收，主交付 [PR #275](https://github.com/benz-ai-x/dsh-24-PA/pull/275)，证据见[实现与验收记录](../research/2026-11-08-plan-consistency-implementation.md)。合并后依条件回写关闭，未发版或部署 8010。
+总规格 [#269](https://github.com/benz-ai-x/dsh-24-PA/issues/269)，父规格 [#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)，契约见[一致性规格](24PA-Ontology前置减法-SPEC.md)。主人已确认范围收窄；仅保留以下实施事项；F50 已由 PR #275 合并并纳入 `0.2.2-rc.1.3`，#271/#269 已关闭。 [F50 隔离验收记录](../research/2026-11-08-plan-consistency-implementation.md)保留原验收证据。
 
 | 功能 | 事项 | 故事 | 当前范围 |
 |---|---|---|---|
@@ -59,6 +59,18 @@ v1 后续功能（规格 1.3–2.1）：F13＝[#60](https://github.com/benz-ai-x
 
 | 功能组 | Issue | 故事 | 范围与状态 |
 |---|---|---|---|
-| F52 参数配置页信息精简 | [#273](https://github.com/benz-ai-x/dsh-24-PA/issues/273) | 162 | I01–I06；2026-11-08 补齐 PG 密钥值/引用名维护、保存前说明与执行复核、旧故事修订注；CI-01–07 已完成隔离验收；主交付 [PR #274](https://github.com/benz-ai-x/dsh-24-PA/pull/274)，未部署 8010。[证据](../research/2026-11-08-config-info-implementation.md)。 |
+| F52 参数配置页信息精简 | [#273](https://github.com/benz-ai-x/dsh-24-PA/issues/273) | 162 | I01–I06；2026-11-08 补齐 PG 密钥值/引用名维护、保存前说明与执行复核、旧故事修订注；CI-01–07；主 PR #274 已合并并纳入 `0.2.2-rc.1.3`，#273 已关闭。  [F52 隔离验收记录](../research/2026-11-08-config-info-implementation.md)。 |
 
 本票与 F50 / #271 独立，无前置依赖；不复用 F51、故事 161 或已删除的 `#272`。保留语音、旧计划、整体导航及配置能力。
+
+## 微信 ClawBot 接入增量（规格 2.20，2026-11-08 复核）
+
+父规格 [#1](https://github.com/benz-ai-x/dsh-24-PA/issues/1)，完整规范见[微信接入规格](24PA-微信ClawBot接入-SPEC.md)。首版一张实施单，后续一张条件事项；没有新增工单，没有开始功能实现或真实微信验收。
+
+| 范围 | GitHub Issue | 故事/验收 | 状态与门槛 |
+|---|---|---|---|
+| 首版 WX-R01 + F53 + F54 | [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) | 163–164；WX-01–16/20/21、T21 | 打开；基础结论 A 为票内首个检查点，尚未通过，不标 ready-for-agent；一个主功能 PR |
+| 后续 F55 周期结果通知 | [#281](https://github.com/benz-ai-x/dsh-24-PA/issues/281) | 165；WX-17–19/21 | 打开；依赖 #279 合并验收及结论 B 覆盖目标场景；不计首版、不标 ready-for-agent |
+| 原总规格、研究、计划管理分票 | #277、#278、#280 | 编号及原正文保留 | 归并关闭（not planned）；范围转入 Spec 与 #279，不是实现完成或 A/B 已通过 |
+
+原生父子关系：#279、#281 直接归 #1；历史 #277 及其已归并子票保留。#281 仅阻塞于 #279，另在正文保留平台能力门槛；#279 不再被已归并 #278 阻塞。没有删需求和验收，研究门槛保留在主实施单内。媒体、微信审核与群聊仍后置。
