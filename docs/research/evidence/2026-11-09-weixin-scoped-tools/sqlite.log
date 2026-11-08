@@ -1,15 +1,22 @@
 
  RUN  v2.1.9 /private/tmp/24pa-weixin-guard-20261109/packages/24pa
 
- ✓ tests/e2e/weixin.e2e.mjs (5 tests) 27225ms
-   ✓ WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝都经持久 Outbox 4083ms
-   ✓ WX-08/13/14/15 微信原文确认常用计划与面板共用对象，任意本地 Skill 被拒绝 3131ms
+ ✓ tests/e2e/weixin.e2e.mjs (6 tests) 29216ms
+   ✓ WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝都经持久 Outbox 3695ms
+   ✓ WX-08/13/14/15 微信原文确认常用计划与面板共用对象，任意本地 Skill 被拒绝 3643ms
    ✓ WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联本次微信输入且不重复创建 2572ms
-   ✓ WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发 10375ms
-   ✓ WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔离恢复 1483ms
+   ✓ WX-03/08 跨入口热续办业务 Worker 保持工具范围及原结果目标 1549ms
+   ✓ WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发 10545ms
+   ✓ WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔离恢复 1489ms
+ ✓ tests/e2e/manticore-work-run.e2e.mjs (6 tests) 14788ms
+   ✓ 真实交办有阶段、原请求、完成依据与固定投递；验收重复请求只写一次 563ms
+   ✓ 等待期间重启后补充沿原交办原运行采用，累计执行时限与历史保留 3283ms
+   ✓ 等待停止得到宿主确认；迟到补充不能复活，明确接续新增关联运行 653ms
+   ✓ 新目标建立独立关联交办，只带显式选择的上下文 625ms
+   ✓ 非法业务动作保留失败而不冻结原运行，原生交办工具正常查询日期与运行 698ms
+   ✓ 真实工具写入后回执丢失阻断后续模型，重启和迟到补充不重做，核对后接续新运行 3782ms
 
- Test Files  1 passed (1)
-      Tests  5 passed (5)
-   Start at  01:54:50
-   Duration  27.41s (transform 44ms, setup 0ms, collect 90ms, tests 27.22s, environment 0ms, prepare 22ms)
-
+ Test Files  2 passed (2)
+      Tests  12 passed (12)
+   Start at  02:07:13
+   Duration  44.28s (transform 41ms, setup 0ms, collect 100ms, tests 44.00s, environment 0ms, prepare 37ms)

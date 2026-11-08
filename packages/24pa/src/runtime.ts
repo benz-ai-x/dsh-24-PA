@@ -3,7 +3,7 @@ import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
 import { ROLE_TOOLS } from './local-tool-access.js';
-import type { WeixinToolPolicy } from './weixin-tool-scope.js';
+import type { BusinessToolPolicy } from './business-tool-scope.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { bridgeScheduleService } from './schedule-bridge.js';
 import { TaskPlanService } from './task-plan-service.js';
@@ -1805,12 +1805,13 @@ export class PaRuntime {
     return this.roleFor(agent);
   }
 
-  /** Scope-local Host tools must never expand a WeChat Lead or its Workers. */
-  weixinToolPolicy(agent: DshAgent | undefined): WeixinToolPolicy | null {
+  /** A business Worker may later be continued from WeChat without changing
+   * its native Agent, parent or reply target. Enforce its role from creation. */
+  businessToolPolicy(agent: DshAgent | undefined): BusinessToolPolicy | null {
     if (!agent) return null;
     if (this.weixin.remote(agent.id)) return { allow: ROLE_TOOLS['weixin-access']!, active: this.roleFor(agent) === 'weixin-access' };
     const item = this.workItemByChild.get(agent.id);
-    if (item && this.weixin.remote(item.parent_session_id)) return {
+    if (item && item.execution_mode !== 'skill') return {
       allow: [...ROLE_TOOLS.worker!, ...(this.roles.get(item.role)?.tools ?? [])], active: this.roleFor(agent) === 'worker',
     };
     const parent = agent.session.header.parentSession;

@@ -4,7 +4,7 @@ import type { DshContext, ToolRunContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
 import { LEAD_SECTIONS } from './prompts.js';
 import { LocalToolAccess, hostGlobalToolNames } from './local-tool-access.js';
-import { mountWeixinToolScope } from './weixin-tool-scope.js';
+import { mountBusinessToolScope } from './business-tool-scope.js';
 export { resolveExtraLocalTools, qwennoteChannelState, hostGlobalToolNames } from './local-tool-access.js';
 
 // Agent-half plugin mounted inside the 24私助 preset. Tools are registered
@@ -25,8 +25,8 @@ export function apply(ctx: DshContext) {
   });
   ctx.effect(() => () => access.dispose());
   ctx.on('agent/created', async ({ agent }) => {
-    const weixin = runtime.weixinToolPolicy(agent);
-    const delegated = weixin ? null : await runtime.skillRuns.codingTools(agent);
+    const policy = runtime.businessToolPolicy(agent);
+    const delegated = policy ? null : await runtime.skillRuns.codingTools(agent);
     if (delegated) {
       await agent.ctx!.plugin({ name: 'pa24-skill-delegate-tools', inject: ['tools'], apply(child: DshContext) {
         child.tools.restrict({ allow: delegated });
@@ -42,7 +42,7 @@ export function apply(ctx: DshContext) {
         },
       } as any).await();
     });
-    if (weixin) await mountWeixinToolScope(ctx, agent, current => runtime.weixinToolPolicy(current));
+    if (policy) await mountBusinessToolScope(ctx, agent, current => runtime.businessToolPolicy(current));
   });
 
   // Lead guidance is registered as ordered sections from the single prompt
