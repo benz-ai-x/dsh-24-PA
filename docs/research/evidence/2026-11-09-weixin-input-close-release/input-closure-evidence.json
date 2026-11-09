@@ -1,0 +1,13 @@
+{
+  "priorReviewCount": 0,
+  "capturedAt": "2026-11-09T02:19:51.304Z",
+  "eventIdSha256": "64e0efc856cecd1f4f6ef137bb431020b2443b55650fad90595382cdd1b0b690",
+  "before": "admitted",
+  "after": "rejected",
+  "errorExplainsClosure": true,
+  "identityUnchanged": true,
+  "enabled": true,
+  "phase": "connecting",
+  "deliveryCountUnchanged": true,
+  "userVisibleConfirmation": "owner confirmed received in Codex chat"
+}
