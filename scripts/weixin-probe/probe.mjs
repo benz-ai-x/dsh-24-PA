@@ -3,9 +3,11 @@ import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, ren
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { admit, apiBase, DEFAULT_BASE, PROTOCOL, receipt, request, updatesResult, withBaseInfo } from './protocol.mjs';
+import { MAX_LATENESS_MS, NOTIFICATION_EXPERIMENT, notificationAssessment, notificationPlan, notificationReceipt, notificationScope } from './notification-plan.mjs';
 
 const digest = value => createHash('sha256').update(String(value)).digest('hex');
 const now = () => new Date().toISOString();
+const processRun = randomUUID();
 export function atomicJson(file, data) {
   const temp = `${file}.${randomUUID()}.tmp`;
   const fd = openSync(temp, 'wx', 0o600);
@@ -22,17 +24,26 @@ function load(file, fallback) {
 
 /** An isolated experiment. It never loads the 24PA runtime, business DB or host configuration. */
 export class Probe {
-  constructor(directory, { transport = request, delayMs = 120_000 } = {}) {
+  constructor(directory, { transport = request, delayMs = 120_000, notificationSteps, clock = Date.now } = {}) {
     mkdirSync(directory, { recursive: true, mode: 0o700 }); chmodSync(directory, 0o700);
-    this.directory = directory; this.transport = transport; this.delayMs = delayMs;
+    this.directory = directory; this.transport = transport; this.delayMs = delayMs; this.clock = clock;
     this.ledgerFile = join(directory, 'ledger.json'); this.vaultFile = join(directory, 'credentials.json');
     this.receiptsDirectory = join(directory, 'receipts');
     mkdirSync(this.receiptsDirectory, { recursive: true, mode: 0o700 });
-    this.state = load(this.ledgerFile, {
+    const savedState = load(this.ledgerFile, null);
+    const steps = notificationSteps === undefined ? null : notificationPlan(notificationSteps);
+    if (steps && !savedState && load(this.vaultFile, null)) throw Error('new_notification_experiment_requires_fresh_login');
+    if (savedState && (Boolean(savedState.notification) !== Boolean(steps) || steps &&
+        (savedState.notification.experiment !== NOTIFICATION_EXPERIMENT || JSON.stringify(savedState.notification.steps) !== JSON.stringify(steps)))) {
+      throw Error('experiment_scope_mismatch_use_new_directory');
+    }
+    this.steps = steps;
+    this.state = savedState ?? {
       run: randomUUID(), protocol: PROTOCOL, createdAt: now(), cursor: '', events: [], seen: [],
       deliveries: [], received: {}, inboundCount: 0, restored: 0,
-    });
-    this.challenge = `24PA 协议测试 ${this.state.run.slice(0, 8)}`;
+      ...(steps ? { notification: { experiment: NOTIFICATION_EXPERIMENT, steps } } : {}),
+    };
+    this.challenge = `24PA ${steps ? '通知条件测试' : '协议测试'} ${this.state.run.slice(0, 8)}`;
     this.credentials = load(this.vaultFile, null);
     this.phase = this.credentials ? 'stopped' : 'unbound';
     this.enabled = false; this.qr = null; this.controller = null; this.worker = null;
@@ -43,13 +54,21 @@ export class Probe {
       if (saved) Object.assign(item, saved);
       else if (item.status === 'sending') item.status = 'unknown';
     }
-    this.restorePending = this.credentials && this.deliveryBasis('immediate') !== 'pending' &&
+    // A crash can occur after a rejection receipt is durable but before the
+    // loop records its terminal stop. Recover the stop from that same receipt.
+    if (steps && this.state.deliveries.some(item => item.status === 'rejected' &&
+        steps.some(step => step.kind === item.kind && step.context === 'original'))) {
+      this.state.notificationStopReason = 'original_context_rejected';
+    }
+    this.restorePending = !steps && this.credentials && this.deliveryBasis('immediate') !== 'pending' &&
       !this.state.deliveries.some(x => x.kind === 'delayed');
     if (this.restorePending) {
       this.state.restored++;
       this.state.recoveredAfterImmediate = false;
       this.state.events.push({ at: now(), type: 'state_restored_after_immediate', cursorHash: digest(this.state.cursor) });
     }
+    this.notificationPollObserved = false;
+    if (steps) this.event('notification_component_loaded', { processRun, cursorHash: digest(this.state.cursor), priorAttempts: this.state.deliveries.length });
     this.save();
   }
   save() { atomicJson(this.ledgerFile, this.state); }
@@ -68,9 +87,12 @@ export class Probe {
       deliveries: this.state.deliveries.map(({ nativeId, ...item }) => ({ ...item, hasNativeId: Boolean(nativeId) })),
       received: this.state.received, recentEvents: this.state.events.slice(-8).map(({ messageId, ...event }) => event),
       gateA: this.gateA(), restored: this.state.restored,
+      ...(this.steps ? { notification: { ...notificationAssessment(this.state, this.steps), steps: this.steps,
+        scope: notificationScope(this.state.run, this.steps), inputAt: this.state.inputAt ?? null } } : {}),
     };
   }
   gateA() {
+    if (this.steps) return { status: 'not_applicable', notificationB: 'unverified' };
     const deliveries = ['immediate', 'delayed'].map(kind => this.state.deliveries.find(x => x.kind === kind));
     const reasons = [];
     if (!this.state.events.some(x => x.type === 'login_confirmed')) reasons.push('login');
@@ -94,6 +116,8 @@ export class Probe {
       events: this.state.events.map(({ messageId, ...event }) => event),
       deliveries: this.state.deliveries.map(({ nativeId, ...item }) => ({ ...item, hasNativeId: Boolean(nativeId), ...(nativeId ? { nativeIdHash: digest(nativeId) } : {}) })),
       visibleReceipts: this.state.received, gateA: this.gateA(),
+      ...(this.steps ? { notificationB: notificationAssessment(this.state, this.steps), experiment: this.state.notification,
+        seedAt: this.state.inputAt ? new Date(this.state.inputAt).toISOString() : null } : {}),
       limits: ['No business integration', 'No proactive-send/window/quota guarantee', 'No proven server idempotency',
         'Replay tests are offline evidence', 'newInbound counts observed messages, not a proof of an empty server queue'],
     };
@@ -153,10 +177,11 @@ export class Probe {
     if (this.phase !== 'need_verifycode' || !/^\d{4,12}$/.test(code)) throw new Error('invalid_verify_code');
     this.verifyCode = code;
   }
-  async activate() {
+  async activate(scope) {
+    if (this.steps && (scope !== notificationScope(this.state.run, this.steps) || this.state.notificationStopReason)) throw Error('notification_scope_or_state_not_ready');
     if (!this.credentials || this.worker || this.enabled) throw new Error('not_ready');
     this.enabled = true; this.phase = 'listening'; this.controller = new AbortController();
-    this.event('owner_activated_test');
+    this.event('owner_activated_test', this.steps ? { scope } : {});
     this.worker = this.poll(this.controller.signal).finally(() => { this.worker = null; });
   }
   async stop() {
@@ -185,7 +210,7 @@ export class Probe {
       if (decision.reason === 'test_input' && !this.state.inputAt) {
         this.credentials.context = decision.context;
         atomicJson(this.vaultFile, this.credentials);
-        this.state.inputAt = Date.now(); this.state.inputCount = this.state.inboundCount;
+        this.state.inputAt = this.clock(); this.state.inputCount = this.state.inboundCount;
       }
     }
     this.state.cursor = data.get_updates_buf;
@@ -198,25 +223,36 @@ export class Probe {
   }
   async send(kind, signal) {
     if (!this.enabled || signal.aborted || this.state.deliveries.some(x => x.kind === kind)) return;
+    const step = this.steps?.find(row => row.kind === kind);
+    if (this.steps && (!step || !this.state.inputAt || !this.credentials.context ||
+        this.clock() < this.state.inputAt + step.afterMs || this.clock() > this.state.inputAt + step.afterMs + MAX_LATENESS_MS ||
+        this.state.inboundCount !== this.state.inputCount)) throw Error('outside_notification_scope');
     const item = { kind, clientId: `24pa-probe-${randomUUID()}`, status: 'sending', startedAt: now(),
-      elapsedMs: Date.now() - this.state.inputAt, newInbound: this.state.inboundCount - this.state.inputCount,
-      lastSuccessfulPollAt: this.state.lastSuccessfulPollAt ?? null };
+      elapsedMs: this.clock() - this.state.inputAt, newInbound: this.state.inboundCount - this.state.inputCount,
+      lastSuccessfulPollAt: this.state.lastSuccessfulPollAt ?? null,
+      ...(step ? { contextMode: step.context, scheduledAt: new Date(this.state.inputAt + step.afterMs).toISOString(),
+        processRun, originalContextHash: digest(this.credentials.context),
+        sincePreviousSendMs: this.state.deliveries.length ? this.clock() - this.state.inputAt - this.state.deliveries.at(-1).elapsedMs : null } : {}) };
     this.state.deliveries.push(item); this.save();
     let response;
     try { response = await this.transport('ilink/bot/sendmessage', {
       base: this.credentials.base, token: this.credentials.token, signal,
       body: withBaseInfo({ msg: { from_user_id: '', to_user_id: this.credentials.owner,
-        client_id: item.clientId, message_type: 2, message_state: 2, context_token: this.credentials.context,
-        item_list: [{ type: 1, text_item: { text: `24私助协议测试 ${this.state.run.slice(0, 8)}：${kind === 'immediate' ? '即时回复' : `延迟回复（约 ${Math.round(item.elapsedMs / 1000)} 秒）`}。这是一条测试回执，未办理业务。` } }],
+        client_id: item.clientId, message_type: 2, message_state: 2,
+        ...(step?.context === 'omitted' ? {} : { context_token: step?.context === 'invalid' ? '24pa-invalid-test-context' : this.credentials.context }),
+        item_list: [{ type: 1, text_item: { text: step
+          ? `24私助通知条件测试 ${this.state.run.slice(0, 8)} / ${kind}：口令后约 ${Math.round(item.elapsedMs / 1000)} 秒；${({ original: '原回复上下文', omitted: '不附回复上下文', invalid: '无效测试上下文' })[step.context]}。仅为本人测试，未办理业务。`
+          : `24私助协议测试 ${this.state.run.slice(0, 8)}：${kind === 'immediate' ? '即时回复' : `延迟回复（约 ${Math.round(item.elapsedMs / 1000)} 秒）`}。这是一条测试回执，未办理业务。` } }],
       } }),
     }); } catch { response = { http: null, error: 'transport_unknown' }; }
-    const observed = { ...receipt(response), finishedAt: now() };
+    const observed = { ...(step ? notificationReceipt(response) : receipt(response)), finishedAt: now() };
     // Preserve the observation separately before updating the main ledger. Recovery only settles it.
     atomicJson(join(this.receiptsDirectory, `${item.clientId}.json`), observed);
     Object.assign(item, observed); this.save();
     // The response always settles the original attempt, even if stopped while in flight.
   }
   async poll(signal) {
+    if (this.steps) return this.pollNotifications(signal);
     try {
       let failures = 0;
       while (this.enabled && !signal.aborted) {
@@ -271,5 +307,54 @@ export class Probe {
     if (!item || item.status === 'sending') throw new Error('no_attempt');
     this.state.received[kind] = { at: now(), basis: 'owner_confirmed_in_local_probe', clientId: item.clientId };
     this.save();
+  }
+  async pollNotifications(signal) {
+    const stop = (reason, terminal = false) => {
+      this.enabled = false; this.phase = reason;
+      if (terminal) this.state.notificationStopReason = reason;
+      this.event('notification_paused', { reason });
+    };
+    try {
+      while (this.enabled && !signal.aborted) {
+        if (this.state.deliveries.some(row => ['sending', 'unknown'].includes(row.status) && this.deliveryBasis(row.kind) === 'pending')) return stop('review_required');
+        if (this.state.deliveries.some(item => item.status === 'rejected' &&
+            this.steps.some(step => step.kind === item.kind && step.context === 'original'))) return stop('original_context_rejected', true);
+        if (this.state.deliveries.some(row => row.ret === -14 || row.errcode === -14)) return stop('poll_error', true);
+        const pending = this.steps.filter(row => !this.state.deliveries.some(item => item.kind === row.kind));
+        const step = pending[0];
+        if (!step) return stop('await_visible_receipts');
+        const requestedCursorHash = digest(this.state.cursor);
+        const response = await this.transport('ilink/bot/getupdates', {
+          base: this.credentials.base, token: this.credentials.token, timeout: 35_000, signal,
+          body: withBaseInfo({ get_updates_buf: this.state.cursor }),
+        });
+        if (!this.enabled || signal.aborted) return;
+        const observed = updatesResult(response);
+        if (observed.status !== 'read_success') { this.event('poll_error', observed); return stop('poll_error'); }
+        this.consume(response.data);
+        this.state.lastSuccessfulPollAt = now(); this.save();
+        if (!this.notificationPollObserved) {
+          this.notificationPollObserved = true;
+          this.event('notification_cursor_observed', { processRun, requestedCursorHash, count: response.data.msgs.length });
+        }
+        if (this.state.inputAt) {
+          if (this.state.inboundCount !== this.state.inputCount) return stop('new_inbound', true);
+          const age = this.clock() - this.state.inputAt;
+          if (age > step.afterMs + MAX_LATENESS_MS) return stop('missed_window', true);
+          if (pending[1] && age >= pending[1].afterMs) return stop('missed_window', true);
+          const previous = this.state.deliveries.at(-1);
+          const previousStep = previous && this.steps.find(item => item.kind === previous.kind);
+          const earliest = step.afterMs + (previousStep ? Math.max(0, previous.elapsedMs - previousStep.afterMs) : 0);
+          if (age >= earliest) {
+            await this.send(step.kind, signal);
+            const sent = this.state.deliveries.find(item => item.kind === step.kind);
+            if (step.context === 'original' && sent?.status === 'rejected') return stop('original_context_rejected', true);
+          }
+        }
+        await delay(100, undefined, { signal });
+      }
+    } catch {
+      if (!signal.aborted) stop('probe_error');
+    }
   }
 }

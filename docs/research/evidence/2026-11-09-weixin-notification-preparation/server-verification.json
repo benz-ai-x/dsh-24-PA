@@ -1,0 +1,58 @@
+{
+  "capturedAt": "2026-11-08T17:25:03.688Z",
+  "commit": "0a19d562a41edbaedc218567d3666a32b376ab2d",
+  "archiveSha256": "51dcc5fd0d65a467f79936e44e6cf45011d437c360fa4ef5cf8034f6727c5302",
+  "sourceFilesVerified": 12,
+  "node": "v24.22.0",
+  "tests": {
+    "total": 36,
+    "passed": 36,
+    "failed": 0,
+    "logSha256": "76a89415ec5bf3c5813c982e8134c3fe29e1fbbcff69cc618e83e077b2ba9fca"
+  },
+  "production": {
+    "service": "active",
+    "servicePidUnchanged": true,
+    "startScriptUnchanged": true,
+    "startScriptSha256": "bd07ef4c071dd91376908ccb2da58a3a932408ccc3fff6ea57c0e0f48393348f",
+    "readiness": [
+      {
+        "id": "host",
+        "state": "ok"
+      },
+      {
+        "id": "config",
+        "state": "ok"
+      },
+      {
+        "id": "postgres",
+        "state": "ok"
+      },
+      {
+        "id": "workspace",
+        "state": "ok"
+      },
+      {
+        "id": "feishu",
+        "state": "ok"
+      },
+      {
+        "id": "sessions",
+        "state": "ok"
+      }
+    ],
+    "weixin": {
+      "phase": "unbound",
+      "bound": false,
+      "bindings": 0,
+      "inbox": 0,
+      "deliveries": 0
+    }
+  },
+  "notificationExperiment": {
+    "started": false,
+    "accountBound": false,
+    "realSendAttempted": false,
+    "gateB": "unverified"
+  }
+}

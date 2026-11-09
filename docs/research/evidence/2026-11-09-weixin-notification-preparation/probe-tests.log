@@ -1,0 +1,44 @@
+✔ finite notification scope validates count, timing and context and cannot reuse an earlier account experiment (36.509667ms)
+✔ exact scope confirmation is mandatory and incomplete or foreign input never provides a send context (93.033292ms)
+✔ scheduled notifications use the original context and independent times without an immediate response (591.465958ms)
+✔ new inbound terminates this experiment before any due send, while duplicate seed does not count as new (157.495292ms)
+✔ restart keeps cursor and receipts, never replays unknown requests, and manual visibility does not rewrite the original status (537.828ms)
+✔ late resume does not catch up missed notifications and a failed poll cannot release a due send (139.070958ms)
+✔ explicit negative context cases are single fixed attempts, and original-context rejection stops further attempts (705.581667ms)
+✔ receipt evidence uses the observed native ID shape and keeps unknown, HTTP errors and contradictory responses distinct (0.234875ms)
+✔ a crash after durable original-context rejection (receipt) cannot release the next request (61.432833ms)
+✔ a crash after durable original-context rejection (ledger) cannot release the next request (65.783542ms)
+✔ receipt persistence failure blocks same-process reactivation without skipping the in-flight request (108.825083ms)
+✔ overlapping due times are stopped instead of catching up multiple notifications in a burst (81.357416ms)
+✔ polling lateness does not compress the confirmed spacing between successive sends (943.485166ms)
+✔ uint64 identities stay exact, including escaped property names and nested quoted IDs (0.635667ms)
+✔ receipt requires explicit ret zero, separates optional native ID, and fails closed on HTTP/shape errors (0.220458ms)
+✔ the observed read envelope may omit zero error codes without weakening send acknowledgement (0.134792ms)
+✔ protocol headers identify the probe without falsely identifying it as OpenClaw (0.1845ms)
+✔ returned API hosts and HTTP redirects cannot send credentials to arbitrary origins (7.519667ms)
+✔ transport failures, malformed body and timeout while reading the body are not acknowledgements (12.154167ms)
+✔ only the QR-authenticated owner, expected bot, private text challenge and stable ID are admitted (29.452625ms)
+✔ durable clean decisions and cursor are stored together; replay does not adopt the input twice (73.678167ms)
+✔ foreign content and contexts never enter the ledger, evidence or selected reply context (49.728791ms)
+✔ a batch without a valid cursor cannot acknowledge or adopt a message (28.161916ms)
+✔ after a crash in-flight sends become unknown and are never replayed (70.335042ms)
+✔ a stopped or duplicate send does not dispatch; a failed dispatch is unknown (54.1455ms)
+✔ late receipt settles the same attempt after stop and does not start another send (85.905917ms)
+✔ immediate plus delayed replies have stable single attempts and require separate visible confirmation (194.119334ms)
+✔ ret absent does not open the delayed send even if a local request ID exists (92.414ms)
+✔ a durable receipt survives failure of the subsequent ledger write without another send (89.175666ms)
+✔ login never accepts an account with missing QR owner identity or follows an untrusted redirect (109.832875ms)
+✔ QR login only creates a candidate and requires explicit owner activation (78.180709ms)
+✔ after a long stop, pending new inbound is observed before delayed send and prevents a clean delay conclusion (151.78825ms)
+✔ failed recovery polling cannot release the delayed send or satisfy Gate A (101.730042ms)
+✔ owner-visible reconciliation preserves unknown evidence and releases only the single delayed attempt after restore (160.134625ms)
+✔ basic loopback page is idle, capability protected, and single consumer (168.1755ms)
+✔ notification loopback page is idle, capability protected, and single consumer (162.621959ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 36
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3575.389375
