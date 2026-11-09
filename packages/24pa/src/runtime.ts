@@ -253,7 +253,7 @@ export class PaRuntime {
     beforeSend: async row => await this.planResults.beforeSend(row) ?? await this.weixin.beforeSend(row),
     updated: row => this.planResults.updated(row),
     adapters: {
-      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row) },
+      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row, () => this.planResults.beforeSend(row)) },
       local: {
         available: () => !this.closed && !!this.config,
         supports: kind => kind === 'text',
@@ -813,7 +813,8 @@ export class PaRuntime {
       ownerInput: item => this.adoptedOwnerInput(item), legacyControl: input => this.digest.digestControl(input), gate: (key, work) => this.gate(key, work) });
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });
-    this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess, silence: this.silencePolicy, binding: () => this.workspaceBinding });
+    this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess,
+      silence: { silentUntil: () => this.readSilentUntil() }, binding: () => this.workspaceBinding });
     this.runHistory = new RunHistory({ context: planContext, skills: this.skillRuns,
       secretValues: () => [
         ...SECRET_KEYS.map(key => resolveSecret(secretRefs(this.config)[key], this.env, this.secretStore, key)),
@@ -1964,33 +1965,7 @@ export class PaRuntime {
   /** Quiet hours / vacation read from the memory authority at dispatch time. */
   private readonly silencePolicy: SilencePolicy = {
     silentUntil: async () => {
-      try {
-        const now = new Date();
-        const vacation = await this.memory!.search({ topic: '休假', mode: 'facts', limit: 20 });
-        for (const record of vacation.records) {
-          if (record.status !== 'confirmed') continue;
-          const end = record.validUntil ? new Date(record.validUntil) : null;
-          if (!end || Number.isNaN(end.getTime())) continue;
-          if (end.getTime() > now.getTime()) return end;
-        }
-        const quiet = await this.memory!.search({ topic: '通知偏好', mode: 'facts', limit: 20 });
-        const tz = this.config?.timeZone ?? 'Asia/Shanghai';
-        for (const record of quiet.records) {
-          if (record.status !== 'confirmed') continue;
-          const match = record.content.match(/安静时段\s*(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})/);
-          if (!match) continue;
-          const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' });
-          const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
-          const minutesNow = Number(parts.hour) * 60 + Number(parts.minute);
-          const start = Number(match[1]) * 60 + Number(match[2]);
-          const endMin = Number(match[3]) * 60 + Number(match[4]);
-          const inWindow = start <= endMin ? minutesNow >= start && minutesNow < endMin : minutesNow >= start || minutesNow < endMin;
-          if (!inWindow) continue;
-          const end = new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
-          return end;
-        }
-        return null;
-      } catch (error) {
+      try { return await this.readSilentUntil(); } catch (error) {
         // Fail open, but visibly: a broken preference must not silently
         // garble reminders without a trace.
         console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${(error as Error).message}`);
@@ -1998,6 +1973,34 @@ export class PaRuntime {
       }
     },
   };
+
+  private async readSilentUntil(): Promise<Date | null> {
+    try {
+      const vacation = await this.memory!.search({ topic: '休假', mode: 'facts', limit: 20 });
+      for (const record of vacation.records) {
+        if (record.status !== 'confirmed') continue;
+        const end = record.validUntil ? new Date(record.validUntil) : null;
+        if (end && end.getTime() > Date.now()) return end;
+      }
+      const quiet = await this.memory!.search({ topic: '通知偏好', mode: 'facts', limit: 20 });
+      const now = new Date(), tz = this.config?.timeZone ?? 'Asia/Shanghai';
+      for (const record of quiet.records) {
+        if (record.status !== 'confirmed') continue;
+        const match = record.content.match(/安静时段\s*(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})/);
+        if (!match) continue;
+        const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' });
+        const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
+        const minutesNow = Number(parts.hour) * 60 + Number(parts.minute);
+        const start = Number(match[1]) * 60 + Number(match[2]);
+        const endMin = Number(match[3]) * 60 + Number(match[4]);
+        const inWindow = start <= endMin ? minutesNow >= start && minutesNow < endMin : minutesNow >= start || minutesNow < endMin;
+        if (inWindow) return new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
+      }
+      return null;
+    } catch {
+      throw new Error('读取免打扰偏好失败。');
+    }
+  }
 
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
@@ -2181,7 +2184,7 @@ export class PaRuntime {
         else if (action === 'cancel') this.weixin.cancelLogin();
         else if (action === 'code') this.weixin.submitCode(String(input.code ?? ''));
         else if (action === 'preview') {
-          if (!['activate', 'enable', 'disable', 'retire'].includes(String(input.op))) throw new Error('微信绑定操作无效。');
+          if (typeof input.op !== 'string' || !['activate', 'enable', 'disable', 'retire'].includes(input.op)) throw new Error('微信绑定操作无效。');
           return { ...await this.weixin.preview(input.op as 'activate' | 'enable' | 'disable' | 'retire'), workspaceBinding: this.workspaceBinding };
         } else if (action === 'apply') {
           if (input.confirm !== true) throw new Error('请确认预览中的微信身份与影响。');
@@ -2191,7 +2194,7 @@ export class PaRuntime {
           const evidence = String(input.evidence ?? '').trim(), requestId = String(input.requestId ?? '');
           if (binding.workspace_id !== this.backupWorkspaceId || input.confirm !== true || !evidence || evidence.length > 2000 || !/^[a-zA-Z0-9-]{16,100}$/.test(requestId)) throw new Error('请核对原微信身份，并填写本人核对依据。');
           if (action === 'delivery') {
-            if (!['received', 'retry', 'abandon'].includes(String(input.op)) || !Number.isSafeInteger(input.id) || !Number.isSafeInteger(input.revision)) throw new Error('投递操作或版本无效。');
+            if (typeof input.op !== 'string' || !['received', 'retry', 'abandon'].includes(input.op) || !Number.isSafeInteger(input.id) || !Number.isSafeInteger(input.revision)) throw new Error('投递操作或版本无效。');
             await this.repos!.outbox.review({ id: Number(input.id), revision: Number(input.revision), requestId, actorSessionId: this.localSessionId!,
               generation, action: input.op as 'received' | 'retry' | 'abandon', evidence });
           } else {

@@ -18,6 +18,10 @@ export async function startWeixinServer() {
     if (endpoint.endsWith('/sendmessage')) {
       sent.push(structuredClone(body.msg));
       const mode = state.sendModes?.shift() ?? state.sendMode;
+      if (mode === 'invalid-token') return res.end(JSON.stringify({ ret: -14 }));
+      if (mode === 'rejected') return res.end(JSON.stringify({ ret: 1 }));
+      if (mode === 'rate-limit' || mode === 'http-error') { res.statusCode = mode === 'rate-limit' ? 429 : 503; return res.end('{}'); }
+      if (mode === 'network-error') { res.destroy(); return; }
       return res.end(JSON.stringify(mode === 'unknown' ? {} : mode === 'no-id' ? { ret: 0 } : { message_id: String(9876543210987654321n + BigInt(sent.length)) }));
     }
     res.statusCode = 404; res.end('{}');

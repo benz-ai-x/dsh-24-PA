@@ -57,6 +57,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`投递评审边界 (${ba
     expect(sends).toBe(0); expect((await notices())[0].deliveryStatus).toBe('expired');
     expect((await notices())[0].deliveries.every(row => row.outbox.attempts === 0)).toBe(true);
   });
+  it('身份核验期间进入免打扰，实际派发前采用最新偏好而不是提前读取的结果', async () => {
+    await saved(); let quiet = null, sends = 0;
+    results = new PlanResults({ repos: () => repos, access, silence: { silentUntil: async () => quiet }, binding: () => 'workspace' });
+    access.verifyDelivery = async () => { quiet = new Date(Date.now() + 30 * 60000); };
+    await dispatcher(async () => { sends++; return { messageId: 'unexpected' }; }).drain();
+    expect(sends).toBe(0);
+    const [notice] = await notices(); expect(notice.deliveryStatus).toBe('pending');
+    expect(notice.deliveries.every(item => item.outbox.attempts === 0)).toBe(true);
+    expect(notice.deliveries[0].outbox.last_error).toContain('免打扰');
+  });
   it('语音准备跨过期限后在实际 CLI 派发前停止，完整文本与业务结果保持成功', async () => {
     await saved(); const expiry = new Date((await notices())[0].deliveries[0].expires_at).getTime();
     const audio = (await notices())[0].deliveries.find(row => row.component === 'audio');

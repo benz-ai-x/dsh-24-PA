@@ -4,10 +4,10 @@ import { Window } from 'happy-dom';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { taskPlanDraft, taskPlanPreset } from '../../lib/task-plan.js';
 import { planSettingsForm } from '../../lib/task-plan-settings.js';
-let React, act, createRoot, win, root, container, binding, requests, plan, run, fault, delayed, savedBlob, intervals, work, emptyHistory, language;
+let React, act, createRoot, win, root, container, binding, requests, plan, run, fault, delayed, savedBlob, intervals, work, emptyHistory, language, weixin, authorizationDelivery;
 const source = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
 const form = () => ({ title: '项目晨报', skillId: 'builtin:digest-morning', parameters: { title: '项目晨报正文' }, timeZone: 'Asia/Shanghai', timing: { type: 'daily', time: '09:00:00' }, executionLimitMs: 900000, selectors: {}, delivery: { channel: 'none', mode: 'always', voice: false, overrideQuiet: false } });
-const auth = () => ({ skill: { id: 'builtin:digest-morning', name: 'digest-morning', versionId: 'builtin-v1', tools: [], resources: [] }, targets: [], delivery: null });
+const auth = () => ({ skill: { id: 'builtin:digest-morning', name: 'digest-morning', versionId: 'builtin-v1', tools: [], resources: [] }, targets: [], delivery: authorizationDelivery });
 beforeAll(async () => {
   win = new Window({ url: 'http://localhost/' });
   for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'Event', 'MouseEvent', 'localStorage']) vi.stubGlobal(key, key === 'window' ? win : win[key]);
@@ -24,6 +24,8 @@ const change = async (node, value) => { expect(node).toBeTruthy(); await act(asy
 const open = async title => { await click(container.querySelector('#pa24-tab-work')); await click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：' + title))); };
 beforeEach(async () => {
   language = 'zh'; binding = 'binding-a'; requests = []; fault = null; delayed = null; savedBlob = null; intervals = []; emptyHistory = false; win.localStorage.clear();
+  weixin = { notificationSupported: false, phase: 'unbound', binding: null };
+  authorizationDelivery = null;
   const draft = taskPlanDraft(form(), 'Asia/Shanghai');
   plan = { id: 'plan-a', kind: 'daily', title: '项目晨报', revision: 1, skill: 'digest-morning', status: 'paused', owner_enabled: false, task_config: draft.configuration, task_authorization: auth(), schedule_spec: draft.scheduleSpec, schedule_id: null, recycled_at: null, blocks: [], nextTimes: draft.nextTimes };
   work = { id: 'work-a', title: '原交办目标', instruction: '原请求', status: 'completed', origin: 'local', delivery: 'local', result: '原交付物', progress_detail: { stage: '等待主人确认', completed: '原资料已核对', next: '交付结果和出处' }, revision: 1, execution_mode: 'worker', acceptance_required: true, acceptance_status: 'pending', completion_criteria: '核对交付物' };
@@ -44,6 +46,7 @@ beforeEach(async () => {
       else if (endpoint === 'plans.summary') value = plan.empty ? { total: 0, enabled: 0, paused: 0, blocked: 0, next: null } : { total: 1, enabled: 0, paused: 1, blocked: 0, next: { id: plan.id, title: plan.title, at: plan.nextTimes[0], timeZone: plan.task_config?.timeZone || 'Asia/Shanghai' } };
       else if (endpoint === 'runs.summary') value = emptyHistory ? { runs24: 0, failed24: 0, delivery_failed24: 0, delivery_unknown24: 0, unresolved: 0, unresolved_events: 0, unexecuted24: 0, active_work: 0, waiting_work: 0, failed_work: 0, run_total: 0, work_total: 0, event_total: 0, legacy_total: 0, empty: true, observedAt: new Date().toISOString() } : { runs24: 31, failed24: 2, delivery_failed24: 1, delivery_unknown24: 2, unresolved: 3, unresolved_events: 1, unexecuted24: 2, active_work: 1, waiting_work: work.acceptance_status === 'accepted' ? 1 : 2, failed_work: 3, empty: false, observedAt: new Date().toISOString() };
       else if (endpoint === 'skills.catalog') value = { entries: [{ id: 'builtin:daily-planning', name: 'daily-planning', type: 'task', source: 'builtin' }, ...['morning', 'evening', 'weekly'].map(kind => ({ id: 'builtin:digest-' + kind, name: 'digest-' + kind, type: 'template', source: 'builtin' }))], discovery: 'complete' };
+      else if (endpoint === 'weixin') value = weixin;
       else if (endpoint === 'skills.inspect') value = p.id === 'builtin:daily-planning'
         ? { id: p.id, type: 'task', metadata: { track: 'agent', pa24: { parameters: { date: { type: 'string' } } } } }
         : { id: p.id, type: 'template', metadata: { track: 'template', pa24: true } };
@@ -87,6 +90,42 @@ beforeEach(async () => {
 afterEach(async () => { await act(async () => root?.unmount()); container?.remove(); vi.restoreAllMocks(); });
 
 describe('M02 管理界面', () => {
+  it('WX-17 通知能力未验证或状态读取失败时不提供新增微信目标', async () => {
+    await open('定时任务'); await click(button('复盘预设'));
+    expect(field('结果投递').querySelector('option[value="weixin"]')).toBeNull();
+    weixin.notificationSupported = true; await click(managerButton('刷新'));
+    expect(field('结果投递').querySelector('option[value="weixin"]')).toBeTruthy();
+    fault = 'weixin'; await click(managerButton('刷新'));
+    expect(field('结果投递').querySelector('option[value="weixin"]')).toBeNull();
+    expect(requests.filter(row => row.endpoint === 'action')).toHaveLength(0);
+  });
+  it('WX-17 微信启用预览显示固定账号、主人和绑定版本，由本人确认后启用', async () => {
+    authorizationDelivery = { channel: 'weixin', accountId: 'fixed-wx-bot', target: 'fixed-wx-owner', ownerId: 'fixed-wx-owner', generation: 'fixed-wx-generation', sessionId: 'fixed-wx-session' };
+    plan.task_config.delivery.channel = 'weixin';
+    await open('定时任务'); await click(button('项目晨报')); await click(button('核验并启用'));
+    expect(container.textContent).toContain('微信账号：fixed-wx-bot');
+    expect(container.textContent).toContain('接收主人：fixed-wx-owner');
+    expect(container.textContent).toContain('绑定版本：fixed-wx-generation');
+    expect(container.textContent).toContain('发送前仍须核验账号可用性与平台条件');
+    expect(button('确认执行此操作').disabled).toBe(true);
+    expect(requests.filter(row => row.endpoint === 'action')).toHaveLength(0);
+    await click(field('确认本计划的工具、资源、目标和此项操作')); await click(button('确认执行此操作'));
+    expect(requests.filter(row => row.endpoint === 'action').at(-1).payload).toMatchObject({ op: 'enable', fingerprint: 'plan-fingerprint-1', confirm: true });
+  });
+  it('WX-17 已有语音选择改用微信时须明确选文本，保留原渠道不会关闭语音', async () => {
+    weixin = { notificationSupported: true, phase: 'polling', binding: { enabled: true, account_id: 'wx-account', owner_id: 'wx-owner', generation: 'wx-generation' } };
+    await open('定时任务'); await click(button('复盘预设'));
+    await change(field('结果投递'), 'feishu'); await click(field('语音并附完整文本'));
+    await change(field('结果投递'), 'weixin');
+    expect(field('结果投递').value).toBe('feishu'); expect(field('语音并附完整文本').checked).toBe(true);
+    expect(container.textContent).toContain('微信仅支持文本');
+    await click(button('保留原渠道和语音'));
+    expect(field('结果投递').value).toBe('feishu'); expect(field('语音并附完整文本').checked).toBe(true);
+    await change(field('结果投递'), 'weixin'); await click(button('改用微信文本'));
+    expect(field('结果投递').value).toBe('weixin'); expect(field('语音并附完整文本')).toBeUndefined();
+    await click(button('校验并预览时间')); await click(button('保存为暂停'));
+    expect(requests.filter(row => row.endpoint === 'action' && row.payload.op === 'save').at(-1).payload.delivery).toMatchObject({ channel: 'weixin', voice: false });
+  });
   it('重配保持暂停，预览明确固定时区', async () => {
     plan.task_config.timeZone = 'America/New_York';
     await open('定时任务'); await click(button('项目晨报')); await click(button('重新绑定目标 · 先预览'));

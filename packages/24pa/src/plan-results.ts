@@ -23,20 +23,18 @@ export class PlanResults {
   async beforeSend(row: OutboxRow): Promise<DeliveryHold | null> {
     const selected = await this.deps.repos().planResults.delivery(Number(row.id));
     if (!selected) return row.dedup_key.startsWith('plan-result-') ? { status: 'failed', error: '缺少原计划的固定投递依据，未发送。' } : null;
-    const { delivery, notice, obsolete } = selected, now = Date.now();
+    const { delivery, notice, obsolete } = selected;
     if (obsolete) return { status: 'expired', error: '原处理要求已经结束或更新，旧通知保留而不再推送。' };
-    if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= now) return { status: 'expired', error: '普通结果超过本次触发的投递有效期，结果仍保留。' };
+    if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= Date.now()) return { status: 'expired', error: '普通结果超过本次触发的投递有效期，结果仍保留。' };
     if (!notice.destination || notice.destination.channel !== row.channel || notice.destination.target !== row.target || delivery.component !== row.kind) return { status: 'failed', error: '投递与原计划确认的渠道、主人或格式不符，未发送。' };
-    if (!delivery.override_quiet) {
-      const until = await this.deps.silence.silentUntil();
-      if (until && until.getTime() > now) return { status: 'pending', error: '免打扰期间暂缓投递。',
-        retryInMs: Math.max(1, Math.min(until.getTime(), delivery.expires_at ? new Date(delivery.expires_at).getTime() : Infinity) - now) };
-    }
     try { await this.deps.access.verifyDelivery(notice.destination); }
     catch (error) { return { status: row.channel === 'weixin' ? 'limited' : 'failed', error: `固定投递目标核验失败：${(error as Error).message}` }; }
+    const until = delivery.override_quiet ? null : await this.deps.silence.silentUntil(), now = Date.now();
     // Identity and preference reads may be slow. The deadline governs entry
     // into the platform send, not when preparation started.
-    if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= Date.now()) return { status: 'expired', error: '投递准备完成时已超过有效期，结果仍保留。' };
+    if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= now) return { status: 'expired', error: '投递准备完成时已超过有效期，结果仍保留。' };
+    if (until && until.getTime() > now) return { status: 'pending', error: '免打扰期间暂缓投递。',
+      retryInMs: Math.max(1, Math.min(until.getTime(), delivery.expires_at ? new Date(delivery.expires_at).getTime() : Infinity) - now) };
     return null;
   }
   async updated(row: OutboxRow): Promise<void> {

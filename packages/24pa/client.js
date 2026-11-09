@@ -1724,11 +1724,23 @@ window.__ModuleLoader__.load({
               h('p', null, L('包内资源：', 'Package resources: ') + (auth.skill.resources.join('、') || L('无', 'None'))),
               auth.targets.map(({ target, capability }) => h('p', { key: target.sourceId + capability },
                 ((config?.sources?.entries || []).find(source => source.id === target.sourceId)?.name || target.sourceId) + ' · ' + target.platform + ' · ' + capability + ' · ' + target.resource.id)),
-              h('p', null, auth.delivery ? L('固定投递给主人：', 'Fixed owner delivery: ') + auth.delivery.channel + ' · ' + auth.delivery.target : L('结果仅保存', 'Save results only'))),
+              h('p', null, auth.delivery ? L('固定投递给主人：', 'Fixed owner delivery: ') + auth.delivery.channel + ' · ' + auth.delivery.target : L('结果仅保存', 'Save results only')),
+              auth.delivery?.channel === 'weixin' && h('div', null,
+                h('p', null, L('微信账号：', 'WeChat account: ') + auth.delivery.accountId),
+                h('p', null, L('接收主人：', 'Receiving owner: ') + auth.delivery.ownerId),
+                h('p', { className: 'pa24-meta' }, L('绑定版本：', 'Binding version: ') + auth.delivery.generation),
+                h('p', null, L('仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。', 'Text only. Account availability and platform conditions are checked again before sending. Limited deliveries retain the result and original identity. Platform acceptance does not mean you have read it.')))),
             value.nextTimes?.length > 0 && h('div', null, h('strong', null, L('未来触发时间', 'Upcoming occurrences') + (timeZone ? ' · ' + timeZone : '')), value.nextTimes.map(at => h('p', { key: at, className: 'pa24-meta' }, date(at, timeZone || 'UTC')))));
         }
         function TaskPlanForm({ form, setForm, catalog, binding, config, busy, onPreview, onSave, onDiscard, draft, refreshTick, formError }) {
           const [skill, setSkill] = React.useState(null), [error, setError] = React.useState('');
+          const [weixin, setWeixin] = React.useState(null), [voiceChoice, setVoiceChoice] = React.useState(false);
+          React.useEffect(() => {
+            const abort = new AbortController(); setWeixin(null); setVoiceChoice(false);
+            rpc('weixin', { workspaceBinding: binding }, abort.signal).then(value => { if (!abort.signal.aborted && value.workspaceBinding === binding) setWeixin(value); })
+              .catch(() => { if (!abort.signal.aborted) setWeixin({ notificationSupported: false }); });
+            return () => abort.abort();
+          }, [binding, refreshTick]);
           React.useEffect(() => {
             const abort = new AbortController(); setSkill(null); setError('');
             if (form.skillId) rpc('skills.inspect', { id: form.skillId, workspaceBinding: binding }, abort.signal).then(value => { if (!abort.signal.aborted && value.workspaceBinding === binding) setSkill(value); }).catch(error => { if (!abort.signal.aborted) setError(error.message); });
@@ -1737,7 +1749,11 @@ window.__ModuleLoader__.load({
           const field = (label, node) => h('label', { key: label, className: 'pa24-field' }, label, node);
           const set = (key, value) => setForm({ ...form, [key]: value });
           const timing = (key, value) => set('timing', { ...form.timing, [key]: value });
-          const delivery = (key, value) => set('delivery', { ...form.delivery, [key]: value, ...(key === 'channel' && value !== 'feishu' ? { voice: false } : {}) });
+          const delivery = (key, value) => {
+            if (key === 'channel' && value === 'weixin' && form.delivery.voice) { setVoiceChoice(true); return; }
+            if (key === 'channel') setVoiceChoice(false);
+            set('delivery', { ...form.delivery, [key]: value, ...(key === 'channel' && value !== 'feishu' ? { voice: false } : {}) });
+          };
           const text = (value, onChange, props = {}) => h('input', { value: value ?? '', onChange: event => onChange(event.target.value), ...props });
           const options = (value, onChange, entries) => h('select', { value, onChange: event => onChange(event.target.value) }, entries.map(([key, label]) => h('option', { key, value: key }, label)));
           let parameters = null;
@@ -1769,7 +1785,14 @@ window.__ModuleLoader__.load({
               form.timing.type === 'advanced' && field(L('Cron 表达式', 'Cron expression'), text(form.timing.expression, value => timing('expression', value), { placeholder: '0 9 * * 1-5' })),
               field(L('累计执行时限（分钟，等待不计入）', 'Execution limit (minutes, waits excluded)'), text(form.executionLimitMs / 60000, value => set('executionLimitMs', Number(value) * 60000), { type: 'number', min: 1 / 60, max: 1440, step: 'any' }))),
             h('section', { className: 'pa24-form-section' }, h('h3', { className: 'pa24-form-section-title' }, icon('check'), L('结果、投递与授权', 'Results, delivery and authorization')),
-              field(L('结果投递', 'Delivery'), options(form.delivery.channel, value => delivery('channel', value), [['none', L('仅保存', 'Save only')], ['feishu', L('飞书主人', 'Feishu owner')], ['wecom', L('企微主人', 'WeCom owner')]])),
+              field(L('结果投递', 'Delivery'), options(form.delivery.channel, value => delivery('channel', value), [['none', L('仅保存', 'Save only')], ['feishu', L('飞书主人', 'Feishu owner')], ['wecom', L('企微主人', 'WeCom owner')],
+                ...(weixin?.notificationSupported === true || form.delivery.channel === 'weixin' ? [['weixin', L('微信本人（文本）', 'WeChat owner (text)')]] : [])])),
+              voiceChoice && h('div', { role: 'alert', className: 'pa24-note' }, h('p', null, L('微信仅支持文本。此计划已选择语音，请明确选择投递方式。', 'WeChat supports text only. This plan includes voice; choose how to deliver it.')),
+                h('button', { type: 'button', onClick: () => { setVoiceChoice(false); set('delivery', { ...form.delivery, channel: 'weixin', voice: false }); } }, L('改用微信文本', 'Use WeChat text')),
+                h('button', { type: 'button', onClick: () => setVoiceChoice(false) }, L('保留原渠道和语音', 'Keep the original channel and voice'))),
+              form.delivery.channel === 'weixin' && h('p', { className: 'pa24-note' }, weixin?.notificationSupported === true
+                ? L('启用前将预览并确认固定微信身份和发送条件。', 'Preview and confirm the fixed WeChat identity and sending conditions before enabling.')
+                : L('微信周期通知当前不可用，启用前须重新核验；原结果与计划保留。', 'WeChat scheduled notifications are currently unavailable. Verify again before enabling; existing plans and results are retained.')),
               field(L('通知条件', 'Notify when'), options(form.delivery.mode, value => delivery('mode', value), [['always', L('每次完成', 'Every completion')], ['changed', L('结果正文变化', 'Result text changes')], ['errors', L('仅异常或需处理', 'Errors or attention only')]])),
               form.delivery.channel === 'feishu' && field(L('语音并附完整文本', 'Voice plus full text'), h('input', { type: 'checkbox', checked: form.delivery.voice, onChange: event => delivery('voice', event.target.checked) })),
               field(L('我明确预约此时投递，可覆盖免打扰', 'Deliver at my reserved time, overriding quiet hours'), h('input', { type: 'checkbox', checked: form.delivery.overrideQuiet, onChange: event => delivery('overrideQuiet', event.target.checked) })),
@@ -1785,8 +1808,8 @@ window.__ModuleLoader__.load({
                 }))),
             draft && h(PlanAuthorization, { value: draft, config }),
             h('div', { className: 'pa24-form-actions' },
-              h('button', { type: 'button', onClick: onPreview }, icon('calendarClock'), L('校验并预览时间', 'Validate and preview')),
-              h('button', { type: 'button', className: 'pa24-primary', disabled: !draft, onClick: onSave }, icon('check'), L('保存为暂停', 'Save paused')),
+              h('button', { type: 'button', disabled: voiceChoice, onClick: onPreview }, icon('calendarClock'), L('校验并预览时间', 'Validate and preview')),
+              h('button', { type: 'button', className: 'pa24-primary', disabled: !draft || voiceChoice, onClick: onSave }, icon('check'), L('保存为暂停', 'Save paused')),
               h('button', { type: 'button', className: 'pa24-quiet', onClick: onDiscard }, icon('close'), L('放弃草稿', 'Discard draft')),
               formError && h('p', { role: 'alert', className: 'pa24-error' }, formError),
               h('p', { className: 'pa24-meta' }, draft ? L('预览已通过，可保存为暂停；不会触发运行。', 'Preview passed. Save paused without running.') : L('请先校验并预览时间；通过后才能保存为暂停。', 'Validate and preview first; saving paused unlocks after a valid preview.'))));
