@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm version](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub release](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](packages/24pa/package.json)
-[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.6)
+[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.7)
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
@@ -20,7 +20,7 @@ kind: "package-bundle"
 
 *English desktop interface with sample data.*
 
-`0.2.2-rc.1.6` fixes todo query validation being mistaken for an unknown action: invalid filters now return a correctable rejection, and the same work run can continue with the documented `open` filter (#279). The previous scoped Host tool permission fix remains included. Owner QR binding, private text requests, and common plan management are included. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](packages/24pa/weixin-setup.md). Owner QR binding and the help reply have been confirmed; business-flow acceptance after this fix is still pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
+`0.2.2-rc.1.7` fixes desktop reconciliation of a failed WeChat input by passing the cancellation signal required by the Host state API (#279). Running or queued input remains protected; closure does not replay the request or resend its result. The previous query validation and scoped Host tool permission fixes remain included. Owner QR binding, private text requests, and common plan management are included. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](packages/24pa/weixin-setup.md). Owner QR binding, the help reply, and a read-only todo query result have been confirmed in WeChat; real numbered continuation and plan confirmation remain pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
 
 This fix requires dsh `0.2.2-rc.1` and its native tool execution guard. Older hosts must use their matching plugin version in the table below.
 
@@ -100,7 +100,7 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.1
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.6 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.7 --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile, open the 24PA workspace, and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`; the official npm registry is recommended because some mirrors lag behind.
@@ -114,7 +114,7 @@ Restart the same Profile, open the 24PA workspace, and choose the「24私助」p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.2-rc.1` | `0.2.2-rc.1.6` (current) |
+| `0.2.2-rc.1` | `0.2.2-rc.1.7` (current) |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8` (line frozen here) |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
@@ -171,7 +171,7 @@ They are written to the native calendar with an alert, so the model is not the r
 
 ---
 
-Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.2-rc.1.6`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.6)
+Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.2-rc.1.7`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.7)
 
 ## Everyday work methods
 

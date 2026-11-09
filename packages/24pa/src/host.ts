@@ -160,7 +160,7 @@ export interface DshContext {
     resolveAgent(sessionId: string): Promise<AgentResolution>;
     rename(request: { sessionId: string; title: string }): Promise<unknown>;
     inspect(sessionId: string, signal?: AbortSignal): Promise<unknown>;
-    state?(request: { sessionId: string }): Promise<{ running: boolean; queue: readonly { rpcId?: string }[] | null }>;
+    state?(request: { sessionId: string }, signal: AbortSignal): Promise<{ running: boolean; queue: readonly { rpcId?: string }[] | null }>;
   };
   sessions: {
     flush(session: DshSession): Promise<boolean>;

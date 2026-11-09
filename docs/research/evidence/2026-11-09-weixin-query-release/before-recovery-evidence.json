@@ -1,0 +1,50 @@
+{
+  "capturedAt": "2026-11-09T01:40:42.594Z",
+  "workIdSha256": "f2f09f505b65b20a4e3e72411ff5d47f3c44055d7d0234435ed41bb161805571",
+  "runIdSha256": "48881e71cba07f6e5ad3133d8fb4c8ede799a953bcc7cd8e60a53438616933eb",
+  "workStatus": "needs_reconciliation",
+  "runStatus": "needs_reconciliation",
+  "operations": 0,
+  "reviewed": false,
+  "calls": [
+    {
+      "idSha256": "d5f40ba1c6d7526e77e9e26ffb75764ebf652973e191c739adf0326da32999e8",
+      "tool": "pa24_run",
+      "status": "succeeded",
+      "action": "progress",
+      "isError": false,
+      "resultStatus": null,
+      "businessExecuted": null,
+      "todoValidationError": false
+    },
+    {
+      "idSha256": "839762604dff7ede4793b79015d5b2f3bd02148fe26dd1e448790bb9f63e1276",
+      "tool": "pa24_work",
+      "status": "unknown",
+      "action": "task_list",
+      "filter": "incomplete",
+      "limit": 50,
+      "offset": 0,
+      "isError": true,
+      "resultStatus": null,
+      "businessExecuted": null,
+      "todoValidationError": true
+    }
+  ],
+  "deliveries": [],
+  "binding": {
+    "state": "active",
+    "enabled": true,
+    "accountSha256": "11b6fd6d990b0e67a81b0d33fa12c6352f024e5f37db10929e4c7dd4cf4aef66",
+    "ownerSha256": "4ba42a54adfb08e44de3218d1f66693e45d23cbc98edc97e5c3e4d920b20d067",
+    "generationSha256": "b162adcac1e7c93a1d811d9b25ed6be3317e8f06d79ee52c1cc79b47ceb7959c",
+    "sessionSha256": "029d3e9545cbed85f38ae1bd250a76172a0865b68ebdd98fbf153cb2a440387c"
+  },
+  "inboxCount": 3,
+  "deliveryCount": 2,
+  "workStates": {
+    "needs_reconciliation": 1,
+    "completed": 27,
+    "stopped": 12
+  }
+}
