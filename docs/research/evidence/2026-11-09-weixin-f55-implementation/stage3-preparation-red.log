@@ -1,0 +1,36 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-send-guards.test.mjs (2 tests | 1 failed) 54ms
+   × 凭据文件暂时不可读属于未发送，保留待处理而不是发送结果未知 25ms
+     → expected Error: 微信凭据库无法读取，请在电脑端核对或重新登录。 to match object { hold: { status: 'pending' } }
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-send-guards.test.mjs > 凭据文件暂时不可读属于未发送，保留待处理而不是发送结果未知
+AssertionError: expected Error: 微信凭据库无法读取，请在电脑端核对或重新登录。 to match object { hold: { status: 'pending' } }
+
+- Expected
++ Received
+
+- Object {
+-   "hold": Object {
+-     "status": "pending",
+-   },
+- }
++ [Error: 微信凭据库无法读取，请在电脑端核对或重新登录。]
+
+ ❯ tests/unit/weixin-send-guards.test.mjs:46:3
+     44| it('凭据文件暂时不可读属于未发送，保留待处理而不是发送结果未知', async…
+     45|   await writeFile(join(root, '.24pa/weixin/secrets.json'), '{incomplet…
+     46|   await expect(access.send(row)).rejects.toMatchObject({ hold: { statu…
+       |   ^
+     47|   expect(sent).toEqual([]);
+     48| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  16:43:33
+   Duration  311ms (transform 77ms, setup 0ms, collect 158ms, tests 54ms, environment 0ms, prepare 28ms)

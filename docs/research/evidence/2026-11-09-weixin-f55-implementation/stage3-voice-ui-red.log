@@ -1,0 +1,29 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/manticore-panel.test.mjs (41 tests | 1 failed | 40 skipped) 107ms
+   × M02 管理界面 > WX-17 已有语音选择改用微信时须明确选文本，保留原渠道不会关闭语音 90ms
+     → expected 'none' to be 'feishu' // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/manticore-panel.test.mjs > M02 管理界面 > WX-17 已有语音选择改用微信时须明确选文本，保留原渠道不会关闭语音
+AssertionError: expected 'none' to be 'feishu' // Object.is equality
+
+Expected: "feishu"
+Received: "none"
+
+ ❯ tests/unit/manticore-panel.test.mjs:97:33
+     95|     await change(field('结果投递'), 'feishu'); await click(field('语音…
+     96|     await change(field('结果投递'), 'weixin');
+     97|     expect(field('结果投递').value).toBe('feishu'); expect(field('语音…
+       |                                 ^
+     98|     expect(container.textContent).toContain('微信仅支持文本');
+     99|     await click(button('保留原渠道和语音'));
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 40 skipped (41)
+   Start at  16:59:11
+   Duration  628ms (transform 149ms, setup 0ms, collect 407ms, tests 107ms, environment 0ms, prepare 32ms)

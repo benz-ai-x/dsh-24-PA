@@ -1,0 +1,35 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/plan-delivery-guards.test.mjs (12 tests | 2 failed | 10 skipped) 949ms
+   × 投递评审边界 (sqlite) > 身份核验期间进入免打扰，实际派发前采用最新偏好而不是提前读取的结果 17ms
+     → expected 1 to be +0 // Object.is equality
+   × 投递评审边界 (postgres) > 身份核验期间进入免打扰，实际派发前采用最新偏好而不是提前读取的结果 18ms
+     → expected 1 to be +0 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/plan-delivery-guards.test.mjs > 投递评审边界 (sqlite) > 身份核验期间进入免打扰，实际派发前采用最新偏好而不是提前读取的结果
+ FAIL  tests/unit/plan-delivery-guards.test.mjs > 投递评审边界 (postgres) > 身份核验期间进入免打扰，实际派发前采用最新偏好而不是提前读取的结果
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/unit/plan-delivery-guards.test.mjs:65:19
+     63|     access.verifyDelivery = async () => { quiet = new Date(Date.now() …
+     64|     await dispatcher(async () => { sends++; return { messageId: 'unexp…
+     65|     expect(sends).toBe(0);
+       |                   ^
+     66|     const [notice] = await notices(); expect(notice.deliveryStatus).to…
+     67|     expect(notice.deliveries.every(item => item.outbox.attempts === 0)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 10 skipped (12)
+   Start at  17:02:44
+   Duration  1.34s (transform 152ms, setup 0ms, collect 301ms, tests 949ms, environment 0ms, prepare 23ms)

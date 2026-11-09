@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (11 tests | 10 skipped) 6267ms
+   ✓ WX-19 回复上下文缺失时业务照常完成，恢复同一上下文后只补投原结果 2020ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 10 skipped (11)
+   Start at  16:57:52
+   Duration  6.43s (transform 36ms, setup 0ms, collect 65ms, tests 6.27s, environment 0ms, prepare 20ms)

@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (13 tests | 12 skipped) 8087ms
+   ✓ WX-19 平台明确凭据失效时停止重复发送，保留受限结果并要求重新登录 2030ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 12 skipped (13)
+   Start at  17:07:24
+   Duration  8.25s (transform 39ms, setup 0ms, collect 64ms, tests 8.09s, environment 0ms, prepare 27ms)

@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (12 tests | 11 skipped) 5825ms
+   ✓ WX-18 核对操作必须是明确名称，数组不能把未知投递改回待发送 1052ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 11 skipped (12)
+   Start at  17:02:20
+   Duration  6.04s (transform 53ms, setup 0ms, collect 87ms, tests 5.82s, environment 0ms, prepare 37ms)

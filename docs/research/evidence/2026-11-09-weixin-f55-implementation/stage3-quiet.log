@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (9 tests | 8 skipped) 10889ms
+   ✓ WX-18 本人免打扰期间普通结果到期留存，明确预约的投递才可覆盖 3198ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 8 skipped (9)
+   Start at  16:48:41
+   Duration  11.06s (transform 41ms, setup 0ms, collect 67ms, tests 10.89s, environment 0ms, prepare 28ms)
