@@ -7,7 +7,7 @@ import { WeixinCredentialVault } from './weixin-credentials.js';
 import { createWeixinRequest, splitWeixinText, sameWeixinIdentity, weixinApiBase, weixinEnvelope, weixinSendReceipt, weixinUpdates,
   WEIXIN_API_BASE, WeixinProtocolError, type WeixinIdentity, type WeixinRequest, type WeixinRequestFn } from './weixin-protocol.js';
 import { WeixinSessions } from './weixin-session.js';
-import { DeliveryHeld, checkDeliveryHold, type DeliveryHold } from './outbox-delivery.js';
+import { DeliveryHeld, checkDeliveryHold, finishDeliveryCheck, type DeliveryHold, type PreparedDeliveryCheck } from './outbox-delivery.js';
 import QRCode from 'qrcode';
 import type { TaskPlanDestination } from './task-plan.js';
 import { taskPlanFingerprint } from './task-plan-access.js';
@@ -230,8 +230,9 @@ export class WeixinAccess {
     }
     return null;
   }
-  async send(row: OutboxRow, beforeDispatch?: () => Promise<DeliveryHold | null>) {
+  async send(row: OutboxRow, beforeDispatch?: () => Promise<PreparedDeliveryCheck>) {
     let request: WeixinRequest | undefined;
+    let finalCheck: PreparedDeliveryCheck = null;
     const epoch = this.sendEpoch;
     // All reads and checks precede the network dispatch. A preparation error
     // therefore cannot be mistaken for an unknown platform send.
@@ -240,7 +241,8 @@ export class WeixinAccess {
       const credentials = await new WeixinCredentialVault(ctx.workspacePath).get(row.delivery_target!);
       if (!credentials?.context) return { status: 'failed', error: '原微信会话缺少可用回复上下文；结果已保存，请先在微信发来文字再核对补投。' };
       const again = await this.beforeSend(row); if (again) return again;
-      const final = await beforeDispatch?.(); if (final) return final;
+      finalCheck = await beforeDispatch?.() ?? null;
+      if (finalCheck && typeof finalCheck !== 'function') return finalCheck;
       if (!row.client_id) return { status: 'failed', error: '微信投递缺少持久客户端请求编号。' };
       request = { base: credentials.base, token: credentials.token,
         body: { msg: { from_user_id: '', to_user_id: row.target, client_id: row.client_id, message_type: 2, message_state: 2,
@@ -250,6 +252,8 @@ export class WeixinAccess {
     if (hold) throw new DeliveryHeld(hold);
     // This must remain after the final await, adjacent to the dispatch.
     if (this.quiescing || epoch !== this.sendEpoch) throw new DeliveryHeld({ status: 'pending', error: '微信入口正在停止，保留原投递。', retryInMs: 60_000 });
+    const finalHold = finishDeliveryCheck(finalCheck);
+    if (finalHold) throw new DeliveryHeld(finalHold);
     try { return weixinSendReceipt(await this.request('ilink/bot/sendmessage', request)); }
     catch (error) {
       if (error instanceof WeixinProtocolError && error.needsLogin && epoch === this.sendEpoch && this.consumer?.generation === row.binding_generation) {

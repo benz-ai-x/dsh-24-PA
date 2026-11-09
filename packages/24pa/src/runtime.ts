@@ -253,7 +253,7 @@ export class PaRuntime {
     beforeSend: async row => await this.planResults.beforeSend(row) ?? await this.weixin.beforeSend(row),
     updated: row => this.planResults.updated(row),
     adapters: {
-      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row, () => this.planResults.beforeSend(row)) },
+      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row, () => this.planResults.prepareSend(row)) },
       local: {
         available: () => !this.closed && !!this.config,
         supports: kind => kind === 'text',

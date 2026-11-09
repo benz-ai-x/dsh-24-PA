@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, expect, it } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
+import { writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SqliteDb } from '../../lib/sqlite.js';
@@ -7,6 +9,11 @@ import { createRepos } from '../../lib/repo.js';
 import { weixinIdentity } from '../../lib/repo/weixin.js';
 import { WeixinCredentialVault } from '../../lib/weixin-credentials.js';
 import { WeixinAccess } from '../../lib/weixin-access.js';
+import { PlanResults } from '../../lib/plan-results.js';
+import { TaskPlanAccess } from '../../lib/task-plan-access.js';
+import { makeSkillPackage, parseSkillMarkdown } from '../../lib/skill-package.js';
+import { taskPlanDraft } from '../../lib/task-plan.js';
+import { MemoryStore } from '../../lib/memory.js';
 
 // Supplemental transport contract checks. Persistence and credentials are real;
 // only the Host Session service and the external iLink endpoint are replaced.
@@ -33,7 +40,7 @@ beforeEach(async () => {
   row = (await repos.outbox.enqueue({ dedupKey: 'test-result', channel: 'weixin', target: 'owner', kind: 'text', content: { text: '原结果' },
     deliveryTarget: identity, association: { inboxEventId: 'original-input' } })).row;
 });
-afterEach(async () => { await access?.close(); await db?.close(); if (root) await rm(root, { recursive: true, force: true }); });
+afterEach(async () => { vi.restoreAllMocks(); await access?.close(); await db?.close(); if (root) await rm(root, { recursive: true, force: true }); });
 
 it('准备完成后的最终核验发现结果已过期，不向平台发送', async () => {
   await expect(access.send(row, async () => ({ status: 'expired', error: '准备期间已超过原结果的有效期。' })))
@@ -52,5 +59,43 @@ it('最后核验返回期间停用入口，也不能开始新的平台请求', a
     queueMicrotask(() => queueMicrotask(() => access.pause()));
     return null;
   })).rejects.toMatchObject({ hold: { status: 'pending' } });
+  expect(sent).toEqual([]);
+});
+
+async function planResult() {
+  await vi.waitFor(async () => expect((await access.snapshot()).phase).toBe('polling'));
+  const identity = () => ({ requestId: randomUUID(), requestHash: randomUUID() });
+  const markdown = '---\nname: wx-dispatch-guard\ndescription: guard\nmetadata:\n  track: agent\n  tools: []\n---\nReturn a result.';
+  let entry = await repos.skills.change({ ...identity(), op: 'save', displayName: '发送前核验', version: { package_data: makeSkillPackage([{ path: 'SKILL.md', bytes: Buffer.from(markdown) }]), definition: parseSkillMarkdown(markdown), validation_error: null } });
+  entry = await repos.skills.change({ ...identity(), op: 'publish', id: entry.id, expectedRevision: entry.revision, versionId: entry.draft_version });
+  const version = await repos.skills.version(entry.active_version);
+  const draft = taskPlanDraft({ title: '发送前核验', skillId: `managed:${entry.id}`, timing: { type: 'daily' }, delivery: { channel: 'weixin' } }, 'Asia/Shanghai');
+  const taskAccess = new TaskPlanAccess({ owner: () => access.notificationTarget() });
+  const authorization = await taskAccess.authorize(draft.configuration, { id: draft.configuration.skillId, name: entry.name, versionId: version.id }, null);
+  const plan = await repos.taskPlans.save({ ...identity(), title: draft.title, kind: draft.kind, skill: entry.name, sessionId: 'parent', scheduleSpec: draft.scheduleSpec, configuration: draft.configuration });
+  const run = await repos.skillRuns.admit({ request_id: randomUUID(), request_hash: 'new', skill_id: entry.id, version_id: version.id, expectedRevision: entry.revision,
+    source_session_id: 'parent', workspace_path: root, mode: 'template', trial: false, plan_id: plan.id, triggered_at: new Date(),
+    snapshot: { name: entry.name, definition: version.definition, package: version.package_data, contract: null, parameters: {}, tools: [], permissionHash: 'same',
+      plan: { id: plan.id, title: plan.title, generation: 'manual', source: 'manual', triggeredAt: new Date().toISOString(), configuration: draft.configuration, authorization } } });
+  const path = join(root, '.24pa/memory.json'), original = JSON.stringify({ schemaVersion: 2, revision: 0, records: [], tombstones: [] });
+  await writeFile(path, original);
+  // Host filesystem adapter only; the MemoryStore and authority file are real.
+  const memory = new MemoryStore(root, { fs: { resolve: async path => ({ path }), stat: async target => ({ version: (await stat(target.path)).mtimeMs }), readText: target => readFile(target.path, 'utf8') } });
+  const results = new PlanResults({ repos: () => repos, access: taskAccess, silence: { prepare: async () => {
+    const query = await memory.prepareSearch(); return () => { query({ mode: 'facts' }); return null; };
+  } } });
+  await repos.skillRuns.transition(run.id, 'completed', '已保存', '原计划完整结果'); await results.reconcile();
+  const [notice] = await repos.planResults.inspect(run.id);
+  return { results, row: notice.deliveries[0].outbox, expires: new Date(notice.deliveries[0].expires_at).getTime(), change: () => writeFileSync(path, original + '\n') };
+}
+
+it.each(['preference', 'expiry'])('最外层异步返回期间 %s 改变，在真实请求紧前仍阻止发送', async kind => {
+  const fixture = await planResult();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(fixture.expires - 1);
+  await expect(access.send(fixture.row, async () => {
+    const prepared = await fixture.results.prepareSend(fixture.row);
+    queueMicrotask(() => queueMicrotask(() => kind === 'preference' ? fixture.change() : clock.mockReturnValue(fixture.expires + 1)));
+    return prepared;
+  })).rejects.toMatchObject({ hold: { status: kind === 'preference' ? 'pending' : 'expired' } });
   expect(sent).toEqual([]);
 });

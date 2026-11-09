@@ -8,6 +8,12 @@ export interface DeliveryAdapter {
   send(row: OutboxRow): Promise<{ messageId?: string; acceptance?: WeixinAcceptance }>;
 }
 export interface DeliveryHold { status: 'pending' | 'limited' | 'failed' | 'expired'; error: string; retryInMs?: number }
+export type PreparedDeliveryCheck = DeliveryHold | (() => DeliveryHold | null) | null;
+/** Finish prepared synchronous checks at the actual dispatch boundary. */
+export function finishDeliveryCheck(prepared: PreparedDeliveryCheck): DeliveryHold | null {
+  try { return typeof prepared === 'function' ? prepared() : prepared; }
+  catch (error) { return { status: 'pending', error: `投递前核验未完成：${redactDiagnostic((error as Error).message)}`, retryInMs: 60000 }; }
+}
 /** Preparation completed, but no platform request has been dispatched. */
 export class DeliveryHeld extends Error {
   constructor(readonly hold: DeliveryHold) { super(hold.error); }
