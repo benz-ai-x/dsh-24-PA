@@ -1,0 +1,92 @@
+{
+  "capturedAt": "2026-11-09T03:16:19.344Z",
+  "incident": {
+    "cause": "temporary observer cleanup expression used dynamic import without a VM import callback",
+    "errorCode": "ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING",
+    "exitedAt": "2026-11-09T02:51:46Z",
+    "restartedAt": "2026-11-09T02:51:51Z",
+    "restartCount": 1
+  },
+  "readiness": [
+    {
+      "id": "host",
+      "state": "ok"
+    },
+    {
+      "id": "config",
+      "state": "ok"
+    },
+    {
+      "id": "postgres",
+      "state": "ok"
+    },
+    {
+      "id": "workspace",
+      "state": "ok"
+    },
+    {
+      "id": "feishu",
+      "state": "ok"
+    },
+    {
+      "id": "sessions",
+      "state": "ok"
+    }
+  ],
+  "plugins": {
+    "total": 218,
+    "enabled": 187,
+    "active": 187,
+    "disabled": 31,
+    "statesUnchanged": true
+  },
+  "protectedFiles": [
+    {
+      "path": "AGENTS.md",
+      "matchesBeforeUpgrade": true,
+      "modifiedAt": "2026-11-03T07:40:27.098Z"
+    },
+    {
+      "path": ".24pa/ledger-identity.json",
+      "matchesBeforeUpgrade": true,
+      "modifiedAt": "2026-10-24T08:22:01.951Z"
+    },
+    {
+      "path": ".24pa/secrets.json",
+      "matchesBeforeUpgrade": true,
+      "present": false
+    },
+    {
+      "path": ".24pa/weixin/secrets.json",
+      "matchesBeforeUpgrade": false,
+      "modifiedAt": "2026-11-09T02:28:21.355Z"
+    }
+  ],
+  "startScriptUnchanged": true,
+  "configHashUnchanged": true,
+  "ledger": {
+    "schema": 34,
+    "integrityOk": true,
+    "foreignKeyErrors": 0
+  },
+  "weixin": {
+    "phase": "polling",
+    "errorPresent": false,
+    "bindingIdentityUnchanged": true,
+    "inboxCount": 4,
+    "deliveryCount": 4,
+    "priorInboxPreserved": true,
+    "priorDeliveriesPreserved": true
+  },
+  "work": {
+    "sameWork": true,
+    "sameCurrentRun": true,
+    "status": "completed",
+    "runCount": 2
+  },
+  "logsAfterRestart": {
+    "lines": 37,
+    "fatalOrLoadFailureLines": 0
+  },
+  "observerScriptDisabled": true
+}

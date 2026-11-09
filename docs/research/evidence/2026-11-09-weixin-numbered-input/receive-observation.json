@@ -1,0 +1,41 @@
+{
+  "capturedAt": "2026-11-09T02:51:46.164Z",
+  "durationLimitSeconds": 55,
+  "boundary": "getupdates response before parse",
+  "observations": [
+    {
+      "at": "2026-11-09T02:51:04.137Z",
+      "http": 200,
+      "transportError": false,
+      "ret": null,
+      "errcode": null,
+      "messageCount": 0,
+      "cursorPresent": true,
+      "cursorChanged": false,
+      "messages": []
+    },
+    {
+      "at": "2026-11-09T02:51:22.602Z",
+      "http": 200,
+      "transportError": false,
+      "ret": null,
+      "errcode": null,
+      "messageCount": 0,
+      "cursorPresent": true,
+      "cursorChanged": false,
+      "messages": []
+    },
+    {
+      "at": "2026-11-09T02:51:41.063Z",
+      "http": 200,
+      "transportError": false,
+      "ret": null,
+      "errcode": null,
+      "messageCount": 0,
+      "cursorPresent": true,
+      "cursorChanged": false,
+      "messages": []
+    }
+  ],
+  "codeFilesChanged": false
+}
