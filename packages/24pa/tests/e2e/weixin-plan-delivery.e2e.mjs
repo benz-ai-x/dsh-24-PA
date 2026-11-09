@@ -12,7 +12,7 @@ import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startWeixinServer } from '../helpers/weixin-server.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 
-let root, host, wx, llm, cluster, env, binding, skillId, scriptPath, clockPath;
+let root, host, wx, llm, cluster, env, binding, skillId, scriptPath, clockPath, modelReply;
 async function advanceClock(offsetMs) {
   const tmp = clockPath + '.tmp'; await writeFile(tmp, JSON.stringify({ offsetMs })); await rename(tmp, clockPath);
 }
@@ -20,6 +20,21 @@ const action = (type, input) => host.api('action', { type, requestId: randomUUID
 const state = () => host.api('weixin', { workspaceBinding: binding });
 const inspect = id => host.api('plans.inspect', { id, workspaceBinding: binding });
 const detail = runId => host.api('skills.run', { runId, workspaceBinding: binding });
+const decode = value => {
+  if (typeof value === 'string') { try { return decode(JSON.parse(value)); } catch { return value; } }
+  if (Array.isArray(value)) return value.map(decode).find(item => item && typeof item === 'object' && !Array.isArray(item)) ?? value;
+  if (value?.type === 'text') return decode(value.text);
+  return value;
+};
+async function localTool(name, input) {
+  const local = (await host.api('snapshot')).workspace.localSessionId, start = llm.requests.length;
+  const prior = new Set(llm.requests.flatMap(row => row.toolResults));
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name, input }, leadReply: '已返回隔离验收工具结果。' }));
+  await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: local, mode: 'queue',
+    content: [{ type: 'text', text: '本人明确执行隔离验收操作：' + JSON.stringify(input) }] } });
+  const result = await until(() => Promise.resolve(llm.requests.slice(start).at(-1)?.toolResults.at(-1)), value => value && !prior.has(value));
+  return decode(result);
+}
 async function until(read, check) {
   const end = Date.now() + 40000;
   while (Date.now() < end) { const value = await read(); if (check(value)) return value; await delay(150); }
@@ -43,7 +58,7 @@ beforeAll(async () => {
   scriptPath = join(root, 'model.json');
   clockPath = join(root, 'clock.json'); await advanceClock(0);
   await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ text: '微信计划结果：本次只整理文字，无外部业务变更。' }] }));
-  llm = await startMockLlm({ scriptPath, logPath: join(root, 'model-requests.json'), recordInputs: true }); wx = await startWeixinServer();
+  llm = await startMockLlm({ scriptPath, logPath: join(root, 'model-requests.json'), recordInputs: true, beforeReply: () => modelReply }); wx = await startWeixinServer();
   env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_test_app', PA24_FEISHU_APP_SECRET: 'fixture-secret',
     PA24_LARK_STUB_STATE: larkState, PATH: `${root}:${process.env.PATH}`, DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url,
     PA24_TEST_WEIXIN_URL: wx.url, PA24_TEST_CLOCK_FILE: clockPath,
@@ -176,3 +191,116 @@ it('WX-18/19 停用微信不阻断已授权业务，恢复后明确补投不重�
   expect(llm.requests).toHaveLength(requests); expect((await inspect(row.id)).triggers.total).toBe(3);
   expect(wx.sent).toHaveLength(sends + 1);
 }, 90000);
+
+it('WX-17 同身份续期及平台地址变化保留原计划授权与接收目标', async () => {
+  await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ text: '同一微信身份续期后的计划结果。' }] }));
+  let row = (await action('plan.change', { op: 'save', title: '续期不改计划目标', skillId,
+    timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'weixin', overrideQuiet: true } })).plan;
+  const preview = await host.api('plans.preview', { id: row.id, workspaceBinding: binding });
+  row = (await action('plan.change', { op: 'enable', id: row.id, expectedRevision: row.revision, confirm: true, fingerprint: preview.fingerprint })).plan;
+  row = (await action('plan.change', { op: 'pause', id: row.id, expectedRevision: row.revision })).plan;
+  const original = (await state()).binding, before = wx.sent.length;
+  wx.state.base = 'https://renewal.weixin.qq.com';
+  await action('weixin.change', { action: 'login' }); await until(state, value => !!value.candidate); await bindingChange('activate');
+  expect((await state()).binding).toMatchObject({ generation: original.generation, session_id: original.session_id });
+  expect((await inspect(row.id)).plan.task_authorization).toEqual(row.task_authorization);
+  const check = await host.api('plans.run-preview', { id: row.id, workspaceBinding: binding });
+  const run = (await action('plan.change', { op: 'run', id: row.id, confirm: true, fingerprint: check.fingerprint })).run;
+  const result = await until(() => detail(run.id), value => !['not_requested', 'pending'].includes(value.run.delivery_status));
+  expect(result.run).toMatchObject({ status: 'completed', delivery_status: 'sent' });
+  expect(result.deliveries[0].destination).toEqual(preview.authorization.delivery);
+  expect(wx.sent).toHaveLength(before + 1); expect(wx.sent.at(-1).to_user_id).toBe(original.owner_id);
+}, 90000);
+
+it('WX-18 接入页可明确放弃受限且未发送的计划结果，保留业务结果与处理状态', async () => {
+  const body = '放弃通知不会删除业务结果。'.repeat(900);
+  await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ text: body }] }));
+  let row = (await action('plan.change', { op: 'save', title: '放弃受限通知', skillId,
+    timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'weixin', overrideQuiet: true } })).plan;
+  const preview = await host.api('plans.preview', { id: row.id, workspaceBinding: binding });
+  row = (await action('plan.change', { op: 'enable', id: row.id, expectedRevision: row.revision, confirm: true, fingerprint: preview.fingerprint })).plan;
+  row = (await action('plan.change', { op: 'pause', id: row.id, expectedRevision: row.revision })).plan;
+  await bindingChange('disable'); const before = wx.sent.length;
+  try {
+    const check = await host.api('plans.run-preview', { id: row.id, workspaceBinding: binding });
+    const run = (await action('plan.change', { op: 'run', id: row.id, confirm: true, fingerprint: check.fingerprint })).run;
+    await until(() => detail(run.id), value => value.run.delivery_status === 'limited');
+    const records = (await state()).deliveries.filter(item => item.association?.skillRunId === run.id);
+    expect(records).toHaveLength(3);
+    for (const record of records) {
+      const command = { action: 'delivery', op: 'abandon', id: Number(record.id), revision: record.revision,
+        generation: record.binding_generation, requestId: randomUUID(), evidence: '本人确认此段未发送，放弃通知并保留计划结果。', confirm: true };
+      await action('weixin.change', command); await action('weixin.change', command);
+    }
+    const final = await until(() => detail(run.id), value => value.run.delivery_status === 'expired');
+    expect(final.run).toMatchObject({ status: 'completed', result: body });
+    expect(final.deliveries[0].deliveries.every(item => item.outbox.status === 'expired')).toBe(true);
+    const latest = await state();
+    for (const record of records) expect(latest.impact.deliveries).not.toContain(Number(record.id));
+    for (const record of records) expect(latest.deliveries.find(item => Number(item.id) === Number(record.id)))
+      .toMatchObject({ status: 'expired', revision: record.revision + 1, last_error: '主人放弃该次未发送投递，业务结果保留。' });
+    expect(wx.sent).toHaveLength(before); expect((await inspect(row.id)).triggers.total).toBe(1);
+  } finally { await bindingChange('enable'); }
+}, 90000);
+
+it('WX-17 运行中更改默认通知及换绑微信，原计划和在途结果均不改投', async () => {
+  await advanceClock(61 * 60000);
+  try { await until(state, value => value.deliveries.every(item => ['sent', 'expired'].includes(item.status))); }
+  finally { await advanceClock(0); }
+  await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ text: '换绑前已开始的原计划结果。' }] }));
+  let row = (await action('plan.change', { op: 'save', title: '在途结果保留原目标', skillId,
+    timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'weixin', overrideQuiet: true } })).plan;
+  const preview = await host.api('plans.preview', { id: row.id, workspaceBinding: binding });
+  row = (await action('plan.change', { op: 'enable', id: row.id, expectedRevision: row.revision, confirm: true, fingerprint: preview.fingerprint })).plan;
+  row = (await action('plan.change', { op: 'pause', id: row.id, expectedRevision: row.revision })).plan;
+  const original = (await state()).binding, requests = llm.requests.length; let release;
+  modelReply = new Promise(resolve => { release = resolve; });
+  try {
+    const check = await host.api('plans.run-preview', { id: row.id, workspaceBinding: binding });
+    const run = (await action('plan.change', { op: 'run', id: row.id, confirm: true, fingerprint: check.fingerprint })).run;
+    await until(() => detail(run.id), value => value.run.status === 'running' && llm.requests.length > requests);
+    await action('workspace.config-update', { config: { notifyChannel: 'wecom' } });
+    wx.state.bot = 'wx-next-plan-bot'; wx.state.owner = 'wx-next-plan-owner';
+    await action('weixin.change', { action: 'login' }); await until(state, value => !!value.candidate); await bindingChange('activate');
+    const current = (await state()).binding;
+    expect(current.generation).not.toBe(original.generation); expect(current.session_id).not.toBe(original.session_id);
+    const seed = wx.input('/24pa');
+    await until(state, value => value.inbox.some(item => item.payload.nativeId === seed.message_id && item.status === 'delivered'
+      && value.deliveries.some(out => out.association?.inboxEventId === item.event_id && out.status === 'sent')));
+    const before = wx.sent.length; release(); modelReply = null;
+    const result = await until(() => detail(run.id), value => value.run.delivery_status === 'limited');
+    expect(result.run).toMatchObject({ status: 'completed', result: '换绑前已开始的原计划结果。', source_session_id: row.session_id });
+    expect(result.run.plan.authorization.delivery).toEqual(preview.authorization.delivery);
+    expect(result.deliveries[0].destination).toEqual(preview.authorization.delivery);
+    expect(result.deliveries[0].deliveries[0].outbox).toMatchObject({ target: original.owner_id, binding_generation: original.generation });
+    expect((await inspect(row.id)).plan.task_authorization).toEqual(row.task_authorization);
+    expect(wx.sent).toHaveLength(before);
+  } finally { release(); modelReply = null; await action('workspace.config-update', { config: { notifyChannel: 'feishu' } }); }
+}, 90000);
+
+it('WX-21 新微信计划分段与未知记录可联合备份、校验和隔离恢复，且不重新发送', async () => {
+  await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ text: '恢复保留原计划结果。'.repeat(600) }] }));
+  let row = (await action('plan.change', { op: 'save', title: '微信通知恢复验收', skillId,
+    timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'weixin', overrideQuiet: true } })).plan;
+  const preview = await host.api('plans.preview', { id: row.id, workspaceBinding: binding });
+  row = (await action('plan.change', { op: 'enable', id: row.id, expectedRevision: row.revision, confirm: true, fingerprint: preview.fingerprint })).plan;
+  row = (await action('plan.change', { op: 'pause', id: row.id, expectedRevision: row.revision })).plan;
+  wx.state.sendModes = ['native', 'unknown'];
+  const check = await host.api('plans.run-preview', { id: row.id, workspaceBinding: binding });
+  const run = (await action('plan.change', { op: 'run', id: row.id, confirm: true, fingerprint: check.fingerprint })).run;
+  const original = await until(() => detail(run.id), value => value.deliveries.some(notice => notice.deliveries.some(item => item.outbox.status === 'unknown')));
+  const unknown = original.deliveries[0].deliveries.find(item => item.outbox.status === 'unknown'), before = wx.sent.length;
+  const saved = await localTool('pa24_maintenance', { action: 'backup_create', requestId: randomUUID(), targetDir: join(root, 'backups') });
+  expect(saved.record, JSON.stringify(saved)).toMatchObject({ status: 'succeeded' });
+  const verified = await localTool('pa24_maintenance', { action: 'backup_verify', requestId: randomUUID(), backupDir: saved.backupDir });
+  expect(verified.complete, JSON.stringify(verified)).toBe(true);
+  expect(verified.steps.find(step => step.id === 'ledger').evidence.counts.task_plan_delivery).toBeGreaterThanOrEqual(2);
+  const restore = await localTool('pa24_maintenance', { action: 'backup_preview', backupDir: saved.backupDir });
+  const restored = await localTool('pa24_maintenance', { action: 'backup_restore_check', requestId: randomUUID(), backupDir: saved.backupDir,
+    targetDir: join(root, 'restore'), previewToken: restore.previewToken, confirm: true });
+  expect(restored.complete, JSON.stringify(restored)).toBe(true); expect(restored.productionReady).toBe(false);
+  const pending = restored.steps.find(step => step.id === 'remote-reconciliation').evidence.outbox;
+  expect(pending.some(item => Number(item.id) === Number(unknown.outbox_id) && item.status === 'unknown' && item.target === preview.authorization.delivery.ownerId)).toBe(true);
+  expect((await detail(run.id)).deliveries).toEqual(original.deliveries);
+  expect(wx.sent).toHaveLength(before); expect((await inspect(row.id)).triggers.total).toBe(1);
+}, 180000);

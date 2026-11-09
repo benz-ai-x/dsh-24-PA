@@ -59,7 +59,7 @@ export class WeixinAccess {
     const identity = weixinIdentity(row), credentials = await new WeixinCredentialVault(ctx.workspacePath).get(identity);
     if (!credentials?.context) throw new Error('微信缺少本人会话的回复上下文，请先发来文字再预览通知目标。');
     return { channel: 'weixin', target: row.owner_id, ...identity, identityKey: taskPlanFingerprint(identity),
-      connectionHash: taskPlanFingerprint([ctx.workspaceId, credentials.base]) };
+      connectionHash: taskPlanFingerprint([ctx.workspaceId, identity.generation]) };
   }
   async snapshot() {
     const ctx = this.context(), active = await ctx.repo.active(ctx.workspaceId);

@@ -9,7 +9,7 @@ export async function startWeixinServer() {
     calls.push({ endpoint, body });
     res.setHeader('content-type', 'application/json');
     if (endpoint.endsWith('/get_bot_qrcode')) return res.end(JSON.stringify({ qrcode: 'isolated-code', qrcode_img_content: 'https://weixin.qq.com/test-only' }));
-    if (endpoint.endsWith('/get_qrcode_status')) return res.end(JSON.stringify({ status: state.loginStatus ?? 'confirmed', bot_token: 'test-private-token', ilink_bot_id: state.bot, ilink_user_id: state.owner, baseurl: 'https://ilinkai.weixin.qq.com' }));
+    if (endpoint.endsWith('/get_qrcode_status')) return res.end(JSON.stringify({ status: state.loginStatus ?? 'confirmed', bot_token: 'test-private-token', ilink_bot_id: state.bot, ilink_user_id: state.owner, baseurl: state.base ?? 'https://ilinkai.weixin.qq.com' }));
     if (state.invalidToken) return res.end(JSON.stringify({ ret: -14 }));
     if (endpoint.endsWith('/getupdates')) {
       await delay(150);
