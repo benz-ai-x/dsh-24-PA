@@ -100,7 +100,12 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false, 
           ? (last.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n')
           : '';
         const isNotice = lastText.includes('Background subagent') || lastText.includes('[事项回传]');
-        if (isNotice) {
+        if (script.leadRequestText && tools.includes('pa24_delegate')) {
+          // Native input batching can combine a new owner request with an
+          // older receipt or settlement notice. Act only on this exact input.
+          step = lastText.includes(script.leadRequestText) ? { tool: script.leadTool }
+            : { text: script.leadReply ?? '已收到既有回执。' };
+        } else if (isNotice) {
           step = { text: script.leadReport ?? '事项已有结果，已记录并汇报。' };
         } else if (tools.includes('pa24_delegate')) {
           step = isContinuation

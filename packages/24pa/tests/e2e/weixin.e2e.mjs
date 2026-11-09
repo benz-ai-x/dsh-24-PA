@@ -271,8 +271,9 @@ it('WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔�
   };
   const maintenance = async input => {
     const start = llm.log.length, seenResults = new Set(llm.log.flatMap(row => row.toolResults));
-    await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_maintenance', input }, leadReply: '维护结果已返回。' }));
-    await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: '隔离测试：本人明确执行 ' + JSON.stringify(input) }] } });
+    const leadRequestText = '隔离测试：本人明确执行 ' + JSON.stringify(input);
+    await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadRequestText, leadTool: { name: 'pa24_maintenance', input }, leadReply: '维护结果已返回。' }));
+    await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: leadRequestText }] } });
     for (let n = 0; n < 800; n++) {
       const result = llm.log.slice(start).at(-1)?.toolResults.at(-1);
       if (result && !seenResults.has(result)) return decode(result); await delay(50);
@@ -284,7 +285,7 @@ it('WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔�
       delay(2000).then(() => '备份记录读取超时'),
     ]).catch(error => ({ error: error.message }));
     throw new Error('联合备份工具回执超时：' + redactString(JSON.stringify({ action: input.action, backups,
-      model: llm.log.slice(start).map(row => ({ tools: row.tools, toolResults: row.toolResults })), logs: host.logs() })));
+      model: llm.log.slice(start).map(row => ({ tools: row.tools, toolResults: row.toolResults, lastUserText: row.lastUserText })), logs: host.logs() })));
   };
   const saved = await maintenance({ action: 'backup_create', requestId: randomUUID(), targetDir: join(root, 'backups') });
   expect(saved.record, JSON.stringify(saved)).toMatchObject({ status: 'succeeded' });

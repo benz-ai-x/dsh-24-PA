@@ -1,14 +1,14 @@
 import type { Repos, OutboxRow } from './repo.js';
 import type { TaskPlanAccess } from './task-plan-access.js';
 import type { DeliveryHold } from './outbox-delivery.js';
-import type { SilencePolicy } from './reminders.js';
 import { taskPlanFingerprint } from './task-plan-access.js';
 import { sameWeixinIdentity } from './weixin-protocol.js';
 
 /** Delivery uses the saved recipient and current identity. Business target
  * revocation may cause an error notice, so it cannot forbid that notice. */
 export class PlanResults {
-  constructor(private readonly deps: { repos(): Repos; access: TaskPlanAccess; silence: SilencePolicy; binding?(): string | null }) {}
+  constructor(private readonly deps: { repos(): Repos; access: TaskPlanAccess;
+    silence: { prepare(): Promise<() => Date | null> }; binding?(): string | null }) {}
   reconcile(): Promise<void> { return this.deps.repos().planResults.reconcile(); }
   async change(input: Record<string, unknown>) {
     if (typeof input.workspaceBinding !== 'string' || input.workspaceBinding !== this.deps.binding?.()) throw new Error('工作区已切换，请刷新运行记录。');
@@ -43,7 +43,7 @@ export class PlanResults {
     if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= Date.now()) return { status: 'expired', error: '普通结果超过本次触发的投递有效期，结果仍保留。' };
     try { await this.deps.access.verifyDelivery(notice.destination); }
     catch (error) { return { status: row.channel === 'weixin' ? 'limited' : 'failed', error: `固定投递目标核验失败：${(error as Error).message}` }; }
-    const until = delivery.override_quiet ? null : await this.deps.silence.silentUntil();
+    const quiet = delivery.override_quiet ? null : await this.deps.silence.prepare();
     // The original request may have been resolved while identity or quiet
     // preferences were being read. Recheck the saved intent after preparation.
     const latest = await this.deps.repos().planResults.delivery(Number(row.id));
@@ -52,7 +52,7 @@ export class PlanResults {
       return { status: 'failed', error: '投递准备期间原计划结果关联已变化，未发送。' };
     }
     if (latest.obsolete) return { status: 'expired', error: '原处理要求已经结束或更新，旧通知保留而不再推送。' };
-    const now = Date.now();
+    const until = quiet?.() ?? null, now = Date.now();
     // Identity and preference reads may be slow. The deadline governs entry
     // into the platform send, not when preparation started.
     if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= now) return { status: 'expired', error: '投递准备完成时已超过有效期，结果仍保留。' };

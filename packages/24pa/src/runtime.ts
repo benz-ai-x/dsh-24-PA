@@ -814,7 +814,7 @@ export class PaRuntime {
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });
     this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess,
-      silence: { silentUntil: () => this.readSilentUntil() }, binding: () => this.workspaceBinding });
+      silence: { prepare: () => this.prepareSilence() }, binding: () => this.workspaceBinding });
     this.runHistory = new RunHistory({ context: planContext, skills: this.skillRuns,
       secretValues: () => [
         ...SECRET_KEYS.map(key => resolveSecret(secretRefs(this.config)[key], this.env, this.secretStore, key)),
@@ -1965,7 +1965,7 @@ export class PaRuntime {
   /** Quiet hours / vacation read from the memory authority at dispatch time. */
   private readonly silencePolicy: SilencePolicy = {
     silentUntil: async () => {
-      try { return await this.readSilentUntil(); } catch (error) {
+      try { return (await this.prepareSilence())(); } catch (error) {
         // Fail open, but visibly: a broken preference must not silently
         // garble reminders without a trace.
         console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${(error as Error).message}`);
@@ -1974,29 +1974,33 @@ export class PaRuntime {
     },
   };
 
-  private async readSilentUntil(): Promise<Date | null> {
+  private async prepareSilence(): Promise<() => Date | null> {
     try {
-      const vacation = await this.memory!.search({ topic: '休假', mode: 'facts', limit: 20 });
-      for (const record of vacation.records) {
-        if (record.status !== 'confirmed') continue;
-        const end = record.validUntil ? new Date(record.validUntil) : null;
-        if (end && end.getTime() > Date.now()) return end;
-      }
-      const quiet = await this.memory!.search({ topic: '通知偏好', mode: 'facts', limit: 20 });
-      const now = new Date(), tz = this.config?.timeZone ?? 'Asia/Shanghai';
-      for (const record of quiet.records) {
-        if (record.status !== 'confirmed') continue;
-        const match = record.content.match(/安静时段\s*(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})/);
-        if (!match) continue;
-        const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' });
-        const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
-        const minutesNow = Number(parts.hour) * 60 + Number(parts.minute);
-        const start = Number(match[1]) * 60 + Number(match[2]);
-        const endMin = Number(match[3]) * 60 + Number(match[4]);
-        const inWindow = start <= endMin ? minutesNow >= start && minutesNow < endMin : minutesNow >= start || minutesNow < endMin;
-        if (inWindow) return new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
-      }
-      return null;
+      const search = await this.memory!.prepareSearch(), binding = this.workspaceBinding, tz = this.config?.timeZone ?? 'Asia/Shanghai';
+      return () => {
+        if (binding !== this.workspaceBinding || tz !== (this.config?.timeZone ?? 'Asia/Shanghai')) throw new Error('工作区或通知时区已变化，请重新核验。');
+        const timestamp = Date.now(), vacation = search({ topic: '休假', mode: 'facts', limit: 20 }, timestamp);
+        for (const record of vacation.records) {
+          if (record.status !== 'confirmed') continue;
+          const end = record.validUntil ? new Date(record.validUntil) : null;
+          if (end && end.getTime() > timestamp) return end;
+        }
+        const quiet = search({ topic: '通知偏好', mode: 'facts', limit: 20 }, timestamp);
+        const now = new Date(timestamp);
+        for (const record of quiet.records) {
+          if (record.status !== 'confirmed') continue;
+          const match = record.content.match(/安静时段\s*(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})/);
+          if (!match) continue;
+          const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false, hourCycle: 'h23' });
+          const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]));
+          const minutesNow = Number(parts.hour) * 60 + Number(parts.minute);
+          const start = Number(match[1]) * 60 + Number(match[2]);
+          const endMin = Number(match[3]) * 60 + Number(match[4]);
+          const inWindow = start <= endMin ? minutesNow >= start && minutesNow < endMin : minutesNow >= start || minutesNow < endMin;
+          if (inWindow) return new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
+        }
+        return null;
+      };
     } catch {
       throw new Error('读取免打扰偏好失败。');
     }
