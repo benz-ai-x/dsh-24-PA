@@ -1,0 +1,33 @@
+{
+  "hashes": {
+    "local": "b0c9adb994c3b7c6cdc6985af583e9782486c63bcba61e4ff2e7543cecd9aea1",
+    "npm": "b0c9adb994c3b7c6cdc6985af583e9782486c63bcba61e4ff2e7543cecd9aea1",
+    "github": "b0c9adb994c3b7c6cdc6985af583e9782486c63bcba61e4ff2e7543cecd9aea1"
+  },
+  "tags": {
+    "dsh-0.2.0-rc.2": "0.2.0-rc.2.3",
+    "dsh-0.2.1-alpha.1": "0.2.1-alpha.1.6",
+    "dsh-0.2.1-alpha.2": "0.2.1-alpha.2.7",
+    "dsh-0.2.1-alpha.5": "0.2.1-alpha.5.1",
+    "dsh-0.2.1-rc.1": "0.2.1-rc.1.2",
+    "dsh-0.2.1-rc.2": "0.2.1-rc.2.9",
+    "dsh-0.2.1-rc.3": "0.2.1-rc.3.2",
+    "dsh-0.2.1-rc.4": "0.2.1-rc.4.2",
+    "dsh-0.2.1-rc.5": "0.2.1-rc.5.8",
+    "latest": "0.2.2-rc.1.8",
+    "dsh-0.2.2-rc.1": "0.2.2-rc.1.8"
+  },
+  "release": {
+    "isPrerelease": false,
+    "publishedAt": "2026-11-09T06:52:49Z",
+    "tagName": "v0.2.2-rc.1.8",
+    "targetCommitish": "2f03de6e3f9f1a5a45d397071ceecaf2a6fda5cb",
+    "url": "https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.8"
+  },
+  "capturedAt": "2026-11-09T06:56:04.924406+00:00",
+  "releaseCommit": "2f03de6e3f9f1a5a45d397071ceecaf2a6fda5cb",
+  "reviewedHead": "8b399f2f7d8c520e731e3b929ccf7ff66a4a5479",
+  "githubLatest": "v0.2.2-rc.1.8",
+  "githubTagCommit": "2f03de6e3f9f1a5a45d397071ceecaf2a6fda5cb",
+  "historicDistTagsUnchanged": true
+}
