@@ -1,0 +1,62 @@
+{
+  "capturedAt": "2026-11-09T03:10:23.995Z",
+  "phase": "polling",
+  "errorPresent": false,
+  "inboxCount": 4,
+  "deliveryCount": 4,
+  "numberedInput": null,
+  "work": {
+    "idSha256": "f2f09f505b65b20a4e3e72411ff5d47f3c44055d7d0234435ed41bb161805571",
+    "status": "completed",
+    "runCount": 2
+  },
+  "run": {
+    "idSha256": "b0a827b3fc68da7fe84843b3f7d45e11475cd057aff8e73c1c0f73457486c6fd",
+    "status": "completed",
+    "source": "continuation",
+    "changedFromPrevious": false,
+    "fromPreviousRun": false,
+    "operations": 0,
+    "sourceReads": 3,
+    "calls": [
+      {
+        "tool": "pa24_run",
+        "action": "progress",
+        "status": "succeeded"
+      },
+      {
+        "tool": "pa24_work",
+        "action": "task_list",
+        "status": "succeeded"
+      },
+      {
+        "tool": "pa24_work",
+        "action": "task_list",
+        "status": "succeeded"
+      },
+      {
+        "tool": "pa24_work",
+        "action": "task_list",
+        "status": "succeeded"
+      },
+      {
+        "tool": "pa24_run",
+        "action": "progress",
+        "status": "succeeded"
+      }
+    ],
+    "inputs": [
+      {
+        "status": "adopted",
+        "ownerInputKind": "panel",
+        "numberedSourceMatches": false,
+        "ownerTextSha256": null,
+        "instructionSha256": "54202a99e7fe93227b047d5209a2c9f5d01801e1880de835b624b4e16e4c7502"
+      }
+    ],
+    "resultSha256": "d8dd715cc2ef41f09e1adff6397c6d0563d5ad4fdfa30d71f699b626b8582bf9",
+    "resultLength": 1354
+  },
+  "numberedDeliveries": [],
+  "ownerReceiptConfirmation": "pending"
+}

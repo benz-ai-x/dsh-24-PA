@@ -1,0 +1,9 @@
+{
+  "capturedAt": "2026-11-09T03:12:20.571Z",
+  "serviceActive": true,
+  "mainPid": 180470,
+  "installedVersion": "0.2.2-rc.1.7",
+  "inspectorListening": false,
+  "receiveCodeSha256": "9675c6ddde8e7c2293f96d021367afafecedfc68b16141b2c3f11bddb6c408bf",
+  "receiveCodeMatchesReleaseArtifact": true
+}
