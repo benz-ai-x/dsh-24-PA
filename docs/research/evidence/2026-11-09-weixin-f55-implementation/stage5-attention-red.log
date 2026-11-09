@@ -1,0 +1,35 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/plan-delivery-guards.test.mjs (14 tests | 2 failed | 12 skipped) 829ms
+   × 投递评审边界 (sqlite) > 核验通知期间原运行已经完成，不再发送旧的待处理要求 16ms
+     → expected 1 to be +0 // Object.is equality
+   × 投递评审边界 (postgres) > 核验通知期间原运行已经完成，不再发送旧的待处理要求 19ms
+     → expected 1 to be +0 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/plan-delivery-guards.test.mjs > 投递评审边界 (sqlite) > 核验通知期间原运行已经完成，不再发送旧的待处理要求
+ FAIL  tests/unit/plan-delivery-guards.test.mjs > 投递评审边界 (postgres) > 核验通知期间原运行已经完成，不再发送旧的待处理要求
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/unit/plan-delivery-guards.test.mjs:74:19
+     72|     access.verifyDelivery = async () => { await repos.skillRuns.transi…
+     73|     let sends = 0; await dispatcher(async () => ({ messageId: `unexpec…
+     74|     expect(sends).toBe(0);
+       |                   ^
+     75|     const [notice] = await notices(); expect(notice.kind).toBe('attent…
+     76|     expect(notice.deliveries[0].outbox.attempts).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 12 skipped (14)
+   Start at  17:59:33
+   Duration  1.19s (transform 138ms, setup 0ms, collect 271ms, tests 829ms, environment 0ms, prepare 20ms)
