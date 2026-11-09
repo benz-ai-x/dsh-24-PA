@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/plan-delivery-guards.test.mjs (14 tests) 945ms
+
+ Test Files  1 passed (1)
+      Tests  14 passed (14)
+   Start at  18:01:31
+   Duration  1.36s (transform 158ms, setup 0ms, collect 313ms, tests 945ms, environment 0ms, prepare 29ms)

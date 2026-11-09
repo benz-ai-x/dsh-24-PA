@@ -1,0 +1,38 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs (18 tests | 1 failed | 17 skipped) 7135ms
+   × WX-18/21 计划通知指向其他运行时，补投拒绝发送并保留原结果 2064ms
+     → expected { …(29) } to match object { status: 'completed', …(2) }
+(39 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin-plan-delivery.e2e.mjs > WX-18/21 计划通知指向其他运行时，补投拒绝发送并保留原结果
+AssertionError: expected { …(29) } to match object { status: 'completed', …(2) }
+(39 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "delivery_status": "failed",
++   "delivery_status": "sent",
+    "result": "原计划的保存结果，不得借其他运行关联发送。",
+    "status": "completed",
+  }
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs:106:23
+    104|     await action('plan.delivery', { op: 'retry', runId: run.id, outbox…
+    105|     const final = await until(() => detail(run.id), value => ['failed'…
+    106|     expect(final.run).toMatchObject({ status: 'completed', result: bod…
+       |                       ^
+    107|     expect(final.deliveries[0].deliveries[0].outbox).toMatchObject({ a…
+    108|     expect(final.deliveries[0].deliveries[0].outbox.last_error).toCont…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 17 skipped (18)
+   Start at  17:55:03
+   Duration  7.32s (transform 43ms, setup 0ms, collect 82ms, tests 7.14s, environment 0ms, prepare 27ms)

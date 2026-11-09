@@ -1,0 +1,113 @@
+{
+  "recordedAt": "2026-11-09T10:11:13.334Z",
+  "testedCommit": "4e5db38b93610f54b51978ea41c0b6c5ca723fe6",
+  "stage": 5,
+  "issue": 281,
+  "scope": "Plan/run/notice/recipient linkage and current attention checks. Partial F55; not merge-ready, released or deployed.",
+  "completeRuns": [
+    {
+      "storage": "sqlite",
+      "kind": "real Loader, Session, authenticated UI APIs and persistence",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs",
+        "tests/e2e/manticore-plan-delivery.e2e.mjs"
+      ],
+      "passed": 33,
+      "failed": 0,
+      "log": "stage5-sqlite.log"
+    },
+    {
+      "storage": "postgres",
+      "kind": "real Loader, Session, authenticated UI APIs and persistence",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs",
+        "tests/e2e/manticore-plan-delivery.e2e.mjs"
+      ],
+      "passed": 33,
+      "failed": 0,
+      "log": "stage5-postgres.log"
+    },
+    {
+      "kind": "supplemental public service/transport checks with real databases",
+      "files": [
+        "tests/unit/plan-results.test.mjs",
+        "tests/unit/plan-delivery-guards.test.mjs",
+        "tests/unit/weixin-send-guards.test.mjs"
+      ],
+      "passed": 39,
+      "failed": 0,
+      "log": "stage5-unit.log"
+    }
+  ],
+  "targetedRuns": [
+    {
+      "kind": "real host wrong outbound run association",
+      "storage": "sqlite",
+      "passed": 1,
+      "skipped": 17,
+      "log": "stage5-association-green.log"
+    },
+    {
+      "kind": "real host budget wait ends during quiet period; only final result is sent",
+      "storage": "sqlite",
+      "passed": 1,
+      "skipped": 18,
+      "log": "stage5-attention-native.log"
+    },
+    {
+      "kind": "supplemental guard tests before final new progress-change case",
+      "passed": 14,
+      "failed": 0,
+      "log": "stage5-attention-green.log"
+    }
+  ],
+  "commands": {
+    "native": "DSH_BIN=/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js PA24_E2E_EXTRA_PLUGINS=@deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1 PA24_E2E_STORAGE=sqlite|postgres node node_modules/vitest/vitest.mjs run tests/e2e/weixin-plan-delivery.e2e.mjs tests/e2e/weixin.e2e.mjs tests/e2e/manticore-plan-delivery.e2e.mjs",
+    "unit": "node node_modules/vitest/vitest.mjs run tests/unit/plan-results.test.mjs tests/unit/plan-delivery-guards.test.mjs tests/unit/weixin-send-guards.test.mjs",
+    "checks": [
+      "npm run build",
+      "npm run preset:check",
+      "node --check client.js",
+      "git diff --check",
+      "node packages/24pa/scripts/secrets/scan.mjs --paths .",
+      "node packages/24pa/scripts/secrets/scan.mjs --staged"
+    ]
+  },
+  "reproducedBeforeFix": [
+    {
+      "log": "stage5-association-red.log",
+      "observation": "Actual host sent a notification whose explicit association named another run."
+    },
+    {
+      "log": "stage5-attention-red.log",
+      "observation": "Both databases sent the old attention notification after the run completed during target verification."
+    }
+  ],
+  "corrections": [
+    "Cross-check plan, run, immutable snapshot, notice, delivery, channel, component and complete WeChat target; reject missing or conflicting explicit plan associations.",
+    "Reread current saved intent and attention status after asynchronous target and quiet-preference preparation; reject changed linkage and expire resolved or changed attention."
+  ],
+  "priorFailureBoundary": "Stage4 combined SQLite backup timeout remains unexplained. These two complete stage5 runs passed without changing backup code or increasing its timeout; this does not invent a root cause.",
+  "remaining": [
+    "Original business read provenance",
+    "B real evidence and matching server/UI admission",
+    "Version-upgrade, business permission and WeCom acceptance",
+    "Full desktop T20",
+    "Owner-visible real scheduled result and final review"
+  ],
+  "logs": [
+    "stage5-association-green.log",
+    "stage5-association-red.log",
+    "stage5-attention-green.log",
+    "stage5-attention-native.log",
+    "stage5-attention-red.log",
+    "stage5-build.log",
+    "stage5-postgres.log",
+    "stage5-preset.log",
+    "stage5-sqlite.log",
+    "stage5-unit.log"
+  ],
+  "evidenceBoundary": "External platform/model/clock are isolated replacements. No real WeChat messages, no 8010 changes. Unit interleaving tests supplement real-host acceptance."
+}
