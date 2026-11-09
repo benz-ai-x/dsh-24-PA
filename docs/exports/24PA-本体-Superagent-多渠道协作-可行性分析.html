@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><meta name="description" content="24私助长期专题、本体能力契约、Superagent 执行和飞书／微信 ClawBot／DSH 多渠道协作的可行性分析与验证路径。"><title>24私助｜本体、Superagent 与多渠道协作的可行性分析</title><style>
+:root{--ink:#1d3548;--muted:#657987;--line:#dce5eb;--accent:#107b70;--paper:#fff;--bg:#edf2f5;--navy:#18384f}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:28px}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}a{color:#087b75;text-decoration:none}a:hover{text-decoration:underline}a:focus-visible,button:focus-visible{outline:3px solid #d19528;outline-offset:4px}p{margin:15px 0}strong{color:#183b51;font-weight:650}code{font:0.88em/1.65 ui-monospace,SFMono-Regular,Consolas,monospace;background:#edf3f6;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}li{margin:10px 0}ul,ol{padding-left:25px}li>p{margin:5px 0}button{font:inherit;cursor:pointer}.layout{display:grid;grid-template-columns:244px minmax(0,1fr);gap:30px;max-width:1440px;margin:auto;padding:30px 28px 56px}.sidebar{position:sticky;top:28px;align-self:start;padding:14px 5px}.brand{font-size:25px;font-weight:750;letter-spacing:.5px;color:var(--navy)}.brand small{display:block;font-size:11px;letter-spacing:2.2px;font-weight:500;color:var(--muted);margin-top:2px}.nav-label{font-size:11px;color:#84949f;letter-spacing:2px;margin:30px 0 12px}.sidebar nav{display:grid;gap:3px}.sidebar nav a{display:flex;gap:10px;padding:9px 10px 9px 0;font-size:13px;line-height:1.55;color:#4e6475;border-radius:6px}.sidebar nav a span{color:#8b9daa;font-variant-numeric:tabular-nums;font-size:11px;padding-top:2px}.sidebar nav a:hover,.sidebar nav a.active{color:#087c70;background:#e1edee;text-decoration:none}.sidebar-footer{margin-top:24px;border-top:1px solid #d7e1e8;padding-top:18px;font-size:11px;color:#728492;line-height:1.8}.print-btn{border:1px solid #bfced7;background:transparent;color:#38556c;border-radius:7px;padding:8px 14px;font-size:12px;margin-top:14px}.document{min-width:0;background:#fff;border:1px solid #e1e9ee;box-shadow:0 12px 42px #1b35470b;border-radius:16px;overflow:hidden}.hero{background:#18384f;padding:54px 54px 42px;color:#fff;position:relative}.eyebrow{font-size:11px;letter-spacing:2.5px;color:#b5d6de;margin-bottom:20px}.hero h1{font-size:39px;line-height:1.4;letter-spacing:-.7px;margin:0 0 20px;font-weight:700}.hero h1 span{display:block;font-size:23px;font-weight:500;color:#bddcd9;letter-spacing:.3px;margin-top:10px}.hero .lead{font-size:17px;line-height:1.95;color:#e1ebf0;max-width:790px}.meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}.meta span{border:1px solid #507184;border-radius:99px;padding:4px 12px;color:#d7e6ee;font-size:11px}.content{padding:10px 54px 48px}.takeaway{padding:26px 0 30px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px;border-bottom:1px solid var(--line)}.takeaway div+div{border-left:1px solid var(--line);padding-left:22px}.takeaway small{display:block;color:#78919c;font-size:11px;letter-spacing:1.2px}.takeaway b{display:block;font-size:18px;color:#24485b;margin:5px 0}.takeaway p{font-size:13px;color:#637b89;margin:0;line-height:1.7}.reading-note{font-size:12px;color:#7a8c98;padding:18px 0 0}.chapter{padding-top:30px;margin-top:15px;border-bottom:1px solid #e4ebef;padding-bottom:32px;scroll-margin-top:24px}.chapter h2{display:flex;gap:14px;align-items:baseline;font-size:25px;line-height:1.5;font-weight:680;color:#163b51;margin:0 0 24px;letter-spacing:-.25px}.chapter-number{font-size:13px;letter-spacing:1px;color:#0b8b7c;font-weight:700}.chapter h3{font-size:19px;margin:30px 0 15px}table{width:100%;border-collapse:collapse;font-size:14px;line-height:1.8}th,td{text-align:left;vertical-align:top;border-bottom:1px solid #dfe7ec;padding:14px 15px;overflow-wrap:anywhere}th{color:#2b5369;background:#eaf2f6;font-weight:650}tr:nth-child(even) td{background:#f8fafb}td:first-child{font-weight:550;color:#244b62;width:22%}.table-wrap{margin:24px 0;border:1px solid #dce6ec;border-radius:9px;overflow:hidden}.table-wrap tr:last-child td{border-bottom:0}.source-ref{font-size:11px;font-weight:600;margin:0 2px;vertical-align:super;line-height:0;color:#148a7d}.architecture{margin:26px -22px 26px;background:#f9fbfc;border:1px solid #e3ebef;border-radius:10px;padding:18px 10px 12px}.architecture svg{display:block;width:100%;height:auto}figcaption{font-size:11px;color:#7b8f9d;text-align:center;padding:8px}.chapter:first-of-type>p:nth-of-type(2){background:#edf7f4;border-left:4px solid #258f7e;border-radius:0 8px 8px 0;padding:18px 20px;margin:22px 0}.source-directory{font-size:13px;color:#596f7d;line-height:1.9;padding:10px 0}.source-directory h3{color:#24485b;font-size:19px}.source-directory dt{font-weight:650;color:#375568;padding-top:12px;scroll-margin-top:25px}.source-directory dd{margin:5px 0 10px}.source-directory ul{padding-left:20px}.commit{padding:14px 18px;background:#f3f6f8;border-radius:8px;font-size:11px}.document-footer{display:flex;justify-content:space-between;gap:15px;border-top:1px solid #dde6ec;padding-top:24px;font-size:11px;color:#8597a2}.document-footer strong{color:#5e7787;font-weight:600}
+@media(max-width:1150px){.layout{grid-template-columns:195px minmax(0,1fr);gap:20px;padding:20px}.content{padding:10px 34px 36px}.hero{padding:40px 34px 34px}.hero h1{font-size:34px}.sidebar nav a{font-size:12px}.architecture{margin-left:-18px;margin-right:-18px}th,td{padding:12px}}
+@media(max-width:900px){.layout{display:block;padding:20px}.sidebar{position:static;padding:4px 8px 20px}.sidebar nav,.nav-label,.sidebar-footer{display:none}.brand small{display:inline;margin-left:15px}.document{border-radius:12px}.content{padding:10px 32px 35px}.hero{padding:38px 32px}.architecture{margin-left:-15px;margin-right:-15px}.takeaway{gap:16px}.takeaway div+div{padding-left:16px}}
+@media print{@page{size:A4;margin:16mm 16mm 18mm}html{scroll-behavior:auto}body{background:#fff;color:#182f40;font-size:10.5pt;line-height:1.7;print-color-adjust:exact;-webkit-print-color-adjust:exact}.layout{display:block;padding:0;max-width:none}.sidebar,.reading-note{display:none}.document{border:0;box-shadow:none;border-radius:0;overflow:visible}.hero{padding:20px 24px 24px;border-radius:10px}.hero h1{font-size:27pt}.hero h1 span{font-size:15pt}.hero .lead{font-size:11pt}.content{padding:0}.takeaway{padding:20px 0}.chapter{margin-top:12px;padding-top:20px;padding-bottom:20px;border-bottom:1px solid #dce5eb}.chapter h2{font-size:16pt;break-after:avoid;page-break-after:avoid;margin-bottom:15px}.chapter h3{break-after:avoid}.chapter p{orphans:3;widows:3}.architecture{margin:20px 0;break-inside:avoid}.table-wrap{overflow:visible;border-radius:0;break-inside:auto}table{font-size:9pt;line-height:1.65}thead{display:table-header-group}tr{break-inside:avoid}th,td{padding:8px 9px}.source-ref{font-size:8pt}.document-footer{font-size:8pt}.takeaway b{font-size:12pt}.takeaway p{font-size:9pt}.source-directory{font-size:9pt}a{color:inherit}a::after{content:none}}
+</style></head>
+<body><div class="layout"><aside class="sidebar"><a class="brand" href="#top">24私助<small>24PA · DESIGN STUDY</small></a><div class="nav-label">文档目录</div><nav aria-label="章节导航"><a href="#chapter-01"><span>01</span>对需求的理解与判断</a><a href="#chapter-02"><span>02</span>分工与数据流</a><a href="#chapter-03"><span>03</span>长期专题承载什么</a><a href="#chapter-04"><span>04</span>怎样理解“先以本体定义能力”</a><a href="#chapter-05"><span>05</span>Superagent 可以承担什么、还缺什么</a><a href="#chapter-06"><span>06</span>能否直接复用 DSH 插件</a><a href="#chapter-07"><span>07</span>多渠道是双向协作界面</a><a href="#chapter-08"><span>08</span>一个完整使用例子</a><a href="#chapter-09"><span>09</span>可行性、主要风险与验证顺序</a><a href="#chapter-10"><span>10</span>证据与未验证范围</a></nav><div class="sidebar-footer">2026年11月8日<br>设计方向分析 · HTML 阅读版<br>单文件，正文与图表可离线阅读。<br><button class="print-btn" type="button" onclick="window.print()">打印 / 保存 PDF</button></div></aside>
+<main class="document" id="top"><header class="hero"><div class="eyebrow">PRODUCT &amp; ARCHITECTURE · FEASIBILITY</div><h1>让长期目标持续推进<span>本体 × Superagent × 多渠道协作</span></h1><p class="lead">24私助作为人的长期助理：以本体明确业务对象与可用能力，以 Superagent 组织任务分解和交付，通过飞书、微信 ClawBot、DSH 与主人持续协作。</p><div class="meta"><span>2026-11-08 · Asia/Shanghai</span><span>长期专题 / 项目</span><span>设计分析，尚非已批准产品基线</span></div></header>
+<div class="content"><div class="takeaway" aria-label="核心分工"><div><small>SEMANTICS &amp; ACTIONS</small><b>本体明确业务</b><p>处理什么对象，允许哪些动作，怎样证明结果。</p></div><div><small>ORCHESTRATION</small><b>Superagent 推进执行</b><p>在授权范围内分解、委派、等待、接续和恢复。</p></div><div><small>HUMAN COLLABORATION</small><b>渠道承接协作</b><p>交办、补充、决定、停止与成果反馈。</p></div></div>
+<p class="reading-note">阅读提示：正文区分已有源码能力、产品建议与未验证部分。架构图为职责示意，不能作为功能已经实现的证明。</p><section class="chapter" id="chapter-01"><h2><span class="chapter-number">01</span>对需求的理解与判断</h2>
+<p>用户提出的方向是：24私助作为人的长期助理，以本体明确业务世界与可用能力，基于 Superagent 组织任务分解、执行和交付，通过飞书、微信 ClawBot、DSH 对话框等入口与人协作。前述长期专题／项目是这套架构中承载持续目标的业务对象。</p>
+<p>判断：<strong>架构成立，可以基于现有24私助和 Superagent 渐进实现。需要补齐的核心是可执行的业务契约、单一执行归属和成果证据，以及多渠道的可信身份与交互，而非只组合三个名称。</strong></p>
+<p>建议将24私助理解为整体产品：它负责主人的目标、授权、专题和业务事实；Superagent 是其中可替换的编排执行组件。本体描述对象、关系、状态和动作，且由真实查询与动作实现支撑。模型规划质量与业务验收仍需独立验证。</p>
+</section><section class="chapter" id="chapter-02"><h2><span class="chapter-number">02</span>分工与数据流</h2>
+<figure aria-labelledby="architecture-caption" class="architecture">
+<svg aria-labelledby="diagram-title diagram-desc" role="img" viewbox="0 0 1120 700" xmlns="http://www.w3.org/2000/svg">
+<title id="diagram-title">24私助：本体、Superagent 与多渠道协作架构</title>
+<desc id="diagram-desc">主人通过飞书、微信 ClawBot 和 DSH 与24私助协作。24私助向 Superagent 委派工作。本体提供对象、动作与证据。Superagent 经受控动作调用工具，结果形成成果与回执，再回写业务事实并向渠道投递。</desc>
+<defs><marker id="arrow" markerheight="7" markerwidth="7" orient="auto-start-reverse" refx="9" refy="5" viewbox="0 0 10 10"><path d="M 0 0 L 10 5 L 0 10 z" fill="#526782"></path></marker><marker id="teal-arrow" markerheight="7" markerwidth="7" orient="auto" refx="9" refy="5" viewbox="0 0 10 10"><path d="M 0 0 L 10 5 L 0 10 z" fill="#128776"></path></marker></defs>
+<g fill="none" marker-end="url(#arrow)" stroke="#526782" stroke-width="2.2">
+<path d="M250 62H330" marker-start="url(#arrow)"></path>
+<path d="M580 100V145" marker-start="url(#arrow)"></path>
+<path d="M580 225V285" marker-start="url(#arrow)"></path>
+<path d="M580 365V425"></path>
+<path d="M580 495V540"></path>
+<path d="M800 575H860"></path>
+<path d="M970 425V215H1000V100"></path>
+<path d="M290 330H360"></path>
+<path d="M290 310H315V185H360"></path>
+</g>
+<path d="M970 610V660H165V500" fill="none" marker-end="url(#teal-arrow)" stroke="#128776" stroke-dasharray="7 6" stroke-width="2.2"></path>
+<g font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">
+<rect fill="#fff" height="75" rx="15" stroke="#bccbd9" width="200" x="50" y="25"></rect><text fill="#19334c" font-size="21" font-weight="700" x="150" y="57">主人</text><text fill="#5c7182" font-size="14" x="150" y="82">目标 · 授权 · 反馈 · 验收</text>
+<rect fill="#eaf4f7" height="75" rx="15" stroke="#8cb7c6" width="720" x="330" y="25"></rect><text fill="#19334c" font-size="21" font-weight="700" x="690" y="57">渠道接入与呈现</text><text fill="#426678" font-size="16" x="690" y="82">飞书 ／ 微信 ClawBot ／ DSH 对话与电脑面板</text>
+<rect fill="#18384f" height="80" rx="15" width="440" x="360" y="145"></rect><text fill="#fff" font-size="23" font-weight="700" x="580" y="178">24私助</text><text fill="#d0e3ee" font-size="16" x="580" y="205">意图 · 长期专题 · 主人授权 · 待决策问题</text>
+<rect fill="#edf7f2" height="215" rx="15" stroke="#87bfa9" width="250" x="40" y="285"></rect><text fill="#23634d" font-size="21" font-weight="700" x="165" y="328">本体与能力契约</text><text fill="#3b6655" font-size="16" x="165" y="368">对象 · 关系 · 状态</text><text fill="#3b6655" font-size="16" x="165" y="400">动作 · 条件 · 来源</text><text fill="#3b6655" font-size="16" x="165" y="432">版本 · 结果 · 证据</text><text fill="#4e7464" font-size="13" x="165" y="474">通过实际业务服务解析与执行</text>
+<rect fill="#f0edfa" height="80" rx="15" stroke="#b1a4d0" width="440" x="360" y="285"></rect><text fill="#51407b" font-size="22" font-weight="700" x="580" y="318">Superagent</text><text fill="#6a588f" font-size="16" x="580" y="345">分解 · 委派 · 等待 · 接续 · 恢复</text>
+<rect fill="#fff7e8" height="70" rx="15" stroke="#d6ba7f" width="440" x="360" y="425"></rect><text fill="#7d5d21" font-size="21" font-weight="700" x="580" y="455">受控业务动作</text><text fill="#866c3e" font-size="15" x="580" y="480">执行时权限 · 版本 · 前置条件 · 重复控制</text>
+<rect fill="#f2f5f8" height="70" rx="15" stroke="#a5b7c9" width="440" x="360" y="540"></rect><text fill="#314d66" font-size="21" font-weight="700" x="580" y="570">Skill ／ 工具 ／ 平台适配器</text><text fill="#60798c" font-size="15" x="580" y="595">按实际账号与平台能力执行</text>
+<rect fill="#eaf5f4" height="185" rx="15" stroke="#8dbeb8" width="220" x="860" y="425"></rect><text fill="#246861" font-size="21" font-weight="700" x="970" y="465">成果与回执</text><text fill="#447c76" font-size="16" x="970" y="503">成果版本 · 引用证据</text><text fill="#447c76" font-size="16" x="970" y="536">验收记录 · 结果存档</text><text fill="#246861" font-size="15" x="970" y="580">业务成功与投递成功分开</text>
+<text fill="#63788b" font-size="13" text-anchor="start" x="635" y="257">委派与反馈</text><text fill="#63788b" font-size="14" text-anchor="end" x="955" y="300">结果投递</text><text fill="#128776" font-size="14" x="610" y="683">业务事实与证据回写</text>
+</g></svg>
+<figcaption id="architecture-caption">职责与信息流示意 · 箭头表示协作与信息流，不要求每个框独立部署。</figcaption></figure>
+<p>本图是职责示意，不要求每个框都是单独服务、进程或数据库。本体服务可从已有账本、业务服务和原平台按权限解析对象；普通页面读取仍使用已保存观察，不能因引入本体而自动触发模型或远端业务操作。<a class="source-ref" href="#source-p2">P1</a></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>负责回答的问题</th>
+<th>应拥有的事实</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>24私助产品与交互</td>
+<td>主人真正希望得到什么，允许做到哪里，哪些选择需要本人决定</td>
+<td>专题目标、可信指令、授权范围、成果验收、固定回传目标</td>
+</tr>
+<tr>
+<td>本体与能力契约</td>
+<td>在处理什么对象，它和其他对象有什么关系，目前哪些动作可用</td>
+<td>类型、身份、关系、业务状态、来源、动作定义及证据关联</td>
+</tr>
+<tr>
+<td>Superagent</td>
+<td>怎样将目标推进到可交付结果，哪些工作可以并行，何时等待与继续</td>
+<td>被交付给它的工作、执行分派、输入消费、进度和恢复状态</td>
+</tr>
+<tr>
+<td>受控动作与工具实现</td>
+<td>这个动作现在能不能做，怎样执行并证明结果</td>
+<td>执行时权限和前置条件检查、实际操作、回执及结果未知状态</td>
+</tr>
+<tr>
+<td>渠道适配</td>
+<td>从哪里接单，怎样提出问题、接收答复、展示和送达结果</td>
+<td>来源身份、消息引用、交互标识、投递状态和渠道能力</td>
+</tr>
+</tbody>
+</table></div>
+<p>24私助交互层和 Superagent 不应各自再为同一目标做一次独立规划并各自派工。建议24私助整理目标、上下文和授权，复杂交办的执行计划由一个编排者负责；简单确定性操作仍可走原业务服务，避免每次查询都增加多代理成本。</p>
+</section><section class="chapter" id="chapter-03"><h2><span class="chapter-number">03</span>长期专题承载什么</h2>
+<p>长期专题／项目是24私助持续理解和推进一个目标的业务容器。一个专题可以关联多份交办，每份交办又可以有多次运行；专题不必绑定一个不断增长的聊天会话，也不需要一直占用一个运行中的 Agent。<a class="source-ref" href="#source-p4">P4</a></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>专题内容</th>
+<th>长期保留什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>目标与范围</td>
+<td>当前要解决的问题、阶段成果、允许助理独立推进的边界</td>
+</tr>
+<tr>
+<td>资料索引</td>
+<td>主人选定的资料、来源、版本、读取时间和可访问范围</td>
+</tr>
+<tr>
+<td>当前简报</td>
+<td>已知结论、尚未解决的问题、下一步；区分事实、建议与主人决定</td>
+</tr>
+<tr>
+<td>工作关联</td>
+<td>具体交办、平台待办、日程及原始状态和入口</td>
+</tr>
+<tr>
+<td>成果与决定</td>
+<td>交付物版本、引用证据、主人反馈与验收记录</td>
+</tr>
+<tr>
+<td>跟进约定</td>
+<td>获准关注的来源、触发条件、运行限额、通知出口和暂停条件</td>
+</tr>
+</tbody>
+</table></div>
+<p>每次执行只加载当前目标、有关决定、必要资料和相关交办；新资料只影响有关工作。资料事实、模型建议和主人确认不能混成同一种长期记忆。以上为产品设计建议，现有项目基础尚不等于完整专题产品。</p>
+<p>例如，“汽车营销 AI 产品化”可以持续数周；“比较两个切入口”“准备评审材料”“根据会议反馈修订试点方案”分别是具体交办。新的反馈关联相应交办和成果版本，而不是重启整个专题。</p>
+</section><section class="chapter" id="chapter-04"><h2><span class="chapter-number">04</span>怎样理解“先以本体定义能力”</h2>
+<p>建议把本体中的能力落实到<strong>对象上的动作契约</strong>。以“为某份已选定的工作安排日程”为例：</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>契约内容</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>相关对象</td>
+<td>计划项、原待办／助理交办、日历来源、日程</td>
+</tr>
+<tr>
+<td>输入</td>
+<td>精确对象及版本、时间、日历目标、主人授权依据</td>
+</tr>
+<tr>
+<td>前置条件</td>
+<td>对象可见、日历可写、授权仍有效、必要冲突已核对</td>
+</tr>
+<tr>
+<td>实际实现</td>
+<td>复用24私助现有日程服务及对应平台适配器</td>
+</tr>
+<tr>
+<td>输出与证据</td>
+<td>原平台日程定位、操作回执、读回核验与排期关系</td>
+</tr>
+<tr>
+<td>完成含义</td>
+<td>已安排时间；不据此宣布关联方案、研究或其他工作成果已完成</td>
+</tr>
+</tbody>
+</table></div>
+<p>本体定义可组合的业务语义；Skill 提供方法与步骤；工具和业务服务负责实际执行。能力目录还应呈现依赖是否可用、当前角色能否执行、输入输出及契约版本。描述里有一个动作，不表示对应账号、工具和数据已经就绪。</p>
+<p>Palantir 的官方方法将数据、逻辑、行动和安全共同纳入决策体系，并单独定义动作的应用权限与提交条件；这里借鉴的是这种可执行契约思路，不要求24私助采用 Palantir 产品。<a class="source-ref" href="https://www.palantir.com/docs/foundry/action-types/permissions" rel="noopener noreferrer" target="_blank">S1</a></p>
+<p>现有<a href="#source-p4">最小本体模型草案</a>已经围绕今日工作定义对象、关系、动作和证据，适合作为一条起步链路。该草案尚未实施，范围也是“今日工作”；长期专题和成果版本需要后续增量设计，不能把草案误作覆盖全产品的现成内核。首期可在现有存储与服务上增加类型化查询和动作描述，没有已证实的图数据库迁移必要性。</p>
+</section><section class="chapter" id="chapter-05"><h2><span class="chapter-number">05</span>Superagent 可以承担什么、还缺什么</h2>
+<p>固定提交 <code>8c32a9dc5d72c033816c6a8110b37f40cf94fba4</code> 已有事件判断、授权工作 Ticket、执行分派 Assignment、独立执行会话、子代理工具、后续输入、结构化问题以及恢复机制。可直接复用其运行实现，并通过适配连接24私助。<a class="source-ref" href="https://github.com/deepseek-ai/dsh-superagent-prototype/blob/8c32a9dc5d72c033816c6a8110b37f40cf94fba4/src/app/tools/executor.ts" rel="noopener noreferrer" target="_blank">S3</a><a class="source-ref" href="#source-p4">P4</a></p>
+<p>但需要明确两项区别：</p>
+<ul>
+<li><strong>编排机制与规划质量不同。</strong> 当前原型的主会话主要接受、附加、忽略和停止工作；执行器借助模型、工具和子代理完成任务。它没有接入24私助本体，不会天然按24私助的动作契约生成可执行计划。可靠拆解、依赖处理、参数映射与成果校验需要适配和真实样例评估。<a class="source-ref" href="https://github.com/deepseek-ai/dsh-superagent-prototype/blob/8c32a9dc5d72c033816c6a8110b37f40cf94fba4/src/app/tools/executor.ts" rel="noopener noreferrer" target="_blank">S3</a></li>
+<li><strong>执行报告与业务成果不同。</strong> 上游 <code>ready</code>、PR 合并等终止条件不能普遍代替方案验收、日历写入核验或待办完成判断。计划应关联输入对象与版本、步骤依赖、允许动作、预期结果、结果证据和必要人工决策。<a class="source-ref" href="#source-p4">P3</a></li>
+</ul>
+<p>建议执行前验证计划所引用的对象、动作、参数和依赖；每一步执行时再次检查当前权限和状态。执行中发生变化，记录计划修订与理由，并保留已经发生的动作。模型负责提出方案，确定性校验负责拦住不存在、不可执行或未经授权的动作；两者都不能单独证明方案满足人的真实目标。</p>
+<p>同一交办必须只有一个执行所有者。可由24私助保存业务目标与验收、Superagent 保存执行状态，适配层持久关联二者；24私助的状态展示只引用对应执行证据，不能同时启动另一组 Worker 重做这份工作。相同事件也要避免从两个渠道接收路径分别触发执行。</p>
+</section><section class="chapter" id="chapter-06"><h2><span class="chapter-number">06</span>能否直接复用 DSH 插件</h2>
+<p><strong>可以采用“源码构建的 Superagent bundle ＋ 24私助适配层”的路线，复用上游编排与执行实现。当前没有即装即用的24私助连接器，同宿主兼容性也尚未实测。</strong> 本次建议优先验证复用，不要求先重写一个 Superagent。<a class="source-ref" href="#source-p4">P4</a></p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>已有接入点</th>
+<th>可以怎样使用</th>
+<th>不能据此假定什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cordis 的 orchestrator 服务、来源注册</td>
+<td>注册24私助来源，将请求和后续输入接入原型</td>
+<td>并非一个现成的通用业务提交 API</td>
+</tr>
+<tr>
+<td>SourceContext.receive 与 Ticket 查询</td>
+<td>提交事件、查询关联工作</td>
+<td>接收返回 stored / duplicate / filtered，不等于已经接单或完成</td>
+</tr>
+<tr>
+<td>SourceChannel.send</td>
+<td>把输出交回24私助记录与投递</td>
+<td>不应让上游与24私助重复给用户发同一份结果</td>
+</tr>
+<tr>
+<td>根包核心 Engine 与端口</td>
+<td>需要更深控制时组合核心实现</td>
+<td>接口仍需固定版本并做适配验证</td>
+</tr>
+</tbody>
+</table></div>
+<p>适配层应保存事件、24私助交办与 Superagent Ticket 的稳定对应关系，并负责补充、停止、恢复和结果转换。24私助拥有目标、授权与成果验收；Superagent 拥有委派给它的执行状态。日程、待办、记忆等业务写入仍走24私助的原有权限和回执路径。<a class="source-ref" href="#source-p4">P4</a></p>
+<p>四个需要先处理的工程缺口：</p>
+<ol>
+<li><strong>启动绑定 GitHub。</strong> 当前初始化要求仓库、有效 CLI 账号和推送权限，关闭 GitHub 轮询并不能消除这个前置条件。通用专题需要调整初始化与相应提示，或先在真实代码项目内验证。</li>
+<li><strong>公开接口尚不完整。</strong> 来源接口缺少完整的停止、重试和状态订阅能力，管理 HTTP 也没有通用提交端点；需要补齐范围明确的适配接口。</li>
+<li><strong>同进程环境可能相互影响。</strong> 初始化直接改写进程 PATH 和 Git 环境，包装命令会接管 gh 与 lark-cli；不同 stateDir 不足以隔离这些变化。影响24私助的具体程度仍待实测。</li>
+<li><strong>执行权限需要收紧。</strong> 原型会话具有宽泛 Shell 权限；增加 Skill 文本不能替代业务动作授权和真实执行隔离。</li>
+</ol>
+<p>首个试验建议固定上游版本，以独立 DSH 进程和受控桥接验证“提交 → 补充 → 返回结果 → 停止 → 重启恢复”。独立进程只隔离进程环境；文件与凭据还需要实际执行边界。不要直接把上游管理面板 HTTP 当作公开业务接口。<a class="source-ref" href="#source-p4">P4</a></p>
+</section><section class="chapter" id="chapter-07"><h2><span class="chapter-number">07</span>多渠道是双向协作界面</h2>
+<p>用户提到的输出渠道建议同时承接请求、补充、决策和停止操作。任务和成果身份应独立于聊天窗口，业务结果与投递结果分别记录；发送失败只补投，不能重做已成功业务。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>渠道</th>
+<th>建议的使用体验</th>
+<th>当前判断</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>飞书</td>
+<td>接单、简报、决策入口、文档链接及已支持的交互卡片</td>
+<td>24私助已有实现；新增本体／Superagent 结果仍需接到原收发与权限流程。</td>
+</tr>
+<tr>
+<td>微信 ClawBot</td>
+<td>简短交办、进展摘要、带工作标识的问题和结果链接；复杂处理可进入已授权电脑界面</td>
+<td>自研接入仍未实现；先验证主人私聊文字链路，文件、审核、语音和主动发送分别验收。<a class="source-ref" href="#source-p5">P5</a></td>
+</tr>
+<tr>
+<td>DSH 对话与电脑面板</td>
+<td>详细计划、资料与成果查看、复杂操作和工作区维护</td>
+<td>当前本地能力可复用；不把本地维护权限自动带给远端渠道。<a class="source-ref" href="#source-p2">P1</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>“同一主人”需要显式绑定平台身份，不能按昵称合并。跨渠道回答问题时必须关联工作 ID、问题 ID、所针对的成果版本，并检查身份；可见同一专题不等于自动拥有该专题所有资料或动作的权限。默认结果回发起入口，主人明确选择其他出口后才改投；若新增跨渠道控制语义，应扩展现行 ADR 契约而非暗中改写归属。<a class="source-ref" href="#source-p2">P2</a></p>
+<p>飞书有两个不同角色：聊天与通知渠道、文档／日历／待办等业务后端。微信发起或接收结果，不要求把业务对象搬到微信，也不证明微信用户已获得飞书文档访问权。渠道只根据真实可用能力呈现同一业务结果，不能承诺所有平台具备相同卡片、文件或语音能力。<a class="source-ref" href="#source-p5">P5</a></p>
+</section><section class="chapter" id="chapter-08"><h2><span class="chapter-number">08</span>一个完整使用例子</h2>
+<p>以下是目标体验，尚未实现：主人在一个已绑定入口说：“根据这个专题里的资料，准备周五方案讨论的会前包，完成后发我。”</p>
+<ol>
+<li>24私助定位专题、相关日程、材料与原始授权；无法唯一定位时只问必要问题。</li>
+<li>本体服务返回资料版本、已有决定、有关业务对象，以及本次身份可以使用的动作；缺失或旧资料明确标记。</li>
+<li>Superagent 提出并执行范围内的工作：梳理背景、比较方案、列出风险、形成讨论提纲；独立部分可并行。</li>
+<li>资料读取、保存草稿、发布文档与投递分别走对应受控动作。先前授权已涵盖的步骤直接继续；出现新增对外承诺或范围扩大时再请主人决定。</li>
+<li>形成会前包版本，关联引用材料、具体交办和执行证据。模型自检、动作成功和主人验收分别记录。</li>
+<li>结果以适合当前渠道的形式送达：简短摘要加文档／成果入口，DSH 可显示更完整的依据。渠道不可用时保存结果与真实投递状态。</li>
+<li>主人反馈“第二部分换一种方案”，系统定位同一成果及交办，生成新版本，保留旧版本与决定。</li>
+</ol>
+<p>这一过程体现本体负责语义与证据、Superagent 负责推进、渠道负责交互，最终判断仍是主人是否获得可用成果。</p>
+</section><section class="chapter" id="chapter-09"><h2><span class="chapter-number">09</span>可行性、主要风险与验证顺序</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>判断</th>
+<th>最先验证什么</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>业务建模</td>
+<td>可行，现有对象和动作已有基础</td>
+<td>用一个用例检查输入、状态、关系与完成标准能否完整表达</td>
+</tr>
+<tr>
+<td>插件复用</td>
+<td>有真实接口，需适配，未做兼容实测</td>
+<td>提交、补充、停止、结果返回与重启恢复</td>
+</tr>
+<tr>
+<td>本体驱动规划</td>
+<td>可开发，但不是上游现成功能</td>
+<td>模型只使用当前可用动作，拆解可完成，有正确结果证据</td>
+</tr>
+<tr>
+<td>多渠道体验</td>
+<td>设计可行，渠道成熟度不同</td>
+<td>同一工作身份、原文授权、决策关联与投递恢复</td>
+</tr>
+<tr>
+<td>长期专题</td>
+<td>可在已有项目／交办上扩展，非现有完整产品</td>
+<td>跨日保持目标和决定一致，新资料只影响有关工作</td>
+</tr>
+</tbody>
+</table></div>
+<p>直接复用原型时还有已知工程限制：启动要求 GitHub 仓库与账号；缺少完整公开的业务执行适配接口；会话具有宽泛 Shell 权限；初始化会修改整个进程的 PATH 和 Git 环境。因而首个复用验证宜使用独立 DSH 进程与受控桥接，业务操作仍在24私助检查；单独进程只能隔开进程环境，文件和凭据仍须按实际执行环境隔离。<a class="source-ref" href="https://github.com/deepseek-ai/dsh-superagent-prototype/blob/8c32a9dc5d72c033816c6a8110b37f40cf94fba4/src/infra/environment.ts#L118-L124" rel="noopener noreferrer" target="_blank">P4</a><a class="source-ref" href="https://github.com/deepseek-ai/dsh-superagent-prototype/blob/8c32a9dc5d72c033816c6a8110b37f40cf94fba4/src/app/sessions.ts" rel="noopener noreferrer" target="_blank">S6</a></p>
+<p>建议按一条完整链路分步推进：</p>
+<ol>
+<li><strong>先选一个结果明确的用例。</strong> 如“专题资料 → 会前准备包 → 主人反馈修订”，先用现有 DSH／飞书入口；无需先定义所有领域的完整本体。</li>
+<li><strong>为这条链路声明最少对象与动作。</strong> 复用现有专题／项目基础、交办、资料和运行记录，补成果版本与精确引用。动作定义连接实际处理器和权限，不另建一份容易漂移的允许清单。</li>
+<li><strong>让 Superagent 实际执行一次。</strong> 适配任务与状态，校验分解、执行和交付；明确哪个组件拥有每份工作及其停止恢复责任。</li>
+<li><strong>验证有变化、有失败的情况。</strong> 输入重复、权限收紧、资料更新、外部结果未知、进程重启、需要主人决定、业务成功但发送失败。</li>
+<li><strong>再接微信及更多专题。</strong> 接入可信身份、入站与出站，使同一业务能力通过另一渠道使用，再考虑更主动的事件跟进。</li>
+</ol>
+<p>验收应记录成果是否可用、人工实质修改、重复说明背景、无效追问、耗时和模型用量；同时逐项核对越权、重复副作用及错误完成声明。先测实际基线，不预设“本体＋多代理”必然提高质量或降低成本。</p>
+</section><section class="chapter" id="chapter-10"><h2><span class="chapter-number">10</span>证据与未验证范围</h2>
+<ul>
+<li>本体依据为2026-11-08设计草案与前序分析读取的 Palantir 官方文档；借鉴方法不等于依赖该平台。</li>
+<li>Superagent 依据固定提交的源码与前两轮调查，前序分析补读了主会话工具、执行器工具和允许工具列表；未启动原型或调用真实模型。</li>
+<li>24私助补核对隔离快照 <code>e48983c7d2865890621db4c37b00eb3f3f8c0478</code> 的入口、主人输入、交办来源和 Outbox 类型；该快照仍无微信类型。快照版本关系见微信研究，本文不以滞后的根目录代码推断全部最新交付状态。<a class="source-ref" href="#source-p5">P5</a></li>
+<li>当前正式基线仍采用实际父会话的 Worker 归属、本地与远端权限区分、固定回传入口。外部执行器与跨渠道控制是待设计增量，尚未获实施授权，也不自动满足 ADR-0001。<a class="source-ref" href="#source-p2">P2</a></li>
+</ul>
+</section><div class="source-directory"><h3>来源目录</h3>
+<p>外部链接指向官方文档或固定提交源码。内部资料以本地文档名称列出，相关结论已在正文展开；单文件阅读无需加载这些资料。</p>
+<dl>
+<dt id="source-p1">P1 · 24PA-Manticore-产品定稿.md</dt><dd>现有产品职责、只读查看与交互边界。</dd>
+<dt id="source-p2">P2 · ADR-0001：workspace-session-boundaries.md</dt><dd>父会话归属、主人授权、本地与远端权限、固定回传入口；外部执行器与跨渠道控制仍需增量设计。</dd>
+<dt id="source-p3">P3 · 24PA-最小本体模型-设计草案.md</dt><dd>2026-11-08 v0.1 讨论草案，聚焦今日工作；不代表完整本体内核已经实现。</dd>
+<dt id="source-p4">P4 · Superagent 与长期专题集成研究</dt><dd>2026-11-08 源码能力、长期专题建议及“能否直接复用插件”补充分析。</dd>
+<dt id="source-p5">P5 · 微信 ClawBot 当前代码分析</dt><dd>2026-11-08 静态研究；自研接入尚未实现或真实账号验证。后续实现变化需重新核验。</dd>
+</dl>
+<ul class="external-sources">
+<li><a href="https://www.palantir.com/docs/foundry/ontology/why-ontology" target="_blank" rel="noopener noreferrer">S1 · Palantir：Why Ontology</a></li>
+<li><a href="https://www.palantir.com/docs/foundry/action-types/permissions" target="_blank" rel="noopener noreferrer">S2 · Palantir：Action type permissions</a></li>
+<li><a href="https://github.com/deepseek-ai/dsh-superagent-prototype" target="_blank" rel="noopener noreferrer">Superagent 官方仓库</a> · 本文按下述固定提交分析，不随主分支变化自动更新。</li>
+</ul>
+<p class="commit">Superagent 证据提交<br><code>8c32a9dc5d72c033816c6a8110b37f40cf94fba4</code></p>
+</div><footer class="document-footer"><span><strong>24私助 / 24PA</strong> · 可行性研究</span><span>基于前序分析整理 · 2026-11-08 · v1.0</span></footer></div></main></div>
+<script>const entries=[...document.querySelectorAll('.chapter')];const links=[...document.querySelectorAll('nav a')];if('IntersectionObserver'in window){new IntersectionObserver(items=>{for(const i of items){if(i.isIntersecting){links.forEach(a=>a.classList.toggle('active',a.hash==='#'+i.target.id));}}},{rootMargin:'-10% 0px -65% 0px'}).observe(entries[0]);const observer=new IntersectionObserver(items=>{for(const i of items){if(i.isIntersecting){links.forEach(a=>a.classList.toggle('active',a.hash==='#'+i.target.id));}}},{rootMargin:'-8% 0px -60% 0px'});entries.forEach(e=>observer.observe(e));}</script>
+</body></html>
