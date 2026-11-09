@@ -1,0 +1,27 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-issue-audit-20261109/packages/24pa
+
+ ✓ tests/unit/task-plan-service.test.mjs (66 tests) 1730ms
+ ✓ tests/unit/work-planning.test.mjs (40 tests) 1889ms
+   ✓ 工作方法的持久闭环 postgres > 备份恢复保留采纳快照、复盘与全部修订，并能继续版本校验 871ms
+ ✓ tests/unit/worker-run.test.mjs (28 tests) 2796ms
+ ✓ tests/unit/plan-results.test.mjs (20 tests) 1096ms
+ ✓ tests/unit/plan-conversation.test.mjs (6 tests) 3228ms
+   ✓ PC-01/03 实际公共工具新建晨报与面板同默认，预览无写入，主人确认才启用且不重复 793ms
+   ✓ PC-01 明确固定模板不会被智能默认改写，未放行智能能力不扩展维护权限 364ms
+   ✓ PC-02 面板创建的语音计划可从对话调整、暂停和恢复，同一身份与历史保留 653ms
+   ✓ PC-06 同类与同名计划明确选择，预览后另入口已创建则不能重复创建 585ms
+   ✓ PC-07 保存与启用之间投递身份改变，保留暂停草稿而不采用新身份 448ms
+   ✓ PC-06/07 未采用、过期、换身份及换工作区的确认不能写入 385ms
+ ✓ tests/unit/weixin-ledger.test.mjs (17 tests) 958ms
+ ✓ tests/unit/task-plan.test.mjs (21 tests) 960ms
+ ✓ tests/unit/weixin-tool-scope.test.mjs (6 tests) 31ms
+ ✓ tests/unit/weixin-panel.test.mjs (4 tests) 133ms
+ ✓ tests/unit/weixin-plan-boundaries.test.mjs (7 tests) 4ms
+ ✓ tests/unit/weixin-input-close.test.mjs (5 tests) 125ms
+ ✓ tests/unit/weixin-recovery.test.mjs (7 tests) 4ms
+
+ Test Files  12 passed (12)
+      Tests  227 passed (227)
+   Start at  14:31:20
+   Duration  16.30s (transform 361ms, setup 0ms, collect 2.20s, tests 12.95s, environment 1ms, prepare 230ms)

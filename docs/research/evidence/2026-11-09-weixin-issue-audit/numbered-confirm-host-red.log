@@ -1,0 +1,64 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-issue-audit-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin.e2e.mjs (9 tests | 1 failed | 7 skipped) 9328ms
+   ✓ WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝都经持久 Outbox 4133ms
+   × WX-14/15 已有暂停计划改时，经微信完整编号原文续办确认仍不启用或通知 1057ms
+     → expected { …(22) } to match object { …(9) }
+(13 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin.e2e.mjs > WX-14/15 已有暂停计划改时，经微信完整编号原文续办确认仍不启用或通知
+AssertionError: expected { …(22) } to match object { …(9) }
+(13 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "id": "plan-e95a200c-1fbc-485a-bb74-bc4553b753e3",
+    "owner_enabled": false,
+-   "revision": 1,
++   "revision": 0,
+    "schedule_spec": Object {
+-     "at": "2026-11-11T06:48:46.229Z",
++     "at": "2026-11-11T06:18:46.229Z",
+      "time_zone": "Asia/Shanghai",
+    },
+    "session_id": "pa24-750d5011b9fc-feishu",
+    "status": "paused",
+    "task_authorization": null,
+    "task_config": Object {
+      "delivery": Object {
+        "channel": "none",
+        "mode": "always",
+        "overrideQuiet": false,
+        "voice": false,
+      },
+      "deliveryTtlMs": 3600000,
+      "executionLimitMs": 900000,
+      "missedTtlMs": 3600000,
+      "parameters": Object {},
+      "selectors": Object {},
+      "skillId": "builtin:digest-morning",
+      "timeZone": "Asia/Shanghai",
+      "version": 1,
+    },
+    "voice": false,
+  }
+
+ ❯ tests/e2e/weixin.e2e.mjs:157:24
+    155|   expect(run.inputs.some(input => input.status === 'adopted' && input.…
+    156|   const changed = await host.api('plans.inspect', { id: original.id, w…
+    157|   expect(changed.plan).toMatchObject({ id: original.id, revision: orig…
+       |                        ^
+    158|     session_id: original.session_id, voice: original.voice, task_autho…
+    159|     task_config: original.task_config, schedule_spec: { ...original.sc…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed | 7 skipped (9)
+   Start at  14:18:37
+   Duration  9.51s (transform 45ms, setup 0ms, collect 85ms, tests 9.33s, environment 0ms, prepare 24ms)

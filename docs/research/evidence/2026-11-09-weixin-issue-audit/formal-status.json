@@ -1,0 +1,36 @@
+{
+  "capturedAt": "2026-11-09T06:38:55.503Z",
+  "weixin": {
+    "phase": "stopped",
+    "errorPresent": false,
+    "bindingEnabled": false,
+    "inboxCount": 4,
+    "deliveryCount": 4,
+    "latest": {
+      "createdAt": "2026-11-09T02:28:21.358Z",
+      "status": "delivered",
+      "textLength": 2,
+      "textSha256": "7c9691192f1b73408bbe4c0cb6d00db94375ca9d8fce0a0d5985e7a5178f083f"
+    },
+    "numberedInputObserved": false
+  },
+  "work": {
+    "status": "completed",
+    "runCount": 2,
+    "currentRunSha256": "b0a827b3fc68da7fe84843b3f7d45e11475cd057aff8e73c1c0f73457486c6fd"
+  },
+  "fixture": {
+    "planId": "plan-aa44424c-38bc-4cf1-a197-e29723ae520d",
+    "title": "微信计划验收-20261109",
+    "status": "paused",
+    "ownerEnabled": false,
+    "revision": 0,
+    "channel": "none",
+    "authorizationPresent": false,
+    "schedule": {
+      "at": "2026-11-10T10:00:00.000Z",
+      "time_zone": "Asia/Shanghai"
+    },
+    "activeRuns": 0
+  }
+}

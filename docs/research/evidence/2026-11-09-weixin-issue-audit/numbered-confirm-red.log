@@ -1,0 +1,27 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-issue-audit-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-plan-boundaries.test.mjs (6 tests | 1 failed) 6ms
+   × WX-14 明确原交办编号与确认词可共存于同一条完整主人原文 2ms
+     → 需要主人在预览后回复该计划的确认文字；模型 confirm 参数或原请求不算确认。
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-plan-boundaries.test.mjs > WX-14 明确原交办编号与确认词可共存于同一条完整主人原文
+Error: 需要主人在预览后回复该计划的确认文字；模型 confirm 参数或原请求不算确认。
+ ❯ PlanConversation.refusal lib/plan-conversation.js:44:100
+     42|     }
+     43|     refusal(item, message) {
+     44|         return item?.origin === 'weixin' || item?.execution_scope?.own…
+       |                                                                                                    ^
+     45|     }
+     46|     async owner(item, instruction) {
+ ❯ PlanConversation.confirm lib/plan-conversation.js:171:24
+ ❯ tests/unit/weixin-plan-boundaries.test.mjs:40:10
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  14:17:55
+   Duration  744ms (transform 316ms, setup 0ms, collect 631ms, tests 6ms, environment 0ms, prepare 32ms)
