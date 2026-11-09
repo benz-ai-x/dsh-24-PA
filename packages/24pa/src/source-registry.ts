@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { effectiveSources, selectSource, sourceScopeFingerprint, SourceError, type LegacySourceConfiguration, type SourceDomain, type SourcePlatform, type SourceRegistration, type SourceSelector } from './source-config.js';
 import type { SourceRepo, SourceEvidenceRow, SourceRegistrationRow } from './repo/source.js';
+import { recordBusinessSource } from './business-read-scope.js';
 
 export type SourceCapability = 'read' | 'create' | 'update' | 'cancel' | 'leave' | 'reminders' | 'series';
 export type CapabilityVerdict = 'allowed' | 'attemptable' | 'denied' | 'unknown' | 'adapter_unavailable';
@@ -109,8 +110,10 @@ export class SourceRegistry {
     const row = (await this.deps.repo().get(source.id))!;
     const current = effectiveSources(this.deps.config()).entries.find(item => item.id === source.id);
     if (!current || row.removed || row.scope_hash !== sourceScopeFingerprint(source) || sourceScopeFingerprint(current) !== row.scope_hash || connection !== this.deps.connectionHash(source.platform)) throw new SourceError('目标解析期间来源已变更，请重新确认。');
-    return { sourceId: source.id, domain, platform: source.platform, identity: proof.identity!, identityKey: sourceIdentityKey(proof.identity!), resource: proof.resource!,
+    const target: SourceTarget = { sourceId: source.id, domain, platform: source.platform, identity: proof.identity!, identityKey: sourceIdentityKey(proof.identity!), resource: proof.resource!,
       registrationRevision: row.revision, scopeHash: row.scope_hash, connectionHash: connection, selectedBy: reason, permission: { capability, verdict: proof.capabilities[capability] }, checkedAt: proof.checkedAt };
+    recordBusinessSource(target);
+    return target;
   }
 
   /** Explicit routing conditions cannot silently replace a frozen target. */
@@ -135,6 +138,7 @@ export class SourceRegistry {
     if (!registration || registration.revision !== target.registrationRevision || connection !== this.deps.connectionHash(target.platform)) throw new SourceError('原来源已移除、重新登记或正在切换接入，请核对原目标后重配。');
     this.assertCapability(proof, capability, source.name);
     if (sourceIdentityKey(proof.identity!) !== target.identityKey || proof.resource!.id !== target.resource.id || proof.resource!.kind !== target.resource.kind) throw new SourceError('原目标的实际身份或资源已改变，请核对，不能按新身份执行。');
+    recordBusinessSource(target);
     return proof;
   }
   private assertCapability(proof: SourceEvidence, capability: SourceCapability, name: string): void {

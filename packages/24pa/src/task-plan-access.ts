@@ -2,6 +2,7 @@ import type { SourceRegistry, SourceCapability } from './source-registry.js';
 import type { SourceDomain } from './source-config.js';
 import type { TaskPlanAuthorization, TaskPlanConfiguration } from './task-plan.js';
 import { skillHash } from './skill-package.js';
+import type { BusinessReadScope } from './business-read-scope.js';
 
 const writes: Record<string, { domain: SourceDomain; capability: SourceCapability }> = {
   calendar_create: { domain: 'calendar', capability: 'create' }, calendar_update: { domain: 'calendar', capability: 'update' },
@@ -66,6 +67,10 @@ export class TaskPlanAccess {
   async verifyBusiness(authorization: TaskPlanAuthorization): Promise<void> {
     for (const action of authorization.skill.contract?.actions ?? []) this.checkAction(action);
     for (const row of authorization.targets) await this.deps.sources.verify(row.target, scopeCapability(row.target.domain, row.capability), true);
+  }
+  async verifyReadScope(scope: BusinessReadScope | null | undefined): Promise<void> {
+    if (scope?.version !== 1 || scope.complete !== true || !Array.isArray(scope.targets)) throw new Error('原结果缺少完整的业务读取来源依据，请在电脑端查看。');
+    for (const target of scope.targets) await this.deps.sources.verify(target, 'read', false);
   }
   async verifyDelivery(delivery: TaskPlanAuthorization['delivery']): Promise<void> {
     if (delivery) {

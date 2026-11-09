@@ -8,7 +8,8 @@ import { noteDerivedContent } from './note-derivation.js';
 import type { DshSession, NativeScheduleService } from './host.js';
 import type { MemoryStore } from './memory.js';
 import type { ChannelContextDeps } from './channel-deps.js';
-import type { WorkItemRow, NewOutbox, DigestPlanRow, DigestOccurrenceRow } from './repo.js';
+import type { WorkItemRow, NewOutbox, DigestPlanRow, DigestOccurrenceRow, TaskRow } from './repo.js';
+import { unverifiedBusinessRead } from './business-read-scope.js';
 import type { NoteTrustResult } from './note-trust.js';
 import { PlanLifecycle } from './plan-lifecycle.js';
 import type { ResolvedTaskSkill, SkillDefinitionLike } from './skills.js';
@@ -39,6 +40,7 @@ export interface DigestDeps extends ChannelContextDeps {
   syncCalendarWindow(calendarId: string, from: Date, to: Date): Promise<{ ok: boolean; error?: string }>;
   queryCalendar?(args: Record<string, unknown>): ReturnType<SourceCalendar['all']>;
   bindCalendar?(args: Record<string, unknown>): Promise<SourceTarget>;
+  recordTaskReadScope?(tasks: TaskRow[]): Promise<void>;
   calendarWrite(item: WorkItemRow, kind: 'create' | 'update' | 'cancel', args: Record<string, unknown>, operationId?: string): Promise<unknown>;
   inspectNoteTrust(noteId: string, versionId: string): Promise<NoteTrustResult>;
   ownerNotification(dedupKey: string, report: string): Promise<NewOutbox | null>;
@@ -298,6 +300,8 @@ export class DigestService {
     };
     const calendar = await observe(dayStart, dayEnd);
     const tasks = await this.deps.repos().tasks.all();
+    if (this.deps.recordTaskReadScope) await this.deps.recordTaskReadScope(tasks);
+    else if (tasks.length) unverifiedBusinessRead();
     checkExecution();
     const mapTask = (t: typeof tasks[number]) => ({ guid: t.task_guid, summary: t.summary, dueAt: isoDate(t.due_at), plannedAt: isoDate(t.planned_at), estimateMinutes: t.estimate_minutes,
       overdue: !!(t.due_at && new Date(t.due_at).getTime() < new Date(context.anchorAt).getTime()) });
@@ -332,6 +336,9 @@ export class DigestService {
           missing.push(`已审笔记 ${row.note_id} v${row.version} 暂无法核验（${(error as Error).message}），未列入概览`);
           continue;
         }
+        // Document-derived summaries have no SourceTarget receipt yet.
+        // Preserve them locally, but do not invent remote disclosure proof.
+        unverifiedBusinessRead();
         reviewedNotes.push({
           noteId: row.note_id,
           version: row.version,

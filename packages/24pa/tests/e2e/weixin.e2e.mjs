@@ -170,6 +170,67 @@ it.each(['none', 'feishu', 'wecom'])('WX-14/15 已有暂停计划改时，显示
   expect((await host.api('plans.inspect', { id: original.id, workspaceBinding: binding })).plan.revision).toBe(original.revision + 1);
 }, 180000);
 
+it.each(['template', 'business'])('WX-13 历史计划结果按原读取来源授权，移除原来源后不能借新默认披露（%s）', async mode => {
+  const prior = (await host.api('snapshot')).workspace.config.sources;
+  const change = async (type, values) => host.api('action', { type, requestId: randomUUID(), workspaceBinding: binding,
+    ...(type === 'workspace.config-update' ? { expectedSourcesHash: (await host.api('sources', { workspaceBinding: binding })).configHash } : {}), ...values });
+  const sources = calendar => ({ version: 1, mappings: [], meetingDurationMinutes: null,
+    defaults: { calendar, todo: 'wx-proof-todo' }, entries: [
+      { id: calendar, domain: 'calendar', platform: 'feishu', name: calendar, purpose: 'personal', ownerId: 'wx-fixture-feishu-owner', resourceKind: 'calendar', resourceId: calendar, filter: 'all', access: 'readwrite', enabled: true },
+      { id: 'wx-proof-todo', domain: 'todo', platform: 'feishu', name: '本人待办', purpose: 'personal', ownerId: 'wx-fixture-feishu-owner', resourceKind: 'tasklist', resourceId: 'fixture-list', filter: 'all', access: 'readwrite', enabled: true },
+    ] });
+  const sensitive = '仅原来源可读-' + randomUUID(), eventsPath = join(root, 'lark.json.events.jsonl');
+  const larkStatePath = join(root, 'lark.json'), originalLarkState = JSON.parse(await readFile(larkStatePath, 'utf8'));
+  const setRole = async role => writeFile(larkStatePath, JSON.stringify({ ...JSON.parse(await readFile(larkStatePath, 'utf8')), calendarRole: role }));
+  const originalEvents = await readFile(eventsPath, 'utf8').catch(() => '');
+  const day = new Date().toISOString().slice(0, 10);
+  await writeFile(eventsPath, originalEvents + JSON.stringify({ event_id: 'wx-proof-event', calendar_id: 'wx-proof-a', summary: sensitive,
+    start: day + 'T09:00:00+08:00', end: day + 'T09:30:00+08:00' }) + '\n');
+  try {
+    await change('workspace.config-update', { config: { sources: sources('wx-proof-a') } });
+    let plan = (await change('plan.change', { op: 'save', title: '原来源结果核验', skillId: mode === 'template' ? 'builtin:digest-morning' : 'builtin:daily-planning',
+      timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'none' } })).plan;
+    const preview = await host.api('plans.preview', { id: plan.id, workspaceBinding: binding });
+    plan = (await change('plan.change', { op: 'enable', id: plan.id, expectedRevision: plan.revision, confirm: true, fingerprint: preview.fingerprint })).plan;
+    plan = (await change('plan.change', { op: 'pause', id: plan.id, expectedRevision: plan.revision })).plan;
+    const check = await host.api('plans.run-preview', { id: plan.id, workspaceBinding: binding });
+    if (mode === 'business') await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true,
+      steps: [{ tool: { name: 'pa24_work', input: { action: 'planning_context' } } }, { text: '本次计划查询结果：' + sensitive }] }));
+    const run = (await change('plan.change', { op: 'run', id: plan.id, confirm: true, fingerprint: check.fingerprint })).run;
+    await host.waitUntil(s => s.work.some(row => row.active_skill_run_id === run.id && row.status === 'completed'), { timeoutMs: 15000, label: '原来源模板结果' });
+    const local = await host.api('skills.run', { runId: run.id, workspaceBinding: binding });
+    expect(local.run.result).toContain(sensitive);
+    if (mode === 'business') expect(JSON.stringify(local.calls)).toContain(sensitive);
+    const before = await chat('reminders', { action: 'digest_list', planId: plan.id }, `查看计划 ${plan.id} 的最近结果。`);
+    expect(before.text).toContain(sensitive);
+    const profileRoot = host.root;
+    await host.stop({ keepRoot: true }); host = await bootHost({ env, root: profileRoot });
+    binding = (await host.waitUntil(s => !!s.workspaceBinding && s.transport?.connected)).workspaceBinding;
+    await waitFor(s => s.phase === 'polling');
+    // Read permission is sufficient; loss of write permission alone must not
+    // hide an already saved, still-readable result.
+    await setRole('reader');
+    expect((await chat('reminders', { action: 'digest_list', planId: plan.id }, `重启后只读查询计划 ${plan.id} 的结果。`)).text).toContain(sensitive);
+    await setRole('free_busy_reader');
+    const revoked = await chat('reminders', { action: 'digest_list', planId: plan.id }, `查询已撤销详情读取权限的计划 ${plan.id}。`);
+    expect(revoked.text).not.toContain(sensitive); expect(revoked.text).toContain('"result":null');
+    await setRole('owner');
+    const otherDefault = sources('wx-proof-b'); otherDefault.entries.push(sources('wx-proof-a').entries[0]);
+    await change('workspace.config-update', { config: { sources: otherDefault } });
+    expect((await chat('reminders', { action: 'digest_list', planId: plan.id }, `默认来源已改，但保留原来源，查询计划 ${plan.id}。`)).text).toContain(sensitive);
+    await change('workspace.config-update', { config: { sources: sources('wx-proof-b') } });
+    const after = await chat('reminders', { action: 'digest_list', planId: plan.id }, `再次查看计划 ${plan.id} 的最近结果。`);
+    expect(after.text).not.toContain(sensitive);
+    expect(after.text).toContain('"result":null');
+    expect(after.text).toMatch(/来源|授权/);
+    expect((await host.api('skills.run', { runId: run.id, workspaceBinding: binding })).run.result).toBe(local.run.result);
+  } finally {
+    await change('workspace.config-update', { config: { sources: prior } });
+    await writeFile(eventsPath, originalEvents);
+    await writeFile(larkStatePath, JSON.stringify(originalLarkState));
+  }
+}, 180000);
+
 it('WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联本次微信输入且不重复创建', async () => {
   const summary = '隔离微信待办-' + randomUUID();
   const task = await chat('tasks', { action: 'task_create', summary }, `请记录待办：${summary}`);
@@ -282,7 +343,10 @@ it('WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔�
     await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: leadRequestText }] } });
     for (let n = 0; n < 800; n++) {
       const result = llm.log.slice(start).at(-1)?.toolResults.at(-1);
-      if (result && !seenResults.has(result)) return decode(result); await delay(50);
+      if (!result || seenResults.has(result)) { await delay(50); continue; }
+      // A large receipt is spilled by the Host: the text keeps its head and names the file with the whole of it.
+      const spilled = /Full formatted result stored at: (\S+)\./.exec(result);
+      return decode(spilled ? await readFile(spilled[1], 'utf8') : result);
     }
     const backups = await Promise.race([
       host.api('backups', { workspaceBinding: binding }).then(value => value.rows.map(row => ({

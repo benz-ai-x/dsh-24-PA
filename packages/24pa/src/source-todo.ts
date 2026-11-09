@@ -5,6 +5,7 @@ import type { TaskRow, ActionOperationRow } from './repo.js';
 import { sourceObjectId } from './repo/source-projection.js';
 import { localDay } from './calendar-time.js';
 import { isDeepStrictEqual } from 'node:util';
+import { recordBusinessSource, unverifiedBusinessRead } from './business-read-scope.js';
 
 export type TodoRole = 'all' | 'responsible' | 'following' | 'assigned' | 'creator';
 
@@ -53,6 +54,16 @@ export class SourceTodo {
 
   async localObjectId(task: TaskRow): Promise<string | null> { return (await this.localReference(task))?.objectId ?? null; }
 
+  /** Legacy projections without an original identity cannot lend today's
+   * default identity to a historical result. */
+  async recordLocalReadScope(tasks: TaskRow[]): Promise<void> {
+    for (const task of tasks) {
+      const reference = await this.localReference(task);
+      if (reference?.target) recordBusinessSource(reference.target);
+      else unverifiedBusinessRead();
+    }
+  }
+
   private selected(args: Record<string, unknown>): SourceRegistration[] {
     const config = effectiveSources(this.deps.config());
     let entries = config.entries.filter(row => row.domain === 'todo');
@@ -94,6 +105,7 @@ export class SourceTodo {
           await this.deps.projection().observe(target, await this.deps.read(target));
         }); refreshed = true;
       } catch (error) { failure = (error as Error).message; }
+      if (source.enabled && (!refreshed || failure)) unverifiedBusinessRead();
       const cache = await this.deps.projection().cached(scope, query), observation = cache.observation;
       const current = effectiveSources(this.deps.config()).entries.find(row => row.id === source.id);
       if (!current || sourceScopeFingerprint(current) !== scope.scopeHash) throw new Error('查询期间来源配置已改变，请重新查询。');

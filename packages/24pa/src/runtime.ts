@@ -51,7 +51,8 @@ import { ModelBudgets } from './model-budgets.js';
 import { WorkerRuns } from './worker-runs.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
-import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox } from './repo.js';
+import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox, type SkillRunRow } from './repo.js';
+import { captureBusinessReads, unverifiedBusinessRead } from './business-read-scope.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { template, ConfigError, validateConfig, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './local-tool-access.js';
@@ -641,6 +642,7 @@ export class PaRuntime {
     planChangesAvailable: () => !this.closed && !this.workspaceChanging,
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
     queryCalendar: args => this.sourceCalendar.all(args),
+    recordTaskReadScope: tasks => this.sourceTodo.recordLocalReadScope(tasks),
     bindCalendar: args => this.sourceCalendarWrites.target(args),
     calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
     inspectNoteTrust: (noteId, versionId) => this.handwriting.inspectTrust(noteId, versionId),
@@ -811,7 +813,7 @@ export class PaRuntime {
         this.trackWorkItem(executing);
         await this.startWorker(executing, content, run.snapshot.plan ? 'caller' : 'parent');
       },
-      template: (def, parameters, run) => this.digest.manualTemplate(def, parameters, run?.snapshot.plan),
+      template: (def, parameters, run) => this.capturePlanReads(run, () => this.digest.manualTemplate(def, parameters, run?.snapshot.plan)),
       checkTemplate: def => this.digest.checkTemplate(def),
       lease: work => this.executions.run(work), control: work => this.executions.control(work), detached: work => this.executions.detached(work),
       diagnostic: (id, phase, error) => this.runHistory.capture(id, phase, error),
@@ -861,6 +863,11 @@ export class PaRuntime {
     return skillHash(JSON.stringify(this.config ? [this.config.ownerOpenId, this.config.mode, this.config.larkProfile,
       authorization ? [] : this.config.extraLocalTools, this.config.enabledWorkers, this.config.extraBusinessSkills,
       ...(authorization ? [] : [this.config.calendarChannel, this.config.todoChannel])] : null));
+  }
+
+  private capturePlanReads<T>(run: SkillRunRow | undefined, work: () => Promise<T>): Promise<T> {
+    const repos = this.repos!;
+    return run?.snapshot.plan ? captureBusinessReads(work, scope => repos.skillRuns.recordReadScope(run.id, scope)) : work();
   }
 
   async planStep(agent: DshAgent, messages: RunInput[], next: () => Promise<{ kind: 'reject' } | { kind: 'enter'; messages: RunInput[] }>) {
@@ -1003,6 +1010,7 @@ export class PaRuntime {
             to: args.to ? String(args.to) : undefined,
             limit: 20,
           });
+          if (memos.length) unverifiedBusinessRead();
           return {
             count: memos.length,
             memos: memos.map(m => ({
@@ -2408,8 +2416,9 @@ export class PaRuntime {
     if (!run || !plan || plan.id !== row.id || run.mode === 'local' || !plan.configuration.skillId.startsWith('builtin:') ||
         plan.configuration.skillId !== row.task_config?.skillId) return { ...meta, result: null, message: '原运行不属于当前可披露的业务计划。' };
     try {
+      if (this.skillPermissionHash(plan.authorization) !== run.snapshot.permissionHash) throw new Error('原业务身份或权限已改变。');
       await this.taskPlanAccess.verifyBusiness(plan.authorization);
-      for (const domain of ['calendar', 'todo'] as const) await this.sourceRegistry.bind(domain, plan.configuration.selectors[domain], 'read', true);
+      await this.taskPlanAccess.verifyReadScope(run.read_scope);
     } catch { return { ...meta, result: null, message: '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' }; }
     return { ...meta, result: run.result, message: run.result ? '业务结果已保存；投递状态单独列出，不代表已读。' : '本次还没有可披露的结果正文。' };
   }
@@ -2999,13 +3008,15 @@ export class PaRuntime {
           }
           if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
           if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
-          let authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
-          if (run.snapshot.plan && Object.hasOwn(this.planningActions, action)) {
-            const timeZone = run.snapshot.plan.configuration.timeZone;
-            const date = localDay(run.snapshot.plan.triggeredAt, timeZone).date;
-            authorized = fixedPlanningWindow(authorized, date, timeZone);
-          }
-          return await this.skillBusinessAction(action)(authorized, item, this);
+          return await this.capturePlanReads(run, async () => {
+            let authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
+            if (run.snapshot.plan && Object.hasOwn(this.planningActions, action)) {
+              const timeZone = run.snapshot.plan.configuration.timeZone;
+              const date = localDay(run.snapshot.plan.triggeredAt, timeZone).date;
+              authorized = fixedPlanningWindow(authorized, date, timeZone);
+            }
+            return this.skillBusinessAction(action)(authorized, item, this);
+          });
         }
         const role = this.roles.get(item.role);
         const action = String(args.action ?? '');
