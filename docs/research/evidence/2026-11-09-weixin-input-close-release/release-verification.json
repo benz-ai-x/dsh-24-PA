@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-11-09T02:19:51.400127+00:00",
+  "version": "0.2.2-rc.1.7",
+  "releaseCommit": "e63d8228ff954bd08357b39d8ae6c5252c87dabb",
+  "mergeCommit": "48cadd8b974ce7be3d6debc1b253a9d7d16e0666",
+  "artifact": "benz-ai-x-dsh-24pa-0.2.2-rc.1.7.tgz",
+  "sha256": "689fd1057e9de9c9dc036cf47411a26777b5ed49cf5e3a42718d2e4883ea1d7a",
+  "bytes": 710970,
+  "entryCount": 158,
+  "npmLatest": "0.2.2-rc.1.7",
+  "activeHostTag": "0.2.2-rc.1.7",
+  "githubLatest": "v0.2.2-rc.1.7",
+  "historicalTagsUnchanged": true,
+  "localNpmGithubSha256Equal": true
+}
