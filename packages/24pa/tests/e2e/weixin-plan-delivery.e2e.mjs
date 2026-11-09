@@ -31,9 +31,10 @@ const decode = value => {
 async function localTool(name, input) {
   const local = (await host.api('snapshot')).workspace.localSessionId, start = llm.requests.length;
   const prior = new Set(llm.requests.flatMap(row => row.toolResults));
-  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name, input }, leadReply: '已返回隔离验收工具结果。' }));
+  const leadRequestText = '本人明确执行隔离验收操作：' + JSON.stringify(input);
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadRequestText, leadTool: { name, input }, leadReply: '已返回隔离验收工具结果。' }));
   await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: local, mode: 'queue',
-    content: [{ type: 'text', text: '本人明确执行隔离验收操作：' + JSON.stringify(input) }] } });
+    content: [{ type: 'text', text: leadRequestText }] } });
   const result = await until(() => Promise.resolve(llm.requests.slice(start).at(-1)?.toolResults.at(-1)), value => value && !prior.has(value));
   return decode(result);
 }
