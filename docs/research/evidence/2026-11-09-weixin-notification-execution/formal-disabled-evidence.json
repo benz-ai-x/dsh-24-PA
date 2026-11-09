@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-09T03:34:35.823Z",
+  "authorizedScope": "owner-approved three notifications at 10 minutes, 26 hours, 50 hours; formal entry disabled; preserve history",
+  "phase": "stopped",
+  "enabled": false,
+  "identityUnchanged": true,
+  "inboxCount": 4,
+  "deliveryCount": 4,
+  "originalInboxPreserved": true,
+  "originalDeliveriesPreserved": true,
+  "workStates": {
+    "completed": 28,
+    "stopped": 12
+  }
+}

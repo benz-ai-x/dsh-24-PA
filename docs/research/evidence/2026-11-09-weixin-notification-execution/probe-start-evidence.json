@@ -1,0 +1,46 @@
+{
+  "capturedAt": "2026-11-09T03:35:31.152Z",
+  "sourceFiles": 12,
+  "sourceMatchesReviewedFiles": true,
+  "priorProbe": {
+    "pid": 3868730,
+    "ownerMatchesFormalBinding": true,
+    "botMatchesFormalBinding": false,
+    "deliveryCount": 2,
+    "visibleReceiptCount": 2,
+    "latestEvent": "stopped",
+    "latestEventAt": "2026-11-08T14:36:44.460Z",
+    "gracefullyStopped": true,
+    "recordsRetained": true
+  },
+  "probe": {
+    "pid": 211194,
+    "port": 43473,
+    "run": "43d99782-4a73-4f73-b824-9af7d41bf126",
+    "phase": "unbound",
+    "enabled": false,
+    "challenge": "24PA 通知条件测试 43d99782",
+    "steps": [
+      {
+        "kind": "notification-1",
+        "afterMs": 600000,
+        "context": "original"
+      },
+      {
+        "kind": "notification-2",
+        "afterMs": 93600000,
+        "context": "original"
+      },
+      {
+        "kind": "notification-3",
+        "afterMs": 180000000,
+        "context": "original"
+      }
+    ],
+    "attempted": 0,
+    "seedAt": null,
+    "decision": "unverified"
+  },
+  "externalLoginRequested": false,
+  "copiedExistingCredentials": false
+}
