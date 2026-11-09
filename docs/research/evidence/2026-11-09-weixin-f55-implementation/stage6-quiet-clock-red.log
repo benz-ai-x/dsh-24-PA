@@ -1,0 +1,35 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/plan-delivery-guards.test.mjs (18 tests | 2 failed | 16 skipped) 887ms
+   × 投递评审边界 (sqlite) > 准备期间跨入安静时段，最终按当前时间判断而不是沿用旧允许结论 23ms
+     → expected 1 to be +0 // Object.is equality
+   × 投递评审边界 (postgres) > 准备期间跨入安静时段，最终按当前时间判断而不是沿用旧允许结论 21ms
+     → expected 1 to be +0 // Object.is equality
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/plan-delivery-guards.test.mjs > 投递评审边界 (sqlite) > 准备期间跨入安静时段，最终按当前时间判断而不是沿用旧允许结论
+ FAIL  tests/unit/plan-delivery-guards.test.mjs > 投递评审边界 (postgres) > 准备期间跨入安静时段，最终按当前时间判断而不是沿用旧允许结论
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tests/unit/plan-delivery-guards.test.mjs:98:19
+     96|     }, binding: () => 'workspace' });
+     97|     let sends = 0; await dispatcher(async () => ({ messageId: `unexpec…
+     98|     expect(sends).toBe(0);
+       |                   ^
+     99|     const [notice] = await notices(); expect(notice.deliveryStatus).to…
+    100|     expect(notice.deliveries.every(item => item.outbox.attempts === 0 …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 16 skipped (18)
+   Start at  18:17:38
+   Duration  1.38s (transform 184ms, setup 0ms, collect 376ms, tests 887ms, environment 0ms, prepare 34ms)

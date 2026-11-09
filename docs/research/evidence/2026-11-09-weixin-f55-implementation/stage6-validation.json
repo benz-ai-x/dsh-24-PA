@@ -1,0 +1,134 @@
+{
+  "recordedAt": "2026-11-09T10:33:11.221Z",
+  "testedCommit": "05c413357d3515cdfe6089a291e9b648a0eed0c1",
+  "stage": 6,
+  "issue": 281,
+  "scope": "Current quiet-time decision from a version-checked memory snapshot. Partial F55; not merge-ready, released or deployed.",
+  "completeRuns": [
+    {
+      "storage": "sqlite",
+      "kind": "real Loader, Session, authenticated UI APIs and persistence",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs",
+        "tests/e2e/manticore-plan-delivery.e2e.mjs"
+      ],
+      "passed": 33,
+      "failed": 0,
+      "log": "stage6-sqlite-recheck.log"
+    },
+    {
+      "storage": "postgres",
+      "kind": "real Loader, Session, authenticated UI APIs and persistence",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs",
+        "tests/e2e/manticore-plan-delivery.e2e.mjs"
+      ],
+      "passed": 33,
+      "failed": 0,
+      "log": "stage6-postgres-recheck.log"
+    }
+  ],
+  "supplementalRuns": [
+    {
+      "kind": "memory, result and transport guard tests",
+      "files": [
+        "tests/unit/memory-lifecycle.test.mjs",
+        "tests/unit/memory.test.mjs",
+        "tests/unit/plan-results.test.mjs",
+        "tests/unit/plan-delivery-guards.test.mjs",
+        "tests/unit/weixin-send-guards.test.mjs"
+      ],
+      "passed": 87,
+      "failed": 0,
+      "log": "stage6-unit.log"
+    },
+    {
+      "kind": "external model fixture via actual HTTP/SSE",
+      "files": [
+        "tests/unit/mock-llm.test.mjs"
+      ],
+      "passed": 5,
+      "failed": 0,
+      "log": "stage6-model-receipt-green.log"
+    }
+  ],
+  "commands": {
+    "native": "DSH_BIN=/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js PA24_E2E_EXTRA_PLUGINS=@deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1 PA24_E2E_STORAGE=sqlite|postgres node node_modules/vitest/vitest.mjs run tests/e2e/weixin-plan-delivery.e2e.mjs tests/e2e/weixin.e2e.mjs tests/e2e/manticore-plan-delivery.e2e.mjs",
+    "unit": "node node_modules/vitest/vitest.mjs run tests/unit/memory-lifecycle.test.mjs tests/unit/memory.test.mjs tests/unit/plan-results.test.mjs tests/unit/plan-delivery-guards.test.mjs tests/unit/weixin-send-guards.test.mjs",
+    "modelFixture": "node node_modules/vitest/vitest.mjs run tests/unit/mock-llm.test.mjs",
+    "checks": [
+      "npm run build",
+      "npm run preset:check",
+      "node --check client.js",
+      "git diff --check",
+      "node packages/24pa/scripts/secrets/scan.mjs --paths .",
+      "node packages/24pa/scripts/secrets/scan.mjs --staged"
+    ]
+  },
+  "reproducedBeforeFix": [
+    {
+      "log": "stage6-quiet-clock-red.log",
+      "failed": 2,
+      "skipped": 16,
+      "observation": "Both databases sent after preparation crossed into quiet hours; no preference edit was needed."
+    },
+    {
+      "log": "stage6-model-receipt-red.log",
+      "failed": 2,
+      "passed": 3,
+      "observation": "Mock model discarded a fresh owner maintenance request when the host batched it with an old tool receipt or background notice."
+    }
+  ],
+  "initialRuns": [
+    {
+      "storage": "sqlite",
+      "passed": 32,
+      "failed": 1,
+      "log": "stage6-sqlite.log",
+      "observation": "The final backup tool response timed out. Diagnostic backups list was empty and model responded to the prior delegation receipt; backup had not started. LastUserText was not captured then, so the exact batched payload was not preserved."
+    },
+    {
+      "storage": "postgres",
+      "passed": 33,
+      "failed": 0,
+      "log": "stage6-postgres.log"
+    }
+  ],
+  "corrections": [
+    "Prepare authoritative memory once; synchronously verify its file version and evaluate current-time validity after the final asynchronous notice reread. Changed/deleted/replaced preference files prevent sending.",
+    "External model fixture recognizes an exact new owner instruction even when batched with old receipts/notices. Receipt-only turns cannot trigger maintenance. Product backup code and timeout are unchanged."
+  ],
+  "priorFailureBoundary": "The new diagnostic excludes a slow backup operation for this specific stage6 timeout. Reproduced fixture misclassification and final reruns do not establish a cause for every earlier intermittent backup delay.",
+  "realProbe": {
+    "capturedAt": "2026-11-09T10:22:21.194Z",
+    "runId": "43d99782-4a73-4f73-b824-9af7d41bf126",
+    "phase": "expired",
+    "enabled": false,
+    "candidate": false,
+    "seedAt": null,
+    "deliveries": [],
+    "decision": "unverified"
+  },
+  "remaining": [
+    "Original business read provenance",
+    "B real evidence and matching server/UI admission",
+    "Version-upgrade, business permission and WeCom acceptance",
+    "Full desktop T20",
+    "Owner-visible real scheduled result and final review"
+  ],
+  "logs": [
+    "stage6-build.log",
+    "stage6-model-receipt-green.log",
+    "stage6-model-receipt-red.log",
+    "stage6-postgres-recheck.log",
+    "stage6-postgres.log",
+    "stage6-preset.log",
+    "stage6-quiet-clock-red.log",
+    "stage6-sqlite-recheck.log",
+    "stage6-sqlite.log",
+    "stage6-unit.log"
+  ],
+  "evidenceBoundary": "External platform/model/clock are isolated replacements. No real WeChat messages and no 8010 changes; B is still unverified."
+}
