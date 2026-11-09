@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (5 tests | 4 skipped) 5471ms
+   ✓ WX-17 同身份续期及平台地址变化保留原计划授权与接收目标 911ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 4 skipped (5)
+   Start at  16:17:47
+   Duration  5.64s (transform 36ms, setup 0ms, collect 64ms, tests 5.47s, environment 0ms, prepare 30ms)

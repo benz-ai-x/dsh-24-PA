@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (8 tests | 6 skipped) 8817ms
+   ✓ WX-17 运行中更改默认通知及换绑微信，原计划和在途结果均不改投 2104ms
+   ✓ WX-21 新微信计划分段与未知记录可联合备份、校验和隔离恢复，且不重新发送 1821ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 6 skipped (8)
+   Start at  16:25:36
+   Duration  8.99s (transform 40ms, setup 0ms, collect 67ms, tests 8.82s, environment 0ms, prepare 28ms)
