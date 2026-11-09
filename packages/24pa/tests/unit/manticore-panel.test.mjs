@@ -264,6 +264,30 @@ describe('M02 管理界面', () => {
     await change(field('核对依据'), '已检查原平台无此消息'); await click(button('确认并保存投递核对'));
     const actions = requests.filter(row => row.endpoint === 'action'); expect(actions).toHaveLength(1); expect(actions[0].payload).toMatchObject({ type: 'plan.delivery', op: 'review', outcome: 'not_sent', confirm: true });
   });
+  it('微信计划未知投递允许本人凭据核对，无原生消息号也可确认收到', async () => {
+    Object.assign(run.deliveries[0].deliveries[0], { component: 'text', outbox: { status: 'unknown', channel: 'weixin', target: 'wx-original-owner', message_id: null } });
+    await open('运行记录'); await click(button('查看执行与投递')); await click(button('投递'));
+    await click(button('核对原平台是否收到')); await change(field('核对结果'), 'sent');
+    expect(button('确认并保存投递核对').disabled).toBe(true);
+    await change(field('核对依据'), '本人已在原微信会话看到此段，平台没有消息号。');
+    expect(field('原平台消息标识（选填）')).toBeTruthy();
+    expect(button('确认并保存投递核对').disabled).toBe(false);
+    await click(button('确认并保存投递核对'));
+    expect(requests.filter(row => row.endpoint === 'action').at(-1).payload).toMatchObject({ type: 'plan.delivery', op: 'review', outcome: 'sent',
+      evidence: '本人已在原微信会话看到此段，平台没有消息号。', messageId: '' });
+  });
+  it('微信通知受限显示原因和补投入口，本人确认收到不冒充平台接纳', async () => {
+    Object.assign(run.run, { delivery_status: 'limited' });
+    Object.assign(run.deliveries[0], { deliveryStatus: 'limited', deliveries: [
+      { outbox_id: 12, fingerprint: 'limited-receipt', component: 'text', outbox: { status: 'limited', channel: 'weixin', target: 'wx-owner', last_error: '微信绑定已停用' } },
+      { outbox_id: 13, fingerprint: 'owner-receipt', component: 'text', outbox: { status: 'sent', channel: 'weixin', target: 'wx-owner', acceptance: { basis: 'owner_visible' } } },
+    ] });
+    await open('运行记录'); await click(button('查看执行与投递')); await click(button('投递'));
+    expect(container.textContent).toContain('投递受限'); expect(container.textContent).toContain('微信绑定已停用');
+    expect(container.textContent).toContain('本人确认收到');
+    await click(button('明确补投此结果'));
+    expect(requests.filter(row => row.endpoint === 'action').at(-1).payload).toMatchObject({ type: 'plan.delivery', op: 'retry', outboxId: 12 });
+  });
   it('同一筛选手动刷新失败保留旧结果；筛选改变后不冒充新匹配', async () => {
     await open('运行记录'); expect(container.textContent).toContain('匹配记录 31');
     fault = 'runs'; await click(managerButton('刷新')); expect(container.textContent).toContain('离线读取失败'); expect(container.textContent).toContain('匹配记录 31');

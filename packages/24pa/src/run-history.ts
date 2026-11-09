@@ -50,7 +50,7 @@ export function historyFilter(input: Record<string, unknown>, timeZone: string, 
   if (attention === 'unresolved' && kind !== 'runs') throw new Error('未解决筛选只适用于执行记录。');
   if (status && !statuses[kind].includes(status)) throw new Error('此类别不支持该执行状态。');
   if (source && !(kind === 'work' ? ['local', 'feishu', 'weixin'] : kind === 'events' ? ['manual', 'schedule', 'continuation'] : ['manual', 'schedule', 'trial', 'rerun', 'continuation']).includes(source)) throw new Error('此类别不支持该来源筛选。');
-  if (deliveryStatus && !['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'failed', 'unknown', 'expired'].includes(deliveryStatus)) throw new Error('投递状态无效。');
+  if (deliveryStatus && !['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'limited', 'failed', 'unknown', 'expired'].includes(deliveryStatus)) throw new Error('投递状态无效。');
   const unsupported = kind === 'runs' ? [] : kind === 'work' ? ['versionId', 'deliveryStatus'] : kind === 'events' ? ['versionId', 'deliveryStatus'] : ['source', 'workId', 'skillId', 'versionId', 'deliveryStatus'];
   for (const key of unsupported) if (text(key)) throw new Error(`当前档案类别不支持 ${key} 筛选，请清除后重试。`);
   const skillId = text('skillId');

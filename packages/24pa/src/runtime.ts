@@ -250,7 +250,7 @@ export class PaRuntime {
       await this.recordConnectionEvidence(`${row.channel}.${row.channel === 'wecom' ? 'push' : 'send'}`, '平台已接纳一条出站消息；不代表已读。',
         { target: row.target, outboxId: row.id, deliveryId: messageId, nativeMessageId: row.channel === 'feishu' ? messageId : null });
     },
-    beforeSend: row => row.channel === 'weixin' ? this.weixin.beforeSend(row) : this.planResults.beforeSend(row),
+    beforeSend: async row => await this.planResults.beforeSend(row) ?? await this.weixin.beforeSend(row),
     updated: row => this.planResults.updated(row),
     adapters: {
       weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row) },
@@ -410,6 +410,7 @@ export class PaRuntime {
   }
   private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry, owner: async channel => {
     if (this.config?.mode !== 'feishu') throw new Error('体验模式不能绑定真实主人投递身份。');
+    if (channel === 'weixin') return this.weixin.notificationTarget();
     const identity = await this.sourceAccess.identity(channel);
     return { channel, target: identity.ownerId, identityKey: hash(JSON.stringify(identity)), connectionHash: this.sourceConnectionHash(channel) };
   } });
@@ -757,7 +758,7 @@ export class PaRuntime {
       permissionHash: authorization => this.skillPermissionHash(authorization),
       authorizePlan: (configuration, skill, previous) => this.taskPlanAccess.authorize(configuration, skill, previous),
       verifyPlan: async run => {
-        try { await this.taskPlanAccess.verify(run.snapshot.plan!.authorization); }
+        try { await this.taskPlanAccess.verifyBusiness(run.snapshot.plan!.authorization); }
         catch (error) {
           const plan = await this.repos!.taskPlans.get(run.snapshot.plan!.id);
           const old = planAuthorizationScope(run.snapshot.plan!.authorization), current = plan?.task_authorization && planAuthorizationScope(plan.task_authorization);
@@ -2278,7 +2279,7 @@ export class PaRuntime {
     if (!run || !plan || plan.id !== row.id || run.mode === 'local' || !plan.configuration.skillId.startsWith('builtin:') ||
         plan.configuration.skillId !== row.task_config?.skillId) return { ...meta, result: null, message: '原运行不属于当前可披露的业务计划。' };
     try {
-      await this.taskPlanAccess.verify(plan.authorization);
+      await this.taskPlanAccess.verifyBusiness(plan.authorization);
       for (const domain of ['calendar', 'todo'] as const) await this.sourceRegistry.bind(domain, plan.configuration.selectors[domain], 'read', true);
     } catch { return { ...meta, result: null, message: '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' }; }
     return { ...meta, result: run.result, message: run.result ? '业务结果已保存；投递状态单独列出，不代表已读。' : '本次还没有可披露的结果正文。' };

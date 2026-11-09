@@ -5,8 +5,9 @@ import type { TaskPlanRow } from './task-plan.js';
 import { enqueueOutbox, type OutboxRow } from './outbox.js';
 import { taskPlanFingerprint } from '../task-plan-access.js';
 import { buildSpokenVariant } from '../spoken-result.js';
+import { splitWeixinText } from '../weixin-protocol.js';
 
-export type PlanDeliveryStatus = 'not_requested' | 'suppressed' | 'pending' | 'sent' | 'partial' | 'failed' | 'unknown' | 'expired';
+export type PlanDeliveryStatus = 'not_requested' | 'suppressed' | 'pending' | 'sent' | 'partial' | 'limited' | 'failed' | 'unknown' | 'expired';
 export interface PlanNotice {
   id: string; run_id: string; plan_id: string; kind: 'result' | 'failure' | 'attention' | 'stopped' | 'blocked';
   status: 'not_requested' | 'suppressed' | 'queued'; reason: string | null;
@@ -18,13 +19,14 @@ export interface PlanDelivery {
 }
 const attention = (run: SkillRunRow) => ['waiting', 'needs_reconciliation'].includes(run.status);
 const noticeId = (run: SkillRunRow, kind: PlanNotice['kind']) => `plan-result-${taskPlanFingerprint([run.id, kind, kind === 'attention' ? [run.status, run.progress] : null])}`;
-export const deliveryFingerprint = (row: OutboxRow) => taskPlanFingerprint([row.id, row.status, row.message_id, row.attempts, row.last_error]);
+export const deliveryFingerprint = (row: OutboxRow) => taskPlanFingerprint([row.id, row.status, row.message_id, row.acceptance, row.revision, row.attempts, row.last_error]);
 function aggregate(notice: PlanNotice, rows: OutboxRow[]): PlanDeliveryStatus {
   if (notice.status !== 'queued') return notice.status;
   if (!rows.length) return 'failed';
   if (rows.every(row => row.status === 'sent')) return 'sent';
   if (rows.some(row => row.status === 'sent')) return 'partial';
   if (rows.some(row => row.status === 'unknown')) return 'unknown';
+  if (rows.some(row => row.status === 'limited')) return 'limited';
   if (rows.some(row => ['pending', 'sending'].includes(row.status))) return 'pending';
   if (rows.every(row => row.status === 'expired')) return 'expired';
   return 'failed';
@@ -40,7 +42,13 @@ export class PlanResultRepo {
       (r.status in ('waiting', 'needs_reconciliation') or (r.status in ('completed', 'failed', 'timed_out', 'stopped')
         and not exists (select 1 from pa24.task_plan_run_outcome o where o.run_id = r.id)))`)).rows;
     for (const row of plans) await this.db.withTransaction(tx => this.settlePlan(row.plan_id, tx));
-    const deliveries = (await this.db.query<{ id: string }>("select id from pa24.skill_run where plan_id is not null and delivery_status in ('pending', 'partial')")).rows;
+    // A blocked first segment cannot prevent later unsent segments from
+    // expiring. Do not erase a dispatched unknown or a recorded receipt.
+    await this.db.query(`update pa24.outbox set status = 'expired', revision = revision + 1,
+      last_error = '普通结果超过本次触发的投递有效期，结果仍保留。', next_attempt_at = null
+      where status in ('pending', 'limited', 'failed') and message_id is null and acceptance is null
+        and id in (select outbox_id from pa24.task_plan_delivery where expires_at <= $1)`, [new Date()]);
+    const deliveries = (await this.db.query<{ id: string }>("select id from pa24.skill_run where plan_id is not null and delivery_status in ('pending', 'partial', 'limited', 'failed')")).rows;
     for (const run of deliveries) await this.refresh(run.id);
   }
 
@@ -101,12 +109,19 @@ export class PlanResultRepo {
       + (kind !== 'result' ? '\n请在24私助工作区的运行记录中处理，后续触发不会替代本次核对。' : '');
     const components: Array<'text' | 'audio'> = kind === 'result' && configuration.delivery.voice && destination.channel === 'feishu' ? ['text', 'audio'] : ['text'];
     for (const component of components) {
-      const queued = await enqueueOutbox(tx, { dedupKey: `${id}:${component}`, channel: destination.channel, target: destination.target,
-        kind: component, content: { text: component === 'audio' ? buildSpokenVariant(body) : text } });
-      const expiresAt = kind === 'result' ? new Date(new Date(run.triggered_at ?? run.created_at).getTime() + configuration.deliveryTtlMs) : null;
-      await tx.query(`insert into pa24.task_plan_delivery (outbox_id, notice_id, run_id, component, expires_at, override_quiet)
-        values ($1,$2,$3,$4,$5,$6) on conflict (outbox_id) do nothing`,
-      [queued.row.id, id, run.id, component, expiresAt, kind === 'result' && configuration.delivery.overrideQuiet]);
+      const parts = destination.channel === 'weixin' ? splitWeixinText(text) : [component === 'audio' ? buildSpokenVariant(body) : text];
+      for (const [index, part] of parts.entries()) {
+        const queued = await enqueueOutbox(tx, { dedupKey: `${id}:${component}${destination.channel === 'weixin' ? `:segment:${index}` : ''}`,
+          channel: destination.channel, target: destination.target, kind: component, content: { text: part },
+          ...(destination.channel === 'weixin' ? {
+            deliveryTarget: { accountId: destination.accountId, ownerId: destination.ownerId, generation: destination.generation, sessionId: destination.sessionId },
+            association: { planId: plan.id, skillRunId: run.id, noticeId: id }, segmentGroup: id, segmentIndex: index,
+          } : {}) });
+        const expiresAt = kind === 'result' ? new Date(new Date(run.triggered_at ?? run.created_at).getTime() + configuration.deliveryTtlMs) : null;
+        await tx.query(`insert into pa24.task_plan_delivery (outbox_id, notice_id, run_id, component, expires_at, override_quiet)
+          values ($1,$2,$3,$4,$5,$6) on conflict (outbox_id) do nothing`,
+        [queued.row.id, id, run.id, component, expiresAt, kind === 'result' && configuration.delivery.overrideQuiet]);
+      }
     }
   }
 
@@ -149,19 +164,21 @@ export class PlanResultRepo {
       if (prior) { if (prior.request_hash !== input.requestHash) throw new Error('投递操作标识已用于其他内容。'); return; }
       const row = (await tx.query<OutboxRow>('select * from pa24.outbox where id = $1 for update', [input.outboxId])).rows[0];
       if (!row || deliveryFingerprint(row) !== input.fingerprint) throw new Error('投递回执已变化，请刷新后处理。');
-      if (input.op === 'retry' && (row.status !== 'failed' || row.message_id)) throw new Error('只有明确未发送的失败可补投；未知结果须先核对。');
+      if (input.op === 'retry' && (!['failed', 'limited'].includes(row.status) || row.message_id || row.acceptance)) throw new Error('只有明确未发送的失败或受限结果可补投；未知结果须先核对。');
       if (input.op === 'retry' && (input.outcome !== undefined || input.messageId !== undefined)) throw new Error('补投不能附带新的送达结论。');
-      if (input.op === 'review' && (row.status !== 'unknown' || row.message_id)) throw new Error('此投递无需未知结果核对，请刷新。');
-      if (input.op === 'review' && (!input.evidence?.trim() || !['sent', 'not_sent'].includes(input.outcome ?? '') || (input.outcome === 'sent' && !input.messageId?.trim()))) throw new Error('请填写核对依据；确认送达还须填写原平台消息 ID。');
+      if (input.op === 'review' && (row.status !== 'unknown' || row.message_id || row.acceptance)) throw new Error('此投递无需未知结果核对，请刷新。');
+      if (input.op === 'review' && (!input.evidence?.trim() || !['sent', 'not_sent'].includes(input.outcome ?? ''))) throw new Error('请填写本人核对依据并明确是否收到原投递。');
+      if (input.op === 'review' && input.outcome === 'sent' && row.channel !== 'weixin' && !input.messageId?.trim()) throw new Error('确认送达还须填写原平台消息 ID。');
       await tx.query('insert into pa24.task_plan_delivery_change (request_id, request_hash, outbox_id, record) values ($1,$2,$3,$4)',
         [input.requestId, input.requestHash, input.outboxId, JSON.stringify({ actor: 'owner', ...input, before: row })]);
       // A not-sent review only resolves uncertainty. Retrying remains a
       // separate explicit action, with the original recipient and deadline.
       const status = input.op === 'retry' || input.outcome === 'sent' ? 'pending' : 'failed';
       await tx.query(`update pa24.outbox set status = $2, message_id = $3, next_attempt_at = null,
-        attempts = case when $4 then 0 else attempts end, last_error = $5 where id = $1`,
-      [input.outboxId, status, input.outcome === 'sent' ? input.messageId : null, input.op === 'retry',
-        input.op === 'retry' ? '主人明确补投原结果。' : `主人核对：${input.evidence}`]);
+        attempts = case when $4 then 0 else attempts end, last_error = $5, acceptance = $6, revision = revision + 1 where id = $1`,
+      [input.outboxId, status, input.outcome === 'sent' ? input.messageId ?? null : null, input.op === 'retry',
+        input.op === 'retry' ? '主人明确补投原结果。' : `主人核对：${input.evidence}`,
+        input.outcome === 'sent' && row.channel === 'weixin' ? JSON.stringify({ basis: 'owner_visible', at: new Date().toISOString() }) : null]);
     });
     await this.refresh(input.runId);
   }

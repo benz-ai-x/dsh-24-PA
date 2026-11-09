@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
       collected: '已收齐', approved: '已通过', pending_review: '待审核', stale: '已失效', superseded: '已取代',
       reminderOnce: '单次', reminderDaily: '每日', reminderPaused: '已暂停', reminderCanceled: '已取消', reminderDone: '已结束',
       queued: '排队中', running: '处理中', completed: '已完成', accepted: '已接纳',
-      sent: '已发送', pending: '待发送', sending: '发送中', failed: '未完成', expired: '已过期', unknown: '结果未知',
+      sent: '已发送', pending: '待发送', sending: '发送中', failed: '未完成', limited: '投递受限', expired: '已过期', unknown: '结果未知',
       waiting: '等待处理', stopping: '正在停止', timed_out: '累计执行超时', skipped: '已跳过', rejected: '已拒绝', delivering: '待投递', model_done: '已生成', unconfirmed: '待核对',
       waiting_input: '等待补充', stopped: '已停止', needs_reconciliation: '需核对',
       'status.ok': '正常', 'status.warn': '待核验', 'status.error': '需要处理', 'status.missing': '待配置', 'status.unchecked': '尚未检查',
@@ -40,7 +40,7 @@ window.__ModuleLoader__.load({
       collected: 'All pages in', approved: 'Approved', pending_review: 'Awaiting review', stale: 'Stale', superseded: 'Superseded',
       reminderOnce: 'Once', reminderDaily: 'Daily', reminderPaused: 'Paused', reminderCanceled: 'Canceled', reminderDone: 'Done',
       queued: 'Queued', running: 'Running', completed: 'Completed', accepted: 'Accepted',
-      sent: 'Sent', pending: 'Pending', sending: 'Sending', failed: 'Failed', expired: 'Expired', unknown: 'Unknown',
+      sent: 'Sent', pending: 'Pending', sending: 'Sending', failed: 'Failed', limited: 'Delivery limited', expired: 'Expired', unknown: 'Unknown',
       waiting: 'Waiting', stopping: 'Stopping', timed_out: 'Timed out', skipped: 'Skipped', rejected: 'Rejected', delivering: 'Awaiting delivery', model_done: 'Generated', unconfirmed: 'Unconfirmed',
       waiting_input: 'Waiting for input', stopped: 'Stopped', needs_reconciliation: 'Needs reconciliation',
       'status.ok': 'OK', 'status.warn': 'Needs review', 'status.error': 'Needs attention', 'status.missing': 'Not configured', 'status.unchecked': 'Not checked',
@@ -84,7 +84,7 @@ window.__ModuleLoader__.load({
     const statusStyle = {
       accepted: ['neutral', 'clock'], queued: ['neutral', 'clock'], running: ['blue', 'pulse'], completed: ['blue', 'check'],
       waiting_input: ['amber', 'clock'], failed: ['danger', 'alert'], stopped: ['neutral', 'close'], needs_reconciliation: ['amber', 'info'],
-      sent: ['blue', 'check'], pending: ['amber', 'clock'], sending: ['blue', 'pulse'], unknown: ['amber', 'info'], expired: ['neutral', 'close'],
+      sent: ['blue', 'check'], pending: ['amber', 'clock'], sending: ['blue', 'pulse'], unknown: ['amber', 'info'], limited: ['amber', 'info'], expired: ['neutral', 'close'],
     };
     // P53: 状态徽章统一语法——四档通用词（正常/待核验/需要处理/待配置/尚未检查）各配
     // 固定 tone 与图标；诊断徽章可用 label 覆盖具体原因词（未授权/已过期/企业不可用），
@@ -1706,7 +1706,7 @@ window.__ModuleLoader__.load({
         };
         const runStatusLabel = value => ({ pending: L('排队待执行', 'Queued'), running: L('执行中', 'Executing'), waiting: L('等待处理', 'Waiting'), timed_out: L('累计执行超时', 'Execution timed out'), stopping: L('正在停止', 'Stopping'), stopped: L('已停止', 'Stopped'), completed: L('执行已结束', 'Execution finished'), failed: L('执行失败', 'Execution failed'), needs_reconciliation: L('结果待核对', 'Needs reconciliation') }[value] || t(value));
         const runSourceLabel = value => ({ manual: L('手工', 'Manual'), schedule: L('计划', 'Scheduled'), trial: L('试运行', 'Trial'), rerun: L('重跑', 'Rerun'), continuation: L('接续', 'Continuation'), local: L('本地', 'Local'), feishu: L('飞书', 'Feishu') }[value] || L('历史未记录', 'Not recorded'));
-        const deliveryLabel = (value, channel) => ({ not_requested: L('仅保存', 'Saved only'), suppressed: L('按规则不推送', 'Suppressed by rule'), pending: L('待投递', 'Pending delivery'), sending: L('正在投递', 'Sending'), sent: channel === 'local' ? L('已送入原会话', 'Delivered to original session') : channel ? L('平台已接收', 'Platform received') : L('结果已投递', 'Result delivered'), partial: L('部分投递', 'Partially delivered'), failed: L('投递失败', 'Delivery failed'), unknown: L('投递待核对', 'Delivery unknown'), expired: L('过期未投递', 'Expired') }[value] || L('历史未记录', 'Not recorded'));
+        const deliveryLabel = (value, channel) => ({ not_requested: L('仅保存', 'Saved only'), suppressed: L('按规则不推送', 'Suppressed by rule'), pending: L('待投递', 'Pending delivery'), sending: L('正在投递', 'Sending'), sent: channel === 'local' ? L('已送入原会话', 'Delivered to original session') : channel ? L('平台已接收', 'Platform received') : L('结果已投递', 'Result delivered'), partial: L('部分投递', 'Partially delivered'), limited: L('投递受限', 'Delivery limited'), failed: L('投递失败', 'Delivery failed'), unknown: L('投递待核对', 'Delivery unknown'), expired: L('过期未投递', 'Expired') }[value] || L('历史未记录', 'Not recorded'));
         const saveDownload = file => {
           const url = URL.createObjectURL(new Blob([file.content], { type: 'application/json;charset=utf-8' })), link = document.createElement('a');
           link.href = url; link.download = file.filename; document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0);
@@ -1957,18 +1957,18 @@ window.__ModuleLoader__.load({
           return h('section', { className: 'pa24-note' }, h('h4', null, L('结果投递与补投', 'Delivery and retry')), error && h('p', { role: 'alert', className: 'pa24-error' }, error), note && h('p', { role: 'status' }, note),
             detail.deliveries.map(notice => h('article', { key: notice.id, className: 'pa24-job' }, h('p', null, deliveryLabel(notice.deliveryStatus)), notice.reason && h('p', null, notice.reason),
               notice.deliveries.map(delivery => h('div', { key: delivery.outbox_id, className: 'pa24-note' },
-                h('p', null, (delivery.component === 'audio' ? L('语音', 'Audio') : L('完整文本', 'Full text')) + ' · ' + deliveryLabel(delivery.outbox.status, delivery.outbox.channel)),
+                h('p', null, (delivery.component === 'audio' ? L('语音', 'Audio') : delivery.outbox.segment_group ? L('文本段 ', 'Text segment ') + (delivery.outbox.segment_index + 1) : L('完整文本', 'Full text')) + ' · ' + (delivery.outbox.acceptance?.basis === 'owner_visible' ? L('本人确认收到', 'Owner confirmed receipt') : deliveryLabel(delivery.outbox.status, delivery.outbox.channel))),
                 h('p', { className: 'pa24-meta' }, delivery.outbox.channel + ' · ' + L('固定接收者 ', 'Pinned recipient ') + delivery.outbox.target),
                 delivery.outbox.last_error && h('p', { role: 'alert' }, technicalText(delivery.outbox.last_error)),
                 delivery.expires_at && h('p', { className: 'pa24-meta' }, L('投递有效至：', 'Delivery expires: ') + date(delivery.expires_at, tz)),
                 delivery.outbox.message_id && h('p', { className: 'pa24-meta' }, (delivery.outbox.channel === 'local' ? L('本地投递标识：', 'Local delivery ID: ') : L('原平台回执：', 'Platform receipt: ')) + delivery.outbox.message_id),
-                delivery.outbox.status === 'failed' && !delivery.outbox.message_id && h('button', { type: 'button', disabled: busy, onClick: () => mutate(delivery, 'retry') }, L('明确补投此结果', 'Retry this delivery')),
-                delivery.outbox.status === 'unknown' && !delivery.outbox.message_id && h('button', { type: 'button', disabled: busy, onClick: () => { setSelected(delivery.outbox_id); setEvidence(''); setMessageId(''); setOutcome('not_sent'); } }, L('核对原平台是否收到', 'Verify platform receipt')),
+                ['failed', 'limited'].includes(delivery.outbox.status) && !delivery.outbox.message_id && !delivery.outbox.acceptance && h('button', { type: 'button', disabled: busy, onClick: () => mutate(delivery, 'retry') }, L('明确补投此结果', 'Retry this delivery')),
+                delivery.outbox.status === 'unknown' && !delivery.outbox.message_id && !delivery.outbox.acceptance && h('button', { type: 'button', disabled: busy, onClick: () => { setSelected(delivery.outbox_id); setEvidence(''); setMessageId(''); setOutcome('not_sent'); } }, L('核对原平台是否收到', 'Verify platform receipt')),
                 selected === delivery.outbox_id && h('fieldset', { disabled: busy }, h('legend', null, L('原投递核对', 'Verify original delivery')),
                   h('label', { className: 'pa24-field' }, L('核对结果', 'Verified outcome'), h('select', { value: outcome, onChange: event => setOutcome(event.target.value) }, h('option', { value: 'not_sent' }, L('确认未收到', 'Confirmed unsent')), h('option', { value: 'sent' }, L('确认已收到', 'Confirmed received')))),
                   h('label', { className: 'pa24-field' }, L('核对依据', 'Evidence'), h('textarea', { value: evidence, rows: 3, maxLength: 4000, onChange: event => setEvidence(event.target.value) })),
-                  outcome === 'sent' && h('label', { className: 'pa24-field' }, L('原平台消息标识', 'Original message ID'), h('input', { value: messageId, maxLength: 500, onChange: event => setMessageId(event.target.value) })),
-                  h('button', { type: 'button', disabled: !evidence.trim() || (outcome === 'sent' && !messageId.trim()), onClick: () => mutate(delivery, 'review') }, L('确认并保存投递核对', 'Save delivery verification'))))))));
+                  outcome === 'sent' && h('label', { className: 'pa24-field' }, delivery.outbox.channel === 'weixin' ? L('原平台消息标识（选填）', 'Original message ID (optional)') : L('原平台消息标识', 'Original message ID'), h('input', { value: messageId, maxLength: 500, onChange: event => setMessageId(event.target.value) })),
+                  h('button', { type: 'button', disabled: !evidence.trim() || (outcome === 'sent' && delivery.outbox.channel !== 'weixin' && !messageId.trim()), onClick: () => mutate(delivery, 'review') }, L('确认并保存投递核对', 'Save delivery verification'))))))));
         }
         function WorkControls({ work, changes, binding, changed }) {
           const [op, setOp] = React.useState('supplement'), [instruction, setInstruction] = React.useState(''), [title, setTitle] = React.useState('');
@@ -2158,7 +2158,7 @@ window.__ModuleLoader__.load({
             view.advanced && h('div', { id: 'pa24-history-advanced', className: 'pa24-history-advanced' }, h('div', { className: 'pa24-history-advanced-grid' },
               !legacy && field(L('发起来源', 'Initiation source'), select('source', [['', L('全部来源', 'All sources')], ...sourceOptions])),
               [['planId', L('计划标识', 'Plan ID')], ...(!legacy ? [['workId', L('交办标识', 'Work ID')], ['skillId', 'Skill ID']] : []), ...(filters.kind === 'runs' ? [['versionId', L('版本标识', 'Version ID')]] : [])].map(([key, label]) => field(label, h('input', { value: filters[key] || '', onChange: event => set(key, event.target.value) }))),
-              filters.kind === 'runs' && field(L('投递状态', 'Delivery status'), select('deliveryStatus', [['', L('全部投递状态', 'All delivery statuses')], ...['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'failed', 'unknown', 'expired'].map(value => [value, deliveryLabel(value)])])),
+              filters.kind === 'runs' && field(L('投递状态', 'Delivery status'), select('deliveryStatus', [['', L('全部投递状态', 'All delivery statuses')], ...['not_requested', 'suppressed', 'pending', 'sent', 'partial', 'limited', 'failed', 'unknown', 'expired'].map(value => [value, deliveryLabel(value)])])),
               field(L('保留跨日待处理与未解决异常', 'Keep unresolved records across dates'), h('input', { type: 'checkbox', checked: filters.includeUnresolved !== false, onChange: event => set('includeUnresolved', event.target.checked) }))),
               h('div', { className: 'pa24-history-advanced-footer' }, h('p', { className: 'pa24-meta' }, L('默认保留跨日待处理；关闭后严格限制在所选时间范围。', 'Unresolved records cross date boundaries by default; disable this for a strict date range.')), h('button', { type: 'button', className: 'pa24-quiet', disabled: !advancedCount, onClick: clearAdvanced }, L('清除高级筛选', 'Clear advanced filters')))));
           const metric = (value, label, description, tone = '') => h('div', { className: 'pa24-history-metric' + (tone ? ' ' + tone : ''), key: label }, h('strong', null, value ?? 0), h('span', null, label), h('small', null, description));

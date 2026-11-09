@@ -4,8 +4,8 @@ import type { PaDb, PaQueryer } from '../db.js';
 import type { WeixinIdentity, WeixinAcceptance } from '../weixin-protocol.js';
 import { randomUUID } from 'node:crypto';
 
-export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'unknown' | 'failed' | 'expired';
-export interface DeliveryAssociation { inboxEventId?: string; workItemId?: string; workerRunId?: string }
+export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'unknown' | 'limited' | 'failed' | 'expired';
+export interface DeliveryAssociation { inboxEventId?: string; workItemId?: string; workerRunId?: string; planId?: string; skillRunId?: string; noticeId?: string }
 
 export interface OutboxRow {
   id: number;
@@ -46,7 +46,8 @@ export interface NewOutbox {
 /** Shared insertion for business transactions that also enqueue a notification. */
 export async function enqueueOutbox(db: PaQueryer, row: NewOutbox): Promise<{ created: boolean; row: OutboxRow }> {
   if (row.channel === 'weixin' && (!row.deliveryTarget || row.target !== row.deliveryTarget.ownerId ||
-    !row.association || !(row.association.inboxEventId || row.association.workItemId))) throw new Error('微信投递缺少固定身份或显式输入/工作关联。');
+    !row.association || !(row.association.inboxEventId || row.association.workItemId ||
+      row.association.planId && row.association.skillRunId && row.association.noticeId))) throw new Error('微信投递缺少固定身份或显式输入/工作/计划结果关联。');
   const result = await db.query<OutboxRow>(
     `insert into pa24.outbox (dedup_key, channel, target, kind, content, status, binding_generation, delivery_target, association, client_id, segment_group, segment_index)
      values ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11) on conflict (dedup_key) do nothing returning *`,
