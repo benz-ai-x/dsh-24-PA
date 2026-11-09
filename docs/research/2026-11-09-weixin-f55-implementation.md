@@ -24,6 +24,12 @@
 
 这些能力目前只通过隔离接口流程验证。计划表单尚未开放微信选项；`notificationSupported` 仍为 false，通知条件 B 未通过，不能将本轮进展算作 F55 完成。
 
+实现提交：`d51af0ec58e4484d787f2f3e025cbab05dff251a`。本轮使用 Node v26.4.0、真实 dsh 0.2.2-rc.1 和官方 Agent Teams profile；平台/模型通过本机服务替换，过期场景仅替换宿主时钟。
+
+验证记录见 [validation.json](evidence/2026-11-09-weixin-f55-implementation/validation.json) 及同目录完整日志。构建、预设基线、客户端语法、差异和全仓密钥扫描通过；8 个测试文件共 209 项通过。真实 Loader 组合回归包含微信首版 11 项、新计划通知 4 项、飞书文本/语音投递 2 项：SQLite 17/17；PostgreSQL 首轮 16/17，失败项读到了通知汇总尚未完成的 pending 状态。测试改为等待公开汇总状态结束 pending 后，最终受影响的 4 项在 SQLite 和 PostgreSQL 均通过；产品代码未因该等待修正改变，不把定向复验写成新的完整回归。
+
+命令均从 `packages/24pa` 执行：`npm run build`、`npm run preset:check`、`node --check client.js`。宿主测试使用 `DSH_BIN=/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js`、`PA24_E2E_STORAGE=sqlite|postgres`、`PA24_E2E_EXTRA_PLUGINS=@deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1`，运行 `node node_modules/vitest/vitest.mjs run tests/e2e/weixin-plan-delivery.e2e.mjs tests/e2e/weixin.e2e.mjs tests/e2e/manticore-plan-delivery.e2e.mjs`；定向复验仅选择首个文件。单元/DOM 文件清单保留在日志中。
+
 ## 仍须完成
 
 - [ ] 通知条件 B：本人扫码、启用并发送口令，取得 10 分钟、26 小时、50 小时及恢复证据；判断覆盖范围后再确定产品可选条件，不凭少量样本承诺无限窗口或任意周期。
