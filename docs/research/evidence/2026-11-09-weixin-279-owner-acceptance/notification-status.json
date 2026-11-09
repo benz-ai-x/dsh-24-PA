@@ -1,0 +1,55 @@
+{
+  "capturedAt": "2026-11-09T07:16:08.512Z",
+  "run": "43d99782-4a73-4f73-b824-9af7d41bf126",
+  "phase": "expired",
+  "enabled": false,
+  "candidatePresent": false,
+  "expectedOwnerMatches": null,
+  "accountHashes": null,
+  "challenge": "24PA 通知条件测试 43d99782",
+  "seedAt": null,
+  "steps": [
+    {
+      "kind": "notification-1",
+      "afterMs": 600000,
+      "context": "original",
+      "at": null
+    },
+    {
+      "kind": "notification-2",
+      "afterMs": 93600000,
+      "context": "original",
+      "at": null
+    },
+    {
+      "kind": "notification-3",
+      "afterMs": 180000000,
+      "context": "original",
+      "at": null
+    }
+  ],
+  "deliveries": [],
+  "visibleReceipts": {},
+  "decision": "unverified",
+  "stopReason": null,
+  "lastSuccessfulPollAt": null,
+  "recentEvents": [
+    {
+      "at": "2026-11-09T03:35:31.012Z",
+      "type": "notification_component_loaded",
+      "processRun": "43037db5-ba5e-46d1-9c90-d34f84de1421",
+      "cursorHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "priorAttempts": 0
+    },
+    {
+      "at": "2026-11-09T03:36:42.309Z",
+      "type": "qr_created",
+      "http": 200
+    },
+    {
+      "at": "2026-11-09T03:38:43.745Z",
+      "type": "login_status",
+      "status": "expired"
+    }
+  ]
+}

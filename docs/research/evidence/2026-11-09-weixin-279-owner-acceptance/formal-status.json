@@ -1,0 +1,107 @@
+{
+  "capturedAt": "2026-11-09T07:16:07.759Z",
+  "readOnly": true,
+  "readiness": [
+    {
+      "id": "host",
+      "state": "ok"
+    },
+    {
+      "id": "config",
+      "state": "ok"
+    },
+    {
+      "id": "postgres",
+      "state": "ok"
+    },
+    {
+      "id": "workspace",
+      "state": "ok"
+    },
+    {
+      "id": "feishu",
+      "state": "ok"
+    },
+    {
+      "id": "sessions",
+      "state": "ok"
+    }
+  ],
+  "weixin": {
+    "phase": "polling",
+    "enabled": true,
+    "inboxCount": 6,
+    "deliveriesCount": 6,
+    "latestReceived": "2026-11-09T07:02:38.990Z",
+    "inbox": [
+      {
+        "at": "2026-11-09T07:02:38.990Z",
+        "status": "delivered",
+        "textLength": 19,
+        "textSha": "2b32eaa24ff1742a5ec9cbc7a3fd58a6e75c5c7982327fc244eb57bdf22fe46c",
+        "hasWorkNumber": false,
+        "hasPlanConfirmation": false
+      },
+      {
+        "at": "2026-11-09T07:01:13.604Z",
+        "status": "delivered",
+        "textLength": 8,
+        "textSha": "3bfeb45af6ade240b010330f4677c932c29c1f8c612605472e55012c5d43532f",
+        "hasWorkNumber": false,
+        "hasPlanConfirmation": false
+      },
+      {
+        "at": "2026-11-09T02:28:21.358Z",
+        "status": "delivered",
+        "textLength": 2,
+        "textSha": "7c9691192f1b73408bbe4c0cb6d00db94375ca9d8fce0a0d5985e7a5178f083f",
+        "hasWorkNumber": false,
+        "hasPlanConfirmation": false
+      },
+      {
+        "at": "2026-11-09T01:19:31.589Z",
+        "status": "rejected",
+        "textLength": 58,
+        "textSha": "5ffd371892783feef3bc5e504d2210919b79ec922b12fb827b089c0c5b8af780",
+        "hasWorkNumber": false,
+        "hasPlanConfirmation": false
+      },
+      {
+        "at": "2026-11-08T17:37:01.045Z",
+        "status": "delivered",
+        "textLength": 46,
+        "textSha": "1df77cf071ae266bd86503837ceec6cec01b9baf3f44daebd389720b4dce03c0",
+        "hasWorkNumber": false,
+        "hasPlanConfirmation": false
+      },
+      {
+        "at": "2026-11-08T17:33:44.315Z",
+        "status": "delivered",
+        "textLength": 5,
+        "textSha": "35ae23e263f4e223d192b12a88e669e32fd6eacce386c1bf16d586ec9b1bd401",
+        "hasWorkNumber": false,
+        "hasPlanConfirmation": false
+      }
+    ]
+  },
+  "plan": {
+    "id": "plan-aa44424c-38bc-4cf1-a197-e29723ae520d",
+    "revision": 0,
+    "status": "paused",
+    "ownerEnabled": false,
+    "schedule": {
+      "at": "2026-11-10T10:00:00.000Z",
+      "time_zone": "Asia/Shanghai"
+    },
+    "voice": false,
+    "channel": "none",
+    "activeRuns": 0,
+    "triggers": 0
+  },
+  "work": {
+    "status": "completed",
+    "activeRunSha": "b0a827b3fc68da7fe84843b3f7d45e11475cd057aff8e73c1c0f73457486c6fd",
+    "updatedAt": "2026-11-09T01:46:58.006Z",
+    "runCount": 2
+  }
+}
