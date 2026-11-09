@@ -1,0 +1,31 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-send-guards.test.mjs (5 tests | 2 failed) 132ms
+   × 最外层异步返回期间 preference 改变，在真实请求紧前仍阻止发送 35ms
+     → 微信未连接到可用的本人绑定，请先在电脑端核对接入。
+   × 最外层异步返回期间 expiry 改变，在真实请求紧前仍阻止发送 24ms
+     → 微信未连接到可用的本人绑定，请先在电脑端核对接入。
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-send-guards.test.mjs > 最外层异步返回期间 preference 改变，在真实请求紧前仍阻止发送
+ FAIL  tests/unit/weixin-send-guards.test.mjs > 最外层异步返回期间 expiry 改变，在真实请求紧前仍阻止发送
+Error: 微信未连接到可用的本人绑定，请先在电脑端核对接入。
+ ❯ WeixinAccess.notificationTarget lib/weixin-access.js:54:19
+     52|         const ctx = this.context(), row = await ctx.repo.active(ctx.wo…
+     53|         if (!row || !row.enabled || !row.session_ready || this.quiesci…
+     54|             throw new Error('微信未连接到可用的本人绑定，请先在电脑端…
+       |                   ^
+     55|         const identity = weixinIdentity(row), credentials = await new …
+     56|         if (!credentials?.context)
+ ❯ TaskPlanAccess.authorize lib/task-plan-access.js:60:67
+ ❯ planResult tests/unit/weixin-send-guards.test.mjs:73:25
+ ❯ tests/unit/weixin-send-guards.test.mjs:92:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  18:37:42
+   Duration  536ms (transform 160ms, setup 0ms, collect 314ms, tests 132ms, environment 0ms, prepare 20ms)
