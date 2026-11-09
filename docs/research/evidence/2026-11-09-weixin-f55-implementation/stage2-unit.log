@@ -1,0 +1,23 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/manticore-panel.test.mjs (40 tests) 1213ms
+ ✓ tests/unit/task-plan-service.test.mjs (66 tests) 1788ms
+ ✓ tests/unit/run-history.test.mjs (31 tests) 1365ms
+ ✓ tests/unit/backup-recovery.test.mjs (19 tests) 242487ms
+   ✓ M09 sqlite durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 29966ms
+   ✓ M09 sqlite durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 612ms
+   ✓ M09 sqlite durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 29304ms
+   ✓ M09 sqlite durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 120085ms
+   ✓ M09 postgres durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved 1730ms
+   ✓ M09 postgres durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 1668ms
+   ✓ M09 postgres durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 2539ms
+   ✓ M09 postgres durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 2507ms
+   ✓ M09 postgres durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 1655ms
+   ✓ M09 postgres durable records and isolated restore > actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity 2450ms
+   ✓ old backup merge retains current changes and purges old derived bodies, without modifying authority or backup 6235ms
+   ✓ corrupt current JSON and pending audit block restoration; existing or source targets are untouched 11170ms
+   ✓ memory integrity rejects changeset even without tombstones; source and backup remain untouched 629ms
+   ✓ memory integrity rejects audit even without tombstones; source and backup remain untouched 29300ms
+   ✓ PG dump meta-command and server-program escape attempts fail in isolated restricted import 2285ms
+ ✓ tests/unit/plan-results.test.mjs (20 tests) 1072ms
