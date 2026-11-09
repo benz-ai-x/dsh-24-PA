@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm version](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub release](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](package.json)
-[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.5)
+[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.6)
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
@@ -20,7 +20,7 @@ kind: "package-bundle"
 
 *English desktop interface with sample data.*
 
-`0.2.2-rc.1.5` fixes scoped Host tools bypassing the WeChat business tool allowlist, including business work continued from another entry (#279). Owner QR binding, private text requests, and common plan management are included. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](weixin-setup.md). Owner QR binding and the help reply have been confirmed; business-flow acceptance after this fix is still pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
+`0.2.2-rc.1.6` fixes todo query validation being mistaken for an unknown action: invalid filters now return a correctable rejection, and the same work run can continue with the documented `open` filter (#279). The previous scoped Host tool permission fix remains included. Owner QR binding, private text requests, and common plan management are included. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](weixin-setup.md). Owner QR binding and the help reply have been confirmed; business-flow acceptance after this fix is still pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
 
 This fix requires dsh `0.2.2-rc.1` and its native tool execution guard. Older hosts must use their matching plugin version in the table below.
 
@@ -91,7 +91,7 @@ Requirements: Node.js `^22.19.0` or `>=24.0.0`, dsh `0.2.2-rc.1`, and no databas
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.1
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.5 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.6 --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`. For a new instance, follow the [initialization guide](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md) for the isolated directory, launch script, expected pnpm approval, token URL, and demo verification. Then tell the local assistant「帮我接通飞书」or use the bundled [Feishu setup guide](feishu-setup.md).
@@ -105,7 +105,7 @@ To remove the bundle, run `dsh plugin --profile <name> remove @benz-ai-x/dsh-24p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.2-rc.1` | `0.2.2-rc.1.5` (current) |
+| `0.2.2-rc.1` | `0.2.2-rc.1.6` (current) |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8` (line frozen here) |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
