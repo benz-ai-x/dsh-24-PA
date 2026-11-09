@@ -1,0 +1,18 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/plan-results.test.mjs (20 tests | 10 skipped) 87ms
+ ❯ tests/unit/plan-delivery-guards.test.mjs (18 tests | 9 skipped) 60ms
+ ✓ tests/unit/weixin-send-guards.test.mjs (5 tests) 257ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/plan-delivery-guards.test.mjs > 投递评审边界 (postgres)
+ FAIL  tests/unit/plan-results.test.mjs > 计划结果与投递 (postgres)
+Error: listen EPERM: operation not permitted 127.0.0.1
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  24 passed | 19 skipped (43)
+   Start at  18:38:47
+   Duration  1.23s (transform 167ms, setup 0ms, collect 558ms, tests 404ms, environment 0ms, prepare 66ms)
