@@ -1,6 +1,6 @@
 import type { Repos, OutboxRow } from './repo.js';
 import type { TaskPlanAccess } from './task-plan-access.js';
-import type { DeliveryHold } from './outbox-delivery.js';
+import { finishDeliveryCheck, type DeliveryHold, type PreparedDeliveryCheck } from './outbox-delivery.js';
 import { taskPlanFingerprint } from './task-plan-access.js';
 import { sameWeixinIdentity } from './weixin-protocol.js';
 
@@ -22,6 +22,9 @@ export class PlanResults {
     return { deliveries: await repo.inspect(String(input.runId)), workspaceBinding: input.workspaceBinding };
   }
   async beforeSend(row: OutboxRow): Promise<DeliveryHold | null> {
+    return finishDeliveryCheck(await this.prepareSend(row));
+  }
+  async prepareSend(row: OutboxRow): Promise<PreparedDeliveryCheck> {
     const selected = await this.deps.repos().planResults.delivery(Number(row.id));
     if (!selected) return row.association?.planId || row.association?.skillRunId || row.association?.noticeId || row.dedup_key.startsWith('plan-result-')
       ? { status: 'failed', error: '缺少原计划的固定投递关联，未发送。' } : null;
@@ -52,13 +55,15 @@ export class PlanResults {
       return { status: 'failed', error: '投递准备期间原计划结果关联已变化，未发送。' };
     }
     if (latest.obsolete) return { status: 'expired', error: '原处理要求已经结束或更新，旧通知保留而不再推送。' };
-    const until = quiet?.() ?? null, now = Date.now();
-    // Identity and preference reads may be slow. The deadline governs entry
-    // into the platform send, not when preparation started.
-    if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= now) return { status: 'expired', error: '投递准备完成时已超过有效期，结果仍保留。' };
-    if (until && until.getTime() > now) return { status: 'pending', error: '免打扰期间暂缓投递。',
-      retryInMs: Math.max(1, Math.min(until.getTime(), delivery.expires_at ? new Date(delivery.expires_at).getTime() : Infinity) - now) };
-    return null;
+    // Keep this check until the transport has finished every async step.
+    // A successful preflight must not discard the authority version or clock.
+    return () => {
+      const until = quiet?.() ?? null, now = Date.now();
+      if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= now) return { status: 'expired', error: '投递准备完成时已超过有效期，结果仍保留。' };
+      if (until && until.getTime() > now) return { status: 'pending', error: '免打扰期间暂缓投递。',
+        retryInMs: Math.max(1, Math.min(until.getTime(), delivery.expires_at ? new Date(delivery.expires_at).getTime() : Infinity) - now) };
+      return null;
+    };
   }
   async updated(row: OutboxRow): Promise<void> {
     const repos = this.deps.repos(), record = await repos.planResults.delivery(Number(row.id));
