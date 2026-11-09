@@ -179,6 +179,22 @@ it('WX-03/08 跨入口热续办业务 Worker 保持工具范围及原结果目�
   expect(events.records.some(row => row.event.type === 'team/task')).toBe(false);
 }, 120000);
 
+it('WX-05 已消费但失败的输入经真实宿主状态核验关闭，不重提或补发', async () => {
+  await writeFile(scriptPath, JSON.stringify({ steps: Array.from({ length: 8 }, () => ({ httpError: { status: 400, type: 'invalid_request_error', message: 'isolated failed-input verification' } })) }));
+  const input = wx.input('隔离验证：此输入只用于核对失败回合，不执行业务。');
+  const failed = await waitFor(s => s.inbox.some(row => row.payload.nativeId === input.message_id && row.status === 'admitted' && row.error));
+  const row = failed.inbox.find(row => row.payload.nativeId === input.message_id), sent = wx.sent.length;
+  await apply('disable');
+  try {
+    await action('input-close', { eventId: row.event_id, generation: failed.binding.generation, requestId: randomUUID(), confirm: true,
+      evidence: '隔离模型明确失败；已核对本次未执行业务，只关闭原输入。' });
+    const closed = await state();
+    expect(closed.inbox.find(item => item.event_id === row.event_id)).toMatchObject({ status: 'rejected', error: '主人已核对关闭原输入；未证明原业务成功，未重新执行。' });
+    expect(closed.deliveries.some(delivery => delivery.association?.inboxEventId === row.event_id)).toBe(false);
+    expect(wx.sent).toHaveLength(sent);
+  } finally { await apply('enable'); }
+}, 120000);
+
 it('WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发', async () => {
   await waitFor(s => s.deliveries.every(row => row.status === 'sent'));
   wx.state.sendMode = 'no-id'; wx.input('/24pa');
@@ -215,12 +231,12 @@ it('WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔�
     if (value?.type === 'text') return decode(value.text); return value;
   };
   const maintenance = async input => {
-    const start = llm.log.length, previous = llm.log.at(-1)?.toolResults.at(-1);
+    const start = llm.log.length, seenResults = new Set(llm.log.flatMap(row => row.toolResults));
     await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_maintenance', input }, leadReply: '维护结果已返回。' }));
     await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: '隔离测试：本人明确执行 ' + JSON.stringify(input) }] } });
     for (let n = 0; n < 800; n++) {
       const result = llm.log.slice(start).at(-1)?.toolResults.at(-1);
-      if (result && result !== previous) return decode(result); await delay(50);
+      if (result && !seenResults.has(result)) return decode(result); await delay(50);
     }
     throw new Error('联合备份工具回执超时');
   };

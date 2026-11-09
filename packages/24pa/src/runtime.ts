@@ -2200,7 +2200,7 @@ export class PaRuntime {
               if (!row || row.binding_generation !== generation) throw new Error('原输入身份不符。');
               if (row.status === 'admitted' && row.request_id) {
                 const history = await readWeixinSession(this.ctx, binding.session_id);
-                const host = await this.ctx.sessionController.state?.({ sessionId: binding.session_id });
+                const host = await this.ctx.sessionController.state?.({ sessionId: binding.session_id }, this.lifetime.signal);
                 if (!host || host.running || host.queue?.some(item => item.rpcId === row.request_id) || inspectWeixinInput(history, row.request_id).state === 'queued') throw new Error('原会话仍在运行或排队，请先在原会话取消或完成；不会重复提交。');
                 this.inboxLifecycle.restore(row);
                 await this.inboxLifecycle.complete(binding.session_id, new Set([row.request_id]), async () => {

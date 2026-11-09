@@ -1,0 +1,109 @@
+{
+  "capturedAt": "2026-11-09T01:50:26.755Z",
+  "workIdSha256": "f2f09f505b65b20a4e3e72411ff5d47f3c44055d7d0234435ed41bb161805571",
+  "workStatus": "completed",
+  "origin": "weixin",
+  "runCount": 2,
+  "original": {
+    "runSha256": "48881e71cba07f6e5ad3133d8fb4c8ede799a953bcc7cd8e60a53438616933eb",
+    "status": "stopped",
+    "reviewed": true,
+    "rawUnknownPreserved": true,
+    "reviewOutcomes": [
+      "not_performed"
+    ],
+    "operations": 0,
+    "input": {
+      "status": "admitted",
+      "errorPresent": true,
+      "textSha256": "5ffd371892783feef3bc5e504d2210919b79ec922b12fb827b089c0c5b8af780",
+      "ownerInputKind": "weixin"
+    }
+  },
+  "continuation": {
+    "runSha256": "b0a827b3fc68da7fe84843b3f7d45e11475cd057aff8e73c1c0f73457486c6fd",
+    "status": "completed",
+    "fromRunMatches": true,
+    "ownerInputKind": "panel",
+    "operations": 0,
+    "resultSha256": "d8dd715cc2ef41f09e1adff6397c6d0563d5ad4fdfa30d71f699b626b8582bf9",
+    "resultLength": 1354,
+    "queries": [
+      {
+        "status": "succeeded",
+        "action": "task_list",
+        "filter": "open",
+        "role": "responsible",
+        "complete": false,
+        "fresh": false,
+        "total": null,
+        "count": 0,
+        "hasMore": false,
+        "sources": [
+          {
+            "state": "partial",
+            "fresh": false
+          }
+        ]
+      },
+      {
+        "status": "succeeded",
+        "action": "task_list",
+        "filter": "all",
+        "role": "responsible",
+        "complete": false,
+        "fresh": false,
+        "total": null,
+        "count": 1,
+        "hasMore": false,
+        "sources": [
+          {
+            "state": "partial",
+            "fresh": false
+          }
+        ]
+      },
+      {
+        "status": "succeeded",
+        "action": "task_list",
+        "filter": "open",
+        "role": null,
+        "complete": false,
+        "fresh": false,
+        "total": null,
+        "count": 0,
+        "hasMore": false,
+        "sources": [
+          {
+            "state": "partial",
+            "fresh": false
+          }
+        ]
+      }
+    ],
+    "deliveries": [
+      {
+        "id": 78,
+        "status": "sent",
+        "attempts": 1,
+        "channel": "weixin",
+        "contentSha256": "caaabdd31d000bbb7b825a961cb4eaca4d572c047371ac41a2b8e0f459db4d96",
+        "acceptance": {
+          "basis": "native_message_id",
+          "http": 200
+        },
+        "workMatches": true,
+        "runMatches": true,
+        "inboxAssociationPresent": false,
+        "identityMatches": true
+      }
+    ]
+  },
+  "userVisibleConfirmation": "pending",
+  "weixin": {
+    "enabled": true,
+    "phase": "polling",
+    "inboxCount": 3,
+    "deliveryCount": 3
+  }
+}

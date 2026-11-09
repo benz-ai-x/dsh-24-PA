@@ -1,0 +1,14 @@
+{
+  "version": "0.2.2-rc.1.6",
+  "commit": "1e95a4607f7662594307060f87d7673762b972a6",
+  "mergeCommit": "959a207e56852d8bca9a06a9801dd530126e3205",
+  "files": 158,
+  "size": 710885,
+  "sha256": "fb772ab0e1222a86b865d479eed94a70ca71ddcfb419f0f9b0d2e2d5d4a6bb26",
+  "localNpmGithubBytesMatch": true,
+  "npmLatest": "0.2.2-rc.1.6",
+  "activeHostTag": "0.2.2-rc.1.6",
+  "historicalTagsUnchanged": true,
+  "githubLatest": "v0.2.2-rc.1.6",
+  "publishedAt": "2026-11-09T01:38:59Z"
+}
