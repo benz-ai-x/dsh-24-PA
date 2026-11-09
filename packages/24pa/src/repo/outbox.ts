@@ -130,8 +130,8 @@ export class OutboxRepo {
       }
       if (row.revision !== input.revision || !input.evidence.trim() || !input.actorSessionId) throw new Error('投递版本已改变或缺少本人核对依据，请刷新。');
       if (input.action === 'received' && row.status !== 'unknown') throw new Error('只有未知投递需要本人确认已收到。');
-      if (input.action === 'retry' && !['unknown', 'failed'].includes(row.status)) throw new Error('仅可补投已核对的未知或失败消息。');
-      if (input.action === 'abandon' && !['pending', 'failed'].includes(row.status)) throw new Error('仅可放弃明确未发送的消息；未知发送须先核对。');
+      if (input.action === 'retry' && !['unknown', 'failed', 'limited'].includes(row.status)) throw new Error('仅可补投已核对的未知、失败或受限消息。');
+      if (input.action === 'abandon' && !['pending', 'failed', 'limited'].includes(row.status)) throw new Error('仅可放弃明确未发送的消息；未知发送须先核对。');
       if (row.acceptance || row.message_id) throw new Error('已有平台接纳依据，只能补记，不能重发或放弃。');
       await tx.query('insert into pa24.delivery_review (request_id, outbox_id, actor_session_id, action, evidence) values ($1, $2, $3, $4, $5)',
         [input.requestId, row.id, input.actorSessionId, input.action, JSON.stringify({ text: input.evidence, revision: input.revision, generation: input.generation, priorStatus: row.status })]);

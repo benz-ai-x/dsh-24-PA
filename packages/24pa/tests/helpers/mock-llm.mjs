@@ -27,7 +27,7 @@ const writeJson = async (path, value) => {
   await rename(temporary, path);
 };
 
-export async function startMockLlm({ scriptPath, logPath, recordInputs = false, sequenceKey }) {
+export async function startMockLlm({ scriptPath, logPath, recordInputs = false, sequenceKey, beforeReply }) {
   const requests = [];
   let scriptQueue = Promise.resolve(), logQueue = Promise.resolve();
   const updateScript = change => {
@@ -139,6 +139,7 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false, 
       return { value: step, changed };
     });
     const turn = requests.length;
+    await beforeReply?.(body);
     if (step.httpError) {
       res.writeHead(step.httpError.status, { 'content-type': 'application/json', 'retry-after': '0.01' });
       res.end(JSON.stringify({ error: { type: step.httpError.type, message: step.httpError.message ?? '隔离模型暂时拒绝请求' } }));
