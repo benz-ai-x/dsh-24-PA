@@ -1,0 +1,112 @@
+{
+  "recordedAt": "2026-11-09T09:53:18.434Z",
+  "testedCommit": "341389e404417a754627c3c9f4f9e4d9f89efe55",
+  "stage": 4,
+  "issue": 281,
+  "scope": "Final synchronous pause check and corrupted-relationship restore rejection. Partial F55; not merge-ready, released or deployed.",
+  "completeRuns": [
+    {
+      "storage": "postgres",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs"
+      ],
+      "passed": 28,
+      "failed": 0,
+      "log": "stage4-full-postgres.log"
+    },
+    {
+      "storage": "sqlite",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs"
+      ],
+      "passed": 27,
+      "failed": 1,
+      "log": "stage4-full-sqlite.log",
+      "failure": "backup_create tool receipt timed out at existing 40-second limit; cause not proven"
+    },
+    {
+      "storage": "sqlite",
+      "files": [
+        "tests/e2e/weixin.e2e.mjs"
+      ],
+      "passed": 11,
+      "failed": 0,
+      "log": "stage4-backup-full-diagnostic.log",
+      "boundary": "Single-file rerun with new failure diagnostics; not a new combined full regression."
+    },
+    {
+      "kind": "supplemental public transport and plan delivery checks",
+      "files": [
+        "tests/unit/weixin-send-guards.test.mjs",
+        "tests/unit/plan-delivery-guards.test.mjs"
+      ],
+      "passed": 15,
+      "failed": 0,
+      "log": "stage4-stop-race-green.log"
+    }
+  ],
+  "targetedRuns": [
+    {
+      "storage": "sqlite+postgres",
+      "files": [
+        "tests/unit/backup-recovery.test.mjs"
+      ],
+      "selection": "微信计划关联损坏",
+      "passed": 2,
+      "skipped": 19,
+      "failed": 0,
+      "log": "stage4-corrupt-restore.log",
+      "boundary": "Correct file hashes do not excuse a corrupt original run/owner/component association. This is restore validation, not the outstanding pre-send association check."
+    },
+    {
+      "storage": "sqlite",
+      "files": [
+        "tests/e2e/weixin.e2e.mjs"
+      ],
+      "selection": "首次真实会话|换绑退休隔离",
+      "passed": 2,
+      "skipped": 9,
+      "failed": 0,
+      "log": "stage4-backup-diagnostic.log"
+    }
+  ],
+  "commands": {
+    "native": "DSH_BIN=/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js PA24_E2E_EXTRA_PLUGINS=@deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1 PA24_E2E_STORAGE=sqlite|postgres node node_modules/vitest/vitest.mjs run tests/e2e/weixin-plan-delivery.e2e.mjs tests/e2e/weixin.e2e.mjs",
+    "checks": [
+      "npm run build",
+      "npm run preset:check",
+      "node --check client.js",
+      "git diff --check",
+      "node packages/24pa/scripts/secrets/scan.mjs --staged"
+    ]
+  },
+  "failures": [
+    "Stop-race test reproduced a platform request after pause on 90a5b33; moved epoch check after the outermost await immediately before dispatch.",
+    "Initial targeted native commands skipped the first original-WeChat test that logs in. Subsequent test had no binding. Both failed selections are preserved and replaced by complete file runs.",
+    "Combined SQLite run later timed out waiting for backup_create; minimal and complete original-WeChat diagnostic reruns passed without increasing the timeout or changing backup product code. No proven root cause; retain diagnostic coverage."
+  ],
+  "remaining": [
+    "Original business read provenance",
+    "Cross-check all plan notification associations before send",
+    "Recheck attention obsolescence after asynchronous preparation",
+    "B real evidence and consistent server/UI admission",
+    "Upgrade, business permission, WeCom and desktop acceptance",
+    "Owner-visible real plan result and final review"
+  ],
+  "logs": [
+    "stage4-backup-diagnostic.log",
+    "stage4-backup-full-diagnostic.log",
+    "stage4-build.log",
+    "stage4-corrupt-restore.log",
+    "stage4-full-postgres.log",
+    "stage4-full-sqlite.log",
+    "stage4-preset.log",
+    "stage4-stop-postgres.log",
+    "stage4-stop-race-green.log",
+    "stage4-stop-race-red.log",
+    "stage4-stop-sqlite.log"
+  ],
+  "evidenceBoundary": "No real WeChat account was contacted. All network/model replacements are isolated. No change to 8010."
+}

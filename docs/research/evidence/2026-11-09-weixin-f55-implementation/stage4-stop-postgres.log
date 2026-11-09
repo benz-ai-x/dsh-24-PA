@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (17 tests | 14 skipped) 22764ms
+   ✓ WX-17/18/21 显式确认固定微信目标，原生触发保存结果后发到该绑定 6089ms
+   ✓ WX-18/19 停用微信不阻断已授权业务，恢复后明确补投不重跑或改投 5008ms
+   ✓ WX-19 平台明确凭据失效时停止重复发送，保留受限结果并要求重新登录 1908ms
+ ❯ tests/e2e/weixin.e2e.mjs (11 tests | 1 failed | 10 skipped) 46788ms
+   × WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发 40120ms
+     → 微信状态超时: {"binding":null,"phase":"unbound","error":null,"loginPhase":"idle","candidate":null,"verified":false,"notificationSupported":false,"impact":null,"qrImage":null,"expiresAt":null,"bindings":[],"offset":0,"workspaceBinding":"10819ba4-303e-47ea-b920-6a02cf5ac2ed","inbox":[],"deliveries":[]}
+{"stdout":"dsh web: http://127.0.0.1:57672/?token=[REDACTED:len=43]\n","stderr":""}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin.e2e.mjs > WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发
+Error: 微信状态超时: {"binding":null,"phase":"unbound","error":null,"loginPhase":"idle","candidate":null,"verified":false,"notificationSupported":false,"impact":null,"qrImage":null,"expiresAt":null,"bindings":[],"offset":0,"workspaceBinding":"10819ba4-303e-47ea-b920-6a02cf5ac2ed","inbox":[],"deliveries":[]}
+{"stdout":"dsh web: http://127.0.0.1:57672/?token=[REDACTED:len=43]\n","stderr":""}
+ ❯ waitFor tests/e2e/weixin.e2e.mjs:39:9
+     37|   const started = Date.now(); let latest;
+     38|   while (Date.now() - started < 40000) { latest = await state(); if (c…
+     39|   throw new Error(`${label}超时: ${JSON.stringify(latest)}\n${JSON.str…
+       |         ^
+     40| }
+     41| async function apply(op) { const preview = await action('preview', { o…
+ ❯ tests/e2e/weixin.e2e.mjs:239:3
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 3 passed | 24 skipped (28)
+   Start at  17:39:09
+   Duration  69.85s (transform 48ms, setup 0ms, collect 114ms, tests 69.55s, environment 0ms, prepare 39ms)
