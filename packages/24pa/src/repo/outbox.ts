@@ -120,6 +120,7 @@ export class OutboxRepo {
   }
   async review(input: { id: number; revision: number; requestId: string; actorSessionId: string;
     generation: string; action: 'received' | 'retry' | 'abandon'; evidence: string }): Promise<OutboxRow> {
+    if (input.action !== 'received' && input.action !== 'retry' && input.action !== 'abandon') throw new Error('投递操作无效。');
     return this.db.withTransaction(async tx => {
       const row = (await tx.query<OutboxRow>('select * from pa24.outbox where id = $1 for update', [input.id])).rows[0];
       if (!row || row.channel !== 'weixin' || row.binding_generation !== input.generation) throw new Error('微信投递身份不符。');

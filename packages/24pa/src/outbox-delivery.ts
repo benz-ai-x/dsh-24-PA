@@ -82,7 +82,8 @@ export class OutboxDelivery {
       } catch (error) {
         if (error instanceof DeliveryHeld) { await repo.mark(row.id, { ...error.hold, releaseAttempt: true }); return; }
         const unknown = (error as { outcome?: string })?.outcome !== 'failed';
-        await repo.mark(row.id, { status: unknown ? 'unknown' : row.attempts >= 3 ? 'failed' : 'pending', error: this.error(error), ...(!unknown && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
+        const limited = !unknown && row.channel === 'weixin' && (error as { needsLogin?: boolean })?.needsLogin === true;
+        await repo.mark(row.id, { status: unknown ? 'unknown' : limited ? 'limited' : row.attempts >= 3 ? 'failed' : 'pending', error: this.error(error), ...(!unknown && !limited && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
         return;
       }
       try {
