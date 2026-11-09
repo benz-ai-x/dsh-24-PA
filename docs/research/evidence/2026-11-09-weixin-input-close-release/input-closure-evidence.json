@@ -9,5 +9,10 @@
   "enabled": true,
   "phase": "connecting",
   "deliveryCountUnchanged": true,
-  "userVisibleConfirmation": "owner confirmed received in Codex chat"
+  "userVisibleConfirmation": {
+    "scope": "previous read-only query result only",
+    "outboxId": 78,
+    "source": "owner explicitly replied 已收到 in Codex chat",
+    "doesNotConfirm": "this desktop input closure or remaining WeChat acceptance"
+  }
 }
