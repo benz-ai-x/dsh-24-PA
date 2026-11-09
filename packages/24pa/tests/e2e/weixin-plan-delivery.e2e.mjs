@@ -11,6 +11,8 @@ import { startPgCluster } from '../helpers/pg.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startWeixinServer } from '../helpers/weixin-server.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { SqliteDb } from '../../lib/sqlite.js';
+import { PaDatabase } from '../../lib/pg.js';
 
 let root, host, wx, llm, cluster, env, binding, skillId, scriptPath, clockPath, modelReply;
 async function advanceClock(offsetMs) {
@@ -479,4 +481,83 @@ it.each(['rate-limit', 'http-error', 'network-error', 'rejected'])('WX-19 平台
       generation: current.binding_generation, confirm: true, evidence: '结束隔离平台异常测试，放弃该次未发送投递，保留业务结果。' });
     expect(wx.sent).toHaveLength(before + attempts);
   } finally { wx.state.sendMode = 'native'; }
+}, 90000);
+
+it.each(['出站关联', '投递运行'])('WX-18/21 计划通知指向其他运行时，补投拒绝发送并保留原结果（%s）', async fault => {
+  const body = '原计划的保存结果，不得借其他运行关联发送。';
+  await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ text: body }] }));
+  let row = (await action('plan.change', { op: 'save', title: '关联完整性验收', skillId,
+    timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'weixin', overrideQuiet: true } })).plan;
+  const preview = await host.api('plans.preview', { id: row.id, workspaceBinding: binding });
+  row = (await action('plan.change', { op: 'enable', id: row.id, expectedRevision: row.revision, confirm: true, fingerprint: preview.fingerprint })).plan;
+  row = (await action('plan.change', { op: 'pause', id: row.id, expectedRevision: row.revision })).plan;
+  await bindingChange('disable');
+  const before = wx.sent.length, requests = llm.requests.length;
+  const db = cluster ? new PaDatabase(cluster.dsn) : new SqliteDb(join(env.PA24_WORKSPACE, 'data', 'pa24.db'));
+  let original;
+  try {
+    const check = await host.api('plans.run-preview', { id: row.id, workspaceBinding: binding });
+    const run = (await action('plan.change', { op: 'run', id: row.id, confirm: true, fingerprint: check.fingerprint })).run;
+    const limited = await until(() => detail(run.id), value => value.run.delivery_status === 'limited');
+    original = limited.deliveries[0].deliveries[0].outbox;
+    // Storage corruption is the injected fault; all admission, retry and
+    // outcome assertions still use the real authenticated host interfaces.
+    if (fault === '投递运行') {
+      const otherCheck = await host.api('plans.run-preview', { id: row.id, workspaceBinding: binding });
+      const other = (await action('plan.change', { op: 'run', id: row.id, confirm: true, fingerprint: otherCheck.fingerprint })).run;
+      await until(() => detail(other.id), value => value.run.delivery_status === 'limited');
+      await db.query('update pa24.task_plan_delivery set run_id = $2 where outbox_id = $1', [original.id, other.id]);
+    } else await db.query('update pa24.outbox set association = $2 where id = $1', [original.id,
+      JSON.stringify({ ...original.association, skillRunId: randomUUID() })]);
+    await bindingChange('enable');
+    const item = (await state()).deliveries.find(item => Number(item.id) === Number(original.id));
+    await action('weixin.change', { action: 'delivery', op: 'retry', id: Number(item.id), revision: item.revision,
+      generation: item.binding_generation, evidence: '本人确认未发送，验证原结果补投', confirm: true });
+    const final = (await until(state, value => value.deliveries.some(item => Number(item.id) === Number(original.id)
+      && ['failed', 'sent', 'unknown'].includes(item.status)))).deliveries.find(item => Number(item.id) === Number(original.id));
+    expect((await detail(run.id)).run).toMatchObject({ status: 'completed', result: body });
+    expect(final).toMatchObject({ status: 'failed', attempts: 0, message_id: null, acceptance: null });
+    expect(final.last_error).toContain('关联');
+    expect(wx.sent).toHaveLength(before); expect(llm.requests).toHaveLength(requests + (fault === '投递运行' ? 2 : 1));
+  } finally {
+    if (original) {
+      await db.query('update pa24.outbox set association = $2 where id = $1', [original.id, JSON.stringify(original.association)]);
+      await db.query('update pa24.task_plan_delivery set run_id = $2 where outbox_id = $1', [original.id, original.association.skillRunId]);
+    }
+    await db.close(); if ((await state()).phase !== 'polling') await bindingChange('enable');
+  }
+}, 90000);
+
+it('WX-18 原生运行在免打扰期间解除等待并完成，恢复通知时只发最终结果', async () => {
+  const revision = (await host.api('memory', { workspaceBinding: binding })).revision;
+  await localTool('pa24_memory', { action: 'put', id: 'wx-attention-quiet', category: 'preference', topic: '休假',
+    content: '短暂免打扰，用于验证已结束的处理要求不再发送。', source: '本人隔离验收', status: 'confirmed',
+    confirmation: '本人要求临时免打扰', validUntil: new Date(Date.now() + 10000).toISOString(), expectedRevision: revision, reason: '隔离验收' });
+  try {
+    await writeFile(scriptPath, JSON.stringify({ onlySkillRuns: true, steps: [{ text: '等待已解除，原运行完成的最终结果。' }] }));
+    let plan = (await action('plan.change', { op: 'save', title: '已结束待处理通知', skillId,
+      timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'weixin' } })).plan;
+    const preview = await host.api('plans.preview', { id: plan.id, workspaceBinding: binding });
+    plan = (await action('plan.change', { op: 'enable', id: plan.id, expectedRevision: plan.revision, confirm: true, fingerprint: preview.fingerprint })).plan;
+    plan = (await action('plan.change', { op: 'pause', id: plan.id, expectedRevision: plan.revision })).plan;
+    await action('workspace.config-update', { config: { budget: { ...DEFAULT_CONFIG.budget, maxRequests: 0 } } });
+    const before = wx.sent.length, check = await host.api('plans.run-preview', { id: plan.id, workspaceBinding: binding });
+    const run = (await action('plan.change', { op: 'run', id: plan.id, confirm: true, fingerprint: check.fingerprint })).run;
+    const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting'
+      && value.deliveries.some(notice => notice.kind === 'attention' && notice.deliveries.some(item => item.outbox.last_error?.includes('免打扰'))));
+    expect(waiting.execution.blocks).toContainEqual(expect.objectContaining({ kind: 'budget' }));
+    expect(wx.sent).toHaveLength(before);
+    await action('budget.release', { confirm: true, scope: 'next-model-request', runId: run.id, workId: run.work_item_id, sessionId: run.session_id });
+    const final = await until(() => detail(run.id), value => value.run.status === 'completed' && value.run.delivery_status === 'sent'
+      && value.deliveries.filter(notice => notice.kind === 'attention').every(notice => notice.deliveryStatus === 'expired'));
+    expect(final.run.result).toBe('等待已解除，原运行完成的最终结果。');
+    expect(final.deliveries.filter(notice => notice.kind === 'attention').length).toBeGreaterThan(0);
+    expect(wx.sent).toHaveLength(before + 1);
+    expect(wx.sent.at(-1).item_list[0].text_item.text).toContain(final.run.result);
+    expect((await inspect(plan.id)).triggers.total).toBe(1);
+  } finally {
+    await action('workspace.config-update', { config: { budget: DEFAULT_CONFIG.budget } });
+    await localTool('pa24_memory', { action: 'delete', id: 'wx-attention-quiet',
+      expectedRevision: (await host.api('memory', { workspaceBinding: binding })).revision, reason: '结束隔离验收' });
+  }
 }, 90000);
