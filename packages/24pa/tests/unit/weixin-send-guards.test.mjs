@@ -46,3 +46,11 @@ it('凭据文件暂时不可读属于未发送，保留待处理而不是发送�
   await expect(access.send(row)).rejects.toMatchObject({ hold: { status: 'pending' } });
   expect(sent).toEqual([]);
 });
+
+it('最后核验返回期间停用入口，也不能开始新的平台请求', async () => {
+  await expect(access.send(row, async () => {
+    queueMicrotask(() => queueMicrotask(() => access.pause()));
+    return null;
+  })).rejects.toMatchObject({ hold: { status: 'pending' } });
+  expect(sent).toEqual([]);
+});
