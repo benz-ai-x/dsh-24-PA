@@ -1,0 +1,26 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs (6 tests | 1 failed | 5 skipped) 5715ms
+   × WX-18 接入页可明确放弃受限且未发送的计划结果，保留业务结果与核对记录 1259ms
+     → 仅可放弃明确未发送的消息；未知发送须先核对。
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin-plan-delivery.e2e.mjs > WX-18 接入页可明确放弃受限且未发送的计划结果，保留业务结果与核对记录
+Error: 仅可放弃明确未发送的消息；未知发送须先核对。
+ ❯ Object.api tests/helpers/host.mjs:111:27
+    109|     if (!response.ok) throw new Error(`panel HTTP ${response.status}`);
+    110|     const result = await response.json();
+    111|     if (!result.ok) throw new Error(result.error?.message ?? 'panel 调…
+       |                           ^
+    112|     return result.value;
+    113|   };
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs:218:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 skipped (6)
+   Start at  16:18:38
+   Duration  5.88s (transform 38ms, setup 0ms, collect 64ms, tests 5.72s, environment 0ms, prepare 27ms)

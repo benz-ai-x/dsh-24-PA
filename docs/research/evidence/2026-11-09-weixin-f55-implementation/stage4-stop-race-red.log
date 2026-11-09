@@ -1,0 +1,39 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-send-guards.test.mjs (3 tests | 1 failed | 2 skipped) 32ms
+   × 最后核验返回期间停用入口，也不能开始新的平台请求 32ms
+     → promise resolved "{ acceptance: { …(4) } }" instead of rejecting
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-send-guards.test.mjs > 最后核验返回期间停用入口，也不能开始新的平台请求
+AssertionError: promise resolved "{ acceptance: { …(4) } }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "acceptance": Object {
++     "at": "2026-11-09T09:29:10.947Z",
++     "basis": "explicit_zero",
++     "http": 200,
++     "ret": 0,
++   },
++ }
+
+ ❯ tests/unit/weixin-send-guards.test.mjs:54:6
+     52|     queueMicrotask(() => queueMicrotask(() => access.pause()));
+     53|     return null;
+     54|   })).rejects.toMatchObject({ hold: { status: 'pending' } });
+       |      ^
+     55|   expect(sent).toEqual([]);
+     56| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 skipped (3)
+   Start at  17:29:10
+   Duration  290ms (transform 79ms, setup 0ms, collect 162ms, tests 32ms, environment 0ms, prepare 27ms)

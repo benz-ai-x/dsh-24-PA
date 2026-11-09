@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/weixin-panel.test.mjs (5 tests) 144ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  16:20:02
+   Duration  344ms (transform 21ms, setup 0ms, collect 109ms, tests 144ms, environment 0ms, prepare 21ms)

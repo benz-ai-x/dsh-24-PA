@@ -4,8 +4,8 @@ import type { PaDb, PaQueryer } from '../db.js';
 import type { WeixinIdentity, WeixinAcceptance } from '../weixin-protocol.js';
 import { randomUUID } from 'node:crypto';
 
-export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'unknown' | 'failed' | 'expired';
-export interface DeliveryAssociation { inboxEventId?: string; workItemId?: string; workerRunId?: string }
+export type OutboxStatus = 'pending' | 'sending' | 'sent' | 'unknown' | 'limited' | 'failed' | 'expired';
+export interface DeliveryAssociation { inboxEventId?: string; workItemId?: string; workerRunId?: string; planId?: string; skillRunId?: string; noticeId?: string }
 
 export interface OutboxRow {
   id: number;
@@ -46,7 +46,8 @@ export interface NewOutbox {
 /** Shared insertion for business transactions that also enqueue a notification. */
 export async function enqueueOutbox(db: PaQueryer, row: NewOutbox): Promise<{ created: boolean; row: OutboxRow }> {
   if (row.channel === 'weixin' && (!row.deliveryTarget || row.target !== row.deliveryTarget.ownerId ||
-    !row.association || !(row.association.inboxEventId || row.association.workItemId))) throw new Error('微信投递缺少固定身份或显式输入/工作关联。');
+    !row.association || !(row.association.inboxEventId || row.association.workItemId ||
+      row.association.planId && row.association.skillRunId && row.association.noticeId))) throw new Error('微信投递缺少固定身份或显式输入/工作/计划结果关联。');
   const result = await db.query<OutboxRow>(
     `insert into pa24.outbox (dedup_key, channel, target, kind, content, status, binding_generation, delivery_target, association, client_id, segment_group, segment_index)
      values ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11) on conflict (dedup_key) do nothing returning *`,
@@ -119,6 +120,7 @@ export class OutboxRepo {
   }
   async review(input: { id: number; revision: number; requestId: string; actorSessionId: string;
     generation: string; action: 'received' | 'retry' | 'abandon'; evidence: string }): Promise<OutboxRow> {
+    if (input.action !== 'received' && input.action !== 'retry' && input.action !== 'abandon') throw new Error('投递操作无效。');
     return this.db.withTransaction(async tx => {
       const row = (await tx.query<OutboxRow>('select * from pa24.outbox where id = $1 for update', [input.id])).rows[0];
       if (!row || row.channel !== 'weixin' || row.binding_generation !== input.generation) throw new Error('微信投递身份不符。');
@@ -129,8 +131,8 @@ export class OutboxRepo {
       }
       if (row.revision !== input.revision || !input.evidence.trim() || !input.actorSessionId) throw new Error('投递版本已改变或缺少本人核对依据，请刷新。');
       if (input.action === 'received' && row.status !== 'unknown') throw new Error('只有未知投递需要本人确认已收到。');
-      if (input.action === 'retry' && !['unknown', 'failed'].includes(row.status)) throw new Error('仅可补投已核对的未知或失败消息。');
-      if (input.action === 'abandon' && !['pending', 'failed'].includes(row.status)) throw new Error('仅可放弃明确未发送的消息；未知发送须先核对。');
+      if (input.action === 'retry' && !['unknown', 'failed', 'limited'].includes(row.status)) throw new Error('仅可补投已核对的未知、失败或受限消息。');
+      if (input.action === 'abandon' && !['pending', 'failed', 'limited'].includes(row.status)) throw new Error('仅可放弃明确未发送的消息；未知发送须先核对。');
       if (row.acceptance || row.message_id) throw new Error('已有平台接纳依据，只能补记，不能重发或放弃。');
       await tx.query('insert into pa24.delivery_review (request_id, outbox_id, actor_session_id, action, evidence) values ($1, $2, $3, $4, $5)',
         [input.requestId, row.id, input.actorSessionId, input.action, JSON.stringify({ text: input.evidence, revision: input.revision, generation: input.generation, priorStatus: row.status })]);

@@ -1,0 +1,38 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs (13 tests | 1 failed | 12 skipped) 13054ms
+   × WX-19 平台明确凭据失效时停止重复发送，保留受限结果并要求重新登录 8114ms
+     → expected { …(29) } to match object { status: 'completed', …(2) }
+(39 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin-plan-delivery.e2e.mjs > WX-19 平台明确凭据失效时停止重复发送，保留受限结果并要求重新登录
+AssertionError: expected { …(29) } to match object { status: 'completed', …(2) }
+(39 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "delivery_status": "limited",
++   "delivery_status": "failed",
+    "result": "凭据失效后仍保留的业务结果。",
+    "status": "completed",
+  }
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs:443:24
+    441|     const run = (await action('plan.change', { op: 'run', id: row.id, …
+    442|     const result = await until(() => detail(run.id), value => ['failed…
+    443|     expect(result.run).toMatchObject({ status: 'completed', result: '…
+       |                        ^
+    444|     expect(result.deliveries[0].deliveries[0].outbox).toMatchObject({ …
+    445|     expect((await state()).phase).toBe('needs_login'); expect(wx.sent)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 skipped (13)
+   Start at  17:05:45
+   Duration  13.22s (transform 41ms, setup 0ms, collect 68ms, tests 13.05s, environment 0ms, prepare 28ms)

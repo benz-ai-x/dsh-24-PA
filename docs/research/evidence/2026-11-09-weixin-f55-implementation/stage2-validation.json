@@ -1,0 +1,95 @@
+{
+  "implementationCommit": "8e913ece965db63dbc068e09387d6d820b12e3a0",
+  "precedingCommit": "2f999d2d701464c7984846582d3fef4d916c43ad",
+  "baseCommit": "7f600522ae09cbec40b41524b71f1d770326b196",
+  "verificationDate": "2026-11-09",
+  "productionCodeChangedDuringFinalChecks": false,
+  "checks": [
+    "build",
+    "preset:check",
+    "node --check client.js",
+    "git diff --check",
+    "secret-scan paths",
+    "secret-scan staged"
+  ],
+  "fullLoader": {
+    "sqlite": {
+      "passed": 21,
+      "failed": 0,
+      "log": "stage2-sqlite.log"
+    },
+    "postgres": {
+      "passed": 21,
+      "failed": 0,
+      "log": "stage2-postgres.log"
+    }
+  },
+  "unit": {
+    "passed": 210,
+    "failed": 0,
+    "files": 8,
+    "log": "stage2-unit-recheck.log"
+  },
+  "interruptedCombinedUnitRun": {
+    "filesRequested": 9,
+    "exitCode": 143,
+    "complete": false,
+    "log": "stage2-unit.log",
+    "note": "Terminated after a long quiet period. The final captured output records all 19 backup-recovery tests passed before termination. Do not count the entire interrupted command as a pass.",
+    "backupRecovery": {
+      "passed": 19,
+      "failed": 0,
+      "observedDurationMs": 242487
+    }
+  },
+  "backupDiagnosticRecheck": {
+    "passed": 1,
+    "skipped": 18,
+    "failed": 0,
+    "log": "stage2-backup-unit-probe.log",
+    "note": "Single SQLite case passed in about 30 seconds; no performance cause inferred and no unrelated performance change made."
+  },
+  "redBeforeGreen": [
+    {
+      "scenario": "same identity renewal with changed platform URL",
+      "observed": "completed business but limited delivery",
+      "red": "stage2-renewal-red.log",
+      "green": "stage2-renewal-green.log"
+    },
+    {
+      "scenario": "abandon a limited unsent notification via the entry API",
+      "observed": "limited status rejected for abandon",
+      "red": "stage2-abandon-red.log",
+      "green": "stage2-abandon-green.log"
+    },
+    {
+      "scenario": "entry UI verification and plan associations",
+      "observed": "limited row had no retry or abandon controls",
+      "red": "stage2-entry-red.log",
+      "green": "stage2-entry-green.log"
+    },
+    {
+      "scenario": "backup and isolated restore of plan-linked WeChat notifications",
+      "observed": "ledger check rejected plan outbox and native-message-route associations",
+      "red": "stage2-backup-red.log",
+      "green": "stage2-backup-green.log"
+    }
+  ],
+  "fixtureCorrections": [
+    {
+      "log": "stage2-inflight.log",
+      "correction": "Use the public run.plan view, not an absent run.snapshot field."
+    },
+    {
+      "log": "stage2-inflight-recheck.log",
+      "correction": "Wait for the new binding help reply to be sent before measuring additional platform sends."
+    }
+  ],
+  "realWeChatUsed": false,
+  "notificationConclusionB": "unverified",
+  "desktopT20": "pending",
+  "finalDualReview": "pending",
+  "mergeReady": false,
+  "published": false,
+  "deployed8010": false
+}

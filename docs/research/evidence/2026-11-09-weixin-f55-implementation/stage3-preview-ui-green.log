@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/manticore-panel.test.mjs (42 tests | 40 skipped) 153ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 40 skipped (42)
+   Start at  17:00:41
+   Duration  559ms (transform 121ms, setup 0ms, collect 298ms, tests 153ms, environment 0ms, prepare 23ms)

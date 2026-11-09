@@ -250,10 +250,10 @@ export class PaRuntime {
       await this.recordConnectionEvidence(`${row.channel}.${row.channel === 'wecom' ? 'push' : 'send'}`, '平台已接纳一条出站消息；不代表已读。',
         { target: row.target, outboxId: row.id, deliveryId: messageId, nativeMessageId: row.channel === 'feishu' ? messageId : null });
     },
-    beforeSend: row => row.channel === 'weixin' ? this.weixin.beforeSend(row) : this.planResults.beforeSend(row),
+    beforeSend: async row => await this.planResults.beforeSend(row) ?? await this.weixin.beforeSend(row),
     updated: row => this.planResults.updated(row),
     adapters: {
-      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row) },
+      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row, () => this.planResults.prepareSend(row)) },
       local: {
         available: () => !this.closed && !!this.config,
         supports: kind => kind === 'text',
@@ -410,6 +410,7 @@ export class PaRuntime {
   }
   private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry, owner: async channel => {
     if (this.config?.mode !== 'feishu') throw new Error('体验模式不能绑定真实主人投递身份。');
+    if (channel === 'weixin') return this.weixin.notificationTarget();
     const identity = await this.sourceAccess.identity(channel);
     return { channel, target: identity.ownerId, identityKey: hash(JSON.stringify(identity)), connectionHash: this.sourceConnectionHash(channel) };
   } });
@@ -757,7 +758,7 @@ export class PaRuntime {
       permissionHash: authorization => this.skillPermissionHash(authorization),
       authorizePlan: (configuration, skill, previous) => this.taskPlanAccess.authorize(configuration, skill, previous),
       verifyPlan: async run => {
-        try { await this.taskPlanAccess.verify(run.snapshot.plan!.authorization); }
+        try { await this.taskPlanAccess.verifyBusiness(run.snapshot.plan!.authorization); }
         catch (error) {
           const plan = await this.repos!.taskPlans.get(run.snapshot.plan!.id);
           const old = planAuthorizationScope(run.snapshot.plan!.authorization), current = plan?.task_authorization && planAuthorizationScope(plan.task_authorization);
@@ -812,7 +813,8 @@ export class PaRuntime {
       ownerInput: item => this.adoptedOwnerInput(item), legacyControl: input => this.digest.digestControl(input), gate: (key, work) => this.gate(key, work) });
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });
-    this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess, silence: this.silencePolicy, binding: () => this.workspaceBinding });
+    this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess,
+      silence: { prepare: () => this.prepareSilence() }, binding: () => this.workspaceBinding });
     this.runHistory = new RunHistory({ context: planContext, skills: this.skillRuns,
       secretValues: () => [
         ...SECRET_KEYS.map(key => resolveSecret(secretRefs(this.config)[key], this.env, this.secretStore, key)),
@@ -1963,17 +1965,28 @@ export class PaRuntime {
   /** Quiet hours / vacation read from the memory authority at dispatch time. */
   private readonly silencePolicy: SilencePolicy = {
     silentUntil: async () => {
-      try {
-        const now = new Date();
-        const vacation = await this.memory!.search({ topic: '休假', mode: 'facts', limit: 20 });
+      try { return (await this.prepareSilence())(); } catch (error) {
+        // Fail open, but visibly: a broken preference must not silently
+        // garble reminders without a trace.
+        console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${(error as Error).message}`);
+        return null;
+      }
+    },
+  };
+
+  private async prepareSilence(): Promise<() => Date | null> {
+    try {
+      const search = await this.memory!.prepareSearch(), binding = this.workspaceBinding, tz = this.config?.timeZone ?? 'Asia/Shanghai';
+      return () => {
+        if (binding !== this.workspaceBinding || tz !== (this.config?.timeZone ?? 'Asia/Shanghai')) throw new Error('工作区或通知时区已变化，请重新核验。');
+        const timestamp = Date.now(), vacation = search({ topic: '休假', mode: 'facts', limit: 20 }, timestamp);
         for (const record of vacation.records) {
           if (record.status !== 'confirmed') continue;
           const end = record.validUntil ? new Date(record.validUntil) : null;
-          if (!end || Number.isNaN(end.getTime())) continue;
-          if (end.getTime() > now.getTime()) return end;
+          if (end && end.getTime() > timestamp) return end;
         }
-        const quiet = await this.memory!.search({ topic: '通知偏好', mode: 'facts', limit: 20 });
-        const tz = this.config?.timeZone ?? 'Asia/Shanghai';
+        const quiet = search({ topic: '通知偏好', mode: 'facts', limit: 20 }, timestamp);
+        const now = new Date(timestamp);
         for (const record of quiet.records) {
           if (record.status !== 'confirmed') continue;
           const match = record.content.match(/安静时段\s*(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})/);
@@ -1984,19 +1997,14 @@ export class PaRuntime {
           const start = Number(match[1]) * 60 + Number(match[2]);
           const endMin = Number(match[3]) * 60 + Number(match[4]);
           const inWindow = start <= endMin ? minutesNow >= start && minutesNow < endMin : minutesNow >= start || minutesNow < endMin;
-          if (!inWindow) continue;
-          const end = new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
-          return end;
+          if (inWindow) return new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
         }
         return null;
-      } catch (error) {
-        // Fail open, but visibly: a broken preference must not silently
-        // garble reminders without a trace.
-        console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${(error as Error).message}`);
-        return null;
-      }
-    },
-  };
+      };
+    } catch {
+      throw new Error('读取免打扰偏好失败。');
+    }
+  }
 
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
@@ -2180,7 +2188,7 @@ export class PaRuntime {
         else if (action === 'cancel') this.weixin.cancelLogin();
         else if (action === 'code') this.weixin.submitCode(String(input.code ?? ''));
         else if (action === 'preview') {
-          if (!['activate', 'enable', 'disable', 'retire'].includes(String(input.op))) throw new Error('微信绑定操作无效。');
+          if (typeof input.op !== 'string' || !['activate', 'enable', 'disable', 'retire'].includes(input.op)) throw new Error('微信绑定操作无效。');
           return { ...await this.weixin.preview(input.op as 'activate' | 'enable' | 'disable' | 'retire'), workspaceBinding: this.workspaceBinding };
         } else if (action === 'apply') {
           if (input.confirm !== true) throw new Error('请确认预览中的微信身份与影响。');
@@ -2190,7 +2198,7 @@ export class PaRuntime {
           const evidence = String(input.evidence ?? '').trim(), requestId = String(input.requestId ?? '');
           if (binding.workspace_id !== this.backupWorkspaceId || input.confirm !== true || !evidence || evidence.length > 2000 || !/^[a-zA-Z0-9-]{16,100}$/.test(requestId)) throw new Error('请核对原微信身份，并填写本人核对依据。');
           if (action === 'delivery') {
-            if (!['received', 'retry', 'abandon'].includes(String(input.op)) || !Number.isSafeInteger(input.id) || !Number.isSafeInteger(input.revision)) throw new Error('投递操作或版本无效。');
+            if (typeof input.op !== 'string' || !['received', 'retry', 'abandon'].includes(input.op) || !Number.isSafeInteger(input.id) || !Number.isSafeInteger(input.revision)) throw new Error('投递操作或版本无效。');
             await this.repos!.outbox.review({ id: Number(input.id), revision: Number(input.revision), requestId, actorSessionId: this.localSessionId!,
               generation, action: input.op as 'received' | 'retry' | 'abandon', evidence });
           } else {
@@ -2278,7 +2286,7 @@ export class PaRuntime {
     if (!run || !plan || plan.id !== row.id || run.mode === 'local' || !plan.configuration.skillId.startsWith('builtin:') ||
         plan.configuration.skillId !== row.task_config?.skillId) return { ...meta, result: null, message: '原运行不属于当前可披露的业务计划。' };
     try {
-      await this.taskPlanAccess.verify(plan.authorization);
+      await this.taskPlanAccess.verifyBusiness(plan.authorization);
       for (const domain of ['calendar', 'todo'] as const) await this.sourceRegistry.bind(domain, plan.configuration.selectors[domain], 'read', true);
     } catch { return { ...meta, result: null, message: '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' }; }
     return { ...meta, result: run.result, message: run.result ? '业务结果已保存；投递状态单独列出，不代表已读。' : '本次还没有可披露的结果正文。' };

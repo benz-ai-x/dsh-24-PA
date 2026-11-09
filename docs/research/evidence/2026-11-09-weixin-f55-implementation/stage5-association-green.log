@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (18 tests | 17 skipped) 6868ms
+   ✓ WX-18/21 计划通知指向其他运行时，补投拒绝发送并保留原结果 1994ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 17 skipped (18)
+   Start at  17:57:17
+   Duration  7.06s (transform 46ms, setup 0ms, collect 91ms, tests 6.87s, environment 0ms, prepare 29ms)

@@ -27,7 +27,7 @@ const writeJson = async (path, value) => {
   await rename(temporary, path);
 };
 
-export async function startMockLlm({ scriptPath, logPath, recordInputs = false, sequenceKey }) {
+export async function startMockLlm({ scriptPath, logPath, recordInputs = false, sequenceKey, beforeReply }) {
   const requests = [];
   let scriptQueue = Promise.resolve(), logQueue = Promise.resolve();
   const updateScript = change => {
@@ -100,7 +100,12 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false, 
           ? (last.content ?? []).filter(b => b.type === 'text').map(b => b.text).join('\n')
           : '';
         const isNotice = lastText.includes('Background subagent') || lastText.includes('[事项回传]');
-        if (isNotice) {
+        if (script.leadRequestText && tools.includes('pa24_delegate')) {
+          // Native input batching can combine a new owner request with an
+          // older receipt or settlement notice. Act only on this exact input.
+          step = lastText.includes(script.leadRequestText) ? { tool: script.leadTool }
+            : { text: script.leadReply ?? '已收到既有回执。' };
+        } else if (isNotice) {
           step = { text: script.leadReport ?? '事项已有结果，已记录并汇报。' };
         } else if (tools.includes('pa24_delegate')) {
           step = isContinuation
@@ -139,6 +144,7 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false, 
       return { value: step, changed };
     });
     const turn = requests.length;
+    await beforeReply?.(body);
     if (step.httpError) {
       res.writeHead(step.httpError.status, { 'content-type': 'application/json', 'retry-after': '0.01' });
       res.end(JSON.stringify({ error: { type: step.httpError.type, message: step.httpError.message ?? '隔离模型暂时拒绝请求' } }));

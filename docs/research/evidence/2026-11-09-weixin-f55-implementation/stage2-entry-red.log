@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-panel.test.mjs (5 tests | 1 failed) 141ms
+   × 受限计划通知可核对后放弃，显示原计划关联并区分本人确认收到 18ms
+     → expected undefined to be truthy
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-panel.test.mjs > 受限计划通知可核对后放弃，显示原计划关联并区分本人确认收到
+AssertionError: expected undefined to be truthy
+
+- Expected:
+true
+
++ Received:
+undefined
+
+ ❯ tests/unit/weixin-panel.test.mjs:65:27
+     63|   ];
+     64|   await click(button('刷新状态'));
+     65|   expect(button('核对后补投')).toBeTruthy(); expect(button('放弃未发送…
+       |                           ^
+     66|   expect(container.textContent).toContain('original-plan'); expect(con…
+     67|   const received = [...container.querySelectorAll('article')].find(nod…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 passed (5)
+   Start at  16:19:32
+   Duration  393ms (transform 23ms, setup 0ms, collect 159ms, tests 141ms, environment 0ms, prepare 20ms)

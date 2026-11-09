@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin.e2e.mjs (11 tests | 9 skipped) 9800ms
+   ✓ WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝都经持久 Outbox 4127ms
+   ✓ WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔离恢复 1504ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 9 skipped (11)
+   Start at  17:49:49
+   Duration  9.99s (transform 51ms, setup 0ms, collect 86ms, tests 9.80s, environment 0ms, prepare 29ms)

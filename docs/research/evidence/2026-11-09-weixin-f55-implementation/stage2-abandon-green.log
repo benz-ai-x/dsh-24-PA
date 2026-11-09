@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (6 tests | 5 skipped) 6189ms
+   ✓ WX-18 接入页可明确放弃受限且未发送的计划结果，保留业务结果与处理状态 1575ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 5 skipped (6)
+   Start at  16:19:09
+   Duration  6.36s (transform 37ms, setup 0ms, collect 64ms, tests 6.19s, environment 0ms, prepare 30ms)

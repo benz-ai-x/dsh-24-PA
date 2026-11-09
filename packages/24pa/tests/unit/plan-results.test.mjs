@@ -33,7 +33,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`计划结果与投递 ($
     plan = await repos.taskPlans.chooseEnabled({ ...identity(), id: plan.id, expectedRevision: plan.revision, enabled: true });
     owner = 'owner-a'; silentUntil = null;
     results = new PlanResults({ repos: () => repos, access: { verifyDelivery: async destination => { if (destination.target !== owner) throw new Error('身份改变'); } },
-      silence: { silentUntil: async () => silentUntil }, binding: () => 'workspace' });
+      silence: { prepare: async () => () => silentUntil }, binding: () => 'workspace' });
   });
   const admit = (overrides = {}) => repos.skillRuns.admit({ request_id: randomUUID(), request_hash: 'new', skill_id: entry.id, version_id: version.id,
     expectedRevision: entry.revision, source_session_id: 'parent', workspace_path: '/workspace', mode: 'template', trial: false,

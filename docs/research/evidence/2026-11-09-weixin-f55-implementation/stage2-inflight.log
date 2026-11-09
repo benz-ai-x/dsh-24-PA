@@ -1,0 +1,25 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs (7 tests | 1 failed | 6 skipped) 7093ms
+   × WX-17 运行中更改默认通知及换绑微信，原计划和在途结果均不改投 2093ms
+     → Cannot read properties of undefined (reading 'plan')
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin-plan-delivery.e2e.mjs > WX-17 运行中更改默认通知及换绑微信，原计划和在途结果均不改投
+TypeError: Cannot read properties of undefined (reading 'plan')
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs:257:32
+    255|     const result = await until(() => detail(run.id), value => value.ru…
+    256|     expect(result.run).toMatchObject({ status: 'completed', result: '…
+    257|     expect(result.run.snapshot.plan.authorization.delivery).toEqual(pr…
+       |                                ^
+    258|     expect(result.deliveries[0].destination).toEqual(preview.authoriza…
+    259|     expect(result.deliveries[0].deliveries[0].outbox).toMatchObject({ …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  16:22:42
+   Duration  7.27s (transform 41ms, setup 0ms, collect 67ms, tests 7.09s, environment 0ms, prepare 28ms)

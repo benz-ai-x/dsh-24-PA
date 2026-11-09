@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (17 tests | 13 skipped) 17453ms
+   ✓ WX-19 平台异常 rate-limit 保留业务结果，未知不自动重发、明确拒绝有界停止 1043ms
+   ✓ WX-19 平台异常 http-error 保留业务结果，未知不自动重发、明确拒绝有界停止 1036ms
+   ✓ WX-19 平台异常 network-error 保留业务结果，未知不自动重发、明确拒绝有界停止 1045ms
+   ✓ WX-19 平台异常 rejected 保留业务结果，未知不自动重发、明确拒绝有界停止 8997ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 13 skipped (17)
+   Start at  17:08:49
+   Duration  17.62s (transform 41ms, setup 0ms, collect 69ms, tests 17.45s, environment 0ms, prepare 27ms)

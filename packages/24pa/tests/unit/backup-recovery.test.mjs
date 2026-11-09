@@ -12,7 +12,9 @@ import { BackupService } from '../../lib/backup-service.js';
 import { previewRestore, inspectRecovery } from '../../lib/backup-restore.js';
 import { openBackupLedger } from '../../lib/backup-ledger.js';
 import { MemoryStore, parseMemoryFile } from '../../lib/memory.js';
-import { makeSkillPackage } from '../../lib/skill-package.js';
+import { makeSkillPackage, parseSkillMarkdown } from '../../lib/skill-package.js';
+import { taskPlanDraft } from '../../lib/task-plan.js';
+import { weixinIdentity } from '../../lib/repo/weixin.js';
 import { startPgCluster } from '../helpers/pg.mjs';
 const cleanup = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -39,6 +41,46 @@ const record = id => ({ id, category: 'fact', topic: id, content: `deleted-secre
 const opts = revision => ({ expectedRevision: revision, actor: 'owner', reason: 'owner requested' });
 
 for (const kind of ['sqlite', 'postgres']) describe(`M09 ${kind} durable records and isolated restore`, () => {
+  it('微信计划关联损坏即使文件哈希正确也拒绝恢复，不把其他运行或格式当作原通知', async () => {
+    const f = await fixture(kind), request = () => ({ requestId: randomUUID(), requestHash: randomUUID() });
+    const wx = await f.repo.weixin.register(f.context.workspaceId, 'wx-backup-bot', 'wx-backup-owner');
+    const markdown = '---\nname: wx-backup-result\ndescription: isolated backup test\nmetadata:\n  track: agent\n  tools: []\n---\nReturn a result.';
+    let skill = await f.repo.skills.change({ ...request(), op: 'save', displayName: '微信恢复校验', version: {
+      package_data: makeSkillPackage([{ path: 'SKILL.md', bytes: Buffer.from(markdown) }]), definition: parseSkillMarkdown(markdown), validation_error: null } });
+    skill = await f.repo.skills.change({ ...request(), op: 'publish', id: skill.id, expectedRevision: skill.revision, versionId: skill.draft_version });
+    const version = await f.repo.skills.version(skill.active_version), draft = taskPlanDraft({ title: '微信恢复校验', skillId: `managed:${skill.id}`,
+      timing: { type: 'daily' }, delivery: { channel: 'weixin' } }, 'Asia/Shanghai');
+    const authorization = { checkedAt: new Date().toISOString(), targets: [], skill: { id: draft.configuration.skillId, name: skill.name, versionId: version.id,
+      packageHash: version.package_data.hash, tools: [], contract: null, resources: [] },
+    delivery: { channel: 'weixin', target: wx.owner_id, ...weixinIdentity(wx), identityKey: 'fixture-identity', connectionHash: 'fixture-connection' } };
+    const plan = await f.repo.taskPlans.save({ ...request(), title: draft.title, kind: draft.kind, skill: skill.name, sessionId: 'parent',
+      scheduleSpec: draft.scheduleSpec, configuration: draft.configuration });
+    const run = await f.repo.skillRuns.admit({ request_id: randomUUID(), request_hash: 'new', skill_id: skill.id, version_id: version.id,
+      expectedRevision: skill.revision, source_session_id: 'parent', workspace_path: f.sources.workspace, mode: 'template', trial: false, plan_id: plan.id, triggered_at: new Date(),
+      snapshot: { name: skill.name, definition: version.definition, package: version.package_data, contract: null, parameters: {}, tools: [], permissionHash: 'fixture',
+        plan: { id: plan.id, title: plan.title, generation: 'manual', source: 'manual', triggeredAt: new Date().toISOString(), configuration: draft.configuration, authorization } } });
+    await f.repo.skillRuns.transition(run.id, 'completed', '已保存', '须保留的原计划结果'); await f.repo.planResults.reconcile();
+    const [notice] = await f.repo.planResults.inspect(run.id), out = notice.deliveries[0].outbox;
+    const good = await f.create(), accepted = await inspectRecovery(f.context, good.backupDir, join(f.root, 'valid-weixin'), false);
+    expect(accepted.steps.find(step => step.id === 'ledger'), JSON.stringify(accepted.steps)).toMatchObject({ status: 'passed' });
+    // Fault injection into an isolated source ledger, followed by a fresh
+    // native backup, proves closure checks independently of file hashes.
+    for (const damage of ['run', 'owner', 'component']) {
+      if (damage === 'run') await f.db.query('update pa24.outbox set association = $2 where id = $1', [out.id, JSON.stringify({ ...out.association, skillRunId: 'foreign-run' })]);
+      if (damage === 'owner') await f.db.query('update pa24.task_plan_notice set destination = $2 where id = $1', [notice.id, JSON.stringify({ ...notice.destination, ownerId: 'foreign-owner' })]);
+      if (damage === 'component') await f.db.query("update pa24.task_plan_delivery set component = 'audio' where outbox_id = $1", [out.id]);
+      const broken = await f.create(), rejected = await inspectRecovery(f.context, broken.backupDir, join(f.root, 'bad-weixin-' + damage), false);
+      expect(rejected.steps.find(step => step.id === 'files')).toMatchObject({ status: 'passed' });
+      expect(rejected.steps.find(step => step.id === 'ledger')).toMatchObject({ status: 'failed' });
+      expect(rejected.steps.find(step => step.id === 'ledger').message).toMatch(/微信计划.*关联/);
+      expect(rejected.complete).toBe(false); expect(rejected.productionReady).toBe(false);
+      await f.db.query('update pa24.outbox set association = $2 where id = $1', [out.id, JSON.stringify(out.association)]);
+      await f.db.query('update pa24.task_plan_notice set destination = $2 where id = $1', [notice.id, JSON.stringify(notice.destination)]);
+      await f.db.query("update pa24.task_plan_delivery set component = 'text' where outbox_id = $1", [out.id]);
+    }
+    expect((await f.repo.skillRuns.get(run.id)).result).toBe('须保留的原计划结果');
+    expect((await f.repo.planResults.inspect(run.id))[0].deliveries[0].outbox).toMatchObject({ status: 'pending', attempts: 0 });
+  }, 180000);
   it('separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved', async () => {
     const f = await fixture(kind);
     const input = { workspaceBinding: 'binding-a', requestId: 'same-create-request', targetDir: join(f.root, 'backups') };

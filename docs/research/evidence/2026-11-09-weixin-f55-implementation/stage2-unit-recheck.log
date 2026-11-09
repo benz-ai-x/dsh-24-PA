@@ -1,0 +1,16 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/manticore-panel.test.mjs (40 tests) 1369ms
+ ✓ tests/unit/task-plan-service.test.mjs (66 tests) 1747ms
+ ✓ tests/unit/run-history.test.mjs (31 tests) 1110ms
+ ✓ tests/unit/plan-results.test.mjs (20 tests) 1151ms
+ ✓ tests/unit/weixin-ledger.test.mjs (17 tests) 932ms
+ ✓ tests/unit/task-plan.test.mjs (21 tests) 963ms
+ ✓ tests/unit/plan-delivery-guards.test.mjs (10 tests) 989ms
+ ✓ tests/unit/weixin-panel.test.mjs (5 tests) 165ms
+
+ Test Files  8 passed (8)
+      Tests  210 passed (210)
+   Start at  16:32:37
+   Duration  10.89s (transform 383ms, setup 0ms, collect 1.68s, tests 8.43s, environment 0ms, prepare 160ms)

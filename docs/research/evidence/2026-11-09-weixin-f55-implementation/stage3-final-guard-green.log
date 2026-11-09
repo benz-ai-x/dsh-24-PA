@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/weixin-send-guards.test.mjs (1 test) 31ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  16:42:16
+   Duration  276ms (transform 68ms, setup 0ms, collect 148ms, tests 31ms, environment 0ms, prepare 28ms)

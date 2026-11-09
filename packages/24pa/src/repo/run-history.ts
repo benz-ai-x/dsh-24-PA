@@ -32,7 +32,9 @@ const DELIVERY_FAILED = `(r.delivery_status = 'failed' or exists (select 1 from 
   where d.run_id = r.id and o.status = 'failed'))`;
 const DELIVERY_UNKNOWN = `(r.delivery_status = 'unknown' or exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
   where d.run_id = r.id and o.status = 'unknown'))`;
-const DELIVERY_UNRESOLVED = `(${DELIVERY_FAILED} or ${DELIVERY_UNKNOWN})`;
+const DELIVERY_LIMITED = `(r.delivery_status = 'limited' or exists (select 1 from pa24.task_plan_delivery d join pa24.outbox o on o.id = d.outbox_id
+  where d.run_id = r.id and o.status = 'limited'))`;
+const DELIVERY_UNRESOLVED = `(${DELIVERY_FAILED} or ${DELIVERY_UNKNOWN} or ${DELIVERY_LIMITED})`;
 const PLAN_BLOCKED = (planId: string) => `exists (select 1 from pa24.digest_plan blocked_plan where blocked_plan.id = ${planId}
   and blocked_plan.recycled_at is null and (exists (select 1 from pa24.task_plan_block b where b.plan_id = blocked_plan.id)
   or exists (select 1 from pa24.skill_plan_block b where b.plan_id = blocked_plan.id)))`;

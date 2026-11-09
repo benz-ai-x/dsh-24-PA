@@ -1,0 +1,9 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/backup-recovery.test.mjs > M09 sqlite durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved 29808ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 18 skipped (19)
+   Start at  16:32:38
+   Duration  30.18s (transform 129ms, setup 0ms, collect 253ms, tests 29.81s, environment 0ms, prepare 27ms)
