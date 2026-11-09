@@ -1,0 +1,78 @@
+{
+  "implementationCommit": "d51af0ec58e4484d787f2f3e025cbab05dff251a",
+  "baseCommit": "7f600522ae09cbec40b41524b71f1d770326b196",
+  "verificationDate": "2026-11-09",
+  "productCodeChangedAfterFullRegression": false,
+  "finalTestCorrection": "Wait for the public run delivery aggregate to leave pending before asserting limited; do not treat a sending or unaggregated intermediate state as final.",
+  "unit": {
+    "passed": 209,
+    "failed": 0,
+    "log": "stage1-unit.log"
+  },
+  "fullLoader": {
+    "sqlite": {
+      "passed": 17,
+      "failed": 0,
+      "log": "stage1-sqlite.log"
+    },
+    "postgres": {
+      "passed": 16,
+      "failed": 1,
+      "log": "stage1-postgres.log",
+      "failure": "One assertion observed pending before the final limited delivery aggregate."
+    }
+  },
+  "finalAffectedLoaderRecheck": {
+    "sqlite": {
+      "passed": 4,
+      "failed": 0,
+      "log": "stage1-recheck-sqlite.log"
+    },
+    "postgres": {
+      "passed": 4,
+      "failed": 0,
+      "log": "stage1-recheck-postgres.log"
+    }
+  },
+  "realWeChatUsed": false,
+  "notificationConclusionB": "unverified",
+  "mergeReady": false,
+  "redBeforeGreen": [
+    {
+      "scenario": "fixed target and actual scheduled delivery",
+      "observed": "结果投递方式无效"
+    },
+    {
+      "scenario": "business runs while WeChat disabled",
+      "observed": "微信未连接到可用的本人绑定"
+    },
+    {
+      "scenario": "owner confirms an unknown segment without native ID",
+      "observed": "确认送达还须填写原平台消息 ID"
+    },
+    {
+      "scenario": "limited notification state",
+      "observed": "expected failed to be limited"
+    },
+    {
+      "scenario": "whole group expiration",
+      "observed": {
+        "business": "completed",
+        "delivery": "limited",
+        "segments": [
+          "limited",
+          "pending",
+          "pending"
+        ]
+      }
+    },
+    {
+      "scenario": "explicit retry after limitation resolves",
+      "observed": "只有明确未发送的失败可补投"
+    },
+    {
+      "scenario": "limited run filter",
+      "observed": "投递状态无效"
+    }
+  ]
+}

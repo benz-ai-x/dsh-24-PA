@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (4 tests) 23009ms
+   ✓ WX-17/18/21 显式确认固定微信目标，原生触发保存结果后发到该绑定 5945ms
+   ✓ WX-18 受限首段不妨碍整份普通结果到期留存，后段也不永久挂在待投递 1738ms
+   ✓ WX-18 微信分段遇未知时停止后段，重启后本人无原生号核对只补未发段 4563ms
+   ✓ WX-18/19 停用微信不阻断已授权业务，恢复后明确补投不重跑或改投 4907ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  16:04:17
+   Duration  23.17s (transform 34ms, setup 0ms, collect 64ms, tests 23.01s, environment 0ms, prepare 22ms)
