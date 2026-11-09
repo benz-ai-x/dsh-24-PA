@@ -35,6 +35,12 @@ function presented(result: any, remote: boolean): any {
   return remote && result?.plan ? { plan: remotePlan(result.plan), repeated: result.repeated === true,
     message: '已保存到原计划；原执行会话、历史及通知目标保留。暂停不代表已停止正在运行的工作。' } : result;
 }
+function confirmationTexts(previewId: string, workId: string) {
+  const confirmationText = `确认计划 ${previewId.slice(0, 8)}`, confirmationTextEn = `Confirm plan ${previewId.slice(0, 8)}`;
+  return { confirmationText, confirmationTextEn,
+    continuationConfirmationText: `继续交办 ${workId}。${confirmationText}`,
+    continuationConfirmationTextEn: `Continue work ${workId}. ${confirmationTextEn}` };
+}
 
 /** Conversational admission translates to the panel's services. Preview tokens
  * are deliberately short-lived; durable effects and retries use plan receipts. */
@@ -97,14 +103,21 @@ export class PlanConversation {
     const id = randomUUID();
     this.previews.set(id, { id, input, value, source, create, binding: context.binding, authority: source.authority!, parent: source.remoteIdentity?.sessionId ?? item.parent_session_id, expires: now + 15 * 60000 });
     const raw = value as Record<string, any>;
-    const view = source.kind !== 'weixin' ? value : { ...Object.fromEntries(['planId', 'title', 'revision', 'timeZone', 'voice', 'skill', 'executionMode', 'usesModel', 'nextTimes', 'message', 'messageEn', 'legacy', 'scheduleSpec', 'settings', 'existingPlans'].filter(key => raw[key] !== undefined).map(key => [key, raw[key]])),
+    const selectedChannel = raw.configuration?.delivery?.channel ?? 'none';
+    const delivery = raw.authorization?.delivery ? { channel: raw.authorization.delivery.channel, target: raw.authorization.delivery.target }
+      : raw.legacyDelivery ?? { channel: selectedChannel, ...(selectedChannel === 'none' ? {} : {
+        target: null, message: '已选择此通知渠道；接收者尚未核验，启用前需要预览并确认。',
+        messageEn: 'This channel is selected; its recipient has not been verified. Preview and confirm before enabling.',
+      }) };
+    const view = source.kind !== 'weixin' ? value : { ...Object.fromEntries(['planId', 'title', 'revision', 'status', 'enabled', 'timeZone', 'voice', 'skill', 'executionMode', 'usesModel', 'nextTimes', 'message', 'messageEn', 'legacy', 'scheduleSpec', 'settings', 'existingPlans'].filter(key => raw[key] !== undefined).map(key => [key, raw[key]])),
       skillId: raw.configuration?.skillId ?? raw.authorization?.skill?.id ?? raw.skill,
-      delivery: raw.authorization?.delivery ? { channel: raw.authorization.delivery.channel, target: raw.authorization.delivery.target } : raw.legacyDelivery ?? { channel: 'none' },
+      delivery,
+      ...(create || input.op === 'enable' ? { enabledAfterConfirmation: true } : {}),
       requiredActions: raw.authorization?.skill?.contract?.actions ?? [],
       sources: (raw.authorization?.targets ?? []).map((entry: any) => ({ domain: entry.target.domain, platform: entry.target.platform, sourceId: entry.target.sourceId, capability: entry.capability })) };
-    return { ...view, previewId: id, confirmationText: `确认计划 ${id.slice(0, 8)}`, confirmationTextEn: `Confirm plan ${id.slice(0, 8)}`,
+    return { ...view, previewId: id, ...confirmationTexts(id, item.id),
       expiresAt: new Date(now + 15 * 60000).toISOString(), pendingConfirmation: true,
-      confirmationMessage: '请先向主人展示时间、时区、执行方式、语音、投递目标和权限。主人回复上述确认文字后，调用 digest_control {op:"confirm",previewId,instruction:主人完整原文}。预览未执行写入。' };
+      confirmationMessage: '请先向主人展示时间、时区、执行方式、语音、投递目标和权限。主人可回复 confirmationText，或用 continuationConfirmationText 按原交办编号继续确认。采用完整原文后，调用 digest_control {op:"confirm",previewId,instruction:主人完整原文}，不能截取确认子串。预览未执行写入。' };
   }
   async enable(input: Record<string, unknown>, item: WorkItemRow) {
     const { context, source } = await this.owner(item), kind = String(input.kind ?? 'morning');
@@ -162,8 +175,9 @@ export class PlanConversation {
     const preview = this.previews.get(String(input.previewId ?? ''));
     if (!preview || preview.binding !== context.binding || preview.authority !== context.authority
       || preview.parent !== (source.remoteIdentity?.sessionId ?? item.parent_session_id) || preview.expires < (this.deps.now?.() ?? Date.now())) throw this.refusal(item, '预览已过期、重启或工作区／身份已改变，请重新预览。');
-    const suffix = preview.id.slice(0, 8);
-    if (![ `确认计划 ${suffix}`, `Confirm plan ${suffix}` ].includes(String(input.instruction))
+    // Match complete trusted input. A numbered continuation must name this
+    // WorkItem; extracting a matching phrase from arbitrary prose is unsafe.
+    if (!Object.values(confirmationTexts(preview.id, item.id)).includes(String(input.instruction))
       || !source.messages.some(message => message.text === input.instruction && !preview.source.messages.some(old => old.id === message.id))) throw this.refusal(item, '需要主人在预览后回复该计划的确认文字；模型 confirm 参数或原请求不算确认。');
     return this.deps.gate(`plan-conversation:${context.binding}`, async () => {
       if (preview.result) return presented(preview.result, source.kind === 'weixin');

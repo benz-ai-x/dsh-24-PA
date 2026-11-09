@@ -12,10 +12,11 @@ for (const [scenario, adopted, status, outbox, generation, expected] of [
   ['缺少原结果投递记录', 'adopted', 'completed', null, identity.generation, false],
 ]) it(`冷恢复：${scenario}，不重新提交或投递`, async () => {
   const complete = vi.fn(), enqueue = vi.fn(), close = vi.fn(), mark = vi.fn();
-  const runtime = { workspace: { statePath: '/workspace' }, backupWorkspaceId: 'workspace-id',
+  const row = { source: 'weixin', status: 'admitted', event_id: 'input-b', request_id: 'rpc-b', target_session: identity.sessionId, binding_generation: identity.generation, payload: identity };
+  const runtime = { workspace: { statePath: '/workspace' }, backupWorkspaceId: 'workspace-id', gate: (_key, work) => work(),
     ctx: { sessions: { get: () => null }, get: () => ({ open: async () => ({ header: { id: identity.sessionId, cwd: '/workspace' }, inheritedEventCount: 0, read: async () => ({ events }), close }) }) },
     inboxLifecycle: { restore: () => {}, complete }, weixin: { enqueue },
-    repos: { inbox: { listAdmitted: async () => [{ source: 'weixin', event_id: 'input-b', request_id: 'rpc-b', target_session: identity.sessionId, binding_generation: identity.generation, payload: identity }], mark },
+    repos: { inbox: { listAdmitted: async () => [row], get: async () => row, mark },
       weixin: { get: async () => ({ workspace_id: 'workspace-id', account_id: identity.accountId, owner_id: identity.ownerId, session_id: identity.sessionId, generation: identity.generation }) },
       workerRuns: { ownerInputResults: async () => [{ adopted, status, outbox_key: outbox, scope: { workspaceId: 'workspace-id', parentSessionId: 'original-local-entry', ownerInput: { kind: 'weixin', sourceId: 'input-b', remoteIdentity: { ...identity, generation } } } }] } } };
   await PaRuntime.prototype.reconcileWeixinInputs.call(runtime);
@@ -26,4 +27,20 @@ it('原输入还在持久队列时只报告等待；flush 未确认不能使用�
   const session = { id: 'wx-session', header: { cwd: '/workspace' }, ownEvents: () => [{ type: 'agent/inbox/spliced', data: { target: 'queue', start: 0, removedCount: 0, inserted: [input] } }] };
   expect(inspectWeixinInput(session, 'rpc-b').state).toBe('queued');
   await expect(readWeixinSession({ sessions: { get: () => session, flush: async () => false } }, session.id)).rejects.toThrow('持久化');
+});
+it('WX-05 同回合采用多条微信原文，逐条保留 Inbox 与宿主消息关联', async () => {
+  const binding = { generation: identity.generation, account_id: identity.accountId, owner_id: identity.ownerId, session_id: identity.sessionId };
+  const rows = ['a', 'b'].map(suffix => ({ event_id: `input-${suffix}`, source: 'weixin', status: 'admitted', binding_generation: identity.generation,
+    payload: { ...identity, nativeId: suffix === 'a' ? '101' : '102', text: `本人原文-${suffix}` } }));
+  const runtime = { weixin: { remote: () => true, assertActive: async () => binding },
+    repos: { inbox: { forRequest: async id => rows.find(row => id === `rpc-${row.event_id}`) } },
+    ctx: { sessions: { flush: async () => true } }, planConversationAuthority: () => 'current-owner' };
+  const agent = { id: identity.sessionId, session: { id: identity.sessionId, ownEvents: () => [
+    { type: 'turn/start', data: { turn: 1 } }, ...rows.map(row => ({ type: 'user/message', data: { id: `native-${row.event_id}`,
+      source: { kind: 'user', rpcId: `rpc-${row.event_id}` }, content: [{ type: 'text', text: '宿主展示文字' }] } })),
+  ] } };
+  const captured = await PaRuntime.prototype.captureOwnerInput.call(runtime, agent);
+  expect(captured.messages.map(message => message.text)).toEqual(['本人原文-a', '本人原文-b']);
+  expect(captured.inboxInputs).toEqual({ 'input-a': 'native-input-a', 'input-b': 'native-input-b' });
+  expect(captured.sourceId).toBe('input-b'); // Keep old readers compatible; recovery must use every association.
 });

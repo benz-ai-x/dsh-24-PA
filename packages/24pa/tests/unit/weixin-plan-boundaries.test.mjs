@@ -11,9 +11,9 @@ function conversation() {
   const service = new PlanConversation({ context: () => ({ binding: 'workspace', authority: 'wx-authority', repos: { digests: { listPlans: async () => [row] }, taskPlans: { get: async () => row, blocks: async () => [] } } }),
     plans, ownerInput: async () => source, legacyBuiltin: async () => builtin, gate: (_key, work) => work(),
     customPreview: async () => null, customCreate: vi.fn(), legacyControl: vi.fn() });
-  return { service, item, plans, setBuiltin: value => { builtin = value; }, confirm: preview => {
-    source = { ...source, sourceId: 'input-b', messages: [{ id: 'b', text: preview.confirmationText }] };
-    return { op: 'confirm', previewId: preview.previewId, instruction: preview.confirmationText };
+  return { service, item, plans, setBuiltin: value => { builtin = value; }, confirm: (preview, text = preview.confirmationText) => {
+    source = { ...source, sourceId: 'input-b', messages: [{ id: 'b', text }] };
+    return { op: 'confirm', previewId: preview.previewId, instruction: text };
   } };
 }
 it('同名自定义旧计划不进入微信列表，也不能按已知编号恢复', async () => {
@@ -33,6 +33,24 @@ it('实际内置旧计划仍可明确恢复，保留原对象和语音', async (
   const preview = await f.service.control({ planId: 'legacy-plan', op: 'resume' }, f.item);
   expect(await f.service.control(f.confirm(preview), f.item)).toMatchObject({ plan: { planId: 'legacy-plan', voice: true } });
   expect(f.plans.change).toHaveBeenCalledTimes(1);
+});
+it.each(['zh', 'en'])('WX-14 明确原交办编号与确认词可共存于同一条完整主人原文：%s', async language => {
+  const f = conversation(), preview = await f.service.control({ planId: 'legacy-plan', op: 'resume' }, f.item);
+  const text = language === 'zh' ? `继续交办 ${f.item.id}。${preview.confirmationText}` : `Continue work ${f.item.id}. ${preview.confirmationTextEn}`;
+  expect(language === 'zh' ? preview.continuationConfirmationText : preview.continuationConfirmationTextEn).toBe(text);
+  const input = f.confirm(preview, text);
+  expect(await f.service.control(input, f.item)).toMatchObject({ plan: { planId: 'legacy-plan', voice: true } });
+  expect(f.plans.change).toHaveBeenCalledTimes(1);
+});
+it('WX-14 编号确认拒绝其他交办、附加要求及模型截取的确认子串', async () => {
+  const f = conversation(), preview = await f.service.control({ planId: 'legacy-plan', op: 'resume' }, f.item);
+  for (const text of [`继续交办 other-work。${preview.confirmationText}`, `继续交办 ${f.item.id}。${preview.confirmationText}，但不要修改`,
+    `不要${preview.confirmationText}`, `继续交办 ${f.item.id}。${preview.confirmationText}，改为另一个时间`]) {
+    await expect(f.service.control(f.confirm(preview, text), f.item)).rejects.toBeInstanceOf(WeixinPlanRefusal);
+  }
+  const full = f.confirm(preview, `继续交办 ${f.item.id}。${preview.confirmationText}`);
+  await expect(f.service.control({ ...full, instruction: preview.confirmationText }, f.item)).rejects.toThrow('完整消息');
+  expect(f.plans.change).not.toHaveBeenCalled();
 });
 it('微信新目标返回刚创建的关联交办，保留旧交办编号供追溯', async () => {
   const old = { id: 'old', role: 'memo', title: '旧交办', status: 'completed', result: '旧结果', revision: 1 };

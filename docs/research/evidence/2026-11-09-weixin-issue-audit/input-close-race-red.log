@@ -1,0 +1,57 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-issue-audit-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-input-close.test.mjs (5 tests | 2 failed) 129ms
+   × WX-05 旧恢复快照不能复活已人工结清的输入或回复队列；历史读取失败=false 24ms
+     → expected { …(11) } to deeply equal { …(11) }
+   × WX-05 旧恢复快照不能复活已人工结清的输入或回复队列；历史读取失败=true 23ms
+     → expected { …(11) } to deeply equal { …(11) }
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-input-close.test.mjs > WX-05 旧恢复快照不能复活已人工结清的输入或回复队列；历史读取失败=false
+ FAIL  tests/unit/weixin-input-close.test.mjs > WX-05 旧恢复快照不能复活已人工结清的输入或回复队列；历史读取失败=true
+AssertionError: expected { …(11) } to deeply equal { …(11) }
+
+- Expected
++ Received
+
+  Object {
+    "binding_generation": "4b4f193a-482c-41c4-abf6-44c9059f9b8f",
+    "created_at": 2026-11-09T06:21:58.963Z,
+-   "error": "主人已核对关闭原输入；未证明原业务成功，未重新执行。",
++   "error": "原消息已消费，但回合未完整结束；请核对原事项，不自动重办。",
+    "event_id": "weixin-287d2ca3b798322157112ae474719e2f98a0e09f8f8f66efff6a22127ed26a11",
+    "kind": "message",
+    "payload": Object {
+      "accountId": "test-bot",
+      "generation": "4b4f193a-482c-41c4-abf6-44c9059f9b8f",
+      "nativeId": "123",
+      "ownerId": "test-owner",
+      "rejection": null,
+      "replyTo": null,
+      "sessionId": "pa24-weixin-4be53ee7-32b1-4fc7-88a6-8958e7be399d",
+      "text": "只读测试",
+    },
+    "processed_at": 2026-11-09T06:21:58.964Z,
+    "request_id": "native-request",
+    "source": "weixin",
+-   "status": "rejected",
++   "status": "admitted",
+    "target_session": "pa24-weixin-4be53ee7-32b1-4fc7-88a6-8958e7be399d",
+  }
+
+ ❯ tests/unit/weixin-input-close.test.mjs:72:49
+     70|     if (historyError) f.storedSessions.delete(binding.session_id);
+     71|     release(); await recovering;
+     72|     expect(await f.rt.repos.inbox.get(eventId)).toEqual(closed);
+       |                                                 ^
+     73|     await expect(f.rt.inboxLifecycle.assertIdle()).resolves.toBeUndefi…
+     74|     expect((await f.rt.db.query('select * from pa24.weixin_input_revie…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  14:21:58
+   Duration  734ms (transform 280ms, setup 0ms, collect 512ms, tests 129ms, environment 0ms, prepare 21ms)

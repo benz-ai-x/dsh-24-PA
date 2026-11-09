@@ -1,0 +1,34 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-issue-audit-20261109/packages/24pa
+
+ ✓ tests/unit/backup-recovery.test.mjs > M09 sqlite durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved 29937ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 sqlite durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged
+ ✓ tests/unit/backup-recovery.test.mjs > M09 sqlite durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 632ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 sqlite durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 19392ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 sqlite durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 9775ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 sqlite durable records and isolated restore > actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity 10267ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > separate durable create/verify facts, repeat request has one artifact; interrupt stays unresolved 1722ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > actual native ledger import is readable under restricted role; source bytes unchanged 1654ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > worker controls and budget ownership survive import; foreign owners fail even with valid file hashes 2574ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > schema stamps do not certify a ledger with a missing required table or column 2511ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > missing note numbering object or counter row fails restore before claiming compatibility 1684ms
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity
+ ✓ tests/unit/backup-recovery.test.mjs > M09 postgres durable records and isolated restore > actual owner and linked original/Skill content, not rewritten manifest hashes, determine integrity 2442ms
+ ✓ tests/unit/backup-recovery.test.mjs > old backup merge retains current changes and purges old derived bodies, without modifying authority or backup 6259ms
+ ✓ tests/unit/backup-recovery.test.mjs > corrupt current JSON and pending audit block restoration; existing or source targets are untouched 1178ms
+ ✓ tests/unit/backup-recovery.test.mjs > memory integrity rejects changeset even without tombstones; source and backup remain untouched
+ ✓ tests/unit/backup-recovery.test.mjs > memory integrity rejects audit even without tombstones; source and backup remain untouched 1470ms
+ ✓ tests/unit/backup-recovery.test.mjs > memory integrity rejects changed even without tombstones; source and backup remain untouched 1645ms
+ ✓ tests/unit/backup-recovery.test.mjs > memory integrity rejects missing-proof even without tombstones; source and backup remain untouched 2566ms
+ ✓ tests/unit/backup-recovery.test.mjs > PG dump meta-command and server-program escape attempts fail in isolated restricted import
+ ✓ tests/unit/backup-recovery.test.mjs > PG dump meta-command and server-program escape attempts fail in isolated restricted import 2298ms
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Start at  14:31:25
+   Duration  98.51s (transform 100ms, setup 0ms, collect 205ms, tests 98.20s, environment 0ms, prepare 22ms)

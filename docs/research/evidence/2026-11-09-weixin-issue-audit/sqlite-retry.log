@@ -1,0 +1,20 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-issue-audit-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin.e2e.mjs (11 tests) 35162ms
+   ✓ WX-01/02/04/05/07 首次真实会话挂载远程白名单；文字与拒绝都经持久 Outbox 4109ms
+   ✓ WX-08/13/14/15 微信原文确认常用计划与面板共用对象，任意本地 Skill 被拒绝 3116ms
+   ✓ WX-07/08 待办查询参数明确拒绝后沿同一运行纠正，结果回原微信且无平台写入 1043ms
+   ✓ WX-14/15 已有暂停计划改时，显示原渠道 none，经编号原文确认仍不启用或通知 1955ms
+   ✓ WX-14/15 已有暂停计划改时，显示原渠道 feishu，经编号原文确认仍不启用或通知 1961ms
+   ✓ WX-14/15 已有暂停计划改时，显示原渠道 wecom，经编号原文确认仍不启用或通知 2484ms
+   ✓ WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联本次微信输入且不重复创建 2573ms
+   ✓ WX-03/08 跨入口热续办业务 Worker 保持工具范围及原结果目标 1549ms
+   ✓ WX-05 已消费但失败的输入经真实宿主状态核验关闭，不重提或补发 436ms
+   ✓ WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发 10514ms
+   ✓ WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔离恢复 1553ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  14:29:35
+   Duration  35.35s (transform 45ms, setup 0ms, collect 83ms, tests 35.16s, environment 0ms, prepare 26ms)

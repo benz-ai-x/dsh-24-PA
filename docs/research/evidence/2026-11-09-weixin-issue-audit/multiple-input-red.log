@@ -1,0 +1,126 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-issue-audit-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-ledger.test.mjs (17 tests | 2 failed) 1115ms
+   × WX 持久收发 / sqlite > 续办恢复按每条持久采用输入找到原运行和结果，兼容旧单条关联；多输入=true 4ms
+     → expected [] to deeply equal [ { scope: { …(3) }, …(3) } ]
+   × WX 持久收发 / postgres > 续办恢复按每条持久采用输入找到原运行和结果，兼容旧单条关联；多输入=true 2ms
+     → expected [] to deeply equal [ { scope: { …(3) }, …(3) } ]
+ ❯ tests/unit/weixin-recovery.test.mjs (7 tests | 1 failed) 7ms
+   × WX-05 同回合采用多条微信原文，逐条保留 Inbox 与宿主消息关联 3ms
+     → expected undefined to deeply equal { 'input-a': 'native-input-a', …(1) }
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-ledger.test.mjs > WX 持久收发 / sqlite > 续办恢复按每条持久采用输入找到原运行和结果，兼容旧单条关联；多输入=true
+AssertionError: expected [] to deeply equal [ { scope: { …(3) }, …(3) } ]
+
+- Expected
++ Received
+
+- Array [
+-   Object {
+-     "adopted": "adopted",
+-     "outbox_key": "result-4724413c-c058-4f40-b394-fad197c8503b",
+-     "scope": Object {
+-       "ownerInput": Object {
+-         "inboxInputs": Object {
+-           "earlier-4724413c-c058-4f40-b394-fad197c8503b": "native-a",
+-           "input-4724413c-c058-4f40-b394-fad197c8503b": "native-b",
+-         },
+-         "kind": "weixin",
+-         "remoteIdentity": Object {
+-           "accountId": "bot",
+-           "generation": "current",
+-           "ownerId": "owner",
+-           "sessionId": "wx-session",
+-         },
+-         "sourceId": "input-4724413c-c058-4f40-b394-fad197c8503b",
+-       },
+-       "parentSessionId": "original-local",
+-       "workspaceId": "original-workspace",
+-     },
+-     "status": "completed",
+-   },
+- ]
++ Array []
+
+ ❯ tests/unit/weixin-ledger.test.mjs:75:71
+     73|     await repos.outbox.enqueue({ dedupKey: outboxKey, channel: 'local'…
+     74|     expect(await repos.workerRuns.ownerInputResults(sourceId)).toMatch…
+     75|     expect(await repos.workerRuns.ownerInputResults(earlierSourceId)).…
+       |                                                                       ^
+     76|     expect(await repos.workerRuns.ownerInputResults('first-input')).to…
+     77|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/weixin-ledger.test.mjs > WX 持久收发 / postgres > 续办恢复按每条持久采用输入找到原运行和结果，兼容旧单条关联；多输入=true
+AssertionError: expected [] to deeply equal [ { scope: { …(3) }, …(3) } ]
+
+- Expected
++ Received
+
+- Array [
+-   Object {
+-     "adopted": "adopted",
+-     "outbox_key": "result-e86bb22f-16fe-474a-a7d1-c3fad360e19f",
+-     "scope": Object {
+-       "ownerInput": Object {
+-         "inboxInputs": Object {
+-           "earlier-e86bb22f-16fe-474a-a7d1-c3fad360e19f": "native-a",
+-           "input-e86bb22f-16fe-474a-a7d1-c3fad360e19f": "native-b",
+-         },
+-         "kind": "weixin",
+-         "remoteIdentity": Object {
+-           "accountId": "bot",
+-           "generation": "current",
+-           "ownerId": "owner",
+-           "sessionId": "wx-session",
+-         },
+-         "sourceId": "input-e86bb22f-16fe-474a-a7d1-c3fad360e19f",
+-       },
+-       "parentSessionId": "original-local",
+-       "workspaceId": "original-workspace",
+-     },
+-     "status": "completed",
+-   },
+- ]
++ Array []
+
+ ❯ tests/unit/weixin-ledger.test.mjs:75:71
+     73|     await repos.outbox.enqueue({ dedupKey: outboxKey, channel: 'local'…
+     74|     expect(await repos.workerRuns.ownerInputResults(sourceId)).toMatch…
+     75|     expect(await repos.workerRuns.ownerInputResults(earlierSourceId)).…
+       |                                                                       ^
+     76|     expect(await repos.workerRuns.ownerInputResults('first-input')).to…
+     77|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/unit/weixin-recovery.test.mjs > WX-05 同回合采用多条微信原文，逐条保留 Inbox 与宿主消息关联
+AssertionError: expected undefined to deeply equal { 'input-a': 'native-input-a', …(1) }
+
+- Expected:
+Object {
+  "input-a": "native-input-a",
+  "input-b": "native-input-b",
+}
+
++ Received:
+undefined
+
+ ❯ tests/unit/weixin-recovery.test.mjs:43:32
+     41|   const captured = await PaRuntime.prototype.captureOwnerInput.call(ru…
+     42|   expect(captured.messages.map(message => message.text)).toEqual(['本…
+     43|   expect(captured.inboxInputs).toEqual({ 'input-a': 'native-input-a', …
+       |                                ^
+     44|   expect(captured.sourceId).toBe('input-b'); // Keep old readers compa…
+     45| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  2 failed (2)
+      Tests  3 failed | 21 passed (24)
+   Start at  14:23:42
+   Duration  1.98s (transform 317ms, setup 0ms, collect 663ms, tests 1.12s, environment 0ms, prepare 42ms)

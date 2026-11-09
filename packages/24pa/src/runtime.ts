@@ -2216,37 +2216,45 @@ export class PaRuntime {
   }
 
   private async reconcileWeixinInputs(sessionId?: string): Promise<void> {
-    if (!this.repos || !this.workspace) return;
-    for (const row of await this.repos.inbox.listAdmitted()) {
-      if (row.source !== 'weixin' || !row.request_id || !row.target_session || sessionId && row.target_session !== sessionId) continue;
-      this.inboxLifecycle.restore(row);
-      try {
-        const envelope = row.payload as WeixinEnvelope, binding = await this.repos.weixin.get(row.binding_generation!);
-        if (binding.workspace_id !== this.backupWorkspaceId || !sameWeixinIdentity(envelope, weixinIdentity(binding)) || row.target_session !== binding.session_id) throw new Error('原微信输入归属无法核对。');
-        const history = await readWeixinSession(this.ctx, row.target_session);
-        if (history.id !== binding.session_id || history.header.cwd !== this.workspace.statePath || history.header.parentSession) throw new Error('原微信会话历史归属不符。');
-        const evidence = inspectWeixinInput(history, row.request_id);
-        if (evidence.state === 'complete' || evidence.state === 'canceled') {
-          await this.inboxLifecycle.complete(row.target_session, new Set([row.request_id]), async inboxId => {
-            await this.weixin.enqueue(`weixin-reply:${inboxId}`, weixinIdentity(binding), { inboxEventId: inboxId }, evidence.text);
-          }, evidence.state === 'canceled' ? '原输入已取消，不重复执行。' : undefined);
-        } else {
-          // Follow the adopted input through its durable WorkerRun even when a
-          // continuation reports to the work's original (different) entrance.
-          const results = await this.repos.workerRuns.ownerInputResults(row.event_id);
-          const complete = results.length > 0 && results.every(result => {
-            const source = result.scope.ownerInput;
-            return result.scope.workspaceId === this.backupWorkspaceId && source?.kind === 'weixin' && source.remoteIdentity &&
-              sameWeixinIdentity(source.remoteIdentity, weixinIdentity(binding)) && result.adopted === 'adopted' &&
-              ['completed', 'failed'].includes(result.status) && !!result.outbox_key;
-          });
-          if (complete) await this.inboxLifecycle.complete(row.target_session, new Set([row.request_id]), async () => {});
-          else if ('reason' in evidence && row.error !== evidence.reason) await this.repos.inbox.mark(row.event_id, { status: 'admitted', error: evidence.reason });
+    const repos = this.repos, workspace = this.workspace;
+    if (!repos || !workspace) return;
+    for (const candidate of await repos.inbox.listAdmitted()) {
+      if (candidate.source !== 'weixin' || !candidate.request_id || !candidate.target_session || sessionId && candidate.target_session !== sessionId) continue;
+      // Share the admission/manual-close gate, then read the current row. A
+      // snapshot taken before the owner closed an input must not revive it.
+      await this.gate(candidate.target_session, async () => {
+        const row = await repos.inbox.get(candidate.event_id);
+        if (!row || row.status !== 'admitted' || !row.request_id || !row.target_session ||
+            row.request_id !== candidate.request_id || row.target_session !== candidate.target_session) return;
+        this.inboxLifecycle.restore(row);
+        try {
+          const envelope = row.payload as WeixinEnvelope, binding = await repos.weixin.get(row.binding_generation!);
+          if (binding.workspace_id !== this.backupWorkspaceId || !sameWeixinIdentity(envelope, weixinIdentity(binding)) || row.target_session !== binding.session_id) throw new Error('原微信输入归属无法核对。');
+          const history = await readWeixinSession(this.ctx, row.target_session);
+          if (history.id !== binding.session_id || history.header.cwd !== workspace.statePath || history.header.parentSession) throw new Error('原微信会话历史归属不符。');
+          const evidence = inspectWeixinInput(history, row.request_id);
+          if (evidence.state === 'complete' || evidence.state === 'canceled') {
+            await this.inboxLifecycle.complete(row.target_session, new Set([row.request_id]), async inboxId => {
+              await this.weixin.enqueue(`weixin-reply:${inboxId}`, weixinIdentity(binding), { inboxEventId: inboxId }, evidence.text);
+            }, evidence.state === 'canceled' ? '原输入已取消，不重复执行。' : undefined);
+          } else {
+            // Follow the adopted input through its durable WorkerRun even when a
+            // continuation reports to the work's original (different) entrance.
+            const results = await repos.workerRuns.ownerInputResults(row.event_id);
+            const complete = results.length > 0 && results.every(result => {
+              const source = result.scope.ownerInput;
+              return result.scope.workspaceId === this.backupWorkspaceId && source?.kind === 'weixin' && source.remoteIdentity &&
+                sameWeixinIdentity(source.remoteIdentity, weixinIdentity(binding)) && result.adopted === 'adopted' &&
+                ['completed', 'failed'].includes(result.status) && !!result.outbox_key;
+            });
+            if (complete) await this.inboxLifecycle.complete(row.target_session, new Set([row.request_id]), async () => {});
+            else if ('reason' in evidence && row.error !== evidence.reason) await repos.inbox.mark(row.event_id, { status: 'admitted', error: evidence.reason });
+          }
+        } catch {
+          const reason = '原微信输入持久记录待核对；未自动重发，请在电脑端核对原交办。';
+          if (row.error !== reason) await repos.inbox.mark(row.event_id, { status: 'admitted', error: reason }).catch(() => {});
         }
-      } catch {
-        const reason = '原微信输入持久记录待核对；未自动重发，请在电脑端核对原交办。';
-        if (row.error !== reason) await this.repos.inbox.mark(row.event_id, { status: 'admitted', error: reason }).catch(() => {});
-      }
+      });
     }
   }
 
@@ -2494,16 +2502,16 @@ export class PaRuntime {
     const input = captureWorkOwnerInput(agent.session);
     if (!input) return null;
     if (this.weixin.remote(agent.id)) {
-      const binding = await this.weixin.assertActive(agent.id); let sourceId = '';
+      const binding = await this.weixin.assertActive(agent.id), inboxInputs: Record<string, string> = {}; let sourceId = '';
       for (const message of input.messages) {
         const event = agent.session.ownEvents().find(row => row.type === 'user/message' && row.data.id === message.id);
         const row = typeof event?.data.source?.rpcId === 'string' ? await this.repos!.inbox.forRequest(event.data.source.rpcId, agent.id) : null;
         if (!row || row.source !== 'weixin' || row.status !== 'admitted' || row.binding_generation !== binding.generation ||
             !sameWeixinIdentity(row.payload, weixinIdentity(binding)) || !row.payload.nativeId || !row.payload.text) return null;
-        message.text = row.payload.text; sourceId = row.event_id;
+        message.text = row.payload.text; sourceId = row.event_id; inboxInputs[row.event_id] = message.id;
       }
       if (!await this.ctx.sessions.flush(agent.session)) throw new Error('微信主人输入尚未确认持久化。');
-      return { ...input, kind: 'weixin', sourceId, remoteIdentity: weixinIdentity(binding), authority: this.planConversationAuthority(agent.id) };
+      return { ...input, kind: 'weixin', sourceId, inboxInputs, remoteIdentity: weixinIdentity(binding), authority: this.planConversationAuthority(agent.id) };
     }
     if (agent.id === this.accessSessionId) {
       for (const message of input.messages) {

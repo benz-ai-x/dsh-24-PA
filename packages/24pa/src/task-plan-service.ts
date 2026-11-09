@@ -172,7 +172,7 @@ export class TaskPlanService {
     if (row.task_authorization) await this.deps.access.verify(row.task_authorization);
     const legacyDelivery = row.task_config ? null : this.legacyDelivery(context);
     return { ...settings, ...await this.executionMode(context, row), legacy: !row.task_config, planId: row.id, revision: row.revision, skill: row.skill, authorization: row.task_authorization,
-      legacyDelivery, workspaceBinding: context.binding,
+      legacyDelivery, status: row.status, enabled: row.task_config ? row.owner_enabled : row.status === 'active', workspaceBinding: context.binding,
       fingerprint: taskPlanFingerprint([row.id, row.revision, settings.scheduleSpec, settings.configuration, settings.voice, row.task_authorization, legacyDelivery]),
       messageEn: 'Change only the selected timing or voice settings. Keep the on/off choice, skill, parameters, delivery targets and history.',
       message: '只修改本次选定的时间或语音；原启停选择、Skill、参数、投递目标和历史保留。' };

@@ -1,9 +1,9 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { fixture } from '../helpers/runtime.mjs';
 import { weixinIdentity } from '../../lib/repo/weixin.js';
 
-it.each(['idle', 'running', 'queued'])('电脑端核对失败输入遵守真实宿主取消信号及未结保护：%s', async scenario => {
+async function failedInput() {
   const f = await fixture();
   try {
     const workspace = await f.workspace('workspace'); await f.rt.bind(workspace); await f.rt.openLocalSession();
@@ -19,6 +19,15 @@ it.each(['idle', 'running', 'queued'])('电脑端核对失败输入遵守真实�
     ] });
     const impact = await f.rt.repos.weixin.impact(binding.generation);
     binding = await f.rt.repos.weixin.change(binding.generation, binding.version, 'disable', impact.fingerprint);
+    return { f, binding, eventId, requestId };
+  } catch (error) { await f.cleanup(); throw error; }
+}
+const closeInput = (f, binding, eventId) => f.rt.weixinDesktop({ workspaceBinding: f.rt.workspaceBinding, generation: binding.generation,
+  eventId, requestId: randomUUID(), confirm: true, evidence: '已核对原回合失败，未执行业务；只关闭该输入。' }, 'input-close');
+
+it.each(['idle', 'running', 'queued'])('电脑端核对失败输入遵守真实宿主取消信号及未结保护：%s', async scenario => {
+  const { f, binding, eventId, requestId } = await failedInput();
+  try {
     let stateCalls = 0;
     f.ctx.sessionController.state = async (request, signal) => {
       // dsh 0.2.2-rc.1 StateController requires this second argument.
@@ -26,8 +35,7 @@ it.each(['idle', 'running', 'queued'])('电脑端核对失败输入遵守真实�
       expect(request.sessionId).toBe(binding.session_id);
       return { running: scenario === 'running', queue: scenario === 'queued' ? [{ rpcId: requestId }] : [] };
     };
-    const closing = f.rt.weixinDesktop({ workspaceBinding: f.rt.workspaceBinding, generation: binding.generation,
-      eventId, requestId: randomUUID(), confirm: true, evidence: '已核对原回合失败，未执行业务；只关闭该输入。' }, 'input-close');
+    const closing = closeInput(f, binding, eventId);
     if (scenario !== 'idle') {
       await expect(closing).rejects.toThrow('原会话仍在运行或排队');
       expect((await f.rt.repos.inbox.get(eventId)).status).toBe('admitted');
@@ -41,4 +49,29 @@ it.each(['idle', 'running', 'queued'])('电脑端核对失败输入遵守真实�
     expect(await f.rt.repos.outbox.byInbox(eventId)).toHaveLength(0);
     expect(f.prompts).toHaveLength(0);
   } finally { await f.cleanup(); }
+});
+
+it.each([false, true])('WX-05 旧恢复快照不能复活已人工结清的输入或回复队列；历史读取失败=%s', async historyError => {
+  const { f, binding, eventId } = await failedInput();
+  let release;
+  const barrier = new Promise(resolve => { release = resolve; });
+  let captured;
+  const ready = new Promise(resolve => { captured = resolve; });
+  const list = f.rt.repos.inbox.listAdmitted.bind(f.rt.repos.inbox);
+  const spy = vi.spyOn(f.rt.repos.inbox, 'listAdmitted').mockImplementationOnce(async () => {
+    const rows = await list(); captured(); await barrier; return rows;
+  });
+  let recovering;
+  try {
+    f.ctx.sessionController.state = async (_request, signal) => { signal.throwIfAborted(); return { running: false, queue: [] }; };
+    recovering = f.rt.reconcileWeixinInputs(); await ready;
+    await closeInput(f, binding, eventId);
+    const closed = await f.rt.repos.inbox.get(eventId); expect(closed.status).toBe('rejected');
+    if (historyError) f.storedSessions.delete(binding.session_id);
+    release(); await recovering;
+    expect(await f.rt.repos.inbox.get(eventId)).toEqual(closed);
+    await expect(f.rt.inboxLifecycle.assertIdle()).resolves.toBeUndefined();
+    expect((await f.rt.db.query('select * from pa24.weixin_input_review')).rows).toHaveLength(1);
+    expect(await f.rt.repos.outbox.byInbox(eventId)).toHaveLength(0); expect(f.prompts).toHaveLength(0);
+  } finally { release(); await recovering; spy.mockRestore(); await f.cleanup(); }
 });

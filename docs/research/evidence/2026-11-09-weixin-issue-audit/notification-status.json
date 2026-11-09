@@ -1,0 +1,31 @@
+{
+  "capturedAt": "2026-11-09T06:38:56.236Z",
+  "run": "43d99782-4a73-4f73-b824-9af7d41bf126",
+  "phase": "expired",
+  "enabled": false,
+  "candidatePresent": false,
+  "seedAt": null,
+  "steps": [
+    {
+      "kind": "notification-1",
+      "afterMs": 600000,
+      "context": "original",
+      "at": null
+    },
+    {
+      "kind": "notification-2",
+      "afterMs": 93600000,
+      "context": "original",
+      "at": null
+    },
+    {
+      "kind": "notification-3",
+      "afterMs": 180000000,
+      "context": "original",
+      "at": null
+    }
+  ],
+  "deliveries": [],
+  "visibleReceipts": {},
+  "decision": "unverified"
+}
