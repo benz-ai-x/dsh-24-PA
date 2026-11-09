@@ -77,7 +77,7 @@ import type { ObservedSourceItem } from './repo/source-projection.js';
 import { SourceAccess } from './source-access.js';
 import { SourceCalendarReader } from './source-calendar-reader.js';
 import { SourceTodoReader } from './source-todo-reader.js';
-import { SourceTodo } from './source-todo.js';
+import { SourceTodo, TodoQueryValidationError } from './source-todo.js';
 import { SourceTodoWrites } from './source-todo-writes.js';
 import { SourceCalendar } from './source-calendar.js';
 import { SourceCalendarWrites } from './source-calendar-writes.js';
@@ -3121,7 +3121,13 @@ export class PaRuntime {
 
   private async taskGet(args: Record<string, unknown>): Promise<unknown> { return this.sourceTodo.get(args); }
 
-  private async taskList(args: Record<string, unknown>): Promise<unknown> { return this.sourceTodo.query(args); }
+  private async taskList(args: Record<string, unknown>): Promise<unknown> {
+    try { return await this.sourceTodo.query(args); }
+    catch (error) {
+      if (!(error instanceof TodoQueryValidationError)) throw error;
+      return { status: 'rejected', businessExecuted: false, action: 'task_list', reason: error.message };
+    }
+  }
 
   private async projectCreate(args: Record<string, unknown>): Promise<unknown> {
     const name = text(args.name, 200);

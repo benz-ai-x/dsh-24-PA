@@ -12,7 +12,7 @@ import { WORK_METHOD_PRINCIPLES } from './work-methods.js';
 import type { WorkerModelRoute } from './config.js';
 
 /** Semantic version of the whole prompt set; bump on any copy change. */
-export const PROMPTS_VERSION = '1.13.1';
+export const PROMPTS_VERSION = '1.13.2';
 
 // ---- Lead system sections (A1) -----------------------------------------------
 // The former single flat list is split into ordered sections so the global
@@ -119,9 +119,9 @@ export const WORKER_PROMPTS: Record<BuiltinWorkerId, WorkerPromptSet> & { [roleI
     version: 2,
   },
   tasks: {
-    brief: 'task_create {summary,due?,sourceId?/company?/project?,assigneeIds?,instruction?}；task_list {role?:all/responsible/following/assigned/creator,status?,sourceId?,query?,limit?,offset?}；task_get/update/complete/cancel/assign {guid或objectId,sourceId?,effect?:self/whole} 操作原待办；project_*（拆解与入账）、outreach_send/task_assign（需 instruction 依据）、task_repeat_*（周期模板）、waiting_*（等待事项与检查点，只提醒本人不催办他人）。',
+    brief: 'task_create {summary,due?,sourceId?/company?/project?,assigneeIds?,instruction?}；task_list {role?:all/responsible/following/assigned/creator,status?:all/open/completed/canceled,sourceId?,query?,limit?,offset?}，未完成用 open；task_get/update/complete/cancel/assign {guid或objectId,sourceId?,effect?:self/whole} 操作原待办；project_*（拆解与入账）、outreach_send/task_assign（需 instruction 依据）、task_repeat_*（周期模板）、waiting_*（等待事项与检查点，只提醒本人不催办他人）。',
     doneCriteria: '平台回执（任务链接/操作编号）已取得并交回；结果未知时已核对后再答复。',
-    version: 3,
+    version: 4,
   },
   skill: {
     brief: 'skill_run {skill}（载入放行的任务 skill 正文并按其执行；仅 extraBusinessSkills 放行面内可达）。',

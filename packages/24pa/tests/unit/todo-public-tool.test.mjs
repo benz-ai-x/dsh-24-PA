@@ -45,6 +45,33 @@ async function setup(entry = source('first')) {
   return { ...f, state, auth, child, execute, run, calls, supplement };
 }
 
+it.each([
+  [{ status: 'incomplete', limit: 50, offset: 0 }, 'open'],
+  [{ role: 'pending' }, 'responsible'],
+  [{ offset: -1 }, 'offset'],
+  [{ limit: 201 }, 'limit'],
+])('待办筛选参数拒绝未提交查询，同一真实工具运行可纠正而不冻结：%j', async (invalid, hint) => {
+  const f = await setup(), listeners = new Map();
+  f.child.ctx = { plugin: plugin => ({ await: async () => plugin.apply({ on: (event, listener) => listeners.set(event, listener) }) }) };
+  await f.rt.workerRuns.attach(f.child);
+  const execute = args => listeners.get('tools/execute')({ agent: f.child, name: 'pa24_work', arguments: args,
+    callId: randomUUID(), signal: new AbortController().signal }, () => f.execute(args));
+  const before = await readFile(f.state + '.calls.jsonl', 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+  const rejected = await execute({ action: 'task_list', ...invalid });
+  const item = await f.rt.repos.workItems.get(f.child.id);
+  const detail = await f.rt.repos.workerRuns.detail(item.active_worker_run_id);
+  expect(item.status).toBe('running');
+  expect(detail.run.status).toBe('running');
+  expect(detail.calls[0]).toMatchObject({ status: 'failed', result: { value: { status: 'rejected', businessExecuted: false } } });
+  expect(rejected.isError).toBe(false);
+  expect(JSON.stringify(rejected.value)).toContain(hint);
+  expect(await readFile(f.state + '.calls.jsonl', 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; })).toBe(before);
+  const corrected = await execute({ action: 'task_list', status: 'open', limit: 50, offset: 0 });
+  expect(corrected.isError, JSON.stringify(corrected)).toBe(false);
+  expect(corrected.value.tasks).toBeInstanceOf(Array);
+  expect((await f.rt.repos.workerRuns.detail(item.active_worker_run_id)).calls.map(call => call.status)).toEqual(['failed', 'succeeded']);
+});
+
 it('实际 pa24_work 使用原回执恢复本地编号，身份切换后相同 GUID 不自动改绑或关联，新授权操作保留交办关联', async () => {
   const f = await setup();
   const created = await f.run({ action: 'task_create', summary: '原待办', description: '原描述', assigneeIds: ['owner'] });
