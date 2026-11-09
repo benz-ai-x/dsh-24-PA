@@ -61,15 +61,18 @@ for (const backend of ['sqlite', 'postgres']) describe(`WX 持久收发 / ${back
   const delivery = send => new OutboxDelivery({ repo: () => repos.outbox, routes: () => repos.messageRoutes, sent: () => {},
     adapters: { weixin: { available: () => true, supports: () => true, send } } });
 
-  it('续办恢复按持久采用输入找到原运行和结果，不依赖当前交办或投递入口', async () => {
+  it.each([false, true])('续办恢复按每条持久采用输入找到原运行和结果，兼容旧单条关联；多输入=%s', async multiple => {
     const id = randomUUID(), run = `run-${id}`, sourceId = `input-${id}`, outboxKey = `result-${id}`;
     await db.query("insert into pa24.work_item (id,title,role,instruction,origin,parent_session_id,delivery,status) values ($1,'原交办','memo','核对','local','original-local','local','completed')", [id]);
     await db.query("insert into pa24.worker_run (id,work_item_id,session_id,source,status,instruction,snapshot,outbox_key) values ($1,$2,$2,'continuation','completed','核对','{}',$3)", [run, id, outboxKey]);
     const scope = { workspaceId: 'original-workspace', parentSessionId: 'original-local', ownerInput: { kind: 'weixin', sourceId, remoteIdentity: { accountId: 'bot', ownerId: 'owner', generation: 'current', sessionId: 'wx-session' } } };
+    const earlierSourceId = `earlier-${id}`;
+    if (multiple) scope.ownerInput.inboxInputs = { [earlierSourceId]: 'native-a', [sourceId]: 'native-b' };
     await db.query("insert into pa24.worker_run_input (execution_id,run_id,scope,instruction,status) values ($1,$2,$3,'核对','adopted')", [id, run, JSON.stringify(scope)]);
     expect(await repos.workerRuns.ownerInputResults(sourceId)).toMatchObject([{ scope, status: 'completed', adopted: 'adopted', outbox_key: null }]);
     await repos.outbox.enqueue({ dedupKey: outboxKey, channel: 'local', target: 'original-local', kind: 'text', content: { text: '原结果' } });
     expect(await repos.workerRuns.ownerInputResults(sourceId)).toMatchObject([{ scope, status: 'completed', adopted: 'adopted', outbox_key: outboxKey }]);
+    expect(await repos.workerRuns.ownerInputResults(earlierSourceId)).toEqual(multiple ? [{ scope, status: 'completed', adopted: 'adopted', outbox_key: outboxKey }] : []);
     expect(await repos.workerRuns.ownerInputResults('first-input')).toEqual([]);
   });
 

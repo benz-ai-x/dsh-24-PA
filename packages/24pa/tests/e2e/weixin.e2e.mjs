@@ -131,6 +131,44 @@ it('WX-07/08 待办查询参数明确拒绝后沿同一运行纠正，结果回�
   expect(delivery.binding_generation).toBe(delivered.binding.generation);
 });
 
+it.each(['none', 'feishu', 'wecom'])('WX-14/15 已有暂停计划改时，显示原渠道 %s，经编号原文确认仍不启用或通知', async channel => {
+  const at = new Date(Date.now() + 48 * 3600000).toISOString(), nextAt = new Date(Date.parse(at) + 1800000).toISOString();
+  const original = (await host.api('action', { type: 'plan.change', op: 'save', requestId: randomUUID(), workspaceBinding: binding,
+    title: '微信暂停计划编号确认', skillId: 'builtin:digest-morning', timeZone: 'Asia/Shanghai',
+    timing: { type: 'once', at }, delivery: { channel, voice: channel === 'feishu' } })).plan;
+  expect(original).toMatchObject({ status: 'paused', owner_enabled: false, task_authorization: null });
+  const total = (await host.api('plans', { workspaceBinding: binding })).total;
+  const preview = await chat('reminders', { action: 'digest_control', planId: original.id, op: 'adjust', at: nextAt },
+    `把计划 ${original.id} 调整为 ${nextAt}，保持暂停、原通知和语音选择，本次不发通知，先给我预览。`);
+  const previewId = /"previewId":"([^"]+)"/.exec(preview.text)?.[1]; expect(previewId, preview.text).toBeTruthy();
+  expect(preview.text).toContain(`"delivery":{"channel":"${channel}"`);
+  expect(preview.text).toContain('"status":"paused"'); expect(preview.text).toContain('"enabled":false');
+  if (channel !== 'none') { expect(preview.text).toContain('"target":null'); expect(preview.text).toContain('接收者尚未核验'); }
+  expect((await host.api('plans.inspect', { id: original.id, workspaceBinding: binding })).plan).toMatchObject({
+    revision: original.revision, schedule_spec: original.schedule_spec, owner_enabled: false });
+  const text = `继续交办 ${preview.work.id}。确认计划 ${previewId.slice(0, 8)}`;
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch',
+    leadTool: { name: 'pa24_jobs', input: { action: 'continue', workId: preview.work.id, instruction: '确认刚才的计划预览；授权依据仅为主人完整原文' } },
+    leadReply: '已接续原交办。', workerAction: { action: 'digest_control', op: 'confirm', previewId, instruction: text }, workerReply: '原计划改时结果。' }));
+  const input = wx.input(text);
+  const completed = await host.waitUntil(s => s.work.some(row => row.id === preview.work.id && row.active_worker_run_id !== preview.work.active_worker_run_id && row.status === 'completed'));
+  const work = completed.work.find(row => row.id === preview.work.id);
+  const run = await host.api('worker.run', { runId: work.active_worker_run_id, workspaceBinding: binding });
+  expect(run.run.snapshot.fromRunId).toBe(preview.work.active_worker_run_id);
+  expect(run.inputs.some(input => input.status === 'adopted' && input.scope.ownerInput.messages.some(message => message.text === text))).toBe(true);
+  const changed = await host.api('plans.inspect', { id: original.id, workspaceBinding: binding });
+  expect(changed.plan).toMatchObject({ id: original.id, revision: original.revision + 1, status: 'paused', owner_enabled: false,
+    session_id: original.session_id, voice: original.voice, task_authorization: original.task_authorization,
+    task_config: original.task_config, schedule_spec: { ...original.schedule_spec, at: nextAt } });
+  expect(changed.activeRuns).toEqual([]); expect(changed.triggers.total).toBe(0);
+  expect((await host.api('plans', { workspaceBinding: binding })).total).toBe(total);
+  const delivered = await waitFor(s => s.deliveries.some(row => row.association?.workItemId === preview.work.id &&
+    row.association.inboxEventId === s.inbox.find(event => event.payload.nativeId === input.message_id)?.event_id && row.status === 'sent'));
+  expect(delivered.deliveries.filter(row => row.association?.workItemId === preview.work.id)).toHaveLength(2);
+  wx.messages.push(input); await delay(900);
+  expect((await host.api('plans.inspect', { id: original.id, workspaceBinding: binding })).plan.revision).toBe(original.revision + 1);
+}, 180000);
+
 it('WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联本次微信输入且不重复创建', async () => {
   const summary = '隔离微信待办-' + randomUUID();
   const task = await chat('tasks', { action: 'task_create', summary }, `请记录待办：${summary}`);

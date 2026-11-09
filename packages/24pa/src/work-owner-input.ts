@@ -6,6 +6,9 @@ export interface WorkOwnerInput {
   kind: 'session' | 'panel' | 'feishu' | 'weixin';
   remoteIdentity?: import('./weixin-protocol.js').WeixinIdentity;
   sourceId: string;
+  /** Inbox event ID -> consumed Host message ID, captured before delegation.
+   * Older persisted inputs have only sourceId and remain readable. */
+  inboxInputs?: Record<string, string>;
   turn?: number;
   /** Trusted runtime identity at admission; never supplied by model arguments. */
   authority?: string;
