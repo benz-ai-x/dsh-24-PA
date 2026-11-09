@@ -7,6 +7,12 @@ import { localDay } from './calendar-time.js';
 import { isDeepStrictEqual } from 'node:util';
 
 export type TodoRole = 'all' | 'responsible' | 'following' | 'assigned' | 'creator';
+
+/** Only query argument checks before any source read or projection update may
+ * use this error. Transport and execution failures retain their own outcome. */
+export class TodoQueryValidationError extends Error {
+  constructor(message: string) { super(message); this.name = 'TodoQueryValidationError'; }
+}
 const query = { from: null, to: null };
 interface SourceTodoDeps {
   config(): LegacySourceConfiguration & { timeZone: string };
@@ -55,7 +61,7 @@ export class SourceTodo {
       ...(args.company !== undefined ? { company: String(args.company) } : {}), ...(args.project !== undefined ? { project: String(args.project) } : {}),
     }, false).source];
     if (args.channel !== undefined) {
-      if (!['feishu', 'wecom'].includes(String(args.channel))) throw new Error('待办平台筛选无效。');
+      if (!['feishu', 'wecom'].includes(String(args.channel))) throw new TodoQueryValidationError('待办平台筛选无效；可用 feishu / wecom。');
       entries = entries.filter(row => row.platform === args.channel);
     }
     return entries;
@@ -63,13 +69,13 @@ export class SourceTodo {
 
   async query(args: Record<string, unknown> = {}, refresh = true, paginate = true) {
     const role = args.role === undefined || args.role === '' ? null : String(args.role) as TodoRole;
-    if (role !== null && !['all', 'responsible', 'following', 'assigned', 'creator'].includes(role)) throw new Error('待办角色筛选无效。');
+    if (role !== null && !['all', 'responsible', 'following', 'assigned', 'creator'].includes(role)) throw new TodoQueryValidationError('待办角色筛选无效；可用 all / responsible / following / assigned / creator。');
     const status = String(args.status ?? 'all');
-    if (!['all', 'open', 'completed', 'canceled'].includes(status)) throw new Error('待办状态筛选无效。');
+    if (!['all', 'open', 'completed', 'canceled'].includes(status)) throw new TodoQueryValidationError('待办状态筛选无效；可用 all / open / completed / canceled，未完成用 open。');
     const deadline = String(args.deadline ?? 'all');
-    if (!['all', 'overdue', 'today', 'undated', 'upcoming'].includes(deadline)) throw new Error('待办截止筛选无效。');
+    if (!['all', 'overdue', 'today', 'undated', 'upcoming'].includes(deadline)) throw new TodoQueryValidationError('待办截止筛选无效；可用 all / overdue / today / undated / upcoming。');
     const offset = Number(args.offset ?? 0), limit = Number(args.limit ?? 50);
-    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('待办分页参数无效。');
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 200) throw new TodoQueryValidationError('待办分页参数无效；offset 为不小于 0 的整数，limit 为 1–200 的整数。');
     const search = String(args.query ?? '').trim().toLowerCase();
     const selected = this.selected(args), snapshot = await this.deps.registry.list();
     const [locals, relations] = await Promise.all([this.deps.localTasks(), this.deps.relations()]);

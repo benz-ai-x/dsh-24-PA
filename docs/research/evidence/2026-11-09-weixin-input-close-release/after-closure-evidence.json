@@ -1,0 +1,241 @@
+{
+  "capturedAt": "2026-11-09T02:20:05.294Z",
+  "node": "v24.22.0",
+  "source": "8010 formal plugin RPC, read only; no credential values or raw account IDs exported",
+  "artifactSha256": "689fd1057e9de9c9dc036cf47411a26777b5ed49cf5e3a42718d2e4883ea1d7a",
+  "startScriptSha256": "bd07ef4c071dd91376908ccb2da58a3a932408ccc3fff6ea57c0e0f48393348f",
+  "readiness": [
+    {
+      "id": "host",
+      "state": "ok"
+    },
+    {
+      "id": "config",
+      "state": "ok"
+    },
+    {
+      "id": "postgres",
+      "state": "ok"
+    },
+    {
+      "id": "workspace",
+      "state": "ok"
+    },
+    {
+      "id": "feishu",
+      "state": "ok"
+    },
+    {
+      "id": "sessions",
+      "state": "ok"
+    }
+  ],
+  "phase": "connecting",
+  "loginPhase": "idle",
+  "errorPresent": false,
+  "bindingCount": 1,
+  "binding": {
+    "accountSha256": "11b6fd6d990b0e67a81b0d33fa12c6352f024e5f37db10929e4c7dd4cf4aef66",
+    "ownerSha256": "4ba42a54adfb08e44de3218d1f66693e45d23cbc98edc97e5c3e4d920b20d067",
+    "generationSha256": "b162adcac1e7c93a1d811d9b25ed6be3317e8f06d79ee52c1cc79b47ceb7959c",
+    "sessionSha256": "029d3e9545cbed85f38ae1bd250a76172a0865b68ebdd98fbf153cb2a440387c",
+    "state": "active",
+    "enabled": true,
+    "sessionReady": true,
+    "version": 8,
+    "createdAt": "2026-11-08T17:32:20.947Z",
+    "lastReceivedAt": "2026-11-09T01:19:31.589Z",
+    "lastSentAt": "2026-11-09T01:46:58.412Z"
+  },
+  "notificationSupported": false,
+  "inbox": [
+    {
+      "eventId": "weixin-bb6e9101f271303cd4765bb7f053eb28296870d118157439ca011d3dd2660143",
+      "status": "rejected",
+      "createdAt": "2026-11-09T01:19:31.589Z",
+      "processedAt": "2026-11-09T02:19:51.280Z",
+      "errorPresent": true,
+      "textSha256": "5ffd371892783feef3bc5e504d2210919b79ec922b12fb827b089c0c5b8af780",
+      "textLength": 58,
+      "isHelpCommand": false,
+      "isDelegationTest": false,
+      "identityMatches": true,
+      "targetSessionMatches": true,
+      "generationMatches": true,
+      "nativeIdSha256": "56e65d7fe228edd26291c70099efb28fb5808a9b04ef317b7577ffdec43ab9bf",
+      "nativeIdType": "string",
+      "nativeIdLength": 19,
+      "payloadKeys": [
+        "accountId",
+        "generation",
+        "nativeId",
+        "ownerId",
+        "rejection",
+        "replyTo",
+        "sessionId",
+        "text"
+      ],
+      "requestIdSha256": "a72aab8ce7702735289e6555c787672d02cf498fb021cb1d4fccb412023277ef"
+    },
+    {
+      "eventId": "weixin-276e9b81264fbccf86fa97e6f54916bf730f4cddf5ed5a67e6fcab0a0c7125e7",
+      "status": "delivered",
+      "createdAt": "2026-11-08T17:37:01.045Z",
+      "processedAt": "2026-11-08T17:37:51.862Z",
+      "errorPresent": false,
+      "textSha256": "1df77cf071ae266bd86503837ceec6cec01b9baf3f44daebd389720b4dce03c0",
+      "textLength": 46,
+      "isHelpCommand": false,
+      "isDelegationTest": true,
+      "identityMatches": true,
+      "targetSessionMatches": true,
+      "generationMatches": true,
+      "nativeIdSha256": "96b1a7aa6d90280a92ce2e44700089784052bac57158506fe5f8088c427fc96d",
+      "nativeIdType": "string",
+      "nativeIdLength": 19,
+      "payloadKeys": [
+        "accountId",
+        "generation",
+        "nativeId",
+        "ownerId",
+        "rejection",
+        "replyTo",
+        "sessionId",
+        "text"
+      ],
+      "requestIdSha256": "df192c2e9dd7f0eca3a126c07e12255ce77187ba185ed2eeb499f735968033c0"
+    },
+    {
+      "eventId": "weixin-74560b7cf6a4f53a1abf927ce5927a4e5074c21fd626ed87a8f31655d4be20b6",
+      "status": "delivered",
+      "createdAt": "2026-11-08T17:33:44.315Z",
+      "processedAt": "2026-11-08T17:33:44.319Z",
+      "errorPresent": false,
+      "textSha256": "35ae23e263f4e223d192b12a88e669e32fd6eacce386c1bf16d586ec9b1bd401",
+      "textLength": 5,
+      "isHelpCommand": true,
+      "isDelegationTest": false,
+      "identityMatches": true,
+      "targetSessionMatches": true,
+      "generationMatches": true,
+      "nativeIdSha256": "23e601abeb12a841f621a0002970b4655c019cde9e174d8e3097b261991558f8",
+      "nativeIdType": "string",
+      "nativeIdLength": 19,
+      "payloadKeys": [
+        "accountId",
+        "generation",
+        "nativeId",
+        "ownerId",
+        "rejection",
+        "replyTo",
+        "sessionId",
+        "text"
+      ],
+      "requestIdSha256": null
+    }
+  ],
+  "deliveries": [
+    {
+      "id": 78,
+      "status": "sent",
+      "channel": "weixin",
+      "kind": "text",
+      "attempts": 1,
+      "createdAt": "2026-11-09T01:46:58.007Z",
+      "sentAt": "2026-11-09T01:46:58.413Z",
+      "errorPresent": false,
+      "identityMatches": true,
+      "recipientMatches": true,
+      "generationMatches": true,
+      "association": {
+        "inboxEventId": null,
+        "workItemIdSha256": "f2f09f505b65b20a4e3e72411ff5d47f3c44055d7d0234435ed41bb161805571",
+        "workerRunIdSha256": "b0a827b3fc68da7fe84843b3f7d45e11475cd057aff8e73c1c0f73457486c6fd"
+      },
+      "clientIdSha256": "2003f6e4db4cf3296673a6f2f31918425930d90d4f434708357f34dd6b5e35e4",
+      "segmentIndex": 0,
+      "segmentGroupSha256": "a3328f42c989dd067ac270fb8ea2c07df62bc50e4ff1e4998d3d54f916cf8098",
+      "contentSha256": "caaabdd31d000bbb7b825a961cb4eaca4d572c047371ac41a2b8e0f459db4d96",
+      "textLength": 1367,
+      "isExpectedHelp": false,
+      "nativeIdSha256": "173593ab1b49129f6d215d84c35ed2991500f57559cb7429f8e2e919a7b1f31a",
+      "nativeIdType": "string",
+      "nativeIdLength": 19,
+      "acceptance": {
+        "basis": "native_message_id",
+        "http": 200,
+        "ret": null,
+        "errcode": null,
+        "at": "2026-11-09T01:46:58.411Z"
+      }
+    },
+    {
+      "id": 75,
+      "status": "sent",
+      "channel": "weixin",
+      "kind": "text",
+      "attempts": 1,
+      "createdAt": "2026-11-08T17:37:51.861Z",
+      "sentAt": "2026-11-08T17:37:52.458Z",
+      "errorPresent": false,
+      "identityMatches": true,
+      "recipientMatches": true,
+      "generationMatches": true,
+      "association": {
+        "inboxEventId": "weixin-276e9b81264fbccf86fa97e6f54916bf730f4cddf5ed5a67e6fcab0a0c7125e7",
+        "workItemIdSha256": null,
+        "workerRunIdSha256": null
+      },
+      "clientIdSha256": "217a2230452bdeb02e830e301ddb1534686e59467b85d42d4dd919b6c177b369",
+      "segmentIndex": 0,
+      "segmentGroupSha256": "a3c8ef811a61a6fb051908e5198f4d0f7b14a0db83760f8fb918669ea6fd9753",
+      "contentSha256": "2e71b05ebe0f3a8a296087d1b21a06a3a8056a05b06dac951b86b93e5e3349fd",
+      "textLength": 444,
+      "isExpectedHelp": false,
+      "nativeIdSha256": "60667aa6deb6566514aa69848411fb441b24a4bf84abef573b93c031e6ef743f",
+      "nativeIdType": "string",
+      "nativeIdLength": 19,
+      "acceptance": {
+        "basis": "native_message_id",
+        "http": 200,
+        "ret": null,
+        "errcode": null,
+        "at": "2026-11-08T17:37:52.455Z"
+      }
+    },
+    {
+      "id": 74,
+      "status": "sent",
+      "channel": "weixin",
+      "kind": "text",
+      "attempts": 1,
+      "createdAt": "2026-11-08T17:33:44.318Z",
+      "sentAt": "2026-11-08T17:33:45.400Z",
+      "errorPresent": false,
+      "identityMatches": true,
+      "recipientMatches": true,
+      "generationMatches": true,
+      "association": {
+        "inboxEventId": "weixin-74560b7cf6a4f53a1abf927ce5927a4e5074c21fd626ed87a8f31655d4be20b6",
+        "workItemIdSha256": null,
+        "workerRunIdSha256": null
+      },
+      "clientIdSha256": "9bbbd485ddfb3ccd3e67511f1293fec6920fb32438452e78439400b7fa6f6e66",
+      "segmentIndex": 0,
+      "segmentGroupSha256": "015bb17cf60fb90329c3872f7558d72a00af921984626ab04bc4c65910faa34d",
+      "contentSha256": "0f2b27a485a0496d372079c1aa043639f93cbdf1f11b5296befc2348bcbc8c05",
+      "textLength": 96,
+      "isExpectedHelp": true,
+      "nativeIdSha256": "5d5f7615f85ebe09dcec052fdabfc73c2eb45c3c55190f405e8dd3682c85fb11",
+      "nativeIdType": "string",
+      "nativeIdLength": 19,
+      "acceptance": {
+        "basis": "native_message_id",
+        "http": 200,
+        "ret": null,
+        "errcode": null,
+        "at": "2026-11-08T17:33:45.398Z"
+      }
+    }
+  ]
+}

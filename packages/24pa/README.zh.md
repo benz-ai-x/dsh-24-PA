@@ -10,7 +10,7 @@ kind: "package-bundle"
 [![npm 版本](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub 最新发布](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
 [![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](package.json)
-[![dsh 基线](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.5)
+[![dsh 基线](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.7)
 
 **从“提醒我”到“帮我准备这一周”——把对话变成有条理、可审核、能跟进的行动，同时把控制权留在自己手里。**
 
@@ -18,7 +18,7 @@ kind: "package-bundle"
 
 ![24私助电脑端首页，展示关键数据、今日日程、优先待办与助理状态](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
 
-`0.2.2-rc.1.5` 修复宿主会话工具绕过微信业务白名单的问题，覆盖从微信续办其他入口的业务交办（#279）。保留本人扫码绑定、私聊文字交办和常用计划管理；周期微信通知后置。使用方式见[微信接入指南](weixin-setup.md)。本人扫码和帮助回复已确认；修复后的真实业务流程仍待验收，进度见 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279)；协议实测与隔离验收见 [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)。
+`0.2.2-rc.1.7` 修复电脑端核对关闭失败微信输入时漏传宿主状态查询取消信号的问题（#279）。仍在运行或排队的输入继续受保护；关闭不重提原业务、不补发结果。此前待办查询参数与宿主工具权限修复继续保留。保留本人扫码绑定、私聊文字交办和常用计划管理；周期微信通知后置。使用方式见[微信接入指南](weixin-setup.md)。本人扫码、帮助回复及只读待办查询结果已确认在微信可见；真实编号续办和计划确认仍待验收，进度见 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279)；协议实测与隔离验收见 [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)。
 
 本修复版仅支持 dsh `0.2.2-rc.1`，需要该版原生工具执行门禁；旧宿主使用下方版本表对应的既有插件版本。
 
@@ -89,7 +89,7 @@ kind: "package-bundle"
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.1
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.5 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.7 --registry=https://registry.npmjs.org
 ```
 
 重启同一个 Profile 并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`。全新实例请按[初始化指南](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md)完成隔离目录、启动脚本、pnpm 构建审批、带 token 的面板地址与 demo 验收；随后对本地助理说「帮我接通飞书」，或阅读随包[飞书接入指南](feishu-setup.md)。
@@ -103,7 +103,7 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.5 --registry=http
 
 | dsh 宿主 | 24私助包版本 |
 | --- | --- |
-| `0.2.2-rc.1` | `0.2.2-rc.1.5`（当前版本） |
+| `0.2.2-rc.1` | `0.2.2-rc.1.7`（当前版本） |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8`（该线停更于此） |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |

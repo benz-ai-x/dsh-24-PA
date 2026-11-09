@@ -1,0 +1,16 @@
+{
+  "recordedDate": "2026-11-09",
+  "timezone": "Asia/Shanghai",
+  "source": "owner reply in Codex chat",
+  "promptScope": "WeChat visibility of the read-only query result for 微信修复验收",
+  "reply": "已收到",
+  "platformDeliveryId": 78,
+  "proves": [
+    "owner reported result visible in the bound private WeChat conversation"
+  ],
+  "doesNotProve": [
+    "real WeChat numbered continuation",
+    "real plan preview and later source-text confirmation",
+    "scheduled WeChat notification capability B"
+  ]
+}

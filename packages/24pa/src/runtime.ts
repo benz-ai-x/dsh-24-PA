@@ -77,7 +77,7 @@ import type { ObservedSourceItem } from './repo/source-projection.js';
 import { SourceAccess } from './source-access.js';
 import { SourceCalendarReader } from './source-calendar-reader.js';
 import { SourceTodoReader } from './source-todo-reader.js';
-import { SourceTodo } from './source-todo.js';
+import { SourceTodo, TodoQueryValidationError } from './source-todo.js';
 import { SourceTodoWrites } from './source-todo-writes.js';
 import { SourceCalendar } from './source-calendar.js';
 import { SourceCalendarWrites } from './source-calendar-writes.js';
@@ -2200,7 +2200,7 @@ export class PaRuntime {
               if (!row || row.binding_generation !== generation) throw new Error('原输入身份不符。');
               if (row.status === 'admitted' && row.request_id) {
                 const history = await readWeixinSession(this.ctx, binding.session_id);
-                const host = await this.ctx.sessionController.state?.({ sessionId: binding.session_id });
+                const host = await this.ctx.sessionController.state?.({ sessionId: binding.session_id }, this.lifetime.signal);
                 if (!host || host.running || host.queue?.some(item => item.rpcId === row.request_id) || inspectWeixinInput(history, row.request_id).state === 'queued') throw new Error('原会话仍在运行或排队，请先在原会话取消或完成；不会重复提交。');
                 this.inboxLifecycle.restore(row);
                 await this.inboxLifecycle.complete(binding.session_id, new Set([row.request_id]), async () => {
@@ -3121,7 +3121,13 @@ export class PaRuntime {
 
   private async taskGet(args: Record<string, unknown>): Promise<unknown> { return this.sourceTodo.get(args); }
 
-  private async taskList(args: Record<string, unknown>): Promise<unknown> { return this.sourceTodo.query(args); }
+  private async taskList(args: Record<string, unknown>): Promise<unknown> {
+    try { return await this.sourceTodo.query(args); }
+    catch (error) {
+      if (!(error instanceof TodoQueryValidationError)) throw error;
+      return { status: 'rejected', businessExecuted: false, action: 'task_list', reason: error.message };
+    }
+  }
 
   private async projectCreate(args: Record<string, unknown>): Promise<unknown> {
     const name = text(args.name, 200);

@@ -33,7 +33,7 @@ export const workToolProperties = {
   adjustments: { type: 'array', items: string },
   question: { oneOf: [{ type: 'string' }, { type: 'null' }], description: '只提出一个影响后续安排的关键问题。' },
   tasks: { type: 'array', items: { type: 'object' } },
-  status: string,
+  status: { type: 'string', description: 'task_list：all（全部，默认）/ open（未完成）/ completed（已完成）/ canceled（已取消）；查询未完成待办用 open。' },
   reason: string,
   note: string,
   inSeconds: { type: 'integer' },

@@ -40,9 +40,9 @@ async function waitFor(check, label = '微信状态') {
 }
 async function apply(op) { const preview = await action('preview', { op }); await action('apply', { previewId: preview.previewId, confirm: true }); }
 async function login() { await action('login'); await waitFor(s => !!s.candidate); await apply('activate'); return waitFor(s => s.phase === 'polling'); }
-async function chat(worker, workerAction, text) {
+async function chat(worker, workerAction, text, workerAfterPreparation) {
   const title = 'WX-' + randomUUID(), before = llm.log.length;
-  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker, title, instruction: '按主人本次原文办理' }, leadReply: '已接纳，等待结果。', workerAction, workerReply: '本次业务已处理。' }));
+  await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', delegate: { worker, title, instruction: '按主人本次原文办理' }, leadReply: '已接纳，等待结果。', workerAction, workerAfterPreparation, workerReply: '本次业务已处理。' }));
   const input = wx.input(text);
   try {
     await host.waitUntil(s => s.work.some(row => row.title === title && ['completed', 'needs_reconciliation'].includes(row.status)), { timeoutMs: 12000, label: title });
@@ -110,6 +110,27 @@ it('WX-08/13/14/15 微信原文确认常用计划与面板共用对象，任意�
   expect(confirmed.work.delivery_target.generation).toBe((await state()).binding.generation);
 }, 180000);
 
+it('WX-07/08 待办查询参数明确拒绝后沿同一运行纠正，结果回原微信且无平台写入', async () => {
+  const tasksFile = join(root, 'lark.json.tasks.jsonl');
+  const readTasks = () => readFile(tasksFile, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+  const before = await readTasks();
+  const result = await chat('tasks', { action: 'task_list', status: 'incomplete', limit: 50, offset: 0 },
+    '请查询我当前的未完成待办，只读取，不创建或修改任何待办，把查询范围和结果回给我。',
+    { action: 'task_list', status: 'open', limit: 50, offset: 0 });
+  const detail = await host.api('worker.run', { runId: result.work.active_worker_run_id, workspaceBinding: binding });
+  expect(detail.calls).toHaveLength(2);
+  expect(detail.calls[0]).toMatchObject({ tool: 'pa24_work', status: 'failed', result: { value: { action: 'task_list', status: 'rejected', businessExecuted: false } } });
+  expect(detail.calls[1]).toMatchObject({ tool: 'pa24_work', status: 'succeeded', args: { status: 'open' } });
+  expect(detail.operations).toHaveLength(0);
+  expect(detail.execution.blocks).toHaveLength(0);
+  expect(await readTasks()).toBe(before);
+  const delivered = await waitFor(s => s.deliveries.some(row => row.association?.workItemId === result.work.id && row.status === 'sent'));
+  const delivery = delivered.deliveries.find(row => row.association?.workItemId === result.work.id);
+  const input = delivered.inbox.find(row => row.payload.nativeId === result.input.message_id);
+  expect(delivery.association).toMatchObject({ inboxEventId: input.event_id, workItemId: result.work.id });
+  expect(delivery.binding_generation).toBe(delivered.binding.generation);
+});
+
 it('WX-08/09 日程和待办沿原平台回执办理；明确编号续办关联本次微信输入且不重复创建', async () => {
   const summary = '隔离微信待办-' + randomUUID();
   const task = await chat('tasks', { action: 'task_create', summary }, `请记录待办：${summary}`);
@@ -158,6 +179,22 @@ it('WX-03/08 跨入口热续办业务 Worker 保持工具范围及原结果目�
   expect(events.records.some(row => row.event.type === 'team/task')).toBe(false);
 }, 120000);
 
+it('WX-05 已消费但失败的输入经真实宿主状态核验关闭，不重提或补发', async () => {
+  await writeFile(scriptPath, JSON.stringify({ steps: Array.from({ length: 8 }, () => ({ httpError: { status: 400, type: 'invalid_request_error', message: 'isolated failed-input verification' } })) }));
+  const input = wx.input('隔离验证：此输入只用于核对失败回合，不执行业务。');
+  const failed = await waitFor(s => s.inbox.some(row => row.payload.nativeId === input.message_id && row.status === 'admitted' && row.error));
+  const row = failed.inbox.find(row => row.payload.nativeId === input.message_id), sent = wx.sent.length;
+  await apply('disable');
+  try {
+    await action('input-close', { eventId: row.event_id, generation: failed.binding.generation, requestId: randomUUID(), confirm: true,
+      evidence: '隔离模型明确失败；已核对本次未执行业务，只关闭原输入。' });
+    const closed = await state();
+    expect(closed.inbox.find(item => item.event_id === row.event_id)).toMatchObject({ status: 'rejected', error: '主人已核对关闭原输入；未证明原业务成功，未重新执行。' });
+    expect(closed.deliveries.some(delivery => delivery.association?.inboxEventId === row.event_id)).toBe(false);
+    expect(wx.sent).toHaveLength(sent);
+  } finally { await apply('enable'); }
+}, 120000);
+
 it('WX-06/09/10 无原生号接纳、unknown 核对、同身份续期和重启不重发', async () => {
   await waitFor(s => s.deliveries.every(row => row.status === 'sent'));
   wx.state.sendMode = 'no-id'; wx.input('/24pa');
@@ -194,12 +231,12 @@ it('WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔�
     if (value?.type === 'text') return decode(value.text); return value;
   };
   const maintenance = async input => {
-    const start = llm.log.length, previous = llm.log.at(-1)?.toolResults.at(-1);
+    const start = llm.log.length, seenResults = new Set(llm.log.flatMap(row => row.toolResults));
     await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_maintenance', input }, leadReply: '维护结果已返回。' }));
     await host.remote('session/prompt', { request: { requestId: randomUUID(), sessionId: snapshot.workspace.localSessionId, mode: 'queue', content: [{ type: 'text', text: '隔离测试：本人明确执行 ' + JSON.stringify(input) }] } });
     for (let n = 0; n < 800; n++) {
       const result = llm.log.slice(start).at(-1)?.toolResults.at(-1);
-      if (result && result !== previous) return decode(result); await delay(50);
+      if (result && !seenResults.has(result)) return decode(result); await delay(50);
     }
     throw new Error('联合备份工具回执超时');
   };

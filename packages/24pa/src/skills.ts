@@ -94,6 +94,7 @@ export const WORKER_PERSONA_SKILLS: readonly { name: string; description: string
       '- 记录真实待办并按主题／项目跟踪；按明确 sourceId、company/project 映射、默认来源选一个目标，任务查询覆盖全部已登记来源，不能只查助理创建对象。',
       '- 未指定负责人时默认主人负责；显式 assigneeIds 分派他人须 instruction。未指定截止保持未设置，相对日期按工作区时区解释；截止时间、计划投入时间与估时分开记录。',
       '- task_list 的明确 role（responsible/following/assigned/creator/all）替代默认角色，保留其他筛选；未知角色及查询缺口如实汇报。',
+      '- task_list 的 status 为 all/open/completed/canceled；查询未完成待办用 open。参数被明确拒绝且 businessExecuted=false 时，可按回执纠正后继续原查询；不能当成查询成功。',
       '## 完成标准',
       '- 以所在渠道的平台回执为准；网络结果未知时先核对，不盲目重试。',
       '- 完成任务必须有本人明确动作或平台实际状态，不从对话结束推断。',
