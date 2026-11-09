@@ -1,0 +1,130 @@
+{
+  "recordedAt": "2026-11-09T09:13:50.190Z",
+  "testedCommit": "4082d8e685ab349e3fef59e6bcd2d86d577ac8bb",
+  "baseline": "7f600522ae09cbec40b41524b71f1d770326b196",
+  "branch": "codex/weixin-f55",
+  "issue": 281,
+  "stage": 3,
+  "scope": "Partial F55 implementation. Not merge-ready; not released or deployed.",
+  "environment": {
+    "node": "v26.4.0",
+    "host": "0.2.2-rc.1",
+    "hostBin": "/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js",
+    "extraPlugin": "@deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1",
+    "cwd": "packages/24pa"
+  },
+  "completeRuns": [
+    {
+      "kind": "real Loader, Session, persistence; external platform/model and host clock replaced",
+      "storage": "sqlite",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs",
+        "tests/e2e/manticore-plan-delivery.e2e.mjs"
+      ],
+      "passed": 30,
+      "failed": 0,
+      "exitCode": 0,
+      "log": "stage3-sqlite.log"
+    },
+    {
+      "kind": "real Loader, Session, persistence; external platform/model and host clock replaced",
+      "storage": "postgres",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs",
+        "tests/e2e/manticore-plan-delivery.e2e.mjs"
+      ],
+      "passed": 30,
+      "failed": 0,
+      "exitCode": 0,
+      "log": "stage3-postgres.log"
+    },
+    {
+      "kind": "supplemental unit and DOM",
+      "files": [
+        "tests/unit/task-plan.test.mjs",
+        "tests/unit/task-plan-service.test.mjs",
+        "tests/unit/plan-results.test.mjs",
+        "tests/unit/plan-delivery-guards.test.mjs",
+        "tests/unit/run-history.test.mjs",
+        "tests/unit/weixin-ledger.test.mjs",
+        "tests/unit/weixin-panel.test.mjs",
+        "tests/unit/manticore-panel.test.mjs",
+        "tests/unit/weixin-send-guards.test.mjs"
+      ],
+      "passed": 217,
+      "failed": 0,
+      "exitCode": 0,
+      "log": "stage3-unit.log"
+    }
+  ],
+  "commands": {
+    "integration": "DSH_BIN=/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js PA24_E2E_STORAGE=sqlite|postgres PA24_E2E_EXTRA_PLUGINS=@deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1 node node_modules/vitest/vitest.mjs run tests/e2e/weixin-plan-delivery.e2e.mjs tests/e2e/weixin.e2e.mjs tests/e2e/manticore-plan-delivery.e2e.mjs",
+    "unit": "node node_modules/vitest/vitest.mjs run tests/unit/task-plan.test.mjs tests/unit/task-plan-service.test.mjs tests/unit/plan-results.test.mjs tests/unit/plan-delivery-guards.test.mjs tests/unit/run-history.test.mjs tests/unit/weixin-ledger.test.mjs tests/unit/weixin-panel.test.mjs tests/unit/manticore-panel.test.mjs tests/unit/weixin-send-guards.test.mjs",
+    "checks": [
+      "npm run build",
+      "npm run preset:check",
+      "node --check client.js",
+      "git diff --check",
+      "node packages/24pa/scripts/secrets/scan.mjs --paths .",
+      "node packages/24pa/scripts/secrets/scan.mjs --staged"
+    ]
+  },
+  "corrections": [
+    "Final pre-dispatch callback was ignored; preparation now reruns the plan guard.",
+    "Credential file read errors were incorrectly eligible for unknown-send classification; all preparation failures remain known unsent.",
+    "Unreadable quiet-hour preferences failed open; plan notifications now remain pending.",
+    "Slow identity checks could use an earlier quiet-hour decision; preferences are now the final asynchronous plan check.",
+    "WeChat review accepted array operation names and could revive unknown sends; operation names are strictly checked.",
+    "An explicit -14 send response retried three times; it now records one limited attempt and pauses the consumer pending login.",
+    "Plan UI lacked explicit text choice and fixed WeChat identity fields; conditional controls and preview now exist. Real availability remains unverified."
+  ],
+  "realPlatform": {
+    "capturedAt": "2026-11-09T09:11:19.895Z",
+    "source": "read-only server probe sampler",
+    "phase": "expired",
+    "enabled": false,
+    "candidatePresent": false,
+    "seedAt": null,
+    "attempts": 0,
+    "decision": "unverified",
+    "formal8010Changed": false
+  },
+  "remaining": [
+    "B real-account evidence and applicable sending conditions",
+    "Server and UI admission tied to verified B conditions; static UI controls do not fulfill this",
+    "Fixed plan association and attention-notification boundary review",
+    "Version upgrade and corrupted-association rejection",
+    "Business permission revocation and WeCom regression",
+    "Full desktop T20 with real data",
+    "Owner-visible real scheduled result",
+    "Main functional PR and final Standards/Spec review"
+  ],
+  "logs": [
+    "stage3-context.log",
+    "stage3-final-guard-green.log",
+    "stage3-final-guard-red.log",
+    "stage3-invalid-token-green.log",
+    "stage3-invalid-token-red.log",
+    "stage3-platform-errors.log",
+    "stage3-postgres.log",
+    "stage3-preparation-green.log",
+    "stage3-preparation-red.log",
+    "stage3-preview-ui-green.log",
+    "stage3-preview-ui-red.log",
+    "stage3-quiet-error-green.log",
+    "stage3-quiet-error-red.log",
+    "stage3-quiet-order-red.log",
+    "stage3-quiet.log",
+    "stage3-review-input-green.log",
+    "stage3-review-input-red.log",
+    "stage3-send-guards-green.log",
+    "stage3-sqlite.log",
+    "stage3-ui.log",
+    "stage3-unit.log",
+    "stage3-voice-ui-green.log",
+    "stage3-voice-ui-red.log"
+  ],
+  "evidenceBoundary": "No real WeChat account contacted by tests. No evidence of unlimited notification windows. Unit/DOM tests do not replace real Loader or desktop acceptance."
+}

@@ -1,0 +1,39 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-send-guards.test.mjs (1 test | 1 failed) 34ms
+   × 准备完成后的最终核验发现结果已过期，不向平台发送 34ms
+     → promise resolved "{ acceptance: { …(4) } }" instead of rejecting
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-send-guards.test.mjs > 准备完成后的最终核验发现结果已过期，不向平台发送
+AssertionError: promise resolved "{ acceptance: { …(4) } }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "acceptance": Object {
++     "at": "2026-11-09T08:41:57.633Z",
++     "basis": "explicit_zero",
++     "http": 200,
++     "ret": 0,
++   },
++ }
+
+ ❯ tests/unit/weixin-send-guards.test.mjs:40:5
+     38| it('准备完成后的最终核验发现结果已过期，不向平台发送', async () => {
+     39|   await expect(access.send(row, async () => ({ status: 'expired', erro…
+     40|     .rejects.toMatchObject({ hold: { status: 'expired' } });
+       |     ^
+     41|   expect(sent).toEqual([]);
+     42| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  16:41:57
+   Duration  337ms (transform 91ms, setup 0ms, collect 190ms, tests 34ms, environment 0ms, prepare 32ms)
