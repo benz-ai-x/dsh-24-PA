@@ -7,7 +7,7 @@ export interface DeliveryAdapter {
   supports(kind: OutboxRow['kind']): boolean;
   send(row: OutboxRow): Promise<{ messageId?: string; acceptance?: WeixinAcceptance }>;
 }
-export interface DeliveryHold { status: 'pending' | 'failed' | 'expired'; error: string; retryInMs?: number }
+export interface DeliveryHold { status: 'pending' | 'limited' | 'failed' | 'expired'; error: string; retryInMs?: number }
 /** Preparation completed, but no platform request has been dispatched. */
 export class DeliveryHeld extends Error {
   constructor(readonly hold: DeliveryHold) { super(hold.error); }

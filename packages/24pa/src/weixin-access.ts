@@ -9,6 +9,8 @@ import { createWeixinRequest, splitWeixinText, sameWeixinIdentity, weixinApiBase
 import { WeixinSessions } from './weixin-session.js';
 import { DeliveryHeld, type DeliveryHold } from './outbox-delivery.js';
 import QRCode from 'qrcode';
+import type { TaskPlanDestination } from './task-plan.js';
+import { taskPlanFingerprint } from './task-plan-access.js';
 
 interface AccessContext { workspaceId: string; hostWorkspaceId: string; workspacePath: string; binding: string; repo: WeixinRepo; outbox: OutboxRepo }
 interface Candidate { id: string; accountId: string; ownerId: string; base: string; token: string; workspaceBinding: string }
@@ -48,6 +50,16 @@ export class WeixinAccess {
     const row = await ctx.repo.get(known.generation); this.register([row]);
     if (!this.current(ctx) || row.state !== 'active' || !row.enabled) throw new Error('微信绑定已停止或退休；不能从旧入口办理业务。');
     return row;
+  }
+  /** Captures only the fixed identity, never credentials or a reply token.
+   * Platform notification conditions still require separate real-account acceptance. */
+  async notificationTarget(): Promise<TaskPlanDestination> {
+    const ctx = this.context(), row = await ctx.repo.active(ctx.workspaceId);
+    if (!row || !row.enabled || !row.session_ready || this.quiescing || !this.current(ctx) || this.phase !== 'polling') throw new Error('微信未连接到可用的本人绑定，请先在电脑端核对接入。');
+    const identity = weixinIdentity(row), credentials = await new WeixinCredentialVault(ctx.workspacePath).get(identity);
+    if (!credentials?.context) throw new Error('微信缺少本人会话的回复上下文，请先发来文字再预览通知目标。');
+    return { channel: 'weixin', target: row.owner_id, ...identity, identityKey: taskPlanFingerprint(identity),
+      connectionHash: taskPlanFingerprint([ctx.workspaceId, credentials.base]) };
   }
   async snapshot() {
     const ctx = this.context(), active = await ctx.repo.active(ctx.workspaceId);

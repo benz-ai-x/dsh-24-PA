@@ -17,7 +17,8 @@ export async function startWeixinServer() {
     }
     if (endpoint.endsWith('/sendmessage')) {
       sent.push(structuredClone(body.msg));
-      return res.end(JSON.stringify(state.sendMode === 'unknown' ? {} : state.sendMode === 'no-id' ? { ret: 0 } : { message_id: String(9876543210987654321n + BigInt(sent.length)) }));
+      const mode = state.sendModes?.shift() ?? state.sendMode;
+      return res.end(JSON.stringify(mode === 'unknown' ? {} : mode === 'no-id' ? { ret: 0 } : { message_id: String(9876543210987654321n + BigInt(sent.length)) }));
     }
     res.statusCode = 404; res.end('{}');
   });

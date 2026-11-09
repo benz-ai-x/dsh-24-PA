@@ -30,7 +30,7 @@ export function planAuthorizationScope(authorization: TaskPlanAuthorization) {
 export class TaskPlanAccess {
   constructor(private readonly deps: {
     sources: SourceRegistry;
-    owner(channel: 'feishu' | 'wecom'): Promise<NonNullable<TaskPlanAuthorization['delivery']>>;
+    owner(channel: 'feishu' | 'wecom' | 'weixin'): Promise<NonNullable<TaskPlanAuthorization['delivery']>>;
     checkAction?(action: string): void;
   }) {}
   async authorize(config: TaskPlanConfiguration, skill: TaskPlanAuthorization['skill'], previous: TaskPlanAuthorization | null): Promise<TaskPlanAuthorization> {
@@ -43,7 +43,9 @@ export class TaskPlanAccess {
         || skill.resources.some(resource => !old.resources.includes(resource))) throw new Error('Skill 新版本增加了工具、业务动作或资源范围，请显式重新配置并确认。');
       if (config.delivery.channel !== (previous.delivery?.channel ?? 'none')) throw new Error('投递方式已改变，请显式重新配置授权。');
       if (taskPlanFingerprint(config.selectors) !== taskPlanFingerprint(previous.selectors ?? {})) throw new Error('业务目标选择已改变，请显式重新配置授权。');
-      await this.verify(previous);
+      // An existing authorization keeps its delivery target even while that
+      // destination is offline. Only business authority governs execution.
+      await this.verifyBusiness(previous);
       return { ...previous, skill, checkedAt: new Date().toISOString() };
     }
     const targets: TaskPlanAuthorization['targets'] = [];
@@ -58,9 +60,12 @@ export class TaskPlanAccess {
       delivery: config.delivery.channel === 'none' ? null : await this.deps.owner(config.delivery.channel) };
   }
   async verify(authorization: TaskPlanAuthorization): Promise<void> {
+    await this.verifyBusiness(authorization);
+    await this.verifyDelivery(authorization.delivery);
+  }
+  async verifyBusiness(authorization: TaskPlanAuthorization): Promise<void> {
     for (const action of authorization.skill.contract?.actions ?? []) this.checkAction(action);
     for (const row of authorization.targets) await this.deps.sources.verify(row.target, scopeCapability(row.target.domain, row.capability), true);
-    await this.verifyDelivery(authorization.delivery);
   }
   async verifyDelivery(delivery: TaskPlanAuthorization['delivery']): Promise<void> {
     if (delivery) {

@@ -33,7 +33,7 @@ export class PlanResults {
         retryInMs: Math.max(1, Math.min(until.getTime(), delivery.expires_at ? new Date(delivery.expires_at).getTime() : Infinity) - now) };
     }
     try { await this.deps.access.verifyDelivery(notice.destination); }
-    catch (error) { return { status: 'failed', error: `固定投递目标核验失败：${(error as Error).message}` }; }
+    catch (error) { return { status: row.channel === 'weixin' ? 'limited' : 'failed', error: `固定投递目标核验失败：${(error as Error).message}` }; }
     // Identity and preference reads may be slow. The deadline governs entry
     // into the platform send, not when preparation started.
     if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= Date.now()) return { status: 'expired', error: '投递准备完成时已超过有效期，结果仍保留。' };
