@@ -241,7 +241,6 @@ export class WeixinAccess {
       if (!credentials?.context) return { status: 'failed', error: '原微信会话缺少可用回复上下文；结果已保存，请先在微信发来文字再核对补投。' };
       const again = await this.beforeSend(row); if (again) return again;
       const final = await beforeDispatch?.(); if (final) return final;
-      if (this.quiescing || epoch !== this.sendEpoch) return { status: 'pending', error: '微信入口正在停止，保留原投递。', retryInMs: 60_000 };
       if (!row.client_id) return { status: 'failed', error: '微信投递缺少持久客户端请求编号。' };
       request = { base: credentials.base, token: credentials.token,
         body: { msg: { from_user_id: '', to_user_id: row.target, client_id: row.client_id, message_type: 2, message_state: 2,
@@ -249,6 +248,8 @@ export class WeixinAccess {
       return null;
     });
     if (hold) throw new DeliveryHeld(hold);
+    // This must remain after the final await, adjacent to the dispatch.
+    if (this.quiescing || epoch !== this.sendEpoch) throw new DeliveryHeld({ status: 'pending', error: '微信入口正在停止，保留原投递。', retryInMs: 60_000 });
     try { return weixinSendReceipt(await this.request('ilink/bot/sendmessage', request)); }
     catch (error) {
       if (error instanceof WeixinProtocolError && error.needsLogin && epoch === this.sendEpoch && this.consumer?.generation === row.binding_generation) {

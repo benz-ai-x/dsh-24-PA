@@ -10,6 +10,7 @@ import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startWeixinServer } from '../helpers/weixin-server.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { assertLiveWorkspace } from '../../lib/backup.js';
+import { redactString } from '../../scripts/secrets/redact.mjs';
 
 let root, workspace, host, llm, wx, cluster, scriptPath, binding, env;
 beforeAll(async () => {
@@ -276,7 +277,14 @@ it('WX-02/09/11 换绑退休隔离，空微信会话也纳入联合备份与隔�
       const result = llm.log.slice(start).at(-1)?.toolResults.at(-1);
       if (result && !seenResults.has(result)) return decode(result); await delay(50);
     }
-    throw new Error('联合备份工具回执超时');
+    const backups = await Promise.race([
+      host.api('backups', { workspaceBinding: binding }).then(value => value.rows.map(row => ({
+        operation: row.operation, status: row.status, startedAt: row.started_at, finishedAt: row.finished_at, error: row.error,
+      }))),
+      delay(2000).then(() => '备份记录读取超时'),
+    ]).catch(error => ({ error: error.message }));
+    throw new Error('联合备份工具回执超时：' + redactString(JSON.stringify({ action: input.action, backups,
+      model: llm.log.slice(start).map(row => ({ tools: row.tools, toolResults: row.toolResults })), logs: host.logs() })));
   };
   const saved = await maintenance({ action: 'backup_create', requestId: randomUUID(), targetDir: join(root, 'backups') });
   expect(saved.record, JSON.stringify(saved)).toMatchObject({ status: 'succeeded' });
