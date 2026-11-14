@@ -92,6 +92,7 @@ Requirements: Node.js `>=24.9.0`, dsh `0.2.2-rc.3`, and no database service for 
 
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.3
+npm --prefix packages/24pa install
 npm --prefix packages/24pa run build
 npm --prefix packages/24pa pack --pack-destination ../../artifacts
 
