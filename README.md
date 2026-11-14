@@ -9,8 +9,8 @@ kind: "package-bundle"
 
 [![npm version](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub release](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
-[![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](packages/24pa/package.json)
-[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.8)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24.9.0-43853d)](packages/24pa/package.json)
+[![dsh baseline](https://img.shields.io/badge/dsh-0.2.2--rc.3-3451b2)](docs/research/dsh-0.2.2-rc.3-适配核验.md)
 
 **From “remind me” to “prepare my week” — turn conversations into organized, reviewable action without giving up control.**
 
@@ -20,9 +20,9 @@ kind: "package-bundle"
 
 *English desktop interface with sample data.*
 
-`0.2.2-rc.1.8` fixes complete numbered plan confirmations, accurate notification previews for paused plans, and recovery of manually closed or multiple WeChat inputs (#279). The original plan identity, on/off choice, voice, and delivery channel remain intact; closed inputs are not revived. Previous query validation and scoped Host tool permission fixes remain included. Owner QR binding, private text requests, and common plan management are included. Scheduled WeChat notifications are deferred. See the [WeChat setup guide](packages/24pa/weixin-setup.md). Owner QR binding, the help reply, and a read-only todo query result have been confirmed in WeChat; real numbered continuation and plan confirmation remain pending in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279). Protocol and isolated test evidence is recorded in [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282).
+`0.2.2-rc.3.1` upgrades the host baseline to dsh `0.2.2-rc.3`: managed subagent activation is flattened, ownership is rechecked against the live tree and durable parent catalog before execution, and stop/recovery uses the new host lifecycle. The standard preset is regenerated; `wait_agent` replaces the host-disabled `interrupt_agent`. Existing work, session identity, ledgers, and WeChat behavior remain in place; Office tools are not added to 24PA allowlists. The WeChat acceptance status in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) is unchanged.
 
-This fix requires dsh `0.2.2-rc.1` and its native tool execution guard. Older hosts must use their matching plugin version in the table below.
+This candidate requires Node.js `>=24.9.0` and dsh `0.2.2-rc.3`. Older hosts must use their matching plugin version in the table below.
 
 ## Why 24PA?
 
@@ -91,16 +91,21 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 
 ### Requirements
 
-- Node.js `^22.19.0` or `>=24.0.0` (the default SQLite ledger uses built-in `node:sqlite`).
-- dsh `0.2.2-rc.1` for the current release line.
+- Node.js `>=24.9.0` (the default SQLite ledger uses built-in `node:sqlite`).
+- dsh `0.2.2-rc.3` for the current compatibility candidate line.
 - No Feishu credentials are needed for the initial demo. PostgreSQL is optional.
 
-### Install the current release
+### Install the rc.3 candidate (local, unreleased)
+
+`0.2.2-rc.3.1` is not published to the npm registry. From the repository root, install the local candidate tarball instead of requesting this version from a registry:
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.2-rc.1
+npm install -g @deepseek-ai/dsh@0.2.2-rc.3
+npm --prefix packages/24pa install
+npm --prefix packages/24pa run build
+npm --prefix packages/24pa pack --pack-destination ../../artifacts
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.8 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
 ```
 
 Restart the same Profile, open the 24PA workspace, and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`; the official npm registry is recommended because some mirrors lag behind.
@@ -114,7 +119,8 @@ Restart the same Profile, open the 24PA workspace, and choose the「24私助」p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.2-rc.1` | `0.2.2-rc.1.8` (current) |
+| `0.2.2-rc.3` | `0.2.2-rc.3.1` (candidate, unreleased) |
+| `0.2.2-rc.1` | `0.2.2-rc.1.8` (line frozen here) |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8` (line frozen here) |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
@@ -171,7 +177,7 @@ They are written to the native calendar with an alert, so the model is not the r
 
 ---
 
-Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.2-rc.1.8`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.8)
+Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current compatibility candidate: [`v0.2.2-rc.3.1`](docs/research/dsh-0.2.2-rc.3-适配核验.md)
 
 ## Everyday work methods
 

@@ -201,8 +201,8 @@ export class SqliteDb implements PaDb {
       ({ DatabaseSync } = createRequire(import.meta.url)('node:sqlite'));
     } catch {
       throw new Error(
-        'SQLite 模式需要 Node 内建 node:sqlite（本包支持的 Node ≥ 22.19 / ≥ 24 均已内建、无需 flag；' +
-          '更旧运行时可用 --experimental-sqlite 兜底）；当前运行时不支持。可改用 storage: "postgres"，或升级宿主 Node。',
+        'SQLite 模式需要 Node >= 24.9.0 内建的 node:sqlite；当前运行时不支持。' +
+          '请升级宿主 Node，或改用 storage: "postgres"。',
       );
     }
     this.db = new DatabaseSync(filePath);

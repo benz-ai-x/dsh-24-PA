@@ -42,7 +42,7 @@ export class WeixinSessions {
   async ensure(binding: WeixinBindingRow, workspace: { id: string; path: string }, create: boolean): Promise<DshAgent> {
     if (!this.registered(binding) || binding.state === 'retired') throw new Error('微信远程身份尚未登记或已退休。');
     const agents = this.host.get('agents') as ExactAgentFactory | null;
-    if (!agents?.create || !agents.resume) throw new Error('微信接入需要 dsh 0.2.2-rc.1 的公开会话工厂。');
+    if (!agents?.create || !agents.resume) throw new Error('微信接入需要 dsh 的公开会话工厂。');
     const live = agents.get(binding.session_id);
     if (live) {
       if (create) throw new Error('新的微信候选会话标识已被占用，未覆盖历史。');

@@ -136,9 +136,9 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
       'read', 'write', 'edit', 'read_image', 'glob', 'grep',
       'job_list', 'job_output', 'job_kill',
       'skill', 'create_goal', 'get_goal', 'update_goal',
-      'exit_plan_mode', 'ask_user_question', 'todo_write',
+      'ask_user_question', 'todo_write',
       'web_fetch', 'web_search', 'present',
-      'subagent', 'subagent_fork', 'interrupt_agent', 'send_message', 'list_agents',
+      'subagent', 'subagent_fork', 'wait_agent', 'send_message', 'list_agents',
       'workflow', 'ralph',
       // full pa24 set incl. local-only maintenance/entry tools
       'pa24_delegate', 'pa24_jobs', 'pa24_notes', 'pa24_memory', 'pa24_maintenance',
@@ -160,6 +160,9 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
     // dormant instead of erroring.
     expect(request.tools).not.toContain('subagent_codex');
     expect(request.tools).not.toContain('subagent_claude_code');
+    expect(request.tools).not.toContain('interrupt_agent');
+    expect(request.tools).not.toContain('exit_plan_mode');
+    for (const officeTool of ['office_render', 'office_convert', 'office_recalculate']) expect(request.tools).not.toContain(officeTool);
     // Worker-only surface never leaks into the local lead.
     expect(request.tools).not.toContain('pa24_work');
   });

@@ -27,7 +27,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 周期与等待公开
       }, catalog: async () => structuredClone(entries), history: async () => ({ entries: [] }),
       delete: async ({ id }) => { entries = entries.filter(row => row.id !== id); return { deleted: true }; },
     };
-    f.ctx.get = name => name === 'schedule' ? schedule : name === 'attachments' ? { admitPromptContent: async blocks => blocks } : null;
+    const get = f.ctx.get;
+    f.ctx.get = name => name === 'schedule' ? schedule : name === 'attachments' ? { admitPromptContent: async blocks => blocks } : get(name);
     if (backend === 'postgres') { cluster = await startPgCluster(); f.options.env.PA24_R3_TEST_DSN = cluster.dsn; }
     workspacePath = await f.workspace('a', { mode: 'feishu', ownerOpenId: 'owner', tasklistId: 'list', calendarId: 'calendar', folderToken: 'folder', maxWorkers: 8,
       enabledWorkers: ['memo', 'calendar', 'reminders', 'tasks', 'digest'], ...(backend === 'postgres' ? { storage: 'postgres', pgDsnEnv: 'PA24_R3_TEST_DSN' } : {}) });

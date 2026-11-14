@@ -24,7 +24,7 @@ const STANDARD_CODING_TOOLS = [
   'web_fetch', 'web_search',
   'present',
   'subagent', 'subagent_fork',
-  'interrupt_agent', 'send_message', 'list_agents',
+  'wait_agent', 'send_message', 'list_agents',
   'workflow',
   'ralph',
 ];

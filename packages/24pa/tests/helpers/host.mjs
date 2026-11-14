@@ -23,7 +23,7 @@ const runSync = (bin, args, env, label) => {
   return result;
 };
 
-export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
+export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: requestedBin, packageSpec: requestedPackage } = {}) {
   const root = reuseRoot ?? (await mkdtemp(join(tmpdir(), 'pa24-host-')));
   // F25 backend matrix: PA24_E2E_STORAGE=sqlite flips the workspace AGENTS.md
   // to the SQLite ledger before the host boots, so the same suite runs
@@ -41,7 +41,8 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
       await setE2eSqliteWorkspace(extraEnv.PA24_WORKSPACE);
     }
   }
-  const bin = dshBin();
+  const bin = requestedBin ?? dshBin();
+  const packageSpec = requestedPackage ?? process.env.PA24_E2E_PACKAGE ?? pkgDir;
   const env = {
     ...process.env,
     DSH_HOME: join(root, 'home'),
@@ -53,7 +54,7 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot } = {}) {
   if (!profileInitialized) {
     runSync(bin, ['--profile', 'pa24-test', '--from-default-profile', 'web', '--dump-config'], env, 'profile init');
   }
-  runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', pkgDir, '--ignore-scripts', '--store-dir', join(root, 'store')], env, 'plugin add');
+  runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', packageSpec, '--ignore-scripts', '--store-dir', join(root, 'store')], env, 'plugin add');
   // Optional companion plugins for runtime-variant runs: on dsh 0.2.0-rc.2 the
   // web host ships no schedule service, so digest e2e needs the experimental
   // schedule bundle (0.2.1-alpha.1 carries the service in the web patch).

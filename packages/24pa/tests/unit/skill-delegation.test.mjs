@@ -19,7 +19,7 @@ async function runtime() {
   const ctx = { get: () => null, skills: { register: () => () => {}, get: async name => name === 'chosen' ? structuredClone(definition) : undefined, list: async () => [definition] },
     workspaceRegistry: { create: async p => ({ id: p, path: p, title: '24私助' }) },
     sessionController: { create: async () => {}, rename: async () => {}, resolveAgent: async () => ({ agent }) },
-    subagents: { startActivation: async spec => { starts.push(spec); }, interrupt: () => {}, sendMessage: vi.fn() },
+    subagents: { startActivation: async spec => { starts.push(spec); }, interrupt: () => {}, sendMessage: vi.fn(), drainDescendants: async () => {} },
   };
   const rt = new PaRuntime(ctx, { stateDirectory: root, workspacePath: '', env: {}, reminderTickMs: 60000, larkCliBin: 'missing', wecomCliBin: 'missing', cliTimeoutMs: 1000 });
   runtimes.push(rt); await rt.bind(path);
@@ -38,8 +38,8 @@ it('排队并重建 runtime 后仍执行准入时的同一份 skill 定义', asy
   definition.content = 'CHANGED_BODY'; definition.metadata.track = 'template';
   const second = await runtime(); await second.rt.repos.workItems.update('occupied', { status: 'stopped' }); await second.rt.pump();
   expect(starts).toHaveLength(1);
-  expect(JSON.stringify(starts[0].request.prompt)).toContain('ORIGINAL_BODY');
-  expect(JSON.stringify(starts[0].request.prompt)).not.toContain('CHANGED_BODY');
+  expect(JSON.stringify(starts[0].prompt)).toContain('ORIGINAL_BODY');
+  expect(JSON.stringify(starts[0].prompt)).not.toContain('CHANGED_BODY');
   expect((await second.rt.repos.workItems.get(admitted.workId)).skill_definition.track).toBe('agent');
 });
 it('模板在委派前拒绝；撤销授权后的排队事项不启动模型', async () => {

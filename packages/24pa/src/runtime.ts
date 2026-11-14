@@ -3,6 +3,7 @@ import { UNSETTLED_WORK_STATUSES } from './repo/work.js';
 import { WorkspaceExecution } from './workspace-execution.js';
 import { consumedTurn } from './host-turn.js';
 import { ROLE_TOOLS } from './local-tool-access.js';
+import { directChild } from './subagent-access.js';
 import type { BusinessToolPolicy } from './business-tool-scope.js';
 import { TaskPlanAccess, taskPlanFingerprint, planAuthorizationScope } from './task-plan-access.js';
 import { bridgeScheduleService } from './schedule-bridge.js';
@@ -747,6 +748,7 @@ export class PaRuntime {
       maxWorkers: () => this.config?.maxWorkers ?? 2,
       context: () => this.workspace && this.workspaceBinding && this.repos
         ? { cwd: this.workspace.statePath, binding: this.workspaceBinding, repos: this.repos } : null,
+      closing: () => this.closed,
       sourceSession: () => this.openLocalSession(),
       tools: async mode => {
         if (mode === 'business') return ['pa24_work', 'pa24_memory', 'pa24_run'];
@@ -1256,8 +1258,7 @@ export class PaRuntime {
       const resolved = await this.ctx.sessionController.resolveAgent(id).catch(() => null);
       if (resolved && !('error' in resolved)) agents.push(resolved.agent);
     }
-    const drain = this.ctx.subagents?.drainDescendants ?? this.ctx.subagents?.drainContinuableDescendants;
-    if (agents.length && drain) await this.executions.detached(() => drain.call(this.ctx.subagents, agents));
+    if (agents.length) await this.executions.detached(() => this.ctx.subagents.drainDescendants(agents));
     this.workerParents.clear();
   }
 
@@ -1800,7 +1801,7 @@ export class PaRuntime {
     const pending = this.preparingWorkspace;
     if (agent && pending && agent.session.header.cwd === pending.workspace.statePath) {
       if (agent.id === pending.accessSessionId) return 'feishu-access';
-      if (agent.id === pending.localSessionId && !agent.parentAgent && !agent.session.header.parentSession && agent.session.header.origin !== 'subagent') return 'local-robot';
+      if (agent.id === pending.localSessionId && !agent.session.header.parentSession && agent.session.header.origin !== 'subagent') return 'local-robot';
     }
     return this.roleFor(agent);
   }
@@ -1815,7 +1816,7 @@ export class PaRuntime {
       allow: [...ROLE_TOOLS.worker!, ...(this.roles.get(item.role)?.tools ?? [])], active: this.roleFor(agent) === 'worker',
     };
     const parent = agent.session.header.parentSession;
-    const parentId = agent.parentAgent?.id ?? (typeof parent === 'string' ? parent : parent?.id);
+    const parentId = typeof parent === 'string' ? parent : parent?.id;
     // An unregistered child has no business authority, even if a Host plugin
     // tries to treat it as another Team Lead.
     return parentId && this.weixin.remote(parentId) ? { allow: [], active: false } : null;
@@ -1832,14 +1833,14 @@ export class PaRuntime {
     const isTopLevel = !header.parentSession && header.origin !== 'subagent';
     if (!isTopLevel) return null;
     const preset = this.ctx.agentPresets?.composedPreset(agent.ctx as DshContext) ?? header.agentPreset;
-    if (preset === 'pa24' && !agent.parentAgent) return 'local-robot';
+    if (preset === 'pa24') return 'local-robot';
     return null;
   }
   /** A mounted tool is not a lasting grant. Remote binding is checked on every call. */
   async assertCall(agent: DshAgent | undefined): Promise<void> {
     if (!agent || !this.weixin.remote(agent.id)) return;
     await this.weixin.assertActive(agent.id);
-    if (agent.session.header.cwd !== this.workspace?.statePath || agent.parentAgent || agent.session.header.parentSession ||
+    if (agent.session.header.cwd !== this.workspace?.statePath || agent.session.header.parentSession ||
       (this.ctx.agentPresets?.composedPreset(agent.ctx as DshContext) ?? agent.session.header.agentPreset) !== 'pa24') throw new Error('微信会话身份或预设已改变。');
   }
 
@@ -1925,19 +1926,19 @@ export class PaRuntime {
       return typeof messageId === 'string' ? messageId : undefined;
     },
     quiesce: async item => {
-      const parent = await this.ctx.sessionController.resolveAgent(item.parent_session_id);
-      if ('error' in parent) throw parent.error;
-      if (this.ctx.subagents.drainChildren) {
-        await this.executions.detached(() => this.ctx.subagents.drainChildren!(parent.agent, [item.child_session_id ?? item.id]));
-      } else {
-        // Older hosts expose live agents but prohibit resolving a managed child
-        // through the top-level SessionController. An absent child cold-resumes.
-        const child = (this.ctx.get('agents') as { get?(id: string): DshAgent | undefined } | null)?.get?.(item.child_session_id ?? item.id);
-        if (child?.whenIdle) await child.whenIdle();
-        else if (child) throw new Error('宿主无法确认旧 Worker 已停止，请等待其结束后继续。');
-      }
+      const child = (this.ctx.get('agents') as { get?(id: string): DshAgent | undefined } | null)?.get?.(item.child_session_id ?? item.id);
+      if (child?.whenIdle) await child.whenIdle();
+      else if (child) throw new Error('宿主无法确认旧 Worker 已停止，请等待其结束后继续。');
     },
-    interrupt: item => this.ctx.subagents.interrupt(item.child_session_id ?? item.id, { kind: 'user', parentSessionId: item.parent_session_id }),
+    interrupt: async item => {
+      const childId = item.child_session_id ?? item.id;
+      if (await directChild(this.ctx, item.parent_session_id, childId)) {
+        this.ctx.subagents.interrupt(childId, { kind: 'user' });
+        return;
+      }
+      const live = (this.ctx.get('agents') as { get?(id: string): DshAgent | undefined } | null)?.get?.(childId);
+      if (live || item.active_worker_run_id) throw new Error('原生父子会话关系不符，未执行该子会话操作。');
+    },
     track: item => this.trackWorkItem(item),
     completion: { workspacePath: () => this.workspace!.statePath,
       read: item => new WorkCompletionHistory(this.ctx, async work => (await this.repos!.modelBudget.releases(work.active_worker_run_id ?? ''))
@@ -2653,7 +2654,7 @@ export class PaRuntime {
     // Handwriting children receive the saved originals inline; the dsh
     // attachment service persists them and the vision route carries them
     // to the model (P29: the request really contains the image).
-    // startContinuable itself does NOT admit image parts (only the
+    // startActivation itself does NOT admit image parts (only the
     // subagent prompt remote does), so admission happens here: inline
     // base64 blocks would otherwise persist unadmitted and break the
     // model request.
@@ -2701,34 +2702,20 @@ export class PaRuntime {
     prompt.push(workExecutionContent(item));
     if (item.active_worker_run_id) await this.repos.workerRuns.freeze(item.active_worker_run_id, { persona, prompt, modelRoute: modelRoute ?? null,
       tools: ['pa24_work', 'pa24_memory', 'pa24_run', ...(roleDef.tools ?? [])], completionCriteria: item.completion_criteria ?? null });
-    // dsh 0.2.1-alpha.2 renames startContinuable to startActivation and
-    // requires an explicit delivery; 'parent' keeps the continuable
-    // semantics (the child's completion notifies this Lead). Older hosts
-    // (0.2.0-rc.2 / 0.2.1-alpha.1) only expose the legacy name.
-    const startSpec: Omit<ContinuableStartSpec, 'delivery'> = {
+    const startSpec: ContinuableStartSpec = {
       provider: 'spawn',
       label: `${roleDef.name} · ${item.title}`,
       childId: item.child_session_id ?? item.id,
       signal: this.lifetime.signal,
-      request: {
-        parent: parent.agent,
-        prompt,
-        persona,
-        // Host toolFilter only restricts inherited registrations. WeChat
-        // Workers also receive a scoped catalog and execution guard; native
-        // completion still reports through the continuation channel.
-        toolFilter: { allow: ['pa24_work', 'pa24_memory', 'pa24_run', ...(roleDef.tools ?? [])] },
-        maxDepth: 1,
-        ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } } : {}),
-      },
+      delivery,
+      parent: parent.agent,
+      prompt,
+      maxDepth: 1,
+      ...(modelRoute ? { agentOptions: { provider: modelRoute.provider, model: modelRoute.model } } : {}),
     };
-    const subagents = this.ctx.subagents;
     this.workerParents.add(item.parent_session_id);
-    let activation: any;
-    if (typeof subagents.startActivation === 'function') activation = await this.executions.detached(() => subagents.startActivation!({ ...startSpec, delivery })).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
-    else if (delivery === 'caller') throw new Error('计划运行需要宿主提供 startActivation 及独立结果通道。');
-    else if (typeof subagents.startContinuable === 'function') activation = await this.executions.detached(() => subagents.startContinuable!(startSpec)).catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
-    else throw new Error('宿主未提供 subagents 启动接口（startActivation/startContinuable 均缺失），请核对 dsh 版本兼容声明。');
+    const activation: any = await this.executions.detached(() => this.ctx.subagents.startActivation(startSpec))
+      .catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
     void activation?.result?.catch(() => { });
   }
 

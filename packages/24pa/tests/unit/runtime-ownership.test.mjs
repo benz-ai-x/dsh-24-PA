@@ -206,4 +206,16 @@ describe('公开 runtime 执行归属与恢复', () => {
     await f.rt.maintenanceArchiveExecute({ confirmStop: true }); expect((await f.rt.repos.inbox.get('supplement')).status).toBe('rejected');
     await f.rt.bind(await f.workspace('b'));
   });
+  it('Worker 使用扁平 activation；错误父会话不能中断原 Worker', async () => {
+    const f = await setup(); const local = f.agents.get(await f.rt.openLocalSession());
+    const start = vi.spyOn(f.ctx.subagents, 'startActivation');
+    const task = await f.rt.delegate({ worker: 'memo', title: '保存', instruction: '记下材料' }, local);
+    expect(start.mock.calls[0][0]).toMatchObject({ parent: local, childId: task.workId, delivery: 'parent' });
+    expect(start.mock.calls[0][0].request).toBeUndefined();
+    expect(start.mock.calls[0][0].prompt.length).toBeGreaterThan(0);
+    await f.rt.repos.workItems.update(task.workId, { parent_session_id: 'wrong-parent' });
+    const interrupt = vi.spyOn(f.ctx.subagents, 'interrupt');
+    await expect(f.rt.control({ action: 'stop', workId: task.workId }, local)).rejects.toThrow(/父子/);
+    expect(interrupt).not.toHaveBeenCalled();
+  });
 });

@@ -1,14 +1,21 @@
-import type { DshSession } from './host.js';
+import type { ContentBlock, DshSession } from './host.js';
+
+export function agentRelayBody(message: any, parentId: string): ContentBlock[] | null {
+  if (message.source?.kind !== 'agent-message' || message.source.senderSessionId !== parentId || message.content.length < 1) return null;
+  const prefix = message.content[0];
+  if (prefix?.type !== 'text' || !/^Agent .+ sent a message: $/.test(prefix.text)) return null;
+  return message.content.slice(1);
+}
 
 /** Explicit cancellation is different from a crash or an authorization gate.
  * Keep queue cancellation by identity, allowing an atomic replacement or an
  * internal recovery move to retain the same original input. */
-export function canceledInputIds(session: DshSession, recoveryInputId: (message: any) => string | null = () => null): Set<string> {
-  const canceled = new Set<string>(), queues = new Map<string, any[]>();
-  const recovering = new Set<string>();
+export function canceledInputIds(session: DshSession, recoveryInputId: (message: any) => string | null = () => null, preserveInputsOnParentAbort: boolean | ((turn: number) => boolean) = false): Set<string> {
+  const canceled = new Set<string>(), explicitlyCanceled = new Set<string>();
+  const recovering = new Set<string>(), queues = new Map<string, any[]>();
   let turn: number | undefined;
   for (const event of session.ownEvents()) {
-    if (event.type === 'turn/start') { turn = event.data.turn; recovering.clear(); }
+    if (event.type === 'turn/start') { turn = event.data.turn; explicitlyCanceled.clear(); recovering.clear(); }
     if (event.type === 'agent/inbox/spliced') {
       const { target, start, removedCount = 0, inserted = [], outcome } = event.data;
       const queue = queues.get(target) ?? [], removed = queue.splice(start, removedCount, ...inserted);
@@ -16,15 +23,22 @@ export function canceledInputIds(session: DshSession, recoveryInputId: (message:
       if (outcome !== 'canceled' && turn !== undefined) for (const message of removed) {
         const id = recoveryInputId(message); if (id) recovering.add(id);
       }
-      if (outcome === 'canceled' && !inserted.length) for (const message of removed) if (!recovering.has(message.id)) canceled.add(recoveryInputId(message) ?? message.id);
+      if (outcome === 'canceled' && !inserted.length) for (const message of removed) if (!recovering.has(message.id)) {
+        const id = recoveryInputId(message) ?? message.id;
+        canceled.add(id); explicitlyCanceled.add(id);
+      }
     }
     if (event.type === 'turn/end') {
       const reason = event.data.reason;
-      if (reason?.kind === 'aborted' && ['user', 'parent', 'legacy'].includes(reason.reason?.kind)) {
-        for (const id of consumedTurn(session, event.data.turn).messageIds) canceled.add(id);
-        for (const id of recovering) canceled.add(id);
+      const consumed = new Set([...consumedTurn(session, event.data.turn).messageIds, ...recovering]);
+      const preserved = reason?.reason?.kind === 'disposed' || (reason?.reason?.kind === 'parent'
+        && (typeof preserveInputsOnParentAbort === 'function' ? preserveInputsOnParentAbort(event.data.turn) : preserveInputsOnParentAbort));
+      if (reason?.kind === 'aborted' && preserved) {
+        for (const id of consumed) if (!explicitlyCanceled.has(id)) canceled.delete(id);
+      } else if (reason?.kind === 'aborted' && ['user', 'parent', 'legacy'].includes(reason.reason?.kind)) {
+        for (const id of consumed) canceled.add(id);
       }
-      turn = undefined; recovering.clear();
+      turn = undefined; recovering.clear(); explicitlyCanceled.clear();
     }
   }
   return canceled;

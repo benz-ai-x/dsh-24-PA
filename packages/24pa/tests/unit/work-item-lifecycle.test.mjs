@@ -22,7 +22,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`WorkItem lifecycle / ${b
     lifecycle = new WorkItemLifecycle({ repo: () => repos.workItems, maxWorkers: () => 1, available: () => true,
       start: async item => { starts.push(item.id); if (failStart.has(item.id)) throw new Error('start unavailable'); },
       resume: async (item, input) => { resumes.push({ id: item.id, parent: item.parent_session_id, child: item.child_session_id, input }); if (failResume) throw new Error('send unavailable'); },
-      interrupt: item => interrupts.push(item.id), track: () => {},
+      interrupt: async item => interrupts.push(item.id), track: () => {},
     });
   });
   const item = (id, status = 'queued') => repos.workItems.insert({ id, title: id, role: 'memo', instruction: 'save', origin: 'local',

@@ -34,7 +34,7 @@ const detail = runId => host.api('skills.run', { runId, workspaceBinding: bindin
 const until = async (read, check) => {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) { const value = await read(); if (check(value)) return value; await new Promise(resolve => setTimeout(resolve, 75)); }
-  throw new Error('运行控制等待超时：' + JSON.stringify(await read()));
+  throw new Error('运行控制等待超时：' + JSON.stringify(await read()) + '\n宿主日志：' + JSON.stringify(host.logs()).slice(-12000));
 };
 const start = async ({ mode = 'local', tools = ['pa24_run'], executionLimitMs = 900000, steps }) => {
   const markdown = '---\n' + JSON.stringify({ name: mode === 'business' ? 'wait-business' : 'wait-local-' + randomUUID(), description: '等待与执行时限验证', metadata: { track: 'agent', tools, pa24: { schemaVersion: 1, mode, parameters: {}, actions: [], expectedResult: '沿原记录完成', completionCriteria: '不重复已完成步骤' } } }) + '\n---\n\n按工具和原会话回执执行。';
@@ -157,18 +157,17 @@ it.each(['local', 'business'])('%s 工具已返回且原生 step 未静止时优
     const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.every(call => call.status !== 'running'));
     expect(requestsFor(run)).toHaveLength(1);
     const hostRoot = host.root, stopping = host.stop({ keepRoot: true });
-    await until(async () => JSON.parse(await readFile(barrierPath, 'utf8')), value => value.disposeStarted);
     await writeBarrier({ ...held, release: true });
     await stopping;
     await writeBarrier({});
     host = await bootHost({ env, root: hostRoot });
     binding = (await host.waitUntil(value => !!value.workspaceBinding && !!value.workspace?.localSessionId)).workspaceBinding;
     const restored = await detail(run.id);
-    expect(restored.run.status, JSON.stringify(restored)).toBe('waiting');
+    expect(restored.run.status, JSON.stringify({ detail: restored, logs: host.logs() })).toBe('waiting');
     expect(restored.execution.executionMs).toBeGreaterThanOrEqual(waiting.execution.executionMs);
     await host.api('action', resumeCommand(run));
     const done = await until(() => detail(run.id), value => ['completed', 'needs_reconciliation', 'failed'].includes(value.run.status));
-    expect(done.run.status, JSON.stringify(done)).toBe('completed');
+    expect(done.run.status, JSON.stringify({ detail: done, logs: host.logs() })).toBe('completed');
     expect(done.run.result).toContain('GRACEFUL_RESTART_RESULT');
     expect(done.run.session_id).toBe(run.session_id);
     expect(done.execution.executionMs).toBeGreaterThanOrEqual(waiting.execution.executionMs);
