@@ -42,6 +42,13 @@ describe('rc.3 原生子会话归属', () => {
     await expect(assertSubagentAccess(f.host, f.agent, 'parent')).rejects.toThrow('inactive activation');
   });
 
+  it('活动树必须匹配本次运行根，不能借用其他活跃树', async () => {
+    const f = fixture();
+    expect(() => assertActiveSubagentTree(f.host, f.agent, 'other-root')).toThrow('本次运行');
+    await expect(assertSubagentAccess(f.host, f.agent, 'parent', 'other-root')).rejects.toThrow('本次运行');
+    await expect(assertSubagentAccess(f.host, f.agent, 'parent', 'root')).resolves.toBeUndefined();
+  });
+
   it('活动树根必须仍是注册表中的同一实例', () => {
     const f = fixture();
     expect(() => assertActiveSubagentTree(f.host, f.agent)).not.toThrow();

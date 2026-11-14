@@ -32,8 +32,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
     const service = new WorkerRuns({ context: () => ({ repos, path: '/workspace', binding: 'binding' }), allowed: () => true, expire: async () => {} });
     services.push(service); await service.attach(agent);
     return { agent, request: next => listeners.get('agent/request')({ agent }, next),
-      execute: (next, signal = new AbortController().signal, callId = randomUUID()) => listeners.get('tools/execute')({ agent, callId, name: 'save_file', arguments: {}, signal }, next),
-      result: (call, result) => listeners.get('tools/result')({ agent, ...call }, result) };
+      execute: (next, signal = new AbortController().signal, callId = randomUUID(), call) => listeners.get('tools/execute')(call ?? { agent, callId, name: 'save_file', arguments: {}, signal }, next),
+      result: (call, result) => listeners.get('tools/result')(call.agent ? call : { agent, ...call }, result) };
   };
   it('旧交办不伪造档案；首次执行、运行中补充和结束后接续有稳定且不同的身份', async () => {
     const old = await make({ status: 'completed' }); expect((await list(old.id)).total).toBe(0);
@@ -230,14 +230,27 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
   });
   it('最终通知更新原调用；明确未执行的取消不冒充未知', async () => {
     let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
-    const hook = await journal(item), call = { callId: 'late-cancel', name: 'save_file', arguments: {}, signal: new AbortController().signal };
-    await hook.execute(async () => ({ isError: false, value: { saved: true } }), call.signal, call.callId);
+    const hook = await journal(item), call = { agent: hook.agent, callId: 'late-cancel', name: 'save_file', arguments: {}, signal: new AbortController().signal };
+    await hook.execute(async () => ({ isError: false, value: { saved: true } }), call.signal, call.callId, call);
     await hook.result(call, { isError: true, error: { message: 'late cancellation', info: { code: 'ABORTED' } } });
     let detail = await repos.workerRuns.detail(item.active_worker_run_id);
     expect(detail.calls).toHaveLength(1); expect(detail.calls[0].status).toBe('unknown');
     await hook.result({ ...call, callId: 'before-dispatch' }, { isError: true, error: { message: 'not dispatched', info: { code: 'ABORTED_BEFORE_DISPATCH' } } });
     detail = await repos.workerRuns.detail(item.active_worker_run_id);
     expect(detail.calls).toHaveLength(2); expect(detail.calls[1].status).toBe('failed');
+  });
+  it('续办后的迟到成功只修复原运行，不在新运行伪造 unknown', async () => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
+    const hook = await journal(item), first = item.active_worker_run_id;
+    const call = { agent: hook.agent, callId: 'late-original', name: 'save_file', arguments: {}, signal: new AbortController().signal };
+    await hook.execute(async () => ({ isError: false, value: { saved: true } }), call.signal, call.callId, call);
+    await finish(item);
+    await life.resume(item.id, '继续原交办'); item = await repos.workItems.get(item.id);
+    expect(item.active_worker_run_id).not.toBe(first);
+    await hook.result(call, { isError: false, value: { saved: true } });
+    const original = await repos.workerRuns.detail(first), current = await repos.workerRuns.detail(item.active_worker_run_id);
+    expect(original.calls).toHaveLength(1); expect(original.calls[0].status).toBe('succeeded');
+    expect(current.calls).toHaveLength(0); expect(current.run.status).toBe('running');
   });
   it('收到与采用以原生消费证据区分，工具计时不包含等待', async () => {
     let item = await make(); await life.pump(); item = await repos.workItems.get(item.id); const run = await repos.workerRuns.get(item.active_worker_run_id);

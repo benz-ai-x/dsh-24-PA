@@ -45,12 +45,12 @@
 
 以下真实宿主测试均显式使用隔离安装的官方 `@deepseek-ai/dsh@0.2.2-rc.3` CLI（`--version` 已核对），测试 Node 为 `v26.4.0`。模型、飞书、企微和微信均使用隔离桩，没有真实账号操作、生产 8010 升级、commit/push 或 npm/GitHub Release。
 
-- **构建与单元测试**：`npm run build`、`npm run preset:check` 通过。`run-control.test.mjs` 102/102、`worker-run.test.mjs` 34/34（两种数据库）、`subagent-access.test.mjs` 13/13 通过；覆盖实际等待回合、显式取消、错误父级、释放 observation、guard 拒绝、异步结果去重、迟取消和明确未执行分类。
+- **构建与单元测试**：`npm run build`、`npm run preset:check` 通过。`run-control.test.mjs` 102/102、`worker-run.test.mjs` 36/36（两种数据库）、`subagent-access.test.mjs` 14/14 通过；覆盖实际等待回合、显式取消、错误父级、释放 observation、guard 拒绝、异步结果去重、迟取消和明确未执行分类。
 - **SQLite 真实宿主**：`manticore-run-control.e2e.mjs` 19/19、`f06.e2e.mjs` 8/8、`weixin.e2e.mjs` 11/11 通过。覆盖本地／业务崩溃与优雅恢复、权限拒绝、跨入口工具范围、联合备份与退休隔离。另已验证 `f01` 8/8、预算 9/9。
 - **PostgreSQL 真实宿主**：`f01`＋`manticore-run-control`＋`manticore-budget`＋`weixin` 共 47/47 通过。
 - **跨版本**：`host-upgrade.e2e.mjs` 使用 rc.1 官方 CLI 和旧正式插件 `0.2.2-rc.1.8` 先产生等待数据，再由 rc.3＋候选包恢复；原工作编号、运行编号、父会话、投递目标及两条输入均采用一次。最终 tarball 安装后的独立 Worker／Skill 冒烟及对应测试见命令记录：跨版本 1/1，SQLite `f01`＋运行控制 27/27，PostgreSQL 运行控制 19/19；同一 tarball 另通过手写权限 8/8 与微信 11/11。
 - **桌面**：真实 rc.3 Host 中检查24私助侧栏、首页、运行记录、交办详情和真实 Worker 子会话；工具回执及原会话入口可打开。1280×800、1440×900、1920×1080 桌面视口和明暗主题均检查；方向键／Enter 可切换分类与详情，Escape 关闭后焦点回到原运行条目。查阅没有改变运行状态。
-- **候选制品**：`artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz`，159 个文件，压缩约 712.6 kB，解包约 2.7 MB。`package.json` 为 `0.2.2-rc.3.1`，engines.dsh 精确 rc.3，包含生成后的 `cordis.patch.yml` 和最新 `lib`，不包含测试或本机凭据。SHA-256：`3326f0153b0067659845d6457ff7b419a7d311ad89fa0349fc8f5153b899c4f8`。从该 tarball 新建隔离 DSH_HOME/profile，readiness 显示 dsh rc.3＋插件 rc.3.1，普通 Worker 和受管 Skill 均返回指定结果。
+- **候选制品**：`artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz`，159 个文件，压缩约 712.6 kB，解包约 2.7 MB。`package.json` 为 `0.2.2-rc.3.1`，engines.dsh 精确 rc.3，包含生成后的 `cordis.patch.yml` 和最新 `lib`，不包含测试或本机凭据。SHA-256：`9c34f4f6ad5042148ce309aa0f886a84598a7e90e32b9df32d47be3a2ba163e5`。从该 tarball 新建隔离 DSH_HOME/profile，readiness 显示 dsh rc.3＋插件 rc.3.1，普通 Worker 和受管 Skill 均返回指定结果。
 
 主要命令（真实宿主命令均同时设置 `DSH_BIN`；跨版本另设旧 CLI、旧包和最终候选包）：
 
@@ -64,7 +64,7 @@ PA24_E2E_PACKAGE=<final-tarball> PA24_E2E_STORAGE=sqlite npx vitest run tests/e2
 
 ### 未决与明确边界
 
-- 完整 `npm test` 的最终计数另记；首页 `manticore-home.e2e.mjs` 在晚间出现一条时间边界失败：夹具把第二个日程固定为“两小时后”，跨日后预期两条、实际一条。该用例已单独复现，与本次适配改动无关，未修改产品代码或测试来隐藏。
+- 提交 `ddcf61f` 的完整 `npm test`：2007 通过、1 失败、2 跳过。首页 `manticore-home.e2e.mjs` 在晚间出现一条时间边界失败：夹具把第二个日程固定为“两小时后”，跨日后预期两条、实际一条。该用例已单独复现，与本次适配改动无关，未修改产品代码或测试来隐藏。
 - 公开 `startActivation` 不支持 `persona/toolFilter` 透传；旧请求中的这两个字段没有有效宿主作用。权限继续由24私助自己的目录和执行门禁收紧，模型路由继续走公开 `agentOptions`，不臆造新的宿主参数。
 - 不验证真实飞书／企微／微信账号、生产部署或 npm 发布状态；`0.2.2-rc.3.1` 是本地候选，registry 安装命令不作为当前可用入口。
 - 后续新增功能与兼容性变更只针对 SQLite；PostgreSQL 暂停开发。本文 PG 结果仅证明本轮历史验证，既有实现与历史数据兼容保留，不表示继续新增 PG 专项能力。

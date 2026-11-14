@@ -10,7 +10,7 @@ export function agentRelayBody(message: any, parentId: string): ContentBlock[] |
 /** Explicit cancellation is different from a crash or an authorization gate.
  * Keep queue cancellation by identity, allowing an atomic replacement or an
  * internal recovery move to retain the same original input. */
-export function canceledInputIds(session: DshSession, recoveryInputId: (message: any) => string | null = () => null, preserveParent: boolean | ((turn: number) => boolean) = false): Set<string> {
+export function canceledInputIds(session: DshSession, recoveryInputId: (message: any) => string | null = () => null, preserveInputsOnParentAbort: boolean | ((turn: number) => boolean) = false): Set<string> {
   const canceled = new Set<string>(), explicitlyCanceled = new Set<string>();
   const recovering = new Set<string>(), queues = new Map<string, any[]>();
   let turn: number | undefined;
@@ -32,7 +32,7 @@ export function canceledInputIds(session: DshSession, recoveryInputId: (message:
       const reason = event.data.reason;
       const consumed = new Set([...consumedTurn(session, event.data.turn).messageIds, ...recovering]);
       const preserved = reason?.reason?.kind === 'disposed' || (reason?.reason?.kind === 'parent'
-        && (typeof preserveParent === 'function' ? preserveParent(event.data.turn) : preserveParent));
+        && (typeof preserveInputsOnParentAbort === 'function' ? preserveInputsOnParentAbort(event.data.turn) : preserveInputsOnParentAbort));
       if (reason?.kind === 'aborted' && preserved) {
         for (const id of consumed) if (!explicitlyCanceled.has(id)) canceled.delete(id);
       } else if (reason?.kind === 'aborted' && ['user', 'parent', 'legacy'].includes(reason.reason?.kind)) {

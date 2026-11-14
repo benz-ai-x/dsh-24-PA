@@ -25,17 +25,18 @@ export async function assertDirectChild(host: DshContext, parentId: string, chil
   if (!await directChild(host, parentId, childId)) throw new Error('原生父子会话关系不符，未执行该子会话操作。');
 }
 
-export function assertActiveSubagentTree(host: DshContext, agent: DshAgent): void {
+export function assertActiveSubagentTree(host: DshContext, agent: DshAgent, expectedRootId?: string): void {
   if (!host.subagents.rootOf) throw new Error('宿主缺少原生子任务运行树核验接口。');
   const root = host.subagents.rootOf(agent);
   const agents = host.get('agents') as { get?(id: string): DshAgent | undefined } | null | undefined;
   if (agents?.get?.(root.id) !== root) throw new Error('原生子任务运行树已失效。');
+  if (expectedRootId !== undefined && root.id !== expectedRootId) throw new Error('原生子任务不属于本次运行的活动树。');
 }
 
-export async function assertSubagentAccess(host: DshContext, agent: DshAgent, parentId: string): Promise<void> {
+export async function assertSubagentAccess(host: DshContext, agent: DshAgent, parentId: string, rootId?: string): Promise<void> {
   const parent = agent.session.header.parentSession;
   const actualParentId = typeof parent === 'string' ? parent : parent?.id;
   if (agent.session.header.origin !== 'subagent' || actualParentId !== parentId) throw new Error('原生子任务的持久父会话不符。');
-  assertActiveSubagentTree(host, agent);
+  assertActiveSubagentTree(host, agent, rootId);
   await assertDirectChild(host, parentId, agent.id);
 }

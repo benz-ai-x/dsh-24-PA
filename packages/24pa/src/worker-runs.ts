@@ -24,7 +24,7 @@ function resultStatus(call: RunToolCall, result: RunToolResult): 'succeeded' | '
 export class WorkerRuns {
   private readonly clock: SkillRunClock;
   private readonly activeCalls = new Set<string>();
-  private readonly callKeys = new Map<string, string>();
+  private readonly callKeys = new WeakMap<RunToolCall, { runId: string; key: string }>();
   private readonly blocked = new Set<string>();
   constructor(private readonly deps: {
     budget?: ModelBudgets;
@@ -40,6 +40,15 @@ export class WorkerRuns {
     });
   }
   dispose(): void { this.clock.dispose(); }
+  private async recordResult(owned: NonNullable<Awaited<ReturnType<WorkerRuns['owned']>>>, call: RunToolCall, result: RunToolResult, runId: string, key: string, status = resultStatus(call, result)): Promise<void> {
+    if (status === 'unknown') { this.blocked.add(runId); this.clock.disarm(runId); }
+    await owned.context.repos.workerRuns.callResult(key, status, result);
+    try { await owned.context.repos.workItems.assertKnownEffects(owned.item.id, true, this.activeCalls); }
+    catch (error) {
+      this.blocked.add(runId); this.clock.disarm(runId);
+      await owned.context.repos.workerRuns.block(runId, (error as Error).message);
+    }
+  }
   private async owned(session: DshSession) {
     const context = this.deps.context(); if (!context) return null;
     const item = await context.repos.workItems.get(session.id);
@@ -138,24 +147,13 @@ export class WorkerRuns {
         await this.observe(current.session, true);
         const key = await active.context.repos.workerRuns.call(active.run.id, call.name, call.arguments);
         this.activeCalls.add(key);
-        this.callKeys.set(`${active.run.id}:${call.callId}`, key);
+        this.callKeys.set(call, { runId: active.run.id, key });
         try {
           const result = await next();
           // ToolRuntime returns handler failures as values, including a lost
           // acknowledgement after a write. Only its pre-dispatch cancellation
           // proves that this call did not execute.
-          const unknown = resultStatus(call, result) === 'unknown';
-          if (unknown) this.blocked.add(active.run.id);
-          await active.context.repos.workerRuns.callResult(key, resultStatus(call, result), result);
-          if (unknown) this.clock.disarm(active.run.id);
-          // Business tools can return a structured partial result while an
-          // external operation remains unknown. That still blocks new steps.
-          try { await active.context.repos.workItems.assertKnownEffects(active.item.id, true, this.activeCalls); }
-          catch (error) {
-            this.blocked.add(active.run.id);
-            this.clock.disarm(active.run.id);
-            await active.context.repos.workerRuns.block(active.run.id, (error as Error).message);
-          }
+          await this.recordResult(active, call, result, active.run.id, key);
           return result;
         } catch (error) {
           this.blocked.add(active.run.id);
@@ -169,16 +167,12 @@ export class WorkerRuns {
       scope.on('tools/result', async (call, result) => {
         if (call.agent?.id !== agent.id) return;
         const owned = await this.owned(call.agent.session); if (!owned) return;
-        const existing = this.callKeys.get(`${owned.run.id}:${call.callId}`);
-        const key = existing ?? await owned.context.repos.workerRuns.call(owned.run.id, call.name, call.arguments);
+        const existing = this.callKeys.get(call);
+        const original = existing ? await owned.context.repos.workerRuns.get(existing.runId) : null;
+        if (existing && (!original || original.session_id !== call.agent.id || original.work_item_id !== owned.item.id)) throw new Error('工具回执的原运行归属不符。');
+        const key = existing?.key ?? await owned.context.repos.workerRuns.call(owned.run.id, call.name, call.arguments);
         const status = existing ? resultStatus(call, result) : result.error?.info?.code === 'ABORTED_BEFORE_DISPATCH' ? 'failed' : 'unknown';
-        if (status === 'unknown') { this.blocked.add(owned.run.id); this.clock.disarm(owned.run.id); }
-        await owned.context.repos.workerRuns.callResult(key, status, result);
-        try { await owned.context.repos.workItems.assertKnownEffects(owned.item.id, true, this.activeCalls); }
-        catch (error) {
-          this.blocked.add(owned.run.id); this.clock.disarm(owned.run.id);
-          await owned.context.repos.workerRuns.block(owned.run.id, (error as Error).message);
-        }
+        await this.recordResult(owned, call, result, existing?.runId ?? owned.run.id, key, status);
       });
     } }).await();
   }

@@ -94,9 +94,9 @@ export class SkillRunHost {
     requests.set(requestId, content); this.resumeInputs.set(runId, requests);
   }
 
-  canceledInputs(run: SkillRunRow, session: DshSession, preserveParent = false): Set<string> {
+  canceledInputs(run: SkillRunRow, session: DshSession, preserveInputsOnParentAbort = false): Set<string> {
     const canceled = canceledInputIds(session, message => this.recoveryInputId(run, message), turn =>
-      preserveParent || this.waitingTurns.get(run.id)?.has(turn) === true);
+      preserveInputsOnParentAbort || this.waitingTurns.get(run.id)?.has(turn) === true);
     const owned = new Set<string>();
     for (const event of session.ownEvents()) {
       const messages: RunInput[] = event.type === 'agent/inbox/spliced' ? event.data.inserted ?? [] : event.type === 'user/message' ? [event.data] : [];
@@ -124,8 +124,9 @@ export class SkillRunHost {
       : agent.session.header.cwd !== run.workspace_path || (run.mode === 'local' ? !!parentId : parentId !== run.source_session_id)) throw new Error('Skill 运行的真实会话归属不符。');
     if (!agent.ctx) throw new Error('宿主未提供运行作用域。');
     const managed = descendant || run.mode === 'business';
+    const rootId = run.mode === 'business' ? run.source_session_id : run.session_id;
     const authorize = async () => {
-      if (managed) await assertSubagentAccess(this.ctx, agent, parentId!);
+      if (managed) await assertSubagentAccess(this.ctx, agent, parentId!, rootId);
       await hooks.authorize();
     };
     const resourceBase = run.mode === 'local' ? { kind: 'directory', path: this.resources.get(run.id) ?? await this.materialize(run) }
@@ -144,7 +145,7 @@ export class SkillRunHost {
       scope.tools.guard(exec => {
         if (exec.agent?.id !== agent.id) return undefined;
         if (managed) {
-          try { assertActiveSubagentTree(this.ctx, agent); }
+          try { assertActiveSubagentTree(this.ctx, agent, rootId); }
           catch (error) { return (error as Error).message; }
         }
         return !hooks.allowed() || canceled() ? 'Skill 运行已停止、授权变化或结果待核对。'
