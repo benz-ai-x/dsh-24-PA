@@ -8,7 +8,7 @@ import { skillContract, skillHash, skillParameters } from './skill-package.js';
 import { captureRunSkill, templateRunParameters } from './skill-selection.js';
 import type { TaskPlanConfiguration, TaskPlanAuthorization } from './task-plan.js';
 import { SkillRunHost, type RunInput, type RunToolCall, type RunToolResult } from './skill-run-host.js';
-import { consumedTurn } from './host-turn.js';
+import { agentRelayBody, consumedTurn } from './host-turn.js';
 import { SkillRunNative, uncertainTool } from './skill-run-native.js';
 import { skillDelegationTools } from './local-tool-access.js';
 import { skillRequirements } from './skill-requirements.js';
@@ -23,6 +23,7 @@ interface SkillRunsDeps {
   budget?: ModelBudgets;
   host: DshContext;
   context(): RunContext | null;
+  closing?(): boolean;
   packages: SkillPackages;
   management?: SkillManagement;
   sourceSession(): Promise<string>;
@@ -88,7 +89,7 @@ export class SkillRuns {
   async codingTools(agent: DshAgent): Promise<string[] | null> {
     const context = this.deps.context();
     const parent = agent.session.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
-    if (!context || !parentId || agent.session.header.origin !== 'subagent' || !this.host.ownedBy(agent.id, parentId)) return null;
+    if (!context || !parentId || agent.session.header.origin !== 'subagent') return null;
     const run = await context.repos.skillRuns.bySession(parentId);
     if (!run || run.mode !== 'local' || await context.repos.workItems.get(agent.id)) return null;
     return skillDelegationTools(run.snapshot.tools);
@@ -270,14 +271,21 @@ export class SkillRuns {
     if (!context) return;
     const repo = context.repos.skillRuns;
     const parent = agent.session.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
-    const run = await repo.bySession(agent.id) ?? (parentId && this.host.ownedBy(agent.id, parentId) ? await repo.bySession(parentId) : null);
+    const run = await repo.bySession(agent.id) ?? (parentId ? await repo.bySession(parentId) : null);
     if (!run) {
       if (agent.id.startsWith('pa24-skill-')) throw new Error('找不到此会话在当前工作区的运行归属。');
       return;
     }
+    const persistedControl = await context.repos.runControls.get(run.id);
+    const waits = persistedControl?.state.waits ?? [];
+    if (run.status === 'waiting' || waits.length) for (const wait of waits.length ? waits : [undefined]) {
+      const turn = agent.session.ownEvents().filter(event => event.type === 'turn/start'
+        && (wait == null || typeof event.time !== 'number' || event.time <= wait.start)).at(-1)?.data.turn;
+      this.host.markWaiting(run.id, typeof turn === 'number' ? turn : undefined);
+    }
     const descendant = agent.id !== run.session_id;
     if (descendant) {
-      if (!parentId || !this.host.ownedBy(agent.id, parentId) || agent.session.header.origin !== 'subagent' || !agent.session.header.cwd) throw new Error('原生子任务的真实父会话不符。');
+      if (!parentId || agent.session.header.origin !== 'subagent' || !agent.session.header.cwd) throw new Error('原生子任务的真实父会话不符。');
       await repo.child(run.id, agent.id, parentId, agent.session.header.cwd);
     }
     let state = this.active.get(run.id);
@@ -365,6 +373,7 @@ export class SkillRuns {
   async waitForInput(run: SkillRunRow, reason: unknown): Promise<unknown> {
     if (typeof reason !== 'string' || !reason.trim() || reason.length > 4000) throw new Error('请说明需主人补充的信息（1–4000 字符）。');
     const context = this.context();
+    this.host.markWaiting(run.id);
     await context.repos.runControls.change(run.id, state => blockRun(state, { key: 'input', kind: 'input', reason: reason.trim() }));
     await context.repos.skillRuns.transition(run.id, 'waiting', reason.trim());
     return { runId: run.id, status: 'waiting', reason: reason.trim(), message: '已保存原运行，等待主人补充后沿本记录继续。' };
@@ -374,10 +383,12 @@ export class SkillRuns {
     const context = this.context();
     for (const row of await context.repos.runControls.resumes(run.id)) {
       if (row.status === 'prepared' || (request && row.request_id !== request)) continue;
-      const sourceMatches = run.mode === 'local' ? message.source?.kind === 'user' && message.source.rpcId === row.request_id
-        : message.source?.kind === 'agent-message' && message.source.senderSessionId === run.source_session_id;
-      const expected = run.mode === 'business' ? [{ type: 'text', text: `Agent ${run.source_session_id} sent a message: ` }, ...row.message.content] : row.message.content;
-      if (sourceMatches && isDeepStrictEqual(message.content, expected)) return context.repos.runControls.submitted(row.request_id, message.id);
+      const content = run.mode === 'local'
+        ? message.source?.kind === 'user' && message.source.rpcId === row.request_id ? message.content : null
+        : agentRelayBody(message, run.source_session_id);
+      if (content && isDeepStrictEqual(content, row.message.content)) {
+        return context.repos.runControls.submitted(row.request_id, message.id);
+      }
     }
     return false;
   }
@@ -469,7 +480,7 @@ export class SkillRuns {
     const parent = history.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
     if (history.id !== run.session_id || history.header.cwd !== run.workspace_path || (run.mode === 'business' ? parentId !== run.source_session_id : !!parentId)) return false;
     for (const resume of await this.context().repos.runControls.resumes(run.id)) if (resume.status !== 'prepared') this.host.rememberResume(run.id, resume.request_id, resume.message.content);
-    const canceled = this.host.canceledInputs(run, history);
+    const canceled = this.host.canceledInputs(run, history, this.deps.closing?.() || run.status === 'waiting');
     if (!canceled.size) return false;
     const repo = this.context().repos.skillRuns, inputs = await repo.inputs(run.id);
     const admissions = history.ownEvents().filter(event => event.type === 'agent/inbox/spliced').flatMap(event => event.data.inserted ?? []) as RunInput[];
@@ -622,9 +633,8 @@ export class SkillRuns {
       const control = await context.repos.runControls.get(run.id), resumes = await context.repos.runControls.resumes(run.id);
       const consumed = new Set(session.ownEvents().filter(event => event.type === 'turn/end')
         .flatMap(event => [...consumedTurn(session, event.data.turn).messageIds]));
-      const evidence = resumes.some(row => row.status !== 'unknown' && (row.status !== 'submitted' || (row.native_message_id !== null && !consumed.has(row.native_message_id))))
+      return resumes.some(row => row.status !== 'unknown' && (row.status !== 'submitted' || (row.native_message_id !== null && !consumed.has(row.native_message_id))))
         || (run.status === 'waiting' && (!control || !await context.repos.runControls.canResume(run, control.state)));
-      return evidence;
     };
     try { observation = await this.native.observe(repo, run, recovering, session => this.deps.budget?.paused(session) ?? Promise.resolve(false), resumeEvidence); }
     catch (error) { await this.diagnostic(run.id, 'native-observe', error); return this.block(run, errorText(error)); }

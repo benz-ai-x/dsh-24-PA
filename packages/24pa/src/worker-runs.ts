@@ -10,12 +10,21 @@ interface WorkerScope {
   on(event: 'agent/request', listener: (payload: { agent: DshAgent; turn: number; step: number }, next: () => Promise<unknown>) => Promise<unknown>): void;
   on(event: 'agent/pre-step', listener: (payload: { agent: DshAgent; messages: RunInput[] }, next: () => Promise<unknown>) => Promise<unknown>): void;
   on(event: 'tools/execute', listener: (call: RunToolCall, next: () => Promise<RunToolResult>) => Promise<unknown>): void;
+  on(event: 'tools/result', listener: (call: RunToolCall, result: RunToolResult) => Promise<void>): void;
 }
+function resultStatus(call: RunToolCall, result: RunToolResult): 'succeeded' | 'failed' | 'unknown' {
+  const business = result.value as { status?: unknown; businessExecuted?: unknown } | undefined;
+  const rejected = call.name === 'pa24_work' && business?.status === 'rejected' && business.businessExecuted === false;
+  if (result.error?.info?.code === 'ABORTED_BEFORE_DISPATCH') return 'failed';
+  return (result.isError || call.signal.aborted) ? 'unknown' : rejected ? 'failed' : 'succeeded';
+}
+
 /** Observes the existing native Worker. It never starts another model or
  * reassigns the Skill execution engine's session ownership. */
 export class WorkerRuns {
   private readonly clock: SkillRunClock;
   private readonly activeCalls = new Set<string>();
+  private readonly callKeys = new Map<string, string>();
   private readonly blocked = new Set<string>();
   constructor(private readonly deps: {
     budget?: ModelBudgets;
@@ -129,16 +138,15 @@ export class WorkerRuns {
         await this.observe(current.session, true);
         const key = await active.context.repos.workerRuns.call(active.run.id, call.name, call.arguments);
         this.activeCalls.add(key);
+        this.callKeys.set(`${active.run.id}:${call.callId}`, key);
         try {
           const result = await next();
           // ToolRuntime returns handler failures as values, including a lost
           // acknowledgement after a write. Only its pre-dispatch cancellation
           // proves that this call did not execute.
-          const unknown = (result.isError || call.signal.aborted) && result.error?.info?.code !== 'ABORTED_BEFORE_DISPATCH';
-          const business = result.value as { status?: unknown; businessExecuted?: unknown } | undefined;
-          const rejected = call.name === 'pa24_work' && business?.status === 'rejected' && business.businessExecuted === false;
+          const unknown = resultStatus(call, result) === 'unknown';
           if (unknown) this.blocked.add(active.run.id);
-          await active.context.repos.workerRuns.callResult(key, unknown ? 'unknown' : result.isError || rejected ? 'failed' : 'succeeded', result);
+          await active.context.repos.workerRuns.callResult(key, resultStatus(call, result), result);
           if (unknown) this.clock.disarm(active.run.id);
           // Business tools can return a structured partial result while an
           // external operation remains unknown. That still blocks new steps.
@@ -157,6 +165,20 @@ export class WorkerRuns {
         } finally { this.activeCalls.delete(key); }
         };
         return this.deps.lease ? this.deps.lease(execute) : execute();
+      });
+      scope.on('tools/result', async (call, result) => {
+        if (call.agent?.id !== agent.id) return;
+        const owned = await this.owned(call.agent.session); if (!owned) return;
+        const existing = this.callKeys.get(`${owned.run.id}:${call.callId}`);
+        const key = existing ?? await owned.context.repos.workerRuns.call(owned.run.id, call.name, call.arguments);
+        const status = existing ? resultStatus(call, result) : result.error?.info?.code === 'ABORTED_BEFORE_DISPATCH' ? 'failed' : 'unknown';
+        if (status === 'unknown') { this.blocked.add(owned.run.id); this.clock.disarm(owned.run.id); }
+        await owned.context.repos.workerRuns.callResult(key, status, result);
+        try { await owned.context.repos.workItems.assertKnownEffects(owned.item.id, true, this.activeCalls); }
+        catch (error) {
+          this.blocked.add(owned.run.id); this.clock.disarm(owned.run.id);
+          await owned.context.repos.workerRuns.block(owned.run.id, (error as Error).message);
+        }
       });
     } }).await();
   }

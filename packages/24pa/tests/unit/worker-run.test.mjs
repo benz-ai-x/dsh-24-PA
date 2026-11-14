@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, beforeEach, afterEach, describe, it, expect } from 'vitest';
+import { beforeAll, afterAll, beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { Context } from '@deepseek-ai/cordis';
 import { installToolRuntime, executeTool } from '../helpers/tool-runtime.mjs';
 import { randomUUID } from 'node:crypto';
@@ -32,7 +32,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
     const service = new WorkerRuns({ context: () => ({ repos, path: '/workspace', binding: 'binding' }), allowed: () => true, expire: async () => {} });
     services.push(service); await service.attach(agent);
     return { agent, request: next => listeners.get('agent/request')({ agent }, next),
-      execute: (next, signal = new AbortController().signal) => listeners.get('tools/execute')({ agent, callId: randomUUID(), name: 'save_file', arguments: {}, signal }, next) };
+      execute: (next, signal = new AbortController().signal, callId = randomUUID()) => listeners.get('tools/execute')({ agent, callId, name: 'save_file', arguments: {}, signal }, next),
+      result: (call, result) => listeners.get('tools/result')({ agent, ...call }, result) };
   };
   it('旧交办不伪造档案；首次执行、运行中补充和结束后接续有稳定且不同的身份', async () => {
     const old = await make({ status: 'completed' }); expect((await list(old.id)).total).toBe(0);
@@ -185,6 +186,58 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
     expect(detail.calls[0].status).toBe(outcome); expect(detail.run.status).toBe('stopped');
     expect((await repos.workItems.get(item.id)).status).toBe('stopped');
     await expect(life.resume(item.id, '迟到补充', true)).rejects.toThrow('补充不会复活');
+  });
+  it('执行前权限拒绝也保存原回执，不执行工具也不重复记账', async () => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
+    const ctx = new Context(); let writes = 0;
+    const agent = { id: item.id, session: { id: item.id, header: { cwd: '/workspace', parentSession: 'parent' }, ownEvents: () => [] }, ctx };
+    const service = new WorkerRuns({ context: () => ({ repos, path: '/workspace', binding: 'binding' }), allowed: () => true, expire: async () => {} });
+    services.push(service);
+    try {
+      await installToolRuntime(ctx); await service.attach(agent);
+      ctx.tools.register({ name: 'note_approve', description: 'test approval', parameters: { type: 'object', properties: {} },
+        output: { schema: { type: 'object' }, render: () => [] }, execute: async () => { writes++; return { approved: true }; } });
+      ctx.tools.guard(() => '没有执行这项操作的权限');
+      const call = { agent, callId: 'guard-denied', name: 'note_approve', arguments: {}, signal: new AbortController().signal };
+      const result = await executeTool(ctx, call);
+      expect(result.error.message).toBe('没有执行这项操作的权限'); expect(writes).toBe(0);
+      let detail;
+      await vi.waitFor(async () => { detail = await repos.workerRuns.detail(item.active_worker_run_id); expect(detail.calls).toHaveLength(1); });
+      expect(detail.calls[0]).toMatchObject({ status: 'unknown', result: { error: { message: '没有执行这项操作的权限' } } });
+      expect(detail.run.status).toBe('needs_reconciliation');
+      await expect(journal(item).then(hook => hook.request(async () => { writes++; }))).rejects.toThrow();
+      expect(writes).toBe(0);
+    } finally { await ctx.fiber.dispose(); }
+  });
+  it('宿主异步结果通知不重复登记已执行调用', async () => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
+    const ctx = new Context();
+    const agent = { id: item.id, session: { id: item.id, header: { cwd: '/workspace', parentSession: 'parent' }, ownEvents: () => [] }, ctx };
+    const service = new WorkerRuns({ context: () => ({ repos, path: '/workspace', binding: 'binding' }), allowed: () => true, expire: async () => {} });
+    services.push(service);
+    try {
+      await installToolRuntime(ctx); await service.attach(agent);
+      ctx.tools.register({ name: 'save_file', description: 'test write', parameters: { type: 'object', properties: {} },
+        output: { schema: { type: 'object' }, render: () => [] }, execute: async () => ({ saved: true }) });
+      const result = await executeTool(ctx, { agent, callId: 'ordinary-result', name: 'save_file', arguments: {}, signal: new AbortController().signal });
+      expect(result.isError).not.toBe(true);
+      await vi.waitFor(async () => expect((await repos.workerRuns.detail(item.active_worker_run_id)).calls).toHaveLength(1));
+      await new Promise(resolve => setImmediate(resolve));
+      const detail = await repos.workerRuns.detail(item.active_worker_run_id);
+      expect(detail.calls).toHaveLength(1); expect(detail.calls[0].status).toBe('succeeded');
+      expect(detail.run.status).toBe('running');
+    } finally { await ctx.fiber.dispose(); }
+  });
+  it('最终通知更新原调用；明确未执行的取消不冒充未知', async () => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id);
+    const hook = await journal(item), call = { callId: 'late-cancel', name: 'save_file', arguments: {}, signal: new AbortController().signal };
+    await hook.execute(async () => ({ isError: false, value: { saved: true } }), call.signal, call.callId);
+    await hook.result(call, { isError: true, error: { message: 'late cancellation', info: { code: 'ABORTED' } } });
+    let detail = await repos.workerRuns.detail(item.active_worker_run_id);
+    expect(detail.calls).toHaveLength(1); expect(detail.calls[0].status).toBe('unknown');
+    await hook.result({ ...call, callId: 'before-dispatch' }, { isError: true, error: { message: 'not dispatched', info: { code: 'ABORTED_BEFORE_DISPATCH' } } });
+    detail = await repos.workerRuns.detail(item.active_worker_run_id);
+    expect(detail.calls).toHaveLength(2); expect(detail.calls[1].status).toBe('failed');
   });
   it('收到与采用以原生消费证据区分，工具计时不包含等待', async () => {
     let item = await make(); await life.pump(); item = await repos.workItems.get(item.id); const run = await repos.workerRuns.get(item.active_worker_run_id);

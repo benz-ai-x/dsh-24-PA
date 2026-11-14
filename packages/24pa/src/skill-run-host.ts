@@ -7,7 +7,8 @@ import type { SkillRunRow } from './repo/skill-run.js';
 import { readSkillFile, skillHash, validateSkillPackage } from './skill-package.js';
 import { isDeepStrictEqual } from 'node:util';
 import { randomUUID } from 'node:crypto';
-import { canceledInputIds } from './host-turn.js';
+import { agentRelayBody, canceledInputIds } from './host-turn.js';
+import { assertActiveSubagentTree, assertDirectChild, assertSubagentAccess, directChild } from './subagent-access.js';
 
 export interface RunInput { id: string; content: ContentBlock[]; source?: { kind?: string; rpcId?: string; name?: string; senderSessionId?: string }; [key: string]: unknown }
 interface RunAgent extends DshAgent {
@@ -31,7 +32,6 @@ const sessionAbsent = (error: unknown): boolean => {
 
 interface NativeSubagents {
   listDescendants(id: string, signal?: AbortSignal): Promise<RunDescendant[]>;
-  listChildren(id: string, signal?: AbortSignal): Promise<{ id: string }[]>;
   drainDescendants(parents: DshAgent[]): Promise<void>;
   sendMessage(parent: DshAgent, id: string, content: ContentBlock[], options: { signal: AbortSignal }): Promise<string>;
 }
@@ -73,7 +73,15 @@ export class SkillRunHost {
   private readonly live = new Map<string, RunAgent>();
   private readonly resources = new Map<string, string>();
   private readonly resumeInputs = new Map<string, Map<string, ContentBlock[]>>();
-  constructor(private readonly ctx: DshContext) {}
+  private readonly waitingTurns = new Map<string, Set<number>>();
+  constructor(readonly ctx: DshContext) {}
+
+  markWaiting(runId: string, turn?: number): void {
+    turn ??= this.live.get(runId)?.session.ownEvents().filter(event => event.type === 'turn/start').at(-1)?.data.turn;
+    if (!Number.isInteger(turn)) return;
+    const turns = this.waitingTurns.get(runId) ?? new Set<number>();
+    turns.add(turn!); this.waitingTurns.set(runId, turns);
+  }
 
   ownsInput(run: SkillRunRow, message: RunInput): boolean {
     if (message.source?.kind !== 'user') return false;
@@ -86,8 +94,9 @@ export class SkillRunHost {
     requests.set(requestId, content); this.resumeInputs.set(runId, requests);
   }
 
-  canceledInputs(run: SkillRunRow, session: DshSession): Set<string> {
-    const canceled = canceledInputIds(session, message => this.recoveryInputId(run, message));
+  canceledInputs(run: SkillRunRow, session: DshSession, preserveParent = false): Set<string> {
+    const canceled = canceledInputIds(session, message => this.recoveryInputId(run, message), turn =>
+      preserveParent || this.waitingTurns.get(run.id)?.has(turn) === true);
     const owned = new Set<string>();
     for (const event of session.ownEvents()) {
       const messages: RunInput[] = event.type === 'agent/inbox/spliced' ? event.data.inserted ?? [] : event.type === 'user/message' ? [event.data] : [];
@@ -96,10 +105,10 @@ export class SkillRunHost {
         if (recovered) owned.add(recovered);
         if (this.ownsInput(run, message)) owned.add(message.id);
         for (const [requestId, content] of this.resumeInputs.get(run.id) ?? []) {
-          const sourceMatches = run.mode === 'local' ? message.source?.kind === 'user' && message.source.rpcId === requestId
-            : message.source?.kind === 'agent-message' && message.source.senderSessionId === run.source_session_id;
-          const expected = run.mode === 'local' ? content : [{ type: 'text', text: `Agent ${run.source_session_id} sent a message: ` }, ...content];
-          if (sourceMatches && isDeepStrictEqual(message.content, expected)) owned.add(message.id);
+          const candidate = run.mode === 'local'
+            ? message.source?.kind === 'user' && message.source.rpcId === requestId ? message.content : null
+            : agentRelayBody(message, run.source_session_id);
+          if (candidate && isDeepStrictEqual(candidate, content)) owned.add(message.id);
         }
       }
     }
@@ -111,9 +120,14 @@ export class SkillRunHost {
   async mount(agent: DshAgent, run: SkillRunRow, hooks: RunHooks, descendant = false, tools = run.snapshot.tools): Promise<void> {
     const parent = agent.session.header.parentSession;
     const parentId = typeof parent === 'string' ? parent : parent?.id;
-    if (descendant ? !parentId || !this.ownedBy(agent.id, parentId) || agent.session.header.origin !== 'subagent'
+    if (descendant ? !parentId || agent.session.header.origin !== 'subagent'
       : agent.session.header.cwd !== run.workspace_path || (run.mode === 'local' ? !!parentId : parentId !== run.source_session_id)) throw new Error('Skill 运行的真实会话归属不符。');
     if (!agent.ctx) throw new Error('宿主未提供运行作用域。');
+    const managed = descendant || run.mode === 'business';
+    const authorize = async () => {
+      if (managed) await assertSubagentAccess(this.ctx, agent, parentId!);
+      await hooks.authorize();
+    };
     const resourceBase = run.mode === 'local' ? { kind: 'directory', path: this.resources.get(run.id) ?? await this.materialize(run) }
       : { kind: 'opaque', description: '通过 pa24_work skill_resource 读取本次版本的静态资源。' };
     const def = { ...run.snapshot.definition, source: 'pa24-run', provider: 'pa24-run', resourceBase, invocation: { modelInvocable: true, userInvocable: true } };
@@ -127,8 +141,15 @@ export class SkillRunHost {
       // restrict() already proves it is visible on this exact child scope.
       const nativeResult = (name: string) => descendant && name === 'structured_output';
       const canceled = () => !descendant && this.canceledInputs(run, agent.session).size > 0;
-      scope.tools.guard(exec => exec.agent?.id !== agent.id ? undefined
-        : !hooks.allowed() || canceled() ? 'Skill 运行已停止、授权变化或结果待核对。' : !tools.includes(exec.name) && !nativeResult(exec.name) ? '工具未在本次 Skill 授权范围内。' : undefined);
+      scope.tools.guard(exec => {
+        if (exec.agent?.id !== agent.id) return undefined;
+        if (managed) {
+          try { assertActiveSubagentTree(this.ctx, agent); }
+          catch (error) { return (error as Error).message; }
+        }
+        return !hooks.allowed() || canceled() ? 'Skill 运行已停止、授权变化或结果待核对。'
+          : !tools.includes(exec.name) && !nativeResult(exec.name) ? '工具未在本次 Skill 授权范围内。' : undefined;
+      });
       scope.on('agent/pre-step', async ({ agent: current, messages }, next) => {
         if (current.id !== agent.id) return next();
         if (canceled()) return { kind: 'reject' };
@@ -137,19 +158,19 @@ export class SkillRunHost {
         const adopted = new Set(agent.session.ownEvents().filter(event => event.type === 'user/message').map(event => event.data.id));
         for (const raw of messages) {
           for (const message of replacements.get(raw.id) ?? [raw]) {
-          const id = !descendant && this.recoveryInputId(run, message);
-          if (id) {
-            const original = await hooks.restoreInput(id);
-            replacements.set(raw.id, adopted.has(id) ? [] : [original]);
-            // A control wake may overtake a parked original queue entry.
-            // The original identity is adopted once at this same boundary.
-            if (!adopted.has(id)) (agent as RunAgent).inbox.remove(id);
+            const id = !descendant && this.recoveryInputId(run, message);
+            if (id) {
+              const original = await hooks.restoreInput(id);
+              replacements.set(raw.id, adopted.has(id) ? [] : [original]);
+              // A control wake may overtake a parked original queue entry.
+              // The original identity is adopted once at this same boundary.
+              if (!adopted.has(id)) (agent as RunAgent).inbox.remove(id);
+            }
           }
         }
-          }
-        const replace = (inputs: RunInput[]) => [...new Map(inputs.flatMap(message => {
-          return (replacements.get(message.id) ?? [message]).map(original => [original.id, original] as const);
-        })).values()];
+        const replace = (inputs: RunInput[]) => [...new Map(inputs.flatMap(message =>
+          (replacements.get(message.id) ?? [message]).map(original => [original.id, original] as const)
+        )).values()];
         const admitted = replace(messages);
         if (replacements.size && !admitted.length) return { kind: 'reject' };
         let foreign = false;
@@ -161,7 +182,7 @@ export class SkillRunHost {
         try {
           if (foreign) throw new Error('专用运行会话收到其他输入，已保存全部输入；请核对后从管理入口续办。');
           if (hooks.checkBudget && !await hooks.checkBudget(current.session)) return { kind: 'reject' };
-          await hooks.authorize();
+          await authorize();
           await this.verifyResources(run);
         } catch (error) { await hooks.block((error as Error).message); return { kind: 'reject' }; }
         const decision = await next() as { kind: 'reject' } | { kind: 'enter'; messages: RunInput[] };
@@ -170,7 +191,7 @@ export class SkillRunHost {
       });
       scope.on('tools/execute', async (call, next) => {
         if (call.agent?.id !== agent.id) return next();
-        await hooks.authorize();
+        await authorize();
         await this.verifyResources(run);
         if (canceled()) throw new Error('原输入已取消，未执行新的工具动作。');
         return hooks.execute(call, next);
@@ -178,7 +199,7 @@ export class SkillRunHost {
       scope.on('agent/request', async ({ agent: current, turn, step }, next) => {
         if (current.id !== agent.id) return next();
         await hooks.beforeModel(current.session);
-        await hooks.authorize();
+        await authorize();
         if (canceled()) throw new Error('原输入已取消，未开始新的模型请求。');
         const route = await next();
         await hooks.dispatchModel?.(current.session, turn, step, route);
@@ -255,7 +276,7 @@ export class SkillRunHost {
     const resolved = await this.ctx.sessionController.resolveAgent(run.mode === 'business' ? run.source_session_id : run.session_id);
     if ('error' in resolved) throw resolved.error;
     if (run.mode === 'business') {
-      if (!await this.directChild(resolved.agent.id, run.session_id)) throw new Error('原 Worker 不属于原发起会话，不能改挂继续。');
+      if (!await directChild(this.ctx, resolved.agent.id, run.session_id)) throw new Error('原 Worker 不属于原发起会话，不能改挂继续。');
       return this.subagents().sendMessage(resolved.agent, run.session_id, content, { signal: new AbortController().signal });
     }
     if (run.mode !== 'local' || !this.live.has(run.session_id)) throw new Error('原运行权限尚未挂载，不能提交补充。');
@@ -295,11 +316,6 @@ export class SkillRunHost {
   }
   private subagents(): NativeSubagents { return this.ctx.subagents as unknown as NativeSubagents; }
   private jobs(): NativeJobs | undefined { return this.ctx.get('jobs') as NativeJobs | undefined; }
-  ownedBy(id: string, parentId: string): boolean {
-    const agents = this.ctx.get('agents') as { get(id: string): DshAgent | undefined; isOwnedBy(id: string, owner: DshAgent): boolean } | undefined;
-    const parent = agents?.get(parentId);
-    return !!parent && agents!.isOwnedBy(id, parent);
-  }
   async descendants(run: SkillRunRow): Promise<RunDescendant[]> {
     if (!this.subagents().listDescendants) throw new Error('宿主缺少原生子任务归属核对接口。');
     try {
@@ -310,9 +326,6 @@ export class SkillRunHost {
       if (sessionAbsent(error)) return [];
       throw error;
     }
-  }
-  async directChild(owner: string, child: string): Promise<boolean> {
-    return (await this.subagents().listChildren(owner)).some(row => row.id === child);
   }
   job(id: string, owner: string): RunJob | undefined {
     try { const job = this.jobs()?.get(id, owner); return job?.owner === owner ? job : undefined; }
@@ -325,12 +338,15 @@ export class SkillRunHost {
   }
   executing(id: string): boolean { return this.live.get(id)?.status === 'running'; }
   recoveryInputId(run: SkillRunRow, message: RunInput): string | null {
-    const text = run.mode === 'local' ? message.content[0]?.text : message.content[1]?.text;
+    if (run.mode === 'business') {
+      const body = agentRelayBody(message, run.source_session_id);
+      const text = body?.length === 1 ? body[0]?.text : undefined;
+      return typeof text === 'string' ? /^\[24PA recover input: ([^\]\r\n]+)\]$/.exec(text)?.[1] ?? null : null;
+    }
+    const text = message.content[0]?.text;
     const id = typeof text === 'string' ? /^\[24PA recover input: ([^\]\r\n]+)\]$/.exec(text)?.[1] : null;
     if (!id) return null;
-    if (run.mode === 'local') return message.source?.kind === 'user' && message.source.rpcId === `pa24-recovery:${run.id}:${id}` && message.content.length === 1 ? id : null;
-    return run.mode === 'business' && message.source?.kind === 'agent-message' && message.source.senderSessionId === run.source_session_id
-      && message.content.length === 2 && message.content[0]?.text === `Agent ${run.source_session_id} sent a message: ` ? id : null;
+    return message.source?.kind === 'user' && message.source.rpcId === `pa24-recovery:${run.id}:${id}` && message.content.length === 1 ? id : null;
   }
   resident(id: string): boolean { return !!this.ctx.sessions.get?.(id); }
   attached(id: string): boolean { return this.live.has(id); }
@@ -340,24 +356,32 @@ export class SkillRunHost {
     if ((await this.descendants(run)).some(child => child.mode === 'external' && child.activity === 'running')) throw new Error('外部子任务仍在运行，不能确认结束。');
   }
   async stop(run: SkillRunRow): Promise<void> {
-    const owners = [run.session_id, ...(await this.descendants(run)).filter(row => row.kind === 'child' && row.mode !== 'external').map(row => row.id)];
+    const descendants = (await this.descendants(run)).filter(row => row.kind === 'child');
+    const owners = [run.session_id, ...descendants.map(row => row.id)];
     const root = this.live.get(run.session_id);
-    // Request every stop before awaiting any one branch. Cancellation is not
-    // a receipt of rollback; settlement still checks the producers below.
-    const drain = root ? this.subagents().drainDescendants([root]) : Promise.resolve();
+    if (run.mode === 'business') {
+      const rootLinked = await directChild(this.ctx, run.source_session_id, run.session_id);
+      if (!rootLinked && (root || await this.history(run))) throw new Error('原生父子会话关系不符，未执行该子会话操作。');
+      if (rootLinked) {
+        for (const row of descendants) await assertDirectChild(this.ctx, row.parentId, row.id);
+        for (const owner of owners) this.ctx.subagents.interrupt(owner, { kind: 'user' });
+      }
+    }
+    // Cancellation is not a receipt of rollback; settlement still checks the
+    // producers below. Only a local top-level run owns a complete subagent tree.
+    const drain = run.mode === 'local' && root ? this.subagents().drainDescendants([root]) : Promise.resolve();
     const jobs = this.jobs();
     const stopping = jobs ? owners.flatMap(owner => this.ownedJobs(owner).filter(job => ['running', 'stopping'].includes(job.status)).map(job => {
       try { jobs.kill(job.id, owner, '24私助 Skill 运行已停止'); return jobs.wait(job.id, 1000, owner); }
       catch (error) { return Promise.reject(error); }
     })) : [];
-    if (run.mode === 'business') {
-      this.ctx.subagents.interrupt(run.session_id, { kind: 'user', parentSessionId: run.source_session_id });
-    } else {
+    if (run.mode !== 'business') {
       const controller = this.ctx.sessionController as DshContext['sessionController'] & { cancel(request: { sessionId: string }): unknown };
       if (!controller.cancel) throw new Error('宿主不支持停止本地顶层运行。');
       controller.cancel({ sessionId: run.session_id });
     }
-    const results = await Promise.allSettled([drain, ...stopping, root?.whenIdle?.()]);
+    const idle = run.mode === 'business' ? owners.map(owner => this.live.get(owner)?.whenIdle?.()) : [root?.whenIdle?.()];
+    const results = await Promise.allSettled([drain, ...stopping, ...idle]);
     const failure = results.find(result => result.status === 'rejected');
     if (failure?.status === 'rejected') throw failure.reason;
     if (root && !await this.history(run)) throw new Error('停止后的原生历史尚不可读取，请继续核对。');
@@ -367,7 +391,7 @@ export class SkillRunHost {
     if (run.mode === 'business') {
       const parent = await this.ctx.sessionController.resolveAgent(run.source_session_id);
       if ('error' in parent) throw parent.error;
-      if (!await this.directChild(parent.agent.id, run.session_id)) throw new Error('原 Worker 不属于原发起会话。');
+      if (!await directChild(this.ctx, parent.agent.id, run.session_id)) throw new Error('原 Worker 不属于原发起会话。');
       // Public sendMessage owns cold activation. This control message carries
       // no new business instruction; pre-step restores the durable original
       // message ID, or rejects an already adopted control wake.

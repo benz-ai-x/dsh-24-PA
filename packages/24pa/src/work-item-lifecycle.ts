@@ -16,7 +16,7 @@ export class WorkItemLifecycle {
     repo: () => WorkItemRepo; maxWorkers: () => number; available: () => boolean;
     start: (item: WorkItemRow) => Promise<void>;
     resume: (item: WorkItemRow, input: string) => Promise<string | void>;
-    interrupt: (item: WorkItemRow) => void;
+    interrupt: (item: WorkItemRow) => Promise<void>;
     quiesce?: (item: WorkItemRow) => Promise<void>;
     track: (item: WorkItemRow) => void;
     completion?: { workspacePath: () => string; read: (item: WorkItemRow) => Promise<WorkCompletion>;
@@ -36,7 +36,7 @@ export class WorkItemLifecycle {
       if (!this.deps.available() || !this.deps.quiesce) return;
       const repo = this.deps.repo();
       for (const item of await repo.pendingStops()) {
-        try { this.deps.interrupt(item); await this.deps.quiesce(item); await repo.stopReceipt(item.id, true, item.stop_reason); }
+        try { await this.deps.interrupt(item); await this.deps.quiesce(item); await repo.stopReceipt(item.id, true, item.stop_reason); }
         catch (error) { await repo.stopReceipt(item.id, false, item.stop_reason, (error as Error).message); }
       }
     });
@@ -127,7 +127,7 @@ export class WorkItemLifecycle {
     const stopped = await repo.update(id, { status: 'stopped', progress: '本人要求停止；已完成及待核对的外部效果保留' });
     this.deps.track(stopped!);
     await repo.stopReceipt(id, false, status);
-    if (item.status === 'running' || item.status === 'needs_reconciliation') this.deps.interrupt(item);
+    if (item.status === 'running' || item.status === 'needs_reconciliation') await this.deps.interrupt(item);
     if (item.active_worker_run_id) {
       try {
         if (!this.deps.quiesce) throw new Error('宿主没有提供停止确认能力。');

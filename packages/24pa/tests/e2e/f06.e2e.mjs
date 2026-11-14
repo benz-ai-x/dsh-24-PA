@@ -36,15 +36,16 @@ const waitToolResult = async (toolName, substr, label, timeoutMs = 60_000) => {
 // Manticore records uncertain tool results before blocking the next model
 // step. Read that durable receipt; do not require the model to be called again.
 const waitBlockedToolResult = async (noteId, message) => {
+  let results = [];
   for (let i = 0; i < 120; i++) {
-    const results = await rows(`select c.result, c.status, w.status as work_status from pa24.worker_run_call c
+    results = await rows(`select c.result, c.status, w.status as work_status from pa24.worker_run_call c
       join pa24.worker_run r on r.id=c.run_id join pa24.work_item w on w.id=r.work_item_id
       where w.title='整理 ${noteId}' and c.tool='pa24_work'`);
     const result = results.find(row => JSON.stringify(row.result).includes(message));
     if (result && result.work_status === 'needs_reconciliation') { expect(result.status).toBe('unknown'); return result; }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  throw Error('未保存待核对工具结果：' + message);
+  throw Error('未保存待核对工具结果：' + message + '；最近记录：' + JSON.stringify(results.slice(-3)));
 };
 const waitOutbox = async (prefix, label, timeoutMs = 30_000) => {
   for (let i = 0; i < timeoutMs / 500; i++) {
@@ -418,7 +419,14 @@ describe('F06 手写笔记整理与人工审核（真实 Loader + 隔离 PG）',
     const noteD = noteIdOfAck(ack);
     await writeScript(recognizeScript(noteD, { action: 'note_approve', noteId: noteD, decision: 'approve' }));
     await inject(ownerEvent('evt-org-4', { text: '整理这份笔记', parentMessageId: ack.message_id }));
-    await waitBlockedToolResult(noteD, '没有执行这项操作的权限');
+    await waitWorkItem(`整理 ${noteD}`, '识别 Worker 明确拒绝批准操作');
+    const denied = await rows(`select c.status, c.result from pa24.worker_run_call c
+      join pa24.worker_run r on r.id=c.run_id join pa24.work_item w on w.id=r.work_item_id
+      where w.title='整理 ${noteD}' and c.tool='pa24_work'`);
+    expect(denied).toHaveLength(1);
+    expect(denied[0].status).toBe('failed');
+    expect(denied[0].result.value).toMatchObject({ status: 'rejected', businessExecuted: false, action: 'note_approve' });
+    expect(denied[0].result.value.reason).toContain('未执行业务动作');
     // 未产生任何审核裁决
     expect((await rows(`select count(*)::int as n from pa24.review_decision where note_id='${noteD}'`))[0].n).toBe(0);
   });

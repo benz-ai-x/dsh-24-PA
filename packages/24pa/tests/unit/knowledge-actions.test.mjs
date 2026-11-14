@@ -26,7 +26,8 @@ for (const backend of ['sqlite', 'postgres']) describe(`R3 知识与行动公开
         if (nativeUnknown) throw new Error('native receipt lost'); return record;
       }, catalog: async () => structuredClone(entries), delete: async () => ({ deleted: true }),
     };
-    f.ctx.get = name => name === 'schedule' ? schedule : name === 'attachments' ? { admitPromptContent: async blocks => blocks } : null;
+    const get = f.ctx.get;
+    f.ctx.get = name => name === 'schedule' ? schedule : name === 'attachments' ? { admitPromptContent: async blocks => blocks } : get(name);
     if (backend === 'postgres') { cluster = await startPgCluster(); f.options.env.PA24_R3_TEST_DSN = cluster.dsn; }
     const path = await f.workspace('a', { mode: 'feishu', ownerOpenId: 'owner', tasklistId: 'list', calendarId: 'calendar', folderToken: 'folder', maxWorkers: 8,
       enabledWorkers: ['memo', 'calendar', 'handwriting', 'tasks'], workerModels: { handwriting: { provider: 'test', model: 'vision-test' } },

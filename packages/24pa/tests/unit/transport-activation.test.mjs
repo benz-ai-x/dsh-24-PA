@@ -16,10 +16,11 @@ afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0)
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'pa24-transport-activation-')));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const sessions = new Map();
-  const ctx = { skills: null, get: () => null,
+  const sessions = new Map(), catalogs = new Map();
+  const ctx = { skills: null, get: name => name === 'sessionQuery' ? { observeSession: async id => ({ projections: { values: { subagentCatalog: catalogs.get(id) ?? [] } }, [Symbol.dispose]: () => {} }) } : name === 'agents' ? sessions : null,
     workspaceRegistry: { create: async path => ({ id: path, path, title: '24私助' }) },
     sessionController: { create: async request => { sessions.set(request.sessionId, { id: request.sessionId, ctx: {}, session: { header: { cwd: request.workspaceId, agentPreset: request.agentPreset } } }); return { sessionId: request.sessionId }; }, rename: async () => {}, resolveAgent: async id => ({ agent: sessions.get(id) }) },
+    subagents: { drainDescendants: async () => {} },
   };
   const rt = new PaRuntime(ctx, { stateDirectory: root, workspacePath: '', reminderTickMs: 60000,
     larkCliBin: 'lark-cli', wecomCliBin: 'wecom-cli', cliTimeoutMs: 1000,
@@ -31,7 +32,7 @@ async function fixture() {
     return path;
   };
   await rt.bind(await workspace('old'));
-  return { rt, workspace, ctx };
+  return { rt, workspace, ctx, catalogs };
 }
 // An unauthorized sender is still durably recorded as rejected before ACK,
 // without starting a model or a worker in this transport test.
@@ -218,7 +219,7 @@ it('目标恢复使用原入口的本地回传意图；失败发生于激活前�
 });
 
 it.each(['finish', 'stop'])('引用 Worker 的补充输入在 %s 后释放原工作区', async outcome => {
-  const { rt, workspace, ctx } = await fixture();
+  const { rt, workspace, ctx, catalogs } = await fixture();
   const a = await workspace(`followup-${outcome}`, 'feishu'); await rt.bind(a);
   const localId = await rt.openLocalSession(), accessId = localId.replace(/-local$/, '-feishu');
   await rt.repos.workItems.insert({ id: 'work', child_session_id: 'child', title: '原事项', role: 'memo', instruction: 'work', origin: 'feishu', parent_session_id: accessId, delivery: 'feishu:owner', status: 'waiting_input' });
@@ -226,12 +227,13 @@ it.each(['finish', 'stop'])('引用 Worker 的补充输入在 %s 后释放原工
   let child;
   ctx.sessions = { get: id => id === 'child' ? child : undefined, flush: async () => true };
   ctx.sessionController.resolveAgent = async id => ({ agent: { id, session: { id } } });
-  ctx.subagents = { interrupt: () => {}, sendMessage: async (parent, _id, content) => {
+  ctx.subagents = { interrupt: () => {}, drainDescendants: async () => {}, sendMessage: async (parent, _id, content) => {
     const events = [{ type: 'turn/start', data: { turn: 2 } },
       { type: 'user/message', data: { id: 'accepted-supplement', source: { kind: 'agent-message', senderSessionId: parent.id }, content } },
       { type: 'assistant/message', data: { turn: 2, message: { content: [{ type: 'text', text: 'supplement result' }] } } },
       { type: 'turn/end', data: { turn: 2, reason: { kind: 'completed' } } }];
     child = { id: 'child', header: { cwd: a, parentSession: parent.id }, ownEvents: () => events };
+    catalogs.set(parent.id, [...(catalogs.get(parent.id) ?? []), { id: 'child' }]);
     if (outcome === 'finish') rt.onSessionEvent(child, events.at(-1));
     return 'accepted-supplement';
   } };
@@ -240,7 +242,7 @@ it.each(['finish', 'stop'])('引用 Worker 的补充输入在 %s 后释放原工
     await vi.waitFor(async () => expect((await rt.repos.inbox.get('supplement')).status).toBe('admitted'));
     await rt.control({ action: 'stop', workId: 'work' }, { id: localId, session: { header: { cwd: a, agentPreset: 'pa24' } } });
   }
-  await vi.waitFor(async () => expect((await rt.repos.inbox.get('supplement')).status).toBe(outcome === 'stop' ? 'rejected' : 'delivered'));
+  await vi.waitFor(async () => expect((await rt.repos.inbox.get('supplement')).status, JSON.stringify(await rt.repos.workItems.get('work'))).toBe(outcome === 'stop' ? 'rejected' : 'delivered'));
   await rt.bind(await workspace(`after-${outcome}`));
 });
 
@@ -265,7 +267,7 @@ it.each(['enqueue', 'identity'])('已结束交办拒绝引用补充，即使 %s 
   const repos = rt.repos;
   await repos.workItems.insert({ id: 'finished-work', child_session_id: 'finished-child', title: '已结束事项', role: 'memo', instruction: '已完成目标', origin: 'feishu', parent_session_id: accessId, delivery: 'feishu:owner', status: 'completed' });
   await repos.messageRoutes.record('finished-message', { kind: 'workitem', workItemId: 'finished-work' });
-  ctx.subagents = { sendMessage: vi.fn() };
+  ctx.subagents = { sendMessage: vi.fn(), drainDescendants: async () => {} };
   if (failure === 'identity') {
     rt.config.notifyChannel = 'wecom';
     vi.spyOn(rt.wecomChannels, 'wecomOwnerUserid').mockRejectedValueOnce(new Error('owner identity unavailable'));

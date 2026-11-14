@@ -1,7 +1,7 @@
 // Minimal structural types for the dsh host services this plugin consumes.
-// Signatures follow dsh 0.2.1-alpha.1 (deepseek-harness 5badb150); the e2e
-// suite boots the real Host through the official CLI, so drift fails loudly
-// in tests instead of being papered over here.
+// Signatures follow dsh 0.2.2-rc.3; the e2e suite boots the real Host through
+// the official CLI, so drift fails loudly in tests instead of being papered
+// over here.
 
 export interface ContentBlock {
   type: string;
@@ -37,7 +37,6 @@ export interface DshAgent {
   session: DshSession;
   status: string;
   whenIdle?(): Promise<void>;
-  parentAgent?: DshAgent;
   ctx?: DshContext;
 }
 
@@ -61,22 +60,18 @@ export type AgentResolution = { agent: DshAgent } | { error: Error & { code?: st
 export interface SubagentStartRequest {
   parent: DshAgent;
   prompt: ContentBlock[];
-  persona?: string;
-  toolFilter?: { allow?: string[]; deny?: string[] };
   maxDepth?: number;
   /** Per-child provider/model override; dsh merges it over the parent's options. */
   agentOptions?: { provider: string; model: string };
 }
 
-export interface ContinuableStartSpec {
+export interface ContinuableStartSpec extends SubagentStartRequest {
   provider: string;
-  label?: string;
+  label: string;
   childId: string;
-  signal?: AbortSignal;
-  /** dsh 0.2.1-alpha.2 requires an explicit delivery; 'parent' keeps the
-   *  continuable semantics (the child's completion notifies the Lead). */
+  signal: AbortSignal;
+  /** 'parent' also notifies the Lead when the child completes. */
   delivery: 'parent' | 'caller';
-  request: SubagentStartRequest;
 }
 
 export interface ToolDefinition {
@@ -167,24 +162,18 @@ export interface DshContext {
     get?(id: string): DshSession | undefined;
   };
   subagents: {
-    /** dsh 0.2.1-alpha.2+; the runtime probes and falls back to the legacy name below. */
-    startActivation?(spec: ContinuableStartSpec): Promise<unknown>;
-    /** dsh ≤ 0.2.1-alpha.1 legacy name. */
-    startContinuable?(spec: Omit<ContinuableStartSpec, 'delivery'>): Promise<unknown>;
+    startActivation(spec: ContinuableStartSpec): Promise<unknown>;
     sendMessage(sender: DshAgent, targetId: string, content: ContentBlock[], options?: { signal?: AbortSignal }): Promise<unknown>;
-    interrupt(targetSessionId: string, authority: { kind: string; parentSessionId?: string }): void;
-    /** dsh 0.2.1-alpha.2+; legacy drainContinuableDescendants below. */
-    drainDescendants?(parents: readonly DshAgent[]): Promise<unknown>;
-    drainChildren?(parent: DshAgent, childIds: readonly string[]): Promise<void>;
-    drainContinuableDescendants?(parents: readonly DshAgent[]): Promise<unknown>;
-    listChildren(parentSessionId: string, signal?: AbortSignal): Promise<unknown>;
-    /** Named-provider probe (F18, present since 0.2.0-rc.2): no result means the provider bundle is not installed. */
+    interrupt(targetSessionId: string, authority: { kind: 'user' }): void;
+    rootOf(agent: DshAgent): DshAgent;
+    drainDescendants(parents: readonly DshAgent[]): Promise<unknown>;
+    /** Named-provider probe (F18): no result means the provider bundle is not installed. */
     getProvider?(name: string): unknown;
   };
   tools: {
     register(definition: ToolDefinition): () => void;
     restrict(filter: { allow?: string[]; deny?: string[] }): void;
-    /** 0.2.2-rc.1 public scoped guard and executor; required by WeChat and business Worker admission. */
+    /** Public scoped guard and executor; required by WeChat and business Worker admission. */
     guard?(check: (exec: { agent?: DshAgent; name: string }) => string | undefined): () => void;
     setExecutor?(executor: { describe(tools: readonly ToolDefinition[]): unknown; execute(input: unknown): Promise<unknown> }): () => void;
     /** Host-plane (global) view of mounted tools, name-projected (present since 0.2.0-rc.2); profile-level MCP tools mount there (F18). */

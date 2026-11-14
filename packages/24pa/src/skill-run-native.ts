@@ -2,6 +2,7 @@ import type { DshSession } from './host.js';
 import type { SkillRunRepo, SkillRunRow } from './repo/skill-run.js';
 import { SkillRunHost, type RunActivation, type RunInput, type RunToolCall, type RunToolResult } from './skill-run-host.js';
 import { consumedTurn, turnHasModelInput } from './host-turn.js';
+import { directChild } from './subagent-access.js';
 
 export const uncertainTool = (result: RunToolResult, aborted = false) =>
   ['ABORTED', 'TOOL_OUTCOME_UNKNOWN'].includes(result.error?.info?.code ?? '')
@@ -75,7 +76,7 @@ export class SkillRunNative {
       const sender = source.senderSessionId;
       if (!sender) return false;
       return (source.kind === 'agent-message' && sender === own.parent_session_id && sessions.some(row => row.session_id === sender))
-        || await this.host.directChild(owner, sender);
+        || await directChild(this.host.ctx, owner, sender);
     }
     if (source?.kind === 'tool-jobs') {
       const history = await this.host.history(run, owner);

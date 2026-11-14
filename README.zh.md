@@ -9,8 +9,8 @@ kind: "package-bundle"
 
 [![npm 版本](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub 最新发布](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
-[![Node.js](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-43853d)](packages/24pa/package.json)
-[![dsh 基线](https://img.shields.io/badge/dsh-0.2.2--rc.1-3451b2)](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.8)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D24.9.0-43853d)](packages/24pa/package.json)
+[![dsh 基线](https://img.shields.io/badge/dsh-0.2.2--rc.3-3451b2)](docs/research/dsh-0.2.2-rc.3-适配核验.md)
 
 **从“提醒我”到“帮我准备这一周”——把对话变成有条理、可审核、能跟进的行动，同时把控制权留在自己手里。**
 
@@ -18,9 +18,9 @@ kind: "package-bundle"
 
 ![24私助电脑端工作区，展示 Skill 管理、定时任务、日程、待办与运行记录](docs/assets/24pa-desktop-overview.png)
 
-`0.2.2-rc.1.8` 修复微信完整编号计划确认、暂停计划通知预览、人工结清输入竞态和同回合多输入恢复（#279）。原计划编号、启停选择、语音及通知渠道保持；已结清输入不会复活。此前待办查询参数与宿主工具权限修复继续保留。保留本人扫码绑定、私聊文字交办和常用计划管理；周期微信通知后置。使用方式见[微信接入指南](packages/24pa/weixin-setup.md)。本人扫码、帮助回复及只读待办查询结果已确认在微信可见；真实编号续办和计划确认仍待验收，进度见 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279)；协议实测与隔离验收见 [PR #282](https://github.com/benz-ai-x/dsh-24-PA/pull/282)。
+`0.2.2-rc.3.1` 将宿主基线升级为 dsh `0.2.2-rc.3`：受管子代理启动改用扁平参数，执行前同时核验活动运行树与持久父子目录，停止与恢复适配新宿主生命周期。标准预设重新生成；本地工具以 `wait_agent` 替代宿主默认关闭的 `interrupt_agent`。既有交办、会话身份、账本和微信行为保持，Office 工具不加入24私助白名单；微信在 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) 的验收状态不变。
 
-本修复版仅支持 dsh `0.2.2-rc.1`，需要该版原生工具执行门禁；旧宿主使用下方版本表对应的既有插件版本。
+本版要求 Node.js `>=24.9.0` 和 dsh `0.2.2-rc.3`；旧宿主使用下方版本表对应的既有插件版本。
 
 ## 为什么是24私助？
 
@@ -89,16 +89,18 @@ kind: "package-bundle"
 
 ### 前置要求
 
-- Node.js `^22.19.0` 或 `>=24.0.0`（默认 SQLite 账本使用内建 `node:sqlite`）。
-- 当前发版线使用 dsh `0.2.2-rc.1`。
+- Node.js `>=24.9.0`（默认 SQLite 账本使用内建 `node:sqlite`）。
+- 当前发版线使用 dsh `0.2.2-rc.3`。
 - 初次 demo 不需要飞书凭据，也不需要单独安装 PostgreSQL。
 
-### 安装当前版本
+### 安装 rc.3 候选（本地，未发布）
+
+`0.2.2-rc.3.1` 尚未发布到 npm registry。请在仓库根目录使用本地候选包，不要用 registry 版本号命令代替：
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.2-rc.1
+npm install -g @deepseek-ai/dsh@0.2.2-rc.3
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.8 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
 ```
 
 重启同一个 Profile，打开24私助工作区并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`；由于部分镜像同步滞后，建议显式使用 npm 官方 registry。
@@ -112,7 +114,8 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.8 --registry=http
 
 | dsh 宿主 | 24私助包版本 |
 | --- | --- |
-| `0.2.2-rc.1` | `0.2.2-rc.1.8`（当前版本） |
+| `0.2.2-rc.3` | `0.2.2-rc.3.1`（候选，未发布） |
+| `0.2.2-rc.1` | `0.2.2-rc.1.8`（该线停更于此） |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8`（该线停更于此） |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
 | `0.2.1-rc.3` | `0.2.1-rc.3.2` |
@@ -169,7 +172,7 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.1.8 --registry=http
 
 ---
 
-包：[`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · 当前版本：[`v0.2.2-rc.1.8`](https://github.com/benz-ai-x/dsh-24-PA/releases/tag/v0.2.2-rc.1.8)
+包：[`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · 当前兼容候选（未发布）：[`v0.2.2-rc.3.1`](docs/research/dsh-0.2.2-rc.3-适配核验.md)
 
 ## 日常工作方法
 

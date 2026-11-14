@@ -3,8 +3,9 @@ import type { Repos } from './repo.js';
 import type { RunInput } from './skill-run-host.js';
 import type { BudgetOwner, BudgetReleaseRow } from './repo/model-budget.js';
 import { budgetHash, budgetUsage, type BudgetConfig } from './model-budget.js';
-import { consumedTurn, turnHasModelInput, canceledInputIds } from './host-turn.js';
+import { agentRelayBody, consumedTurn, turnHasModelInput, canceledInputIds } from './host-turn.js';
 import { canFinishDispatchedStep, budgetBlockKey } from './run-control.js';
+import { directChild } from './subagent-access.js';
 const wakeMarker = (id: string) => `[24PA budget wake: ${id}]`;
 const adopted = (session: DshSession) => new Set(session.ownEvents().filter(event => event.type === 'turn/end' || event.type === 'step/start')
   .filter(event => turnHasModelInput(session, event.data.turn)).flatMap(event => [...consumedTurn(session, event.data.turn).messageIds])
@@ -55,9 +56,11 @@ export class ModelBudgets {
   private matches(release: BudgetReleaseRow, session: DshSession, message: RunInput): boolean {
     if (session.id !== release.session_id) return false;
     const parent = session.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
-    return parentId ? message.source?.kind === 'agent-message' && message.source.senderSessionId === parentId && message.content.length === 2
-      && message.content[0]?.text === `Agent ${parentId} sent a message: ` && message.content[1]?.text === wakeMarker(release.id)
-      : message.source?.kind === 'user' && message.source.rpcId === `pa24-budget:${release.id}` && message.content.length === 1 && message.content[0]?.text === wakeMarker(release.id);
+    if (parentId) {
+      const body = agentRelayBody(message, parentId);
+      return body?.length === 1 && body[0]?.text === wakeMarker(release.id);
+    }
+    return message.source?.kind === 'user' && message.source.rpcId === `pa24-budget:${release.id}` && message.content.length === 1 && message.content[0]?.text === wakeMarker(release.id);
   }
   async ownsWake(runId: string, sessionId: string, message: RunInput): Promise<boolean> {
     return (await this.context().repos.modelBudget.releases(runId)).some(row => row.session_id === sessionId && row.native_message_id === message.id);
@@ -150,8 +153,7 @@ export class ModelBudgets {
         const parent = history.header.parentSession, parentId = typeof parent === 'string' ? parent : parent?.id;
         if (parentId) {
           const parentAgent = await this.deps.host().sessionController.resolveAgent(parentId); if ('error' in parentAgent) throw parentAgent.error;
-          const children = await this.deps.host().subagents.listChildren(parentId) as Array<{ id: string }>;
-          if (!children.some(child => child.id === release.session_id)) throw new Error('预算恢复不能改变原父子会话。');
+          if (!await directChild(this.deps.host(), parentId, release.session_id)) throw new Error('预算恢复不能改变原父子会话。');
           mayHaveDispatched = true;
           await this.deps.detached(() => this.deps.host().subagents.sendMessage(parentAgent.agent, release.session_id, [{ type: 'text', text: wakeMarker(release.id) }], { signal: new AbortController().signal }));
         } else {

@@ -204,14 +204,20 @@ it('WX-03/08 跨入口热续办业务 Worker 保持工具范围及原结果目�
   await writeFile(scriptPath, JSON.stringify({ mode: 'dispatch', leadTool: { name: 'pa24_jobs', input: { action: 'continue', workId: original.id, instruction: '明确续办，核对原任务' } },
     leadReply: '已续办原事项。', workerTool: { name: 'team_task_create', input: { subject: 'must-not-create', description: 'cross-entry regression' } }, workerReply: '已拒绝宿主团队任务。' }));
   const input = wx.input(`明确继续 ${original.id}，核对原任务。`);
-  const completed = await host.waitUntil(s => s.work.some(row => row.id === original.id && row.active_worker_run_id !== original.active_worker_run_id && row.status === 'completed'));
+  const completed = await host.waitUntil(s => s.work.some(row => row.id === original.id && row.active_worker_run_id !== original.active_worker_run_id && row.status === 'needs_reconciliation')).catch(async () => {
+    const work = (await host.api('snapshot')).work.find(row => row.id === original.id);
+    const detail = work?.active_worker_run_id ? await host.api('worker.run', { runId: work.active_worker_run_id, workspaceBinding: binding }) : null;
+    throw new Error(JSON.stringify({ work, detail, weixin: await state(), model: llm.log.slice(before).map(row => ({ tools: row.tools, toolResults: row.toolResults, lastUserText: row.lastUserText })), logs: host.logs() }));
+  });
   await waitFor(s => s.inbox.some(row => row.payload.nativeId === input.message_id && row.status === 'delivered'));
   const current = completed.work.find(row => row.id === original.id);
   expect(current).toMatchObject({ id: original.id, parent_session_id: original.parent_session_id, child_session_id: original.child_session_id, delivery_target: original.delivery_target });
+  const continuedRun = await host.api('worker.run', { runId: current.active_worker_run_id, workspaceBinding: binding });
+  expect(continuedRun.calls).toMatchObject([{ tool: 'team_task_create', status: 'unknown', result: { isError: true } }]);
   const requests = llm.log.slice(before).filter(row => row.tools.includes('pa24_work'));
   expect(requests.length).toBeGreaterThan(0);
   expect(requests.every(row => !row.tools.includes('team_task_create'))).toBe(true);
-  expect(requests.flatMap(row => row.toolResults).join('\n')).toMatch(/业务会话授权范围|Unknown tool|unknown tool/);
+  expect(continuedRun.calls[0].result.error.message).toMatch(/业务会话授权范围|Unknown tool|unknown tool/);
   const events = await host.remote('session/events', { request: { address: { kind: 'subagent', parentSessionId: original.parent_session_id,
     childSessionId: original.child_session_id, mode: 'continuable' }, maxMessages: 30 } });
   expect(events.records.some(row => row.event.type === 'team/task')).toBe(false);
