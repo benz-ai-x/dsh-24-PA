@@ -50,7 +50,7 @@
 - **PostgreSQL 真实宿主**：`f01`＋`manticore-run-control`＋`manticore-budget`＋`weixin` 共 47/47 通过。
 - **跨版本**：`host-upgrade.e2e.mjs` 使用 rc.1 官方 CLI 和旧正式插件 `0.2.2-rc.1.8` 先产生等待数据，再由 rc.3＋候选包恢复；原工作编号、运行编号、父会话、投递目标及两条输入均采用一次。最终 tarball 安装后的独立 Worker／Skill 冒烟及对应测试见命令记录：跨版本 1/1，SQLite `f01`＋运行控制 27/27，PostgreSQL 运行控制 19/19；同一 tarball 另通过手写权限 8/8 与微信 11/11。
 - **桌面**：真实 rc.3 Host 中检查24私助侧栏、首页、运行记录、交办详情和真实 Worker 子会话；工具回执及原会话入口可打开。1280×800、1440×900、1920×1080 桌面视口和明暗主题均检查；方向键／Enter 可切换分类与详情，Escape 关闭后焦点回到原运行条目。查阅没有改变运行状态。
-- **发布制品**：`artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz`，159 个文件，压缩约 712.6 kB，解包约 2.7 MB。`package.json` 为 `0.2.2-rc.3.1`，engines.dsh 精确 rc.3，包含生成后的 `cordis.patch.yml` 和最新 `lib`，不包含测试或本机凭据。SHA-256：`64417f86f5e7e0de66290c3cc9e344a7f98d06c6c60f5332a2c8996720fac6d5`。从该 tarball 新建隔离 DSH_HOME/profile，readiness 显示 dsh rc.3＋插件 rc.3.1，普通 Worker 和受管 Skill 均返回指定结果。
+- **发布制品**：`artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz`，159 个文件，压缩约 712.6 kB，解包约 2.7 MB。`package.json` 为 `0.2.2-rc.3.1`，engines.dsh 精确 rc.3，包含生成后的 `cordis.patch.yml` 和最新 `lib`，不包含测试或本机凭据。SHA-256：`8af491dcb0f3a2f353304a676c6811981f56d32077503c4fa9e9b0658bba09b9`。从该 tarball 新建隔离 DSH_HOME/profile，readiness 显示 dsh rc.3＋插件 rc.3.1，普通 Worker 和受管 Skill 均返回指定结果。
 
 主要命令（真实宿主命令均同时设置 `DSH_BIN`；跨版本另设旧 CLI、旧包和最终候选包）：
 
