@@ -93,17 +93,12 @@ kind: "package-bundle"
 - 当前发版线使用 dsh `0.2.2-rc.3`。
 - 初次 demo 不需要飞书凭据，也不需要单独安装 PostgreSQL。
 
-### 安装 rc.3 候选（本地，未发布）
-
-`0.2.2-rc.3.1` 尚未发布到 npm registry。请在仓库根目录使用本地候选包，不要用 registry 版本号命令代替：
+### 安装当前版本
 
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.3
-npm --prefix packages/24pa install
-npm --prefix packages/24pa run build
-npm --prefix packages/24pa pack --pack-destination ../../artifacts
 
-dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.3.1 --registry=https://registry.npmjs.org
 ```
 
 重启同一个 Profile，打开24私助工作区并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`；由于部分镜像同步滞后，建议显式使用 npm 官方 registry。
@@ -117,7 +112,7 @@ dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
 
 | dsh 宿主 | 24私助包版本 |
 | --- | --- |
-| `0.2.2-rc.3` | `0.2.2-rc.3.1`（候选，未发布） |
+| `0.2.2-rc.3` | `0.2.2-rc.3.1`（当前发布） |
 | `0.2.2-rc.1` | `0.2.2-rc.1.8`（该线停更于此） |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8`（该线停更于此） |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
@@ -175,7 +170,7 @@ dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
 
 ---
 
-包：[`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · 当前兼容候选（未发布）：[`v0.2.2-rc.3.1`](docs/research/dsh-0.2.2-rc.3-适配核验.md)
+包：[`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · 当前发布版本：[`v0.2.2-rc.3.1`](docs/research/dsh-0.2.2-rc.3-适配核验.md)
 
 ## 日常工作方法
 

@@ -22,7 +22,7 @@ kind: "package-bundle"
 
 `0.2.2-rc.3.1` upgrades the host baseline to dsh `0.2.2-rc.3`: managed subagent activation is flattened, ownership is rechecked against the live tree and durable parent catalog before execution, and stop/recovery uses the new host lifecycle. The standard preset is regenerated; `wait_agent` replaces the host-disabled `interrupt_agent`. Existing work, session identity, ledgers, and WeChat behavior remain in place; Office tools are not added to 24PA allowlists. The WeChat acceptance status in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) is unchanged.
 
-This candidate requires Node.js `>=24.9.0` and dsh `0.2.2-rc.3`. Older hosts must use their matching plugin version in the table below.
+This release requires Node.js `>=24.9.0` and dsh `0.2.2-rc.3`. Older hosts must use their matching plugin version in the table below.
 
 ## Why 24PA?
 
@@ -92,20 +92,15 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 ### Requirements
 
 - Node.js `>=24.9.0` (the default SQLite ledger uses built-in `node:sqlite`).
-- dsh `0.2.2-rc.3` for the current compatibility candidate line.
+- dsh `0.2.2-rc.3` for the current release line.
 - No Feishu credentials are needed for the initial demo. PostgreSQL is optional.
 
-### Install the rc.3 candidate (local, unreleased)
-
-`0.2.2-rc.3.1` is not published to the npm registry. From the repository root, install the local candidate tarball instead of requesting this version from a registry:
+### Install the current release
 
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.3
-npm --prefix packages/24pa install
-npm --prefix packages/24pa run build
-npm --prefix packages/24pa pack --pack-destination ../../artifacts
 
-dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.3.1 --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile, open the 24PA workspace, and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`; the official npm registry is recommended because some mirrors lag behind.
@@ -119,7 +114,7 @@ Restart the same Profile, open the 24PA workspace, and choose the「24私助」p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.2-rc.3` | `0.2.2-rc.3.1` (candidate, unreleased) |
+| `0.2.2-rc.3` | `0.2.2-rc.3.1` (current release) |
 | `0.2.2-rc.1` | `0.2.2-rc.1.8` (line frozen here) |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8` (line frozen here) |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
@@ -177,7 +172,7 @@ They are written to the native calendar with an alert, so the model is not the r
 
 ---
 
-Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current compatibility candidate: [`v0.2.2-rc.3.1`](docs/research/dsh-0.2.2-rc.3-适配核验.md)
+Package: [`@benz-ai-x/dsh-24pa`](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa) · Current release: [`v0.2.2-rc.3.1`](docs/research/dsh-0.2.2-rc.3-适配核验.md)
 
 ## Everyday work methods
 

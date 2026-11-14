@@ -84,17 +84,12 @@ kind: "package-bundle"
 前置要求：Node.js `>=24.9.0`、dsh `0.2.2-rc.3`；默认 SQLite demo 无需独立数据库服务。
 
 <a id="安装-bundle"></a>
-### 安装 rc.3 候选（本地，未发布）
-
-`0.2.2-rc.3.1` 尚未发布到 npm registry。请在仓库根目录使用本地候选包，不要用 registry 版本号命令代替：
+### 安装当前版本
 
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.3
-npm --prefix packages/24pa install
-npm --prefix packages/24pa run build
-npm --prefix packages/24pa pack --pack-destination ../../artifacts
 
-dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.3.1 --registry=https://registry.npmjs.org
 ```
 
 重启同一个 Profile 并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`。全新实例请按[初始化指南](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md)完成隔离目录、启动脚本、pnpm 构建审批、带 token 的面板地址与 demo 验收；随后对本地助理说「帮我接通飞书」，或阅读随包[飞书接入指南](feishu-setup.md)。
@@ -108,7 +103,7 @@ dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
 
 | dsh 宿主 | 24私助包版本 |
 | --- | --- |
-| `0.2.2-rc.3` | `0.2.2-rc.3.1`（候选，未发布） |
+| `0.2.2-rc.3` | `0.2.2-rc.3.1`（当前发布） |
 | `0.2.2-rc.1` | `0.2.2-rc.1.8`（该线停更于此） |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8`（该线停更于此） |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
