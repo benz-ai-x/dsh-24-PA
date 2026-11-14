@@ -1,6 +1,6 @@
 # dsh 0.2.2-rc.3 适配核验（插件 0.2.2-rc.3.1）
 
-2026-11-14。上一适配基线：`dsh 0.2.2-rc.1` / 插件 `0.2.2-rc.1.8`。目标为 npm `next` 的 `0.2.2-rc.3`，候选插件版本 `0.2.2-rc.3.1`；不使用版本豁免。
+2026-11-14。上一适配基线：`dsh 0.2.2-rc.1` / 插件 `0.2.2-rc.1.8`。目标为 npm `next` 的 `0.2.2-rc.3`，发布插件版本 `0.2.2-rc.3.1`；不使用版本豁免。
 
 ## 官方来源与范围
 
@@ -50,7 +50,7 @@
 - **PostgreSQL 真实宿主**：`f01`＋`manticore-run-control`＋`manticore-budget`＋`weixin` 共 47/47 通过。
 - **跨版本**：`host-upgrade.e2e.mjs` 使用 rc.1 官方 CLI 和旧正式插件 `0.2.2-rc.1.8` 先产生等待数据，再由 rc.3＋候选包恢复；原工作编号、运行编号、父会话、投递目标及两条输入均采用一次。最终 tarball 安装后的独立 Worker／Skill 冒烟及对应测试见命令记录：跨版本 1/1，SQLite `f01`＋运行控制 27/27，PostgreSQL 运行控制 19/19；同一 tarball 另通过手写权限 8/8 与微信 11/11。
 - **桌面**：真实 rc.3 Host 中检查24私助侧栏、首页、运行记录、交办详情和真实 Worker 子会话；工具回执及原会话入口可打开。1280×800、1440×900、1920×1080 桌面视口和明暗主题均检查；方向键／Enter 可切换分类与详情，Escape 关闭后焦点回到原运行条目。查阅没有改变运行状态。
-- **候选制品**：`artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz`，159 个文件，压缩约 712.6 kB，解包约 2.7 MB。`package.json` 为 `0.2.2-rc.3.1`，engines.dsh 精确 rc.3，包含生成后的 `cordis.patch.yml` 和最新 `lib`，不包含测试或本机凭据。SHA-256：`9c34f4f6ad5042148ce309aa0f886a84598a7e90e32b9df32d47be3a2ba163e5`。从该 tarball 新建隔离 DSH_HOME/profile，readiness 显示 dsh rc.3＋插件 rc.3.1，普通 Worker 和受管 Skill 均返回指定结果。
+- **发布制品**：`artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz`，159 个文件，压缩约 712.6 kB，解包约 2.7 MB。`package.json` 为 `0.2.2-rc.3.1`，engines.dsh 精确 rc.3，包含生成后的 `cordis.patch.yml` 和最新 `lib`，不包含测试或本机凭据。SHA-256：`64417f86f5e7e0de66290c3cc9e344a7f98d06c6c60f5332a2c8996720fac6d5`。从该 tarball 新建隔离 DSH_HOME/profile，readiness 显示 dsh rc.3＋插件 rc.3.1，普通 Worker 和受管 Skill 均返回指定结果。
 
 主要命令（真实宿主命令均同时设置 `DSH_BIN`；跨版本另设旧 CLI、旧包和最终候选包）：
 
@@ -66,5 +66,5 @@ PA24_E2E_PACKAGE=<final-tarball> PA24_E2E_STORAGE=sqlite npx vitest run tests/e2
 
 - 提交 `ddcf61f` 的完整 `npm test`：2007 通过、1 失败、2 跳过。提交 `e1d8d44` 的最终全量为 2010 通过、1 失败、2 跳过；微信 `WX-06/09/10` 出现一次 40 秒投递等待超时，随后完整 `weixin.e2e.mjs` 复验 11/11 通过，未持续复现。首页跨日边界在同一最终轮通过。首页 `manticore-home.e2e.mjs` 在晚间出现一条时间边界失败：夹具把第二个日程固定为“两小时后”，跨日后预期两条、实际一条。该用例已单独复现，与本次适配改动无关，未修改产品代码或测试来隐藏。
 - 公开 `startActivation` 不支持 `persona/toolFilter` 透传；旧请求中的这两个字段没有有效宿主作用。权限继续由24私助自己的目录和执行门禁收紧，模型路由继续走公开 `agentOptions`，不臆造新的宿主参数。
-- 不验证真实飞书／企微／微信账号、生产部署或 npm 发布状态；`0.2.2-rc.3.1` 是本地候选，registry 安装命令不作为当前可用入口。
+- 不验证真实飞书／企微／微信账号、生产部署或 npm 发布状态；`0.2.2-rc.3.1` 已发布到 npm registry，GitHub Release 提供同一 tarball。
 - 后续新增功能与兼容性变更只针对 SQLite；PostgreSQL 暂停开发。本文 PG 结果仅证明本轮历史验证，既有实现与历史数据兼容保留，不表示继续新增 PG 专项能力。

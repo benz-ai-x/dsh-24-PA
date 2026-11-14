@@ -22,7 +22,7 @@ kind: "package-bundle"
 
 `0.2.2-rc.3.1` upgrades the host baseline to dsh `0.2.2-rc.3`: managed subagent activation is flattened, ownership is rechecked against the live tree and durable parent catalog before execution, and stop/recovery uses the new host lifecycle. The standard preset is regenerated; `wait_agent` replaces the host-disabled `interrupt_agent`. Existing work, session identity, ledgers, and WeChat behavior remain in place; Office tools are not added to 24PA allowlists. The WeChat acceptance status in [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) is unchanged.
 
-This candidate requires Node.js `>=24.9.0` and dsh `0.2.2-rc.3`. Older hosts must use their matching plugin version in the table below.
+This release requires Node.js `>=24.9.0` and dsh `0.2.2-rc.3`. Older hosts must use their matching plugin version in the table below.
 
 ## Why 24PA?
 
@@ -86,17 +86,12 @@ See the [Manticore delivery and acceptance record](https://github.com/benz-ai-x/
 Requirements: Node.js `>=24.9.0`, dsh `0.2.2-rc.3`, and no database service for the default SQLite demo.
 
 <a id="installing-the-bundle"></a>
-### Install the rc.3 candidate (local, unreleased)
-
-`0.2.2-rc.3.1` is not published to the npm registry. From the repository root, install the local candidate tarball instead of requesting this version from a registry:
+### Install the current release
 
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.3
-npm --prefix packages/24pa install
-npm --prefix packages/24pa run build
-npm --prefix packages/24pa pack --pack-destination ../../artifacts
 
-dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
+dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.3.1 --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`. For a new instance, follow the [initialization guide](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md) for the isolated directory, launch script, expected pnpm approval, token URL, and demo verification. Then tell the local assistant「帮我接通飞书」or use the bundled [Feishu setup guide](feishu-setup.md).
@@ -110,7 +105,7 @@ To remove the bundle, run `dsh plugin --profile <name> remove @benz-ai-x/dsh-24p
 
 | dsh host | 24PA package |
 | --- | --- |
-| `0.2.2-rc.3` | `0.2.2-rc.3.1` (candidate, unreleased) |
+| `0.2.2-rc.3` | `0.2.2-rc.3.1` (current release) |
 | `0.2.2-rc.1` | `0.2.2-rc.1.8` (line frozen here) |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8` (line frozen here) |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
