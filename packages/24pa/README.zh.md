@@ -90,6 +90,8 @@ kind: "package-bundle"
 
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.2-rc.3
+npm --prefix packages/24pa run build
+npm --prefix packages/24pa pack --pack-destination ../../artifacts
 
 dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.2-rc.3.1.tgz
 ```

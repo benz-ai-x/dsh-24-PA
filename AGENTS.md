@@ -4,6 +4,7 @@
 
 - **产品基线**：设计、实现、修复或审查产品行为，修改需求、界面、权限、数据归属、规格，或编写仓库／助理工作区 AGENTS.md 前，读 [产品基线](docs/agents/product.md)。
 - **终端范围**：本产品的设计、开发与验收只考虑电脑端使用，不考虑手机端使用。
+- **存储范围**：新增功能与兼容性变更只针对 SQLite；PostgreSQL 暂停开发，既有实现与历史数据兼容保留。
 - **事项跟踪**：读取、创建、更新或关闭 Issue 前，读 [GitHub 事项约定](docs/agents/issue-tracker.md)。
 - **Triage**：分类事项、调整标签或工单状态前，读 [标签映射](docs/agents/triage-labels.md)。
 - **领域文档**：探索代码、讨论领域设计或修改术语／ADR 前，读 [领域文档约定](docs/agents/domain.md)。
