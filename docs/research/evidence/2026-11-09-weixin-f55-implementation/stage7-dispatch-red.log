@@ -1,0 +1,42 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/unit/weixin-send-guards.test.mjs (5 tests | 2 failed) 250ms
+   × 最外层异步返回期间 preference 改变，在真实请求紧前仍阻止发送 94ms
+     → promise resolved "{ acceptance: { …(4) } }" instead of rejecting
+   × 最外层异步返回期间 expiry 改变，在真实请求紧前仍阻止发送 80ms
+     → promise resolved "{ acceptance: { …(4) } }" instead of rejecting
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/weixin-send-guards.test.mjs > 最外层异步返回期间 preference 改变，在真实请求紧前仍阻止发送
+ FAIL  tests/unit/weixin-send-guards.test.mjs > 最外层异步返回期间 expiry 改变，在真实请求紧前仍阻止发送
+AssertionError: promise resolved "{ acceptance: { …(4) } }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "acceptance": Object {
++     "at": "2026-11-09T10:38:02.774Z",
++     "basis": "explicit_zero",
++     "http": 200,
++     "ret": 0,
++   },
++ }
+
+ ❯ tests/unit/weixin-send-guards.test.mjs:99:6
+     97|     queueMicrotask(() => queueMicrotask(() => kind === 'preference' ? …
+     98|     return prepared;
+     99|   })).rejects.toMatchObject({ hold: { status: kind === 'preference' ? …
+       |      ^
+    100|   expect(sent).toEqual([]);
+    101| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 3 passed (5)
+   Start at  18:38:02
+   Duration  717ms (transform 178ms, setup 0ms, collect 364ms, tests 250ms, environment 0ms, prepare 28ms)

@@ -102,6 +102,7 @@ export class TaskPlanService {
     if (!row.task_config || row.recycled_at || row.delete_when_idle) throw new Error('计划未完成配置或已进入删除流程。');
     const prepared = await this.deps.skills.preparePlan(row.task_config, row.session_id);
     const authorization = await this.deps.access.authorize(row.task_config, prepared.skill, rebind ? null : row.task_authorization);
+    await this.deps.access.verifyDelivery(authorization.delivery);
     const nextTimes = previewPlanTimes(row.schedule_spec).times;
     const fingerprint = taskPlanFingerprint([row.id, row.revision, row.task_config, row.schedule_spec, planAuthorizationScope(authorization)]);
     return { prepared, authorization, nextTimes, fingerprint };

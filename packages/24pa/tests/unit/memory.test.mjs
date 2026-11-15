@@ -45,6 +45,28 @@ const record = (id, over = {}) => ({
   ...over,
 });
 
+it('准备后的记忆查询采用实际判定时刻，权威文件变化后必须重新读取', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'pa24-memory-dispatch-'));
+  const store = new MemoryStore(dir, { fs: fakeFs() }), startsAt = Date.now() + 10000;
+  try {
+    const empty = await store.prepareSearch(); expect(empty({ mode: 'facts' }).records).toEqual([]);
+    const preference = record('quiet-prepared', { topic: '通知偏好', content: '安静时段 19:00-23:00',
+      validFrom: new Date(startsAt).toISOString(), confirmation: { kind: 'owner_instruction', text: '本人要求此时间段免打扰', at: new Date().toISOString(), by: 'owner' } });
+    await store.put(preference, { expectedRevision: 0, actor: 'owner', reason: '保存本人偏好' });
+    expect(() => empty({ mode: 'facts' })).toThrow(/变化/);
+    const prepared = await store.prepareSearch();
+    expect(prepared({ topic: '通知偏好', mode: 'facts' }, startsAt - 1).records).toEqual([]);
+    expect(prepared({ topic: '通知偏好', mode: 'facts' }, startsAt + 1).records.map(row => row.id)).toEqual(['quiet-prepared']);
+    // Outside edits use the same authority file and invalidate the snapshot,
+    // even when they do not increment the in-app revision.
+    const path = join(dir, '.24pa/memory.json'), raw = await readFile(path, 'utf8');
+    await writeFile(path, raw + '\n');
+    expect(() => prepared({ mode: 'facts' }, startsAt + 1)).toThrow(/变化/);
+    const current = await store.prepareSearch(); expect(current({ mode: 'facts' }, startsAt + 1).records).toHaveLength(1);
+    await rm(path); expect(() => current({ mode: 'facts' })).toThrow(/变化/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 describe('MemoryStore（JSON 记忆权威）', () => {
   let dir, store;
 

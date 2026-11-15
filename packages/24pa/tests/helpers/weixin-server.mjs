@@ -9,7 +9,7 @@ export async function startWeixinServer() {
     calls.push({ endpoint, body });
     res.setHeader('content-type', 'application/json');
     if (endpoint.endsWith('/get_bot_qrcode')) return res.end(JSON.stringify({ qrcode: 'isolated-code', qrcode_img_content: 'https://weixin.qq.com/test-only' }));
-    if (endpoint.endsWith('/get_qrcode_status')) return res.end(JSON.stringify({ status: state.loginStatus ?? 'confirmed', bot_token: 'test-private-token', ilink_bot_id: state.bot, ilink_user_id: state.owner, baseurl: 'https://ilinkai.weixin.qq.com' }));
+    if (endpoint.endsWith('/get_qrcode_status')) return res.end(JSON.stringify({ status: state.loginStatus ?? 'confirmed', bot_token: 'test-private-token', ilink_bot_id: state.bot, ilink_user_id: state.owner, baseurl: state.base ?? 'https://ilinkai.weixin.qq.com' }));
     if (state.invalidToken) return res.end(JSON.stringify({ ret: -14 }));
     if (endpoint.endsWith('/getupdates')) {
       await delay(150);
@@ -17,7 +17,12 @@ export async function startWeixinServer() {
     }
     if (endpoint.endsWith('/sendmessage')) {
       sent.push(structuredClone(body.msg));
-      return res.end(JSON.stringify(state.sendMode === 'unknown' ? {} : state.sendMode === 'no-id' ? { ret: 0 } : { message_id: String(9876543210987654321n + BigInt(sent.length)) }));
+      const mode = state.sendModes?.shift() ?? state.sendMode;
+      if (mode === 'invalid-token') return res.end(JSON.stringify({ ret: -14 }));
+      if (mode === 'rejected') return res.end(JSON.stringify({ ret: 1 }));
+      if (mode === 'rate-limit' || mode === 'http-error') { res.statusCode = mode === 'rate-limit' ? 429 : 503; return res.end('{}'); }
+      if (mode === 'network-error') { res.destroy(); return; }
+      return res.end(JSON.stringify(mode === 'unknown' ? {} : mode === 'no-id' ? { ret: 0 } : { message_id: String(9876543210987654321n + BigInt(sent.length)) }));
     }
     res.statusCode = 404; res.end('{}');
   });

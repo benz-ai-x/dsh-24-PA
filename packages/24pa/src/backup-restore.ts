@@ -141,7 +141,18 @@ function closure(records: Record<string, Record<string, any>[]>) {
   const checkWechatAssociation = (association: any, generation: string, id: unknown) => {
     const input = rows('inbox').find(row => row.event_id === association?.inboxEventId);
     const work = rows('work_item').find(row => row.id === association?.workItemId);
-    if (!association || !association.inboxEventId && !association.workItemId ||
+    const planLinked = association?.planId || association?.skillRunId || association?.noticeId;
+    if (planLinked) {
+      const run = rows('skill_run').find(row => row.id === association.skillRunId);
+      const notice = rows('task_plan_notice').find(row => row.id === association.noticeId);
+      if (!run || !notice || !association.planId || run.plan_id !== association.planId || run.snapshot?.plan?.id !== association.planId
+        || notice.plan_id !== association.planId || notice.run_id !== run.id || notice.destination?.channel !== 'weixin'
+        || notice.destination.generation !== generation || !run.snapshot.plan.authorization?.delivery
+        || digest(notice.destination) !== digest(run.snapshot.plan.authorization.delivery)) {
+        errors.push(`微信计划／运行／通知关联不符：${id}`);
+      } else checkWechatTarget(notice.destination, id);
+    }
+    if (!association || !association.inboxEventId && !association.workItemId && !planLinked ||
       association.inboxEventId && input?.binding_generation !== generation ||
       association.workItemId && work?.delivery_target?.generation !== generation ||
       association.workerRunId && runs.get(association.workerRunId)?.work_item_id !== association.workItemId) errors.push(`微信输入／工作关联不符：${id}`);
@@ -151,6 +162,10 @@ function closure(records: Record<string, Record<string, any>[]>) {
     checkWechatTarget(row.delivery_target, row.id);
     if (row.binding_generation !== row.delivery_target?.generation || row.target !== row.delivery_target?.ownerId) errors.push(`微信出站归属不符：${row.id}`);
     checkWechatAssociation(row.association, row.binding_generation, row.id);
+    if (row.association?.noticeId && !rows('task_plan_delivery').some(delivery => Number(delivery.outbox_id) === Number(row.id)
+      && delivery.notice_id === row.association.noticeId && delivery.run_id === row.association.skillRunId && delivery.component === row.kind)) {
+      errors.push(`微信计划投递关联缺失：${row.id}`);
+    }
   }
   for (const row of rows('remote_message_route')) {
     const binding = rows('weixin_binding').find(binding => binding.generation === row.generation);

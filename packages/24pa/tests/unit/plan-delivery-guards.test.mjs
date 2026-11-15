@@ -33,7 +33,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`投递评审边界 (${ba
       snapshot: { name: entry.name, definition: version.definition, package: version.package_data, contract: null, parameters: {}, tools: [], permissionHash: 'same',
         plan: { id: plan.id, title: plan.title, generation: 'manual', source: 'manual', triggeredAt: new Date().toISOString(), configuration: config, authorization } } });
     access = { verifyDelivery: async () => {} };
-    results = new PlanResults({ repos: () => repos, access, silence: { silentUntil: async () => null }, binding: () => 'workspace' });
+    results = new PlanResults({ repos: () => repos, access, silence: { prepare: async () => () => null }, binding: () => 'workspace' });
   });
   const saved = async () => { await repos.skillRuns.transition(run.id, 'completed', '保存成功', '完整结果'); await results.reconcile(); };
   const notices = () => repos.planResults.inspect(run.id);
@@ -56,6 +56,47 @@ for (const backend of ['sqlite', 'postgres']) describe(`投递评审边界 (${ba
     let sends = 0; await dispatcher(async () => { sends++; return { messageId: 'unexpected' }; }).drain();
     expect(sends).toBe(0); expect((await notices())[0].deliveryStatus).toBe('expired');
     expect((await notices())[0].deliveries.every(row => row.outbox.attempts === 0)).toBe(true);
+  });
+  it('身份核验期间进入免打扰，实际派发前采用最新偏好而不是提前读取的结果', async () => {
+    await saved(); let quiet = null, sends = 0;
+    results = new PlanResults({ repos: () => repos, access, silence: { prepare: async () => () => quiet }, binding: () => 'workspace' });
+    access.verifyDelivery = async () => { quiet = new Date(Date.now() + 30 * 60000); };
+    await dispatcher(async () => { sends++; return { messageId: 'unexpected' }; }).drain();
+    expect(sends).toBe(0);
+    const [notice] = await notices(); expect(notice.deliveryStatus).toBe('pending');
+    expect(notice.deliveries.every(item => item.outbox.attempts === 0)).toBe(true);
+    expect(notice.deliveries[0].outbox.last_error).toContain('免打扰');
+  });
+  it('核验通知期间原运行已经完成，不再发送旧的待处理要求', async () => {
+    await repos.skillRuns.transition(run.id, 'waiting', '请补充旧要求'); await results.reconcile();
+    access.verifyDelivery = async () => { await repos.skillRuns.transition(run.id, 'completed', '已按补充办结', '最终结果'); };
+    let sends = 0; await dispatcher(async () => ({ messageId: `unexpected-${++sends}` })).drain();
+    expect(sends).toBe(0);
+    const [notice] = await notices(); expect(notice.kind).toBe('attention'); expect(notice.deliveryStatus).toBe('expired');
+    expect(notice.deliveries[0].outbox.attempts).toBe(0);
+    expect(await repos.skillRuns.get(run.id)).toMatchObject({ status: 'completed', result: '最终结果' });
+  });
+  it('读取免打扰期间处理要求已更新，不发送旧问题冒充当前要求', async () => {
+    await repos.skillRuns.transition(run.id, 'waiting', '请补充旧要求'); await results.reconcile();
+    results = new PlanResults({ repos: () => repos, access, silence: { prepare: async () => {
+      await repos.skillRuns.transition(run.id, 'waiting', '现在只需补充新要求'); return () => null;
+    } }, binding: () => 'workspace' });
+    let sends = 0; await dispatcher(async () => ({ messageId: `unexpected-${++sends}` })).drain();
+    expect(sends).toBe(0);
+    const [notice] = await notices(); expect(notice.deliveryStatus).toBe('expired'); expect(notice.deliveries[0].outbox.attempts).toBe(0);
+    expect(await repos.skillRuns.get(run.id)).toMatchObject({ status: 'waiting', progress: '现在只需补充新要求' });
+  });
+  it('准备期间跨入安静时段，最终按当前时间判断而不是沿用旧允许结论', async () => {
+    await saved(); const startsAt = Date.now() + 1000, endsAt = new Date(startsAt + 30 * 60000);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(startsAt - 1);
+    const evaluate = () => Date.now() >= startsAt ? endsAt : null;
+    results = new PlanResults({ repos: () => repos, access, silence: {
+      prepare: async () => { queueMicrotask(() => clock.mockReturnValue(startsAt + 1)); return evaluate; },
+    }, binding: () => 'workspace' });
+    let sends = 0; await dispatcher(async () => ({ messageId: `unexpected-${++sends}` })).drain();
+    expect(sends).toBe(0);
+    const [notice] = await notices(); expect(notice.deliveryStatus).toBe('pending');
+    expect(notice.deliveries.every(item => item.outbox.attempts === 0 && item.outbox.last_error.includes('免打扰'))).toBe(true);
   });
   it('语音准备跨过期限后在实际 CLI 派发前停止，完整文本与业务结果保持成功', async () => {
     await saved(); const expiry = new Date((await notices())[0].deliveries[0].expires_at).getTime();

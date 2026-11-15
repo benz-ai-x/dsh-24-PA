@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile, rename, rm } from 'node:fs/promises';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DshContext, FsTarget, FsWriteIntent } from './host.js';
 
@@ -105,6 +106,27 @@ export class MemoryStore {
       catch (error) { auditWarning = `记忆读取成功；审计待核对或删除清理待完成：${(error as Error).message}`; }
       const tracked = await this.trackedRevision(file);
       return { ...queryMemory(file, filter), fingerprint: memoryHash(file), trackedRevision: tracked, ...(auditWarning ? { auditWarning } : {}) };
+    });
+  }
+
+  private authorityStamp(): string | null {
+    try {
+      const value = statSync(join(this.dir, 'memory.json'), { bigint: true });
+      return [value.dev, value.ino, value.size, value.mtimeNs, value.ctimeNs].join(':');
+    } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  }
+
+  /** Prepare one authority snapshot, then query at dispatch time without
+   * another await. Any in-app or external file change invalidates the read. */
+  async prepareSearch(): Promise<(filter: MemoryFilter, now?: number) => ReturnType<typeof queryMemory>> {
+    return this.enqueue(async () => {
+      await this.ensureTargets();
+      const stamp = this.authorityStamp(), { file } = await this.read();
+      const current = () => {
+        if (stamp !== this.authorityStamp()) throw new MemoryError('记忆在准备期间已变化，请重新读取后再投递。');
+      };
+      current();
+      return (filter, now = Date.now()) => { current(); return queryMemory(file, filter, now); };
     });
   }
 

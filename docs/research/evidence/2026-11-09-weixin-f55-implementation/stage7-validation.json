@@ -1,0 +1,123 @@
+{
+  "recordedAt": "2026-11-09T10:44:59.224Z",
+  "testedCommit": "04ccbdd0252b40e3d8b87ea7343276a64bb6c933",
+  "stage": 7,
+  "issue": 281,
+  "scope": "Retain synchronous preference-version and expiry checks until the final WeChat request boundary. Partial F55; not merge-ready, released or deployed.",
+  "completeRuns": [
+    {
+      "storage": "sqlite",
+      "kind": "real Loader, Session, authenticated UI APIs and persistence",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs",
+        "tests/e2e/manticore-plan-delivery.e2e.mjs"
+      ],
+      "passed": 33,
+      "failed": 0,
+      "log": "stage7-sqlite.log"
+    },
+    {
+      "storage": "postgres",
+      "kind": "real Loader, Session, authenticated UI APIs and persistence",
+      "files": [
+        "tests/e2e/weixin-plan-delivery.e2e.mjs",
+        "tests/e2e/weixin.e2e.mjs",
+        "tests/e2e/manticore-plan-delivery.e2e.mjs"
+      ],
+      "passed": 33,
+      "failed": 0,
+      "log": "stage7-postgres.log"
+    }
+  ],
+  "supplementalRuns": [
+    {
+      "kind": "public services and real databases, vault and memory authority file",
+      "files": [
+        "tests/unit/plan-results.test.mjs",
+        "tests/unit/plan-delivery-guards.test.mjs",
+        "tests/unit/weixin-send-guards.test.mjs"
+      ],
+      "passed": 43,
+      "failed": 0,
+      "log": "stage7-unit-recheck.log"
+    }
+  ],
+  "commands": {
+    "native": "DSH_BIN=/Users/pc2026/DSH-Space/deepseek-harness/apps/cli/lib/bin.js PA24_E2E_EXTRA_PLUGINS=@deepseek-ai/dsh-experimental-agent-team-profile@0.2.2-rc.1 PA24_E2E_STORAGE=sqlite|postgres node node_modules/vitest/vitest.mjs run tests/e2e/weixin-plan-delivery.e2e.mjs tests/e2e/weixin.e2e.mjs tests/e2e/manticore-plan-delivery.e2e.mjs",
+    "unit": "node node_modules/vitest/vitest.mjs run tests/unit/plan-results.test.mjs tests/unit/plan-delivery-guards.test.mjs tests/unit/weixin-send-guards.test.mjs",
+    "checks": [
+      "npm run build",
+      "npm run preset:check",
+      "node --check client.js",
+      "git diff --check",
+      "node packages/24pa/scripts/secrets/scan.mjs --paths .",
+      "node packages/24pa/scripts/secrets/scan.mjs --staged"
+    ]
+  },
+  "reproducedBeforeFix": [
+    {
+      "log": "stage7-dispatch-red.log",
+      "failed": 2,
+      "passed": 3,
+      "observation": "Both changed preference file and expired result were sent by the real WeixinAccess after PlanResults preflight returned. The clock/file change occurred in nested microtasks before the external request."
+    }
+  ],
+  "initialFailures": [
+    {
+      "log": "stage7-fixture-start-failure.log",
+      "failed": 2,
+      "passed": 3,
+      "observation": "New test requested notification target before asynchronous polling became ready; fixed by waiting on public polling state."
+    },
+    {
+      "log": "stage7-unit.log",
+      "passed": 24,
+      "skipped": 19,
+      "failedSuites": 2,
+      "observation": "PostgreSQL could not bind the local socket under restricted execution. Full affected unit set subsequently passed with local socket permission."
+    }
+  ],
+  "corrections": [
+    "PlanResults.prepareSend returns a synchronous closure; WeixinAccess retains and evaluates it after its last await immediately before the external request.",
+    "Preference errors remain pending and expiry remains expired; neither is mistaken for an unknown send. Stop generation checks remain in place."
+  ],
+  "review": {
+    "base": "612f076",
+    "head": "04ccbdd0252b40e3d8b87ea7343276a64bb6c933",
+    "standards": {
+      "newFindings": 0,
+      "cleared": [
+        "quiet/expiry final dispatch gap"
+      ],
+      "remaining": [
+        "original business source permission"
+      ]
+    },
+    "spec": {
+      "newFindings": 0,
+      "remaining": [
+        "original business source permission",
+        "B server-side admission",
+        "existing acceptance gaps"
+      ]
+    }
+  },
+  "remaining": [
+    "Original business read provenance",
+    "B real evidence and matching server/UI admission",
+    "Version-upgrade, business permission and WeCom acceptance",
+    "Full desktop T20",
+    "Owner-visible real scheduled result and final review"
+  ],
+  "logs": [
+    "stage7-build.log",
+    "stage7-dispatch-red.log",
+    "stage7-fixture-start-failure.log",
+    "stage7-postgres.log",
+    "stage7-sqlite.log",
+    "stage7-unit-recheck.log",
+    "stage7-unit.log"
+  ],
+  "evidenceBoundary": "External platform/model/clock are isolated replacements. No real WeChat messages and no 8010 changes; B is still unverified."
+}

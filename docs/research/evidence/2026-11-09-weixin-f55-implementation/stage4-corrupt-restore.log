@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/backup-recovery.test.mjs (21 tests | 19 skipped) 42168ms
+   ✓ M09 sqlite durable records and isolated restore > 微信计划关联损坏即使文件哈希正确也拒绝恢复，不把其他运行或格式当作原通知 38034ms
+   ✓ M09 postgres durable records and isolated restore > 微信计划关联损坏即使文件哈希正确也拒绝恢复，不把其他运行或格式当作原通知 4133ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 19 skipped (21)
+   Start at  17:30:47
+   Duration  42.56s (transform 156ms, setup 0ms, collect 304ms, tests 42.17s, environment 0ms, prepare 20ms)
