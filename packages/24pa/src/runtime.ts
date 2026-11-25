@@ -30,7 +30,7 @@ const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任�
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
-import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService } from './host.js';
+import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitles } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -2718,8 +2718,12 @@ export class PaRuntime {
       .catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
     void activation?.result?.catch(() => { });
     // dsh 0.2.3 derives no fallback title for a child whose first task is an
-    // agent message, so the worker session is named as its catalog label.
-    await this.ctx.sessionController.rename({ sessionId: startSpec.childId, title: startSpec.label }).catch(() => { });
+    // agent message, so the worker session is named as its catalog label. The
+    // session controller refuses subagent-owned sessions; the title service
+    // takes the live session itself.
+    const child = (this.ctx.get('agents') as { get?(id: string): DshAgent | undefined } | null)?.get?.(startSpec.childId);
+    const titles = this.ctx.get('sessionTitle') as SessionTitles | undefined;
+    if (child && titles) { try { titles.rename(child.session, startSpec.label); } catch { } }
   }
 
   async changeWork(input: Record<string, unknown>, requester?: DshAgent): Promise<unknown> {
