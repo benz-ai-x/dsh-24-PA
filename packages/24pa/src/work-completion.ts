@@ -2,12 +2,18 @@ import type { ContentBlock, DshContext, DshSession, SessionEvent, SessionHeader 
 import { consumedTurn, isDelegatedInputSource } from './host-turn.js';
 import type { WorkExecutionScope, WorkItemRow } from './repo/work.js';
 
+/** The text of an execution input's marker block; ownership is decided by
+ *  comparing against exactly this. */
+export function executionMarker(executionId: string): string {
+  return `[24PA execution: ${executionId}]`;
+}
+
 /** The marker is part of the exact native input, not assistant output. The
  * durable intent is committed before sending it; a returned messageId alone
  * would leave a crash window between native acceptance and the DB receipt. */
 export function workExecutionContent(item: WorkItemRow): ContentBlock {
   if (!item.execution_id) throw new Error('事项缺少持久执行关联。');
-  return { type: 'text', text: `[24PA execution: ${item.execution_id}]` };
+  return { type: 'text', text: executionMarker(item.execution_id) };
 }
 
 /** Whether a host message is one of a work item's execution inputs: it carries
@@ -17,7 +23,7 @@ export function isWorkExecutionInput(
   executionId: string,
   scope: Pick<WorkExecutionScope, 'input' | 'parentSessionId'>,
 ): boolean {
-  return !!message.content?.some(block => block.type === 'text' && block.text === `[24PA execution: ${executionId}]`)
+  return !!message.content?.some(block => block.type === 'text' && block.text === executionMarker(executionId))
     && isDelegatedInputSource(message.source, scope.input, scope.parentSessionId);
 }
 

@@ -4,7 +4,7 @@ import type { Repos } from './repo.js';
 import type { RunInput, RunToolCall, RunToolResult } from './skill-run-host.js';
 import { SkillRunClock } from './skill-run-clock.js';
 import { beginRunAttempt, canFinishDispatchedStep, blockRun, clearRunBlock, runControlSummary } from './run-control.js';
-import { isWorkExecutionInput } from './work-completion.js';
+import { executionMarker, isWorkExecutionInput } from './work-completion.js';
 import { canceledInputIds, consumedTurn, turnHasModelInput } from './host-turn.js';
 
 interface WorkerScope {
@@ -122,7 +122,7 @@ export class WorkerRuns {
             return { kind: 'reject' };
           }
         }
-        if (messages.some(message => inputs.some(input => input.scope.input !== 'start' && message.content.some(block => block.text === `[24PA execution: ${input.execution_id}]`)))) await this.clearWait(active.item.id);
+        if (messages.some(message => inputs.some(input => input.scope.input !== 'start' && message.content.some(block => block.text === executionMarker(input.execution_id))))) await this.clearWait(active.item.id);
         if (this.deps.budget && !await this.deps.budget.check(active.run.id, current.session)) { this.clock.disarm(active.run.id); return { kind: 'reject' }; }
         await this.authorized(current);
         const decision = await next() as { kind: 'reject' } | { kind: 'enter'; messages: RunInput[] };

@@ -30,7 +30,7 @@ const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任�
 import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
-import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitles } from './host.js';
+import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry } from './host.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -1926,7 +1926,7 @@ export class PaRuntime {
       return typeof messageId === 'string' ? messageId : undefined;
     },
     quiesce: async item => {
-      const child = (this.ctx.get('agents') as { get?(id: string): DshAgent | undefined } | null)?.get?.(item.child_session_id ?? item.id);
+      const child = (this.ctx.get('agents') as AgentRegistry | null)?.get?.(item.child_session_id ?? item.id);
       if (child?.whenIdle) await child.whenIdle();
       else if (child) throw new Error('宿主无法确认旧 Worker 已停止，请等待其结束后继续。');
     },
@@ -1936,7 +1936,7 @@ export class PaRuntime {
         this.ctx.subagents.interrupt(childId, { kind: 'user' });
         return;
       }
-      const live = (this.ctx.get('agents') as { get?(id: string): DshAgent | undefined } | null)?.get?.(childId);
+      const live = (this.ctx.get('agents') as AgentRegistry | null)?.get?.(childId);
       if (live || item.active_worker_run_id) throw new Error('原生父子会话关系不符，未执行该子会话操作。');
     },
     track: item => this.trackWorkItem(item),
@@ -2721,8 +2721,8 @@ export class PaRuntime {
     // agent message, so the worker session is named as its catalog label. The
     // session controller refuses subagent-owned sessions; the title service
     // takes the live session itself.
-    const child = (this.ctx.get('agents') as { get?(id: string): DshAgent | undefined } | null)?.get?.(startSpec.childId);
-    const titles = this.ctx.get('sessionTitle') as SessionTitles | undefined;
+    const child = (this.ctx.get('agents') as AgentRegistry | null)?.get?.(startSpec.childId);
+    const titles = this.ctx.get('sessionTitle') as SessionTitleService | undefined;
     if (child && titles) { try { titles.rename(child.session, startSpec.label); } catch { } }
   }
 

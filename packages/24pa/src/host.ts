@@ -40,9 +40,14 @@ export interface DshAgent {
   ctx?: DshContext;
 }
 
+/** The host's agent registry, looked up by session id. */
+export interface AgentRegistry {
+  get?(id: string): DshAgent | undefined;
+}
+
 /** The host's `sessionTitle` service. Unlike the session controller it also
  *  names a subagent-owned session. */
-export interface SessionTitles {
+export interface SessionTitleService {
   rename(session: DshSession, title: string): unknown;
 }
 

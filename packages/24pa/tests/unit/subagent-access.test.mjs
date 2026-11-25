@@ -60,6 +60,7 @@ describe('rc.3 原生子会话归属', () => {
 import { agentRelayBody, canceledInputIds } from '../../lib/host-turn.js';
 import { SkillRunHost } from '../../lib/skill-run-host.js';
 import { SkillRuns } from '../../lib/skill-runs.js';
+import { relayMessage } from '../helpers/relay.mjs';
 
 describe('Agent relay 消息信封兼容', () => {
   const payload = [{ type: 'text', text: '原输入' }];
@@ -146,8 +147,7 @@ describe('宿主中止与用户取消的证据分界', () => {
 
 describe('Skill 运行的起始输入来源', () => {
   const marker = [{ type: 'text', text: '[24PA skill run: run]' }];
-  const relay = senderSessionId => ({ content: [{ type: 'text', text: `Agent ${senderSessionId} sent a message: ` }, ...marker],
-    source: { kind: 'agent-message', form: 'relay', senderSessionId } });
+  const relay = senderSessionId => relayMessage(senderSessionId, marker);
   const host = new SkillRunHost({});
   it('业务运行：认父会话中继与升级前的 user 消息，不认其他会话的中继或没有运行标记的消息', () => {
     const run = { id: 'run', mode: 'business', source_session_id: 'parent' };

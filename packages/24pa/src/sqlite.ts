@@ -23,6 +23,10 @@ import { migrationColumns } from './db-schema.js';
 // DDL comes from the SAME migration list as PostgreSQL (pg.ts), transformed
 // per backend type mapping, so the two schemas cannot drift apart.
 
+/** The Node range that ships the built-in `node:sqlite`; a guard test keeps it
+ *  equal to `engines.node`. */
+export const NODE_REQUIREMENT = '^24.22.3 || >=26.13.1';
+
 const ISO_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ','now')`;
 
 // ---- DDL translation ---------------------------------------------------------
@@ -201,7 +205,7 @@ export class SqliteDb implements PaDb {
       ({ DatabaseSync } = createRequire(import.meta.url)('node:sqlite'));
     } catch {
       throw new Error(
-        'SQLite 模式需要 Node ^24.22.3 || >=26.13.1 内建的 node:sqlite；当前运行时不支持。' +
+        'SQLite 模式需要 Node ' + NODE_REQUIREMENT + ' 内建的 node:sqlite；当前运行时不支持。' +
           '请升级宿主 Node，或改用 storage: "postgres"。',
       );
     }

@@ -8,6 +8,8 @@ import { createRepos } from '../../lib/repo.js';
 import { WorkItemLifecycle } from '../../lib/work-item-lifecycle.js';
 import { historyFilter } from '../../lib/run-history.js';
 import { WorkerRuns } from '../../lib/worker-runs.js';
+import { executionMarker } from '../../lib/work-completion.js';
+import { relayMessage } from '../helpers/relay.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
 for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run journal / ${backend}`, () => {
   let db, repos, cluster, life, quiesce, services;
@@ -269,8 +271,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
   });
   it('起始输入认 dsh 0.2.3 的父会话中继，其他会话的中继不认领', async () => {
     let item = await make(); await life.pump(); item = await repos.workItems.get(item.id); const run = await repos.workerRuns.get(item.active_worker_run_id);
-    const relay = (id, senderSessionId) => ({ id, content: [{ type: 'text', text: `Agent ${senderSessionId} sent a message: ` }, { type: 'text', text: `[24PA execution: ${item.execution_id}]` }],
-      source: { kind: 'agent-message', form: 'relay', senderSessionId } });
+    const relay = (id, senderSessionId) => relayMessage(senderSessionId, [{ type: 'text', text: executionMarker(item.execution_id) }], id);
     const events = [], session = { id: item.id, header: { cwd: '/workspace', parentSession: 'parent' }, ownEvents: () => events };
     const service = new WorkerRuns({ context: () => ({ repos, path: '/workspace', binding: 'binding' }), allowed: () => true, expire: async () => {} });
     services.push(service);

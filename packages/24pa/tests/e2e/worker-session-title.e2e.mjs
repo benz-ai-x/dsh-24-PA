@@ -40,7 +40,7 @@ it('Worker 子会话在宿主会话列表中以子代理标签为标题', async 
   const work = completed.work.find(item => item.title === title);
   const child = work.child_session_id ?? work.id;
   const { items } = await host.remote('session/list', { _request: {} });
-  const projectionsOf = id => { const item = items.find(row => row.sessionId === id); return item?.projections?.values ?? item?.projections ?? {}; };
+  const projectionsOf = id => items.find(row => row.sessionId === id)?.projections?.values ?? {};
   const catalog = projectionsOf(parent).subagentCatalog ?? [];
   expect(catalog.some(row => row.id === child)).toBe(true);
   expect(projectionsOf(child).title).toBe(`备忘整理 · ${title}`);

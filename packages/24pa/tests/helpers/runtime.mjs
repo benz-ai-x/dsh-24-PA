@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PaRuntime } from '../../lib/runtime.js';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { relayMessage } from './relay.mjs';
 export { PaRuntime, DEFAULT_CONFIG, mkdir, writeFile, readFile, rm, join };
 export const delay = ms => new Promise(r => setTimeout(r, ms));
 export const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject }; };
@@ -36,9 +37,8 @@ skills: null, get: name => name === 'sessionPersistence' ? persistence : name ==
         const events = [];
         agents.set(spec.childId, { id: spec.childId, status: 'idle', whenIdle: async () => { }, session: { id: spec.childId, header: { cwd: spec.parent.session.header.cwd, parentSession: { id: spec.parent.id }, origin: 'subagent' }, ownEvents: () => events } });
         catalogs.set(spec.parent.id, [...(catalogs.get(spec.parent.id) ?? []), { id: spec.childId }]);
-        return { messageId: acceptInput('start-' + spec.childId,
-          relayed ? [{ type: 'text', text: `Agent ${spec.parent.id} sent a message: ` }, ...spec.prompt] : spec.prompt,
-          relayed ? { kind: 'agent-message', form: 'relay', senderSessionId: spec.parent.id } : { kind: 'user' }) };
+        const input = relayed ? relayMessage(spec.parent.id, spec.prompt, 'start-' + spec.childId) : { id: 'start-' + spec.childId, content: spec.prompt, source: { kind: 'user' } };
+        return { messageId: acceptInput(input.id, input.content, input.source) };
       },
       sendMessage: async (parent, _id, content) => acceptInput('continue-' + continuation++, content, { kind: 'agent-message', senderSessionId: parent.id }),
       interrupt: () => {},

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isDelegatedInputSource } from '../../lib/host-turn.js';
+import { relaySource } from '../helpers/relay.mjs';
 
-const relay = { kind: 'agent-message', form: 'relay', senderSessionId: 'parent' };
+const relay = relaySource('parent');
 const owner = { kind: 'user', rpcId: 'rpc-1' };
 
 describe('委派输入的来源判定', () => {
