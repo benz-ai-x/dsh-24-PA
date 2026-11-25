@@ -129,7 +129,8 @@ export interface SystemPromptSection {
   order: number;
   /** Static text, or a function re-evaluated at render time (e.g. reloadable workspace rules). */
   text: string | (() => string);
-  interpolate?: (data: unknown) => string;
+  /** Whether prompt variables are interpolated; false preserves literal text. */
+  interpolate?: boolean;
 }
 
 export interface ConnectionFetchRoute {

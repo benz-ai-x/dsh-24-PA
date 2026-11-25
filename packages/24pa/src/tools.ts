@@ -57,7 +57,9 @@ export function apply(ctx: DshContext) {
       name: '24pa-workspace-rules',
       order: 910,
       // Dynamic text: empty until a workspace is bound, fresh after each
-      // AGENTS.md reload; empty sections are dropped at render.
+      // AGENTS.md reload; empty sections are dropped at render. The owner's
+      // prose is literal: a `{{name}}` in it is not a prompt variable.
+      interpolate: false,
       text: () => runtime.workspaceRulesSection(),
     }),
   );
