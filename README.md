@@ -103,7 +103,8 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 npm --prefix packages/24pa install
 npm --prefix packages/24pa run build
-npm --prefix packages/24pa pack --pack-destination ../../artifacts
+mkdir -p artifacts
+npm pack ./packages/24pa --pack-destination ./artifacts
 
 dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.3-alpha.2.1.tgz
 ```
