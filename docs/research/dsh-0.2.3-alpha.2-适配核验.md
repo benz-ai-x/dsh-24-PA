@@ -42,7 +42,7 @@
 
 - **复现**：适配前（只改版本与预设）在 alpha.2 上 `f01` 8 例中 5 例失败，事项状态为 `needs_reconciliation`（「原交办会话收到未关联输入」）；适配后 8/8。
 - **构建与单元测试**：最终导出里 `npm run build`、`npm run preset:check` 通过；README 记载的普通安装命令执行后 `package-lock.json` 无差异。
-- **干净导出**：`git archive 119b08e` 的导出不链接相邻的宿主源码目录，按 README 的普通安装命令安装、构建并打出的 tarball，就是下文全量、反向验证与全新实例安装所用的制品。
+- **干净导出**：`git archive 119b08e` 的导出不链接相邻的宿主源码目录，按 README 的普通安装命令安装、构建并打出的 tarball，就是下文全量与反向验证所用的制品。
 - **反向验证**（提交 `119b08e` 的导出，逐项撤去适配并重新构建，未改动的导出作对照）：未改动的导出 112 例全过。起始输入改回只认 `user` 后，5 个单测文件 110 例中 36 例因撤去判定失败（Worker 运行日志、完成核验、Skill 运行归属、来源判定），另有 1 次失败来自下文既有的排序偶发用例。撤去 `interpolate: false` 后，2 例中 1 例失败，宿主渲染器抛 `unknown prompt variable "{{model}}" in section "24pa-workspace-rules"`。撤去 Worker 子会话命名并重新打包后，真实 alpha.2 上 `worker-session-title` 失败（标题为 `null`）。
 - **最终全量**（提交 `119b08e` 的导出，e2e 一律安装由同一导出生成的 tarball，跨版本用例启用，11-26 01:35 开始，20.6 分钟）：2027 通过、0 失败、1 跳过（150 个文件全部通过；单测 1818 通过、1 跳过，e2e 39 个文件 209 例全过）。跳过的 1 例是既有的单测跳过。上一版提交 `cf59180` 的全量为 2026 通过、1 失败（下文的 `worker-run` 既有偶发）、1 跳过。11-25 23:57 起的一次重跑作废：零点后机器被系统后台维护拖慢，`f10` 与 `manticore-task-plan` 挂起、预算用例等待超时，清理中断残留后重跑。最终全量之后只有本文与一处注释措辞的改动：包内容相对 `119b08e` 只差 `lib/sqlite.js` 里 `NODE_REQUIREMENT` 的两行注释（打包内容逐文件比对），重新构建后在最终包上重跑了 `sqlite`、`preset-sync`、`worker-session-title` 三个单测文件（36 例）与全新实例冒烟，均通过。
 - **跨版本**：`host-upgrade.e2e.mjs` 用 rc.3 官方 CLI 与正式包 `0.2.2-rc.3.1`（sha1 `8de82270…`，与 registry 一致）产生等待数据，再由 alpha.2＋候选包恢复：原工作编号、运行编号、父会话、投递目标及两条输入均采用一次。
@@ -50,7 +50,7 @@
 - **Worker 子会话标题**（真实宿主，同一条委派）：rc.3＋正式包 `0.2.2-rc.3.1` 上，子会话的标题是按首条任务文字生成的兜底标题（「事项：<事项标题> 委托内容：」）。经会话控制接口改名的版本（提交 `3c2f4fa` 的 tarball）在 alpha.2 上重跑 `worker-session-title` 6 次，6 次都在事项完成时读到 `null`：宿主拒绝该调用，错误被吞掉；这由新增的真实宿主用例在全量中查出。改为会话标题服务后（提交 `92010ee`），用全量所用的 tarball 重跑 5 次全过，事项完成时标题即可读出。
 - **规则分节转换**（alpha.2，同一条本地会话连续四次模型请求）：绑定工作区后，规则分节进入首次请求的系统提示；重载为另一份规则、再重载为空规则，每次变化都以一条 system 角色消息送达，内容为「The following replaces the earlier instructions from 24pa-workspace-rules.」加当前规则文本，最近一次的消息反映当前内容；切换到没有规则的工作区后新会话里只剩固定的引言。分节退役的提示路径没有被触达（工作区配置有效时分节始终注册）。
 - **模型侧请求**（全新实例，24私助本地会话的首次模型请求，两条线逐项一致）：34 个工具，其中 `pa24_*` 8 个，不含 `cordis_inspect`；系统提示约 1.15 万字符，含24私助的身份、协调流程、业务要点等分节标题，没有任何 Skill 目录（没有 Skill 标题，正文只有两处提到「Skill」）。宿主连接器插件只有 0.2.3-alpha 线版本且只经插件市场分发，未安装，不在本次验证范围。
-- **全新实例安装**（最终 tarball，全新目录）：从 web 模板创建 profile、预先批准 `protobufjs` 构建、`dsh plugin add` 一次成功（退出码 0），`dsh.profile.bundles` 含 `@benz-ai-x/dsh-24pa`，就绪行显示 dsh `0.2.3-alpha.2`＋插件 `0.2.3-alpha.2.1`，宿主标准错误为空。rc.3 官方 CLI 安装正式包 `0.2.2-rc.3.1` 同法通过。
+- **全新实例安装**（最终 tarball，即提交 `0b5a097` 的包，全新目录）：从 web 模板创建 profile、预先批准 `protobufjs` 构建、`dsh plugin add` 一次成功（退出码 0），`dsh.profile.bundles` 含 `@benz-ai-x/dsh-24pa`，就绪行显示 dsh `0.2.3-alpha.2`＋插件 `0.2.3-alpha.2.1`，宿主标准错误为空。rc.3 官方 CLI 安装正式包 `0.2.2-rc.3.1` 同法通过。
 - **浏览器**：Chrome 158 无头模式打开令牌地址，侧栏出现「24私助工作区」，点击后面板渲染首页与五个分类标签；「事务与计划」卡的「查看 Skill」列出24私助的 18 个内置 Skill，「查看运行档案」的「助理交办」子页与交办详情（概览、完成标准、交办操作、历史）正常渲染；页面内 `POST /api/24pa` 返回 200，就绪行显示 dsh `0.2.3-alpha.2`＋插件 `0.2.3-alpha.2.1`；最终 tarball 的全新实例上，1440×900、1280×800、1920×1080 三个视口的文档宽度都等于视口宽度（无横向滚动），五个分类标签齐全，页面没有告警；此前的截图走查里也没有控制台异常。浅色与深色各一屏见 [screenshots/dsh-0.2.3-alpha.2-panel-light.png](screenshots/dsh-0.2.3-alpha.2-panel-light.png) 与 [screenshots/dsh-0.2.3-alpha.2-panel-dark.png](screenshots/dsh-0.2.3-alpha.2-panel-dark.png)。
 
 主要命令（真实宿主命令均设置 `DSH_BIN` 指向官方 CLI 的 `lib/bin.js`；候选包验证另设 `PA24_E2E_PACKAGE`，跨版本另设 `PA24_E2E_LEGACY_DSH_BIN` 与 `PA24_E2E_LEGACY_PACKAGE`）：
@@ -65,7 +65,7 @@ PA24_E2E_STORAGE=sqlite npx vitest run
 
 ### 候选制品
 
-`benz-ai-x-dsh-24pa-0.2.3-alpha.2.1.tgz`（本地制品，不随 PR 入库），159 个文件，压缩 720.5 kB，解包 2.66 MB（文件大小合计），包内容与 PR 头相同。`package.json` 为 `0.2.3-alpha.2.1`，`engines.dsh` 精确 `0.2.3-alpha.2`，包含生成后的 `cordis.patch.yml` 与 `lib`，不包含测试或锁文件。
+`benz-ai-x-dsh-24pa-0.2.3-alpha.2.1.tgz`（本地制品，不随 PR 入库），159 个文件，压缩 720.5 kB，解包 2.66 MB（文件大小合计），由提交 `0b5a097` 生成（其后只有本文改动）。`package.json` 为 `0.2.3-alpha.2.1`，`engines.dsh` 精确 `0.2.3-alpha.2`，包含生成后的 `cordis.patch.yml` 与 `lib`，不包含测试或锁文件。
 
 SHA-256：`3a58a9eaf930e631cc8738b3344da62f8978cf1492f3743f66dc46da95f23540`
 
