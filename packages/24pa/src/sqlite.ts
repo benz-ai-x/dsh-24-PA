@@ -23,8 +23,8 @@ import { migrationColumns } from './db-schema.js';
 // DDL comes from the SAME migration list as PostgreSQL (pg.ts), transformed
 // per backend type mapping, so the two schemas cannot drift apart.
 
-/** The Node range that ships the built-in `node:sqlite`; a guard test keeps it
- *  equal to `engines.node`. */
+/** The Node floor the SQLite requirement message quotes; a guard test keeps it
+ *  equal to the package's `engines.node`. */
 export const NODE_REQUIREMENT = '^24.22.3 || >=26.13.1';
 
 const ISO_NOW = `strftime('%Y-%m-%dT%H:%M:%fZ','now')`;
