@@ -168,7 +168,7 @@ External CLI delegation rows ship enabled but stay dormant: `subagent_codex` and
 
 ### Failure and recovery
 
-An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A fresh Profile leaves an unresolved `allowBuilds` placeholder for `protobufjs` (a transitive dependency of the Feishu SDK). Approve it in the Profile `pnpm-workspace.yaml` before installing; otherwise the first install exits nonzero, and while the package is added as a dependency, only a remove followed by a fresh `add` registers the bundle layer in `dsh.profile.bundles`. The [initialization guide](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md) gives the verified sequence. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
+An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A fresh Profile ships an unresolved `allowBuilds` placeholder for `protobufjs` (a transitive dependency of the Feishu SDK), so the first install exits nonzero until you set it to `true` in the Profile `pnpm-workspace.yaml`; the package is fully added either way. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
 
 The reliability update adds schema migration v14 on both storage backends. It
 stores each digest WorkItem's trusted trigger and occurrence binding without
