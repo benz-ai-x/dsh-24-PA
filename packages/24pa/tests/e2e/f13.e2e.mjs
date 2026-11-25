@@ -163,6 +163,9 @@ describe('F13 预设并入标准模式能力（真实 Loader + 隔离 PG）', ()
     expect(request.tools).not.toContain('interrupt_agent');
     expect(request.tools).not.toContain('exit_plan_mode');
     for (const officeTool of ['office_render', 'office_convert', 'office_recalculate']) expect(request.tools).not.toContain(officeTool);
+    // dsh 0.2.3 adds cordis_inspect to the standard preset. Like the Office
+    // tools, a preset refresh does not grant it to the local session.
+    expect(request.tools).not.toContain('cordis_inspect');
     // Worker-only surface never leaks into the local lead.
     expect(request.tools).not.toContain('pa24_work');
   });

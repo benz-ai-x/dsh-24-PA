@@ -19,6 +19,7 @@ const targets = [
   ['dsh-tools', resolve(harness, 'packages/core/tools'), 'lib/index.js'],
   ['dsh-tool-executor-native', resolve(harness, 'packages/core/tool-executor-native'), 'lib/index.js'],
   ['dsh-system-prompt', resolve(harness, 'packages/core/system-prompt'), 'lib/index.js'],
+  ['dsh-session-projection', resolve(harness, 'packages/session/session-projection'), 'lib/index.js'],
 ];
 
 await mkdir(linkDir, { recursive: true });

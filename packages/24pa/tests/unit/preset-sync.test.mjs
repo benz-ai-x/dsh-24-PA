@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { generatePa24Patch, resolveBaseline } from '../../scripts/sync-preset.mjs';
+import { NODE_REQUIREMENT } from '../../lib/sqlite.js';
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const JS_EXPR_TAG = { tag: 'tag:yaml.org,2002:js', resolve: (value) => value };
@@ -79,9 +80,13 @@ describe('宿主版本三串一致性（#114/#118 守卫）', () => {
     expect(pkg.peerDependencies['@deepseek-ai/dsh-schedule']).toBe(engines);
     // The scoped execution guard requires the 0.2.2 native executor API.
     // Older hosts retain their separately published plugin versions.
-    expect(engines).toBe('0.2.2-rc.3');
-    expect(pkg.engines.node).toBe('>=24.9.0');
-    expect(pkg.peerDependencies['@deepseek-ai/cordis']).toBe('~4.1.0');
-    expect(pkg.peerDependencies['@deepseek-ai/schemastery']).toBe('~3.19.0');
+    expect(engines).toBe('0.2.3-alpha.2');
+    expect(pkg.engines.node).toBe('^24.22.3 || >=26.13.1');
+    // The SQLite requirement message quotes the same range.
+    expect(NODE_REQUIREMENT).toBe(pkg.engines.node);
+    expect(pkg.peerDependencies['@deepseek-ai/cordis']).toBe('~4.2.0-alpha.1');
+    expect(pkg.peerDependencies['@deepseek-ai/schemastery']).toBe('~3.20.0-alpha.1');
+    // The generated preset must come from the same baseline the package targets.
+    expect(pkg.devDependencies['@deepseek-ai/dsh-web-app']).toBe(engines);
   });
 });

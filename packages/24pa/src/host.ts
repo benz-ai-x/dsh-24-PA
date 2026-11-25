@@ -1,5 +1,5 @@
 // Minimal structural types for the dsh host services this plugin consumes.
-// Signatures follow dsh 0.2.2-rc.3; the e2e suite boots the real Host through
+// Signatures follow dsh 0.2.3-alpha.2; the e2e suite boots the real Host through
 // the official CLI, so drift fails loudly in tests instead of being papered
 // over here.
 
@@ -38,6 +38,17 @@ export interface DshAgent {
   status: string;
   whenIdle?(): Promise<void>;
   ctx?: DshContext;
+}
+
+/** The host's agent registry, looked up by session id. */
+export interface AgentRegistry {
+  get?(id: string): DshAgent | undefined;
+}
+
+/** The host's `sessionTitle` service. Unlike the session controller it also
+ *  names a subagent-owned session. */
+export interface SessionTitleService {
+  rename(session: DshSession, title: string): unknown;
 }
 
 export interface CreateSessionRequest {
@@ -129,7 +140,8 @@ export interface SystemPromptSection {
   order: number;
   /** Static text, or a function re-evaluated at render time (e.g. reloadable workspace rules). */
   text: string | (() => string);
-  interpolate?: (data: unknown) => string;
+  /** Whether prompt variables are interpolated; false preserves literal text. */
+  interpolate?: boolean;
 }
 
 export interface ConnectionFetchRoute {

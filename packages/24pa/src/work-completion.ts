@@ -1,13 +1,30 @@
 import type { ContentBlock, DshContext, DshSession, SessionEvent, SessionHeader } from './host.js';
-import { consumedTurn } from './host-turn.js';
-import type { WorkItemRow } from './repo/work.js';
+import { consumedTurn, isDelegatedInputSource } from './host-turn.js';
+import type { WorkExecutionScope, WorkItemRow } from './repo/work.js';
+
+/** The text of an execution input's marker block; ownership is decided by
+ *  comparing against exactly this. */
+export function executionMarker(executionId: string): string {
+  return `[24PA execution: ${executionId}]`;
+}
 
 /** The marker is part of the exact native input, not assistant output. The
  * durable intent is committed before sending it; a returned messageId alone
  * would leave a crash window between native acceptance and the DB receipt. */
 export function workExecutionContent(item: WorkItemRow): ContentBlock {
   if (!item.execution_id) throw new Error('事项缺少持久执行关联。');
-  return { type: 'text', text: `[24PA execution: ${item.execution_id}]` };
+  return { type: 'text', text: executionMarker(item.execution_id) };
+}
+
+/** Whether a host message is one of a work item's execution inputs: it carries
+ *  the execution marker from an origin the scope accepts. */
+export function isWorkExecutionInput(
+  message: { content?: ContentBlock[]; source?: { kind?: string; senderSessionId?: string } },
+  executionId: string,
+  scope: Pick<WorkExecutionScope, 'input' | 'parentSessionId'>,
+): boolean {
+  return !!message.content?.some(block => block.type === 'text' && block.text === executionMarker(executionId))
+    && isDelegatedInputSource(message.source, scope.input, scope.parentSessionId);
 }
 
 export type WorkCompletion =
@@ -72,14 +89,10 @@ function verifyWorkCompletion(item: WorkItemRow, session: DshSession, continuati
     return { kind: 'unproven', reason: '原回合的工作区、父子会话或代次无法核实，请核对原事项结果。' };
   }
   const events = session.ownEvents();
-  const marker = workExecutionContent(item).text;
+  const executionId = item.execution_id;
   const accepted = new Set<string>();
   const checkInput = (message: any) => {
-    const source = message?.source;
-    const originMatches = scope.input === 'start' ? source?.kind === 'user'
-      : source?.kind === 'agent-message' && source.senderSessionId === scope.parentSessionId;
-    if (originMatches && typeof message.id === 'string' && Array.isArray(message.content)
-      && message.content.some((block: ContentBlock) => block.type === 'text' && block.text === marker)) accepted.add(message.id);
+    if (typeof message?.id === 'string' && isWorkExecutionInput(message, executionId, scope)) accepted.add(message.id);
   };
   for (const event of events) {
     if (event.type === 'user/message') checkInput(event.data);

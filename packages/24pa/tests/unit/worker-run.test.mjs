@@ -8,6 +8,8 @@ import { createRepos } from '../../lib/repo.js';
 import { WorkItemLifecycle } from '../../lib/work-item-lifecycle.js';
 import { historyFilter } from '../../lib/run-history.js';
 import { WorkerRuns } from '../../lib/worker-runs.js';
+import { executionMarker } from '../../lib/work-completion.js';
+import { relayMessage } from '../helpers/relay.mjs';
 import { startPgCluster } from '../helpers/pg.mjs';
 for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run journal / ${backend}`, () => {
   let db, repos, cluster, life, quiesce, services;
@@ -266,5 +268,20 @@ for (const backend of ['sqlite', 'postgres']) describe(`ordinary worker run jour
     await service.observe(session); expect((await repos.workerRuns.inputs(run.id))[0]).toMatchObject({ status: 'adopted', adopted_turn: 1 });
     expect((await repos.runControls.get(run.id)).state.executionMs).toBe(100);
     service.dispose(); await life.stop(item.id);
+  });
+  it('起始输入认 dsh 0.2.3 的父会话中继，其他会话的中继不认领', async () => {
+    let item = await make(); await life.pump(); item = await repos.workItems.get(item.id); const run = await repos.workerRuns.get(item.active_worker_run_id);
+    const relay = (id, senderSessionId) => relayMessage(senderSessionId, [{ type: 'text', text: executionMarker(item.execution_id) }], id);
+    const events = [], session = { id: item.id, header: { cwd: '/workspace', parentSession: 'parent' }, ownEvents: () => events };
+    const service = new WorkerRuns({ context: () => ({ repos, path: '/workspace', binding: 'binding' }), allowed: () => true, expire: async () => {} });
+    services.push(service);
+    const splice = (time, inserted) => events.push({ type: 'agent/inbox/spliced', time, data: { target: 'queue', start: 0, inserted } });
+    splice(run.snapshot.startedAt + 1, [relay('foreign', 'someone-else')]);
+    await service.observe(session); expect((await repos.workerRuns.inputs(run.id))[0].status).toBe('prepared');
+    splice(run.snapshot.startedAt + 2, [relay('relayed', 'parent')]);
+    await service.observe(session);
+    expect(await repos.workerRuns.inputs(run.id)).toHaveLength(1);
+    expect((await repos.workerRuns.inputs(run.id))[0]).toMatchObject({ status: 'received', native_message_id: 'relayed' });
+    await life.stop(item.id);
   });
 });

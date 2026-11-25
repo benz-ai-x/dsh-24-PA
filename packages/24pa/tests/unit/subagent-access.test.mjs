@@ -60,6 +60,7 @@ describe('rc.3 原生子会话归属', () => {
 import { agentRelayBody, canceledInputIds } from '../../lib/host-turn.js';
 import { SkillRunHost } from '../../lib/skill-run-host.js';
 import { SkillRuns } from '../../lib/skill-runs.js';
+import { relayMessage } from '../helpers/relay.mjs';
 
 describe('Agent relay 消息信封兼容', () => {
   const payload = [{ type: 'text', text: '原输入' }];
@@ -141,5 +142,24 @@ describe('宿主中止与用户取消的证据分界', () => {
       await runs.attach({ id: run.id, session: { id: run.id, header: { cwd: run.workspace_path }, ownEvents: () => events } });
       expect(waiting.mock.calls).toEqual([[run.id, 1], [run.id, 3]]);
     } finally { runs.dispose(); }
+  });
+});
+
+describe('Skill 运行的起始输入来源', () => {
+  const marker = [{ type: 'text', text: '[24PA skill run: run]' }];
+  const relay = senderSessionId => relayMessage(senderSessionId, marker);
+  const host = new SkillRunHost({});
+  it('业务运行：认父会话中继与升级前的 user 消息，不认其他会话的中继或没有运行标记的消息', () => {
+    const run = { id: 'run', mode: 'business', source_session_id: 'parent' };
+    expect(host.ownsInput(run, relay('parent'))).toBe(true);
+    expect(host.ownsInput(run, relay('someone-else'))).toBe(false);
+    expect(host.ownsInput(run, { content: marker, source: { kind: 'user' } })).toBe(true);
+    expect(host.ownsInput(run, { content: [{ type: 'text', text: '其他任务' }], source: { kind: 'user' } })).toBe(false);
+  });
+  it('本地运行：只认带本次请求标识的 user 消息', () => {
+    const run = { id: 'run', mode: 'local', request_id: 'request' };
+    expect(host.ownsInput(run, { content: marker, source: { kind: 'user', rpcId: 'request' } })).toBe(true);
+    expect(host.ownsInput(run, { content: marker, source: { kind: 'user', rpcId: 'other' } })).toBe(false);
+    expect(host.ownsInput(run, relay('parent'))).toBe(false);
   });
 });

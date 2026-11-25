@@ -7,7 +7,7 @@ import type { SkillRunRow } from './repo/skill-run.js';
 import { readSkillFile, skillHash, validateSkillPackage } from './skill-package.js';
 import { isDeepStrictEqual } from 'node:util';
 import { randomUUID } from 'node:crypto';
-import { agentRelayBody, canceledInputIds } from './host-turn.js';
+import { agentRelayBody, canceledInputIds, isDelegatedInputSource } from './host-turn.js';
 import { assertActiveSubagentTree, assertDirectChild, assertSubagentAccess, directChild } from './subagent-access.js';
 
 export interface RunInput { id: string; content: ContentBlock[]; source?: { kind?: string; rpcId?: string; name?: string; senderSessionId?: string }; [key: string]: unknown }
@@ -84,9 +84,9 @@ export class SkillRunHost {
   }
 
   ownsInput(run: SkillRunRow, message: RunInput): boolean {
-    if (message.source?.kind !== 'user') return false;
-    if (run.mode === 'local') return message.source.rpcId === run.request_id;
-    return message.content.some(block => block.type === 'text' && block.text === runMarker(run));
+    if (run.mode === 'local') return message.source?.kind === 'user' && message.source.rpcId === run.request_id;
+    return isDelegatedInputSource(message.source, 'start', run.source_session_id)
+      && message.content.some(block => block.type === 'text' && block.text === runMarker(run));
   }
 
   rememberResume(runId: string, requestId: string, content: ContentBlock[]): void {

@@ -4,6 +4,7 @@ import type { Repos } from './repo.js';
 import type { RunInput, RunToolCall, RunToolResult } from './skill-run-host.js';
 import { SkillRunClock } from './skill-run-clock.js';
 import { beginRunAttempt, canFinishDispatchedStep, blockRun, clearRunBlock, runControlSummary } from './run-control.js';
+import { executionMarker, isWorkExecutionInput } from './work-completion.js';
 import { canceledInputIds, consumedTurn, turnHasModelInput } from './host-turn.js';
 
 interface WorkerScope {
@@ -91,8 +92,7 @@ export class WorkerRuns {
     const events = session.ownEvents().filter(event => typeof event.time === 'number' && event.time >= run.snapshot.startedAt);
     for (const input of await context.repos.workerRuns.inputs(run.id)) {
       const candidates: RunInput[] = events.flatMap(event => event.type === 'user/message' ? [event.data as RunInput] : event.type === 'agent/inbox/spliced' ? event.data.inserted ?? [] : []);
-      const accepted = candidates.filter(message => message.content?.some(block => block.type === 'text' && block.text === `[24PA execution: ${input.execution_id}]`)
-        && (input.scope.input === 'start' ? message.source?.kind === 'user' : message.source?.kind === 'agent-message' && message.source.senderSessionId === input.scope.parentSessionId));
+      const accepted = candidates.filter(message => isWorkExecutionInput(message, input.execution_id, input.scope));
       const unique = [...new Map(accepted.map(message => [message.id, message])).values()];
       if (unique.length === 1) {
         await context.repos.workerRuns.saveInput(input.execution_id, unique[0]!);
@@ -115,15 +115,14 @@ export class WorkerRuns {
         if (messages.length && !admitted.length) return { kind: 'reject' };
         const inputs = await active.context.repos.workerRuns.inputs(active.run.id);
         for (const message of admitted) {
-          const input = inputs.find(input => message.content?.some(block => block.type === 'text' && block.text === `[24PA execution: ${input.execution_id}]`)
-            && (input.scope.input === 'start' ? message.source?.kind === 'user' : message.source?.kind === 'agent-message' && message.source.senderSessionId === input.scope.parentSessionId));
+          const input = inputs.find(input => isWorkExecutionInput(message, input.execution_id, input.scope));
           if (input) await active.context.repos.workerRuns.saveInput(input.execution_id, message);
           else if (!await this.deps.budget?.ownsWake(active.run.id, current.id, message)) {
             await active.context.repos.workItems.update(active.item.id, { status: 'needs_reconciliation', progress: '原交办会话收到未关联输入，请通过原交办补充并核对。' });
             return { kind: 'reject' };
           }
         }
-        if (messages.some(message => inputs.some(input => input.scope.input !== 'start' && message.content.some(block => block.text === `[24PA execution: ${input.execution_id}]`)))) await this.clearWait(active.item.id);
+        if (messages.some(message => inputs.some(input => input.scope.input !== 'start' && message.content.some(block => block.text === executionMarker(input.execution_id))))) await this.clearWait(active.item.id);
         if (this.deps.budget && !await this.deps.budget.check(active.run.id, current.session)) { this.clock.disarm(active.run.id); return { kind: 'reject' }; }
         await this.authorized(current);
         const decision = await next() as { kind: 'reject' } | { kind: 'enter'; messages: RunInput[] };

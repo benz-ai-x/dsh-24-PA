@@ -9,8 +9,8 @@ kind: "package-bundle"
 
 [![npm 版本](https://img.shields.io/npm/v/%40benz-ai-x%2Fdsh-24pa?label=npm)](https://www.npmjs.com/package/@benz-ai-x/dsh-24pa)
 [![GitHub 最新发布](https://img.shields.io/github/v/release/benz-ai-x/dsh-24-PA?label=release)](https://github.com/benz-ai-x/dsh-24-PA/releases/latest)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D24.9.0-43853d)](package.json)
-[![dsh 基线](https://img.shields.io/badge/dsh-0.2.2--rc.3-3451b2)](../../docs/research/dsh-0.2.2-rc.3-适配核验.md)
+[![Node.js](https://img.shields.io/badge/node-%5E24.22.3%20%7C%7C%20%3E%3D26.13.1-43853d)](package.json)
+[![dsh 基线](https://img.shields.io/badge/dsh-0.2.3--alpha.2-3451b2)](../../docs/research/dsh-0.2.3-alpha.2-适配核验.md)
 
 **从“提醒我”到“帮我准备这一周”——把对话变成有条理、可审核、能跟进的行动，同时把控制权留在自己手里。**
 
@@ -18,9 +18,9 @@ kind: "package-bundle"
 
 ![24私助电脑端首页，展示关键数据、今日日程、优先待办与助理状态](https://raw.githubusercontent.com/benz-ai-x/dsh-24-PA/main/docs/assets/24pa-desktop-overview.png)
 
-`0.2.2-rc.3.1` 将宿主基线升级为 dsh `0.2.2-rc.3`：受管子代理启动改用扁平参数，执行前同时核验活动运行树与持久父子目录，停止与恢复适配新宿主生命周期。标准预设重新生成；本地工具以 `wait_agent` 替代宿主默认关闭的 `interrupt_agent`。既有交办、会话身份、账本和微信行为保持，Office 工具不加入24私助白名单；微信在 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) 的验收状态不变。
+`0.2.3-alpha.2.1` 将宿主基线升级为 dsh `0.2.3-alpha.2`。dsh 0.2.3 把受管 Worker 的首条任务记为父会话中继的 Agent 消息；输入归属、完成判定和 Skill 运行归属现在同时接受这一形态与旧宿主写入的 user 消息。宿主不再为这类子会话生成兜底标题，Worker 子会话改由24私助以「角色 · 事项标题」命名，在会话列表里可直接辨认。标准预设按宿主重新生成，新增的 `cordis_inspect` 行不加入24私助白名单。工作区规则里写下的 `{{name}}` 现在按字面送达模型，不再让系统提示装配失败。既有交办、会话身份、账本和微信行为保持；微信在 [#279](https://github.com/benz-ai-x/dsh-24-PA/issues/279) 的验收状态不变。
 
-本版要求 Node.js `>=24.9.0` 和 dsh `0.2.2-rc.3`；旧宿主使用下方版本表对应的既有插件版本。
+本候选版要求 Node.js `^24.22.3 || >=26.13.1` 和 dsh `0.2.3-alpha.2`；旧宿主使用下方版本表对应的既有插件版本。
 
 ## 为什么是24私助？
 
@@ -81,15 +81,21 @@ kind: "package-bundle"
 
 ## 快速开始
 
-前置要求：Node.js `>=24.9.0`、dsh `0.2.2-rc.3`；默认 SQLite demo 无需独立数据库服务。
+前置要求：Node.js `^24.22.3 || >=26.13.1`、dsh `0.2.3-alpha.2`；默认 SQLite demo 无需独立数据库服务。
 
 <a id="安装-bundle"></a>
-### 安装当前版本
+### 安装 0.2.3-alpha.2 候选版（本地构建，未发布）
+
+`0.2.3-alpha.2.1` 尚未发布到 npm registry。请在仓库根目录安装本地候选包，不要向 registry 请求该版本号：
 
 ```sh
-npm install -g @deepseek-ai/dsh@0.2.2-rc.3
+npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
+npm --prefix packages/24pa install
+npm --prefix packages/24pa run build
+mkdir -p artifacts
+npm pack ./packages/24pa --pack-destination ./artifacts
 
-dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.3.1 --registry=https://registry.npmjs.org
+dsh plugin --profile <name> add ./artifacts/benz-ai-x-dsh-24pa-0.2.3-alpha.2.1.tgz
 ```
 
 重启同一个 Profile 并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`。全新实例请按[初始化指南](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md)完成隔离目录、启动脚本、pnpm 构建审批、带 token 的面板地址与 demo 验收；随后对本地助理说「帮我接通飞书」，或阅读随包[飞书接入指南](feishu-setup.md)。
@@ -103,7 +109,8 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.3.1 --registry=http
 
 | dsh 宿主 | 24私助包版本 |
 | --- | --- |
-| `0.2.2-rc.3` | `0.2.2-rc.3.1`（当前发布） |
+| `0.2.3-alpha.2` | `0.2.3-alpha.2.1`（候选版，未发布） |
+| `0.2.2-rc.3` | `0.2.2-rc.3.1`（该线停更于此） |
 | `0.2.2-rc.1` | `0.2.2-rc.1.8`（该线停更于此） |
 | `0.2.1-rc.5` | `0.2.1-rc.5.8`（该线停更于此） |
 | `0.2.1-rc.4` | `0.2.1-rc.4.2` |
@@ -113,6 +120,8 @@ dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.2-rc.3.1 --registry=http
 | `0.2.1-alpha.2` – `0.2.1-alpha.5` | `0.2.1-alpha.5.1` |
 | `0.2.1-alpha.1` | `0.2.1-alpha.1.6` |
 | `0.2.0-rc.2` | `0.2.0-rc.2.3`，另需[初始化指南](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md)中的两个 schedule 伴随件 |
+
+`0.2.2-rc.4` 与 `0.2.2-rc.5` 没有对应的24私助版本。
 
 </details>
 
@@ -266,9 +275,10 @@ schema 20 为两种账本增加来源登记、访问证据、平台对象、来�
 
 本备注面向维护者。已交付行为与限制以正文章节和包代码为准；历史测试数量属于对应的 dated 验收记录，不作为本 living 文档的长期状态。
 
-- **宿主验证**——本版仅支持 0.2.2-rc.3。回归用 `DSH_BIN` 选择该运行时；作用域工具验证覆盖宿主内置 Agent Teams 组合，额外测试夹具才使用 `PA24_E2E_EXTRA_PLUGINS`。旧宿主继续使用各自已发布的插件版本。
+- **宿主验证**——本版仅支持 0.2.3-alpha.2。回归用 `DSH_BIN` 选择该运行时；作用域工具验证覆盖宿主内置 Agent Teams 组合，额外测试夹具才使用 `PA24_E2E_EXTRA_PLUGINS`。旧宿主继续使用各自已发布的插件版本。
 - **预设补丁为生成物**——`cordis.patch.yml` 由 `scripts/sync-preset.mjs` 对 devDependency 钉住的 `@deepseek-ai/dsh-web-app` 标准预设应用 delta 生成，勿手改；换新 dsh 基线时先改 pin 再跑 `npm run preset:sync`，`npm run preset:check` 与单测守护已提交副本不漂移。
 - **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
+- **锁文件**——`package-lock.json` 由文档记载的 `npm --prefix packages/24pa install` 生成：该命令会记录 peer，干净克隆因此不依赖相邻 checkout 也能构建并运行单测；锁文件保持用同一命令生成，跳过 peer 的安装会留下不同的文件。
 
 </details>
 
