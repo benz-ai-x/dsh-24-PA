@@ -32,7 +32,11 @@ beforeAll(async () => {
   binding = (await host.waitUntil(row => !!row.workspaceBinding && !!row.workspace?.localSessionId && row.transport?.connected, { label: '首页工作区就绪' })).workspaceBinding;
   for (const event of [
     { event_id: 'home-current', calendar_id: 'personal-cal', summary: '首页评审', start: new Date(Date.now() - 15 * 60000).toISOString(), end: new Date(Date.now() + 45 * 60000).toISOString(), status: 'active' },
-    { event_id: 'home-later', calendar_id: 'personal-cal', summary: '项目同步', start: new Date(Date.now() + 2 * 3600000).toISOString(), end: new Date(Date.now() + 3 * 3600000).toISOString(), status: 'active' },
+    // Two hours ahead, kept inside today: the home view counts the whole local day, and an
+    // evening run would otherwise push this event past midnight.
+    { event_id: 'home-later', calendar_id: 'personal-cal', summary: '项目同步', status: 'active',
+      start: new Date(Math.min(Date.now() + 2 * 3600000, day.to.getTime() - 30 * 60000)).toISOString(),
+      end: new Date(Math.min(Date.now() + 3 * 3600000, day.to.getTime() - 10 * 60000)).toISOString() },
   ]) await appendFile(larkState + '.events.jsonl', JSON.stringify(event) + '\n');
   for (const task of [
     { guid: 'home-overdue', summary: '逾期待办', tasklistId: 'personal-list', due: previous.date, status: 'open' },

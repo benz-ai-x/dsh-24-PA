@@ -65,7 +65,16 @@ it('一次放行仅派发一次，后续步骤再次等待；停止后迟到放�
   await until(() => detail(run.id), value => value.run.status === 'waiting'); await grant(run);
   const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting' && value.calls.length > 0);
   expect(requestsFor(run)).toHaveLength(1); expect(waiting.calls[0].status).toBe('returned');
-  const before = waiting.execution.executionMs; await new Promise(resolve => setTimeout(resolve, 600)); expect((await detail(run.id)).execution.executionMs).toBe(before);
+  // The clock follows Host step events: sample once two consecutive reads agree, not while
+  // the finished step is still being recorded.
+  let before = waiting.execution.executionMs, settled = 0;
+  for (let i = 0; i < 50 && settled < 2; i++) {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    const current = (await detail(run.id)).execution.executionMs;
+    settled = current === before ? settled + 1 : 0; before = current;
+  }
+  expect(settled).toBe(2);
+  await new Promise(resolve => setTimeout(resolve, 600)); expect((await detail(run.id)).execution.executionMs).toBe(before);
   await host.api('action', { type: 'skill.run', op: 'stop', runId: run.id, workspaceBinding: binding });
   await expect(grant(run)).rejects.toThrow(/结束|停止/); expect((await detail(run.id)).run.status).toBe('stopped'); expect(requestsFor(run)).toHaveLength(1);
 }, 600000);

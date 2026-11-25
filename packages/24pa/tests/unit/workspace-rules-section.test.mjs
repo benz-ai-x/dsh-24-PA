@@ -1,12 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createRequire } from 'node:module';
 import { Context } from '@deepseek-ai/cordis';
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
 import { apply } from '../../lib/tools.js';
-import { installToolRuntime } from '../helpers/tool-runtime.mjs';
+import { installToolRuntime, mountAgentScope } from '../helpers/tool-runtime.mjs';
 
-const require = createRequire(import.meta.url);
-const { createScope } = await import(createRequire(require.resolve('@deepseek-ai/dsh-tools')).resolve('@deepseek-ai/dsh-scope'));
 const contexts = [];
 afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose(); });
 
@@ -16,8 +13,7 @@ async function fixture(rules) {
     configFor: () => ({}), noteExtraToolResolution: () => {}, providerAvailable: () => false, workspaceRulesSection: () => rules };
   // The production agent plugin beside the real Host prompt registry and scope chain.
   apply({ ...ctx, get: () => runtime, effect: fn => ctx.effect(fn), tools: ctx.tools, systemPrompt: ctx.systemPrompt, on: () => {} });
-  const agent = { id: 'lead', session: { id: 'lead', header: { cwd: '/fixture', agentPreset: 'pa24' }, ownEvents: () => [] } };
-  await ctx.plugin(Object.assign(inner => { agent.ctx = createScope(inner, agent).ctx; }, { inject: ['tools', 'systemPrompt'] }));
+  const agent = await mountAgentScope(ctx, { id: 'lead', session: { id: 'lead', header: { cwd: '/fixture', agentPreset: 'pa24' }, ownEvents: () => [] } });
   return async () => {
     const assembled = await ctx.systemPrompt.assemble({ scope: agent, signal: new AbortController().signal });
     // The Host's own renderer resolves {{variable}} references for a model request.

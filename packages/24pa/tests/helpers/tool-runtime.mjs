@@ -21,3 +21,17 @@ export async function executeTool(ctx, input) {
   if (batch.results.length !== 1 || batch.results[0].callId !== callId) throw new Error('ToolRuntime did not settle the requested call');
   return batch.results[0].result;
 }
+
+/** Mount an agent's scope chain beside the real registries, the way the Host scopes a
+ *  Session: `agent.ctx` becomes a scope whose subject is the agent. A caller that needs
+ *  the agent/created admission triggers it itself. */
+export async function mountAgentScope(ctx, agent) {
+  const { createRequire } = await import('node:module');
+  // Resolve the scope package from the tools package, so both share one instance.
+  const { resolve } = createRequire(createRequire(import.meta.url).resolve('@deepseek-ai/dsh-tools'));
+  const { createScope } = await import(resolve('@deepseek-ai/dsh-scope'));
+  let scope;
+  await ctx.plugin(Object.assign(inner => { scope = createScope(inner, agent); }, { inject: ['tools', 'systemPrompt'] }));
+  agent.ctx = scope.ctx;
+  return agent;
+}

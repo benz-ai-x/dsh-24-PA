@@ -1,14 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createRequire } from 'node:module';
 import { Context } from '@deepseek-ai/cordis';
 import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline';
 import { apply } from '../../lib/tools.js';
 import { PaRuntime } from '../../lib/runtime.js';
 import { mountBusinessToolScope } from '../../lib/business-tool-scope.js';
-import { installToolRuntime, executeTool } from '../helpers/tool-runtime.mjs';
+import { installToolRuntime, executeTool, mountAgentScope } from '../helpers/tool-runtime.mjs';
 
-const require = createRequire(import.meta.url);
-const { createScope } = await import(createRequire(require.resolve('@deepseek-ai/dsh-tools')).resolve('@deepseek-ai/dsh-scope'));
 const contexts = [];
 afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose(); });
 const leadTools = ['pa24_delegate', 'pa24_jobs', 'pa24_memory'];
@@ -33,9 +30,7 @@ async function fixture(policyFor) {
   async function agent(id, parent) {
     const value = { id, parentAgent: parent, session: { id, header: { cwd: '/fixture', agentPreset: 'pa24',
       ...(parent ? { parentSession: parent.id, origin: 'subagent' } : {}) }, ownEvents: () => [] } };
-    let scope;
-    await ctx.plugin(Object.assign(inner => { scope = createScope(inner, value); }, { inject: ['tools', 'systemPrompt'] }));
-    value.ctx = scope.ctx;
+    await mountAgentScope(ctx, value);
     await created({ agent: value });
     return value;
   }
