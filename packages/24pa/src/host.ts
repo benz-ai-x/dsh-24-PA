@@ -1,5 +1,5 @@
 // Minimal structural types for the dsh host services this plugin consumes.
-// Signatures follow dsh 0.2.2-rc.3; the e2e suite boots the real Host through
+// Signatures follow dsh 0.2.3-alpha.2; the e2e suite boots the real Host through
 // the official CLI, so drift fails loudly in tests instead of being papered
 // over here.
 

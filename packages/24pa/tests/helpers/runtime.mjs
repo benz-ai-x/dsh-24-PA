@@ -6,7 +6,12 @@ import { DEFAULT_CONFIG } from '../../lib/config.js';
 export { PaRuntime, DEFAULT_CONFIG, mkdir, writeFile, readFile, rm, join };
 export const delay = ms => new Promise(r => setTimeout(r, ms));
 export const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject }; };
-export async function fixture(overrides = {}) {
+export async function fixture(overrides = {}, { startInputSource = 'relay' } = {}) {
+  // dsh 0.2.3-alpha.1 and later record a subagent's first task as an agent
+  // message relayed from the parent, behind a sender block; hosts through
+  // 0.2.2-rc.5 recorded a user message. Tests default to the supported host
+  // and pass 'user' to stand for sessions written before the upgrade.
+  const relayed = startInputSource === 'relay';
   const root = await realpath(await mkdtemp(join(tmpdir(), 'pa24-runtime-'))), agents = new Map(), prompts = [], catalogs = new Map();
   const nativeInputs = new Map(), storedSessions = new Map(); let continuation = 0;
   const acceptInput = (id, content, source) => { const message = { id, content, source }; nativeInputs.set(id, message); return id; };
@@ -26,7 +31,9 @@ skills: null, get: name => name === 'sessionPersistence' ? persistence : name ==
         const events = [];
         agents.set(spec.childId, { id: spec.childId, status: 'idle', whenIdle: async () => { }, session: { id: spec.childId, header: { cwd: spec.parent.session.header.cwd, parentSession: { id: spec.parent.id }, origin: 'subagent' }, ownEvents: () => events } });
         catalogs.set(spec.parent.id, [...(catalogs.get(spec.parent.id) ?? []), { id: spec.childId }]);
-        return { messageId: acceptInput('start-' + spec.childId, spec.prompt, { kind: 'user' }) };
+        return { messageId: acceptInput('start-' + spec.childId,
+          relayed ? [{ type: 'text', text: `Agent ${spec.parent.id} sent a message: ` }, ...spec.prompt] : spec.prompt,
+          relayed ? { kind: 'agent-message', form: 'relay', senderSessionId: spec.parent.id } : { kind: 'user' }) };
       },
       sendMessage: async (parent, _id, content) => acceptInput('continue-' + continuation++, content, { kind: 'agent-message', senderSessionId: parent.id }),
       interrupt: () => {},

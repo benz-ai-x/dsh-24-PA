@@ -1,5 +1,5 @@
 import type { ContentBlock, DshContext, DshSession, SessionEvent, SessionHeader } from './host.js';
-import { consumedTurn } from './host-turn.js';
+import { consumedTurn, isDelegatedInputSource } from './host-turn.js';
 import type { WorkItemRow } from './repo/work.js';
 
 /** The marker is part of the exact native input, not assistant output. The
@@ -75,10 +75,7 @@ function verifyWorkCompletion(item: WorkItemRow, session: DshSession, continuati
   const marker = workExecutionContent(item).text;
   const accepted = new Set<string>();
   const checkInput = (message: any) => {
-    const source = message?.source;
-    const originMatches = scope.input === 'start' ? source?.kind === 'user'
-      : source?.kind === 'agent-message' && source.senderSessionId === scope.parentSessionId;
-    if (originMatches && typeof message.id === 'string' && Array.isArray(message.content)
+    if (isDelegatedInputSource(message?.source, scope.input, scope.parentSessionId) && typeof message.id === 'string' && Array.isArray(message.content)
       && message.content.some((block: ContentBlock) => block.type === 'text' && block.text === marker)) accepted.add(message.id);
   };
   for (const event of events) {

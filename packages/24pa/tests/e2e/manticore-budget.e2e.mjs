@@ -43,8 +43,11 @@ it.each(['local','business'])('真实 Loader %s：首输入预算拦截、重启
   if (mode === 'business') reusableBusiness = run;
   const waiting = await until(() => detail(run.id), value => value.run.status === 'waiting');
   expect(waiting.execution.blocks).toMatchObject([{ kind: 'budget' }]); expect(requestsFor(run)).toHaveLength(0);
-  expect(waiting.inputs.filter(row => row.accepted && row.message.source?.kind === 'user')).toHaveLength(1);
-  const original = waiting.inputs.find(row => row.accepted && row.message.source?.kind === 'user').message;
+  // The Host prompts a local run as a user message. A business run is delegated through a subagent, which
+  // dsh 0.2.3 records as an agent message relayed from the parent session.
+  const started = waiting.inputs.filter(row => row.accepted && JSON.stringify(row.message.content).includes('[24PA skill run: ' + run.id + ']'));
+  expect(started).toHaveLength(1); expect(started[0].message.source.kind).toBe(mode === 'local' ? 'user' : 'agent-message');
+  const original = started[0].message;
   await restart(); const cold = await detail(run.id); expect(cold.run.status).toBe('waiting'); expect(cold.execution.executionMs).toBe(0);
   await grant(run);
   const done = await until(() => detail(run.id), value => !['running','waiting','pending'].includes(value.run.status));

@@ -1,9 +1,12 @@
+import SessionProjection from '@deepseek-ai/dsh-session-projection';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import ToolRuntime from '@deepseek-ai/dsh-tools';
 
 // Match the real host: newer dsh separates tool registration from execution.
 // Older supported hosts still own native execution inside ToolRuntime.
 export async function installToolRuntime(ctx) {
+  // dsh 0.2.3 activates the system prompt only once its projection registry exists.
+  await ctx.plugin(SessionProjection);
   await ctx.plugin(SystemPrompt);
   await ctx.plugin(ToolRuntime);
   if (typeof ctx.tools.setExecutor === 'function') {

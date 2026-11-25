@@ -7,6 +7,17 @@ export function agentRelayBody(message: any, parentId: string): ContentBlock[] |
   return message.content.slice(1);
 }
 
+/** Whether a host message source may carry a delegated run's input. A follow-up
+ *  was always an agent message relayed by the parent session. The first input
+ *  was a user message through dsh 0.2.2-rc.5; since 0.2.3-alpha.1 the
+ *  in-process subagent backend records it as an agent message from the parent
+ *  session as well. Both forms stay accepted because sessions written before
+ *  the upgrade keep the older one. */
+export function isDelegatedInputSource(source: { kind?: string; senderSessionId?: string } | undefined, input: 'start' | 'followup', parentSessionId: string): boolean {
+  if (source?.kind === 'agent-message') return source.senderSessionId === parentSessionId;
+  return input === 'start' && source?.kind === 'user';
+}
+
 /** Explicit cancellation is different from a crash or an authorization gate.
  * Keep queue cancellation by identity, allowing an atomic replacement or an
  * internal recovery move to retain the same original input. */

@@ -8,9 +8,9 @@ for (const storage of ['sqlite', 'postgres']) describe(`original work completion
   beforeAll(async () => { if (storage === 'postgres') cluster = await startPgCluster(); });
   afterEach(async () => { vi.restoreAllMocks(); await f?.cleanup(); f = null; });
   afterAll(async () => { await cluster?.stop(); });
-  async function setup() {
+  async function setup(host) {
     if (cluster) await cluster.query('drop schema if exists pa24 cascade');
-    f = await fixture({ dispatchTickMs: 50, env: cluster ? { PA24_PG_DSN: cluster.dsn } : {} });
+    f = await fixture({ dispatchTickMs: 50, env: cluster ? { PA24_PG_DSN: cluster.dsn } : {} }, host);
     f.a = await f.workspace('a', { storage }); f.options.workspacePath = f.a;
     await f.rt.start(); f.parent = f.agents.get(await f.rt.openLocalSession());
     return f;
@@ -114,6 +114,27 @@ for (const storage of ['sqlite', 'postgres']) describe(`original work completion
     await restartCold(id); expect((await work(id)).status).toBe('running');
     await vi.waitFor(async () => expect((await work(id)).status).toBe('completed'), { timeout: 5000 });
     expect(f.nativeInputs.size).toBe(1); expect(open).toHaveBeenCalledTimes(2);
+  });
+
+  it('a start input the older host recorded as a user message still settles from persisted history', async () => {
+    await setup({ startInputSource: 'user' }); const id = await delegate(), session = end(id, { notify: false });
+    await f.ctx.sessions.flush(session);
+    await restartCold(id);
+    expect(await work(id)).toMatchObject({ status: 'completed', recovery_gen: 0, result: 'original result' });
+    expect(f.nativeInputs.size).toBe(1); expect(await results(id)).toHaveLength(1);
+  });
+
+  it('a relayed start input from another session settles nothing until the parent is the sender', async () => {
+    await setup(); const id = await delegate(), input = f.nativeInputs.get('start-' + id), sender = input.source.senderSessionId;
+    expect(input.source).toMatchObject({ kind: 'agent-message', senderSessionId: f.parent.id });
+    input.source = { ...input.source, senderSessionId: 'someone-else' };
+    const session = end(id);
+    expect(await new WorkCompletionHistory(f.ctx).read(await work(id))).toMatchObject({ kind: 'pending' });
+    expect((await work(id)).status).toBe('running'); expect(await results(id)).toEqual([]);
+    input.source = { ...input.source, senderSessionId: sender };
+    f.rt.onSessionEvent(session, session.ownEvents().at(-1));
+    await vi.waitFor(async () => expect((await work(id)).status).toBe('completed'), { timeout: 5000 });
+    expect(await results(id)).toHaveLength(1);
   });
 
   it('a live Worker with a closed write handle settles from drained history without resend', async () => {

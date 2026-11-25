@@ -1,11 +1,11 @@
 {
   "name": "@benz-ai-x/dsh-24pa",
-  "version": "0.2.2-rc.3.1",
+  "version": "0.2.3-alpha.2.1",
   "description": "24私助（24PA）: Feishu-backed personal assistant as a dsh workspace bundle.",
   "type": "module",
   "engines": {
-    "node": ">=24.9.0",
-    "dsh": "0.2.2-rc.3"
+    "node": "^24.22.3 || >=26.13.1",
+    "dsh": "0.2.3-alpha.2"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -42,10 +42,10 @@
     "yazl": "3.3.1"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.1.0",
-    "@deepseek-ai/dsh": "0.2.2-rc.3",
-    "@deepseek-ai/dsh-schedule": "0.2.2-rc.3",
-    "@deepseek-ai/schemastery": "~3.19.0"
+    "@deepseek-ai/cordis": "~4.2.0-alpha.1",
+    "@deepseek-ai/dsh": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-schedule": "0.2.3-alpha.2",
+    "@deepseek-ai/schemastery": "~3.20.0-alpha.1"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh": {
@@ -62,7 +62,7 @@
     }
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-web-app": "0.2.2-rc.3",
+    "@deepseek-ai/dsh-web-app": "0.2.3-alpha.2",
     "@types/node": "^22.10.0",
     "@types/pg": "8.11.10",
     "@types/qrcode": "1.5.6",
