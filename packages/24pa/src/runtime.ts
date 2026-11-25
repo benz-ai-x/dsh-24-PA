@@ -2717,6 +2717,9 @@ export class PaRuntime {
     const activation: any = await this.executions.detached(() => this.ctx.subagents.startActivation(startSpec))
       .catch(error => { throw Object.assign(error, { outcome: error.outcome ?? 'unknown' }); });
     void activation?.result?.catch(() => { });
+    // dsh 0.2.3 derives no fallback title for a child whose first task is an
+    // agent message, so the worker session is named as its catalog label.
+    await this.ctx.sessionController.rename({ sessionId: startSpec.childId, title: startSpec.label }).catch(() => { });
   }
 
   async changeWork(input: Record<string, unknown>, requester?: DshAgent): Promise<unknown> {
