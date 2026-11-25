@@ -1,6 +1,6 @@
 # dsh 0.2.3-alpha.2 适配核验（插件 0.2.3-alpha.2.1）
 
-2026-11-25 起，验证收尾于 2026-11-26。上一适配基线：`dsh 0.2.2-rc.3` / 插件 `0.2.2-rc.3.1`，记录见 [rc.3 适配核验](dsh-0.2.2-rc.3-适配核验.md)。目标为 npm `alpha` 的 `0.2.3-alpha.2`，插件版本 `0.2.3-alpha.2.1`；不使用版本豁免。
+2026-11-25 起，验证收尾于 2026-11-26。上一适配基线：`dsh 0.2.2-rc.3` / 插件 `0.2.2-rc.3.1`，记录见 [rc.3 适配核验](dsh-0.2.2-rc.3-适配核验.md)。目标为 npm `alpha` 的 `0.2.3-alpha.2`，发布插件版本 `0.2.3-alpha.2.1`；不使用版本豁免。
 
 本人于 2026-11-25 裁决：只做 `0.2.3-alpha.2.1`，不出 `0.2.2-rc.5.1`；`cordis_inspect` 不加入本地白名单。实施前研究、24私助消费面的逐项核验、宿主新能力与自建实现的对照见[宿主升级研究](2026-11-25-dsh-0.2.3-alpha.2-宿主升级研究.md)。
 
@@ -27,7 +27,7 @@
 | 候选构建命令 | 干净导出实测 | README 原命令 `npm --prefix packages/24pa pack --pack-destination ../../artifacts` 打包的是当前目录（仓库根无版本号），在 npm 11.17.0 与 11.19.1 下均以 `Invalid package` 退出。改为 `mkdir -p artifacts` 后 `npm pack ./packages/24pa --pack-destination ./artifacts` |
 | 诊断文案 | `src/sqlite.ts` | Node 门槛提示与新的 `engines.node` 一致 |
 
-文档同步：根与包的中英文 README（候选版本的本地构建与安装命令、版本表、锁文件说明）、初始化指南的版本表与 Node 行、随包 `weixin-setup.md`。新版本在文档中标为候选（本地构建、未发布）。初始化指南阶段 3 的安装步骤缺口早于本次适配，已移出本 PR，见下文「未决与明确边界」。
+文档同步：根与包的中英文 README（版本表、Node 门槛、锁文件说明）、初始化指南的版本表与 Node 行、随包 `weixin-setup.md`。文档使用正式的 registry 安装方式。初始化指南阶段 3 的安装步骤缺口早于本次适配，已移出本 PR，见下文「未决与明确边界」。
 
 ## 静态上无需修改的调用
 
@@ -44,7 +44,8 @@
 - **构建与单元测试**：最终导出里 `npm run build`、`npm run preset:check` 通过；README 记载的普通安装命令执行后 `package-lock.json` 无差异。
 - **干净导出**：`git archive 119b08e` 的导出不链接相邻的宿主源码目录，按 README 的普通安装命令安装、构建并打出的 tarball，就是下文全量与反向验证所用的制品。
 - **反向验证**（提交 `119b08e` 的导出，逐项撤去适配并重新构建，未改动的导出作对照）：未改动的导出 112 例全过。起始输入改回只认 `user` 后，5 个单测文件 110 例中 36 例因撤去判定失败（Worker 运行日志、完成核验、Skill 运行归属、来源判定），另有 1 次失败来自下文既有的排序偶发用例。撤去 `interpolate: false` 后，2 例中 1 例失败，宿主渲染器抛 `unknown prompt variable "{{model}}" in section "24pa-workspace-rules"`。撤去 Worker 子会话命名并重新打包后，真实 alpha.2 上 `worker-session-title` 失败（标题为 `null`）。
-- **最终全量**（提交 `119b08e` 的导出，e2e 一律安装由同一导出生成的 tarball，跨版本用例启用，11-26 01:35 开始，20.6 分钟）：2027 通过、0 失败、1 跳过（150 个文件全部通过；单测 1818 通过、1 跳过，e2e 39 个文件 209 例全过）。跳过的 1 例是既有的单测跳过。上一版提交 `cf59180` 的全量为 2026 通过、1 失败（下文的 `worker-run` 既有偶发）、1 跳过。11-25 23:57 起的一次重跑作废：零点后机器被系统后台维护拖慢，`f10` 与 `manticore-task-plan` 挂起、预算用例等待超时，清理中断残留后重跑。最终全量之后只有本文与一处注释措辞的改动：包内容相对 `119b08e` 只差 `lib/sqlite.js` 里 `NODE_REQUIREMENT` 的两行注释（打包内容逐文件比对），重新构建后在最终包上重跑了 `sqlite`、`preset-sync`、`worker-session-title` 三个单测文件（36 例）与全新实例冒烟，均通过。
+- **最终全量**（提交 `119b08e` 的导出，e2e 一律安装由同一导出生成的 tarball，跨版本用例启用，11-26 01:35 开始，20.6 分钟）：2027 通过、0 失败、1 跳过（150 个文件全部通过；单测 1818 通过、1 跳过，e2e 39 个文件 209 例全过）。跳过的 1 例是既有的单测跳过。上一版提交 `cf59180` 的全量为 2026 通过、1 失败（下文的 `worker-run` 既有偶发）、1 跳过。11-25 23:57 起的一次重跑作废：零点后机器被系统后台维护拖慢，`f10` 与 `manticore-task-plan` 挂起、预算用例等待超时，清理中断残留后重跑。升级 PR（#296）里，最终全量之后只有核验记录与一处注释措辞的改动：包内容相对 `119b08e` 只差 `lib/sqlite.js` 里 `NODE_REQUIREMENT` 的两行注释（打包内容逐文件比对），重新构建后在最终包上重跑了 `sqlite`、`preset-sync`、`worker-session-title` 三个单测文件（36 例）与全新实例冒烟，均通过。发版 PR 再把 README 的安装措辞改为正式方式，包内容相应变化，发布包的验证见下文「发布包冒烟」。
+- **发布包冒烟**：从发布包在全新目录安装（指南阶段 3 照原文仍不可用，用的是已实测的可行步骤：从 web 模板创建 profile、预先批准构建、`dsh plugin add`），退出码 0，`dsh.profile.bundles` 含插件，就绪行显示 dsh `0.2.3-alpha.2`＋插件 `0.2.3-alpha.2.1`；一次委派后 Worker 子会话标题为「备忘整理 · 终验交办」，面板在 1440×900、1280×800、1920×1080 下无横向滚动、没有告警。
 - **跨版本**：`host-upgrade.e2e.mjs` 用 rc.3 官方 CLI 与正式包 `0.2.2-rc.3.1`（sha1 `8de82270…`，与 registry 一致）产生等待数据，再由 alpha.2＋候选包恢复：原工作编号、运行编号、父会话、投递目标及两条输入均采用一次。
 - **工具清单对照**：真实 alpha.2 上，宿主标准预设会话的 32 个工具含 `cordis_inspect`，24私助本地会话的 34 个工具不含，f13 的断言因此不是空通过。rc.3 基线同法测得本地清单逐项相同；标准预设侧由 `working_directory` 换为 `cordis_inspect`。
 - **Worker 子会话标题**（真实宿主，同一条委派）：rc.3＋正式包 `0.2.2-rc.3.1` 上，子会话的标题是按首条任务文字生成的兜底标题（「事项：<事项标题> 委托内容：」）。经会话控制接口改名的版本（提交 `3c2f4fa` 的 tarball）在 alpha.2 上重跑 `worker-session-title` 6 次，6 次都在事项完成时读到 `null`：宿主拒绝该调用，错误被吞掉；这由新增的真实宿主用例在全量中查出。改为会话标题服务后（提交 `92010ee`），用全量所用的 tarball 重跑 5 次全过，事项完成时标题即可读出。
@@ -61,13 +62,15 @@ npm run preset:check
 PA24_E2E_STORAGE=sqlite npx vitest run
 ```
 
-候选包按 README 步骤从 `git archive` 的干净导出构建：`npm --prefix packages/24pa install`、`npm --prefix packages/24pa run build`、`mkdir -p artifacts`、`npm pack ./packages/24pa --pack-destination ./artifacts`。
+候选包与发布包都从 `git archive` 的干净导出按下列命令构建，打包结果只取决于包内容：`npm --prefix packages/24pa install`、`npm --prefix packages/24pa run build`、`mkdir -p artifacts`、`npm pack ./packages/24pa --pack-destination ./artifacts`。
 
-### 候选制品
+### 发布制品
 
-`benz-ai-x-dsh-24pa-0.2.3-alpha.2.1.tgz`（本地制品，不随 PR 入库），159 个文件，压缩 720.5 kB，解包 2.66 MB（文件大小合计），由提交 `0b5a097` 生成（其后只有本文改动）。`package.json` 为 `0.2.3-alpha.2.1`，`engines.dsh` 精确 `0.2.3-alpha.2`，包含生成后的 `cordis.patch.yml` 与 `lib`，不包含测试或锁文件。
+`benz-ai-x-dsh-24pa-0.2.3-alpha.2.1.tgz`，159 个文件，压缩 720.3 kB，解包 2.66 MB（文件大小合计），包内容由发版提交 `ee14c16` 固定；其后的提交只改 `docs/` 下不进包的文件，标签 `v0.2.3-alpha.2.1` 所在提交的包内容相同（打包结果只取决于包内容）；相对升级 PR（#296）的包只多了 README 的发布措辞。`package.json` 为 `0.2.3-alpha.2.1`，`engines.dsh` 精确 `0.2.3-alpha.2`，包含生成后的 `cordis.patch.yml` 与 `lib`，不包含测试或锁文件。
 
-SHA-256：`3a58a9eaf930e631cc8738b3344da62f8978cf1492f3743f66dc46da95f23540`
+SHA-256：`20e9e57a7af223084746910ebfee739e9b897d4eec013847bca171908e41c07e`
+
+npm 与 GitHub Release 在发版 PR 合并并打标签后发布；发布后的回读（远端版本、制品哈希、dist-tag 与 Release 指针）另行回写。
 
 ### 未决与明确边界
 
@@ -77,6 +80,6 @@ SHA-256：`3a58a9eaf930e631cc8738b3344da62f8978cf1492f3743f66dc46da95f23540`
 - 初始化指南阶段 3 照原文执行得不到可用的实例，缺口早于本次适配：自定义名字的 profile 由 `dsh plugin add` 自动初始化时只带基础 bundle，不含 web 应用（`apps/cli/src/plugin.ts:48`）；坑 A 失败后原样重跑 add 退出码为 0，却不把插件层登记进 `dsh.profile.bundles`。可行步骤（先 `--from-default-profile web` 创建、安装前批准 `protobufjs` 构建、失败后 remove 再 add）已在 rc.3 与 alpha.2 上实测，因超出本次授权范围移出本 PR，另行提交待本人确认。
 - 宿主 `experimental/webhook` 每次投递新建根会话且不回传，不适用24私助的固定接入会话；宿主 SQLite 会话后端为显式选装，备份校验仍固定读取 JSONL provider。
 - `list_subagent_models` 不在24私助本地白名单内，rc.3 时即如此，未在本轮处理。
-- 未验证：真实飞书／企微／微信账号、生产 8010 升级、Desktop 应用内安装（profile 由应用独占管理）、npm 与 GitHub Release。
+- 不验证真实飞书／企微／微信账号、生产 8010 升级或 Desktop 应用内安装（profile 由应用独占管理）；npm 与 GitHub Release 的发布与回读见「发布制品」。
 
 后续新增功能与兼容性变更只针对 SQLite；PostgreSQL 暂停开发，既有实现与历史数据兼容保留。
