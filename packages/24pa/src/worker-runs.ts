@@ -4,7 +4,8 @@ import type { Repos } from './repo.js';
 import type { RunInput, RunToolCall, RunToolResult } from './skill-run-host.js';
 import { SkillRunClock } from './skill-run-clock.js';
 import { beginRunAttempt, canFinishDispatchedStep, blockRun, clearRunBlock, runControlSummary } from './run-control.js';
-import { canceledInputIds, consumedTurn, isDelegatedInputSource, turnHasModelInput } from './host-turn.js';
+import { isWorkExecutionInput } from './work-completion.js';
+import { canceledInputIds, consumedTurn, turnHasModelInput } from './host-turn.js';
 
 interface WorkerScope {
   on(event: 'agent/request', listener: (payload: { agent: DshAgent; turn: number; step: number }, next: () => Promise<unknown>) => Promise<unknown>): void;
@@ -91,8 +92,7 @@ export class WorkerRuns {
     const events = session.ownEvents().filter(event => typeof event.time === 'number' && event.time >= run.snapshot.startedAt);
     for (const input of await context.repos.workerRuns.inputs(run.id)) {
       const candidates: RunInput[] = events.flatMap(event => event.type === 'user/message' ? [event.data as RunInput] : event.type === 'agent/inbox/spliced' ? event.data.inserted ?? [] : []);
-      const accepted = candidates.filter(message => message.content?.some(block => block.type === 'text' && block.text === `[24PA execution: ${input.execution_id}]`)
-        && isDelegatedInputSource(message.source, input.scope.input, input.scope.parentSessionId));
+      const accepted = candidates.filter(message => isWorkExecutionInput(message, input.execution_id, input.scope));
       const unique = [...new Map(accepted.map(message => [message.id, message])).values()];
       if (unique.length === 1) {
         await context.repos.workerRuns.saveInput(input.execution_id, unique[0]!);
@@ -115,8 +115,7 @@ export class WorkerRuns {
         if (messages.length && !admitted.length) return { kind: 'reject' };
         const inputs = await active.context.repos.workerRuns.inputs(active.run.id);
         for (const message of admitted) {
-          const input = inputs.find(input => message.content?.some(block => block.type === 'text' && block.text === `[24PA execution: ${input.execution_id}]`)
-            && isDelegatedInputSource(message.source, input.scope.input, input.scope.parentSessionId));
+          const input = inputs.find(input => isWorkExecutionInput(message, input.execution_id, input.scope));
           if (input) await active.context.repos.workerRuns.saveInput(input.execution_id, message);
           else if (!await this.deps.budget?.ownsWake(active.run.id, current.id, message)) {
             await active.context.repos.workItems.update(active.item.id, { status: 'needs_reconciliation', progress: '原交办会话收到未关联输入，请通过原交办补充并核对。' });
