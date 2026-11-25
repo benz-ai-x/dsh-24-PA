@@ -278,6 +278,7 @@ schema 20 为两种账本增加来源登记、访问证据、平台对象、来�
 - **宿主验证**——本版仅支持 0.2.3-alpha.2。回归用 `DSH_BIN` 选择该运行时；作用域工具验证覆盖宿主内置 Agent Teams 组合，额外测试夹具才使用 `PA24_E2E_EXTRA_PLUGINS`。旧宿主继续使用各自已发布的插件版本。
 - **预设补丁为生成物**——`cordis.patch.yml` 由 `scripts/sync-preset.mjs` 对 devDependency 钉住的 `@deepseek-ai/dsh-web-app` 标准预设应用 delta 生成，勿手改；换新 dsh 基线时先改 pin 再跑 `npm run preset:sync`，`npm run preset:check` 与单测守护已提交副本不漂移。
 - **本地 harness 相邻性**——dev 类型检查经 `scripts/link-peer.mjs` 从相邻的 `deepseek-harness` checkout 链接 vendored peers；registry 安装不依赖该 checkout。
+- **锁文件**——`package-lock.json` 由文档记载的 `npm --prefix packages/24pa install` 生成：该命令会记录 peer，干净克隆因此不依赖相邻 checkout 也能构建并运行单测；锁文件保持用同一命令生成，跳过 peer 的安装会留下不同的文件。
 
 </details>
 
