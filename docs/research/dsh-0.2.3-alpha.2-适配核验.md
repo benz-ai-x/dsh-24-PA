@@ -70,7 +70,7 @@ PA24_E2E_STORAGE=sqlite npx vitest run
 
 SHA-256：`20e9e57a7af223084746910ebfee739e9b897d4eec013847bca171908e41c07e`
 
-npm 与 GitHub Release 在发版 PR 合并并打标签后发布；发布后的回读（远端版本、制品哈希、dist-tag 与 Release 指针）另行回写。
+npm 与 GitHub Release 于 2026-11-26（东八区；UTC 为 11-25 19:01（npm）与 19:02（GitHub Release））发布并回读：npm 上 `0.2.3-alpha.2.1` 的 `dist.shasum` 为 sha1 `f64f3a4bf7ae217bb2245a816e1b7b91d07d6cdb`，下载到的 tarball 与本地制品逐字节相同；dist-tag `latest` 与 `dsh-0.2.3-alpha.2` 均指向 `0.2.3-alpha.2.1`，其余基线标签与发布前的查询一致；GitHub Release `v0.2.3-alpha.2.1` 为 latest，附件与同一制品逐字节相同。标签 `v0.2.3-alpha.2.1` 指向发版 PR 的合并提交，从该提交重建的 tarball 与之相同。本次发布后元数据约 6 分钟可见，tarball 约 10 分钟后可下载（按本机时钟）。
 
 ### 未决与明确边界
 
