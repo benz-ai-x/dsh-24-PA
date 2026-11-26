@@ -15,6 +15,9 @@ export type VendorCli = 'lark' | 'wecom';
 /** What supplies a vendor CLI: the plugin row, an official connector, or PATH. */
 export type CliSource = 'config' | 'official' | 'path';
 
+/** How readiness names each source. The panel shows the same words in its `CLI_SOURCE`; a unit test keeps the two equal. */
+export const CLI_SOURCE_LABELS: Record<CliSource, string> = { config: '插件行显式配置', official: '官方连接器提供', path: 'PATH 上的可执行文件' };
+
 /** A vendor CLI that is configured or installed. */
 export interface CliLocation {
   /** The executable: an absolute path, or a bare name that PATH resolves. */

@@ -31,7 +31,7 @@ import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry, ProfileContextService } from './host.js';
-import { VendorClis, CliUnavailableError, hasOfficialConnectors, runnableAsGiven, type CliLocation, type CliSource, type PackageResolver, type VendorCli } from './cli-source.js';
+import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, runnableAsGiven, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -4740,7 +4740,6 @@ export class PaRuntime {
       lark: config.mode === 'feishu',
       wecom: sources.some(row => row.platform === 'wecom') || config.notifyChannel === 'wecom',
     };
-    const supplied: Record<CliSource, string> = { config: '插件行显式配置', official: '官方连接器提供', path: 'PATH 上的可执行文件' };
     const lines: string[] = [];
     let state: ReadinessItem['state'] = 'ok';
     for (const cli of ['lark', 'wecom'] as const) {
@@ -4763,7 +4762,7 @@ export class PaRuntime {
           ? `插件行配置的 ${name} 不可执行（${answer.path}）${this.vendorClis.officialConnectors() ? '；要用官方插件托管的，请删除插件行的这一项' : ''}`
           : `PATH 上找不到 ${name}`;
         if (called[cli]) refuse(why); else uncalled(why);
-      } else lines.push(`${name}：${supplied[answer.source]}（${answer.connector ? `${answer.connector}，` : ''}${answer.path}）`);
+      } else lines.push(`${name}：${CLI_SOURCE_LABELS[answer.source]}（${answer.connector ? `${answer.connector}，` : ''}${answer.path}）`);
     }
     return { id: 'vendor-cli', state, message: lines.join('；') };
   }

@@ -6,10 +6,21 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { CliUnavailableError, hasOfficialConnectors, runnableAsGiven, VendorClis } from '../../lib/cli-source.js';
+import { CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, runnableAsGiven, VendorClis } from '../../lib/cli-source.js';
 
 const cleanup = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
+
+describe('CLI 来源的文字', () => {
+  it('readiness 与面板用的是同一组', async () => {
+    // The panel runs in the browser and cannot import the plugin's server code; its own table must not drift.
+    const client = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
+    const literal = /const CLI_SOURCE = (\{[^}]*\});/.exec(client)?.[1];
+    expect(literal).toBeTruthy();
+    const labels = Object.fromEntries([...literal.matchAll(/(\w+): \['([^']+)'/g)].map(([, key, zh]) => [key, zh]));
+    expect(labels).toEqual(CLI_SOURCE_LABELS);
+  });
+});
 
 /** The packages a connector line installs, as the plugin would resolve them. */
 async function installed() {
