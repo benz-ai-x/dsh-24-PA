@@ -27,7 +27,9 @@ const strings = value => typeof value === 'string' ? [value]
   : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [];
 const said = request => strings(request.inputs).join('\n');
 
-let root, host, llm, wx, workspace, scriptPath, binding, larkState, larkPath, wecomPath, localSessionId;
+let root, host, llm, wx, workspace, scriptPath, binding, larkState, larkPath, wecomPath, tmeetPath, localSessionId;
+// The mock records a tool result as JSON, so its quotes arrive escaped.
+const unescaped = result => result.replace(/\\"/g, '"');
 const journal = async path => (await readFile(path, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(JSON.parse);
 const sources = { version: 1, entries: [
   { id: 'personal-calendar', domain: 'calendar', platform: 'feishu', name: '个人日历', purpose: 'personal', ownerId: 'ou_connectors_owner', resourceKind: 'calendar', resourceId: 'personal-cal', filter: 'all', access: 'readwrite', enabled: true },
@@ -91,7 +93,7 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
         PA24_LARK_STUB_STATE: larkState, PA24_WECOM_STUB_STATE: wecomState,
         DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, npm_config_registry: 'https://registry.npmjs.org',
         PA24_TEST_WEIXIN_URL: wx.url, NODE_OPTIONS: `--import=${resolve('tests/helpers/weixin-fetch-boundary.mjs')}` },
-      extraPlugins: [`@deepseek-ai/dsh-feishu@${version}`, `@deepseek-ai/dsh-wecom@${version}`],
+      extraPlugins: [`@deepseek-ai/dsh-feishu@${version}`, `@deepseek-ai/dsh-wecom@${version}`, `@deepseek-ai/dsh-tencent-meeting@${version}`],
       // The plugin row names no CLI: the connectors' executables have to be the ones found.
       vendorClis: false,
       async beforeBoot({ root: testRoot, profile, addPatch }) {
@@ -104,8 +106,18 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
         // directory keeps the run offline.
         const guides = join(testRoot, 'wecom-guides'); await mkdir(guides, { recursive: true });
         addPatch(`- id: wecom\n  config:\n    skillsDir: ${JSON.stringify(guides)}\n`);
+        // The tencent-meeting row's install script marks its executable and
+        // signs this computer's tmeet out; the fixture ignores scripts and
+        // names a stand-in executable for the row instead, so no real tmeet runs.
+        tmeetPath = join(testRoot, 'tmeet-bin', process.platform === 'win32' ? 'tmeet.exe' : 'tmeet');
+        await mkdir(dirname(tmeetPath), { recursive: true });
+        await writeFile(tmeetPath, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+        const meetingGuides = join(testRoot, 'tencent-meeting-guides'); await mkdir(meetingGuides, { recursive: true });
+        addPatch(`- id: tencent-meeting\n  config:\n    binDir: ${JSON.stringify(dirname(tmeetPath))}\n    skillsDir: ${JSON.stringify(meetingGuides)}\n`);
       },
     });
+    // The Feishu and WeCom connectors resolve their executable through Node, which
+    // reports real paths; the Tencent Meeting one joins its configured binDir as given.
     [larkPath, wecomPath] = await Promise.all([realpath(larkPath), realpath(wecomPath)]);
     binding = (await host.waitUntil(row => !!row.workspaceBinding && !!row.workspace?.localSessionId && row.transport?.connected === true, { label: '工作区就绪' })).workspaceBinding;
     localSessionId = (await host.api('snapshot')).workspace.localSessionId;
@@ -113,17 +125,19 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
 
   afterAll(async () => { await host?.stop(); await wx?.close(); await llm?.close(); if (root) await rm(root, { recursive: true, force: true }); });
 
-  it('连接器的两行与24私助一同激活，宿主不报未激活条目；托管 CLI 的位置上是替身', async () => {
+  it('连接器的三行与24私助一同激活，宿主不报未激活条目；托管 CLI 的位置上是替身', async () => {
     const { stdout, stderr } = host.logs();
     expect(stdout + stderr).not.toMatch(/did not activate/);
-    expect(stdout + stderr).not.toMatch(/@deepseek-ai\/dsh-(feishu|wecom)/);
+    expect(stdout + stderr).not.toMatch(/@deepseek-ai\/dsh-(feishu|wecom|tencent-meeting)/);
     for (const [file, stub] of [[larkPath, larkStub], [wecomPath, wecomStub]]) {
       expect(await readFile(file, 'utf8')).toContain(JSON.stringify(stub));
     }
-    // The profile's patch layer still carries the entry added before the boot, beside the plugin row the fixture did not write.
+    // The profile's patch layer still carries the entries added before the boot, beside the plugin row the fixture did not write.
     const patch = await readFile(join(host.root, 'home/profiles/pa24-test/cordis.patch.yml'), 'utf8');
     expect(patch).toContain('skillsDir:');
+    expect(patch).toContain('- id: tencent-meeting');
     expect(patch).not.toContain('larkCliBin');
+    expect(await readFile(tmeetPath, 'utf8')).toBe('#!/bin/sh\nexit 0\n');
   });
 
   it('本地会话拿到官方 CLI 的绝对路径与业务动作优先级规则，并能加载官方 feishu 与 wecom 技能', async () => {
@@ -134,11 +148,15 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
     // #304 and #307 reach the local session's system prompt, not only the prompt module's text.
     expect(feishu.call.system).toContain('日程、待办、备忘、提醒仍一律经 pa24 工具办理');
     expect(feishu.call.system).toContain('不指导本人在终端运行 lark-cli 登录');
-    // The mock records a tool result as JSON, so its quotes arrive escaped.
-    const unescaped = result => result.replace(/\\"/g, '"');
     expect(unescaped(feishu.result)).toContain('<skill_content name="feishu">');
     const wecom = await loadSkill('wecom', 2);
     expect(unescaped(wecom.result)).toContain('<skill_content name="wecom">');
+  });
+
+  it('#305 腾讯会议连接器同样共载：本地会话拿到 tmeet 的绝对路径，并能加载官方技能', async () => {
+    const meeting = await loadSkill('tencent-meeting', 3);
+    expect(said(meeting.call)).toContain(`Tencent Meeting CLI: run \`tmeet\` by its absolute path "${tmeetPath}"`);
+    expect(unescaped(meeting.result)).toContain('<skill_content name="tencent-meeting">');
   });
 
   it('#306 CLI 取自官方连接器：接入检查与两项写入都经由连接器包内的 CLI', async () => {
