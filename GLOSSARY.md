@@ -40,6 +40,10 @@ _Avoid_: 交互式安装向导界面、替本人完成浏览器授权、指导�
 宿主 dsh 提供的第三方连接插件（`@deepseek-ai/dsh-feishu`、`@deepseek-ai/dsh-wecom`、`@deepseek-ai/dsh-tencent-docs`、`@deepseek-ai/dsh-tencent-meeting`）：托管官方 CLI 或 MCP，并在宿主「插件」页提供账号操作。24私助的外部连接一律依赖它；官方做不到的先识别清楚再定是否自研。
 _Avoid_: 24私助内置连接器、服务器上另装 lark-cli／wecom-cli
 
+**插件行**：
+宿主装配24私助时 `id: pa24` 的那一行插件配置，由包内预设补丁文件（`cordis.patch.yml`）生成；启动项（`stateDirectory`、`larkCliBin`、`wecomCliBin` 等）写在这里。要改它，在实例 profile 自己的补丁层（`<DSH_HOME>/profiles/<实例名>/cordis.patch.yml`）里按 id 覆盖，并重述整段 `config`——补丁层对 `config` 是整体替换。
+_Avoid_: 面板「参数配置」（那是工作区 AGENTS.md）、服务器环境变量
+
 **本地工具扩展（extraLocalTools）**：
 工作区配置中显式列出本地24私助会话额外放行的已注册工具名的字段：provider 级外部 CLI 委派（subagent_codex、subagent_claude_code）与 QwenNote 听记工具（`mcp__qwennote__*` 通配或精确名，需 profile 配置 dsh-mcp-client 条目）；对应通道挂载后才生效，点名未挂载工具的条目会被过滤并提示。
 _Avoid_: 默认开启的外部能力、飞书入口工具、开放任意工具名
