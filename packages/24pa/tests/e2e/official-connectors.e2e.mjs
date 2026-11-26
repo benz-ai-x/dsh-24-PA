@@ -4,12 +4,14 @@
 // vendor CLIs are stubs written where the connectors' install scripts put the
 // real executables, and the model is scripted. The plugin row names no CLI and
 // PATH carries none, so the connectors' executables are the only ones it can
-// run. The two connector packages come from the registry, so the suite runs
-// this file only when PA24_E2E_OFFICIAL_CONNECTORS names their version.
+// run. The connector packages come from the registry, so the suite runs this
+// file only when PA24_E2E_OFFICIAL_CONNECTORS names their version; what needs
+// no connector package is in cli-source.e2e.mjs.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { bootHost } from '../helpers/host.mjs';
@@ -72,7 +74,7 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
     const wecomState = join(root, 'wecom.json'); larkState = join(root, 'lark.json'); scriptPath = join(root, 'script.json');
     await writeFile(larkState, JSON.stringify({ ownerOpenId: 'ou_connectors_owner', appId: 'cli_connectors_app' })); await writeFile(wecomState, '{}');
     await writeFile(scriptPath, JSON.stringify({ steps: [{ text: '已收到。' }] }));
-    llm = await startMockLlm({ scriptPath, logPath: join(root, 'model-requests.json'), recordInputs: true }); wx = await startWeixinServer();
+    llm = await startMockLlm({ scriptPath, logPath: join(root, 'model-requests.json'), recordInputs: true, recordSystem: true }); wx = await startWeixinServer();
     // The executables the connectors' rows check for come from install scripts
     // the fixture ignores (lark-cli) or ship ready to run (the wecom platform
     // package): stand-ins replace both, so no vendor CLI can reach a real
@@ -89,14 +91,18 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
         DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, npm_config_registry: 'https://registry.npmjs.org',
         PA24_TEST_WEIXIN_URL: wx.url, NODE_OPTIONS: `--import=${resolve('tests/helpers/weixin-fetch-boundary.mjs')}` },
       extraPlugins: [`@deepseek-ai/dsh-feishu@${version}`, `@deepseek-ai/dsh-wecom@${version}`],
-      async beforeBoot({ root: testRoot, profile }) {
+      // The plugin row names no CLI: the connectors' executables have to be the ones found.
+      vendorClis: false,
+      async beforeBoot({ root: testRoot, profile, addPatch }) {
         larkPath = join(profile, 'node_modules/@larksuite/cli/bin/lark-cli');
         wecomPath = join(profile, `node_modules/@wecom/cli-${process.platform}-${process.arch}/bin/wecom-cli`);
+        // The wecom platform package ships its executable; the stand-in replaces one that is there, not a path merely assumed.
+        expect(existsSync(wecomPath)).toBe(true);
         await standIn(larkPath, larkStub); await standIn(wecomPath, wecomStub);
         // The wecom row downloads its guides from GitHub when it loads; a local
         // directory keeps the run offline.
         const guides = join(testRoot, 'wecom-guides'); await mkdir(guides, { recursive: true });
-        await writeFile(join(profile, 'cordis.patch.yml'), `- id: wecom\n  config:\n    skillsDir: ${JSON.stringify(guides)}\n`);
+        addPatch(`- id: wecom\n  config:\n    skillsDir: ${JSON.stringify(guides)}\n`);
       },
     });
     [larkPath, wecomPath] = await Promise.all([realpath(larkPath), realpath(wecomPath)]);
@@ -113,13 +119,20 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
     for (const [file, stub] of [[larkPath, larkStub], [wecomPath, wecomStub]]) {
       expect(await readFile(file, 'utf8')).toContain(JSON.stringify(stub));
     }
+    // The profile's patch layer still carries the entry added before the boot, beside the plugin row the fixture did not write.
+    const patch = await readFile(join(host.root, 'home/profiles/pa24-test/cordis.patch.yml'), 'utf8');
+    expect(patch).toContain('skillsDir:');
+    expect(patch).not.toContain('larkCliBin');
   });
 
-  it('本地会话拿到官方 CLI 的绝对路径，并能加载官方 feishu 与 wecom 技能', async () => {
+  it('本地会话拿到官方 CLI 的绝对路径与业务动作优先级规则，并能加载官方 feishu 与 wecom 技能', async () => {
     const feishu = await loadSkill('feishu', 1);
     expect(feishu.call.tools).toEqual(expect.arrayContaining(['bash', 'skill', 'pa24_delegate']));
     expect(said(feishu.call)).toContain(`Feishu CLI: run \`lark-cli\` by its absolute path "${larkPath}"`);
     expect(said(feishu.call)).toContain(`WeCom CLI: run \`wecom-cli\` by its absolute path "${wecomPath}"`);
+    // #304 and #307 reach the local session's system prompt, not only the prompt module's text.
+    expect(feishu.call.system).toContain('日程、待办、备忘、提醒仍一律经 pa24 工具办理');
+    expect(feishu.call.system).toContain('不指导本人在终端运行 lark-cli 登录');
     // The mock records a tool result as JSON, so its quotes arrive escaped.
     const unescaped = result => result.replace(/\\"/g, '"');
     expect(unescaped(feishu.result)).toContain('<skill_content name="feishu">');
@@ -128,13 +141,16 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
   });
 
   it('#306 CLI 取自官方连接器：接入检查与两项写入都经由连接器包内的 CLI', async () => {
-    const item = (await host.api('snapshot')).readiness.items.find(row => row.id === 'vendor-cli');
-    expect(item.state).toBe('ok');
-    expect(item.message).toContain(`lark-cli：官方连接器提供（${larkPath}）`);
-    expect(item.message).toContain(`wecom-cli：官方连接器提供（${wecomPath}）`);
+    const snapshot = await host.api('snapshot');
+    expect(snapshot.readiness.items.find(row => row.id === 'vendor-cli')).toMatchObject({ state: 'ok' });
+    const supplied = snapshot.readiness.items.find(row => row.id === 'vendor-cli').message;
+    expect(supplied).toContain(`lark-cli：官方连接器提供（@deepseek-ai/dsh-feishu@${version}，${larkPath}）`);
+    expect(supplied).toContain(`wecom-cli：官方连接器提供（@deepseek-ai/dsh-wecom@${version}，${wecomPath}）`);
+    // The host line names the installed connector versions.
+    expect(snapshot.readiness.items.find(row => row.id === 'host').message).toContain(`官方连接器 @deepseek-ai/dsh-feishu@${version}、@deepseek-ai/dsh-wecom@${version}`);
     const access = await host.api('action', { type: 'connection.check' });
-    expect(access.cli).toMatchObject({ state: 'ok', source: 'official', path: larkPath });
-    expect((await host.api('action', { type: 'connection.wecom-check' })).cli.state).toBe('ok');
+    expect(access.cli).toMatchObject({ state: 'ok', source: 'official', path: larkPath, connector: `@deepseek-ai/dsh-feishu@${version}` });
+    expect((await host.api('action', { type: 'connection.wecom-check' })).cli).toMatchObject({ state: 'ok', source: 'official' });
     // A task and a calendar event, each through the ledger-backed worker tools.
     const task = '官方连接器路径写入的待办', event = '官方连接器路径写入的日程', start = new Date(Date.now() + 26 * 3600_000);
     const wrote = await perform('tasks', { action: 'task_create', summary: task }, task);
@@ -144,35 +160,6 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
     // The stand-in journals every object it is asked to create.
     expect((await journal(larkState + '.tasks.jsonl')).some(row => String(row.summary).includes(task))).toBe(true);
     expect((await journal(larkState + '.events.jsonl')).some(row => String(row.summary).includes(event))).toBe(true);
-  });
-
-  it('没装官方连接器的实例：飞书模式拒绝激活并给出安装命令，插件行给出 larkCliBin 后恢复', async () => {
-    const bare = await mkdtemp(join(tmpdir(), 'pa24-connectors-none-'));
-    const workspace = join(bare, 'workspace'); await mkdir(workspace);
-    await writeFile(join(workspace, 'AGENTS.md'), '# 没有官方连接器\n\n```json\n' + JSON.stringify({ ...DEFAULT_CONFIG, storage: 'sqlite', mode: 'feishu', ownerOpenId: 'ou_connectors_owner', folderToken: 'fixture-folder', tasklistId: 'fixture-list' }) + '\n```\n');
-    const env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_connectors_app', PA24_FEISHU_APP_SECRET: 'connectors-secret',
-      DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url };
-    try {
-      // No connector, nothing in the plugin row, no stand-in anywhere: the channel is refused and the readiness says what to install.
-      const refused = await bootHost({ env });
-      try {
-        const snapshot = await refused.waitUntil(row => !!row.workspace?.localSessionId, { label: '工作区就绪' }).catch(error => { throw new Error(`${error.message}\n${JSON.stringify(refused.logs()).slice(-2500)}`); });
-        expect(snapshot.transport.connected).toBe(false);
-        expect(snapshot.transport.message).toContain('需要官方飞书插件提供的 lark-cli');
-        expect(snapshot.transport.message).toContain('dsh plugin --profile pa24-test add @deepseek-ai/dsh-feishu');
-        expect(snapshot.readiness.items.find(row => row.id === 'feishu').state).toBe('error');
-        expect(snapshot.readiness.items.find(row => row.id === 'vendor-cli').state).toBe('error');
-      } finally { await refused.stop(); }
-      // A stand-in reachable through PATH is named in the plugin row by the fixture, and the channel starts.
-      const bin = join(bare, 'bin'); await mkdir(bin);
-      await writeFile(join(bin, 'lark-cli'), '#!/usr/bin/env node\nawait import(' + JSON.stringify(larkStub) + ');\n'); await chmod(join(bin, 'lark-cli'), 0o755);
-      const supplied = await bootHost({ env: { ...env, PA24_LARK_STUB_STATE: larkState, PATH: `${bin}${delimiter}${process.env.PATH}` } });
-      try {
-        const snapshot = await supplied.waitUntil(row => row.transport?.connected === true, { label: '显式给出 lark-cli 后的飞书接入' });
-        expect(snapshot.readiness.items.find(row => row.id === 'vendor-cli')).toMatchObject({ state: 'ok' });
-        expect(snapshot.readiness.items.find(row => row.id === 'vendor-cli').message).toContain(`lark-cli：插件行显式配置（`);
-      } finally { await supplied.stop(); }
-    } finally { await rm(bare, { recursive: true, force: true }); }
   });
 
   it('飞书接入会话仍只有业务白名单：无 Shell、无技能工具', async () => {

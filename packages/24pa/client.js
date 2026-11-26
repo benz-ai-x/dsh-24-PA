@@ -527,7 +527,7 @@ window.__ModuleLoader__.load({
               button('folder', L('绑定所选工作区', 'Bind selected workspace'), () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path, className: 'pa24-primary' }),
               h('div', { className: 'pa24-helper' }, L('当前目录', 'Current directory'), h('p', { className: 'pa24-meta' }, workspace ? workspace.path : L('未绑定', 'Not bound')))),
             h('section', { className: 'pa24-card' },
-              sectionHead('code', L('当前生效配置', 'Effective configuration'), L('配置保存在工作区；密钥另存于工作区密钥库、服务器环境或 CLI 授权。', 'Configuration lives in the workspace; credentials use its secret store, server environment or CLI authorization.'),
+              sectionHead('code', L('当前生效配置', 'Effective configuration'), L('配置保存在工作区；密钥另存于工作区密钥库、服务器环境，或宿主「插件」页登录的账号。', 'Configuration lives in the workspace; credentials use its secret store, the server environment, or the account signed in on the host\'s Plugins page.'),
                 h('div', { className: 'pa24-row' },
                   button('code', L('打开参数表单', 'Open config form'), openConfig, { className: 'pa24-quiet' }),
                   button('chat', L('通过对话修改配置', 'Change config in chat'), openRobot, { className: 'pa24-quiet' }),
@@ -1133,10 +1133,12 @@ window.__ModuleLoader__.load({
               fields([
                 [L('CLI 来源', 'CLI source'), cli ? technicalText(cliSourceText(cli)) : L('尚未检查', 'Not checked')],
                 [L('CLI 版本', 'CLI version'), cli ? cli.version : L('尚未检查', 'Not checked')],
-                [L('用户授权', 'User auth'), auth ? technicalText(auth.message) : L('尚未检查', 'Not checked')],
-                [L('CLI 用户', 'CLI user'), auth ? auth.userName : L('尚未取得', 'Not acquired')],
+                [L('账号登录', 'Account sign-in'), auth ? technicalText(auth.message) : L('尚未检查', 'Not checked')],
+                [L('登录账号', 'Signed-in user'), auth ? auth.userName : L('尚未取得', 'Not acquired')],
                 [L('用户令牌', 'User token'), auth ? auth.tokenStatus : L('尚未确认', 'Unconfirmed')],
               ]),
+              // #307: linking the app and signing in are the official Feishu plugin's operations, done by the owner on the host's Plugins page.
+              h('p', { className: 'pa24-helper' }, L('lark-cli 由官方飞书插件提供；关联应用与登录由本人在宿主「插件」页的「飞书插件」里完成，这里只显示只读检查的结果。', 'lark-cli comes from the official Feishu plugin; link the app and sign in on that plugin\'s block of the host\'s Plugins page. What shows here is the read-only check.')),
               h('details', null, h('summary', null, L('路径与身份明细', 'Path & identity details')),
                 fields([
                   [L('CLI 路径', 'CLI path'), cli ? h('span', { className: 'pa24-ellip', title: cli.path }, cli.path) : L('尚未检查', 'Not checked')],
@@ -3543,7 +3545,7 @@ window.__ModuleLoader__.load({
             !maintenance && h('section', { className: 'pa24-card' },
               h('h2', null, L('模式与身份', 'Mode & identity')),
               row('mode', L('模式', 'Mode'), sel([['demo', L('体验模式', 'Demo')], ['feishu', L('飞书模式', 'Feishu')]], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('需要已设置的飞书应用凭据。', 'Feishu app credentials are required.') : null),
-              row('larkProfile', L('lark-cli profile', 'lark-cli profile'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 的 profile 名；保持 default 时跟随官方飞书插件管理的当前配置。', 'The lark-cli profile name; keep default to follow the configuration the official Feishu plugin manages.')),
+              row('larkProfile', L('lark-cli profile', 'lark-cli profile'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 的 profile 名；保持 default 时命令不带 --profile，与官方飞书插件用的是同一份当前配置。', 'The lark-cli profile name; keep default and commands carry no --profile, the same current configuration the official Feishu plugin uses.')),
               row('ownerOpenId', L('主人 OpenID', 'Owner OpenID'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
                 h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),
@@ -4017,10 +4019,12 @@ window.__ModuleLoader__.load({
             wecom && h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与身份', 'CLI & identity')), statusBadge(wecom.cli.state !== 'ok' || wecom.identity.state === 'error' ? 'error' : wecom.identity.state === 'ok' ? 'ok' : 'warn', wecom.cli.state !== 'ok' ? L('CLI 不可用', 'CLI unavailable') : wecom.identity.state === 'ok' ? undefined : L('身份待核验', 'Identity needs verification'))),
               fields([
-                [L('CLI 状态', 'CLI status'), technicalText(wecom.cli.message)],
+                [L('CLI 状态', 'CLI status'), technicalText(cliSourceText(wecom.cli))],
                 [L('机器人绑定与授权真人', 'Bot binding & authorized user'), technicalText(wecom.identity.message)],
                 [L('推送目标', 'Push target'), wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : L('未解析', 'Unresolved')],
-              ])),
+              ]),
+              // Connecting WeCom is the official WeCom plugin's operation, done by the owner on the host's Plugins page.
+              h('p', { className: 'pa24-helper' }, L('wecom-cli 由官方企业微信插件提供；连接企业微信由本人在宿主「插件」页的「企业微信插件」里完成。', 'wecom-cli comes from the official WeCom plugin; connect WeCom on that plugin\'s block of the host\'s Plugins page.'))),
             wecom && h('section', { className: 'pa24-card' },
               sectionHead('shield', L('服务级授权', 'Service-level authorization'), L('按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。', 'Read-only probes per enabled channel; service-level grants expire (follow the renewal guide on 850003), and links must open inside the WeCom app.')),
               (wecom.services ?? []).length === 0

@@ -27,7 +27,7 @@ const writeJson = async (path, value) => {
   await rename(temporary, path);
 };
 
-export async function startMockLlm({ scriptPath, logPath, recordInputs = false, sequenceKey }) {
+export async function startMockLlm({ scriptPath, logPath, recordInputs = false, recordSystem = false, sequenceKey }) {
   const requests = [];
   let scriptQueue = Promise.resolve(), logQueue = Promise.resolve();
   const updateScript = change => {
@@ -65,7 +65,10 @@ export async function startMockLlm({ scriptPath, logPath, recordInputs = false, 
       .map(b => b.text)
       .join('\n')
       .slice(-2000);
+    // The system prompt reaches the model as a string or as content blocks; recorded verbatim either way.
+    const system = typeof body.system === 'string' ? body.system : JSON.stringify(body.system ?? null);
     requests.push({ at: new Date().toISOString(), model: body.model, tools, toolResults, images, lastUserText,
+      ...(recordSystem ? { system } : {}),
       ...(recordInputs ? { inputs: (body.messages ?? []).filter(message => message.role === 'user') } : {}) });
     logQueue = logQueue.then(() => writeJson(logPath, requests)).catch(() => {});
     await logQueue;

@@ -14,6 +14,7 @@ import type { SharedChannelDeps } from './channel-deps.js';
 import type { Repos, TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
 import { effectiveSources } from './source-config.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
+import { CliUnavailableError, type CliSource } from './cli-source.js';
 
 /** A process-level success cannot prove this target's individual mutation. */
 function todoMutationReceipt(data: any, guid: string, action: string): Record<string, unknown> {
@@ -38,7 +39,8 @@ export interface WecomServiceCheck {
 
 export interface WecomDiagnostics {
   checkedAt: string;
-  cli: { state: 'ok' | 'error'; message: string };
+  /** `source` says what supplies the CLI (#306): an official connector, the plugin row, or PATH. */
+  cli: { state: 'ok' | 'error'; message: string; source?: CliSource };
   auth: { state: 'ok' | 'error'; message: string };
   identity: { state: 'ok' | 'error' | 'missing'; message: string; userid?: string; userName?: string };
   services: WecomServiceCheck[];
@@ -100,6 +102,8 @@ export class WecomChannels {
 
   private async readOwnerIdentity(epoch: number): Promise<{ userid: string; name: string }> {
     if (this.wecomIdentityCache) return this.wecomIdentityCache;
+    // Asked on every call, ahead of the backoff below: when nothing supplies wecom-cli (#306), its message is the answer.
+    this.deps.cli();
     if (Date.now() - this.wecomIdentityFailedAt < 60_000) {
       throw new Error('企微推送目标最近解析失败（60 秒内不重复解析）；用 pa24_connection action=wecom_check 诊断。');
     }
@@ -474,13 +478,13 @@ export class WecomChannels {
       this.wecomDiagnostics = this.safe(result);
       return this.wecomDiagnostics;
     };
-    let bin: string;
-    try { bin = this.deps.cli().bin; } catch (error) { return failed(`无法运行 wecom-cli：${(error as Error).message}`); }
+    let bin: string, source: CliSource | undefined;
+    try { ({ bin, source } = this.deps.cli()); } catch (error) { return failed(error instanceof CliUnavailableError ? error.message : `无法运行 wecom-cli：${(error as Error).message}`); }
     try {
       const { stdout, exitCode } = await runCliProcess({ bin, argv: ['--version'],
-        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: kind => new Error(`版本检查未完成（${kind})`) });
+        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: kind => new Error(`版本检查未完成（${kind}）`) });
       if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
-      cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}` };
+      cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}`, ...(source ? { source } : {}) };
     } catch (error) {
       return failed(`无法运行 ${bin}：${(error as Error).message}`);
     }

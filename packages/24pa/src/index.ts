@@ -2,6 +2,7 @@ import z from '@deepseek-ai/schemastery';
 import type { DshContext } from './host.js';
 import { PaRuntime, HostStartupError } from './runtime.js';
 import { registerPanel } from './panel.js';
+import { hasOfficialConnectors } from './cli-source.js';
 
 export const name = 'pa24';
 export const inject = ['sessionController', 'sessions', 'connection', 'agentPresets', 'workspaceRegistry', 'subagents', 'fs', 'skills'];
@@ -26,7 +27,11 @@ export const Config = z.object({
 export function apply(ctx: DshContext, config: any) {
   // A host line without the official connectors (the rc line) has none to
   // supply the CLIs: there the row names the bare executables, which PATH resolves.
-  const noConnectors = !ctx.get('cliAccounts');
+  // Asked once, here: the CLI account service is a row of the host's base
+  // bundle. The official-connector e2e boots that host with no CLI in the
+  // plugin row and sees the connectors' CLI; a service that arrived late would
+  // read as a bare name, which the connector line refuses.
+  const noConnectors = !hasOfficialConnectors(ctx);
   const runtime = new PaRuntime(ctx, {
     stateDirectory: config.stateDirectory,
     backupSessionsRoot: config.backupSessionsRoot,

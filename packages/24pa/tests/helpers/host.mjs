@@ -23,7 +23,7 @@ const runSync = (bin, args, env, label) => {
   return result;
 };
 
-export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: requestedBin, packageSpec: requestedPackage, extraPlugins, beforeBoot } = {}) {
+export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: requestedBin, packageSpec: requestedPackage, extraPlugins, patch, vendorClis = {}, beforeBoot } = {}) {
   const root = reuseRoot ?? (await mkdtemp(join(tmpdir(), 'pa24-host-')));
   // F25 backend matrix: PA24_E2E_STORAGE=sqlite flips the workspace AGENTS.md
   // to the SQLite ledger before the host boots, so the same suite runs
@@ -62,19 +62,21 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: reque
   for (const extra of extraPlugins ?? (process.env.PA24_E2E_EXTRA_PLUGINS ?? '').split(',').filter(Boolean)) {
     runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', ...extra.split(' ').filter(Boolean), '--ignore-scripts', '--store-dir', join(root, 'store')], env, `extra plugin add (${extra})`);
   }
-  // The plugin does not look a bare lark-cli / wecom-cli up on PATH (#306): a
-  // test that supplies stand-ins through PATH names them for the plugin row.
-  // Only stand-ins under the temporary directory qualify, so a vendor CLI
-  // installed on this machine is never handed to the plugin.
-  const temporary = [tmpdir(), realpathSync(tmpdir())];
-  const standIns = (extraEnv.PATH ?? process.env.PATH ?? '').split(delimiter)
-    .filter(entry => temporary.some(dir => entry === dir || entry.startsWith(`${dir}${sep}`)));
-  const cli = {};
-  for (const [key, name] of [['larkCliBin', 'lark-cli'], ['wecomCliBin', 'wecom-cli']]) {
-    const dir = standIns.find(entry => existsSync(join(entry, name)));
-    if (dir !== undefined) cli[key] = join(dir, name);
-  }
-  if (Object.keys(cli).length) {
+  // Entries of the profile's own patch layer, written once below so that no
+  // entry overwrites another.
+  const layers = [];
+  // The plugin never looks a vendor CLI up on PATH by itself (#306), but on a
+  // host line without the official connectors its row names the bare
+  // executables, which a child process would resolve on PATH. So the row
+  // always names a file: a stand-in the test put on PATH, else a path that
+  // does not exist — or the value `vendorClis` gives. Only stand-ins under the
+  // temporary directory qualify, so a vendor CLI installed on this machine is
+  // never handed to the plugin. A test of the row naming nothing passes `false`.
+  if (vendorClis) {
+    const temporary = [tmpdir(), realpathSync(tmpdir())];
+    const standIns = (extraEnv.PATH ?? process.env.PATH ?? '').split(delimiter)
+      .filter(entry => temporary.some(dir => entry === dir || entry.startsWith(`${dir}${sep}`)));
+    const missing = join(root, 'no-vendor-cli');
     // A patch layer replaces a row's `config` wholesale, so the plugin row's
     // config is restated as the bundle generates it, then given the two paths.
     const lines = (await readFile(join(pkgDir, 'cordis.patch.yml'), 'utf8')).split('\n');
@@ -87,13 +89,21 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: reque
       if (index > start && line.trim() && !line.startsWith(' '.repeat(pad + 2))) break;
       row.push(line.slice(pad));
     }
-    await writeFile(join(root, 'home/profiles/pa24-test/cordis.patch.yml'),
-      `${row.join('\n').trimEnd()}\n${Object.entries(cli).map(([key, path]) => `    ${key}: ${JSON.stringify(path)}`).join('\n')}\n`);
+    const cli = {};
+    for (const [key, name] of [['larkCliBin', 'lark-cli'], ['wecomCliBin', 'wecom-cli']]) {
+      const dir = standIns.find(entry => existsSync(join(entry, name)));
+      cli[key] = vendorClis[key] ?? (dir === undefined ? join(missing, name) : join(dir, name));
+    }
+    layers.push(`${row.join('\n').trimEnd()}\n${Object.entries(cli).map(([key, path]) => `    ${key}: ${JSON.stringify(path)}`).join('\n')}\n`);
   }
+  // Further entries of the profile's patch layer, such as a row a test adds.
+  if (patch) layers.push(`${patch.trimEnd()}\n`);
   // Runs once the profile's packages are in place and before the Host reads
   // them: a test stands in for what an ignored install script would have
-  // downloaded, or writes the profile's own patch layer.
-  if (beforeBoot) await beforeBoot({ root, profile: join(root, 'home/profiles/pa24-test') });
+  // downloaded, or adds an entry to the patch layer through `addPatch`.
+  const profile = join(root, 'home/profiles/pa24-test');
+  if (beforeBoot) await beforeBoot({ root, profile, addPatch: entry => layers.push(`${entry.trimEnd()}\n`) });
+  if (layers.length) await writeFile(join(profile, 'cordis.patch.yml'), layers.join(''));
 
   const child = spawn(process.execPath, [bin, '--profile', 'pa24-test', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
     env,

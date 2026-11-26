@@ -1,12 +1,11 @@
 import { runCliProcess } from './cli-gateway.js';
-import { access, readFile, realpath } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import { delimiter, join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PaConfig } from './config.js';
 import { runLarkCli, type LarkCliOptions } from './lark.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
-import type { CliSource } from './cli-source.js';
+import { CliUnavailableError, type CliLocation } from './cli-source.js';
 
 // Feishu transport seam: production uses the official SDK long connection;
 // tests inject events through the same inbound path without a network. The
@@ -189,24 +188,6 @@ function safeError(error: unknown, config: PaConfig, extraSecrets: string[] = []
     [process.env[config.appIdEnv] ?? '', process.env[config.appSecretEnv] ?? '', ...extraSecrets]).slice(0, 500);
 }
 
-async function resolveExecutable(bin: string): Promise<string> {
-  const configured = /[\\/]/.test(bin);
-  const paths = configured ? [resolve(bin)] : (process.env.PATH || '').split(delimiter).map(dir => join(dir, bin));
-  for (const path of paths) {
-    try {
-      await access(path, constants.X_OK);
-      return await realpath(path);
-    } catch {
-      // try next PATH entry
-    }
-  }
-  // A path is the plugin row's own setting; a bare name is looked up on PATH.
-  throw new Error(configured ? `找不到可执行的 ${bin}；请核对24私助插件行的 larkCliBin。` : `找不到可执行的 ${bin}；请安装 ${bin} 并加入启动进程的 PATH。`);
-}
-
-/** How the lark-cli to probe is supplied (#306): an executable and where it comes from, or why there is none. */
-export type CliSupply = { bin: string; source: CliSource } | { unavailable: string };
-
 export interface AccessDiagnostics {
   checkedAt: string;
   source: Record<string, unknown> | null;
@@ -277,7 +258,7 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
 
 export async function inspectAccess(
   config: PaConfig,
-  cli: CliSupply,
+  cli: CliLocation | CliUnavailableError,
   workspace: { path: string; sourceHash: string },
   extraSecrets: string[] = [],
   expectedAppId = '',
@@ -288,7 +269,7 @@ export async function inspectAccess(
 
 async function collectAccess(
   config: PaConfig,
-  cli: CliSupply,
+  cli: CliLocation | CliUnavailableError,
   workspace: { path: string; sourceHash: string },
   extraSecrets: string[] = [],
   expectedAppId = '',
@@ -324,13 +305,14 @@ async function collectAccess(
   } catch (error) {
     result.source = status('error', safeError(error, config, extraSecrets));
   }
-  if ('unavailable' in cli) {
-    result.cli = status('error', cli.unavailable);
+  // Without an lark-cli (#306) nothing below can run: the lookup's own message says how to supply it.
+  if (cli instanceof CliUnavailableError) {
+    result.cli = status('error', cli.message);
     return result;
   }
   result.cli = await probeCli(cli, config, extraSecrets);
   if (result.cli.state === 'error') return result;
-  const readOptions = cliOptions(config, cli.bin, 10000);
+  const readOptions = cliOptions(config, cli.path, 10000);
   try {
     const { data } = await runLarkCli(readOptions, ['auth', 'status', '--verify']);
     const user = data?.identities?.user;
@@ -373,16 +355,17 @@ async function collectAccess(
 }
 
 /** Whether the lark-cli runs, and where it came from; the message of a failure is the next step. */
-async function probeCli(cli: { bin: string; source: CliSource }, config: PaConfig, extraSecrets: string[]): Promise<Record<string, unknown>> {
+async function probeCli(cli: CliLocation, config: PaConfig, extraSecrets: string[]): Promise<Record<string, unknown>> {
   try {
-    const path = await resolveExecutable(cli.bin);
-    const { stdout, exitCode } = await runCliProcess({ bin: path, argv: ['--version'],
+    const { stdout, exitCode } = await runCliProcess({ bin: cli.path, argv: ['--version'],
       timeoutMs: 5000, stdoutLimitBytes: 16384,
-      fail: kind => new Error(`版本检查未完成（${kind}）`),
+      fail: (kind, cause) => new Error(kind === 'spawn'
+        ? `找不到可执行的 ${cli.path}（${cause?.message ?? '无法启动'}）${cli.source === 'config' ? '；请核对24私助插件行的 larkCliBin' : cli.source === 'path' ? '；请安装 lark-cli 并加入启动进程的 PATH' : ''}`
+        : `版本检查未完成（${kind}）`),
       env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
     });
     if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
-    return status('ok', 'CLI 可执行', { path, version: stdout.trim().slice(0, 100), source: cli.source });
+    return status('ok', 'CLI 可执行', { path: cli.path, version: stdout.trim().slice(0, 100), source: cli.source, ...(cli.connector ? { connector: cli.connector } : {}) });
   } catch (error) {
     return status('error', safeError(error, config, extraSecrets));
   }

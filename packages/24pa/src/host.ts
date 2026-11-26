@@ -51,11 +51,6 @@ export interface SessionTitleService {
   rename(session: DshSession, title: string): unknown;
 }
 
-/** The host's CLI account service. Its presence marks a host line that ships
- *  the official connectors; it is looked up, never called. */
-export interface CliAccountsService {}
-
-/** The profile this process runs, as the launcher provides it. */
 /** The profile this process runs, as the launcher provides it. */
 export interface ProfileContextService {
   readonly name: string;

@@ -401,7 +401,7 @@ export interface ConfigFieldDescriptor {
 /** 配置字段的单一描述表（arch-4）：标签/分组/类型/默认/可更新一处声明，面板与文档从这里取。 */
 export const CONFIG_FIELDS: readonly ConfigFieldDescriptor[] = [
   { name: 'mode', group: 'identity', label: '接入模式（mode）', kind: 'enum', options: [{ value: 'demo', label: '体验' }, { value: 'feishu', label: '飞书' }], formAllowed: true, default: DEFAULT_CONFIG.mode },
-  { name: 'larkProfile', group: 'identity', label: 'lark-cli profile（larkProfile；default 即官方飞书插件管理的当前配置）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.larkProfile },
+  { name: 'larkProfile', group: 'identity', label: 'lark-cli profile（larkProfile；default 时命令不带 --profile，与官方飞书插件同一份当前配置）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.larkProfile },
   { name: 'ownerOpenId', group: 'identity', label: '配置主人（ownerOpenId）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.ownerOpenId },
   { name: 'calendarChannel', group: 'channels', label: '日程渠道（calendarChannel）', kind: 'enum', options: [{ value: 'feishu', label: '飞书' }, { value: 'wecom', label: '企微' }], formAllowed: true, default: DEFAULT_CONFIG.calendarChannel },
   { name: 'todoChannel', group: 'channels', label: '待办渠道（todoChannel）', kind: 'enum', options: [{ value: 'feishu', label: '飞书' }, { value: 'wecom', label: '企微' }], formAllowed: true, default: DEFAULT_CONFIG.todoChannel },

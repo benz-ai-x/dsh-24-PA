@@ -6,9 +6,9 @@
 // a host line without the connector service (the rc line) the plugin entry
 // names the bare executables, and a runtime built without either has no CLI.
 
-import { accessSync, constants } from 'node:fs';
+import { accessSync, constants, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 
 export type VendorCli = 'lark' | 'wecom';
 
@@ -20,7 +20,12 @@ export interface CliLocation {
   /** The executable: an absolute path, or a bare name that PATH resolves. */
   readonly path: string;
   readonly source: CliSource;
+  /** The official connector that supplies the CLI, with its version when its manifest has one. */
+  readonly connector?: string;
 }
+
+/** Whether this host line ships the official connectors: it provides the CLI account service they register with. */
+export const hasOfficialConnectors = (host: { get(name: string): unknown }): boolean => !!host.get('cliAccounts');
 
 /** Neither the plugin row nor an official connector supplies the CLI. */
 export class CliUnavailableError extends Error {
@@ -44,8 +49,8 @@ export type PackageResolver = (name: string, from?: string) => string | null;
 export interface VendorCliSettings {
   readonly lark?: string;
   readonly wecom?: string;
-  /** Whether the host line ships the official connectors, i.e. provides the `cliAccounts` service. */
-  readonly officialConnectors: boolean;
+  /** Whether the host line ships the official connectors, i.e. provides the `cliAccounts` service; asked on each lookup, so a service that activates late is seen. */
+  readonly officialConnectors: () => boolean;
   /** The profile this process runs, for the install command in a missing CLI's message. */
   readonly profile?: string;
   /** The profile's own package.json: where packages installed into the profile resolve from. Defaults to this package's location. */
@@ -75,20 +80,59 @@ const isExecutable = (path: string): boolean => {
   }
 };
 
+/** Whether an executable can run as it was given: a path is checked where it stands, a bare name on PATH. Nothing is started. */
+export function runnableAsGiven(executable: string): boolean {
+  const candidates = /[\\/]/.test(executable) ? [executable] : (process.env.PATH ?? '').split(delimiter).map(dir => join(dir, executable));
+  return candidates.some(isExecutable);
+}
+
+/** The version in a package's manifest, when it has a readable one. */
+function packageVersion(manifest: string): string | undefined {
+  try {
+    const version = JSON.parse(readFileSync(manifest, 'utf8')).version;
+    return typeof version === 'string' && version ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Answers how each vendor CLI is supplied. Only the installed-layout lookup is cached; it cannot change while the process runs. */
 export class VendorClis {
   private readonly installed = new Map<VendorCli, CliLocation | CliUnavailableError>();
 
   constructor(private readonly settings: VendorCliSettings, private readonly deps: VendorCliDeps = {}) {}
 
+  /** Whether this host line ships the official connectors; asked of the host each time. */
+  officialConnectors(): boolean { return this.settings.officialConnectors(); }
+
   /** How `cli` is supplied, or why it is not; never throws. */
   describe(cli: VendorCli): CliLocation | CliUnavailableError {
     const configured = cli === 'lark' ? this.settings.lark : this.settings.wecom;
-    if (configured) return { path: configured, source: /[\\/]/.test(configured) ? 'config' : 'path' };
-    if (!this.settings.officialConnectors) return new CliUnavailableError(`未设置 ${BARE[cli]}：请在24私助插件行设置 ${OPTION[cli]}。`, cli);
+    if (configured && /[\\/]/.test(configured)) return { path: configured, source: 'config' };
+    if (!this.settings.officialConnectors()) {
+      // A host line without the official connectors: the row's bare name, which PATH resolves when a process starts.
+      if (configured) return { path: configured, source: 'path' };
+      return new CliUnavailableError(`未设置 ${BARE[cli]}：请在24私助插件行设置 ${OPTION[cli]}。`, cli);
+    }
+    // Beside the official connectors a bare name could pick up any CLI on PATH, so an override must name a file.
+    if (configured) {
+      return new CliUnavailableError(`插件行配置的 ${BARE[cli]} 不是路径（${configured}）：提供官方连接器的宿主上，${OPTION[cli]} 只接受可执行文件的绝对路径；要用官方插件托管的 ${BARE[cli]}，请删除这一项。`, cli);
+    }
     let found = this.installed.get(cli);
     if (!found) this.installed.set(cli, found = this.fromConnector(cli));
     return found;
+  }
+
+  /** The official connector packages installed in this profile, whatever supplies the CLIs; each with its version when its manifest has one. */
+  connectors(): string[] {
+    const resolvePackage = this.settings.resolvePackage ?? ((name: string, from?: string) => resolveInstalled(name, from ?? this.settings.anchor));
+    return (['lark', 'wecom'] as const).flatMap(cli => {
+      const name = OFFICIAL[cli].connector;
+      const manifest = resolvePackage(name);
+      if (!manifest) return [];
+      const version = packageVersion(manifest);
+      return [version ? `${name}@${version}` : name];
+    });
   }
 
   /** The executable to run; throws {@link CliUnavailableError} when nothing supplies it. */
@@ -119,7 +163,8 @@ export class VendorClis {
       binDir = join(dirname(platformPackage), 'bin');
     }
     const path = join(binDir, (this.deps.platform ?? process.platform) === 'win32' ? `${name}.exe` : name);
-    if (!(this.deps.executable ?? isExecutable)(path)) return missing(`官方${official.label}插件托管的 ${name} 不可执行（${path}）；请重新安装该插件，飞书插件另需批准 @larksuite/cli 的安装脚本`);
-    return { path, source: 'official' };
+    if (!(this.deps.executable ?? isExecutable)(path)) return missing(`官方${official.label}插件托管的 ${name} 不可执行（${path}）；请重新安装该插件${cli === 'lark' ? '，并批准 @larksuite/cli 的安装脚本' : ''}`);
+    const version = packageVersion(connector);
+    return { path, source: 'official', connector: version ? `${official.connector}@${version}` : official.connector };
   }
 }

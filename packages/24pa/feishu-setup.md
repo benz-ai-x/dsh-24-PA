@@ -19,7 +19,7 @@
 | 官方飞书插件已安装并启用 | readiness 中 `vendor-cli` 为 ok，`lark-cli` 显示「官方连接器提供」；宿主「插件」页里有「飞书插件」 | 在宿主「插件」页安装飞书插件（或执行 `dsh plugin --profile <实例名> add @deepseek-ai/dsh-feishu`），批准 `@larksuite/cli` 的安装脚本后重启宿主；readiness 的 feishu 项会给出现成的安装命令。24私助不再要求服务器上另装 lark-cli |
 | 本人有飞书开发者后台权限 | 能访问 open.feishu.cn 并创建企业自建应用 | 联系企业管理员，或换由管理员完成块 A |
 
-应用关联与登录都由官方飞书插件完成。它只管理 lark-cli 的当前生效配置，与本人终端里的 lark-cli 共用；AGENTS.md 的 `larkProfile` 保持缺省 `default` 即可。
+应用关联与登录都由官方飞书插件完成。它只管理 lark-cli 的当前生效配置，与本人终端里的 lark-cli 共用；AGENTS.md 的 `larkProfile` 保持缺省 `default` 即可——此时24私助运行 lark-cli 不带 `--profile`，与插件页登录的是同一份当前配置。
 
 ## 本人操作全量清单（一次交付给本人）
 
@@ -83,6 +83,8 @@
 | 现象（check/状态） | 原因 | 处置 |
 |---|---|---|
 | `cli.state=error`：提示需要官方飞书插件提供的 lark-cli | 当前实例未安装 `@deepseek-ai/dsh-feishu`，或其托管的 lark-cli 不可执行（`@larksuite/cli` 的安装脚本未批准） | 按 readiness 与检查结果给出的命令安装官方飞书插件，批准构建脚本后重启宿主；确需自管 CLI 时在24私助插件行设置 `larkCliBin` |
+| `cli.state=error`：插件行配置的 lark-cli 不是路径 | 升级前 profile 的补丁层留着 `larkCliBin: lark-cli` 这样的裸名；带官方连接器的宿主上它可能捡到 PATH 上任何一个同名程序，所以被拒绝 | 从24私助插件行删除这一项，改用官方飞书插件提供的 lark-cli；确需自管 CLI 时改为可执行文件的绝对路径，然后重启宿主 |
+| `cli.state=error`：插件行配置的 lark-cli 不可执行 | 插件行给出的路径上没有可执行的文件 | 核对路径；或删除这一项改用官方飞书插件提供的 lark-cli，然后重启宿主 |
 | `auth.state=missing`：尚无用户授权 | 未做块 B 的登录 | 请本人在宿主「插件」页的「飞书插件」里点「登录飞书账号」 |
 | `auth.state=unbound` | ownerOpenId 为空 | 用 `pa24_connection check` 返回的 `auth.openId` 填 AGENTS.md |
 | `auth.state=mismatch` | 登录用户或应用 ≠ 配置主人 | 核对「飞书插件」页显示的登录账号与应用；已登记账本主人不可转让，换主人须使用独立工作区与空账本 |
