@@ -920,7 +920,7 @@ window.__ModuleLoader__.load({
         // 二级详情：运行就绪（原 work tab 区块移入运行与维护分类）。
         function ReadinessDetail({ state }) {
           const readyItems = (state.readiness?.items || []).map(item => {
-            const labels = { host: L('宿主', 'Host'), config: L('配置', 'Config'), postgres: L('业务账本', 'Ledger'), workspace: L('工作区', 'Workspace'), feishu: L('飞书接入', 'Feishu access'), sessions: L('固定会话', 'Fixed sessions') };
+            const labels = { host: L('宿主', 'Host'), config: L('配置', 'Config'), postgres: L('业务账本', 'Ledger'), workspace: L('工作区', 'Workspace'), feishu: L('飞书接入', 'Feishu access'), 'vendor-cli': L('CLI 来源', 'CLI source'), sessions: L('固定会话', 'Fixed sessions') };
             const tier = item.state === 'ok' ? 'ok' : item.state === 'error' ? 'error' : 'warn';
             return h('div', { key: item.id, className: 'pa24-ready-item pa24-tone-' + STATUS[tier][1] },
               icon(STATUS[tier][2], { width: 17, height: 17 }),

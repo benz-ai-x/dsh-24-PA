@@ -50,10 +50,9 @@ describe('飞书接入指南（feishu-setup.md）', () => {
 });
 
 describe('setupNextSteps 状态映射', () => {
-  it('CLI 不可执行时只给安装提示并终止', () => {
-    const steps = setupNextSteps(baseConfig, diag({ cli: { state: 'error' }, auth: { state: 'missing' } }));
-    expect(steps).toHaveLength(1);
-    expect(steps[0]).toContain('PATH');
+  it('CLI 不可执行时下一步就是检查给出的原因，并终止', () => {
+    const steps = setupNextSteps(baseConfig, diag({ cli: { state: 'error', message: '找不到可执行的 lark-cli；请安装 lark-cli 并加入启动进程的 PATH。' }, auth: { state: 'missing' } }));
+    expect(steps).toEqual(['找不到可执行的 lark-cli；请安装 lark-cli 并加入启动进程的 PATH。']);
   });
 
   it('AGENTS.md 已改未重载 → reload 提示', () => {

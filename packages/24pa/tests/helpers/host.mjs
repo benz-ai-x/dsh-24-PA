@@ -2,10 +2,10 @@
 // bundle installed into a throwaway profile, then talks to the plugin's
 // /api/24pa endpoint over the authenticated loopback connection.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { existsSync, realpathSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve, dirname, delimiter, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { redactString } from '../../scripts/secrets/redact.mjs';
 
@@ -61,6 +61,34 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: reque
   // entry may carry its own pnpm flags after the package spec.
   for (const extra of extraPlugins ?? (process.env.PA24_E2E_EXTRA_PLUGINS ?? '').split(',').filter(Boolean)) {
     runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', ...extra.split(' ').filter(Boolean), '--ignore-scripts', '--store-dir', join(root, 'store')], env, `extra plugin add (${extra})`);
+  }
+  // The plugin does not look a bare lark-cli / wecom-cli up on PATH (#306): a
+  // test that supplies stand-ins through PATH names them for the plugin row.
+  // Only stand-ins under the temporary directory qualify, so a vendor CLI
+  // installed on this machine is never handed to the plugin.
+  const temporary = [tmpdir(), realpathSync(tmpdir())];
+  const standIns = (extraEnv.PATH ?? process.env.PATH ?? '').split(delimiter)
+    .filter(entry => temporary.some(dir => entry === dir || entry.startsWith(`${dir}${sep}`)));
+  const cli = {};
+  for (const [key, name] of [['larkCliBin', 'lark-cli'], ['wecomCliBin', 'wecom-cli']]) {
+    const dir = standIns.find(entry => existsSync(join(entry, name)));
+    if (dir !== undefined) cli[key] = join(dir, name);
+  }
+  if (Object.keys(cli).length) {
+    // A patch layer replaces a row's `config` wholesale, so the plugin row's
+    // config is restated as the bundle generates it, then given the two paths.
+    const lines = (await readFile(join(pkgDir, 'cordis.patch.yml'), 'utf8')).split('\n');
+    const start = lines.findIndex(line => /^\s*- id: pa24\s*$/.test(line));
+    const pad = lines[start].match(/^\s*/)[0].length;
+    const row = [];
+    for (let index = start; index < lines.length; index++) {
+      const line = lines[index];
+      // The row ends where the next entry of the insert list begins.
+      if (index > start && line.trim() && !line.startsWith(' '.repeat(pad + 2))) break;
+      row.push(line.slice(pad));
+    }
+    await writeFile(join(root, 'home/profiles/pa24-test/cordis.patch.yml'),
+      `${row.join('\n').trimEnd()}\n${Object.entries(cli).map(([key, path]) => `    ${key}: ${JSON.stringify(path)}`).join('\n')}\n`);
   }
   // Runs once the profile's packages are in place and before the Host reads
   // them: a test stands in for what an ignored install script would have

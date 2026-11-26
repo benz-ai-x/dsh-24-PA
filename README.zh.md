@@ -91,6 +91,7 @@ kind: "package-bundle"
 
 - Node.js `^24.22.3 || >=26.13.1`（默认 SQLite 账本使用内建 `node:sqlite`）。
 - 当前发布线使用 dsh `0.2.3-alpha.2`。
+- 飞书接入与企微渠道的 CLI 由宿主的官方插件提供：接通飞书前在宿主「插件」页安装「飞书」插件（`@deepseek-ai/dsh-feishu`），用到企微时再装「企业微信」插件（`@deepseek-ai/dsh-wecom`）；24私助不再要求服务器上另行安装 `lark-cli`／`wecom-cli`。从 `0.2.3-alpha.2.1` 及更早版本升级的实例请先装官方插件。
 - 初次 demo 不需要飞书凭据，也不需要单独安装 PostgreSQL。
 
 ### 安装当前版本
@@ -99,6 +100,9 @@ kind: "package-bundle"
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.3-alpha.2.1 --registry=https://registry.npmjs.org
+
+# 接通飞书前安装官方飞书插件；它会再次触发 pnpm 构建审批，处置见初始化指南阶段 3
+dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://registry.npmjs.org
 ```
 
 重启同一个 Profile，打开24私助工作区并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`；由于部分镜像同步滞后，建议显式使用 npm 官方 registry。

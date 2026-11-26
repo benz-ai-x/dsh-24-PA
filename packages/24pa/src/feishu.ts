@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { PaConfig } from './config.js';
 import { runLarkCli, type LarkCliOptions } from './lark.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
+import type { CliSource } from './cli-source.js';
 
 // Feishu transport seam: production uses the official SDK long connection;
 // tests inject events through the same inbound path without a network. The
@@ -189,7 +190,8 @@ function safeError(error: unknown, config: PaConfig, extraSecrets: string[] = []
 }
 
 async function resolveExecutable(bin: string): Promise<string> {
-  const paths = bin.includes('/') ? [resolve(bin)] : (process.env.PATH || '').split(delimiter).map(dir => join(dir, bin));
+  const configured = /[\\/]/.test(bin);
+  const paths = configured ? [resolve(bin)] : (process.env.PATH || '').split(delimiter).map(dir => join(dir, bin));
   for (const path of paths) {
     try {
       await access(path, constants.X_OK);
@@ -198,8 +200,12 @@ async function resolveExecutable(bin: string): Promise<string> {
       // try next PATH entry
     }
   }
-  throw new Error('找不到可执行的 lark-cli；请在服务器安装并加入启动进程的 PATH。');
+  // A path is the plugin row's own setting; a bare name is looked up on PATH.
+  throw new Error(configured ? `找不到可执行的 ${bin}；请核对24私助插件行的 larkCliBin。` : `找不到可执行的 ${bin}；请安装 ${bin} 并加入启动进程的 PATH。`);
 }
+
+/** How the lark-cli to probe is supplied (#306): an executable and where it comes from, or why there is none. */
+export type CliSupply = { bin: string; source: CliSource } | { unavailable: string };
 
 export interface AccessDiagnostics {
   checkedAt: string;
@@ -224,7 +230,8 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
   const stateOf = (block: Record<string, unknown> | null): string | undefined =>
     block == null ? undefined : String(block.state ?? '');
   if (stateOf(result.cli) === 'error') {
-    steps.push('lark-cli 不可执行：在服务器安装并加入 dsh 宿主进程的 PATH（指南·准备）；改完重启宿主。');
+    // The check's own message says where the lark-cli was expected.
+    steps.push(String(result.cli?.message));
     return steps;
   }
   const source = stateOf(result.source);
@@ -274,18 +281,18 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
 
 export async function inspectAccess(
   config: PaConfig,
-  bin: string,
+  cli: CliSupply,
   workspace: { path: string; sourceHash: string },
   extraSecrets: string[] = [],
   expectedAppId = '',
 ): Promise<AccessDiagnostics> {
-  const collected = await collectAccess(config, bin, workspace, extraSecrets, expectedAppId);
+  const collected = await collectAccess(config, cli, workspace, extraSecrets, expectedAppId);
   return { ...collected, nextSteps: setupNextSteps(config, collected) };
 }
 
 async function collectAccess(
   config: PaConfig,
-  bin: string,
+  cli: CliSupply,
   workspace: { path: string; sourceHash: string },
   extraSecrets: string[] = [],
   expectedAppId = '',
@@ -321,20 +328,13 @@ async function collectAccess(
   } catch (error) {
     result.source = status('error', safeError(error, config, extraSecrets));
   }
-  try {
-    const path = await resolveExecutable(bin);
-    const { stdout, exitCode } = await runCliProcess({ bin: path, argv: ['--version'],
-      timeoutMs: 5000, stdoutLimitBytes: 16384,
-      fail: kind => new Error(`版本检查未完成（${kind}）`),
-      env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
-    });
-    if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
-    result.cli = status('ok', 'CLI 可执行', { path, version: stdout.trim().slice(0, 100) });
-  } catch (error) {
-    result.cli = status('error', safeError(error, config, extraSecrets));
+  if ('unavailable' in cli) {
+    result.cli = status('error', cli.unavailable);
     return result;
   }
-  const readOptions = cliOptions(config, bin, 10000);
+  result.cli = await probeCli(cli, config, extraSecrets);
+  if (result.cli.state === 'error') return result;
+  const readOptions = cliOptions(config, cli.bin, 10000);
   try {
     const { data } = await runLarkCli(readOptions, ['auth', 'status', '--verify']);
     const user = data?.identities?.user;
@@ -375,6 +375,23 @@ async function collectAccess(
   }
   return result;
 }
+
+/** Whether the lark-cli runs, and where it came from; the message of a failure is the next step. */
+async function probeCli(cli: { bin: string; source: CliSource }, config: PaConfig, extraSecrets: string[]): Promise<Record<string, unknown>> {
+  try {
+    const path = await resolveExecutable(cli.bin);
+    const { stdout, exitCode } = await runCliProcess({ bin: path, argv: ['--version'],
+      timeoutMs: 5000, stdoutLimitBytes: 16384,
+      fail: kind => new Error(`版本检查未完成（${kind}）`),
+      env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
+    });
+    if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
+    return status('ok', 'CLI 可执行', { path, version: stdout.trim().slice(0, 100), source: cli.source });
+  } catch (error) {
+    return status('error', safeError(error, config, extraSecrets));
+  }
+}
+
 /** In-process fake used by tests and demo mode to exercise the real pipeline. */
 export class FakeFeishuTransport implements FeishuTransport {
   readonly name = 'fake';

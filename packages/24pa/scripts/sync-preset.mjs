@@ -214,8 +214,8 @@ function applyPa24Delta(doc) {
   hostConfig.add({ key: 'backupStoragesRoot', value: jsExpr("dshHomePath('storages')") });
   hostConfig.add({ key: 'backupAttachmentsRoot', value: jsExpr("dshHomePath('attachments', 'v1')") });
   hostConfig.add({ key: 'workspacePath', value: jsExpr("process.env.PA24_WORKSPACE || ''") });
-  hostConfig.add({ key: 'larkCliBin', value: 'lark-cli' });
-  hostConfig.add({ key: 'wecomCliBin', value: 'wecom-cli' });
+  // larkCliBin / wecomCliBin stay unset: the vendor CLIs come from the official
+  // connectors (#306); a row that sets one still overrides the lookup.
   const hostRow = createRow(doc, { id: 'pa24', name: '@benz-ai-x/dsh-24pa' });
   hostRow.set('config', hostConfig);
   presetInsert.items.push(hostRow);

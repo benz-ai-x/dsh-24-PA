@@ -12,8 +12,9 @@ export const Config = z.object({
   backupStoragesRoot: z.string(),
   backupAttachmentsRoot: z.string(),
   workspacePath: z.string().default(''),
-  larkCliBin: z.string().default('lark-cli'),
-  wecomCliBin: z.string().default('wecom-cli'),
+  // Absent by default: the vendor CLIs come from the official connectors, or from PATH on a host line without them (src/cli-source.ts).
+  larkCliBin: z.string(),
+  wecomCliBin: z.string(),
   cliTimeoutMs: z.natural().min(1000).default(90000),
   dispatchTickMs: z.natural().min(50).default(400),
   outboxTickMs: z.natural().min(250).default(1000),
@@ -23,14 +24,17 @@ export const Config = z.object({
 });
 
 export function apply(ctx: DshContext, config: any) {
+  // A host line without the official connectors (the rc line) has none to
+  // supply the CLIs: there the row names the bare executables, which PATH resolves.
+  const noConnectors = !ctx.get('cliAccounts');
   const runtime = new PaRuntime(ctx, {
     stateDirectory: config.stateDirectory,
     backupSessionsRoot: config.backupSessionsRoot,
     backupStoragesRoot: config.backupStoragesRoot,
     backupAttachmentsRoot: config.backupAttachmentsRoot,
     workspacePath: config.workspacePath,
-    larkCliBin: config.larkCliBin,
-    wecomCliBin: config.wecomCliBin,
+    larkCliBin: config.larkCliBin || (noConnectors ? 'lark-cli' : undefined),
+    wecomCliBin: config.wecomCliBin || (noConnectors ? 'wecom-cli' : undefined),
     cliTimeoutMs: config.cliTimeoutMs,
     dispatchTickMs: config.dispatchTickMs,
     outboxTickMs: config.outboxTickMs,

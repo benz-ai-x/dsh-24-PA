@@ -5,7 +5,7 @@
 核心心智模型：
 
 1. **两种身份**：机器人身份（应用自己，宿主用它收发消息/卡片/下载图片）与用户身份（本人，lark-cli 以 `--as user` 操作任务/日历/文档）。两者授权相互独立，都要就绪。
-2. **依赖顺序**（块与块之间成立，块内步骤可连续完成）：建应用（块 A）→ CLI 绑定与用户授权（块 B）→ 资源标识与配置切换（你代办）→ 重启 → 端到端验证。乱序会在配置校验或资源获取处卡死。
+2. **依赖顺序**（块与块之间成立，块内步骤可连续完成）：官方飞书插件就位（见「准备」）→ 建应用（块 A）→ CLI 绑定与用户授权（块 B）→ 资源标识与配置切换（你代办）→ 重启 → 端到端验证。乱序会在配置校验或资源获取处卡死。
 3. **四类事只有本人能做**：浏览器里的开放平台操作（建应用/开权限/发布）、授权点击、lark-cli 应用凭据绑定（`config init`，Secret 经本人终端输入）、在面板「密钥」组（或启动环境）填写 App ID/App Secret。其余（发起授权流、查资源标识、改配置、健康检查）都可由你代办。
 
 ---
@@ -16,7 +16,7 @@
 |---|---|---|
 | dsh 宿主运行 | 面板可访问，readiness 中 host/config 为 ok | 先解决宿主与工作区问题，飞书接入无从谈起 |
 | PostgreSQL 已连接 | readiness 中 postgres 为 ok | 修复 `pgDsnEnv` 指向的环境变量与数据库 |
-| lark-cli 可执行 | `pa24_connection check` 的 `cli.state = ok`（返回的 `version` 字段供参考，检查只验证可执行性） | 在服务器安装 lark-cli；注意校验的是 **dsh 宿主进程的 PATH**，不是你的 shell PATH |
+| 官方飞书插件已安装并启用 | readiness 中 `vendor-cli` 为 ok，`lark-cli` 显示「官方连接器提供」；宿主「插件」页里有「飞书插件」 | 在宿主「插件」页安装飞书插件（或执行 `dsh plugin --profile <实例名> add @deepseek-ai/dsh-feishu`），批准 `@larksuite/cli` 的安装脚本后重启宿主；readiness 的 feishu 项会给出现成的安装命令。24私助不再要求服务器上另装 lark-cli |
 | 本人有飞书开发者后台权限 | 能访问 open.feishu.cn 并创建企业自建应用 | 联系企业管理员，或换由管理员完成块 A |
 
 **提前发起用户授权（Device Flow 第一步）**：交付清单前先运行
@@ -88,7 +88,7 @@ lark-cli auth login --no-wait --json --profile <名> --domain im,task,calendar,d
 
 | 现象（check/状态） | 原因 | 处置 |
 |---|---|---|
-| `cli.state=error`：找不到可执行 | 宿主进程 PATH 无 lark-cli | 安装并确保宿主启动环境能找到；改完必须重启宿主 |
+| `cli.state=error`：提示需要官方飞书插件提供的 lark-cli | 当前实例未安装 `@deepseek-ai/dsh-feishu`，或其托管的 lark-cli 不可执行（`@larksuite/cli` 的安装脚本未批准） | 按 readiness 与检查结果给出的命令安装官方飞书插件，批准构建脚本后重启宿主；确需自管 CLI 时在24私助插件行设置 `larkCliBin` |
 | `auth.state=missing`：尚无用户授权 | 未做块 B | 按三步法发起 `auth login`（Device Flow） |
 | `auth.state=unbound` | ownerOpenId 为空 | 用 auth status 的 `user.openId` 填 AGENTS.md |
 | `auth.state=mismatch` | CLI 授权用户 ≠ 配置主人 | 核对固定 profile 的用户与实际应用；已登记账本主人不可转让，换主人须使用独立工作区与空账本 |

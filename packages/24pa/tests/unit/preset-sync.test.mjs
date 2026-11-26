@@ -60,8 +60,9 @@ describe('预设同步生成器', () => {
     expect(host.name).toBe('@benz-ai-x/dsh-24pa');
     expect(host.config.stateDirectory).toBe("dshHomePath('24pa')");
     expect(host.config.workspacePath).toBe("process.env.PA24_WORKSPACE || ''");
-    expect(host.config.larkCliBin).toBe('lark-cli');
-    expect(host.config.wecomCliBin).toBe('wecom-cli');
+    // #306: the vendor CLIs come from the official connectors, so the row sets neither path by default.
+    expect(host.config).not.toHaveProperty('larkCliBin');
+    expect(host.config).not.toHaveProperty('wecomCliBin');
   });
 
   it('基线锚点缺失时显式失败，而非静默产出残缺预设', () => {

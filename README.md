@@ -93,6 +93,7 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 
 - Node.js `^24.22.3 || >=26.13.1` (the default SQLite ledger uses built-in `node:sqlite`).
 - dsh `0.2.3-alpha.2` for the current release line.
+- The CLIs behind Feishu access and the WeCom channel come from the host's official plugins. Before connecting Feishu, install the Feishu plugin (`@deepseek-ai/dsh-feishu`) on the host's Plugins page, and add the WeCom plugin (`@deepseek-ai/dsh-wecom`) when WeCom is used; 24PA no longer asks for `lark-cli` or `wecom-cli` to be installed on the server. Instances upgrading from `0.2.3-alpha.2.1` or earlier install the official plugin first.
 - No Feishu credentials are needed for the initial demo. PostgreSQL is optional.
 
 ### Install the current release
@@ -101,6 +102,9 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.3-alpha.2.1 --registry=https://registry.npmjs.org
+
+# The official Feishu plugin, needed before Feishu is connected; it raises one more pnpm build approval (stage 3 of the initialization guide)
+dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile, open the 24PA workspace, and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`; the official npm registry is recommended because some mirrors lag behind.

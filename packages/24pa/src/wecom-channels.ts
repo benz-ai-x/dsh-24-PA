@@ -464,20 +464,25 @@ export class WecomChannels {
     const services: WecomServiceCheck[] = [];
     const checkedAt = nowIso();
     // 1. CLI presence: `--version` prints plain text (not the JSON envelope),
-    // so it runs through a raw spawn rather than the business gateway.
+    // so it runs through a raw spawn rather than the business gateway. Without
+    // a wecom-cli at all (#306), the lookup's own message is the next step.
     let cli: WecomDiagnostics['cli'];
+    const failed = (message: string): WecomDiagnostics => {
+      this.wecomIdentityCache = null; this.wecomIdentityFailedAt = Date.now();
+      const result: WecomDiagnostics = { checkedAt, cli: { state: 'error', message }, auth: { state: 'error', message: 'CLI 不可用，跳过。' },
+        identity: { state: 'missing', message: '未解析。' }, services, nextSteps: [message] };
+      this.wecomDiagnostics = this.safe(result);
+      return this.wecomDiagnostics;
+    };
+    let bin: string;
+    try { bin = this.deps.cli().bin; } catch (error) { return failed(`无法运行 wecom-cli：${(error as Error).message}`); }
     try {
-      const { stdout, exitCode } = await runCliProcess({ bin: this.deps.cli().bin, argv: ['--version'],
-        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: kind => new Error(`版本检查未完成（${kind}）`) });
+      const { stdout, exitCode } = await runCliProcess({ bin, argv: ['--version'],
+        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: kind => new Error(`版本检查未完成（${kind})`) });
       if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
       cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}` };
     } catch (error) {
-      this.wecomIdentityCache = null; this.wecomIdentityFailedAt = Date.now();
-      cli = { state: 'error', message: `无法运行 ${this.deps.cli().bin}：${(error as Error).message}` };
-      nextSteps.push('安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 准备节）。');
-      const result: WecomDiagnostics = { checkedAt, cli, auth: { state: 'error', message: 'CLI 不可用，跳过。' }, identity: { state: 'missing', message: '未解析。' }, services, nextSteps };
-      this.wecomDiagnostics = this.safe(result);
-      return this.wecomDiagnostics;
+      return failed(`无法运行 ${bin}：${(error as Error).message}`);
     }
     // 2. Identity (whoami covers bot binding + authorized human in one call).
     let identity: WecomDiagnostics['identity'];
