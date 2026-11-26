@@ -83,7 +83,7 @@ See the [Manticore delivery and acceptance record](https://github.com/benz-ai-x/
 
 ## Quick start
 
-Requirements: Node.js `^24.22.3 || >=26.13.1`, dsh `0.2.3-alpha.2`, and no database service for the default SQLite demo. The CLIs behind Feishu access and the WeCom channel come from the host's official plugins (`@deepseek-ai/dsh-feishu`, plus `@deepseek-ai/dsh-wecom` when WeCom is used), so neither `lark-cli` nor `wecom-cli` is installed on the server; instances upgrading from `0.2.3-alpha.2.1` or earlier install the official plugin first.
+Requirements: Node.js `^24.22.3 || >=26.13.1`, dsh `0.2.3-alpha.2`, and no database service for the default SQLite demo. The CLIs behind Feishu access and the WeCom channel come from the host's official plugins (`@deepseek-ai/dsh-feishu`, plus `@deepseek-ai/dsh-wecom` when WeCom is used), so neither `lark-cli` nor `wecom-cli` is installed on the server; instances upgrading from `0.2.3-alpha.2.1` or earlier install the official plugin first; a bare name still in the 24PA plugin row, such as `larkCliBin: lark-cli`, is refused — remove it to use the CLI the official plugin provides.
 
 <a id="installing-the-bundle"></a>
 ### Install the current release

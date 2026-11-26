@@ -93,7 +93,7 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 
 - Node.js `^24.22.3 || >=26.13.1` (the default SQLite ledger uses built-in `node:sqlite`).
 - dsh `0.2.3-alpha.2` for the current release line.
-- The CLIs behind Feishu access and the WeCom channel come from the host's official plugins. Before connecting Feishu, install the Feishu plugin (`@deepseek-ai/dsh-feishu`) on the host's Plugins page, and add the WeCom plugin (`@deepseek-ai/dsh-wecom`) when WeCom is used; 24PA no longer asks for `lark-cli` or `wecom-cli` to be installed on the server. Instances upgrading from `0.2.3-alpha.2.1` or earlier install the official plugin first.
+- The CLIs behind Feishu access and the WeCom channel come from the host's official plugins. Before connecting Feishu, install the Feishu plugin (`@deepseek-ai/dsh-feishu`) on the host's Plugins page, and add the WeCom plugin (`@deepseek-ai/dsh-wecom`) when WeCom is used; 24PA no longer asks for `lark-cli` or `wecom-cli` to be installed on the server. Instances upgrading from `0.2.3-alpha.2.1` or earlier install the official plugin first; a bare name still in the 24PA plugin row, such as `larkCliBin: lark-cli`, is refused — remove it to use the CLI the official plugin provides.
 - No Feishu credentials are needed for the initial demo. PostgreSQL is optional.
 
 ### Install the current release

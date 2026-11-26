@@ -91,7 +91,7 @@ kind: "package-bundle"
 
 - Node.js `^24.22.3 || >=26.13.1`（默认 SQLite 账本使用内建 `node:sqlite`）。
 - 当前发布线使用 dsh `0.2.3-alpha.2`。
-- 飞书接入与企微渠道的 CLI 由宿主的官方插件提供：接通飞书前在宿主「插件」页安装「飞书」插件（`@deepseek-ai/dsh-feishu`），用到企微时再装「企业微信」插件（`@deepseek-ai/dsh-wecom`）；24私助不再要求服务器上另行安装 `lark-cli`／`wecom-cli`。从 `0.2.3-alpha.2.1` 及更早版本升级的实例请先装官方插件。
+- 飞书接入与企微渠道的 CLI 由宿主的官方插件提供：接通飞书前在宿主「插件」页安装「飞书插件」（`@deepseek-ai/dsh-feishu`），用到企微时再装「企业微信插件」（`@deepseek-ai/dsh-wecom`）；24私助不再要求服务器上另行安装 `lark-cli`／`wecom-cli`。从 `0.2.3-alpha.2.1` 及更早版本升级的实例请先装官方插件；24私助插件行若还留着 `larkCliBin: lark-cli` 这样的裸名，删除该项即可改用官方插件提供的 CLI。
 - 初次 demo 不需要飞书凭据，也不需要单独安装 PostgreSQL。
 
 ### 安装当前版本
