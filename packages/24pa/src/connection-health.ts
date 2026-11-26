@@ -76,9 +76,9 @@ export class ConnectionHealth {
             // The user token's tenant is independent from the app and owner.
             // An inbound event can later provide separate transport evidence.
             await save('feishu.enterprise', { state: result.auth.state === 'ok' && result.auth.tenantKey ? 'verified' : 'unverified',
-              coverage: '当前用户授权返回的实际企业标识；不推断平台未返回的字段', message: result.auth.tenantKey ? `实际企业：${result.auth.tenantKey}` : 'CLI 授权未返回企业标识，仍需通过真实入站企业证据核对。',
+              coverage: '当前登录账号返回的实际企业标识；不推断平台未返回的字段', message: result.auth.tenantKey ? `实际企业：${result.auth.tenantKey}` : '登录账号信息未返回企业标识，仍需通过真实入站企业证据核对。',
               impact: '企业归属未验证时，连接已启动不等于全部身份边界通过。', nextSteps: ['核对接入应用所属企业，并由主人发送一条真实私聊取得入站企业证据。'] });
-            await save(scope, { state: result.auth.state === 'ok' ? records.some(row => row.scope.startsWith('feishu.') && ['fault', 'unverified'].includes(row.state)) ? 'partial' : 'verified' : ['error', 'mismatch'].includes(String(result.auth.state)) ? 'fault' : 'unverified', coverage: 'CLI、主人/应用身份、用户授权与已配置资源的只读接口', message: '飞书只读检查完成；不包含真实消息、审核回调或资源写入。', impact: '逐项状态决定对应能力；连接启动不等于端到端通过。', nextSteps: result.nextSteps });
+            await save(scope, { state: result.auth.state === 'ok' ? records.some(row => row.scope.startsWith('feishu.') && ['fault', 'unverified'].includes(row.state)) ? 'partial' : 'verified' : ['error', 'mismatch'].includes(String(result.auth.state)) ? 'fault' : 'unverified', coverage: 'CLI、主人/应用身份、登录账号与已配置资源的只读接口', message: '飞书只读检查完成；不包含真实消息、审核回调或资源写入。', impact: '逐项状态决定对应能力；连接启动不等于端到端通过。', nextSteps: result.nextSteps });
           } else if (scope === 'wecom') {
             const enabled = this.deps.config().mode === 'feishu' && (effectiveSources(this.deps.config()).entries.some(row => row.platform === 'wecom' && row.enabled) || this.deps.config().notifyChannel === 'wecom');
             if (!enabled) { await save(scope, { state: 'disabled', coverage: '已启用企微能力', message: '尚未启用企微来源或推送', impact: '企微不接收聊天消息。', nextSteps: [] }); continue; }

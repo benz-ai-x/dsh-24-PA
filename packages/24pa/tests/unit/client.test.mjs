@@ -183,8 +183,9 @@ describe('client.js 挂载面', () => {
     expect(client).toContain('已隐藏「');
     expect(client).toContain("className: manage ? 'pa24-manage-done' : 'pa24-quiet'");
     expect(client).toContain('.pa24-manage-done{');
-    // 参数表单的双语标签和保存按钮由 DOM 测试覆盖；ownerOpenId 三态文案
-    expect(client).toContain("diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）'");
+    // 参数表单的双语标签和保存按钮由 DOM 测试覆盖；ownerOpenId 三态文案（#307：叫登录账号，不叫 CLI 授权）
+    expect(client).toContain("diagChecked ? '（检查过，尚未读到登录账号）' : '（在「接入」分类运行检查后可获取）'");
+    expect(client).not.toContain('CLI 授权的');
     // 表单不再双 h2：sectionHead 允许无标题（详情栏已有 entry.title）
     expect(client).toContain('title && h(\'h2\', null, title)');
     // 卡片注意态描边＋副标题两行显示

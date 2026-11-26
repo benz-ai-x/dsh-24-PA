@@ -3,7 +3,7 @@
 // is executed, and the one PATH lookup below runs with PATH replaced by a
 // temporary directory, so nothing installed on this machine can be reached.
 import { afterEach, describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, runnableAsGiven, VendorClis } from '../../lib/cli-source.js';

@@ -3548,8 +3548,8 @@ window.__ModuleLoader__.load({
               row('larkProfile', L('lark-cli profile', 'lark-cli profile'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 的 profile 名；保持 default 时命令不带 --profile，与官方飞书插件用的是同一份当前配置。', 'The lark-cli profile name; keep default and commands carry no --profile, the same current configuration the official Feishu plugin uses.')),
               row('ownerOpenId', L('主人 OpenID', 'Owner OpenID'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
-                h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),
-                L('身份字段只读；一键应用当前 CLI 授权的 open_id' + (authOpenId ? '' : diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）') + '。', 'Identity is read-only; one-click apply of the CLI-authorized open_id' + (authOpenId ? '' : diagChecked ? ' (checked, not yet acquired)' : ' (run a check under Access to acquire)') + '.')),
+                h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，读到登录账号后再应用。', 'Run the Feishu access check first to read the signed-in account.') })) }, L('应用登录账号', 'Apply signed-in account'))),
+                L('身份字段只读；一键应用当前登录账号的 open_id' + (authOpenId ? '' : diagChecked ? '（检查过，尚未读到登录账号）' : '（在「接入」分类运行检查后可获取）') + '。', 'Identity is read-only; one-click apply of the signed-in account\'s open_id' + (authOpenId ? '' : diagChecked ? ' (checked, no signed-in account read yet)' : ' (run a check under Access to read it)') + '.')),
               row('extraBusinessSkills', L('业务 skill 放行面', 'Business skills'), h('textarea', { rows: 2, value: form.extraSkills, onChange: e => set('extraSkills', e.target.value), placeholder: 'standup-prep, my-routine' }, null), L('逗号或换行分隔的 kebab-case skill 名；点名目录外名会被过滤并在健康里提示。', 'Comma/newline-separated kebab-case skill names; unknown names are filtered with a health note.')),
               row('timeZone', L('时区', 'Time zone'), h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
                 h('datalist', { id: 'pa24-tz-list' }, ['Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'UTC'].map(z => h('option', { key: z, value: z })))), L('IANA 时区名，保存时即时校验。', 'IANA timezone name; validated on save.'))),
@@ -4028,7 +4028,10 @@ window.__ModuleLoader__.load({
             wecom && h('section', { className: 'pa24-card' },
               sectionHead('shield', L('服务级授权', 'Service-level authorization'), L('按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。', 'Read-only probes per enabled channel; service-level grants expire (follow the renewal guide on 850003), and links must open inside the WeCom app.')),
               (wecom.services ?? []).length === 0
-                ? h('p', { className: 'pa24-meta' }, L('没有已启用的企微渠道（三渠道均为 feishu）。', 'No WeCom channel is enabled (all three channels are on feishu).'))
+                // The check stops at an unavailable CLI; that is not the same as no WeCom channel being enabled.
+                ? h('p', { className: 'pa24-meta' }, wecom.cli.state === 'ok'
+                  ? L('没有已启用的企微渠道（三渠道均为 feishu）。', 'No WeCom channel is enabled (all three channels are on feishu).')
+                  : L('CLI 不可用，未探测服务级授权。', 'The CLI is unavailable; service-level authorization was not probed.'))
                 : (wecom.services ?? []).map(s => h('div', { key: s.id, className: 'pa24-resource' },
                     h('div', { className: 'pa24-row' },
                       h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, serviceMeta[s.id] || s.id), h('p', null, technicalText(s.message))),
