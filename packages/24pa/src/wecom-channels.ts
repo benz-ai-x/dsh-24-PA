@@ -482,7 +482,7 @@ export class WecomChannels {
     try { ({ bin, source } = this.deps.cli()); } catch (error) { return failed(error instanceof CliUnavailableError ? error.message : `无法运行 wecom-cli：${(error as Error).message}`); }
     try {
       const { stdout, exitCode } = await runCliProcess({ bin, argv: ['--version'],
-        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: kind => new Error(`版本检查未完成（${kind}）`) });
+        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: (kind, cause) => new Error(kind === 'spawn' ? `无法启动 ${bin}（${cause?.message ?? '未知原因'}）` : `版本检查未完成（${kind}）`) });
       if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
       cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}`, ...(source ? { source } : {}) };
     } catch (error) {
