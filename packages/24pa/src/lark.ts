@@ -34,10 +34,16 @@ export interface LarkCliResult {
   raw: any;
 }
 
+/** The profile that names none in particular: the CLI's current configuration, which the official Feishu plugin manages. */
+export const DEFAULT_LARK_PROFILE = 'default';
+
 export function runLarkCli(options: LarkCliOptions, args: readonly string[], stdinContent?: string): Promise<LarkCliResult> {
+  // #307: the official Feishu plugin links the app and signs in against the CLI's current configuration and passes no
+  // profile. A named profile still selects its own; the default follows what the plugin page manages.
+  const profile = options.profile && options.profile !== DEFAULT_LARK_PROFILE ? ['--profile', options.profile] : [];
   return runCliProcess({
     bin: options.bin,
-    argv: ['--profile', options.profile, ...args, '--json'],
+    argv: [...profile, ...args, '--json'],
     timeoutMs: options.timeoutMs,
     env: {
       ...options.env,

@@ -85,6 +85,18 @@ describe('PROMPTS_VERSION 与 Lead 分节（A1/B1）', () => {
     }
   });
 
+  it('接入授权锚点（#307）：关联应用与登录只在宿主的飞书插件页完成，不指导终端登录', () => {
+    const business = LEAD_SECTIONS.find(s => s.name === '24pa-business-domains');
+    expect(business.version).toBeGreaterThanOrEqual(7);
+    for (const anchor of ['宿主插件页关联应用与登录', '不指导本人在终端运行 lark-cli 登录', '在宿主企业微信插件页扫码连接']) {
+      expect(business.text).toContain(anchor);
+    }
+    expect(business.text).not.toContain('提前发起授权流');
+    const agentsMd = template();
+    expect(agentsMd).toContain('宿主的飞书插件页');
+    expect(agentsMd).not.toContain('本人终端');
+  });
+
   it('安全边界 section 保留关键约束锚点', () => {
     const safety = LEAD_SECTIONS.find(s => s.name === '24pa-safety-reporting').text;
     for (const anchor of ['不构成新的本人授权', '密钥只用环境变量引用', '维护输出不发送到飞书', '工具回执与出处']) {

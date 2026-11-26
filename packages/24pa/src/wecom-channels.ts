@@ -109,7 +109,7 @@ export class WecomChannels {
       const context = String((raw as any)?.extra_identity_context ?? '');
       const match = /授权真人用户身份：\s*名字：(.+?)\s*ID：([A-Za-z0-9_\-]+)/.exec(context.replace(/\s+/g, ' '));
       const bot = /机器人身份：\s*名字：.+?\s*ID：([A-Za-z0-9_\-]+)/.exec(context.replace(/\s+/g, ' '));
-      if (!match || !bot) throw new Error('whoami 未包含授权真人或机器人身份；请先在服务器完成 wecom-cli auth init 并由本人扫码。');
+      if (!match || !bot) throw new Error('whoami 未包含授权真人或机器人身份；请先在宿主「插件」页的「企业微信插件」里完成连接。');
       await this.deps.checkIdentity?.({ ownerId: match[2]!, authority: `bot:${bot[1]}` });
       this.wecomIdentityCache = { name: match[1]!.trim(), userid: match[2]! };
       return this.wecomIdentityCache;
@@ -493,7 +493,7 @@ export class WecomChannels {
       identity = { state: 'ok', message: `机器人已绑定；授权真人 ${owner.name}（${owner.userid}）`, userid: owner.userid, userName: owner.name };
     } catch (error) {
       identity = { state: 'error', message: (error as Error).message };
-      nextSteps.push('在服务器执行 wecom-cli auth init 并由本人企微扫码绑定机器人（wecom-setup.md 块 A）。');
+      nextSteps.push('请本人在宿主「插件」页打开「企业微信插件」，点「连接企业微信」并用企业微信 App 扫码（wecom-setup.md 块 A）。');
     }
     // 3. Per-service authorization probes (read-only) for enabled domains.
     const probes: Array<{ id: WecomServiceCheck['id']; enabled: boolean; args: readonly string[] }> = [

@@ -4675,7 +4675,7 @@ export class PaRuntime {
       id: 'config',
       state: config ? 'ok' : 'error',
       message: config
-        ? `配置有效：模式=${config.mode === 'feishu' ? '飞书' : '体验'}，profile=${config.larkProfile}，加载于 ${this.loadedAt ? new Date(this.loadedAt).toLocaleString('zh-CN', { timeZone: config.timeZone, hour12: false }) : '未知'}`
+        ? `配置有效：模式=${config.mode === 'feishu' ? '飞书' : '体验'}，profile=${config.larkProfile}${config.larkProfile === 'default' ? '' : '（具名 profile：官方飞书插件页只管理 lark-cli 当前生效的配置，是否同一份需本人核对）'}，加载于 ${this.loadedAt ? new Date(this.loadedAt).toLocaleString('zh-CN', { timeZone: config.timeZone, hour12: false }) : '未知'}`
         : (this.configError ?? '尚未加载配置'),
       detail: config ? { source: join(this.workspace?.statePath ?? '', 'AGENTS.md'), hash: this.sourceHash.slice(0, 16) } : undefined,
     });

@@ -185,6 +185,9 @@ window.__ModuleLoader__.load({
         // F27: 内联双语通道——dsh locale 服务的 resolveText 按当前语言与回退
         // 链解析 {zh,en}；与字符串同址维护，避免大字典间接层。
         const L = (zhText, enText) => ctx.locale.resolveText({ zh: zhText, en: enText });
+        // #306: how the lark-cli is supplied, as the access check reports it.
+        const CLI_SOURCE = { official: ['官方连接器提供', 'From the official connector'], config: ['插件行显式配置', 'Set in the plugin row'], path: ['PATH 上的可执行文件', 'Executable on PATH'] };
+        const cliSourceText = cli => [cli.source && CLI_SOURCE[cli.source] ? L(...CLI_SOURCE[cli.source]) : null, cli.message].filter(Boolean).join(' · ');
         const statusBadge = (tier, label) => { const item = STATUS[tier] || STATUS.unchecked; return badge(label || t(item[0]), item[1], item[2]); };
         const technicalText = value => {
           const text = String(value ?? '');
@@ -530,7 +533,7 @@ window.__ModuleLoader__.load({
                   button('chat', L('通过对话修改配置', 'Change config in chat'), openRobot, { className: 'pa24-quiet' }),
                   button('refresh', L('重载 AGENTS.md', 'Reload AGENTS.md'), () => rpc('action', { type: 'workspace.reload' }), { className: 'pa24-quiet' })), 'blue'),
               workspace && fields([
-                [L('固定飞书 profile', 'Feishu CLI profile'), config ? config.larkProfile : null],
+                [L('lark-cli profile', 'lark-cli profile'), config ? config.larkProfile : null],
                 [L('时区', 'Time zone'), config ? config.timeZone : null],
                 [L('同时处理数', 'Parallel workers'), config ? config.maxWorkers : null],
                 [L('已启用 Worker', 'Enabled workers'), enabledNames],
@@ -1111,7 +1114,7 @@ window.__ModuleLoader__.load({
                   button('refresh', busy ? L('检查中…', 'Checking…') : L('检查接入状态', 'Check access'), () => rpc('action', { type: 'health.check', scopes: ['feishu'], workspaceBinding: state.workspaceBinding })),
                   button('chat', L('通过对话配置', 'Configure in chat'), openRobot)), 'blue'),
               fields([
-                [L('固定 CLI profile', 'Feishu CLI profile'), badge(config ? config.larkProfile : L('未配置', 'Not configured'), 'neutral')],
+                [L('lark-cli profile', 'lark-cli profile'), badge(config ? config.larkProfile : L('未配置', 'Not configured'), 'neutral')],
                 [L('接入模式', 'Mode'), config && config.mode === 'feishu' ? L('飞书模式', 'Feishu mode') : L('体验模式 · 未连接飞书', 'Demo · not connected to Feishu')],
                 [L('上次检查', 'Last check'), check ? date(check.checkedAt, tz) : L('尚未检查，点击右上方按钮开始', 'Not checked yet — click the button above to start')],
               ]),
@@ -1126,9 +1129,9 @@ window.__ModuleLoader__.load({
               ]),
               h('p', { className: 'pa24-helper' }, L('建议在飞书发一条 /24pa 实测收发；连接正常不代表消息一定送达，发送后以收发记录为准。', 'Send /24pa on Feishu to verify both directions; a healthy connection does not guarantee delivery — trust the send log.'))),
             h('section', { className: 'pa24-card' },
-              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与用户授权', 'CLI & user auth')), diagnosis(auth)),
+              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与账号登录', 'CLI & account sign-in')), diagnosis(auth)),
               fields([
-                [L('安装状态', 'Install'), cli ? technicalText(cli.message) : L('尚未检查', 'Not checked')],
+                [L('CLI 来源', 'CLI source'), cli ? technicalText(cliSourceText(cli)) : L('尚未检查', 'Not checked')],
                 [L('CLI 版本', 'CLI version'), cli ? cli.version : L('尚未检查', 'Not checked')],
                 [L('用户授权', 'User auth'), auth ? technicalText(auth.message) : L('尚未检查', 'Not checked')],
                 [L('CLI 用户', 'CLI user'), auth ? auth.userName : L('尚未取得', 'Not acquired')],
@@ -2913,7 +2916,7 @@ window.__ModuleLoader__.load({
             },
             body: ({ state }) => h('div', null,
               capLine(L('消息通道', 'Messaging'), state.transport && state.transport.connected ? L('长连接已启动', 'Connected') : L('未启动', 'Not started')),
-              capLine(L('CLI 授权', 'CLI auth'), state.diagnostics && state.diagnostics.auth ? (state.diagnostics.auth.state === 'ok' ? L('有效', 'Valid') : state.diagnostics.auth.message) : L('尚未检查', 'Not checked'))),
+              capLine(L('账号登录', 'Account sign-in'), state.diagnostics && state.diagnostics.auth ? (state.diagnostics.auth.state === 'ok' ? L('有效', 'Valid') : state.diagnostics.auth.message) : L('尚未检查', 'Not checked'))),
             detail: helpers => h(FeishuDetail, helpers),
           },
           {
@@ -3540,7 +3543,7 @@ window.__ModuleLoader__.load({
             !maintenance && h('section', { className: 'pa24-card' },
               h('h2', null, L('模式与身份', 'Mode & identity')),
               row('mode', L('模式', 'Mode'), sel([['demo', L('体验模式', 'Demo')], ['feishu', L('飞书模式', 'Feishu')]], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('需要已设置的飞书应用凭据。', 'Feishu app credentials are required.') : null),
-              row('larkProfile', L('lark-cli profile', 'lark-cli profile'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 固定 profile 名。', 'The pinned lark-cli profile name.')),
+              row('larkProfile', L('lark-cli profile', 'lark-cli profile'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 的 profile 名；保持 default 时跟随官方飞书插件管理的当前配置。', 'The lark-cli profile name; keep default to follow the configuration the official Feishu plugin manages.')),
               row('ownerOpenId', L('主人 OpenID', 'Owner OpenID'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
                 h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),

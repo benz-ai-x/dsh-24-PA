@@ -37,10 +37,11 @@ describe('飞书接入指南（feishu-setup.md）', () => {
       expect(content).toContain(heading);
     }
     expect(content).toContain('一次交付＋一次验收');
-    // The two contracts the guide must state exactly: the agent-driven Device
-    // Flow and the domain-scoped authorization set.
-    expect(content).toContain('--device-code');
-    expect(content).toContain('--domain im,task,calendar,docs,drive');
+    // #306/#307: the CLI comes from the official Feishu plugin, and linking the
+    // app and signing in are that plugin's page operations, named as its page
+    // names them; no terminal login or server installation remains.
+    for (const anchor of ['官方飞书插件', '关联飞书应用', '登录飞书账号', '已连接', 'vendor-cli']) expect(content).toContain(anchor);
+    for (const retired of ['auth login', '--device-code', '--domain im,task', 'config init', 'npm i -g', '宿主进程的 PATH']) expect(content).not.toContain(retired);
     expect(content).toContain('im.message.receive_v1');
     expect(content).toContain('card.action.trigger');
     // Ordering invariant: env before AGENTS.md, restart after.
@@ -67,11 +68,10 @@ describe('setupNextSteps 状态映射', () => {
     expect(steps.join('')).not.toContain('全部通过');
   });
 
-  it('auth missing → Device Flow 三步法与 profile 名', () => {
-    const steps = setupNextSteps(baseConfig, diag({ auth: { state: 'missing' } }));
-    expect(steps.join('')).toContain('auth login --no-wait');
-    expect(steps.join('')).toContain('--profile 24PA');
-    expect(steps.join('')).toContain('--device-code');
+  it('auth missing → 请本人到宿主插件页的飞书插件登录，不再给出终端登录命令（#307）', () => {
+    const steps = setupNextSteps(baseConfig, diag({ auth: { state: 'missing' } })).join('');
+    for (const anchor of ['「飞书插件」', '「关联飞书应用」', '「登录飞书账号」']) expect(steps).toContain(anchor);
+    for (const retired of ['auth login', '--device-code', '--profile']) expect(steps).not.toContain(retired);
   });
 
   it('auth unbound → 用 auth status 的 openId 绑定主人', () => {
@@ -82,8 +82,8 @@ describe('setupNextSteps 状态映射', () => {
 
   it('auth mismatch / unverified / error 各给对应处置', () => {
     expect(setupNextSteps(baseConfig, diag({ auth: { state: 'mismatch' } })).join('')).toContain('不一致');
-    expect(setupNextSteps(baseConfig, diag({ auth: { state: 'unverified' } })).join('')).toContain('刷新令牌');
-    expect(setupNextSteps(baseConfig, diag({ auth: { state: 'error' } })).join('')).toContain('config show');
+    expect(setupNextSteps(baseConfig, diag({ auth: { state: 'unverified' } })).join('')).toContain('重新登录');
+    expect(setupNextSteps(baseConfig, diag({ auth: { state: 'error' } })).join('')).toContain('更换应用');
   });
 
   it('资源缺失/报错 → 指南收尾节与权限点提示', () => {

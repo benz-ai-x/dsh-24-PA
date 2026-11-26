@@ -88,7 +88,9 @@ describe('F15 飞书接入配置向导（真实 Loader + 隔离 PG）', () => {
     });
     const result = await waitToolResult('feishu-setup.md', 'guide 返回');
     expect(result).toContain('飞书接入配置指南');
-    expect(result).toContain('--device-code');
+    // #307: linking the app and signing in are the official Feishu plugin's page operations.
+    expect(result).toContain('「登录飞书账号」');
+    expect(result).not.toContain('--device-code');
     expect(result).toContain('自动验收（一次汇总');
     expect(result).toContain('version');
   });
