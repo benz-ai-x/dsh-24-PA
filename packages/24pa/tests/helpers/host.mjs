@@ -23,7 +23,7 @@ const runSync = (bin, args, env, label) => {
   return result;
 };
 
-export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: requestedBin, packageSpec: requestedPackage } = {}) {
+export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: requestedBin, packageSpec: requestedPackage, extraPlugins, beforeBoot } = {}) {
   const root = reuseRoot ?? (await mkdtemp(join(tmpdir(), 'pa24-host-')));
   // F25 backend matrix: PA24_E2E_STORAGE=sqlite flips the workspace AGENTS.md
   // to the SQLite ledger before the host boots, so the same suite runs
@@ -57,10 +57,15 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: reque
   runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', packageSpec, '--ignore-scripts', '--store-dir', join(root, 'store')], env, 'plugin add');
   // Optional companion plugins for runtime-variant runs: on dsh 0.2.0-rc.2 the
   // web host ships no schedule service, so digest e2e needs the experimental
-  // schedule bundle (0.2.1-alpha.1 carries the service in the web patch).
-  for (const extra of (process.env.PA24_E2E_EXTRA_PLUGINS ?? '').split(',').filter(Boolean)) {
-    runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', extra, '--ignore-scripts', '--store-dir', join(root, 'store')], env, `extra plugin add (${extra})`);
+  // schedule bundle (0.2.1-alpha.1 carries the service in the web patch). An
+  // entry may carry its own pnpm flags after the package spec.
+  for (const extra of extraPlugins ?? (process.env.PA24_E2E_EXTRA_PLUGINS ?? '').split(',').filter(Boolean)) {
+    runSync(bin, ['plugin', '--profile', 'pa24-test', 'add', ...extra.split(' ').filter(Boolean), '--ignore-scripts', '--store-dir', join(root, 'store')], env, `extra plugin add (${extra})`);
   }
+  // Runs once the profile's packages are in place and before the Host reads
+  // them: a test stands in for what an ignored install script would have
+  // downloaded, or writes the profile's own patch layer.
+  if (beforeBoot) await beforeBoot({ root, profile: join(root, 'home/profiles/pa24-test') });
 
   const child = spawn(process.execPath, [bin, '--profile', 'pa24-test', '--host', '127.0.0.1', '--port', '0', '--no-open'], {
     env,

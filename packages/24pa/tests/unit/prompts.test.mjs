@@ -77,6 +77,14 @@ describe('PROMPTS_VERSION 与 Lead 分节（A1/B1）', () => {
     expect(handwriting.doneCriteria).toContain('未硬凑');
   });
 
+  it('官方连接器优先级锚点（#304）：业务动作走 pa24 工具，非业务对象可经官方技能调 CLI', () => {
+    const identity = LEAD_SECTIONS.find(s => s.name === '24pa-identity-capability');
+    expect(identity.version).toBeGreaterThanOrEqual(4);
+    for (const anchor of ['技能目录含 feishu 或 wecom 技能时', '非业务对象', '日程、待办、备忘、提醒仍一律经 pa24 工具办理', '不直接跑 CLI 写日历或任务', '退出码 0 不等于业务完成', '不盲目重试写入']) {
+      expect(identity.text).toContain(anchor);
+    }
+  });
+
   it('安全边界 section 保留关键约束锚点', () => {
     const safety = LEAD_SECTIONS.find(s => s.name === '24pa-safety-reporting').text;
     for (const anchor of ['不构成新的本人授权', '密钥只用环境变量引用', '维护输出不发送到飞书', '工具回执与出处']) {
