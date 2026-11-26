@@ -107,6 +107,8 @@ export class PaDatabase implements PaDb {
     const result = await runCliProcess({
       bin: 'pg_dump', argv: ['--schema=pa24', '--no-owner', '--no-privileges', '--dbname', this.dsn],
       timeoutMs: 10 * 60_000, stdoutLimitBytes: 256 * 1024 * 1024,
+      // An instance may keep the password in the environment rather than in the DSN; pg_dump has always seen it, so it is passed on explicitly (#310).
+      env: { PGPASSWORD: process.env.PGPASSWORD },
       fail: kind => new Error(`pg_dump 未完成（${kind}）；备份期限 10 分钟、输出上限 256MiB，请核对后重试。`),
     });
     if (result.exitCode !== 0) throw new Error(`pg_dump 退出码 ${result.exitCode}：${result.stderr.split(this.dsn).join('[已隐藏]').slice(0, 300) || '无诊断输出'}`);
