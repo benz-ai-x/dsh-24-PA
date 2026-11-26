@@ -99,9 +99,11 @@ export function runnableAsGiven(executable: string): boolean {
  */
 export function unusableCli(location: CliLocation): string | null {
   if (location.source === 'official' || runnableAsGiven(location.path)) return null;
-  return location.source === 'config'
-    ? `插件行配置的 ${BARE[location.cli]} 不可执行（${location.path}）；请核对24私助插件行的 ${OPTION[location.cli]}`
-    : `PATH 上找不到 ${BARE[location.cli]}；请安装 ${BARE[location.cli]} 并加入启动进程的 PATH`;
+  const name = BARE[location.cli];
+  if (location.source === 'config') return `插件行配置的 ${name} 不可执行（${location.path}）；请核对24私助插件行的 ${OPTION[location.cli]}`;
+  return isBareName(location.path)
+    ? `PATH 上找不到 ${name}；请安装 ${name} 并加入启动进程的 PATH`
+    : `${location.path} 下没有可执行的 ${name}（相对路径按宿主的当前目录解析）；请改用绝对路径`;
 }
 
 /** The version in a package's manifest, when it has a readable one. */
@@ -117,8 +119,14 @@ function packageVersion(manifest: string): string | undefined {
 /** Answers how each vendor CLI is supplied. Only the installed-layout lookup is cached; it cannot change while the process runs. */
 export class VendorClis {
   private readonly installed = new Map<VendorCli, CliLocation | CliUnavailableError>();
+  private connectorVersions: string[] | undefined;
 
   constructor(private readonly settings: VendorCliSettings, private readonly deps: VendorCliDeps = {}) {}
+
+  /** Resolves a package's manifest from `from`, by default the profile this process runs. */
+  private resolvePackage(name: string, from?: string): string | null {
+    return (this.settings.resolvePackage ?? resolveInstalled)(name, from ?? this.settings.anchor);
+  }
 
   /** How `cli` is supplied, or why it is not; never throws. */
   describe(cli: VendorCli): CliLocation | CliUnavailableError {
@@ -139,8 +147,6 @@ export class VendorClis {
     return found;
   }
 
-  private connectorVersions: string[] | undefined;
-
   /**
    * The official connector packages installed in this profile, whatever supplies the CLIs; each with its version when its
    * manifest has one. Read once, like the lookup, so the two never disagree about what is installed: installing a connector
@@ -148,10 +154,9 @@ export class VendorClis {
    */
   connectors(): string[] {
     if (this.connectorVersions) return this.connectorVersions;
-    const resolvePackage = this.settings.resolvePackage ?? ((name: string, from?: string) => resolveInstalled(name, from ?? this.settings.anchor));
     return (this.connectorVersions = (['lark', 'wecom'] as const).flatMap(cli => {
       const name = OFFICIAL[cli].connector;
-      const manifest = resolvePackage(name);
+      const manifest = this.resolvePackage(name);
       if (!manifest) return [];
       const version = packageVersion(manifest);
       return [version ? `${name}@${version}` : name];
@@ -173,15 +178,14 @@ export class VendorClis {
       return new CliUnavailableError(`需要官方${official.label}插件提供的 ${name}：${problem}。请安装官方${official.label}插件后重启宿主：在宿主「插件」页安装，或执行 ${install}；也可在24私助插件行显式设置 ${OPTION[cli]}。`, cli);
     };
     // Packages installed into the profile resolve from the profile itself, wherever this plugin's own files live.
-    const resolvePackage = this.settings.resolvePackage ?? ((name, from) => resolveInstalled(name, from ?? this.settings.anchor));
-    const connector = resolvePackage(official.connector);
+    const connector = this.resolvePackage(official.connector);
     if (!connector) return missing(`当前实例未安装官方${official.label}插件（${official.connector}）`);
-    const cliPackage = resolvePackage(official.cli, connector);
+    const cliPackage = this.resolvePackage(official.cli, connector);
     if (!cliPackage) return missing(`官方${official.label}插件缺少它托管的 ${official.cli} 包`);
     let binDir = join(dirname(cliPackage), 'bin');
     if (cli === 'wecom') {
       const platform = `${this.deps.platform ?? process.platform}-${this.deps.arch ?? process.arch}`;
-      const platformPackage = resolvePackage(`@wecom/cli-${platform}`, cliPackage);
+      const platformPackage = this.resolvePackage(`@wecom/cli-${platform}`, cliPackage);
       if (!platformPackage) return missing(`官方企业微信插件的 @wecom/cli 没有 ${platform} 平台包`);
       binDir = join(dirname(platformPackage), 'bin');
     }

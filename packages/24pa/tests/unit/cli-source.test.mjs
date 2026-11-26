@@ -84,6 +84,7 @@ describe('给定的可执行文件能否运行', () => {
     process.env.PATH = empty;
     try {
       expect(unusableCli(larkAt('lark-cli', 'path'))).toBe('PATH 上找不到 lark-cli；请安装 lark-cli 并加入启动进程的 PATH');
+      expect(unusableCli(larkAt('./lark-cli', 'path'))).toBe('./lark-cli 下没有可执行的 lark-cli（相对路径按宿主的当前目录解析）；请改用绝对路径');
     } finally { process.env.PATH = saved; }
     // The official connector's CLI was checked where it was found; its absence is the lookup's own message.
     await chmod(layout.lark, 0o644);

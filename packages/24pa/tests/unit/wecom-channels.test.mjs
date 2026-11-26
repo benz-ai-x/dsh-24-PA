@@ -38,6 +38,8 @@ describe('F30：WecomChannels 接口直测', () => {
     const diagnostics = await channels.wecomCheck();
     expect(diagnostics.cli.state).toBe('error');
     expect(diagnostics.cli.message).toContain('definitely-missing-wecom-cli-bin');
+    // Said once: the executable's own failure to start, not that failure said again after the executable.
+    expect(diagnostics.cli.message).toBe(`无法启动 definitely-missing-wecom-cli-bin（spawn definitely-missing-wecom-cli-bin ENOENT）`);
     expect(diagnostics.nextSteps.length).toBeGreaterThan(0);
     // 诊断快照可经 wecomDiagnosticsSnapshot 读取（面板/健康面契约）
     expect(channels.wecomDiagnosticsSnapshot()).toBe(diagnostics);

@@ -1637,9 +1637,13 @@ export class PaRuntime {
     if (answer instanceof CliUnavailableError) throw answer;
     return answer;
   }
+  /** Why no Feishu channel can run on the lark-cli as located, or null when one can. */
+  private larkProblem(): string | null {
+    const lark = this.vendorClis.describe('lark');
+    return lark instanceof CliUnavailableError ? lark.message : this.cliProblem(lark);
+  }
   /**
-   * Why a located CLI cannot run as given, or null when it can; said the same way wherever the plugin reports it, and the
-   * Feishu channel is not switched on while its lark-cli cannot.
+   * Why a located CLI cannot run as given, or null when it can; said the same way wherever the plugin reports it.
    */
   private cliProblem(location: CliLocation): string | null {
     const why = unusableCli(location);
@@ -1747,9 +1751,8 @@ export class PaRuntime {
   private async prepareTransport(config: PaConfig, store: SecretStore): Promise<{ transport: FeishuTransport | null; error: string | null; activate(): void; cancel(): void }> {
     const inactive = (error: string) => ({ transport: null, error, activate() { }, cancel() { } });
     if (config.mode !== 'feishu') return inactive('demo：未连接飞书；业务账本按工作区配置运行。');
-    const lark = this.vendorClis.describe('lark');
     // Every Feishu business action runs lark-cli, so a channel whose lark-cli is missing or cannot run is not switched on.
-    const problem = lark instanceof CliUnavailableError ? lark.message : this.cliProblem(lark);
+    const problem = this.larkProblem();
     if (problem) return inactive(`飞书接入未启动：${problem}`);
     const env = secretEnvironment(config, this.env, store);
     const appId = env[config.appIdEnv];
@@ -4720,9 +4723,9 @@ export class PaRuntime {
     });
     items.push({
       id: 'feishu',
-      // Feishu mode without a lark-cli is a channel that was refused, not a soft state.
+      // Feishu mode without a lark-cli that can run is a channel that was refused, not a soft state.
       state: this.transport ? 'ok' : this.configError && this.config?.mode === 'demo' ? 'info'
-        : config?.mode === 'feishu' && this.vendorClis.describe('lark') instanceof CliUnavailableError ? 'error' : 'warn',
+        : config?.mode === 'feishu' && this.larkProblem() !== null ? 'error' : 'warn',
       message: this.transport
         ? `飞书长连接已启动（${this.transport.name}）；收 ${this.lastReceivedAt ?? '无'} / 发 ${this.lastSentAt ?? '无'}`
         : (this.transportError ?? '未启动'),

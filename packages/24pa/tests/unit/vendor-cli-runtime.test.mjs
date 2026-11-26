@@ -137,6 +137,8 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     expect(item.state).toBe('error');
     expect(item.message).toBe(`${said}；wecom-cli：官方连接器提供（@deepseek-ai/dsh-wecom@0.2.3-alpha.2，${executables.wecom}）`);
     expect(rt.snapshot().transport.message).toBe(`飞书接入未启动：${said}`);
+    // The channel's own readiness item calls it the fault it is, as it does a missing connector CLI.
+    expect(readinessItem(rt, 'feishu').state).toBe('error');
     // The access check says the same, minus the way back to the connector, which only the host line knows.
     const access = await rt.checkAccess();
     expect(access.cli).toMatchObject({ state: 'error', message: `${why}；请核对24私助插件行的 larkCliBin` });
