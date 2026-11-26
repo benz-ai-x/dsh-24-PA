@@ -116,21 +116,33 @@ export const DELEGATION_TOOL_PROVIDER: Record<(typeof DELEGATION_EXTRA_TOOLS)[nu
   subagent_codex: 'codex',
   subagent_claude_code: 'claude-code',
 };
+/** MCP servers whose tools `extraLocalTools` may admit in the local session: QwenNote minutes, and the official Tencent Docs plugin (#308). */
+export const EXTRA_MCP_SERVERS = ['qwennote', 'tencent-docs'] as const;
+export type ExtraMcpServer = (typeof EXTRA_MCP_SERVERS)[number];
+/** The host namespace of one MCP server's tools. */
+export const mcpToolPrefix = (server: string): string => `mcp__${server}__`;
+/** Wildcard entry: allow every currently mounted tool of that server. */
+export const mcpToolWildcard = (server: string): string => `${mcpToolPrefix(server)}*`;
+/** The tool an on-demand server offers first; the model loads the server's other tools through it. */
+export const MCP_LOADER_TOOL = 'load_tools';
 /** QwenNote minutes tools register as host-plane globals under this prefix. */
-export const QWENNOTE_TOOL_PREFIX = 'mcp__qwennote__';
-/** Wildcard entry: allow every currently mounted qwennote tool. */
-export const QWENNOTE_TOOL_WILDCARD = 'mcp__qwennote__*';
+export const QWENNOTE_TOOL_PREFIX = mcpToolPrefix('qwennote');
+export const QWENNOTE_TOOL_WILDCARD = mcpToolWildcard('qwennote');
+/** The official Tencent Docs plugin (`@deepseek-ai/dsh-tencent-docs`) offers its tools on demand under this prefix. */
+export const TENCENT_DOCS_TOOL_PREFIX = mcpToolPrefix('tencent-docs');
+export const TENCENT_DOCS_TOOL_WILDCARD = mcpToolWildcard('tencent-docs');
+const EXTRA_MCP_WILDCARDS: readonly string[] = EXTRA_MCP_SERVERS.map(mcpToolWildcard);
 // Precise names match the harness MCP tool-name charset; a raw name long
 // enough to need the 12-hex normalization suffix can exceed the cap here —
 // those stay reachable through the wildcard entry instead.
-const QWENNOTE_TOOL_NAME = /^mcp__qwennote__[A-Za-z0-9_-]{1,48}$/;
+const EXTRA_MCP_TOOL_NAME = new RegExp(`^(?:${EXTRA_MCP_SERVERS.map(server => mcpToolPrefix(server)).join('|')})[A-Za-z0-9_-]{1,48}$`);
 
-/** Whether one extraLocalTools entry is acceptable: a delegation tool, the qwennote wildcard, or a precise qwennote tool name. */
+/** Whether one extraLocalTools entry is acceptable: a delegation tool, an admitted MCP server's wildcard, or a precise tool name of one. */
 export function isExtraLocalToolEntry(value: string): boolean {
   return (
     (DELEGATION_EXTRA_TOOLS as readonly string[]).includes(value) ||
-    value === QWENNOTE_TOOL_WILDCARD ||
-    QWENNOTE_TOOL_NAME.test(value)
+    EXTRA_MCP_WILDCARDS.includes(value) ||
+    EXTRA_MCP_TOOL_NAME.test(value)
   );
 }
 
@@ -307,7 +319,7 @@ export function validateConfig(raw: unknown): PaConfig {
     extraLocalTools.some(x => typeof x !== 'string' || !isExtraLocalToolEntry(x)) ||
     new Set(extraLocalTools).size !== extraLocalTools.length
   ) {
-    throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${QWENNOTE_TOOL_WILDCARD} 或 ${QWENNOTE_TOOL_PREFIX}<工具名>。`);
+    throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${EXTRA_MCP_WILDCARDS.join('、')} 或 ${EXTRA_MCP_SERVERS.map(server => `${mcpToolPrefix(server)}<工具名>`).join('、')}。`);
   }
   const tts = validateTts(input.tts);
   let sources: SourceConfiguration | null;

@@ -76,6 +76,10 @@ describe('AGENTS.md 配置校验', () => {
       () => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__qwennote__*', 'mcp__qwennote__list_minutes'] }),
     ).not.toThrow();
     // 其他 mcp 服务前缀与格式非法的名字仍拒绝（v1 只放行 qwennote）。
+    // #308: the official Tencent Docs plugin's on-demand tools are admitted beside QwenNote's.
+    expect(validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__tencent-docs__*', 'mcp__tencent-docs__load_tools'] }).extraLocalTools).toEqual(['mcp__tencent-docs__*', 'mcp__tencent-docs__load_tools']);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__linear__*'] })).toThrow(/extraLocalTools/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__tencent-docs__'] })).toThrow(/extraLocalTools/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__other__*'] })).toThrow(/extraLocalTools/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__qwennote__'] })).toThrow(/extraLocalTools/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__qwennote__bad name!'] })).toThrow(/extraLocalTools/);

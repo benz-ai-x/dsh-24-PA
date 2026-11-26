@@ -79,10 +79,18 @@ describe('PROMPTS_VERSION 与 Lead 分节（A1/B1）', () => {
 
   it('官方连接器优先级锚点（#304）：业务动作走 pa24 工具，非业务对象可经官方技能调 CLI', () => {
     const identity = LEAD_SECTIONS.find(s => s.name === '24pa-identity-capability');
-    expect(identity.version).toBeGreaterThanOrEqual(4);
+    expect(identity.version).toBeGreaterThanOrEqual(5);
     for (const anchor of ['技能目录含 feishu 或 wecom 技能时', '非业务对象', '日程、待办、备忘、提醒仍一律经 pa24 工具办理', '不直接跑 CLI 写日历或任务', '退出码 0 不等于业务完成', '不盲目重试写入']) {
       expect(identity.text).toContain(anchor);
     }
+  });
+
+  it('腾讯文档锚点（#308）：走官方插件的工具，先加载再调用，没有时如实说明', () => {
+    const identity = LEAD_SECTIONS.find(s => s.name === '24pa-identity-capability');
+    for (const anchor of ['官方腾讯文档插件的工具', 'mcp__tencent-docs__load_tools 时先用它加载所需工具再调用', '不臆造文档内容']) expect(identity.text).toContain(anchor);
+    // The workspace template names the admission next to QwenNote's.
+    const agentsMd = template();
+    expect(agentsMd).toContain('mcp__tencent-docs__*');
   });
 
   it('接入授权锚点（#307）：关联应用与登录只在宿主的飞书插件页完成，不指导终端登录', () => {

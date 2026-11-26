@@ -1,4 +1,4 @@
-import { DELEGATION_TOOL_PROVIDER, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD } from './config.js';
+import { DELEGATION_TOOL_PROVIDER, EXTRA_MCP_SERVERS, MCP_LOADER_TOOL, mcpToolPrefix, mcpToolWildcard, QWENNOTE_TOOL_PREFIX, type ExtraMcpServer } from './config.js';
 import type { DshContext } from './host.js';
 
 // The local session carries the full standard-mode tool base beside the pa24
@@ -119,19 +119,37 @@ export function resolveExtraLocalTools(extras: readonly string[], signals: Extra
       else filtered.push(extra);
       continue;
     }
-    if (extra === QWENNOTE_TOOL_WILDCARD) {
-      const mounted = [...signals.globalToolNames].filter(name => name.startsWith(QWENNOTE_TOOL_PREFIX)).sort();
+    // An admitted MCP server's wildcard names every tool mounted under its
+    // namespace; a precise name must itself be mounted.
+    const server = extraMcpServerOf(extra);
+    if (server !== undefined) {
+      const mounted = extra === mcpToolWildcard(server)
+        ? [...signals.globalToolNames].filter(name => extraMcpServerOf(name) === server).sort()
+        : signals.globalToolNames.has(extra) ? [extra] : [];
       if (mounted.length === 0) filtered.push(extra);
       else mounted.forEach(admit);
       continue;
     }
-    // A precise mcp__qwennote__<tool> entry: live iff mounted on the host
-    // plane. validateConfig gates entries to this prefix; the prefix guard
-    // here keeps the resolver honest if it is ever reused ungated.
-    if (extra.startsWith(QWENNOTE_TOOL_PREFIX) && signals.globalToolNames.has(extra)) admit(extra);
-    else filtered.push(extra);
+    filtered.push(extra);
   }
   return { allow, filtered };
+}
+
+/** The admitted MCP server whose tool namespace a name belongs to. */
+export function extraMcpServerOf(name: string): ExtraMcpServer | undefined {
+  return EXTRA_MCP_SERVERS.find(server => name.startsWith(mcpToolPrefix(server)));
+}
+
+/**
+ * Whether an MCP tool is outside a role's list. Tools the model loads on
+ * demand register on the agent itself, where the host's restrict() does not
+ * reach, so the list is checked again when a tool runs (#308): an MCP tool of
+ * an admitted server runs only when it is listed, or was loaded through that
+ * server's listed loader.
+ */
+export function mcpToolOutside(allow: readonly string[], name: string): boolean {
+  const server = extraMcpServerOf(name);
+  return server !== undefined && !allow.includes(name) && !allow.includes(`${mcpToolPrefix(server)}${MCP_LOADER_TOOL}`);
 }
 
 /** One lifecycle owns delayed mounts, cancellation, filtering, and restriction. */
