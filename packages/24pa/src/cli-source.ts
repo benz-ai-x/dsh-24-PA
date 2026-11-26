@@ -8,7 +8,7 @@
 
 import { accessSync, constants, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { delimiter, dirname, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
 export type VendorCli = 'lark' | 'wecom';
 
@@ -20,7 +20,8 @@ export const CLI_SOURCE_LABELS: Record<CliSource, string> = { config: '插件行
 
 /** A vendor CLI that is configured or installed. */
 export interface CliLocation {
-  /** The executable: an absolute path, or a bare name that PATH resolves. */
+  readonly cli: VendorCli;
+  /** The executable: an absolute path, or on a host line without the official connectors a bare name or relative path that the process resolves. */
   readonly path: string;
   readonly source: CliSource;
   /** The official connector that supplies the CLI, with its version when its manifest has one. */
@@ -52,8 +53,8 @@ export type PackageResolver = (name: string, from?: string) => string | null;
 export interface VendorCliSettings {
   readonly lark?: string;
   readonly wecom?: string;
-  /** Whether the host line ships the official connectors, i.e. provides the `cliAccounts` service; asked on each lookup, so a service that activates late is seen. */
-  readonly officialConnectors: () => boolean;
+  /** Whether the host line ships the official connectors, i.e. provides the `cliAccounts` service. Read once by the plugin entry when it loads. */
+  readonly officialConnectors: boolean;
   /** The profile this process runs, for the install command in a missing CLI's message. */
   readonly profile?: string;
   /** The profile's own package.json: where packages installed into the profile resolve from. Defaults to this package's location. */
@@ -83,10 +84,24 @@ const isExecutable = (path: string): boolean => {
   }
 };
 
+/** A bare name, which a process resolves on PATH; anything with a separator in it is a path, absolute or relative. */
+const isBareName = (executable: string): boolean => !/[\\/]/.test(executable);
+
 /** Whether an executable can run as it was given: a path is checked where it stands, a bare name on PATH. Nothing is started. */
 export function runnableAsGiven(executable: string): boolean {
-  const candidates = /[\\/]/.test(executable) ? [executable] : (process.env.PATH ?? '').split(delimiter).map(dir => join(dir, executable));
+  const candidates = isBareName(executable) ? (process.env.PATH ?? '').split(delimiter).map(dir => join(dir, executable)) : [executable];
   return candidates.some(isExecutable);
+}
+
+/**
+ * Why a located CLI cannot run as given, or null when it can, said the same way wherever the plugin reports it. The
+ * official connector's CLI was checked where it was found; the plugin row's or PATH's is checked here. Nothing is started.
+ */
+export function unusableCli(location: CliLocation): string | null {
+  if (location.source === 'official' || runnableAsGiven(location.path)) return null;
+  return location.source === 'config'
+    ? `插件行配置的 ${BARE[location.cli]} 不可执行（${location.path}）；请核对24私助插件行的 ${OPTION[location.cli]}`
+    : `PATH 上找不到 ${BARE[location.cli]}；请安装 ${BARE[location.cli]} 并加入启动进程的 PATH`;
 }
 
 /** The version in a package's manifest, when it has a readable one. */
@@ -105,37 +120,42 @@ export class VendorClis {
 
   constructor(private readonly settings: VendorCliSettings, private readonly deps: VendorCliDeps = {}) {}
 
-  /** Whether this host line ships the official connectors; asked of the host each time. */
-  officialConnectors(): boolean { return this.settings.officialConnectors(); }
-
   /** How `cli` is supplied, or why it is not; never throws. */
   describe(cli: VendorCli): CliLocation | CliUnavailableError {
     const configured = cli === 'lark' ? this.settings.lark : this.settings.wecom;
-    if (configured && /[\\/]/.test(configured)) return { path: configured, source: 'config' };
-    if (!this.settings.officialConnectors()) {
-      // A host line without the official connectors: the row's bare name, which PATH resolves when a process starts.
-      if (configured) return { path: configured, source: 'path' };
+    if (configured && isAbsolute(configured)) return { cli, path: configured, source: 'config' };
+    if (!this.settings.officialConnectors) {
+      // A host line without the official connectors: the row's bare name or relative path, which the process resolves when it starts.
+      if (configured) return { cli, path: configured, source: 'path' };
       return new CliUnavailableError(`未设置 ${BARE[cli]}：请在24私助插件行设置 ${OPTION[cli]}。`, cli);
     }
-    // Beside the official connectors a bare name could pick up any CLI on PATH, so an override must name a file.
+    // Beside the official connectors anything short of an absolute path could run another installation: a bare name
+    // picks whatever PATH holds, a relative one depends on where the process started. So an override must name a file.
     if (configured) {
-      return new CliUnavailableError(`插件行配置的 ${BARE[cli]} 不是路径（${configured}）：提供官方连接器的宿主上，${OPTION[cli]} 只接受可执行文件的绝对路径；要用官方插件托管的 ${BARE[cli]}，请删除这一项。`, cli);
+      return new CliUnavailableError(`插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）：提供官方连接器的宿主上，${OPTION[cli]} 只接受可执行文件的绝对路径；要用官方插件托管的 ${BARE[cli]}，请删除这一项。`, cli);
     }
     let found = this.installed.get(cli);
     if (!found) this.installed.set(cli, found = this.fromConnector(cli));
     return found;
   }
 
-  /** The official connector packages installed in this profile, whatever supplies the CLIs; each with its version when its manifest has one. */
+  private connectorVersions: string[] | undefined;
+
+  /**
+   * The official connector packages installed in this profile, whatever supplies the CLIs; each with its version when its
+   * manifest has one. Read once, like the lookup, so the two never disagree about what is installed: installing a connector
+   * takes effect when the Host restarts.
+   */
   connectors(): string[] {
+    if (this.connectorVersions) return this.connectorVersions;
     const resolvePackage = this.settings.resolvePackage ?? ((name: string, from?: string) => resolveInstalled(name, from ?? this.settings.anchor));
-    return (['lark', 'wecom'] as const).flatMap(cli => {
+    return (this.connectorVersions = (['lark', 'wecom'] as const).flatMap(cli => {
       const name = OFFICIAL[cli].connector;
       const manifest = resolvePackage(name);
       if (!manifest) return [];
       const version = packageVersion(manifest);
       return [version ? `${name}@${version}` : name];
-    });
+    }));
   }
 
   /** The executable to run; throws {@link CliUnavailableError} when nothing supplies it. */
@@ -166,8 +186,9 @@ export class VendorClis {
       binDir = join(dirname(platformPackage), 'bin');
     }
     const path = join(binDir, (this.deps.platform ?? process.platform) === 'win32' ? `${name}.exe` : name);
-    if (!(this.deps.executable ?? isExecutable)(path)) return missing(`官方${official.label}插件托管的 ${name} 不可执行（${path}）；请重新安装该插件${cli === 'lark' ? '，并批准 @larksuite/cli 的安装脚本' : ''}`);
+    // The connector's own row can point its CLI elsewhere (the Feishu row's `binDir`); this lookup reads the package as installed.
+    if (!(this.deps.executable ?? isExecutable)(path)) return missing(`官方${official.label}插件托管的 ${name} 不可执行（${path}）；请重新安装该插件${cli === 'lark' ? '，并批准 @larksuite/cli 的安装脚本' : ''}；若该插件行另设了 CLI 目录，24私助不读取它，请在24私助插件行用 ${OPTION[cli]} 指向那里的 ${name}`);
     const version = packageVersion(connector);
-    return { path, source: 'official', connector: version ? `${official.connector}@${version}` : official.connector };
+    return { cli, path, source: 'official', connector: version ? `${official.connector}@${version}` : official.connector };
   }
 }

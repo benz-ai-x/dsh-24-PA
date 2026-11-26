@@ -6,21 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, runnableAsGiven, VendorClis } from '../../lib/cli-source.js';
+import { CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, runnableAsGiven, unusableCli, VendorClis } from '../../lib/cli-source.js';
 
 const cleanup = [];
 afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
-
-describe('CLI 来源的文字', () => {
-  it('readiness 与面板用的是同一组', async () => {
-    // The panel runs in the browser and cannot import the plugin's server code; its own table must not drift.
-    const client = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
-    const literal = /const CLI_SOURCE = (\{[^}]*\});/.exec(client)?.[1];
-    expect(literal).toBeTruthy();
-    const labels = Object.fromEntries([...literal.matchAll(/(\w+): \['([^']+)'/g)].map(([, key, zh]) => [key, zh]));
-    expect(labels).toEqual(CLI_SOURCE_LABELS);
-  });
-});
 
 /** The packages a connector line installs, as the plugin would resolve them. */
 async function installed() {
@@ -42,21 +31,24 @@ async function installed() {
   const wecom = await executable('@wecom/cli-darwin-arm64/bin/wecom-cli');
   return { root, packages, lark, wecom, resolvePackage: name => packages.get(name) ?? null };
 }
-const connectorLine = (layout, settings = {}) => new VendorClis({ officialConnectors: () => true, profile: 'off', resolvePackage: layout.resolvePackage, ...settings }, { platform: 'darwin', arch: 'arm64' });
+const connectorLine = (layout, settings = {}) => new VendorClis({ officialConnectors: true, profile: 'off', resolvePackage: layout.resolvePackage, ...settings }, { platform: 'darwin', arch: 'arm64' });
+const larkAt = (path, source, extra = {}) => ({ cli: 'lark', path, source, ...extra });
 
 describe('宿主是否带官方连接器', () => {
   it('以宿主有没有 CLI 账号服务为准', () => {
     expect(hasOfficialConnectors({ get: name => name === 'cliAccounts' ? {} : null })).toBe(true);
     expect(hasOfficialConnectors({ get: () => null })).toBe(false);
   });
+});
 
-  it('每次查找都问一遍：服务晚到，下一次查找就按带连接器的宿主处理', async () => {
-    const layout = await installed();
-    let shipped = false;
-    const clis = new VendorClis({ officialConnectors: () => shipped, resolvePackage: layout.resolvePackage });
-    expect(clis.describe('lark')).toBeInstanceOf(CliUnavailableError);
-    shipped = true;
-    expect(clis.describe('lark').source).toBe('official');
+describe('CLI 来源的文字', () => {
+  it('readiness 与面板用的是同一组', async () => {
+    // The panel runs in the browser and cannot import the plugin's server code; its own table must not drift.
+    const client = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
+    const literal = /const CLI_SOURCE = (\{[^}]*\});/.exec(client)?.[1];
+    expect(literal).toBeTruthy();
+    const labels = Object.fromEntries([...literal.matchAll(/(\w+): \['([^']+)'/g)].map(([, key, zh]) => [key, zh]));
+    expect(labels).toEqual(CLI_SOURCE_LABELS);
   });
 });
 
@@ -79,32 +71,50 @@ describe('给定的可执行文件能否运行', () => {
       expect(runnableAsGiven(join(dir, 'wecom-cli'))).toBe(false);
     } finally { process.env.PATH = saved; }
   });
+
+  it('跑不起来时的说法只有一处：插件行给的路径不可执行、PATH 上找不到，各带下一步；能跑或来自官方连接器则无话可说', async () => {
+    const layout = await installed();
+    expect(unusableCli(larkAt(layout.lark, 'config'))).toBeNull();
+    expect(unusableCli(larkAt('/opt/tools/lark-cli', 'config'))).toBe('插件行配置的 lark-cli 不可执行（/opt/tools/lark-cli）；请核对24私助插件行的 larkCliBin');
+    expect(unusableCli({ cli: 'wecom', path: '/opt/tools/wecom-cli', source: 'config' })).toBe('插件行配置的 wecom-cli 不可执行（/opt/tools/wecom-cli）；请核对24私助插件行的 wecomCliBin');
+    // A bare name is looked up on PATH, which here holds only an empty directory: this machine's own lark-cli must not count.
+    const empty = await mkdtemp(join(tmpdir(), 'pa24-cli-source-empty-'));
+    cleanup.push(() => rm(empty, { recursive: true, force: true }));
+    const saved = process.env.PATH;
+    process.env.PATH = empty;
+    try {
+      expect(unusableCli(larkAt('lark-cli', 'path'))).toBe('PATH 上找不到 lark-cli；请安装 lark-cli 并加入启动进程的 PATH');
+    } finally { process.env.PATH = saved; }
+    // The official connector's CLI was checked where it was found; its absence is the lookup's own message.
+    await chmod(layout.lark, 0o644);
+    expect(unusableCli(larkAt(layout.lark, 'official'))).toBeNull();
+  });
 });
 
 describe('VendorClis：插件行的显式配置优先', () => {
-  it('路径记为插件行配置，不再去看连接器', async () => {
+  it('绝对路径记为插件行配置，不再去看连接器', async () => {
     const layout = await installed();
-    const clis = connectorLine(layout, { lark: '/opt/tools/lark-cli' });
-    expect(clis.describe('lark')).toEqual({ path: '/opt/tools/lark-cli', source: 'config' });
+    expect(connectorLine(layout, { lark: '/opt/tools/lark-cli' }).describe('lark')).toEqual(larkAt('/opt/tools/lark-cli', 'config'));
     // The row wins even where the connector is absent.
-    expect(connectorLine(layout, { lark: '/opt/tools/lark-cli', resolvePackage: () => null }).describe('lark')).toEqual({ path: '/opt/tools/lark-cli', source: 'config' });
+    expect(connectorLine(layout, { lark: '/opt/tools/lark-cli', resolvePackage: () => null }).describe('lark')).toEqual(larkAt('/opt/tools/lark-cli', 'config'));
   });
 
   it('运行时建立后再改插件行的值，下一次查找按新值', async () => {
-    const settings = { officialConnectors: () => true, resolvePackage: (await installed()).resolvePackage };
+    const settings = { officialConnectors: true, resolvePackage: (await installed()).resolvePackage };
     const clis = new VendorClis(settings);
     expect(clis.describe('lark').source).toBe('official');
     settings.lark = '/opt/tools/lark-cli';
-    expect(clis.describe('lark')).toEqual({ path: '/opt/tools/lark-cli', source: 'config' });
+    expect(clis.describe('lark')).toEqual(larkAt('/opt/tools/lark-cli', 'config'));
   });
 
-  it('带官方连接器的宿主上，插件行留着的裸名被拒绝：它可能捡到 PATH 上任何一个同名程序', () => {
-    const clis = new VendorClis({ officialConnectors: () => true, lark: 'lark-cli', wecom: 'wecom-cli' });
-    const answer = clis.describe('lark');
-    expect(answer).toBeInstanceOf(CliUnavailableError);
-    for (const anchor of ['插件行配置的 lark-cli 不是路径（lark-cli）', '只接受可执行文件的绝对路径', '请删除这一项']) expect(answer.message).toContain(anchor);
-    expect(() => clis.get('lark')).toThrow(CliUnavailableError);
-    expect(clis.describe('wecom').message).toContain('插件行配置的 wecom-cli 不是路径（wecom-cli）');
+  it('带官方连接器的宿主上，插件行留着的裸名或相对路径被拒绝：两者都可能跑到另一份安装', () => {
+    const clis = new VendorClis({ officialConnectors: true, lark: 'lark-cli', wecom: './wecom-cli' });
+    for (const [cli, value, option] of [['lark', 'lark-cli', 'larkCliBin'], ['wecom', './wecom-cli', 'wecomCliBin']]) {
+      const answer = clis.describe(cli);
+      expect(answer).toBeInstanceOf(CliUnavailableError);
+      for (const anchor of [`插件行配置的 ${cli}-cli 不是绝对路径（${value}）`, `${option} 只接受可执行文件的绝对路径`, '请删除这一项']) expect(answer.message).toContain(anchor);
+      expect(() => clis.get(cli)).toThrow(CliUnavailableError);
+    }
   });
 });
 
@@ -112,12 +122,12 @@ describe('VendorClis：提供官方连接器的宿主线', () => {
   it('lark-cli 取自飞书连接器托管的 @larksuite/cli，并报出连接器与版本', async () => {
     const layout = await installed();
     await writeFile(layout.packages.get('@deepseek-ai/dsh-feishu'), JSON.stringify({ version: '0.2.3-alpha.2' }));
-    expect(connectorLine(layout).describe('lark')).toEqual({ path: layout.lark, source: 'official', connector: '@deepseek-ai/dsh-feishu@0.2.3-alpha.2' });
+    expect(connectorLine(layout).describe('lark')).toEqual(larkAt(layout.lark, 'official', { connector: '@deepseek-ai/dsh-feishu@0.2.3-alpha.2' }));
   });
 
   it('wecom-cli 取自企业微信连接器的平台包', async () => {
     const layout = await installed();
-    expect(connectorLine(layout).describe('wecom')).toEqual({ path: layout.wecom, source: 'official', connector: '@deepseek-ai/dsh-wecom' });
+    expect(connectorLine(layout).describe('wecom')).toEqual({ cli: 'wecom', path: layout.wecom, source: 'official', connector: '@deepseek-ai/dsh-wecom' });
   });
 
   it('未安装连接器时报出缺的是哪个插件、怎么装；取可执行文件时抛出', async () => {
@@ -146,6 +156,8 @@ describe('VendorClis：提供官方连接器的宿主线', () => {
     const answer = connectorLine(layout).describe('lark');
     expect(answer).toBeInstanceOf(CliUnavailableError);
     expect(answer.message).toContain('lark-cli 不可执行');
+    // The connector's own row can point its CLI elsewhere; the message says this lookup does not read that.
+    expect(answer.message).toContain('若该插件行另设了 CLI 目录，24私助不读取它');
   });
 
   it('批准 @larksuite/cli 安装脚本的提示只出现在飞书的错误里', async () => {
@@ -169,15 +181,15 @@ describe('VendorClis：提供官方连接器的宿主线', () => {
     for (const pkg of ['@deepseek-ai/dsh-feishu', '@deepseek-ai/dsh-wecom', '@larksuite/cli', '@wecom/cli', '@wecom/cli-darwin-arm64']) await put(pkg, 'package.json');
     const lark = await put('@larksuite/cli', 'bin/lark-cli', 0o755);
     const wecom = await put('@wecom/cli-darwin-arm64', 'bin/wecom-cli', 0o755);
-    const clis = new VendorClis({ officialConnectors: () => true, anchor: join(root, 'package.json') }, { platform: 'darwin', arch: 'arm64' });
-    expect(clis.describe('lark')).toEqual({ path: lark, source: 'official', connector: '@deepseek-ai/dsh-feishu' });
-    expect(clis.describe('wecom')).toEqual({ path: wecom, source: 'official', connector: '@deepseek-ai/dsh-wecom' });
+    const clis = new VendorClis({ officialConnectors: true, anchor: join(root, 'package.json') }, { platform: 'darwin', arch: 'arm64' });
+    expect(clis.describe('lark')).toEqual(larkAt(lark, 'official', { connector: '@deepseek-ai/dsh-feishu' }));
+    expect(clis.describe('wecom')).toEqual({ cli: 'wecom', path: wecom, source: 'official', connector: '@deepseek-ai/dsh-wecom' });
   });
 
   it('Windows 取 .exe 文件名', async () => {
     const layout = await installed();
     await fileLike(layout, '@larksuite/cli/bin/lark-cli.exe');
-    const clis = new VendorClis({ officialConnectors: () => true, resolvePackage: layout.resolvePackage }, { platform: 'win32', arch: 'x64', executable: () => true });
+    const clis = new VendorClis({ officialConnectors: true, resolvePackage: layout.resolvePackage }, { platform: 'win32', arch: 'x64', executable: () => true });
     expect(clis.describe('lark').path).toBe(join(layout.root, '@larksuite/cli/bin/lark-cli.exe'));
   });
 
@@ -187,21 +199,35 @@ describe('VendorClis：提供官方连接器的宿主线', () => {
     expect(connectorLine(layout, { lark: '/opt/tools/lark-cli' }).connectors()).toEqual(['@deepseek-ai/dsh-feishu@0.2.3-alpha.2', '@deepseek-ai/dsh-wecom']);
     expect(connectorLine(layout, { resolvePackage: () => null }).connectors()).toEqual([]);
   });
+
+  it('连接器版本只读一次：宿主运行中装上的连接器要重启后才出现，与定位结果一致', async () => {
+    const layout = await installed();
+    let present = false;
+    const clis = connectorLine(layout, { resolvePackage: name => present ? layout.resolvePackage(name) : null });
+    expect(clis.connectors()).toEqual([]);
+    expect(clis.describe('lark')).toBeInstanceOf(CliUnavailableError);
+    present = true;
+    expect(clis.connectors()).toEqual([]);
+    expect(clis.describe('lark')).toBeInstanceOf(CliUnavailableError);
+    // A Host that started with the connectors installed sees them.
+    expect(connectorLine(layout).connectors()).toEqual(['@deepseek-ai/dsh-feishu', '@deepseek-ai/dsh-wecom']);
+  });
 });
 
 describe('VendorClis：没有官方连接器的宿主线', () => {
   it('插件行没设值时如实报未设置，不去 PATH 上找', () => {
-    const clis = new VendorClis({ officialConnectors: () => false });
+    const clis = new VendorClis({ officialConnectors: false });
     const answer = clis.describe('lark');
     expect(answer).toBeInstanceOf(CliUnavailableError);
     expect(answer.message).toBe('未设置 lark-cli：请在24私助插件行设置 larkCliBin。');
     expect(() => clis.get('lark')).toThrow(/未设置 lark-cli/);
   });
 
-  it('插件行给了裸名就原样交给进程启动去解析', () => {
-    const clis = new VendorClis({ officialConnectors: () => false, lark: 'lark-cli', wecom: 'wecom-cli' });
+  it('插件行给了裸名或相对路径就原样交给进程启动去解析', () => {
+    const clis = new VendorClis({ officialConnectors: false, lark: 'lark-cli', wecom: './wecom-cli' });
     expect(clis.get('lark')).toBe('lark-cli');
-    expect(clis.describe('wecom')).toEqual({ path: 'wecom-cli', source: 'path' });
+    expect(clis.describe('lark')).toEqual(larkAt('lark-cli', 'path'));
+    expect(clis.describe('wecom')).toEqual({ cli: 'wecom', path: './wecom-cli', source: 'path' });
   });
 });
 

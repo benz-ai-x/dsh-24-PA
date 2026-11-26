@@ -18,6 +18,20 @@ const makeDeps = (over = {}) => ({
   ...over,
 });
 
+describe('#306：没有 wecom-cli 时的说法', () => {
+  it('有检查在进行、或刚解析失败时，推送目标的解析仍直接说出缺的是哪个插件', async () => {
+    const { CliUnavailableError } = await import('../../lib/cli-source.js');
+    const message = '需要官方企业微信插件提供的 wecom-cli：当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）';
+    const channels = new WecomChannels(makeDeps({ cli: () => { throw new CliUnavailableError(message, 'wecom'); } }));
+    // A check that never settles, then the minute after a failed lookup: neither may replace the cause.
+    channels.checking = new Promise(() => {});
+    await expect(channels.wecomOwnerUserid()).rejects.toThrow(message);
+    channels.checking = null;
+    channels.wecomIdentityFailedAt = Date.now();
+    await expect(channels.wecomOwnerUserid()).rejects.toThrow(message);
+  });
+});
+
 describe('F30：WecomChannels 接口直测', () => {
   it('wecomCheck：CLI 缺失时降级为 error 诊断并给出 nextSteps，不抛错', async () => {
     const channels = new WecomChannels(makeDeps());

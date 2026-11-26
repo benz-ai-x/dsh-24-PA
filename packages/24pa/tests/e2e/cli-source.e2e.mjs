@@ -59,14 +59,17 @@ describe('官方连接器宿主线上不装连接器的实例', () => {
     expect(access.cli.message).toContain(install);
   }, 300000);
 
-  it('夹具的缺省：插件行写的是不存在的文件而不是裸名，机器 PATH 上的 CLI 到不了插件', async () => {
+  it('插件行给出跑不起来的路径：飞书接入同样不启动，原因与 readiness 一致；夹具缺省写的就是这样的路径而不是裸名', async () => {
     const test = await instance();
     const host = await test.boot();
     const snapshot = await test.ready(host, '工作区就绪');
     // The Host's own root, where the fixture puts what does not exist; the workspace's root is another directory.
     const missing = join(host.root, 'no-vendor-cli', 'lark-cli');
+    expect(snapshot.transport.connected).toBe(false);
+    expect(snapshot.transport.message).toBe(`飞书接入未启动：插件行配置的 lark-cli 不可执行（${missing}）；请核对24私助插件行的 larkCliBin；要用官方插件托管的，请删除插件行的这一项`);
     expect(item(snapshot, 'vendor-cli').state).toBe('error');
     expect(item(snapshot, 'vendor-cli').message).toContain(`插件行配置的 lark-cli 不可执行（${missing}）`);
+    // So a vendor CLI installed on this machine is never reached: the row names a file, never a bare name.
     const patch = await readFile(join(host.root, 'home/profiles/pa24-test/cordis.patch.yml'), 'utf8');
     expect(patch).toContain(`larkCliBin: ${JSON.stringify(missing)}`);
     expect(patch).toContain(`wecomCliBin: ${JSON.stringify(join(host.root, 'no-vendor-cli', 'wecom-cli'))}`);
@@ -90,12 +93,13 @@ describe('官方连接器宿主线上不装连接器的实例', () => {
   }, 300000);
 
   it('升级后的 profile 补丁层留着旧值 larkCliBin: lark-cli：被拒绝，不会绕过连接器去 PATH 上找', async () => {
+    // The fixture runs this boot with PATH holding only Node, so the bare name could not reach this machine's CLI even on another host line.
     const test = await instance();
     // Before the connectors existed the preset's patch layer carried that line.
     const host = await test.boot({ vendorClis: { larkCliBin: 'lark-cli' } });
     const snapshot = await test.ready(host, '工作区就绪');
     expect(snapshot.transport.connected).toBe(false);
     expect(item(snapshot, 'vendor-cli').state).toBe('error');
-    for (const anchor of ['插件行配置的 lark-cli 不是路径（lark-cli）', '请删除这一项']) expect(item(snapshot, 'vendor-cli').message).toContain(anchor);
+    for (const anchor of ['插件行配置的 lark-cli 不是绝对路径（lark-cli）', '请删除这一项']) expect(item(snapshot, 'vendor-cli').message).toContain(anchor);
   }, 300000);
 });

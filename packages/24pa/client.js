@@ -1138,7 +1138,10 @@ window.__ModuleLoader__.load({
                 [L('用户令牌', 'User token'), auth ? auth.tokenStatus : L('尚未确认', 'Unconfirmed')],
               ]),
               // #307: linking the app and signing in are the official Feishu plugin's operations, done by the owner on the host's Plugins page.
-              h('p', { className: 'pa24-helper' }, L('lark-cli 由官方飞书插件提供；关联应用与登录由本人在宿主「插件」页的「飞书插件」里完成，这里只显示只读检查的结果。', 'lark-cli comes from the official Feishu plugin; link the app and sign in on that plugin\'s block of the host\'s Plugins page. What shows here is the read-only check.')),
+              h('p', { className: 'pa24-helper' }, (cli && cli.source === 'official'
+                ? L('lark-cli 由官方飞书插件提供；', 'lark-cli comes from the official Feishu plugin; ')
+                : L('lark-cli 由24私助插件行给出；', 'lark-cli is named in the 24PA plugin row; '))
+                + L('关联应用与登录由本人在宿主「插件」页的「飞书插件」里完成，这里只显示只读检查的结果。', 'link the app and sign in on that plugin\'s block of the host\'s Plugins page. What shows here is the read-only check.')),
               h('details', null, h('summary', null, L('路径与身份明细', 'Path & identity details')),
                 fields([
                   [L('CLI 路径', 'CLI path'), cli ? h('span', { className: 'pa24-ellip', title: cli.path }, cli.path) : L('尚未检查', 'Not checked')],
@@ -4024,7 +4027,10 @@ window.__ModuleLoader__.load({
                 [L('推送目标', 'Push target'), wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : L('未解析', 'Unresolved')],
               ]),
               // Connecting WeCom is the official WeCom plugin's operation, done by the owner on the host's Plugins page.
-              h('p', { className: 'pa24-helper' }, L('wecom-cli 由官方企业微信插件提供；连接企业微信由本人在宿主「插件」页的「企业微信插件」里完成。', 'wecom-cli comes from the official WeCom plugin; connect WeCom on that plugin\'s block of the host\'s Plugins page.'))),
+              h('p', { className: 'pa24-helper' }, (wecom.cli.source === 'official'
+                ? L('wecom-cli 由官方企业微信插件提供；', 'wecom-cli comes from the official WeCom plugin; ')
+                : L('wecom-cli 由24私助插件行给出；', 'wecom-cli is named in the 24PA plugin row; '))
+                + L('连接企业微信由本人在宿主「插件」页的「企业微信插件」里完成。', 'connect WeCom on that plugin\'s block of the host\'s Plugins page.'))),
             wecom && h('section', { className: 'pa24-card' },
               sectionHead('shield', L('服务级授权', 'Service-level authorization'), L('按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。', 'Read-only probes per enabled channel; service-level grants expire (follow the renewal guide on 850003), and links must open inside the WeCom app.')),
               (wecom.services ?? []).length === 0

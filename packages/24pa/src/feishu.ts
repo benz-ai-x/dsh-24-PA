@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { PaConfig } from './config.js';
 import { runLarkCli, type LarkCliOptions } from './lark.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
-import { CliUnavailableError, type CliLocation } from './cli-source.js';
+import { CliUnavailableError, unusableCli, type CliLocation } from './cli-source.js';
 
 // Feishu transport seam: production uses the official SDK long connection;
 // tests inject events through the same inbound path without a network. The
@@ -356,12 +356,13 @@ async function collectAccess(
 
 /** Whether the lark-cli runs, and where it came from; the message of a failure is the next step. */
 async function probeCli(cli: CliLocation, config: PaConfig, extraSecrets: string[]): Promise<Record<string, unknown>> {
+  // Said as readiness says it when the executable cannot run as given.
+  const unusable = unusableCli(cli);
+  if (unusable) return status('error', unusable);
   try {
     const { stdout, exitCode } = await runCliProcess({ bin: cli.path, argv: ['--version'],
       timeoutMs: 5000, stdoutLimitBytes: 16384,
-      fail: (kind, cause) => new Error(kind === 'spawn'
-        ? `找不到可执行的 ${cli.path}（${cause?.message ?? '无法启动'}）${cli.source === 'config' ? '；请核对24私助插件行的 larkCliBin' : cli.source === 'path' ? '；请安装 lark-cli 并加入启动进程的 PATH' : ''}`
-        : `版本检查未完成（${kind}）`),
+      fail: (kind, cause) => new Error(kind === 'spawn' ? `无法启动 ${cli.path}（${cause?.message ?? '未知原因'}）` : `版本检查未完成（${kind}）`),
       env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
     });
     if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);

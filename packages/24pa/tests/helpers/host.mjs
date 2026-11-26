@@ -23,7 +23,7 @@ const runSync = (bin, args, env, label) => {
   return result;
 };
 
-export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: requestedBin, packageSpec: requestedPackage, extraPlugins, patch, vendorClis = {}, beforeBoot } = {}) {
+export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: requestedBin, packageSpec: requestedPackage, extraPlugins, vendorClis = {}, beforeBoot } = {}) {
   const root = reuseRoot ?? (await mkdtemp(join(tmpdir(), 'pa24-host-')));
   // F25 backend matrix: PA24_E2E_STORAGE=sqlite flips the workspace AGENTS.md
   // to the SQLite ledger before the host boots, so the same suite runs
@@ -64,7 +64,7 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: reque
   }
   // Entries of the profile's own patch layer, written once below so that no
   // entry overwrites another.
-  const layers = [];
+  const layers = [], cli = {};
   // The plugin never looks a vendor CLI up on PATH by itself (#306), but on a
   // host line without the official connectors its row names the bare
   // executables, which a child process would resolve on PATH. So the row
@@ -89,15 +89,17 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: reque
       if (index > start && line.trim() && !line.startsWith(' '.repeat(pad + 2))) break;
       row.push(line.slice(pad));
     }
-    const cli = {};
     for (const [key, name] of [['larkCliBin', 'lark-cli'], ['wecomCliBin', 'wecom-cli']]) {
       const dir = standIns.find(entry => existsSync(join(entry, name)));
       cli[key] = vendorClis[key] ?? (dir === undefined ? join(missing, name) : join(dir, name));
     }
     layers.push(`${row.join('\n').trimEnd()}\n${Object.entries(cli).map(([key, path]) => `    ${key}: ${JSON.stringify(path)}`).join('\n')}\n`);
   }
-  // Further entries of the profile's patch layer, such as a row a test adds.
-  if (patch) layers.push(`${patch.trimEnd()}\n`);
+  // A boot that leaves the row without a file path — `vendorClis: false`, or a
+  // bare name a test gives — must not let a child process resolve that name on
+  // this machine's PATH, whatever the host line does with it. Those boots run
+  // with PATH holding only Node's own directory, which the stand-ins need.
+  if (vendorClis === false || Object.values(cli).some(path => !path.includes(sep))) env.PATH = dirname(process.execPath);
   // Runs once the profile's packages are in place and before the Host reads
   // them: a test stands in for what an ignored install script would have
   // downloaded, or adds an entry to the patch layer through `addPatch`.

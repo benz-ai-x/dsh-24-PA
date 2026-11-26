@@ -2,11 +2,12 @@
 // the official @deepseek-ai/dsh-feishu and @deepseek-ai/dsh-wecom plugins
 // beside 24私助. Real Loader and Host on the 0.2.3-alpha.2 line, SQLite; the
 // vendor CLIs are stubs written where the connectors' install scripts put the
-// real executables, and the model is scripted. The plugin row names no CLI and
-// PATH carries none, so the connectors' executables are the only ones it can
-// run. The connector packages come from the registry, so the suite runs this
-// file only when PA24_E2E_OFFICIAL_CONNECTORS names their version; what needs
-// no connector package is in cli-source.e2e.mjs.
+// real executables, and the model is scripted. The plugin row names no CLI, and
+// the plugin never looks a CLI up on PATH by itself, so the connectors'
+// executables are the only ones it can run. The connector packages come from
+// the registry, so the suite runs this
+// file only when PA24_E2E_OFFICIAL_CONNECTORS names their version; what
+// needs no connector package is in cli-source.e2e.mjs.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';

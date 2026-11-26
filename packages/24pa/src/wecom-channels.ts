@@ -86,6 +86,8 @@ export class WecomChannels {
   private identityChecking: Promise<{ userid: string; name: string }> | null = null;
   private identityEpoch = 0;
   async wecomOwnerUserid(refresh = false): Promise<{ userid: string; name: string }> {
+    // Said on every call, ahead of any check in progress or backoff: when nothing supplies wecom-cli (#306), its message is the answer.
+    this.deps.cli();
     if (!refresh && this.checking) {
       await this.checking;
       if (!this.wecomIdentityCache) throw new Error('本次企微身份检查未通过，未解析通知目标。');
@@ -102,8 +104,6 @@ export class WecomChannels {
 
   private async readOwnerIdentity(epoch: number): Promise<{ userid: string; name: string }> {
     if (this.wecomIdentityCache) return this.wecomIdentityCache;
-    // Asked on every call, ahead of the backoff below: when nothing supplies wecom-cli (#306), its message is the answer.
-    this.deps.cli();
     if (Date.now() - this.wecomIdentityFailedAt < 60_000) {
       throw new Error('企微推送目标最近解析失败（60 秒内不重复解析）；用 pa24_connection action=wecom_check 诊断。');
     }

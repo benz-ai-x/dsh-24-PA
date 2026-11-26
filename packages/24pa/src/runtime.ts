@@ -31,7 +31,7 @@ import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry, ProfileContextService } from './host.js';
-import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, runnableAsGiven, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
+import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -174,6 +174,8 @@ export class PaRuntime {
   readonly options: RuntimeOptions;
   private readonly env: Record<string, string | undefined>;
   private readonly vendorClis: VendorClis;
+  /** Whether the host line ships the official connectors (#306); read once when the runtime is built. */
+  private readonly officialConnectors: boolean;
   private serial: Promise<unknown> = Promise.resolve();
   private readonly executions = new WorkspaceExecution();
   private builtInRoles: WorkerRoleDefinition[] = [];
@@ -295,7 +297,7 @@ export class PaRuntime {
             const synth = resolveTtsEngine(this.config!.tts, this.secretEnv());
             if (!synth) throw Object.assign(new Error('TTS 引擎未配置（tts.engine=none），语音行无法投递。'), { outcome: 'failed' });
             const ogg = await synth(String(row.content?.text ?? '')).catch(error => { throw Object.assign(new Error(`语音合成失败：${(error as Error).message}`), { outcome: 'failed' }); });
-            return sendLarkAudioMessage(cliOptions(this.config!, this.larkCliBin, 120_000), row.target, ogg, row.dedup_key, async () => {
+            return sendLarkAudioMessage(cliOptions(this.config!, this.vendorClis.get('lark'), 120_000), row.target, ogg, row.dedup_key, async () => {
               const hold = await checkDeliveryHold(() => this.planResults.beforeSend(row));
               if (hold) throw new DeliveryHeld(hold);
             });
@@ -347,7 +349,7 @@ export class PaRuntime {
   private readonly handwriting: HandwritingPipeline = new HandwritingPipeline({
     skillParams: name => this.skillCatalog.params(name),
     ...this.baseChannelDeps(),
-    cli: () => ({ bin: this.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
+    cli: () => ({ bin: this.vendorClis.get('lark'), timeoutMs: this.options.cliTimeoutMs }),
     workspace: () => this.workspace,
     transport: () => this.transport,
     accessSessionId: () => this.accessSessionId,
@@ -365,7 +367,7 @@ export class PaRuntime {
     ...this.baseChannelDeps(),
     cli: () => {
       const wecom = this.vendorClis.describe('wecom');
-      return { bin: this.wecomCliBin, timeoutMs: this.options.cliTimeoutMs, ...(wecom instanceof CliUnavailableError ? {} : { source: wecom.source }) };
+      return { bin: this.vendorClis.get('wecom'), timeoutMs: this.options.cliTimeoutMs, ...(wecom instanceof CliUnavailableError ? {} : { source: wecom.source }) };
     },
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
     gate: (key, work) => this.gate(key, work),
@@ -378,7 +380,7 @@ export class PaRuntime {
    *  and receipts behind one deep module; channel selection stays here. */
   private readonly feishu = new FeishuChannels({
     ...this.baseChannelDeps(),
-    cli: () => ({ bin: this.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
+    cli: () => ({ bin: this.vendorClis.get('lark'), timeoutMs: this.options.cliTimeoutMs }),
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
@@ -625,7 +627,7 @@ export class PaRuntime {
   };
   private readonly digest: DigestService = new DigestService({
     ...this.baseChannelDeps(),
-    cli: () => ({ bin: this.larkCliBin, timeoutMs: this.options.cliTimeoutMs }),
+    cli: () => ({ bin: this.vendorClis.get('lark'), timeoutMs: this.options.cliTimeoutMs }),
     accessSessionId: () => this.accessSessionId,
     workspace: () => this.workspace,
     startedAt: () => this.startedAt,
@@ -697,11 +699,13 @@ export class PaRuntime {
     // come from them; the row's explicit paths stay an override.
     // The row's values are read on each lookup: they may be edited after the runtime was built.
     const profile = ctx.get('profileContext') as ProfileContextService | null;
+    // Read once, here: the CLI account service is a row of the host's base bundle, there before any plugin row applies.
+    this.officialConnectors = hasOfficialConnectors(ctx);
     this.vendorClis = new VendorClis({
       get lark() { return options.larkCliBin; },
       get wecom() { return options.wecomCliBin; },
       get resolvePackage() { return options.cliResolver; },
-      officialConnectors: () => hasOfficialConnectors(ctx),
+      officialConnectors: this.officialConnectors,
       profile: profile?.name,
       // Packages installed into the profile resolve from the profile, wherever this plugin's own files live.
       anchor: profile?.dir ? join(profile.dir, 'package.json') : undefined,
@@ -1620,11 +1624,8 @@ export class PaRuntime {
     return secretRefs(this.config);
   }
 
-  /** The vendor CLIs to run (see cli-source.ts); throws when nothing supplies the CLI. */
-  get larkCliBin(): string { return this.vendorClis.get('lark'); }
-  get wecomCliBin(): string { return this.vendorClis.get('wecom'); }
-  /** The lark-cli options every business call shares. */
-  private get larkOptions() { return cliOptions(this.config!, this.larkCliBin, this.options.cliTimeoutMs); }
+  /** The lark-cli options every business call shares; throws when nothing supplies the CLI. */
+  private get larkOptions() { return cliOptions(this.config!, this.vendorClis.get('lark'), this.options.cliTimeoutMs); }
   /** A CLI's path for identity comparisons; an unsupplied CLI reads as one fixed word instead of throwing. */
   private cliPath(cli: VendorCli): string {
     const answer = this.vendorClis.describe(cli);
@@ -1635,6 +1636,15 @@ export class PaRuntime {
     const answer = this.vendorClis.describe(platform === 'feishu' ? 'lark' : 'wecom');
     if (answer instanceof CliUnavailableError) throw answer;
     return answer;
+  }
+  /**
+   * Why a located CLI cannot run as given, or null when it can; said the same way wherever the plugin reports it, and the
+   * Feishu channel is not switched on while its lark-cli cannot.
+   */
+  private cliProblem(location: CliLocation): string | null {
+    const why = unusableCli(location);
+    // Beside the official connectors the row's entry is an override: dropping it falls back to the connector's CLI.
+    return why && location.source === 'config' && this.officialConnectors ? `${why}；要用官方插件托管的，请删除插件行的这一项` : why;
   }
 
   /** env 副本＋密钥库兜底值按引用名回填——消费点统一用它，解析顺序单点成立。 */
@@ -1738,8 +1748,9 @@ export class PaRuntime {
     const inactive = (error: string) => ({ transport: null, error, activate() { }, cancel() { } });
     if (config.mode !== 'feishu') return inactive('demo：未连接飞书；业务账本按工作区配置运行。');
     const lark = this.vendorClis.describe('lark');
-    // Every Feishu business action runs lark-cli, so a channel without it is not switched on.
-    if (lark instanceof CliUnavailableError) return inactive(`飞书接入未启动：${lark.message}`);
+    // Every Feishu business action runs lark-cli, so a channel whose lark-cli is missing or cannot run is not switched on.
+    const problem = lark instanceof CliUnavailableError ? lark.message : this.cliProblem(lark);
+    if (problem) return inactive(`飞书接入未启动：${problem}`);
     const env = secretEnvironment(config, this.env, store);
     const appId = env[config.appIdEnv];
     const appSecret = env[config.appSecretEnv];
@@ -4675,7 +4686,7 @@ export class PaRuntime {
     const config = this.config;
     const versions = resolveVersions();
     // On the official-connector line the readiness says which connector versions are installed (#306).
-    const connectors = this.vendorClis.officialConnectors() ? this.vendorClis.connectors() : null;
+    const connectors = this.officialConnectors ? this.vendorClis.connectors() : null;
     items.push({
       id: 'host',
       state: this.startupError ? 'error' : this.closed ? 'error' : 'ok',
@@ -4738,7 +4749,8 @@ export class PaRuntime {
     const called: Record<VendorCli, boolean> = {
       // Demo mode reaches no platform through lark-cli; sources are verified and used in Feishu mode only.
       lark: config.mode === 'feishu',
-      wecom: sources.some(row => row.platform === 'wecom') || config.notifyChannel === 'wecom',
+      // Beside registered sources, the legacy channel selectors still route reminders without a bound target and projections.
+      wecom: sources.some(row => row.platform === 'wecom') || [config.calendarChannel, config.todoChannel, config.notifyChannel].includes('wecom'),
     };
     const lines: string[] = [];
     let state: ReadinessItem['state'] = 'ok';
@@ -4753,16 +4765,19 @@ export class PaRuntime {
         else if (cli === 'lark') {
           if (state === 'ok') state = 'info';
           // What supplies lark-cli before Feishu is switched on depends on the host line.
-          const supply = this.vendorClis.officialConnectors() ? '安装官方飞书插件' : '在24私助插件行设置 larkCliBin';
+          const supply = this.officialConnectors ? '安装官方飞书插件' : '在24私助插件行设置 larkCliBin';
           lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需${supply}`);
         } else uncalled('');
-      } else if (answer.source !== 'official' && !runnableAsGiven(answer.path)) {
-        // The official connector's CLI was checked where it was found; the row's or PATH's is checked here.
-        const why = answer.source === 'config'
-          ? `插件行配置的 ${name} 不可执行（${answer.path}）${this.vendorClis.officialConnectors() ? '；要用官方插件托管的，请删除插件行的这一项' : ''}`
-          : `PATH 上找不到 ${name}`;
-        if (called[cli]) refuse(why); else uncalled(why);
-      } else lines.push(`${name}：${CLI_SOURCE_LABELS[answer.source]}（${answer.connector ? `${answer.connector}，` : ''}${answer.path}）`);
+        continue;
+      }
+      const problem = this.cliProblem(answer);
+      if (problem === null) lines.push(`${name}：${CLI_SOURCE_LABELS[answer.source]}（${answer.connector ? `${answer.connector}，` : ''}${answer.path}）`);
+      else if (called[cli]) refuse(problem);
+      else if (cli === 'lark') {
+        // Demo mode reaches no platform through lark-cli; what keeps it from running is then information, not a fault.
+        if (state === 'ok') state = 'info';
+        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${problem}`);
+      } else uncalled(problem);
     }
     return { id: 'vendor-cli', state, message: lines.join('；') };
   }

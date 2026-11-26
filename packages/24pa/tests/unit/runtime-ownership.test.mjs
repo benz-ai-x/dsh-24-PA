@@ -1,13 +1,13 @@
 import { rename, stat } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fixture, deferred, join, readFile, writeFile, mkdir } from '../helpers/runtime.mjs';
+import { fixture, deferred, join, readFile, writeFile, mkdir, unstartableCli } from '../helpers/runtime.mjs';
 import { FakeFeishuTransport } from '../../lib/feishu.js';
 import { SqliteDb } from '../../lib/sqlite.js';
 import { createRepos } from '../../lib/repo.js';
 
 const cleanups = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const cleanup of cleanups.splice(0)) await cleanup(); });
-async function setup(patch = {}, options = {}) { const f = await fixture(options); cleanups.push(f.cleanup); const a = await f.workspace('a', patch); await f.rt.bind(a); return { ...f, a }; }
+async function setup(patch = {}, options = {}) { const f = await fixture(options); cleanups.push(f.cleanup); f.options.larkCliBin = await unstartableCli(f); const a = await f.workspace('a', patch); await f.rt.bind(a); return { ...f, a }; }
 const row = (id, status = 'running') => ({ id, title: id, role: 'memo', instruction: '保存', origin: 'local', parent_session_id: 'parent', child_session_id: id, delivery: 'local:parent', status });
 const end = (turn, messageId, requestId, output = '结果', reason = { kind: 'completed' }, message) => [
   { type: 'turn/start', data: { turn } }, { type: 'user/message', data: message ?? { id: messageId, source: requestId ? { rpcId: requestId } : {} } },

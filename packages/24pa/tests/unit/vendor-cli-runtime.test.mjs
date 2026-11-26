@@ -19,7 +19,7 @@ const stubs = [
   { name: 'wecom', connector: '@deepseek-ai/dsh-wecom', dependencies: ['@wecom/cli', `@wecom/cli-${process.platform}-${process.arch}`], cliPackage: `@wecom/cli-${process.platform}-${process.arch}`, stub: 'tests/helpers/stub-wecom-cli.mjs', variable: 'PA24_WECOM_STUB_STATE' },
 ];
 const source = (id, domain, platform) => ({ id, domain, platform, name: `${platform} ${domain}`, purpose: 'personal', ownerId: platform === 'feishu' ? 'owner' : '',
-  resourceKind: platform === 'feishu' ? 'calendar' : 'authorized_scope', resourceId: platform === 'feishu' ? 'personal-cal' : 'authorized', filter: 'all', access: 'readwrite', enabled: true });
+  resourceKind: platform === 'feishu' ? (domain === 'calendar' ? 'calendar' : 'tasklist') : 'authorized_scope', resourceId: platform === 'feishu' ? (domain === 'calendar' ? 'personal-cal' : 'personal-list') : 'authorized', filter: 'all', access: 'readwrite', enabled: true });
 const readinessItem = (rt, id) => rt.readiness().items.find(row => row.id === id);
 
 /** A host line that ships the official connectors; `connect` says whether their packages are installed, `config` the workspace. */
@@ -56,8 +56,8 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     const { make, path, executables } = await connectorLine();
     const rt = make(); await rt.bind(path);
     expect(rt.transport?.name).toBe('fake');
-    expect(rt.larkCliBin).toBe(executables.lark);
-    expect(rt.wecomCliBin).toBe(executables.wecom);
+    expect(rt.vendorClis.get('lark')).toBe(executables.lark);
+    expect(rt.vendorClis.get('wecom')).toBe(executables.wecom);
     const item = readinessItem(rt, 'vendor-cli');
     expect(item.state).toBe('ok');
     expect(item.message).toContain(`lark-cli：官方连接器提供（@deepseek-ai/dsh-feishu@0.2.3-alpha.2，${executables.lark}）`);
@@ -92,8 +92,8 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     const wecom = await rt.wecomCheck();
     expect(wecom.cli.state).toBe('error');
     expect(wecom.nextSteps[0]).toContain('dsh plugin --profile pa24-test add @deepseek-ai/dsh-wecom');
-    expect(() => rt.larkCliBin).toThrow(CliUnavailableError);
-    expect(() => rt.wecomCliBin).toThrow(/未安装官方企业微信插件/);
+    expect(() => rt.vendorClis.get('lark')).toThrow(CliUnavailableError);
+    expect(() => rt.vendorClis.get('wecom')).toThrow(/未安装官方企业微信插件/);
   });
 
   it('插件行显式给出的路径优先于连接器，运行时建立后再设也生效', async () => {
@@ -103,7 +103,7 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     await writeFile(standalone, '#!/usr/bin/env node\n', { mode: 0o755 }); await chmod(standalone, 0o755);
     options.larkCliBin = standalone;
     await rt.bind(path);
-    expect(rt.larkCliBin).toBe(standalone);
+    expect(rt.vendorClis.get('lark')).toBe(standalone);
     expect(rt.transport?.name).toBe('fake');
     const item = readinessItem(rt, 'vendor-cli');
     expect(item.message).toContain(`lark-cli：插件行显式配置（${standalone}）`);
@@ -112,24 +112,45 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     expect(item.state).toBe('ok');
   });
 
-  it('插件行留着的裸名在连接器宿主上被拒绝，不会绕过连接器去 PATH 上找', async () => {
+  it('插件行留着的裸名或相对路径在连接器宿主上被拒绝，不会绕过连接器去 PATH 或当前目录找', async () => {
     // A profile that keeps `larkCliBin: lark-cli` from before the connectors existed.
-    const { make, path, options } = await connectorLine();
-    options.larkCliBin = 'lark-cli';
+    for (const left of ['lark-cli', './lark-cli']) {
+      const { make, path, options } = await connectorLine();
+      options.larkCliBin = left;
+      const rt = make(); await rt.bind(path);
+      expect(rt.transport).toBeNull();
+      const item = readinessItem(rt, 'vendor-cli');
+      expect(item.state).toBe('error');
+      for (const anchor of [`插件行配置的 lark-cli 不是绝对路径（${left}）`, '请删除这一项']) expect(item.message).toContain(anchor);
+    }
+  });
+
+  it('插件行指向跑不起来的路径时飞书接入不启动，readiness 与接入检查说出同一句原因', async () => {
+    const { make, path, options, root, executables } = await connectorLine();
+    options.larkCliBin = join(root, 'no-such-lark-cli');
+    const rt = make(); await rt.bind(path);
+    // As when the connector's CLI is missing: every Feishu business action runs lark-cli.
+    expect(rt.transport).toBeNull();
+    const why = `插件行配置的 lark-cli 不可执行（${join(root, 'no-such-lark-cli')}）`;
+    const said = `${why}；请核对24私助插件行的 larkCliBin；要用官方插件托管的，请删除插件行的这一项`;
+    const item = readinessItem(rt, 'vendor-cli');
+    expect(item.state).toBe('error');
+    expect(item.message).toBe(`${said}；wecom-cli：官方连接器提供（@deepseek-ai/dsh-wecom@0.2.3-alpha.2，${executables.wecom}）`);
+    expect(rt.snapshot().transport.message).toBe(`飞书接入未启动：${said}`);
+    // The access check says the same, minus the way back to the connector, which only the host line knows.
+    const access = await rt.checkAccess();
+    expect(access.cli).toMatchObject({ state: 'error', message: `${why}；请核对24私助插件行的 larkCliBin` });
+  });
+
+  it('体验模式下插件行路径跑不起来不启动任何接入，也只是说明', async () => {
+    const { make, path, options, root, executables } = await connectorLine({ config: { mode: 'demo' } });
+    options.larkCliBin = join(root, 'no-such-lark-cli');
     const rt = make(); await rt.bind(path);
     expect(rt.transport).toBeNull();
     const item = readinessItem(rt, 'vendor-cli');
-    expect(item.state).toBe('error');
-    for (const anchor of ['插件行配置的 lark-cli 不是路径（lark-cli）', '请删除这一项']) expect(item.message).toContain(anchor);
-  });
-
-  it('插件行指向跑不起来的路径时 readiness 报错，并说回到连接器的办法', async () => {
-    const { make, path, options, root } = await connectorLine();
-    options.larkCliBin = join(root, 'no-such-lark-cli');
-    const rt = make(); await rt.bind(path);
-    const item = readinessItem(rt, 'vendor-cli');
-    expect(item.state).toBe('error');
-    expect(item.message).toContain(`插件行配置的 lark-cli 不可执行（${join(root, 'no-such-lark-cli')}）；要用官方插件托管的，请删除插件行的这一项`);
+    expect(item.state).toBe('info');
+    expect(item.message).toContain(`lark-cli：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：插件行配置的 lark-cli 不可执行（${join(root, 'no-such-lark-cli')}）`);
+    expect(item.message).toContain(`wecom-cli：官方连接器提供（@deepseek-ai/dsh-wecom@0.2.3-alpha.2，${executables.wecom}）`);
   });
 
   it('登记了飞书来源或企微来源：没有对应 CLI 时来源检查不通过，证据里带着安装命令', async () => {
@@ -147,6 +168,17 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
       expect(entry.evidence.state).toBe('failed');
       expect(entry.evidence.message).toContain(`dsh plugin --profile pa24-test add @deepseek-ai/${connector}`);
     }
+  });
+
+  it('显式登记了来源、旧式渠道又选了企微：没有 wecom-cli 时 readiness 仍报错', async () => {
+    // Reminders without a bound target and the projections still follow the legacy selectors.
+    const sources = { version: 1, entries: [source('personal-calendar', 'calendar', 'feishu'), source('personal-todo', 'todo', 'feishu')],
+      defaults: { calendar: 'personal-calendar', todo: 'personal-todo' }, mappings: [], meetingDurationMinutes: 30 };
+    const { make, path } = await connectorLine({ connect: false, config: { sources, todoChannel: 'wecom' } });
+    const rt = make(); await rt.bind(path);
+    const item = readinessItem(rt, 'vendor-cli');
+    expect(item.state).toBe('error');
+    expect(item.message).toContain('dsh plugin --profile pa24-test add @deepseek-ai/dsh-wecom');
   });
 
   it('企微推送：没有 wecom-cli 时每次都报安装命令，不被解析失败的退避盖住', async () => {
@@ -176,11 +208,11 @@ describe('没有官方连接器的宿主线', () => {
   it('插件行没给值就没有 CLI，运行时不会自己去 PATH 上找', async () => {
     const f = await fixture(); cleanup.push(() => f.cleanup());
     delete f.options.larkCliBin; delete f.options.wecomCliBin;
-    expect(() => f.rt.larkCliBin).toThrow(/未设置 lark-cli/);
-    expect(() => f.rt.wecomCliBin).toThrow(/未设置 wecom-cli/);
+    expect(() => f.rt.vendorClis.get('lark')).toThrow(/未设置 lark-cli/);
+    expect(() => f.rt.vendorClis.get('wecom')).toThrow(/未设置 wecom-cli/);
     f.options.larkCliBin = 'lark-cli'; f.options.wecomCliBin = 'wecom-cli';
-    expect(f.rt.larkCliBin).toBe('lark-cli');
-    expect(f.rt.wecomCliBin).toBe('wecom-cli');
+    expect(f.rt.vendorClis.get('lark')).toBe('lark-cli');
+    expect(f.rt.vendorClis.get('wecom')).toBe('wecom-cli');
     // That line has no connectors to report.
     expect(readinessItem(f.rt, 'host').message).not.toContain('官方连接器');
   });
@@ -200,7 +232,7 @@ describe('没有官方连接器的宿主线', () => {
       Object.assign(f.options, { larkCliBin: 'lark-cli', wecomCliBin: 'wecom-cli' });
       const path = await f.workspace('a', { mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' });
       const rt = f.make(); await rt.bind(path);
-      expect(rt.larkCliBin).toBe('lark-cli');
+      expect(rt.vendorClis.get('lark')).toBe('lark-cli');
       const item = readinessItem(rt, 'vendor-cli');
       expect(item.state).toBe('ok');
       expect(item.message).toContain('lark-cli：PATH 上的可执行文件（lark-cli）');

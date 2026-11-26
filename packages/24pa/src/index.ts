@@ -27,10 +27,11 @@ export const Config = z.object({
 export function apply(ctx: DshContext, config: any) {
   // A host line without the official connectors (the rc line) has none to
   // supply the CLIs: there the row names the bare executables, which PATH resolves.
-  // Asked once, here: the CLI account service is a row of the host's base
-  // bundle. The official-connector e2e boots that host with no CLI in the
-  // plugin row and sees the connectors' CLI; a service that arrived late would
-  // read as a bare name, which the connector line refuses.
+  // Read once, here: the CLI account service is a row of the host's base
+  // bundle, there before any plugin row applies. The official-connector e2e
+  // boots that host with no CLI in the plugin row and sees the connectors'
+  // CLI; were the service late, the entry would name bare executables, which
+  // the connector line refuses.
   const noConnectors = !hasOfficialConnectors(ctx);
   const runtime = new PaRuntime(ctx, {
     stateDirectory: config.stateDirectory,
