@@ -33,6 +33,7 @@ import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry, ProfileContextService } from './host.js';
 import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
 import type { ChannelCli } from './channel-deps.js';
+import { feishuAccessReport, wecomAccessReport, type AccessAccount } from './connector-account.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -1445,6 +1446,7 @@ export class PaRuntime {
     connection.activate();
     this.memory = new MemoryStore(real, this.ctx);
     this.diagnostics = null;
+    this.accessAccountChanged();
     this.extraToolResolution = next.extraToolResolution ?? null;
     this.roles.replace(candidateRoles);
     this.workLifecycle.reset();
@@ -2107,12 +2109,49 @@ export class PaRuntime {
     return this.executions.run(async () => {
       const result = await this.wecomChannels.wecomCheck();
       await this.connectionHealth.check(['wecom'], { wecom: result });
+      this.accessAccountChanged();
       return result;
     });
   }
 
   wecomDiagnosticsSnapshot(): WecomDiagnostics | null {
     return this.wecomChannels.wecomDiagnosticsSnapshot();
+  }
+
+  /** Whether the configuration switches the WeCom channel on: a WeCom source, WeCom push, or a legacy selector set to WeCom. */
+  private wecomInUse(): boolean {
+    return !!this.config && this.vendorCliCalled(this.config).wecom;
+  }
+
+  /** The read-only check the Plugins page starts: the switched-on channels, and nothing else. */
+  async accessCheck(): Promise<void> {
+    if (this.config?.mode === 'feishu') await this.checkAccess();
+    if (this.wecomInUse()) await this.wecomCheck();
+  }
+
+  // ---- access account on the host's Plugins page (#309) ---------------------
+
+  private readonly accessAccountListeners = new Set<() => void>();
+
+  /** Call `listener` after each change the plugin makes to the stored access results; returns a disposer. */
+  onAccessAccount(listener: () => void): () => void {
+    this.accessAccountListeners.add(listener);
+    return () => { this.accessAccountListeners.delete(listener); };
+  }
+
+  /** What the Plugins page shows of this workspace's access: the stored results of the switched-on channels, and no probe. */
+  accessAccountState(): AccessAccount {
+    const config = this.config;
+    if (!this.workspace || !config) return { state: 'unbound' };
+    return {
+      state: 'reported', mode: config.mode, timeZone: config.timeZone,
+      feishu: config.mode === 'feishu' ? feishuAccessReport(this.diagnostics) : null,
+      wecom: this.wecomInUse() ? wecomAccessReport(this.wecomChannels.wecomDiagnosticsSnapshot()) : null,
+    };
+  }
+
+  private accessAccountChanged(): void {
+    for (const listener of this.accessAccountListeners) listener();
   }
 
   // ---- inbound: durable inbox before ACK -----------------------------------
@@ -4674,6 +4713,7 @@ export class PaRuntime {
         .then(async result => {
           if (this.workspace === workspace) {
             this.diagnostics = result;
+            this.accessAccountChanged();
             if (typeof result.auth.openId === 'string' && typeof result.auth.appId === 'string') {
               const identity = { ownerId: result.auth.openId, authority: `app:${result.auth.appId}:tenant:${result.auth.tenantKey ?? 'unverified'}` };
               const observed = await this.repos!.health.observeIdentity('feishu', identity);
@@ -4750,19 +4790,24 @@ export class PaRuntime {
     return { startedAt: this.startedAt, items };
   }
 
+  /** Which vendor CLIs the configuration can call: lark-cli in Feishu mode; wecom-cli for a WeCom source, WeCom push, or a legacy selector set to WeCom. */
+  private vendorCliCalled(config: PaConfig): Record<VendorCli, boolean> {
+    const sources = effectiveSources(config).entries.filter(row => row.enabled);
+    return {
+      // Demo mode reaches no platform through lark-cli; sources are verified and used in Feishu mode only.
+      lark: config.mode === 'feishu',
+      // Beside registered sources, the legacy channel selectors still route reminders without a bound target and projections.
+      wecom: sources.some(row => row.platform === 'wecom') || [config.calendarChannel, config.todoChannel, config.notifyChannel].includes('wecom'),
+    };
+  }
+
   /**
    * How each CLI is supplied (#306). A CLI the configuration calls for is an error when nothing supplies it or it
    * cannot run as given. Demo mode calls for no lark-cli: a missing one is then information, not a fault.
    */
   private cliReadiness(config: PaConfig | null): ReadinessItem | null {
     if (!config) return null;
-    const sources = effectiveSources(config).entries.filter(row => row.enabled);
-    const called: Record<VendorCli, boolean> = {
-      // Demo mode reaches no platform through lark-cli; sources are verified and used in Feishu mode only.
-      lark: config.mode === 'feishu',
-      // Beside registered sources, the legacy channel selectors still route reminders without a bound target and projections.
-      wecom: sources.some(row => row.platform === 'wecom') || [config.calendarChannel, config.todoChannel, config.notifyChannel].includes('wecom'),
-    };
+    const called = this.vendorCliCalled(config);
     const lines: string[] = [];
     let state: ReadinessItem['state'] = 'ok';
     for (const cli of ['lark', 'wecom'] as const) {

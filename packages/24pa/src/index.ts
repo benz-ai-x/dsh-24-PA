@@ -1,6 +1,7 @@
 import z from '@deepseek-ai/schemastery';
 import type { DshContext } from './host.js';
 import { PaRuntime, HostStartupError } from './runtime.js';
+import { registerAccessAccount } from './connector-account.js';
 import { registerPanel } from './panel.js';
 import { hasOfficialConnectors } from './cli-source.js';
 
@@ -50,6 +51,11 @@ export function apply(ctx: DshContext, config: any) {
     reviewReminderTickMs: config.reviewReminderTickMs,
   });
   ctx.reflect.provide('pa24', runtime);
+  // #309: where the host loads the Plugins page's account registry (the web application does), 24私助's own access
+  // state gets a block there. The block shows stored results; only the owner's check reads the platforms.
+  ctx.inject(['connectorAccounts'], scope => {
+    scope.effect(() => registerAccessAccount(scope.connectorAccounts!, runtime));
+  });
   ctx.effect(() => runtime.skillPackages.register());
   ctx.on('agent/created', async ({ agent }) => { await runtime.skillRuns.attach(agent); await runtime.workerRuns.attach(agent); });
   ctx.on('agent/pre-step', ({ agent, messages }, next) => runtime.planStep(agent, messages, next));
