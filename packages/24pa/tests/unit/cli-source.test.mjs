@@ -117,7 +117,7 @@ describe('VendorClis：插件行的显式配置优先', () => {
       const answer = clis.describe(cli);
       expect(answer).toBeInstanceOf(CliUnavailableError);
       for (const anchor of [`插件行配置的 ${cli}-cli 不是绝对路径（${value}）`, `${option} 只接受可执行文件的绝对路径`, '请删除这一项']) expect(answer.message).toContain(anchor);
-      expect(() => clis.get(cli)).toThrow(CliUnavailableError);
+      expect(answer.headline).toBe(`插件行配置的 ${cli}-cli 不是绝对路径（${value}）`);
     }
   });
 });
@@ -134,7 +134,7 @@ describe('VendorClis：提供官方连接器的宿主线', () => {
     expect(connectorLine(layout).describe('wecom')).toEqual({ cli: 'wecom', path: layout.wecom, source: 'official', connector: '@deepseek-ai/dsh-wecom' });
   });
 
-  it('未安装连接器时报出缺的是哪个插件、怎么装；取可执行文件时抛出', async () => {
+  it('未安装连接器时报出缺的是哪个插件、怎么装；坏在哪一句说的是实际原因', async () => {
     const layout = await installed();
     const clis = connectorLine(layout, { resolvePackage: name => name.startsWith('@deepseek-ai/dsh-wecom') ? null : layout.resolvePackage(name) });
     const answer = clis.describe('wecom');
@@ -142,8 +142,7 @@ describe('VendorClis：提供官方连接器的宿主线', () => {
     for (const anchor of ['需要官方企业微信插件提供的 wecom-cli', '未安装官方企业微信插件（@deepseek-ai/dsh-wecom）', 'dsh plugin --profile off add @deepseek-ai/dsh-wecom', 'wecomCliBin']) {
       expect(answer.message).toContain(anchor);
     }
-    expect(() => clis.get('wecom')).toThrow(CliUnavailableError);
-    expect(() => clis.get('wecom')).toThrow(/dsh plugin --profile off add @deepseek-ai\/dsh-wecom/);
+    expect(answer.headline).toBe('当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）');
   });
 
   it('不知道实例名时，安装命令用占位符', async () => {
@@ -160,6 +159,8 @@ describe('VendorClis：提供官方连接器的宿主线', () => {
     const answer = connectorLine(layout).describe('lark');
     expect(answer).toBeInstanceOf(CliUnavailableError);
     expect(answer.message).toContain('lark-cli 不可执行');
+    // What is wrong is the real cause, not the line every refusal of the connector's CLI starts with.
+    expect(answer.headline).toContain('官方飞书插件托管的 lark-cli 不可执行（');
     // The connector's own row can point its CLI elsewhere; the message says this lookup does not read that.
     expect(answer.message).toContain('若该插件行另设了 CLI 目录，24私助不读取它');
   });
@@ -224,14 +225,14 @@ describe('VendorClis：没有官方连接器的宿主线', () => {
     const answer = clis.describe('lark');
     expect(answer).toBeInstanceOf(CliUnavailableError);
     expect(answer.message).toBe('未设置 lark-cli：请在24私助插件行设置 larkCliBin。');
-    expect(() => clis.get('lark')).toThrow(/未设置 lark-cli/);
+    expect(answer.headline).toBe('未设置 lark-cli');
     // No process started, so the platform did nothing: the external-write stages may let the same call be retried once the CLI is there.
     expect(answer.outcome).toBe('failed');
   });
 
   it('插件行给了裸名或相对路径就原样交给进程启动去解析', () => {
     const clis = new VendorClis({ officialConnectors: false, lark: 'lark-cli', wecom: './wecom-cli' });
-    expect(clis.get('lark')).toBe('lark-cli');
+    expect(clis.describe('lark').path).toBe('lark-cli');
     expect(clis.describe('lark')).toEqual(larkAt('lark-cli', 'path'));
     expect(clis.describe('wecom')).toEqual({ cli: 'wecom', path: './wecom-cli', source: 'path' });
   });

@@ -2,7 +2,9 @@
 // channels are refused while no CLI is supplied for them, or the one located
 // cannot run as given — the Feishu channel, a Feishu or WeCom source, a WeCom
 // push — and every surface says the same sentence. Readiness, the access
-// checks and the channel start are the public surfaces; the tests read those.
+// checks and the channel start are read as the runtime reports them; the
+// WeCom push and identity are read on the channel module the runtime owns,
+// which has no public entry for them.
 // The installed layout is a fake; the executables standing in for the vendor
 // CLIs are the test stubs, and the one PATH lookup runs with PATH replaced by
 // a temporary directory, so nothing real is run.
@@ -81,9 +83,9 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     // The message names its own CLI; the readiness does not say the name twice.
     expect(item.message).toContain('需要官方飞书插件提供的 lark-cli');
     expect(item.message).not.toContain('lark-cli：需要官方飞书插件');
-    // Not called for: what is wrong, without the whole way to supply it — no fault, so no install command on this line.
-    expect(item.message).toContain('wecom-cli：当前配置不会调用它；需要官方企业微信插件提供的 wecom-cli');
-    expect(item.message).not.toMatch(/wecom-cli：当前配置不会调用它；[^;]*dsh plugin/);
+    // Not called for: what is wrong — the real cause, without the whole way to supply it; no fault, so no install command on this line.
+    expect(item.message).toContain('wecom-cli：当前配置不会调用它；当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）');
+    expect(item.message).not.toMatch(/wecom-cli：当前配置不会调用它；[^；]*dsh plugin/);
     expect(readinessItem(rt, 'host').message).toContain('官方连接器 未安装');
     // The access check reports the cause without starting a process, and the cause is its only next step.
     const access = await rt.checkAccess();

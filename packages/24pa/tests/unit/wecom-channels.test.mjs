@@ -10,7 +10,7 @@ import { makeBaseDeps } from '../helpers/channel-deps.mjs';
 const makeDeps = (over = {}) => ({
   ...makeBaseDeps({
     config: () => ({ calendarChannel: 'wecom', todoChannel: 'feishu', notifyChannel: 'feishu', timeZone: 'Asia/Shanghai' }),
-    cli: () => ({ bin: 'definitely-missing-wecom-cli-bin', timeoutMs: 2000 }),
+    cli: () => ({ bin: 'definitely-missing-wecom-cli-bin', timeoutMs: 2000, source: 'config' }),
   }),
   notifySourceChanged: async () => {},
   gate: (_key, work) => work(),

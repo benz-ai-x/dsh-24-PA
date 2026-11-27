@@ -112,7 +112,7 @@ window.__ModuleLoader__.load({
       .pa24-empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:35px 18px}.pa24-empty>.pa24-icon-tile{width:64px;height:64px;border-radius:22px;margin-bottom:18px}.pa24-empty>.pa24-icon-tile svg{width:29px;height:29px}.pa24-empty h3{font-size:17px;margin:3px 0 8px}.pa24-empty p{max-width:440px;color:var(--pa-muted);font-size:13px}.pa24-empty .pa24-row{margin-top:18px;justify-content:center}
       .pa24-example{display:flex;align-items:center;gap:9px;padding:12px 16px;background:var(--pa-soft);border-radius:10px;font-size:12px;color:var(--pa-muted)}
       .pa24-dl{margin:0}.pa24-field{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;padding:7px 0;border-bottom:1px solid var(--pa-line)}.pa24-field:last-child{border-bottom:0}.pa24-field dt{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-field dd{margin:0;font-size:13px;overflow-wrap:anywhere}
-      .pa24-helper{border-radius:10px;padding:12px 14px;background:var(--pa-soft);color:var(--pa-muted);font-size:12px;margin-top:16px}.pa24-helper .pa24-origin{display:block;margin-bottom:6px}
+      .pa24-helper{border-radius:10px;padding:12px 14px;background:var(--pa-soft);color:var(--pa-muted);font-size:12px;margin-top:16px}.pa24-helper .pa24-source-line{display:block;margin-bottom:6px}
       .pa24-searchbar{display:flex;gap:8px;align-items:center;padding:14px;background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:12px;margin-bottom:14px}.pa24-search{position:relative;flex:1;min-width:120px}.pa24-search>svg{position:absolute;left:12px;top:12px;color:var(--pa-muted);width:18px;height:18px}.pa24-search input{padding-left:38px;background:var(--pa-soft);font-size:13px}
       .pa24-memory-manager .pa24-searchbar{flex-wrap:wrap}.pa24-memory-manager .pa24-search{flex-basis:200px}.pa24-memory-manager .pa24-searchbar button{flex-shrink:0;white-space:nowrap}.pa24-memory-manager .pa24-search input{padding-left:38px}
       .pa24-result-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 15px;font-size:12px;color:var(--pa-muted)}.pa24-memory-manager{min-width:0}.pa24-memory-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:12px 0}.pa24-memory-filter{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px}.pa24-memory-manager select,.pa24-memory-manager input,.pa24-memory-manager textarea{color:var(--pa-ink);background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:6px;padding:8px;min-width:0;max-width:100%;box-sizing:border-box}.pa24-memory-manager textarea{width:100%;resize:vertical}.pa24-memory-revisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;min-width:0}.pa24-memory-manager pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}.pa24-memory-manager .pa24-memory-heading{flex-wrap:wrap}.pa24-memory-list{display:grid;gap:14px}.pa24-memory-card{background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:14px;overflow:hidden}.pa24-memory-body{padding:20px 22px}.pa24-memory-heading{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}.pa24-memory-heading h3{overflow-wrap:anywhere}.pa24-memory-card .pa24-note{margin:15px 0;font-size:14px}.pa24-memory-source{display:flex;gap:6px;align-items:flex-start;font-size:11px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-memory-footer{padding:10px 22px;background:var(--pa-soft);border-top:1px solid var(--pa-line)}.pa24-memory-footer details{border:0;margin:0;padding:0}.pa24-memory-footer summary{min-height:26px;padding:0;font-size:11px}.pa24-page-nav{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:22px;font-size:12px;color:var(--pa-muted)}.pa24-page-nav button:first-child svg{transform:rotate(180deg)}
@@ -192,12 +192,12 @@ window.__ModuleLoader__.load({
           path: { label: ['PATH 上的可执行文件', 'Executable on PATH'], line: ['来自宿主的 PATH。', "is found on the host's PATH."] },
         };
         // The entry for the source the access check reported, or null when it reported none — before a check, or when the CLI is missing, there is none to name.
-        const cliSource = cli => cli?.source && CLI_SOURCE[cli.source] ? CLI_SOURCE[cli.source] : null;
+        const cliSourceEntry = cli => cli?.source && CLI_SOURCE[cli.source] ? CLI_SOURCE[cli.source] : null;
         // The label for a card's CLI row: on its own, or ahead of what the check said.
-        const cliSourceLabel = cli => { const entry = cliSource(cli); return entry ? L(...entry.label) : null; };
+        const cliSourceLabel = cli => { const entry = cliSourceEntry(cli); return entry ? L(...entry.label) : null; };
         const cliSourceText = cli => [cliSourceLabel(cli), cli.message].filter(Boolean).join(' · ');
         // The same as a line of its own above a note: the program, then where it came from.
-        const cliOriginLine = (cli, program) => { const entry = cliSource(cli); return entry ? h('span', { className: 'pa24-origin' }, `${program} `, L(...entry.line)) : null; };
+        const cliSourceLine = (cli, program) => { const entry = cliSourceEntry(cli); return entry ? h('span', { className: 'pa24-source-line' }, `${program} `, L(...entry.line)) : null; };
         const statusBadge = (tier, label) => { const item = STATUS[tier] || STATUS.unchecked; return badge(label || t(item[0]), item[1], item[2]); };
         const technicalText = value => {
           const text = String(value ?? '');
@@ -1148,7 +1148,7 @@ window.__ModuleLoader__.load({
                 [L('用户令牌', 'User token'), auth ? auth.tokenStatus : L('尚未确认', 'Unconfirmed')],
               ]),
               // #307: linking the app and signing in are the official Feishu plugin's operations, done by the owner on the host's Plugins page.
-              h('p', { className: 'pa24-helper' }, cliOriginLine(cli, 'lark-cli'),
+              h('p', { className: 'pa24-helper' }, cliSourceLine(cli, 'lark-cli'),
                 L('关联应用与登录由本人在宿主「插件」页的「飞书插件」里完成，这里只显示只读检查的结果。', 'Link the app and sign in on that plugin\'s block of the host\'s Plugins page; what shows here is the read-only check.')),
               h('details', null, h('summary', null, L('路径与身份明细', 'Path & identity details')),
                 fields([
@@ -4035,7 +4035,7 @@ window.__ModuleLoader__.load({
                 [L('推送目标', 'Push target'), wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : L('未解析', 'Unresolved')],
               ]),
               // Connecting WeCom is the official WeCom plugin's operation, done by the owner on the host's Plugins page.
-              h('p', { className: 'pa24-helper' }, cliOriginLine(wecom.cli, 'wecom-cli'),
+              h('p', { className: 'pa24-helper' }, cliSourceLine(wecom.cli, 'wecom-cli'),
                 L('连接企业微信由本人在宿主「插件」页的「企业微信插件」里完成。', 'Connect WeCom on that plugin\'s block of the host\'s Plugins page.'))),
             wecom && h('section', { className: 'pa24-card' },
               sectionHead('shield', L('服务级授权', 'Service-level authorization'), L('按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。', 'Read-only probes per enabled channel; service-level grants expire (follow the renewal guide on 850003), and links must open inside the WeCom app.')),

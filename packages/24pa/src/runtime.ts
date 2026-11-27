@@ -31,7 +31,8 @@ import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry, ProfileContextService } from './host.js';
-import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type CliSource, type PackageResolver, type VendorCli } from './cli-source.js';
+import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
+import type { ChannelCli } from './channel-deps.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -1625,7 +1626,7 @@ export class PaRuntime {
   /** The lark-cli options every business call shares. */
   private get larkOptions() { return cliOptions(this.config!, this.located('lark').path, this.options.cliTimeoutMs); }
   /** What a channel module needs to run its platform's CLI; the lookup throws before anything starts when the CLI cannot run as given. */
-  private channelCli(cli: VendorCli): () => { bin: string; timeoutMs: number; source: CliSource } {
+  private channelCli(cli: VendorCli): () => ChannelCli {
     return () => { const located = this.located(cli); return { bin: located.path, timeoutMs: this.options.cliTimeoutMs, source: located.source }; };
   }
   /**
@@ -4778,9 +4779,10 @@ export class PaRuntime {
       // A CLI the configuration calls for, but that cannot run, is an error that says what to do: install, set the row, or drop a refused entry.
       const report = (refused: CliUnavailableError) => {
         if (called[cli]) { state = 'error'; lines.push(refused.message); return; }
-        // One it does not call for is no fault: said is what is wrong, not the whole way to supply it.
+        // A wecom-cli the configuration does not call for is no fault: said is what is wrong, not the whole way to supply it.
         if (cli !== 'lark') { lines.push(`${name}：当前配置不会调用它；${refused.headline}`); return; }
-        // Demo mode reaches no platform through lark-cli: what keeps it from running is then information, not a fault.
+        // Demo mode reaches no platform through lark-cli either, but it is the CLI switching to Feishu would need first, so the
+        // whole way is said; as information, not a fault.
         if (state === 'ok') state = 'info';
         lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${refused.message}`);
       };

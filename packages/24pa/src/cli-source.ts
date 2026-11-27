@@ -35,15 +35,18 @@ export const hasOfficialConnectors = (host: { get(name: string): unknown }): boo
  * The CLI cannot run as located: nothing supplies it, or the executable is not where it is said to be. A call refused with it starts no
  * process, so for the durable external-write stages and deliveries it is a failure — the platform did nothing, and a retry is safe — never an unknown outcome.
  */
+/** The message up to its first clause mark, for a message that says what is wrong before what to do about it. */
+const firstClause = (message: string): string => message.split(/[：；。]/)[0] ?? message;
+
 export class CliUnavailableError extends Error {
   readonly outcome = 'failed' as const;
-  constructor(message: string, readonly cli: VendorCli) {
+  /** What is wrong, without what to do about it; given where the message does not say it first. */
+  readonly headline: string;
+  constructor(message: string, readonly cli: VendorCli, headline: string = firstClause(message)) {
     super(message);
     this.name = 'CliUnavailableError';
+    this.headline = headline;
   }
-
-  /** What is wrong, without what to do about it: the message up to its first clause. */
-  get headline(): string { return this.message.split(/[：；。]/)[0] ?? this.message; }
 }
 
 const OFFICIAL = {
@@ -173,19 +176,12 @@ export class VendorClis {
     }));
   }
 
-  /** The executable to run; throws {@link CliUnavailableError} when nothing supplies it. */
-  get(cli: VendorCli): string {
-    const answer = this.describe(cli);
-    if (answer instanceof CliUnavailableError) throw answer;
-    return answer.path;
-  }
-
   /** The connector's own lookup: its CLI dependency from the connector's location. */
   private fromConnector(cli: VendorCli): CliLocation | CliUnavailableError {
     const official = OFFICIAL[cli], name = BARE[cli];
     const missing = (problem: string): CliUnavailableError => {
       const install = this.settings.profile ? `dsh plugin --profile ${this.settings.profile} add ${official.connector}` : `dsh plugin --profile <实例名> add ${official.connector}`;
-      return new CliUnavailableError(`需要官方${official.label}插件提供的 ${name}：${problem}。请安装官方${official.label}插件后重启宿主：在宿主「插件」页安装，或执行 ${install}；也可在24私助插件行显式设置 ${OPTION[cli]}。`, cli);
+      return new CliUnavailableError(`需要官方${official.label}插件提供的 ${name}：${problem}。请安装官方${official.label}插件后重启宿主：在宿主「插件」页安装，或执行 ${install}；也可在24私助插件行显式设置 ${OPTION[cli]}。`, cli, problem);
     };
     // Packages installed into the profile resolve from the profile itself, wherever this plugin's own files live.
     const connector = this.resolvePackage(official.connector);

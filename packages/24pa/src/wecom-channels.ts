@@ -479,11 +479,11 @@ export class WecomChannels {
       this.wecomDiagnostics = this.safe(result);
       return this.wecomDiagnostics;
     };
-    let bin: string, source: CliSource | undefined, timeoutMs: number;
+    let bin: string, source: CliSource, timeoutMs: number;
     try { ({ bin, source, timeoutMs } = this.deps.cli()); } catch (error) { return failed(error instanceof CliUnavailableError ? error.message : `无法运行 wecom-cli：${(error as Error).message}`); }
     const probe = await cliVersion({ path: bin }, { timeoutMs: Math.min(timeoutMs, 10_000) });
     if (!probe.ok) return failed(probe.problem);
-    cli = { state: 'ok', message: `wecom-cli ${probe.version || '已安装'}`, ...(source ? { source } : {}) };
+    cli = { state: 'ok', message: `wecom-cli ${probe.version || '已安装'}`, source };
     // 2. Identity (whoami covers bot binding + authorized human in one call).
     let identity: WecomDiagnostics['identity'];
     let userid: string | null = null;

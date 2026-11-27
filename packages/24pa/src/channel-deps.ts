@@ -8,11 +8,18 @@ import type { PaConfig } from './config.js';
 import type { CliSource } from './cli-source.js';
 import type { Repos, WorkItemRow, ActionOperationRow } from './repo.js';
 
+/** The CLI a channel module reaches its platform with: where the executable is, how long a call may take, and what supplies it. */
+export interface ChannelCli {
+  bin: string;
+  timeoutMs: number;
+  source: CliSource;
+}
+
 export interface SharedChannelDeps {
   repos(): Repos;
   config(): PaConfig;
-  /** CLI to reach the channel's platform; bin differs per channel, and `source` says what supplies it when it is supplied. */
-  cli(): { bin: string; timeoutMs: number; source?: CliSource };
+  /** The CLI to reach the channel's platform; throws {@link CliUnavailableError} when it cannot run as given. */
+  cli(): ChannelCli;
   notifyOwner(dedupKey: string, body: string): Promise<void>;
   stagedOperation(item: WorkItemRow, kind: string, paramsKey: string, params: Record<string, unknown>, reconcileHint?: string): Promise<{ created: boolean; row: ActionOperationRow }>;
   stagedOperationWithId(operationId: string, item: WorkItemRow, action: string, params: Record<string, unknown>): Promise<{ created: boolean; row: ActionOperationRow }>;

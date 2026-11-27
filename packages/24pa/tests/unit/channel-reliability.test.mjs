@@ -41,7 +41,7 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     larkBin = await cli('lark-cli', 'PA24_LARK_STUB_STATE');
     wecomBin = await cli('wecom-cli', 'PA24_WECOM_STUB_STATE');
     deps = bin => ({
-      repos: () => repos, config: () => config, cli: () => ({ bin, timeoutMs: 5000 }),
+      repos: () => repos, config: () => config, cli: () => ({ bin, timeoutMs: 5000, source: 'config' }),
       notifyOwner: async () => {}, notifySourceChanged: async () => {}, linkedEventIdsInWindow: async () => [],
       gate: (_key, work) => work(), memory: () => null, isClosed: () => false,
       stagedOperation: (...args) => operations.stage(...args),

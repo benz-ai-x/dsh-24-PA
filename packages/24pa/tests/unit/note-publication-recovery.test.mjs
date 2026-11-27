@@ -23,7 +23,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`手写发布恢复 (${ba
     return new HandwritingPipeline({
       repos: () => repos,
       config: () => ({ mode: 'feishu', larkProfile: 'default', folderToken: 'folder', ownerOpenId: 'owner', workerModels: {} }),
-      cli: () => ({ bin, timeoutMs: 5_000 }),
+      cli: () => ({ bin, timeoutMs: 5_000, source: 'config' }),
       dbRef: () => db, assertLive: () => {}, skillParams: async () => ({}),
       roleFor: () => 'local-robot', accessSessionId: () => 'access', trackWorkItem: () => {},
       stagedOperationWithId: (...input) => operations.stageWithId(...input),

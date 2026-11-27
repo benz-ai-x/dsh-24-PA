@@ -16,10 +16,10 @@ const snapshot = () => ({ workspace: { path: '/test/binding-a', config, sourceHa
 const click = async node => { expect(node).toBeTruthy(); await act(async () => node.click()); };
 const text = pair => pair[language === 'en' ? 1 : 0];
 const openCard = async card => click([...container.querySelectorAll('button')].find(node => node.getAttribute('aria-label')?.endsWith('：' + text(CARD[card]))));
-/** What the note shows: its own line about where the CLI came from (null when it shows none) and the sentence about the Plugins page; both undefined when there is no note. */
+/** What the note shows: its line about where the CLI came from (null when it shows none) and the sentence about the Plugins page; both undefined when there is no note. */
 const note = page => {
   const node = [...container.querySelectorAll('.pa24-helper')].find(item => item.textContent.includes(text(page)));
-  return node ? [node.querySelector('.pa24-origin')?.textContent ?? null, [...node.childNodes].filter(child => child.nodeType === 3).map(child => child.textContent).join('')] : [undefined, undefined];
+  return node ? [node.querySelector('.pa24-source-line')?.textContent ?? null, [...node.childNodes].filter(child => child.nodeType === 3).map(child => child.textContent).join('')] : [undefined, undefined];
 };
 // [Chinese, English] as the page shows each: the card's title, the sentence about the Plugins page,
 // the note's line after the program's name by the source the access check reported, and what a check says when the CLI is missing.
