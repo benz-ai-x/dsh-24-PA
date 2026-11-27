@@ -6,6 +6,7 @@ import { SqliteDb } from '../../lib/sqlite.js';
 import { PaDatabase } from '../../lib/pg.js';
 import { createRepos } from '../../lib/repo.js';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { CliUnavailableError } from '../../lib/cli-source.js';
 import { ConnectionHealth } from '../../lib/connection-health.js';
 import { ConnectionTests } from '../../lib/connection-tests.js';
 import { SourceRegistry, unknownCapabilities } from '../../lib/source-registry.js';
@@ -92,6 +93,16 @@ for (const backend of ['sqlite', 'postgres']) describe(`M07 ${backend}`, () => {
     expect(attempts[0].join(' ')).toContain('"reminders":[]'); expect(attempts[0].join(' ')).not.toContain('attendees');
     await tests.cleanup({ workspaceBinding: 'binding-1', testId: result.id, confirm: true }); await tests.cleanup({ workspaceBinding: 'binding-1', testId: result.id, confirm: true }); expect(attempts).toHaveLength(2); expect(attempts[1]).toContain('event-1');
     current.sources.entries = []; current.sources.defaults.calendar = null; await expect(tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-000000005', ...preview, confirm: true })).rejects.toThrow(/允许写入/);
+  });
+  it('来源核验因 CLI 被拒而失败时，接入测试在写下测试记录之前就被拒绝并说出原因，修好后同一请求标识可用', async () => {
+    const said = '插件行配置的 lark-cli 不可执行（/opt/vendor/lark-cli）；请核对24私助插件行的 larkCliBin';
+    const preview = await tests.preview({ workspaceBinding: 'binding-1', action: 'source.create', sourceId: 'calendar-a' });
+    testDeps.registry = new SourceRegistry({ repo: () => repos.sources, config: () => current, connectionHash: () => version, gate: (_key, run) => run(), probe: async () => { throw new CliUnavailableError(said, 'lark', { headline: said }); } });
+    await expect(tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-refused-cli', ...preview, confirm: true })).rejects.toThrow(said);
+    expect(await repos.health.test('request-refused-cli')).toBeFalsy(); expect(attempts).toHaveLength(0);
+    testDeps.registry = registry;
+    const again = await tests.preview({ workspaceBinding: 'binding-1', action: 'source.create', sourceId: 'calendar-a' });
+    expect((await tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-refused-cli', ...again, confirm: true })).status).toBe('succeeded'); expect(attempts).toHaveLength(1);
   });
   it('绑定变更保留旧身份，确认新绑定也不复活旧成功证据', async () => {
     const original = { ownerId: 'owner', authority: 'bot:old' }, changed = { ownerId: 'owner', authority: 'bot:new' };

@@ -1,11 +1,11 @@
-import { runCliProcess } from './cli-gateway.js';
-import { access, readFile, realpath } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import { delimiter, join, resolve } from 'node:path';
+import { cliVersion } from './cli-gateway.js';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PaConfig } from './config.js';
 import { runLarkCli, type LarkCliOptions } from './lark.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
+import { CliUnavailableError, type CliLocation } from './cli-source.js';
 
 // Feishu transport seam: production uses the official SDK long connection;
 // tests inject events through the same inbound path without a network. The
@@ -188,19 +188,6 @@ function safeError(error: unknown, config: PaConfig, extraSecrets: string[] = []
     [process.env[config.appIdEnv] ?? '', process.env[config.appSecretEnv] ?? '', ...extraSecrets]).slice(0, 500);
 }
 
-async function resolveExecutable(bin: string): Promise<string> {
-  const paths = bin.includes('/') ? [resolve(bin)] : (process.env.PATH || '').split(delimiter).map(dir => join(dir, bin));
-  for (const path of paths) {
-    try {
-      await access(path, constants.X_OK);
-      return await realpath(path);
-    } catch {
-      // try next PATH entry
-    }
-  }
-  throw new Error('找不到可执行的 lark-cli；请在服务器安装并加入启动进程的 PATH。');
-}
-
 export interface AccessDiagnostics {
   checkedAt: string;
   source: Record<string, unknown> | null;
@@ -210,9 +197,6 @@ export interface AccessDiagnostics {
   /** Wizard navigation: what to do next, derived from the states above (guide anchors included). */
   nextSteps: string[];
 }
-
-/** Authorization domain set for the user identity login (guide·准备/块 B). */
-const LARK_AUTH_DOMAINS = 'im,task,calendar,docs,drive';
 
 /**
  * Map diagnostic states to the concrete next actions from feishu-setup.md.
@@ -224,7 +208,8 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
   const stateOf = (block: Record<string, unknown> | null): string | undefined =>
     block == null ? undefined : String(block.state ?? '');
   if (stateOf(result.cli) === 'error') {
-    steps.push('lark-cli 不可执行：在服务器安装并加入 dsh 宿主进程的 PATH（指南·准备）；改完重启宿主。');
+    // The check's own message says where the lark-cli was expected.
+    steps.push(String(result.cli?.message));
     return steps;
   }
   const source = stateOf(result.source);
@@ -236,17 +221,16 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
   const auth = stateOf(result.auth);
   const user = (result.auth as Record<string, unknown>) ?? {};
   if (auth === 'missing') {
-    steps.push(
-      `固定 profile（${config.larkProfile}）尚无用户授权：发起 lark-cli auth login --no-wait --json --profile ${config.larkProfile} --domain ${LARK_AUTH_DOMAINS}，把验证链接交给本人在浏览器完成，再用 --device-code 收尾（指南·准备与块 B）。`,
-    );
+    // #307: linking the app and signing in are the official Feishu plugin's page operations.
+    steps.push('飞书插件尚未登录账号：请本人在宿主「插件」页打开「飞书插件」，先「关联飞书应用」，再「登录飞书账号」（指南·块 B）。');
   } else if (auth === 'unbound') {
-    steps.push(`ownerOpenId 未绑定：把 auth status 返回的 user.openId（当前为 ${String(user.openId ?? '未知')}）填入 AGENTS.md（指南·收尾）。`);
+    steps.push(`ownerOpenId 未绑定：把本次检查返回的 auth.openId（当前为 ${String(user.openId ?? '未知')}）填入 AGENTS.md（指南·收尾）。`);
   } else if (auth === 'mismatch') {
-    steps.push('CLI 授权用户与配置主人不一致：本人重新 lark-cli auth login，或确认后把 ownerOpenId 改为实际授权用户（指南·阶段 2/4）。');
+    steps.push('飞书插件登录的用户或应用与配置主人不一致：请本人在「飞书插件」页核对登录账号，必要时退出后重新登录；或确认后把 ownerOpenId 改为实际登录用户（指南·故障对照表）。');
   } else if (auth === 'unverified') {
-    steps.push('用户令牌有效性未确认：重新 lark-cli auth login 刷新令牌后复查（指南·准备与块 B）。');
+    steps.push('用户令牌有效性未确认：请本人在「飞书插件」页重新登录后复查（指南·故障对照表）。');
   } else if (auth === 'error') {
-    steps.push('auth status --verify 失败：按指南·阶段 6「auth error」行处置（config show 核对应用配置与网络，必要时由本人重新 config init）。');
+    steps.push('auth status --verify 失败：核对「飞书插件」页显示的账号状态与网络；应用配置损坏时由本人在该页「更换应用」重新关联后再登录（指南·故障对照表）。');
   }
   for (const resource of result.resources) {
     // wiki 是可选资源：未配置是合法回退状态，不产生阻断步骤，也不
@@ -254,10 +238,10 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
     if (String(resource.state) === 'missing') {
       if (resource.id === 'wiki') continue;
       const where = resource.id === 'folder' ? 'folderToken（飞书云文档文件夹链接复制 token）' : resource.id === 'tasklist' ? 'tasklistId（飞书任务清单链接复制 guid）' : 'calendarId';
-      steps.push(`${String(resource.label)}未配置：获取 ${where} 并填入 AGENTS.md（指南·阶段 3）。`);
+      steps.push(`${String(resource.label)}未配置：获取 ${where} 并填入 AGENTS.md（指南·收尾）。`);
     } else if (String(resource.state) === 'error') {
       const extra = resource.id === 'wiki' ? '；核对 wikiNodeToken 是否为有效知识库节点链接 token' : '';
-      steps.push(`${String(resource.label)}读取失败：多为权限点未开通或应用未发布新版本；对照指南·阶段 1 的权限清单并重新发布${extra}。`);
+      steps.push(`${String(resource.label)}读取失败：多为权限点未开通或应用未发布新版本；对照指南·块 A 的权限清单并重新发布${extra}。`);
     }
   }
   // All-clear needs every block healthy: a source error above must not be
@@ -265,8 +249,8 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
   if (steps.length === 0 && auth === 'ok' && source !== 'error') {
     steps.push(
       config.mode === 'feishu'
-        ? '接入检查全部通过：若面板 readiness 的 feishu 项未显示长连接已启动，按指南·阶段 4 重启宿主；随后在飞书发送 /24pa 做端到端验证（指南·阶段 5）。'
-        : `接入前置全部就绪：由本人在面板「系统维护 → 参数配置 → 密钥」填写 App ID/Secret（或设置 ${config.appIdEnv}/${config.appSecretEnv} 环境变量），再把 mode 改为 feishu 并保存/重启（指南·阶段 4），按阶段 5 验收。`,
+        ? '接入检查全部通过：若面板 readiness 的 feishu 项未显示长连接已启动，按指南·收尾重启宿主；随后在飞书发送 /24pa 做端到端验证（指南·自动验收）。'
+        : `接入前置全部就绪：由本人在面板「系统维护 → 参数配置 → 密钥」填写 App ID/Secret（或设置 ${config.appIdEnv}/${config.appSecretEnv} 环境变量），再把 mode 改为 feishu 并保存/重启（指南·收尾），按自动验收验收。`,
     );
   }
   return steps;
@@ -274,18 +258,18 @@ export function setupNextSteps(config: PaConfig, result: Omit<AccessDiagnostics,
 
 export async function inspectAccess(
   config: PaConfig,
-  bin: string,
+  cli: CliLocation | CliUnavailableError,
   workspace: { path: string; sourceHash: string },
   extraSecrets: string[] = [],
   expectedAppId = '',
 ): Promise<AccessDiagnostics> {
-  const collected = await collectAccess(config, bin, workspace, extraSecrets, expectedAppId);
+  const collected = await collectAccess(config, cli, workspace, extraSecrets, expectedAppId);
   return { ...collected, nextSteps: setupNextSteps(config, collected) };
 }
 
 async function collectAccess(
   config: PaConfig,
-  bin: string,
+  cli: CliLocation | CliUnavailableError,
   workspace: { path: string; sourceHash: string },
   extraSecrets: string[] = [],
   expectedAppId = '',
@@ -321,20 +305,14 @@ async function collectAccess(
   } catch (error) {
     result.source = status('error', safeError(error, config, extraSecrets));
   }
-  try {
-    const path = await resolveExecutable(bin);
-    const { stdout, exitCode } = await runCliProcess({ bin: path, argv: ['--version'],
-      timeoutMs: 5000, stdoutLimitBytes: 16384,
-      fail: kind => new Error(`版本检查未完成（${kind}）`),
-      env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
-    });
-    if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
-    result.cli = status('ok', 'CLI 可执行', { path, version: stdout.trim().slice(0, 100) });
-  } catch (error) {
-    result.cli = status('error', safeError(error, config, extraSecrets));
+  // Without an lark-cli (#306) nothing below can run: the lookup's own message says how to supply it.
+  if (cli instanceof CliUnavailableError) {
+    result.cli = status('error', cli.message);
     return result;
   }
-  const readOptions = cliOptions(config, bin, 10000);
+  result.cli = await probeCli(cli, config, extraSecrets);
+  if (result.cli.state === 'error') return result;
+  const readOptions = cliOptions(config, cli.path, 10000);
   try {
     const { data } = await runLarkCli(readOptions, ['auth', 'status', '--verify']);
     const user = data?.identities?.user;
@@ -344,14 +322,14 @@ async function collectAccess(
     result.auth = status(
       !user?.openId ? 'missing' : !config.ownerOpenId ? 'unbound' : !matched || (expectedAppId && data?.appId && !appMatched) ? 'mismatch' : verified && (!expectedAppId || appMatched) ? 'ok' : 'unverified',
       !user?.openId
-        ? '固定 profile 尚无用户授权'
+        ? '飞书插件尚未登录账号'
         : !config.ownerOpenId
-          ? '已有 CLI 身份；工作区尚未绑定主人'
+          ? '飞书插件已登录；工作区尚未绑定主人'
           : !matched || (expectedAppId && data?.appId && !appMatched)
-            ? 'CLI 用户或应用与当前配置不一致，未读取资源'
+            ? '登录用户或应用与当前配置不一致，未读取资源'
             : expectedAppId && !data?.appId ? '授权返回缺少实际应用身份，尚不能核验与接入应用一致'
             : verified
-              ? 'CLI 用户令牌有效，身份与主人一致'
+              ? '登录用户令牌有效，身份与主人一致'
               : '身份匹配，但令牌有效性未确认',
       { profile: config.larkProfile, userName: user?.userName ?? null, openId: user?.openId ?? null, appId: data?.appId ?? null,
         tenantKey: data?.tenantKey ?? user?.tenantKey ?? null, applicationMatched: expectedAppId ? appMatched : null,
@@ -375,6 +353,16 @@ async function collectAccess(
   }
   return result;
 }
+
+/** Whether the lark-cli answers, and where it came from; the message of a failure is the next step. */
+async function probeCli(cli: CliLocation, config: PaConfig, extraSecrets: string[]): Promise<Record<string, unknown>> {
+  // Only the two switches: the rest of the environment is what the process starts with.
+  const probe = await cliVersion(cli, { timeoutMs: 5000, env: { LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } });
+  return probe.ok
+    ? status('ok', 'CLI 可执行', { path: cli.path, version: probe.version, source: cli.source, ...(cli.connector ? { connector: cli.connector } : {}) })
+    : status('error', safeError(new Error(probe.problem), config, extraSecrets));
+}
+
 /** In-process fake used by tests and demo mode to exercise the real pipeline. */
 export class FakeFeishuTransport implements FeishuTransport {
   readonly name = 'fake';

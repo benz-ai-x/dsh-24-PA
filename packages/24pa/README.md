@@ -83,7 +83,7 @@ See the [Manticore delivery and acceptance record](https://github.com/benz-ai-x/
 
 ## Quick start
 
-Requirements: Node.js `^24.22.3 || >=26.13.1`, dsh `0.2.3-alpha.2`, and no database service for the default SQLite demo.
+Requirements: Node.js `^24.22.3 || >=26.13.1`, dsh `0.2.3-alpha.2`, and no database service for the default SQLite demo. The CLIs behind Feishu access and the WeCom channel come from the host's official plugins (`@deepseek-ai/dsh-feishu`, plus `@deepseek-ai/dsh-wecom` when WeCom is used), so neither `lark-cli` nor `wecom-cli` is installed on the server; instances upgrading from `0.2.3-alpha.2.1` or earlier install the official plugin first; a bare name still in the 24PA plugin row, such as `larkCliBin: lark-cli`, is refused — remove it to use the CLI the official plugin provides.
 
 <a id="installing-the-bundle"></a>
 ### Install the current release
@@ -92,6 +92,9 @@ Requirements: Node.js `^24.22.3 || >=26.13.1`, dsh `0.2.3-alpha.2`, and no datab
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.3-alpha.2.1 --registry=https://registry.npmjs.org
+
+# The official Feishu plugin, needed before Feishu is connected; it raises one more pnpm build approval (stage 3 of the initialization guide)
+dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://registry.npmjs.org
 ```
 
 Restart the same Profile and choose the「24私助」preset. Installation and startup must use the same `DSH_HOME`. For a new instance, follow the [initialization guide](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md) for the isolated directory, launch script, expected pnpm approval, token URL, and demo verification. Then tell the local assistant「帮我接通飞书」or use the bundled [Feishu setup guide](feishu-setup.md).

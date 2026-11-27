@@ -14,7 +14,9 @@ describe('企微接入指南（wecom-setup.md）', () => {
       expect(content).toContain(heading);
     }
     expect(content).toContain('一次交付＋一次验收');
-    expect(content).toContain('auth init');
+    // #306/#307: the CLI comes from the official WeCom plugin, whose page also binds the bot.
+    expect(content).toContain('连接企业微信');
+    for (const retired of ['auth init', 'npm i -g', '宿主进程的 PATH']) expect(content).not.toContain(retired);
     expect(content).toContain('850002');
     expect(content).toContain('850003');
     expect(content).toContain('主动推送续期链接');

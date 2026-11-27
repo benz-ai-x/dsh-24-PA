@@ -11,6 +11,7 @@ import { TaskLifecycle } from '../../lib/task-lifecycle.js';
 import { FeishuChannels, mapRemoteEvent } from '../../lib/feishu-channels.js';
 import { WecomChannels } from '../../lib/wecom-channels.js';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { CliUnavailableError } from '../../lib/cli-source.js';
 
 describe('渠道可靠性：真实账本与模块 interface', () => {
   let root, db, repos, operations, config, item, lark, wecom, deps, larkBin, wecomBin;
@@ -40,7 +41,7 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     larkBin = await cli('lark-cli', 'PA24_LARK_STUB_STATE');
     wecomBin = await cli('wecom-cli', 'PA24_WECOM_STUB_STATE');
     deps = bin => ({
-      repos: () => repos, config: () => config, cli: () => ({ bin, timeoutMs: 5000 }),
+      repos: () => repos, config: () => config, cli: () => ({ bin, timeoutMs: 5000, source: 'config' }),
       notifyOwner: async () => {}, notifySourceChanged: async () => {}, linkedEventIdsInWindow: async () => [],
       gate: (_key, work) => work(), memory: () => null, isClosed: () => false,
       stagedOperation: (...args) => operations.stage(...args),
@@ -507,6 +508,20 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     await worker.drain();
     await worker.drain();
     expect((await repos.outbox.recent())[0].status).toBe('failed');
+    expect(sends).toBe(3);
+  });
+
+  it('企微推送在 CLI 被拒、进程没有启动时按明确未发处理：说出原因、留待重试，不记成结果未知', async () => {
+    // A Feishu channel that is not started makes its adapter unavailable, and delivery holds the row before send; a WeCom push reaches send.
+    const row = (await enqueue('reminder:wecom-1', 'wecom')).row;
+    const said = '需要官方企业微信插件提供的 wecom-cli：当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）。请安装官方企业微信插件后重启宿主。';
+    let sends = 0;
+    const send = async () => { sends++; throw new CliUnavailableError(said, 'wecom', { headline: said, whole: said }); };
+    const worker = delivery(send, () => repos.messageRoutes, { wecom: { available: () => true, supports: () => true, send } });
+    await worker.drain();
+    expect((await repos.outbox.recent())[0]).toMatchObject({ status: 'pending', last_error: said });
+    for (let attempt = 0; attempt < 2; attempt++) { await repos.outbox.mark(row.id, { status: 'pending', retryInMs: 0 }); await worker.drain(); }
+    expect((await repos.outbox.recent())[0]).toMatchObject({ status: 'failed', last_error: said });
     expect(sends).toBe(3);
   });
 

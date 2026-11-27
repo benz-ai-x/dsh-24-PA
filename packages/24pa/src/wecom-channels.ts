@@ -1,4 +1,4 @@
-import { runCliProcess } from './cli-gateway.js';
+import { cliVersion } from './cli-gateway.js';
 import { observeCalendar } from './calendar-observation.js';
 // WeCom channel module (F30): the calendar/todo/notify operations plus the
 // diagnostic probes behind one deep module. Channel selection (calendarChannel /
@@ -14,6 +14,7 @@ import type { SharedChannelDeps } from './channel-deps.js';
 import type { Repos, TaskRow, WorkItemRow, ActionOperationRow } from './repo.js';
 import { effectiveSources } from './source-config.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
+import { CliUnavailableError, type CliSource } from './cli-source.js';
 
 /** A process-level success cannot prove this target's individual mutation. */
 function todoMutationReceipt(data: any, guid: string, action: string): Record<string, unknown> {
@@ -38,7 +39,8 @@ export interface WecomServiceCheck {
 
 export interface WecomDiagnostics {
   checkedAt: string;
-  cli: { state: 'ok' | 'error'; message: string };
+  /** `source` says what supplies the CLI (#306): an official connector, the plugin row, or PATH. */
+  cli: { state: 'ok' | 'error'; message: string; source?: CliSource };
   auth: { state: 'ok' | 'error'; message: string };
   identity: { state: 'ok' | 'error' | 'missing'; message: string; userid?: string; userName?: string };
   services: WecomServiceCheck[];
@@ -84,6 +86,8 @@ export class WecomChannels {
   private identityChecking: Promise<{ userid: string; name: string }> | null = null;
   private identityEpoch = 0;
   async wecomOwnerUserid(refresh = false): Promise<{ userid: string; name: string }> {
+    // Asked on every call: when the wecom-cli is missing or cannot run as given (#306), what the runtime says of it is the answer.
+    this.deps.cli();
     if (!refresh && this.checking) {
       await this.checking;
       if (!this.wecomIdentityCache) throw new Error('本次企微身份检查未通过，未解析通知目标。');
@@ -109,7 +113,7 @@ export class WecomChannels {
       const context = String((raw as any)?.extra_identity_context ?? '');
       const match = /授权真人用户身份：\s*名字：(.+?)\s*ID：([A-Za-z0-9_\-]+)/.exec(context.replace(/\s+/g, ' '));
       const bot = /机器人身份：\s*名字：.+?\s*ID：([A-Za-z0-9_\-]+)/.exec(context.replace(/\s+/g, ' '));
-      if (!match || !bot) throw new Error('whoami 未包含授权真人或机器人身份；请先在服务器完成 wecom-cli auth init 并由本人扫码。');
+      if (!match || !bot) throw new Error('whoami 未包含授权真人或机器人身份；请先在宿主「插件」页的「企业微信插件」里完成连接。');
       await this.deps.checkIdentity?.({ ownerId: match[2]!, authority: `bot:${bot[1]}` });
       this.wecomIdentityCache = { name: match[1]!.trim(), userid: match[2]! };
       return this.wecomIdentityCache;
@@ -464,21 +468,22 @@ export class WecomChannels {
     const services: WecomServiceCheck[] = [];
     const checkedAt = nowIso();
     // 1. CLI presence: `--version` prints plain text (not the JSON envelope),
-    // so it runs through a raw spawn rather than the business gateway.
+    // so it is one bare start through the gateway. Without a wecom-cli, or
+    // with one not executable where it is said to be (#306), the lookup's
+    // own message is the next step.
     let cli: WecomDiagnostics['cli'];
-    try {
-      const { stdout, exitCode } = await runCliProcess({ bin: this.deps.cli().bin, argv: ['--version'],
-        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: kind => new Error(`版本检查未完成（${kind}）`) });
-      if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
-      cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}` };
-    } catch (error) {
+    const failed = (message: string): WecomDiagnostics => {
       this.wecomIdentityCache = null; this.wecomIdentityFailedAt = Date.now();
-      cli = { state: 'error', message: `无法运行 ${this.deps.cli().bin}：${(error as Error).message}` };
-      nextSteps.push('安装官方企微 CLI：npm i -g @wecom/cli（详见 wecom-setup.md 准备节）。');
-      const result: WecomDiagnostics = { checkedAt, cli, auth: { state: 'error', message: 'CLI 不可用，跳过。' }, identity: { state: 'missing', message: '未解析。' }, services, nextSteps };
+      const result: WecomDiagnostics = { checkedAt, cli: { state: 'error', message }, auth: { state: 'error', message: 'CLI 不可用，跳过。' },
+        identity: { state: 'missing', message: '未解析。' }, services, nextSteps: [message] };
       this.wecomDiagnostics = this.safe(result);
       return this.wecomDiagnostics;
-    }
+    };
+    let bin: string, source: CliSource, timeoutMs: number;
+    try { ({ bin, source, timeoutMs } = this.deps.cli()); } catch (error) { return failed(error instanceof CliUnavailableError ? error.message : `无法运行 wecom-cli：${(error as Error).message}`); }
+    const probe = await cliVersion({ path: bin }, { timeoutMs: Math.min(timeoutMs, 10_000) });
+    if (!probe.ok) return failed(probe.problem);
+    cli = { state: 'ok', message: `wecom-cli ${probe.version || '已安装'}`, source };
     // 2. Identity (whoami covers bot binding + authorized human in one call).
     let identity: WecomDiagnostics['identity'];
     let userid: string | null = null;
@@ -488,7 +493,7 @@ export class WecomChannels {
       identity = { state: 'ok', message: `机器人已绑定；授权真人 ${owner.name}（${owner.userid}）`, userid: owner.userid, userName: owner.name };
     } catch (error) {
       identity = { state: 'error', message: (error as Error).message };
-      nextSteps.push('在服务器执行 wecom-cli auth init 并由本人企微扫码绑定机器人（wecom-setup.md 块 A）。');
+      nextSteps.push('请本人在宿主「插件」页打开「企业微信插件」，点「连接企业微信」并用企业微信 App 扫码（wecom-setup.md 块 A）。');
     }
     // 3. Per-service authorization probes (read-only) for enabled domains.
     const probes: Array<{ id: WecomServiceCheck['id']; enabled: boolean; args: readonly string[] }> = [

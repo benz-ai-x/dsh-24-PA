@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, readFile, rm, realpath, stat } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, writeFile, readFile, rm, realpath, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PaRuntime } from '../../lib/runtime.js';
@@ -6,6 +6,12 @@ import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { relayMessage } from './relay.mjs';
 export { PaRuntime, DEFAULT_CONFIG, mkdir, writeFile, readFile, rm, join };
 export const delay = ms => new Promise(r => setTimeout(r, ms));
+/** An lark-cli that is where the plugin row says and still cannot start: the Feishu channel switches on (#306 refuses one whose CLI cannot run), and every call on it fails to spawn, as a name that is nowhere on PATH did. */
+export async function unstartableCli(f) {
+  const path = join(f.root, 'unstartable-lark-cli');
+  await writeFile(path, '#!/no-such-interpreter\n', { mode: 0o755 }); await chmod(path, 0o755);
+  return path;
+}
 export const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b }); return { promise, resolve, reject }; };
 export async function fixture(overrides = {}, { startInputSource = 'relay' } = {}) {
   // dsh 0.2.3-alpha.1 and later record a subagent's first task as an agent

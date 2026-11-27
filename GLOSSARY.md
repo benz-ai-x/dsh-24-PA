@@ -33,8 +33,16 @@ _Avoid_: 每模块一插件、skill 可放宽工具白名单（只能收紧）
 _Avoid_: 一切 skill 都过模型、agent 轨可越权
 
 **飞书接入向导（feishu-setup）**：
-随24私助插件分发的飞书接入配置权威流程（一次交付＋一次验收指南＋只读检查的 nextSteps 导航）；面向执行配置的 AI 助理，也供本人查阅。
-_Avoid_: 交互式安装向导界面、替本人完成浏览器授权
+随24私助插件分发的飞书接入配置权威流程（一次交付＋一次验收指南＋只读检查的 nextSteps 导航）；lark-cli 与账号登录由官方飞书插件提供，向导只指向它的插件页。面向执行配置的 AI 助理，也供本人查阅。
+_Avoid_: 交互式安装向导界面、替本人完成浏览器授权、指导在终端登录 lark-cli
+
+**官方连接器**：
+宿主 dsh 提供的第三方连接插件（`@deepseek-ai/dsh-feishu`、`@deepseek-ai/dsh-wecom`、`@deepseek-ai/dsh-tencent-docs`、`@deepseek-ai/dsh-tencent-meeting`）：托管官方 CLI 或 MCP，并在宿主「插件」页提供账号操作。24私助的外部连接一律依赖它；官方做不到的先识别清楚再定是否自研。
+_Avoid_: 24私助内置连接器、服务器上另装 lark-cli／wecom-cli
+
+**插件行**：
+宿主装配24私助时 `id: pa24` 的那一行插件配置，由包内预设补丁文件（`cordis.patch.yml`）生成；启动项（`stateDirectory`、`larkCliBin`、`wecomCliBin` 等）写在这里。要改它，在实例 profile 自己的补丁层（`<DSH_HOME>/profiles/<实例名>/cordis.patch.yml`）里按 id 覆盖，并重述整段 `config`——补丁层对 `config` 是整体替换。
+_Avoid_: 面板「参数配置」（那是工作区 AGENTS.md）、服务器环境变量
 
 **本地工具扩展（extraLocalTools）**：
 工作区配置中显式列出本地24私助会话额外放行的已注册工具名的字段：provider 级外部 CLI 委派（subagent_codex、subagent_claude_code）与 QwenNote 听记工具（`mcp__qwennote__*` 通配或精确名，需 profile 配置 dsh-mcp-client 条目）；对应通道挂载后才生效，点名未挂载工具的条目会被过滤并提示。
@@ -99,8 +107,8 @@ _Avoid_: 飞书任务（不同渠道的同类对象）、助理交办、关注�
 _Avoid_: 企微会话、双向消息通道
 
 **企微接入向导（wecom-setup）**：
-随24私助插件分发的企业微信接入权威流程（安装 CLI、绑定机器人、逐项授权与续期、安全红线）；面向执行配置的 AI 助理，也供本人查阅。
-_Avoid_: 替本人完成扫码授权、企业微信回调服务器
+随24私助插件分发的企业微信接入权威流程（确认官方企业微信插件已连接、逐项服务授权与续期、安全红线）；面向执行配置的 AI 助理，也供本人查阅。
+_Avoid_: 替本人完成扫码授权、指导在终端运行 wecom-cli auth init、企业微信回调服务器
 
 **发起入口**：
 主人最初交办某项工作的交互入口，决定该工作进展和结果的回传位置。

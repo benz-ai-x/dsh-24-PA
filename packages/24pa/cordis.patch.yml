@@ -179,8 +179,6 @@
         backupStoragesRoot: !!js dshHomePath('storages')
         backupAttachmentsRoot: !!js dshHomePath('attachments', 'v1')
         workspacePath: !!js process.env.PA24_WORKSPACE || ''
-        larkCliBin: lark-cli
-        wecomCliBin: wecom-cli
     - id: pa24-skill-filesystem
       name: '@deepseek-ai/dsh-skill-filesystem'
     - id: pa24-skill-tool

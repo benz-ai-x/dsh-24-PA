@@ -2,6 +2,7 @@ import z from '@deepseek-ai/schemastery';
 import type { DshContext } from './host.js';
 import { PaRuntime, HostStartupError } from './runtime.js';
 import { registerPanel } from './panel.js';
+import { hasOfficialConnectors } from './cli-source.js';
 
 export const name = 'pa24';
 export const inject = ['sessionController', 'sessions', 'connection', 'agentPresets', 'workspaceRegistry', 'subagents', 'fs', 'skills'];
@@ -12,8 +13,9 @@ export const Config = z.object({
   backupStoragesRoot: z.string(),
   backupAttachmentsRoot: z.string(),
   workspacePath: z.string().default(''),
-  larkCliBin: z.string().default('lark-cli'),
-  wecomCliBin: z.string().default('wecom-cli'),
+  // Absent by default: the vendor CLIs come from the official connectors, or from PATH on a host line without them (src/cli-source.ts).
+  larkCliBin: z.string(),
+  wecomCliBin: z.string(),
   cliTimeoutMs: z.natural().min(1000).default(90000),
   dispatchTickMs: z.natural().min(50).default(400),
   outboxTickMs: z.natural().min(250).default(1000),
@@ -23,14 +25,23 @@ export const Config = z.object({
 });
 
 export function apply(ctx: DshContext, config: any) {
+  // A host line without the official connectors (the rc line) has none to
+  // supply the CLIs: there the entry names the bare executables in the
+  // settings, and PATH resolves them when a process starts.
+  // Read once, here: the CLI account service is a row of the host's base
+  // bundle, there before any plugin row applies. The official-connector e2e
+  // boots that host with no CLI in the plugin row and sees the connectors'
+  // CLI; were the service late, the entry would name bare executables, which
+  // the connector line refuses.
+  const noConnectors = !hasOfficialConnectors(ctx);
   const runtime = new PaRuntime(ctx, {
     stateDirectory: config.stateDirectory,
     backupSessionsRoot: config.backupSessionsRoot,
     backupStoragesRoot: config.backupStoragesRoot,
     backupAttachmentsRoot: config.backupAttachmentsRoot,
     workspacePath: config.workspacePath,
-    larkCliBin: config.larkCliBin,
-    wecomCliBin: config.wecomCliBin,
+    larkCliBin: config.larkCliBin || (noConnectors ? 'lark-cli' : undefined),
+    wecomCliBin: config.wecomCliBin || (noConnectors ? 'wecom-cli' : undefined),
     cliTimeoutMs: config.cliTimeoutMs,
     dispatchTickMs: config.dispatchTickMs,
     outboxTickMs: config.outboxTickMs,

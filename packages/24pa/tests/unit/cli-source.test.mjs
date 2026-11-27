@@ -1,0 +1,255 @@
+// #306: how lark-cli and wecom-cli are supplied. The official-connector lookup
+// runs against a fake package layout with stand-in executables. No vendor CLI
+// is executed, and the one PATH lookup below runs with PATH replaced by a
+// temporary directory, so nothing installed on this machine can be reached.
+import { afterEach, describe, expect, it } from 'vitest';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, runnableAsGiven, unusableCli, VendorClis } from '../../lib/cli-source.js';
+
+const cleanup = [];
+afterEach(async () => { for (const fn of cleanup.splice(0).reverse()) await fn(); });
+
+/** The packages a connector line installs, as the plugin would resolve them. */
+async function installed() {
+  const root = await mkdtemp(join(tmpdir(), 'pa24-cli-source-'));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  // Package names resolve to their package.json, as the plugin's own lookup does.
+  const packages = new Map();
+  const executable = async (name, mode = 0o755) => {
+    const path = join(root, name);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, '#!/bin/sh\n', { mode });
+    return path;
+  };
+  for (const name of ['@deepseek-ai/dsh-feishu', '@deepseek-ai/dsh-wecom', '@larksuite/cli', '@wecom/cli', '@wecom/cli-darwin-arm64']) {
+    packages.set(name, await executable(`${name}/package.json`, 0o644));
+    await writeFile(packages.get(name), '{}');
+  }
+  const lark = await executable('@larksuite/cli/bin/lark-cli');
+  const wecom = await executable('@wecom/cli-darwin-arm64/bin/wecom-cli');
+  return { root, packages, lark, wecom, resolvePackage: name => packages.get(name) ?? null };
+}
+const connectorLine = (layout, settings = {}) => new VendorClis({ officialConnectors: true, profile: 'off', resolvePackage: layout.resolvePackage, ...settings }, { platform: 'darwin', arch: 'arm64' });
+const larkAt = (path, source, extra = {}) => ({ cli: 'lark', path, source, ...extra });
+
+describe('宿主是否带官方连接器', () => {
+  it('以宿主有没有 CLI 账号服务为准', () => {
+    expect(hasOfficialConnectors({ get: name => name === 'cliAccounts' ? {} : null })).toBe(true);
+    expect(hasOfficialConnectors({ get: () => null })).toBe(false);
+  });
+});
+
+describe('CLI 来源的文字', () => {
+  it('readiness 与面板用的是同一组', async () => {
+    // The panel runs in the browser and cannot import the plugin's server code; its own table must not drift.
+    const client = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
+    // The panel keeps a label and a line for the note per source; its labels are the server's words.
+    const table = /const CLI_SOURCE = (\{.*?\n        \});/s.exec(client)?.[1];
+    expect(table).toBeTruthy();
+    const labels = Object.fromEntries([...table.matchAll(/(\w+): \{ label: \['([^']+)'/g)].map(([, key, zh]) => [key, zh]));
+    expect(labels).toEqual(CLI_SOURCE_LABELS);
+  });
+});
+
+describe('给定的可执行文件能否运行', () => {
+  it('路径在原地检查，裸名按 PATH 逐项目录找；什么都不启动', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'pa24-cli-source-path-')));
+    cleanup.push(() => rm(dir, { recursive: true, force: true }));
+    const standIn = join(dir, 'lark-cli');
+    await writeFile(standIn, '#!/bin/sh\nexit 99\n', { mode: 0o644 });
+    // PATH holds only this directory for the duration of the test.
+    const saved = process.env.PATH;
+    process.env.PATH = dir;
+    try {
+      // Present but not executable does not count.
+      expect(runnableAsGiven('lark-cli')).toBe(false);
+      await chmod(standIn, 0o755);
+      expect(runnableAsGiven('lark-cli')).toBe(true);
+      expect(runnableAsGiven('wecom-cli')).toBe(false);
+      expect(runnableAsGiven(standIn)).toBe(true);
+      expect(runnableAsGiven(join(dir, 'wecom-cli'))).toBe(false);
+      // A directory carries the executable bit too; it is not something to run.
+      expect(runnableAsGiven(dir)).toBe(false);
+    } finally { process.env.PATH = saved; }
+  });
+
+  it('跑不起来时的说法只有一处：插件行给的路径不可执行、PATH 上找不到，各带下一步；能跑或来自官方连接器则无话可说', async () => {
+    const layout = await installed();
+    expect(unusableCli(larkAt(layout.lark, 'config'))).toBeNull();
+    // The row's own entry: what is said of it is the sentence, the extra clause included.
+    for (const [located, said] of [[larkAt('/opt/tools/lark-cli', 'config'), '插件行配置的 lark-cli 不可执行（/opt/tools/lark-cli）；请核对24私助插件行的 larkCliBin'],
+      [{ cli: 'wecom', path: '/opt/tools/wecom-cli', source: 'config' }, '插件行配置的 wecom-cli 不可执行（/opt/tools/wecom-cli）；请核对24私助插件行的 wecomCliBin']]) {
+      expect(unusableCli(located)).toMatchObject({ message: said, headline: said });
+      const advised = said + '；要用官方插件托管的，请删除插件行的这一项';
+      expect(unusableCli(located, '；要用官方插件托管的，请删除插件行的这一项')).toMatchObject({ message: advised, headline: advised });
+    }
+    // A bare name is looked up on PATH, which here holds only an empty directory: this machine's own lark-cli must not count.
+    const empty = await mkdtemp(join(tmpdir(), 'pa24-cli-source-empty-'));
+    cleanup.push(() => rm(empty, { recursive: true, force: true }));
+    const saved = process.env.PATH;
+    process.env.PATH = empty;
+    try {
+      // A name the process was to resolve on its own: told by what is wrong.
+      expect(unusableCli(larkAt('lark-cli', 'path'))).toMatchObject({ message: 'PATH 上找不到 lark-cli；请安装 lark-cli 并加入启动进程的 PATH', headline: 'PATH 上找不到 lark-cli' });
+      expect(unusableCli(larkAt('./lark-cli', 'path'))).toMatchObject({ message: './lark-cli 下没有可执行的 lark-cli（相对路径按宿主的当前目录解析）；请改用绝对路径', headline: './lark-cli 下没有可执行的 lark-cli（相对路径按宿主的当前目录解析）' });
+    } finally { process.env.PATH = saved; }
+    // The official connector's CLI was checked where it was found; its absence is the lookup's own message.
+    await chmod(layout.lark, 0o644);
+    expect(unusableCli(larkAt(layout.lark, 'official'))).toBeNull();
+  });
+});
+
+describe('VendorClis：插件行的显式配置优先', () => {
+  it('绝对路径记为插件行配置，不再去看连接器', async () => {
+    const layout = await installed();
+    expect(connectorLine(layout, { lark: '/opt/tools/lark-cli' }).describe('lark')).toEqual(larkAt('/opt/tools/lark-cli', 'config'));
+    // The row wins even where the connector is absent.
+    expect(connectorLine(layout, { lark: '/opt/tools/lark-cli', resolvePackage: () => null }).describe('lark')).toEqual(larkAt('/opt/tools/lark-cli', 'config'));
+  });
+
+  it('运行时建立后再改插件行的值，下一次查找按新值', async () => {
+    const settings = { officialConnectors: true, resolvePackage: (await installed()).resolvePackage };
+    const clis = new VendorClis(settings);
+    expect(clis.describe('lark').source).toBe('official');
+    settings.lark = '/opt/tools/lark-cli';
+    expect(clis.describe('lark')).toEqual(larkAt('/opt/tools/lark-cli', 'config'));
+  });
+
+  it('带官方连接器的宿主上，插件行留着的裸名或相对路径被拒绝：两者都可能跑到另一份安装', () => {
+    const clis = new VendorClis({ officialConnectors: true, lark: 'lark-cli', wecom: './wecom-cli' });
+    for (const [cli, value, option] of [['lark', 'lark-cli', 'larkCliBin'], ['wecom', './wecom-cli', 'wecomCliBin']]) {
+      const answer = clis.describe(cli);
+      expect(answer).toBeInstanceOf(CliUnavailableError);
+      for (const anchor of [`插件行配置的 ${cli}-cli 不是绝对路径（${value}）`, `${option} 只接受可执行文件的绝对路径`, '请删除这一项']) expect(answer.message).toContain(anchor);
+      // The row's own entry is what cannot run: what is said includes what to do with that entry.
+      expect(answer.headline).toBe(`插件行配置的 ${cli}-cli 不是绝对路径（${value}）；要用官方插件托管的 ${cli}-cli，请删除这一项`);
+    }
+  });
+});
+
+describe('VendorClis：提供官方连接器的宿主线', () => {
+  it('lark-cli 取自飞书连接器托管的 @larksuite/cli，并报出连接器与版本', async () => {
+    const layout = await installed();
+    await writeFile(layout.packages.get('@deepseek-ai/dsh-feishu'), JSON.stringify({ version: '0.2.3-alpha.2' }));
+    expect(connectorLine(layout).describe('lark')).toEqual(larkAt(layout.lark, 'official', { connector: '@deepseek-ai/dsh-feishu@0.2.3-alpha.2' }));
+  });
+
+  it('wecom-cli 取自企业微信连接器的平台包', async () => {
+    const layout = await installed();
+    expect(connectorLine(layout).describe('wecom')).toEqual({ cli: 'wecom', path: layout.wecom, source: 'official', connector: '@deepseek-ai/dsh-wecom' });
+  });
+
+  it('未安装连接器时报出缺的是哪个插件、怎么装；坏在哪一句说的是实际原因', async () => {
+    const layout = await installed();
+    const clis = connectorLine(layout, { resolvePackage: name => name.startsWith('@deepseek-ai/dsh-wecom') ? null : layout.resolvePackage(name) });
+    const answer = clis.describe('wecom');
+    expect(answer).toBeInstanceOf(CliUnavailableError);
+    for (const anchor of ['需要官方企业微信插件提供的 wecom-cli', '未安装官方企业微信插件（@deepseek-ai/dsh-wecom）', 'dsh plugin --profile off add @deepseek-ai/dsh-wecom', 'wecomCliBin']) {
+      expect(answer.message).toContain(anchor);
+    }
+    expect(answer.headline).toBe('当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）');
+    // The whole way without the lead-in that names the CLI the official plugin provides.
+    expect(answer.whole).toBe('当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）。请安装官方企业微信插件后重启宿主：在宿主「插件」页安装，或执行 dsh plugin --profile off add @deepseek-ai/dsh-wecom；也可在24私助插件行显式设置 wecomCliBin。');
+  });
+
+  it('不知道实例名时，安装命令用占位符', async () => {
+    const layout = await installed();
+    const clis = connectorLine(layout, { profile: undefined, resolvePackage: () => null });
+    expect(clis.describe('lark').message).toContain('dsh plugin --profile <实例名> add @deepseek-ai/dsh-feishu');
+  });
+
+  it('连接器在而平台包缺失，或托管的可执行文件不可执行，都算未提供', async () => {
+    const layout = await installed();
+    const noPlatform = connectorLine(layout, { resolvePackage: name => name === '@wecom/cli-darwin-arm64' ? null : layout.resolvePackage(name) });
+    expect(noPlatform.describe('wecom').message).toContain('没有 darwin-arm64 平台包');
+    await chmod(layout.lark, 0o644);
+    const answer = connectorLine(layout).describe('lark');
+    expect(answer).toBeInstanceOf(CliUnavailableError);
+    expect(answer.message).toContain('lark-cli 不可执行');
+    // What is wrong is the real cause, not the line every refusal of the connector's CLI starts with.
+    expect(answer.headline).toContain('官方飞书插件托管的 lark-cli 不可执行（');
+    // The connector's own row can point its CLI elsewhere; the message says this lookup does not read that.
+    expect(answer.message).toContain('若该插件行另设了 CLI 目录，24私助不读取它');
+  });
+
+  it('批准 @larksuite/cli 安装脚本的提示只出现在飞书的错误里', async () => {
+    const layout = await installed();
+    await chmod(layout.lark, 0o644); await chmod(layout.wecom, 0o644);
+    const clis = connectorLine(layout);
+    expect(clis.describe('lark').message).toContain('批准 @larksuite/cli 的安装脚本');
+    const wecom = clis.describe('wecom').message;
+    expect(wecom).toContain('wecom-cli 不可执行');
+    expect(wecom).not.toContain('@larksuite/cli');
+  });
+
+  it('缺省从 profile 的 package.json 出发解析，像 Node 一样找到已装进 profile 的包', async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'pa24-cli-source-anchor-')));
+    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const put = async (name, file, mode = 0o644) => {
+      const path = join(root, 'node_modules', name, file);
+      await mkdir(dirname(path), { recursive: true }); await writeFile(path, file === 'package.json' ? '{}' : '', { mode });
+      return path;
+    };
+    for (const pkg of ['@deepseek-ai/dsh-feishu', '@deepseek-ai/dsh-wecom', '@larksuite/cli', '@wecom/cli', '@wecom/cli-darwin-arm64']) await put(pkg, 'package.json');
+    const lark = await put('@larksuite/cli', 'bin/lark-cli', 0o755);
+    const wecom = await put('@wecom/cli-darwin-arm64', 'bin/wecom-cli', 0o755);
+    const clis = new VendorClis({ officialConnectors: true, anchor: join(root, 'package.json') }, { platform: 'darwin', arch: 'arm64' });
+    expect(clis.describe('lark')).toEqual(larkAt(lark, 'official', { connector: '@deepseek-ai/dsh-feishu' }));
+    expect(clis.describe('wecom')).toEqual({ cli: 'wecom', path: wecom, source: 'official', connector: '@deepseek-ai/dsh-wecom' });
+  });
+
+  it('Windows 取 .exe 文件名', async () => {
+    const layout = await installed();
+    await fileLike(layout, '@larksuite/cli/bin/lark-cli.exe');
+    const clis = new VendorClis({ officialConnectors: true, resolvePackage: layout.resolvePackage }, { platform: 'win32', arch: 'x64', executable: () => true });
+    expect(clis.describe('lark').path).toBe(join(layout.root, '@larksuite/cli/bin/lark-cli.exe'));
+  });
+
+  it('列出已装的官方连接器及版本，与插件行是否覆盖无关', async () => {
+    const layout = await installed();
+    await writeFile(layout.packages.get('@deepseek-ai/dsh-feishu'), JSON.stringify({ version: '0.2.3-alpha.2' }));
+    expect(connectorLine(layout, { lark: '/opt/tools/lark-cli' }).connectors()).toEqual(['@deepseek-ai/dsh-feishu@0.2.3-alpha.2', '@deepseek-ai/dsh-wecom']);
+    expect(connectorLine(layout, { resolvePackage: () => null }).connectors()).toEqual([]);
+  });
+
+  it('连接器版本只读一次：宿主运行中装上的连接器要重启后才出现，与定位结果一致', async () => {
+    const layout = await installed();
+    let present = false;
+    const clis = connectorLine(layout, { resolvePackage: name => present ? layout.resolvePackage(name) : null });
+    expect(clis.connectors()).toEqual([]);
+    expect(clis.describe('lark')).toBeInstanceOf(CliUnavailableError);
+    present = true;
+    expect(clis.connectors()).toEqual([]);
+    expect(clis.describe('lark')).toBeInstanceOf(CliUnavailableError);
+    // A Host that started with the connectors installed sees them.
+    expect(connectorLine(layout).connectors()).toEqual(['@deepseek-ai/dsh-feishu', '@deepseek-ai/dsh-wecom']);
+  });
+});
+
+describe('VendorClis：没有官方连接器的宿主线', () => {
+  it('插件行没设值时如实报未设置，不去 PATH 上找', () => {
+    const clis = new VendorClis({ officialConnectors: false });
+    const answer = clis.describe('lark');
+    expect(answer).toBeInstanceOf(CliUnavailableError);
+    expect(answer.message).toBe('未设置 lark-cli：请在24私助插件行设置 larkCliBin。');
+    expect(answer.headline).toBe('未设置 lark-cli');
+    expect(answer.whole).toBe(answer.message);
+    // No process started, so the platform did nothing: the external-write stages may let the same call be retried once the CLI is there.
+    expect(answer.outcome).toBe('failed');
+  });
+
+  it('插件行给了裸名或相对路径就原样交给进程启动去解析', () => {
+    const clis = new VendorClis({ officialConnectors: false, lark: 'lark-cli', wecom: './wecom-cli' });
+    expect(clis.describe('lark').path).toBe('lark-cli');
+    expect(clis.describe('lark')).toEqual(larkAt('lark-cli', 'path'));
+    expect(clis.describe('wecom')).toEqual({ cli: 'wecom', path: './wecom-cli', source: 'path' });
+  });
+});
+
+async function fileLike(layout, name) {
+  const path = join(layout.root, name);
+  await writeFile(path, '', { mode: 0o755 });
+  layout.packages.set(name, path);
+}

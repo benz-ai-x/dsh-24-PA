@@ -59,6 +59,17 @@ for (const backend of ['sqlite', 'postgres']) for (const channel of ['feishu', '
     expect(result).toMatchObject({ adopted: 1, unknown: 0, failed: 1 }); expect(result.results.map(r => r.outcome)).toEqual(['failed', 'succeeded']); expect(await remote()).toHaveLength(1);
   });
 
+  it('CLI 在原处不可执行时采纳按明确未执行记：冲突核对先失败，不写操作记录、不记未知，修好后同一事项可重试', async () => {
+    const child = await worker(), bin = f.options[stubName + 'CliBin'];
+    await chmod(bin, 0o644);
+    const refused = await adopt(child, [blocks[0]]);
+    expect(refused).toMatchObject({ adopted: 0, unknown: 0, failed: 1 });
+    expect(refused.results[0]).toMatchObject({ outcome: 'failed', error: '日历同步不完整，无法确认冲突；已有未知操作保持待核对，请恢复同步后沿原操作续办。' });
+    expect(await f.rt.repos.operations.calendarCreatesForWork(child.id)).toHaveLength(0); expect(await remote()).toHaveLength(0);
+    await chmod(bin, 0o755);
+    const retry = await adopt(child, [blocks[0]]); expect(retry.results[0].outcome).toBe('succeeded'); expect(await remote()).toHaveLength(1);
+  });
+
   it('确认实际未写后，同一未知操作可安全续办且身份不变', async () => {
     await fault('calendar.create_unknown'); const child = await worker(), first = await adopt(child, [blocks[0]]), operationId = first.results[0].operationId;
     expect(first.unknown).toBe(1); expect(await remote()).toHaveLength(0);

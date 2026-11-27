@@ -4,7 +4,7 @@
 export const makeBaseDeps = (over = {}) => ({
   repos: () => { throw new Error('not needed'); },
   config: () => { throw new Error('not needed'); },
-  cli: () => ({ bin: 'missing-cli-bin', timeoutMs: 2000 }),
+  cli: () => ({ bin: 'missing-cli-bin', timeoutMs: 2000, source: 'config' }),
   notifyOwner: async () => {},
   stagedOperation: async () => { throw new Error('not needed'); },
   stagedOperationWithId: async () => { throw new Error('not needed'); },

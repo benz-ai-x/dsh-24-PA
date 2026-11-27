@@ -112,7 +112,7 @@ window.__ModuleLoader__.load({
       .pa24-empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:35px 18px}.pa24-empty>.pa24-icon-tile{width:64px;height:64px;border-radius:22px;margin-bottom:18px}.pa24-empty>.pa24-icon-tile svg{width:29px;height:29px}.pa24-empty h3{font-size:17px;margin:3px 0 8px}.pa24-empty p{max-width:440px;color:var(--pa-muted);font-size:13px}.pa24-empty .pa24-row{margin-top:18px;justify-content:center}
       .pa24-example{display:flex;align-items:center;gap:9px;padding:12px 16px;background:var(--pa-soft);border-radius:10px;font-size:12px;color:var(--pa-muted)}
       .pa24-dl{margin:0}.pa24-field{display:grid;grid-template-columns:120px minmax(0,1fr);gap:12px;padding:7px 0;border-bottom:1px solid var(--pa-line)}.pa24-field:last-child{border-bottom:0}.pa24-field dt{font-size:12px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-field dd{margin:0;font-size:13px;overflow-wrap:anywhere}
-      .pa24-helper{border-radius:10px;padding:12px 14px;background:var(--pa-soft);color:var(--pa-muted);font-size:12px;margin-top:16px}
+      .pa24-helper{border-radius:10px;padding:12px 14px;background:var(--pa-soft);color:var(--pa-muted);font-size:12px;margin-top:16px}.pa24-helper .pa24-source-line{display:block;margin-bottom:6px}
       .pa24-searchbar{display:flex;gap:8px;align-items:center;padding:14px;background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:12px;margin-bottom:14px}.pa24-search{position:relative;flex:1;min-width:120px}.pa24-search>svg{position:absolute;left:12px;top:12px;color:var(--pa-muted);width:18px;height:18px}.pa24-search input{padding-left:38px;background:var(--pa-soft);font-size:13px}
       .pa24-memory-manager .pa24-searchbar{flex-wrap:wrap}.pa24-memory-manager .pa24-search{flex-basis:200px}.pa24-memory-manager .pa24-searchbar button{flex-shrink:0;white-space:nowrap}.pa24-memory-manager .pa24-search input{padding-left:38px}
       .pa24-result-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 2px 15px;font-size:12px;color:var(--pa-muted)}.pa24-memory-manager{min-width:0}.pa24-memory-filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:12px 0}.pa24-memory-filter{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:12px}.pa24-memory-manager select,.pa24-memory-manager input,.pa24-memory-manager textarea{color:var(--pa-ink);background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:6px;padding:8px;min-width:0;max-width:100%;box-sizing:border-box}.pa24-memory-manager textarea{width:100%;resize:vertical}.pa24-memory-revisions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;min-width:0}.pa24-memory-manager pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}.pa24-memory-manager .pa24-memory-heading{flex-wrap:wrap}.pa24-memory-list{display:grid;gap:14px}.pa24-memory-card{background:var(--pa-surface);border:1px solid var(--pa-line);border-radius:14px;overflow:hidden}.pa24-memory-body{padding:20px 22px}.pa24-memory-heading{display:flex;align-items:flex-start;gap:10px;justify-content:space-between}.pa24-memory-heading h3{overflow-wrap:anywhere}.pa24-memory-card .pa24-note{margin:15px 0;font-size:14px}.pa24-memory-source{display:flex;gap:6px;align-items:flex-start;font-size:11px;color:var(--pa-muted);overflow-wrap:anywhere}.pa24-memory-footer{padding:10px 22px;background:var(--pa-soft);border-top:1px solid var(--pa-line)}.pa24-memory-footer details{border:0;margin:0;padding:0}.pa24-memory-footer summary{min-height:26px;padding:0;font-size:11px}.pa24-page-nav{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:22px;font-size:12px;color:var(--pa-muted)}.pa24-page-nav button:first-child svg{transform:rotate(180deg)}
@@ -185,6 +185,19 @@ window.__ModuleLoader__.load({
         // F27: 内联双语通道——dsh locale 服务的 resolveText 按当前语言与回退
         // 链解析 {zh,en}；与字符串同址维护，避免大字典间接层。
         const L = (zhText, enText) => ctx.locale.resolveText({ zh: zhText, en: enText });
+        // #306: the words for what supplies a CLI, as the access check reports it — a label for a row, a line for a note.
+        const CLI_SOURCE = {
+          official: { label: ['官方连接器提供', 'From the official connector'], line: ['由官方连接器提供。', 'comes from the official connector.'] },
+          config: { label: ['插件行显式配置', 'Set in the plugin row'], line: ['由24私助插件行给出。', 'is named in the 24PA plugin row.'] },
+          path: { label: ['PATH 上的可执行文件', 'Executable on PATH'], line: ['来自宿主的 PATH。', "is found on the host's PATH."] },
+        };
+        // The entry for the source the access check reported, or null when it reported none — before a check, or when the CLI is missing, there is none to name.
+        const cliSourceEntry = cli => cli?.source && CLI_SOURCE[cli.source] ? CLI_SOURCE[cli.source] : null;
+        // The label for a card's CLI row: on its own, or ahead of what the check said.
+        const cliSourceLabel = cli => { const entry = cliSourceEntry(cli); return entry ? L(...entry.label) : null; };
+        const cliSourceText = cli => [cliSourceLabel(cli), cli.message].filter(Boolean).join(' · ');
+        // The same as a line of its own above a note: the program, then where it came from.
+        const cliSourceLine = (cli, program) => { const entry = cliSourceEntry(cli); return entry ? h('span', { className: 'pa24-source-line' }, `${program} `, L(...entry.line)) : null; };
         const statusBadge = (tier, label) => { const item = STATUS[tier] || STATUS.unchecked; return badge(label || t(item[0]), item[1], item[2]); };
         const technicalText = value => {
           const text = String(value ?? '');
@@ -524,13 +537,13 @@ window.__ModuleLoader__.load({
               button('folder', L('绑定所选工作区', 'Bind selected workspace'), () => rpc('action', { type: 'workspace.bind', path }), { disabled: busy || !path, className: 'pa24-primary' }),
               h('div', { className: 'pa24-helper' }, L('当前目录', 'Current directory'), h('p', { className: 'pa24-meta' }, workspace ? workspace.path : L('未绑定', 'Not bound')))),
             h('section', { className: 'pa24-card' },
-              sectionHead('code', L('当前生效配置', 'Effective configuration'), L('配置保存在工作区；密钥另存于工作区密钥库、服务器环境或 CLI 授权。', 'Configuration lives in the workspace; credentials use its secret store, server environment or CLI authorization.'),
+              sectionHead('code', L('当前生效配置', 'Effective configuration'), L('配置保存在工作区；密钥另存于工作区密钥库、服务器环境，或宿主「插件」页登录的账号。', 'Configuration lives in the workspace; credentials use its secret store, the server environment, or the account signed in on the host\'s Plugins page.'),
                 h('div', { className: 'pa24-row' },
                   button('code', L('打开参数表单', 'Open config form'), openConfig, { className: 'pa24-quiet' }),
                   button('chat', L('通过对话修改配置', 'Change config in chat'), openRobot, { className: 'pa24-quiet' }),
                   button('refresh', L('重载 AGENTS.md', 'Reload AGENTS.md'), () => rpc('action', { type: 'workspace.reload' }), { className: 'pa24-quiet' })), 'blue'),
               workspace && fields([
-                [L('固定飞书 profile', 'Feishu CLI profile'), config ? config.larkProfile : null],
+                [L('lark-cli profile', 'lark-cli profile'), config ? config.larkProfile : null],
                 [L('时区', 'Time zone'), config ? config.timeZone : null],
                 [L('同时处理数', 'Parallel workers'), config ? config.maxWorkers : null],
                 [L('已启用 Worker', 'Enabled workers'), enabledNames],
@@ -749,7 +762,7 @@ window.__ModuleLoader__.load({
           return 'ok';
         };
         // 全应用健康聚合（用户 2026-10-11 裁决：一键检查含主动平台探测）：
-        // readiness 六项＋health capabilities＋消息通道，任一 error→需处理。
+        // readiness 各项＋health capabilities＋消息通道，任一 error→需处理。
         const healthAggregate = ({ state, extra }) => {
           const rows = [];
           for (const item of (state.readiness?.items || [])) rows.push(item.state);
@@ -920,7 +933,7 @@ window.__ModuleLoader__.load({
         // 二级详情：运行就绪（原 work tab 区块移入运行与维护分类）。
         function ReadinessDetail({ state }) {
           const readyItems = (state.readiness?.items || []).map(item => {
-            const labels = { host: L('宿主', 'Host'), config: L('配置', 'Config'), postgres: L('业务账本', 'Ledger'), workspace: L('工作区', 'Workspace'), feishu: L('飞书接入', 'Feishu access'), sessions: L('固定会话', 'Fixed sessions') };
+            const labels = { host: L('宿主', 'Host'), config: L('配置', 'Config'), postgres: L('业务账本', 'Ledger'), workspace: L('工作区', 'Workspace'), feishu: L('飞书接入', 'Feishu access'), 'vendor-cli': L('CLI 来源', 'CLI source'), sessions: L('固定会话', 'Fixed sessions') };
             const tier = item.state === 'ok' ? 'ok' : item.state === 'error' ? 'error' : 'warn';
             return h('div', { key: item.id, className: 'pa24-ready-item pa24-tone-' + STATUS[tier][1] },
               icon(STATUS[tier][2], { width: 17, height: 17 }),
@@ -1111,7 +1124,7 @@ window.__ModuleLoader__.load({
                   button('refresh', busy ? L('检查中…', 'Checking…') : L('检查接入状态', 'Check access'), () => rpc('action', { type: 'health.check', scopes: ['feishu'], workspaceBinding: state.workspaceBinding })),
                   button('chat', L('通过对话配置', 'Configure in chat'), openRobot)), 'blue'),
               fields([
-                [L('固定 CLI profile', 'Feishu CLI profile'), badge(config ? config.larkProfile : L('未配置', 'Not configured'), 'neutral')],
+                [L('lark-cli profile', 'lark-cli profile'), badge(config ? config.larkProfile : L('未配置', 'Not configured'), 'neutral')],
                 [L('接入模式', 'Mode'), config && config.mode === 'feishu' ? L('飞书模式', 'Feishu mode') : L('体验模式 · 未连接飞书', 'Demo · not connected to Feishu')],
                 [L('上次检查', 'Last check'), check ? date(check.checkedAt, tz) : L('尚未检查，点击右上方按钮开始', 'Not checked yet — click the button above to start')],
               ]),
@@ -1126,14 +1139,17 @@ window.__ModuleLoader__.load({
               ]),
               h('p', { className: 'pa24-helper' }, L('建议在飞书发一条 /24pa 实测收发；连接正常不代表消息一定送达，发送后以收发记录为准。', 'Send /24pa on Feishu to verify both directions; a healthy connection does not guarantee delivery — trust the send log.'))),
             h('section', { className: 'pa24-card' },
-              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与用户授权', 'CLI & user auth')), diagnosis(auth)),
+              h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与账号登录', 'CLI & account sign-in')), diagnosis(auth)),
               fields([
-                [L('安装状态', 'Install'), cli ? technicalText(cli.message) : L('尚未检查', 'Not checked')],
+                [L('CLI 来源', 'CLI source'), cli ? technicalText(cliSourceText(cli)) : L('尚未检查', 'Not checked')],
                 [L('CLI 版本', 'CLI version'), cli ? cli.version : L('尚未检查', 'Not checked')],
-                [L('用户授权', 'User auth'), auth ? technicalText(auth.message) : L('尚未检查', 'Not checked')],
-                [L('CLI 用户', 'CLI user'), auth ? auth.userName : L('尚未取得', 'Not acquired')],
+                [L('账号登录', 'Account sign-in'), auth ? technicalText(auth.message) : L('尚未检查', 'Not checked')],
+                [L('登录账号', 'Signed-in user'), auth ? auth.userName : L('尚未取得', 'Not acquired')],
                 [L('用户令牌', 'User token'), auth ? auth.tokenStatus : L('尚未确认', 'Unconfirmed')],
               ]),
+              // #307: linking the app and signing in are the official Feishu plugin's operations, done by the owner on the host's Plugins page.
+              h('p', { className: 'pa24-helper' }, cliSourceLine(cli, 'lark-cli'),
+                L('关联应用与登录由本人在宿主「插件」页的「飞书插件」里完成，这里只显示只读检查的结果。', 'Link the app and sign in on that plugin\'s block of the host\'s Plugins page; what shows here is the read-only check.')),
               h('details', null, h('summary', null, L('路径与身份明细', 'Path & identity details')),
                 fields([
                   [L('CLI 路径', 'CLI path'), cli ? h('span', { className: 'pa24-ellip', title: cli.path }, cli.path) : L('尚未检查', 'Not checked')],
@@ -2913,7 +2929,7 @@ window.__ModuleLoader__.load({
             },
             body: ({ state }) => h('div', null,
               capLine(L('消息通道', 'Messaging'), state.transport && state.transport.connected ? L('长连接已启动', 'Connected') : L('未启动', 'Not started')),
-              capLine(L('CLI 授权', 'CLI auth'), state.diagnostics && state.diagnostics.auth ? (state.diagnostics.auth.state === 'ok' ? L('有效', 'Valid') : state.diagnostics.auth.message) : L('尚未检查', 'Not checked'))),
+              capLine(L('账号登录', 'Account sign-in'), state.diagnostics && state.diagnostics.auth ? (state.diagnostics.auth.state === 'ok' ? L('有效', 'Valid') : state.diagnostics.auth.message) : L('尚未检查', 'Not checked'))),
             detail: helpers => h(FeishuDetail, helpers),
           },
           {
@@ -3540,11 +3556,11 @@ window.__ModuleLoader__.load({
             !maintenance && h('section', { className: 'pa24-card' },
               h('h2', null, L('模式与身份', 'Mode & identity')),
               row('mode', L('模式', 'Mode'), sel([['demo', L('体验模式', 'Demo')], ['feishu', L('飞书模式', 'Feishu')]], form.mode, v => set('mode', v)), form.mode === 'feishu' ? L('需要已设置的飞书应用凭据。', 'Feishu app credentials are required.') : null),
-              row('larkProfile', L('lark-cli profile', 'lark-cli profile'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 固定 profile 名。', 'The pinned lark-cli profile name.')),
+              row('larkProfile', L('lark-cli profile', 'lark-cli profile'), txt(form.larkProfile, v => set('larkProfile', v), { placeholder: 'default' }), L('lark-cli 的 profile 名；保持 default 时命令不带 --profile，与官方飞书插件用的是同一份当前配置。', 'The lark-cli profile name; keep default and commands carry no --profile, the same current configuration the official Feishu plugin uses.')),
               row('ownerOpenId', L('主人 OpenID', 'Owner OpenID'), h('div', { className: 'pa24-row', style: { flexWrap: 'nowrap' } },
                 txt(form.ownerOpenId, v => set('ownerOpenId', v), { readOnly: true, style: { flex: 1, minWidth: 0 } }),
-                h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，取得授权身份后再应用。', 'Run the Feishu check first to obtain the authorized identity.') })) }, L('应用授权值', 'Apply authorized'))),
-                L('身份字段只读；一键应用当前 CLI 授权的 open_id' + (authOpenId ? '' : diagChecked ? '（检查过，尚未取得授权身份）' : '（在「接入」分类运行检查后可获取）') + '。', 'Identity is read-only; one-click apply of the CLI-authorized open_id' + (authOpenId ? '' : diagChecked ? ' (checked, not yet acquired)' : ' (run a check under Access to acquire)') + '.')),
+                h('button', { type: 'button', className: 'pa24-quiet', onClick: () => (authOpenId ? set('ownerOpenId', authOpenId) : setSaveState({ ok: false, message: L('先在「飞书接入」运行检查，读到登录账号后再应用。', 'Run the Feishu access check first to read the signed-in account.') })) }, L('应用登录账号', 'Apply signed-in account'))),
+                L('身份字段只读；一键应用当前登录账号的 open_id' + (authOpenId ? '' : diagChecked ? '（检查过，尚未读到登录账号）' : '（在「接入」分类运行检查后可获取）') + '。', 'Identity is read-only; one-click apply of the signed-in account\'s open_id' + (authOpenId ? '' : diagChecked ? ' (checked, no signed-in account read yet)' : ' (run a check under Access to read it)') + '.')),
               row('extraBusinessSkills', L('业务 skill 放行面', 'Business skills'), h('textarea', { rows: 2, value: form.extraSkills, onChange: e => set('extraSkills', e.target.value), placeholder: 'standup-prep, my-routine' }, null), L('逗号或换行分隔的 kebab-case skill 名；点名目录外名会被过滤并在健康里提示。', 'Comma/newline-separated kebab-case skill names; unknown names are filtered with a health note.')),
               row('timeZone', L('时区', 'Time zone'), h('div', null, txt(form.timeZone, v => set('timeZone', v), { placeholder: 'Asia/Shanghai', list: 'pa24-tz-list' }),
                 h('datalist', { id: 'pa24-tz-list' }, ['Asia/Shanghai', 'Asia/Tokyo', 'Asia/Singapore', 'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles', 'UTC'].map(z => h('option', { key: z, value: z })))), L('IANA 时区名，保存时即时校验。', 'IANA timezone name; validated on save.'))),
@@ -4014,14 +4030,20 @@ window.__ModuleLoader__.load({
             wecom && h('section', { className: 'pa24-card' },
               h('div', { className: 'pa24-row pa24-between' }, h('h2', null, L('CLI 与身份', 'CLI & identity')), statusBadge(wecom.cli.state !== 'ok' || wecom.identity.state === 'error' ? 'error' : wecom.identity.state === 'ok' ? 'ok' : 'warn', wecom.cli.state !== 'ok' ? L('CLI 不可用', 'CLI unavailable') : wecom.identity.state === 'ok' ? undefined : L('身份待核验', 'Identity needs verification'))),
               fields([
-                [L('CLI 状态', 'CLI status'), technicalText(wecom.cli.message)],
+                [L('CLI 状态', 'CLI status'), technicalText(cliSourceText(wecom.cli))],
                 [L('机器人绑定与授权真人', 'Bot binding & authorized user'), technicalText(wecom.identity.message)],
                 [L('推送目标', 'Push target'), wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : L('未解析', 'Unresolved')],
-              ])),
+              ]),
+              // Connecting WeCom is the official WeCom plugin's operation, done by the owner on the host's Plugins page.
+              h('p', { className: 'pa24-helper' }, cliSourceLine(wecom.cli, 'wecom-cli'),
+                L('连接企业微信由本人在宿主「插件」页的「企业微信插件」里完成。', 'Connect WeCom on that plugin\'s block of the host\'s Plugins page.'))),
             wecom && h('section', { className: 'pa24-card' },
               sectionHead('shield', L('服务级授权', 'Service-level authorization'), L('按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。', 'Read-only probes per enabled channel; service-level grants expire (follow the renewal guide on 850003), and links must open inside the WeCom app.')),
               (wecom.services ?? []).length === 0
-                ? h('p', { className: 'pa24-meta' }, L('没有已启用的企微渠道（三渠道均为 feishu）。', 'No WeCom channel is enabled (all three channels are on feishu).'))
+                // The check stops at an unavailable CLI; that is not the same as no WeCom channel being enabled.
+                ? h('p', { className: 'pa24-meta' }, wecom.cli.state === 'ok'
+                  ? L('没有已启用的企微渠道（三渠道均为 feishu）。', 'No WeCom channel is enabled (all three channels are on feishu).')
+                  : L('CLI 不可用，未探测服务级授权。', 'The CLI is unavailable; service-level authorization was not probed.'))
                 : (wecom.services ?? []).map(s => h('div', { key: s.id, className: 'pa24-resource' },
                     h('div', { className: 'pa24-row' },
                       h('div', { style: { flex: 1, minWidth: 0 } }, h('h3', null, serviceMeta[s.id] || s.id), h('p', null, technicalText(s.message))),

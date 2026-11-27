@@ -51,6 +51,13 @@ export interface SessionTitleService {
   rename(session: DshSession, title: string): unknown;
 }
 
+/** The profile this process runs, as the launcher provides it. */
+export interface ProfileContextService {
+  readonly name: string;
+  /** The profile directory: packages installed into the profile resolve from its node_modules. */
+  readonly dir: string;
+}
+
 export interface CreateSessionRequest {
   sessionId?: string;
   workspaceId?: string;

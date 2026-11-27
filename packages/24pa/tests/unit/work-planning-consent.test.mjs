@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { fixture } from '../helpers/runtime.mjs';
+import { fixture, unstartableCli } from '../helpers/runtime.mjs';
 import { captureWorkOwnerInput } from '../../lib/work-owner-input.js';
 
 let f, parent, turn;
@@ -84,6 +84,7 @@ it('历史、排队、后台和取消的输入不建立新的主人确认来源'
 it('飞书委派使用已验证入站原文，引用原交办的补充也保留来源', async () => {
   await f.cleanup();
   f = await fixture({ env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'test-secret' } });
+  f.options.larkCliBin = await unstartableCli(f);
   await f.rt.bind(await f.workspace('feishu-consent', { enabledWorkers: ['calendar'], mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }));
   const local = await f.rt.openLocalSession(); parent = f.agents.get(local.replace(/-local$/, '-feishu'));
   const text = '请将客户方案设为近期重点。';

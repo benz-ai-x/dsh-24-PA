@@ -81,7 +81,7 @@ kind: "package-bundle"
 
 ## 快速开始
 
-前置要求：Node.js `^24.22.3 || >=26.13.1`、dsh `0.2.3-alpha.2`；默认 SQLite demo 无需独立数据库服务。
+前置要求：Node.js `^24.22.3 || >=26.13.1`、dsh `0.2.3-alpha.2`；默认 SQLite demo 无需独立数据库服务。飞书接入与企微渠道的 CLI 由宿主的官方插件提供（`@deepseek-ai/dsh-feishu`，用到企微时另装 `@deepseek-ai/dsh-wecom`），不再要求服务器上装有 `lark-cli`／`wecom-cli`；从 `0.2.3-alpha.2.1` 及更早版本升级的实例请先装官方插件，24私助插件行若还留着 `larkCliBin: lark-cli` 这样的裸名，删除该项即可改用官方插件提供的 CLI。
 
 <a id="安装-bundle"></a>
 ### 安装当前版本
@@ -90,6 +90,9 @@ kind: "package-bundle"
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.3-alpha.2.1 --registry=https://registry.npmjs.org
+
+# 接通飞书前安装官方飞书插件；它会再次触发 pnpm 构建审批，处置见初始化指南阶段 3
+dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://registry.npmjs.org
 ```
 
 重启同一个 Profile 并选择「24私助」预设。安装与启动必须使用相同的 `DSH_HOME`。全新实例请按[初始化指南](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md)完成隔离目录、启动脚本、pnpm 构建审批、带 token 的面板地址与 demo 验收；随后对本地助理说「帮我接通飞书」，或阅读随包[飞书接入指南](feishu-setup.md)。
