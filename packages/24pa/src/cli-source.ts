@@ -6,7 +6,7 @@
 // a host line without the connector service (the rc line) the plugin entry
 // names the bare executables, and a runtime built without either has no CLI.
 
-import { accessSync, constants, readFileSync } from 'node:fs';
+import { accessSync, constants, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 
@@ -54,8 +54,8 @@ const OPTION = { lark: 'larkCliBin', wecom: 'wecomCliBin' } as const;
 export type PackageResolver = (name: string, from?: string) => string | null;
 
 /**
- * Read on each lookup from these settings, so a test that edits them after the runtime was built is honoured. The plugin entry copies the
- * row's values into them once when it loads: a row edited on disk takes effect when the Host restarts.
+ * Read on each lookup from the object they sit on. In the product the plugin entry copies the row's values into them once when it loads, so
+ * a row edited on disk takes effect when the Host restarts.
  */
 export interface VendorCliSettings {
   readonly lark?: string;
@@ -84,8 +84,8 @@ const resolveInstalled: PackageResolver = (name, from) => {
 };
 const isExecutable = (path: string): boolean => {
   try {
-    accessSync(path, constants.X_OK);
-    return true;
+    // A file one can run; a directory carries the bit too.
+    return statSync(path).isFile() && (accessSync(path, constants.X_OK), true);
   } catch {
     return false;
   }
@@ -94,7 +94,7 @@ const isExecutable = (path: string): boolean => {
 /** A bare name, which a process resolves on PATH; anything with a separator in it is a path, absolute or relative. */
 const isBareName = (executable: string): boolean => !/[\\/]/.test(executable);
 
-/** Whether an executable can run as it was given: a path is checked where it stands, a bare name on PATH. Nothing is started. */
+/** Whether an executable is where it was given and can be run: a path is checked where it stands, a bare name on PATH. Nothing is started. */
 export function runnableAsGiven(executable: string): boolean {
   const candidates = isBareName(executable) ? (process.env.PATH ?? '').split(delimiter).map(dir => join(dir, executable)) : [executable];
   return candidates.some(isExecutable);

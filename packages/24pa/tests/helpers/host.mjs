@@ -104,7 +104,8 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: reque
     const onlyNode = join(root, 'only-node');
     await mkdir(onlyNode, { recursive: true });
     try {
-      await symlink(process.execPath, join(onlyNode, process.platform === 'win32' ? 'node.exe' : 'node'));
+      // A reused root already carries the link.
+      await symlink(process.execPath, join(onlyNode, process.platform === 'win32' ? 'node.exe' : 'node')).catch(error => { if (error.code !== 'EEXIST') throw error; });
       env.PATH = onlyNode;
     } catch {
       env.PATH = dirname(process.execPath);

@@ -109,8 +109,8 @@ export type CliVersionProbe = { ok: true; version: string } | { ok: false; probl
 export async function cliVersion(cli: { path: string }, options: { timeoutMs: number; env?: Record<string, string | undefined> }): Promise<CliVersionProbe> {
   try {
     const { stdout, exitCode } = await runCliProcess({ bin: cli.path, argv: ['--version'], timeoutMs: options.timeoutMs, stdoutLimitBytes: 16384, env: options.env,
-      fail: (kind, cause) => new Error(kind === 'spawn' ? `无法启动 ${cli.path}（${cause?.message ?? '未知原因'}）` : `版本检查未完成（${kind}）`) });
-    if (exitCode !== 0) return { ok: false, problem: `版本检查退出码 ${exitCode}` };
+      fail: (kind, cause) => new Error(kind === 'spawn' ? `无法启动 ${cli.path}（${cause?.message ?? '未知原因'}）` : `${cli.path} 的版本检查未完成（${kind}）`) });
+    if (exitCode !== 0) return { ok: false, problem: `${cli.path} 的版本检查退出码 ${exitCode}` };
     return { ok: true, version: stdout.trim().slice(0, VERSION_MAX_CHARS) };
   } catch (error) {
     return { ok: false, problem: (error as Error).message };

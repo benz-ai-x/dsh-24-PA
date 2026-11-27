@@ -468,8 +468,9 @@ export class WecomChannels {
     const services: WecomServiceCheck[] = [];
     const checkedAt = nowIso();
     // 1. CLI presence: `--version` prints plain text (not the JSON envelope),
-    // so it runs through a raw spawn rather than the business gateway. Without
-    // a wecom-cli at all (#306), the lookup's own message is the next step.
+    // so it is one bare start through the gateway. Without a wecom-cli, or
+    // with one not executable where it is said to be (#306), the lookup's
+    // own message is the next step.
     let cli: WecomDiagnostics['cli'];
     const failed = (message: string): WecomDiagnostics => {
       this.wecomIdentityCache = null; this.wecomIdentityFailedAt = Date.now();

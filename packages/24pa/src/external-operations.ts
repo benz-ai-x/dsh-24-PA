@@ -75,8 +75,8 @@ export class ExternalOperations {
     try {
       result = await invoke();
     } catch (error) {
-      // Only explicit platform rejection is safe to retry. Broken envelopes,
-      // timeouts and arbitrary transport errors carry no proof of non-execution.
+      // Only a failure that proves nothing ran is safe to retry: a platform's explicit rejection, or a CLI that could not be
+      // started. Broken envelopes, timeouts and arbitrary transport errors carry no proof of non-execution.
       if ((error as { outcome?: string })?.outcome === 'failed') throw error;
       throw unknownError((error as Error).message);
     }

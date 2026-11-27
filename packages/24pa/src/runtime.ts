@@ -31,7 +31,7 @@ import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry, ProfileContextService } from './host.js';
-import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
+import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type CliSource, type PackageResolver, type VendorCli } from './cli-source.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -173,8 +173,8 @@ export class PaRuntime {
   private readonly ctx: DshContext;
   readonly options: RuntimeOptions;
   private readonly env: Record<string, string | undefined>;
-  /** How each vendor CLI is supplied (#306, see cli-source.ts). */
-  readonly vendorClis: VendorClis;
+  /** How each vendor CLI is supplied (#306, see cli-source.ts); what it says reaches callers through `located` and readiness. */
+  private readonly vendorClis: VendorClis;
   /** Whether the host line ships the official connectors (#306); read once when the runtime is built. */
   private readonly officialConnectors: boolean;
   private serial: Promise<unknown> = Promise.resolve();
@@ -298,7 +298,7 @@ export class PaRuntime {
             const synth = resolveTtsEngine(this.config!.tts, this.secretEnv());
             if (!synth) throw Object.assign(new Error('TTS 引擎未配置（tts.engine=none），语音行无法投递。'), { outcome: 'failed' });
             const ogg = await synth(String(row.content?.text ?? '')).catch(error => { throw Object.assign(new Error(`语音合成失败：${(error as Error).message}`), { outcome: 'failed' }); });
-            return sendLarkAudioMessage(cliOptions(this.config!, this.larkCli.path, 120_000), row.target, ogg, row.dedup_key, async () => {
+            return sendLarkAudioMessage(cliOptions(this.config!, this.located('lark').path, 120_000), row.target, ogg, row.dedup_key, async () => {
               const hold = await checkDeliveryHold(() => this.planResults.beforeSend(row));
               if (hold) throw new DeliveryHeld(hold);
             });
@@ -350,7 +350,7 @@ export class PaRuntime {
   private readonly handwriting: HandwritingPipeline = new HandwritingPipeline({
     skillParams: name => this.skillCatalog.params(name),
     ...this.baseChannelDeps(),
-    cli: () => ({ bin: this.larkCli.path, timeoutMs: this.options.cliTimeoutMs }),
+    cli: this.channelCli('lark'),
     workspace: () => this.workspace,
     transport: () => this.transport,
     accessSessionId: () => this.accessSessionId,
@@ -366,7 +366,7 @@ export class PaRuntime {
    *  runtime keeps channel selection (config semantics) and role bindings. */
   private readonly wecomChannels = new WecomChannels({
     ...this.baseChannelDeps(),
-    cli: () => { const wecom = this.platformCli('wecom'); return { bin: wecom.path, timeoutMs: this.options.cliTimeoutMs, source: wecom.source }; },
+    cli: this.channelCli('wecom'),
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
@@ -378,7 +378,7 @@ export class PaRuntime {
    *  and receipts behind one deep module; channel selection stays here. */
   private readonly feishu = new FeishuChannels({
     ...this.baseChannelDeps(),
-    cli: () => ({ bin: this.larkCli.path, timeoutMs: this.options.cliTimeoutMs }),
+    cli: this.channelCli('lark'),
     gate: (key, work) => this.gate(key, work),
     stagedOperationWithId: (operationId, item, action, params) => this.stagedOperationWithId(operationId, item, action, params),
     notifySourceChanged: (sourceType, sourceId, fp) => this.notifySourceChanged(sourceType, sourceId, fp),
@@ -625,7 +625,7 @@ export class PaRuntime {
   };
   private readonly digest: DigestService = new DigestService({
     ...this.baseChannelDeps(),
-    cli: () => ({ bin: this.larkCli.path, timeoutMs: this.options.cliTimeoutMs }),
+    cli: this.channelCli('lark'),
     accessSessionId: () => this.accessSessionId,
     workspace: () => this.workspace,
     startedAt: () => this.startedAt,
@@ -1623,20 +1623,25 @@ export class PaRuntime {
   }
 
   /** The lark-cli options every business call shares. */
-  private get larkOptions() { return cliOptions(this.config!, this.larkCli.path, this.options.cliTimeoutMs); }
-  /** Where the lark-cli is; throws {@link CliUnavailableError} when it is missing or cannot run as given. */
-  private get larkCli(): CliLocation { return this.platformCli('feishu'); }
+  private get larkOptions() { return cliOptions(this.config!, this.located('lark').path, this.options.cliTimeoutMs); }
+  /** What a channel module needs to run its platform's CLI; the lookup throws before anything starts when the CLI cannot run as given. */
+  private channelCli(cli: VendorCli): () => { bin: string; timeoutMs: number; source: CliSource } {
+    return () => { const located = this.located(cli); return { bin: located.path, timeoutMs: this.options.cliTimeoutMs, source: located.source }; };
+  }
   /** A CLI's path for identity comparisons; an unsupplied CLI reads as one fixed word instead of throwing. */
   private cliPath(cli: VendorCli): string {
     const answer = this.vendorClis.describe(cli);
     return answer instanceof CliUnavailableError ? 'unavailable' : answer.path;
   }
+  /** The CLI a platform's business actions run with; throws {@link CliUnavailableError} when it is missing or not executable where it is said to be. */
+  private platformCli(platform: SourcePlatform): CliLocation { return this.located(platform === 'feishu' ? 'lark' : 'wecom'); }
   /**
-   * The CLI a platform's business actions run with; throws {@link CliUnavailableError} when it is missing or not executable where it is
-   * said to be. Every surface that reports it, and every call that would run it, gets the same sentence.
+   * Where a vendor CLI is. Throws {@link CliUnavailableError}, which says what to do, when the CLI is missing or not executable where it is
+   * said to be: a call that would run it is refused before a process starts, and readiness, the access checks and the channel's start
+   * report the same sentence.
    */
-  private platformCli(platform: SourcePlatform): CliLocation {
-    const answer = this.vendorClis.describe(platform === 'feishu' ? 'lark' : 'wecom');
+  private located(cli: VendorCli): CliLocation {
+    const answer = this.vendorClis.describe(cli);
     if (answer instanceof CliUnavailableError) throw answer;
     const problem = this.cliProblem(answer);
     if (problem) throw new CliUnavailableError(problem, answer.cli);
@@ -1644,8 +1649,7 @@ export class PaRuntime {
   }
   /** Why no Feishu channel can run on the lark-cli as located, or null when one can. */
   private larkProblem(): string | null {
-    const lark = this.vendorClis.describe('lark');
-    return lark instanceof CliUnavailableError ? lark.message : this.cliProblem(lark);
+    try { this.located('lark'); return null; } catch (error) { return (error as Error).message; }
   }
   /**
    * Why a located CLI cannot run as given, or null when it can; said the same way wherever the plugin reports it.
@@ -4664,10 +4668,9 @@ export class PaRuntime {
       if (!this.workspace || !this.config) throw new Error('尚未绑定工作区。');
       const workspace = this.workspace;
       const config = this.config;
-      const located = this.vendorClis.describe('lark');
-      // The check says why the lark-cli cannot run as readiness says it, the way back to the connector included.
-      const problem = located instanceof CliUnavailableError ? null : this.cliProblem(located);
-      const cli = problem ? new CliUnavailableError(problem, 'lark') : located;
+      // The check starts from the same sentence as readiness when the lark-cli cannot run, the way back to the connector included.
+      let cli: CliLocation | CliUnavailableError;
+      try { cli = this.located('lark'); } catch (error) { cli = error as CliUnavailableError; }
       // F36: 报错脱敏覆盖密钥库来源的真实值（env 值 safeError 自行读）。
       const extraSecrets = [this.secretValue('feishuAppId'), this.secretValue('feishuAppSecret')].filter(Boolean);
       const run = (this.checking = inspectAccess(config, cli, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets, this.secretValue('feishuAppId'))
@@ -4768,20 +4771,19 @@ export class PaRuntime {
     for (const cli of ['lark', 'wecom'] as const) {
       const name = `${cli}-cli`, located = this.vendorClis.describe(cli);
       // A CLI the configuration calls for, but that cannot run, is an error that says why; one it does not call for is no fault.
-      const report = (problem: string, missing: boolean) => {
+      // The sentence is the lookup's own, so it says what to do whichever way the CLI is unavailable: install, set the row, or drop a refused entry.
+      const report = (problem: string) => {
         if (called[cli]) { state = 'error'; lines.push(problem); return; }
-        if (cli !== 'lark') { lines.push(missing ? `${name}：当前配置不会调用它，官方插件与插件行均未提供` : `${name}：当前配置不会调用它；${problem}`); return; }
+        if (cli !== 'lark') { lines.push(`${name}：当前配置不会调用它；${problem}`); return; }
         // Demo mode reaches no platform through lark-cli: what keeps it from running is then information, not a fault.
         if (state === 'ok') state = 'info';
-        // What supplies lark-cli before Feishu is switched on depends on the host line.
-        const supply = missing ? (this.officialConnectors ? '安装官方飞书插件' : '在24私助插件行设置 larkCliBin') : `处理：${problem}`;
-        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需${supply}`);
+        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${problem}`);
       };
       // It is missing, or not executable where it is said to be; null when it can run.
-      if (located instanceof CliUnavailableError) { report(located.message, true); continue; }
+      if (located instanceof CliUnavailableError) { report(located.message); continue; }
       const problem = this.cliProblem(located);
       if (problem === null) lines.push(`${name}：${CLI_SOURCE_LABELS[located.source]}（${located.connector ? `${located.connector}，` : ''}${located.path}）`);
-      else report(problem, false);
+      else report(problem);
     }
     return { id: 'vendor-cli', state, message: lines.join('；') };
   }

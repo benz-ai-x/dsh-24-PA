@@ -11,6 +11,7 @@ import { TaskLifecycle } from '../../lib/task-lifecycle.js';
 import { FeishuChannels, mapRemoteEvent } from '../../lib/feishu-channels.js';
 import { WecomChannels } from '../../lib/wecom-channels.js';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { CliUnavailableError } from '../../lib/cli-source.js';
 
 describe('渠道可靠性：真实账本与模块 interface', () => {
   let root, db, repos, operations, config, item, lark, wecom, deps, larkBin, wecomBin;
@@ -507,6 +508,17 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     await worker.drain();
     await worker.drain();
     expect((await repos.outbox.recent())[0].status).toBe('failed');
+    expect(sends).toBe(3);
+  });
+
+  it('CLI 被拒、进程没有启动时按明确未发送处理：说出原因、留待重试，不记成结果未知', async () => {
+    const row = (await enqueue()).row, said = '插件行配置的 lark-cli 不可执行（/opt/vendor/lark-cli）；请核对24私助插件行的 larkCliBin';
+    let sends = 0;
+    const worker = delivery(async () => { sends++; throw new CliUnavailableError(said, 'lark'); });
+    await worker.drain();
+    expect((await repos.outbox.recent())[0]).toMatchObject({ status: 'pending', last_error: said });
+    for (let attempt = 0; attempt < 2; attempt++) { await repos.outbox.mark(row.id, { status: 'pending', retryInMs: 0 }); await worker.drain(); }
+    expect((await repos.outbox.recent())[0]).toMatchObject({ status: 'failed', last_error: said });
     expect(sends).toBe(3);
   });
 
