@@ -78,16 +78,22 @@ describe('给定的可执行文件能否运行', () => {
   it('跑不起来时的说法只有一处：插件行给的路径不可执行、PATH 上找不到，各带下一步；能跑或来自官方连接器则无话可说', async () => {
     const layout = await installed();
     expect(unusableCli(larkAt(layout.lark, 'config'))).toBeNull();
-    expect(unusableCli(larkAt('/opt/tools/lark-cli', 'config'))).toBe('插件行配置的 lark-cli 不可执行（/opt/tools/lark-cli）；请核对24私助插件行的 larkCliBin');
-    expect(unusableCli({ cli: 'wecom', path: '/opt/tools/wecom-cli', source: 'config' })).toBe('插件行配置的 wecom-cli 不可执行（/opt/tools/wecom-cli）；请核对24私助插件行的 wecomCliBin');
+    // The row's own entry: what is said of it is the sentence, advice included.
+    for (const [located, said] of [[larkAt('/opt/tools/lark-cli', 'config'), '插件行配置的 lark-cli 不可执行（/opt/tools/lark-cli）；请核对24私助插件行的 larkCliBin'],
+      [{ cli: 'wecom', path: '/opt/tools/wecom-cli', source: 'config' }, '插件行配置的 wecom-cli 不可执行（/opt/tools/wecom-cli）；请核对24私助插件行的 wecomCliBin']]) {
+      expect(unusableCli(located)).toMatchObject({ message: said, headline: said });
+      const advised = said + '；要用官方插件托管的，请删除插件行的这一项';
+      expect(unusableCli(located, '；要用官方插件托管的，请删除插件行的这一项')).toMatchObject({ message: advised, headline: advised });
+    }
     // A bare name is looked up on PATH, which here holds only an empty directory: this machine's own lark-cli must not count.
     const empty = await mkdtemp(join(tmpdir(), 'pa24-cli-source-empty-'));
     cleanup.push(() => rm(empty, { recursive: true, force: true }));
     const saved = process.env.PATH;
     process.env.PATH = empty;
     try {
-      expect(unusableCli(larkAt('lark-cli', 'path'))).toBe('PATH 上找不到 lark-cli；请安装 lark-cli 并加入启动进程的 PATH');
-      expect(unusableCli(larkAt('./lark-cli', 'path'))).toBe('./lark-cli 下没有可执行的 lark-cli（相对路径按宿主的当前目录解析）；请改用绝对路径');
+      // A name the process was to resolve on its own: told by what is wrong.
+      expect(unusableCli(larkAt('lark-cli', 'path'))).toMatchObject({ message: 'PATH 上找不到 lark-cli；请安装 lark-cli 并加入启动进程的 PATH', headline: 'PATH 上找不到 lark-cli' });
+      expect(unusableCli(larkAt('./lark-cli', 'path'))).toMatchObject({ message: './lark-cli 下没有可执行的 lark-cli（相对路径按宿主的当前目录解析）；请改用绝对路径', headline: './lark-cli 下没有可执行的 lark-cli（相对路径按宿主的当前目录解析）' });
     } finally { process.env.PATH = saved; }
     // The official connector's CLI was checked where it was found; its absence is the lookup's own message.
     await chmod(layout.lark, 0o644);

@@ -31,9 +31,6 @@ export interface CliLocation {
 /** Whether this host line ships the official connectors: it provides the CLI account service they register with. */
 export const hasOfficialConnectors = (host: { get(name: string): unknown }): boolean => !!host.get('cliAccounts');
 
-/** The message up to its first clause mark, for a message that says what is wrong before what to do about it. */
-export const firstClause = (message: string): string => message.split(/[：；。]/)[0] ?? message;
-
 /**
  * The CLI cannot run as located: nothing supplies it, or the executable is not where it is said to be. A call refused with it starts no
  * process, so for the durable external-write stages and deliveries it is a failure — the platform did nothing, and a retry is safe — never an unknown outcome.
@@ -116,16 +113,22 @@ export function runnableAsGiven(executable: string): boolean {
 }
 
 /**
- * Why a located CLI cannot run as given, or null when it can, said the same way wherever the plugin reports it. The
+ * The refusal for a located CLI that cannot run as given, or null when it can, said the same way wherever the plugin reports it. The
  * official connector's CLI was checked where it was found; the plugin row's or PATH's is checked here. Nothing is started.
+ * `advice` ends the sentence where the caller has more for the owner to do about it.
  */
-export function unusableCli(location: CliLocation): string | null {
+export function unusableCli(location: CliLocation, advice = ''): CliUnavailableError | null {
   if (location.source === 'official' || runnableAsGiven(location.path)) return null;
   const name = BARE[location.cli];
-  if (location.source === 'config') return `插件行配置的 ${name} 不可执行（${location.path}）；请核对24私助插件行的 ${OPTION[location.cli]}`;
-  return isBareName(location.path)
-    ? `PATH 上找不到 ${name}；请安装 ${name} 并加入启动进程的 PATH`
-    : `${location.path} 下没有可执行的 ${name}（相对路径按宿主的当前目录解析）；请改用绝对路径`;
+  // The plugin row's own entry is what cannot run: what is said of it is the sentence, with what to do about that entry.
+  if (location.source === 'config') {
+    const said = `插件行配置的 ${name} 不可执行（${location.path}）；请核对24私助插件行的 ${OPTION[location.cli]}${advice}`;
+    return new CliUnavailableError(said, location.cli, { headline: said });
+  }
+  // A name the process was to resolve on its own is told by what is wrong.
+  const what = isBareName(location.path) ? `PATH 上找不到 ${name}` : `${location.path} 下没有可执行的 ${name}（相对路径按宿主的当前目录解析）`;
+  const how = isBareName(location.path) ? `请安装 ${name} 并加入启动进程的 PATH` : '请改用绝对路径';
+  return new CliUnavailableError(`${what}；${how}${advice}`, location.cli, { headline: what });
 }
 
 /** The version in a package's manifest, when it has a readable one. */
@@ -162,8 +165,8 @@ export class VendorClis {
     // Beside the official connectors anything short of an absolute path could run another installation: a bare name
     // picks whatever PATH holds, a relative one depends on where the process started. So an override must name a file.
     if (configured) {
-      return new CliUnavailableError(`插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）：提供官方连接器的宿主上，${OPTION[cli]} 只接受可执行文件的绝对路径；要用官方插件托管的 ${BARE[cli]}，请删除这一项。`, cli,
-        { headline: `插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）；要用官方插件托管的 ${BARE[cli]}，请删除这一项` });
+      const what = `插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）`, todo = `要用官方插件托管的 ${BARE[cli]}，请删除这一项`;
+      return new CliUnavailableError(`${what}：提供官方连接器的宿主上，${OPTION[cli]} 只接受可执行文件的绝对路径；${todo}。`, cli, { headline: `${what}；${todo}` });
     }
     let found = this.installed.get(cli);
     if (!found) this.installed.set(cli, found = this.fromConnector(cli));

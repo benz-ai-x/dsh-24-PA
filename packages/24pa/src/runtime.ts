@@ -31,7 +31,7 @@ import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry, ProfileContextService } from './host.js';
-import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, firstClause, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
+import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
 import type { ChannelCli } from './channel-deps.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
@@ -1644,10 +1644,8 @@ export class PaRuntime {
   private findCli(cli: VendorCli): CliLocation | CliUnavailableError {
     const supplied = this.vendorClis.describe(cli);
     if (supplied instanceof CliUnavailableError) return supplied;
-    const problem = this.cliProblem(supplied);
-    // The plugin row's own entry is what cannot run: what is wrong is said with what to do about that entry. A name the process was
-    // to resolve on its own is told by what is wrong.
-    return problem ? new CliUnavailableError(problem, cli, { headline: supplied.source === 'config' ? problem : firstClause(problem) }) : supplied;
+    // Beside the official connectors the row's entry is an override: dropping it falls back to the connector's CLI.
+    return unusableCli(supplied, supplied.source === 'config' && this.officialConnectors ? '；要用官方插件托管的，请删除插件行的这一项' : '') ?? supplied;
   }
   /** Where a vendor CLI is. Throws {@link CliUnavailableError}, with the answer {@link findCli} gives, so a call that would run an unusable CLI is refused before a process starts. */
   private located(cli: VendorCli): CliLocation {
@@ -1660,15 +1658,6 @@ export class PaRuntime {
     const found = this.findCli('lark');
     return found instanceof CliUnavailableError ? found.message : null;
   }
-  /**
-   * Why a located CLI cannot run as given, or null when it can; said the same way wherever the plugin reports it.
-   */
-  private cliProblem(location: CliLocation): string | null {
-    const why = unusableCli(location);
-    // Beside the official connectors the row's entry is an override: dropping it falls back to the connector's CLI.
-    return why && location.source === 'config' && this.officialConnectors ? `${why}；要用官方插件托管的，请删除插件行的这一项` : why;
-  }
-
   /** env 副本＋密钥库兜底值按引用名回填——消费点统一用它，解析顺序单点成立。 */
   private secretEnv(): Record<string, string | undefined> {
     return secretEnvironment(this.config, this.env, this.secretStore);
