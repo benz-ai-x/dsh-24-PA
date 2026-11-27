@@ -88,4 +88,4 @@ v1 后续功能（规格 1.3–2.1）：F13＝[#60](https://github.com/benz-ai-x
 | 腾讯文档工具放行与工具门禁 | [#308](https://github.com/benz-ai-x/dsh-24-PA/issues/308) | 167 | PR #312（#311 合并后 base 改为 main）；替身 MCP 服务器的真实宿主 e2e，真实读写随 #303 |
 | 腾讯会议连接器隔离验证 | [#305](https://github.com/benz-ai-x/dsh-24-PA/issues/305) | 167 | PR #312；共载 e2e 不跑连接器安装脚本（它会退出登录），没有真实的 tmeet 运行 |
 | 接入状态进宿主插件页 | [#309](https://github.com/benz-ai-x/dsh-24-PA/issues/309) | 168 | PR #312；区块显示已存结果，平台调用只由本人点「检查」发起 |
-| CLI 子进程迁宿主子进程服务 | [#310](https://github.com/benz-ai-x/dsh-24-PA/issues/310) | 166 的运行保障 | 第三个 PR |
+| CLI 子进程迁宿主子进程服务 | [#310](https://github.com/benz-ai-x/dsh-24-PA/issues/310) | 166 的运行保障 | [PR #313](https://github.com/benz-ai-x/dsh-24-PA/pull/313)（叠在 #312 上）；真实宿主 e2e（环境清洗、连同后代的终止、语音预检）与 PostgreSQL 变体的备份恢复 e2e |
