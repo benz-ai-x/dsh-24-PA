@@ -3344,7 +3344,7 @@ window.__ModuleLoader__.load({
           // source in config.ts) — client.js no longer carries a second copy.
           const VOICES = (state.configMeta && state.configMeta.fields ? state.configMeta.fields : [])
             .find(f => f.name === 'tts.voice')?.options ?? [];
-          const KNOWN_EXTRA = ['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*'];
+          const KNOWN_EXTRA = ['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*', 'mcp__tencent-docs__*'];
           const makeForm = (config = helpers.config) => ({
             mode: config?.mode ?? 'demo',
             larkProfile: config?.larkProfile ?? '',
@@ -3594,7 +3594,7 @@ window.__ModuleLoader__.load({
               h('details', { id: 'pa24-extra-tools', style: { marginTop: 4 } }, h('summary', null, L('本地扩展工具', 'Local extra tools')),
                 h('div', { style: { minWidth: 0, paddingTop: 6 } }, KNOWN_EXTRA.map(x =>
                   h('label', { key: x, className: 'pa24-check' }, h('input', { type: 'checkbox', checked: form.extraKnown.includes(x), onChange: e => toggleIn('extraKnown')(x, e.target.checked) }), x)),
-                  h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat.'))))),
+                  h('p', { className: 'pa24-meta' }, L('本地会话额外放行的工具；精确 qwennote 工具名经对话维护。腾讯文档经加载器按需载入，用通配放行。', 'Extra tools allowed in the local session; precise qwennote tool names are maintained in chat. Tencent Docs loads its tools on demand, so it goes by the wildcard.'))))),
             // F36: 密钥值只写不回显——进工作区密钥库（.24pa/secrets.json，0600），
             // 永不进 AGENTS.md/系统提示/备份；环境变量（下方引用名）存在时优先。
             h('section', { className: 'pa24-card' },

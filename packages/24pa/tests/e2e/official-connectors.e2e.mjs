@@ -1,6 +1,6 @@
-// Official connectors end-to-end (#304, #306): a fresh instance that installs
-// the official @deepseek-ai/dsh-feishu and @deepseek-ai/dsh-wecom plugins
-// beside 24私助. Real Loader and Host on the 0.2.3-alpha.2 line, SQLite; the
+// Official connectors end-to-end (#304, #306, #305): a fresh instance that
+// installs the official @deepseek-ai/dsh-feishu, @deepseek-ai/dsh-wecom and
+// @deepseek-ai/dsh-tencent-meeting plugins beside 24PA. Real Loader and Host on the 0.2.3-alpha.2 line, SQLite; the
 // vendor CLIs are stubs written where the connectors' install scripts put the
 // real executables, and the model is scripted. The plugin row names no CLI, and
 // the plugin never looks a CLI up on PATH by itself, so the connectors'

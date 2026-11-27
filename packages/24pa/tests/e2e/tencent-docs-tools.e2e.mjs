@@ -6,27 +6,18 @@
 // authorized (which the stand-in does not ask for). Real Loader and Host,
 // SQLite; the model and Feishu are stand-ins too.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
+import { find, said } from '../helpers/recorded-request.mjs';
+import { writeStandIn } from '../helpers/stub-cli.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 
 const LOADER = 'mcp__tencent-docs__load_tools', ECHO = 'mcp__tencent-docs__echo', WILDCARD = 'mcp__tencent-docs__*';
-const stubs = [['lark', 'PA24_LARK_STUB_STATE'], ['wecom', 'PA24_WECOM_STUB_STATE']];
-// Every string a recorded request carries, whatever block shape the Host used.
-const strings = value => typeof value === 'string' ? [value]
-  : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [];
-const said = request => strings(request.inputs).join('\n');
-const find = (value, predicate) => {
-  if (!value || typeof value !== 'object') return undefined;
-  if (predicate(value)) return value;
-  for (const inner of Object.values(value)) { const hit = find(inner, predicate); if (hit) return hit; }
-  return undefined;
-};
 
 let llm, scriptPath;
 const hosts = [], roots = [];
@@ -46,11 +37,10 @@ async function instance({ mcpServer }) {
   const bin = join(root, 'bin'); await mkdir(bin);
   const env = { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_docs_app', PA24_FEISHU_APP_SECRET: 'docs-secret',
     DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, PATH: `${bin}${delimiter}${process.env.PATH}` };
-  for (const [name, variable] of stubs) {
+  for (const name of ['lark', 'wecom']) {
     const state = join(root, `${name}.json`);
-    await writeFile(state, JSON.stringify({ ownerOpenId: 'ou_docs_owner', appId: 'cli_docs_app' })); env[variable] = state;
-    await writeFile(join(bin, `${name}-cli`), '#!/usr/bin/env node\nawait import(' + JSON.stringify(resolve(`tests/helpers/stub-${name}-cli.mjs`)) + ');\n', { mode: 0o755 });
-    await chmod(join(bin, `${name}-cli`), 0o755);
+    await writeFile(state, JSON.stringify({ ownerOpenId: 'ou_docs_owner', appId: 'cli_docs_app' }));
+    await writeStandIn(bin, name, state);
   }
   // The host's MCP manager owns the server entries of its row; the row has none by default.
   const beforeBoot = mcpServer ? ({ addPatch }) => addPatch([
@@ -115,7 +105,7 @@ describe('腾讯文档官方工具在24私助里的放行（真实 Loader）', (
     });
 
     it('全应用健康记录最近一次解析：加载器已放行，没有被过滤的条目', async () => {
-      const report = await current.host.api('health')
+      const report = await current.host.api('health');
       const capability = find(report, value => value?.id === 'extra-local-tools');
       expect(capability?.state).toBe('ok');
       expect(capability?.message).toContain('放行 1 项');
@@ -132,7 +122,7 @@ describe('腾讯文档官方工具在24私助里的放行（真实 Loader）', (
       const request = await until(() => turn().find(row => said(row).includes(marker)), '本地会话的模型请求', current.host);
       expect(request.tools).toContain('bash');
       expect(request.tools.some(name => name.startsWith('mcp__tencent-docs__'))).toBe(false);
-      const report = await current.host.api('health')
+      const report = await current.host.api('health');
       const capability = find(report, value => value?.id === 'extra-local-tools');
       expect(capability?.state).toBe('warn');
       expect(capability?.message).toContain(`未挂载被过滤：${WILDCARD}`);
