@@ -1645,7 +1645,7 @@ export class PaRuntime {
     const supplied = this.vendorClis.describe(cli);
     if (supplied instanceof CliUnavailableError) return supplied;
     // Beside the official connectors the row's entry is an override: dropping it falls back to the connector's CLI.
-    return unusableCli(supplied, supplied.source === 'config' && this.officialConnectors ? '；要用官方插件托管的，请删除插件行的这一项' : '') ?? supplied;
+    return unusableCli(supplied, this.officialConnectors ? '；要用官方插件托管的，请删除插件行的这一项' : '') ?? supplied;
   }
   /** Where a vendor CLI is. Throws {@link CliUnavailableError}, with the answer {@link findCli} gives, so a call that would run an unusable CLI is refused before a process starts. */
   private located(cli: VendorCli): CliLocation {

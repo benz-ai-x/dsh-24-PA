@@ -78,7 +78,7 @@ describe('给定的可执行文件能否运行', () => {
   it('跑不起来时的说法只有一处：插件行给的路径不可执行、PATH 上找不到，各带下一步；能跑或来自官方连接器则无话可说', async () => {
     const layout = await installed();
     expect(unusableCli(larkAt(layout.lark, 'config'))).toBeNull();
-    // The row's own entry: what is said of it is the sentence, advice included.
+    // The row's own entry: what is said of it is the sentence, the extra clause included.
     for (const [located, said] of [[larkAt('/opt/tools/lark-cli', 'config'), '插件行配置的 lark-cli 不可执行（/opt/tools/lark-cli）；请核对24私助插件行的 larkCliBin'],
       [{ cli: 'wecom', path: '/opt/tools/wecom-cli', source: 'config' }, '插件行配置的 wecom-cli 不可执行（/opt/tools/wecom-cli）；请核对24私助插件行的 wecomCliBin']]) {
       expect(unusableCli(located)).toMatchObject({ message: said, headline: said });
