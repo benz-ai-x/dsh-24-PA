@@ -52,7 +52,7 @@ export function apply(ctx: DshContext, config: any) {
     noteVerifyTickMs: config.noteVerifyTickMs,
     reviewReminderTickMs: config.reviewReminderTickMs,
   });
-  // #310: where the host provides its subprocess service, every CLI the plugin runs starts through it.
+  // #310: every CLI the plugin runs starts through the host's subprocess service, which the entry lists as required.
   startChildrenThrough(ctx.subprocess);
   ctx.reflect.provide('pa24', runtime);
   // #309: where the host loads the Plugins page's account registry (the web application does), 24PA's own access

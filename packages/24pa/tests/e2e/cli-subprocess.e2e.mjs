@@ -87,7 +87,8 @@ describe('CLI 子进程经宿主子进程服务启动', () => {
     void binding;
   }, 300000);
 
-  it.skipIf(!['python3', 'ffmpeg'].every(name => spawnSync(name, ['-version']).status === 0))('语音就绪预检经宿主起本机真实的 python 与 ffmpeg', async () => {
+  // Each tool's own way of printing its version; the case is skipped where either tool is not on this machine's PATH.
+  it.skipIf(![[ 'python3', '--version' ], ['ffmpeg', '-version']].every(([name, flag]) => spawnSync(name, [flag]).status === 0))('语音就绪预检经宿主起本机真实的 python 与 ffmpeg', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pa24-cli-subprocess-tts-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
     const meloDir = join(root, 'melo'); await mkdir(meloDir);
     const host = await feishuHost(root, { config: { tts: { engine: 'melo', voice: '', volcKeyEnv: '', meloDir } } });
