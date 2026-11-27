@@ -117,7 +117,8 @@ describe('VendorClis：插件行的显式配置优先', () => {
       const answer = clis.describe(cli);
       expect(answer).toBeInstanceOf(CliUnavailableError);
       for (const anchor of [`插件行配置的 ${cli}-cli 不是绝对路径（${value}）`, `${option} 只接受可执行文件的绝对路径`, '请删除这一项']) expect(answer.message).toContain(anchor);
-      expect(answer.headline).toBe(`插件行配置的 ${cli}-cli 不是绝对路径（${value}）`);
+      // The row's own entry is what cannot run: what is said includes what to do with that entry.
+      expect(answer.headline).toBe(`插件行配置的 ${cli}-cli 不是绝对路径（${value}）；要用官方插件托管的 ${cli}-cli，请删除这一项`);
     }
   });
 });

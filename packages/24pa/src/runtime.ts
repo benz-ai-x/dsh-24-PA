@@ -4779,12 +4779,14 @@ export class PaRuntime {
       // A CLI the configuration calls for, but that cannot run, is an error that says what to do: install, set the row, or drop a refused entry.
       const report = (refused: CliUnavailableError) => {
         if (called[cli]) { state = 'error'; lines.push(refused.message); return; }
-        // A wecom-cli the configuration does not call for is no fault: said is what is wrong, not the whole way to supply it.
+        // A wecom-cli the configuration does not call for is no fault: said is what is wrong — and what to do with the row's own entry,
+        // where that is what cannot run — not the whole way to supply it.
         if (cli !== 'lark') { lines.push(`${name}：当前配置不会调用它；${refused.headline}`); return; }
-        // Demo mode reaches no platform through lark-cli either, but it is the CLI switching to Feishu would need first, so the
-        // whole way is said; as information, not a fault.
+        // Demo mode reaches no platform through lark-cli either, but it is the CLI switching to Feishu would need first, so the whole
+        // way is said; as information, not a fault. It is said from where the message says what is wrong, without a lead-in such as
+        // "needs the one the official plugin provides".
         if (state === 'ok') state = 'info';
-        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${refused.message}`);
+        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${refused.message.slice(Math.max(0, refused.message.indexOf(refused.headline)))}`);
       };
       if (found instanceof CliUnavailableError) { report(found); continue; }
       lines.push(`${name}：${CLI_SOURCE_LABELS[found.source]}（${found.connector ? `${found.connector}，` : ''}${found.path}）`);

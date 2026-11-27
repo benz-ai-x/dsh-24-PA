@@ -191,6 +191,16 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     }
   });
 
+  it('配置不调用企微而插件行留着裸名：readiness 不算故障，但仍叫人删除这一项', async () => {
+    // A profile that keeps `wecomCliBin: wecom-cli` from before the connectors existed, on a workspace that does not use WeCom.
+    const { make, path, options } = await connectorLine();
+    options.wecomCliBin = 'wecom-cli';
+    const rt = make(); await rt.bind(path);
+    const item = readinessItem(rt, 'vendor-cli');
+    expect(item.state).toBe('ok');
+    expect(item.message).toContain('wecom-cli：当前配置不会调用它；插件行配置的 wecom-cli 不是绝对路径（wecom-cli）；要用官方插件托管的 wecom-cli，请删除这一项');
+  });
+
   it('显式登记了来源、旧式渠道又选了企微：没有 wecom-cli 时 readiness 仍报错', async () => {
     // Reminders without a bound target and the projections still follow the legacy selectors.
     const sources = { version: 1, entries: [source('personal-calendar', 'calendar', 'feishu'), source('personal-todo', 'todo', 'feishu')],
@@ -220,7 +230,10 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     const missing = await connectorLine({ connect: false, config: { mode: 'demo' } });
     const rt = missing.make(); await rt.bind(missing.path);
     expect(readinessItem(rt, 'vendor-cli').state).toBe('info');
-    expect(readinessItem(rt, 'vendor-cli').message).toContain('lark-cli：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：需要官方飞书插件提供的 lark-cli');
+    // Said from where the message says what is wrong, then the whole way; not "需处理：需要官方飞书插件提供的 lark-cli：…".
+    const said = readinessItem(rt, 'vendor-cli').message;
+    expect(said).toContain('lark-cli：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：当前实例未安装官方飞书插件（@deepseek-ai/dsh-feishu）。请安装官方飞书插件后重启宿主');
+    expect(said).not.toContain('需处理：需要官方飞书插件提供的 lark-cli');
     // A bare name left in the row is told to delete it, not to install anything.
     const refused = await connectorLine({ config: { mode: 'demo' } });
     refused.options.larkCliBin = 'lark-cli';

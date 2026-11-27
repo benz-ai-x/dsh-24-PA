@@ -40,7 +40,10 @@ const firstClause = (message: string): string => message.split(/[：；。]/)[0]
 
 export class CliUnavailableError extends Error {
   readonly outcome = 'failed' as const;
-  /** What is wrong, without what to do about it; given where the message does not say it first. */
+  /**
+   * What readiness says of the CLI where its being unavailable is no fault: what is wrong — and, where the plugin row's own entry is what
+   * cannot run, what to do with that entry. Given where the message does not say it first.
+   */
   readonly headline: string;
   constructor(message: string, readonly cli: VendorCli, headline: string = firstClause(message)) {
     super(message);
@@ -153,7 +156,8 @@ export class VendorClis {
     // Beside the official connectors anything short of an absolute path could run another installation: a bare name
     // picks whatever PATH holds, a relative one depends on where the process started. So an override must name a file.
     if (configured) {
-      return new CliUnavailableError(`插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）：提供官方连接器的宿主上，${OPTION[cli]} 只接受可执行文件的绝对路径；要用官方插件托管的 ${BARE[cli]}，请删除这一项。`, cli);
+      return new CliUnavailableError(`插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）：提供官方连接器的宿主上，${OPTION[cli]} 只接受可执行文件的绝对路径；要用官方插件托管的 ${BARE[cli]}，请删除这一项。`, cli,
+        `插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）；要用官方插件托管的 ${BARE[cli]}，请删除这一项`);
     }
     let found = this.installed.get(cli);
     if (!found) this.installed.set(cli, found = this.fromConnector(cli));
