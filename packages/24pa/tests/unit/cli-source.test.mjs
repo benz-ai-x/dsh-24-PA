@@ -45,9 +45,10 @@ describe('CLI 来源的文字', () => {
   it('readiness 与面板用的是同一组', async () => {
     // The panel runs in the browser and cannot import the plugin's server code; its own table must not drift.
     const client = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
-    const literal = /const CLI_SOURCE = (\{[^}]*\});/.exec(client)?.[1];
-    expect(literal).toBeTruthy();
-    const labels = Object.fromEntries([...literal.matchAll(/(\w+): \['([^']+)'/g)].map(([, key, zh]) => [key, zh]));
+    // The panel keeps a label and a line for the note per source; its labels are the server's words.
+    const table = /const CLI_SOURCE = (\{.*?\n        \});/s.exec(client)?.[1];
+    expect(table).toBeTruthy();
+    const labels = Object.fromEntries([...table.matchAll(/(\w+): \{ label: \['([^']+)'/g)].map(([, key, zh]) => [key, zh]));
     expect(labels).toEqual(CLI_SOURCE_LABELS);
   });
 });
@@ -69,6 +70,8 @@ describe('给定的可执行文件能否运行', () => {
       expect(runnableAsGiven('wecom-cli')).toBe(false);
       expect(runnableAsGiven(standIn)).toBe(true);
       expect(runnableAsGiven(join(dir, 'wecom-cli'))).toBe(false);
+      // A directory carries the executable bit too; it is not something to run.
+      expect(runnableAsGiven(dir)).toBe(false);
     } finally { process.env.PATH = saved; }
   });
 
