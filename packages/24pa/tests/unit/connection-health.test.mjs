@@ -97,7 +97,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`M07 ${backend}`, () => {
   it('来源核验因 CLI 被拒而失败时，接入测试在写下测试记录之前就被拒绝并说出原因，修好后同一请求标识可用', async () => {
     const said = '插件行配置的 lark-cli 不可执行（/opt/vendor/lark-cli）；请核对24私助插件行的 larkCliBin';
     const preview = await tests.preview({ workspaceBinding: 'binding-1', action: 'source.create', sourceId: 'calendar-a' });
-    testDeps.registry = new SourceRegistry({ repo: () => repos.sources, config: () => current, connectionHash: () => version, gate: (_key, run) => run(), probe: async () => { throw new CliUnavailableError(said, 'lark'); } });
+    testDeps.registry = new SourceRegistry({ repo: () => repos.sources, config: () => current, connectionHash: () => version, gate: (_key, run) => run(), probe: async () => { throw new CliUnavailableError(said, 'lark', { headline: said }); } });
     await expect(tests.execute({ workspaceBinding: 'binding-1', requestId: 'request-refused-cli', ...preview, confirm: true })).rejects.toThrow(said);
     expect(await repos.health.test('request-refused-cli')).toBeFalsy(); expect(attempts).toHaveLength(0);
     testDeps.registry = registry;

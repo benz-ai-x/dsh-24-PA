@@ -27,7 +27,7 @@ beforeEach(async () => {
   await writeFile(state, '{}');
   await writeFile(bin, `#!/usr/bin/env node\nprocess.env.PA24_WECOM_STUB_STATE = ${JSON.stringify(state)};\nawait import(${JSON.stringify(stub)});\n`);
   await chmod(bin, 0o755);
-  options = { bin, timeoutMs: 5000 };
+  options = { bin, timeoutMs: 5000, source: 'config' };
   const todos = Array.from({ length: 22 }, (_, index) => ({ todo_id: `todo-${index}`, title: `待办 ${index}`, status: index === 21 ? 'finished' : 'proceed', user_status: index === 21 ? 'finished' : 'accept', creator: { userid: source.ownerId }, followers: [{ userid: source.ownerId, user_status: index === 21 ? 'finished' : 'accept' }] }));
   await writeFile(state + '.todos.jsonl', todos.map(row => JSON.stringify(row)).join('\n') + '\n');
 });

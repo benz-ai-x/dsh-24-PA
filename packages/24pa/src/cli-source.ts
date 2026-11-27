@@ -31,24 +31,30 @@ export interface CliLocation {
 /** Whether this host line ships the official connectors: it provides the CLI account service they register with. */
 export const hasOfficialConnectors = (host: { get(name: string): unknown }): boolean => !!host.get('cliAccounts');
 
+/** The message up to its first clause mark, for a message that says what is wrong before what to do about it. */
+export const firstClause = (message: string): string => message.split(/[：；。]/)[0] ?? message;
+
 /**
  * The CLI cannot run as located: nothing supplies it, or the executable is not where it is said to be. A call refused with it starts no
  * process, so for the durable external-write stages and deliveries it is a failure — the platform did nothing, and a retry is safe — never an unknown outcome.
  */
-/** The message up to its first clause mark, for a message that says what is wrong before what to do about it. */
-const firstClause = (message: string): string => message.split(/[：；。]/)[0] ?? message;
-
 export class CliUnavailableError extends Error {
   readonly outcome = 'failed' as const;
   /**
-   * What readiness says of the CLI where its being unavailable is no fault: what is wrong — and, where the plugin row's own entry is what
-   * cannot run, what to do with that entry. Given where the message does not say it first.
+   * What readiness says of the CLI where its being unavailable is no fault, the configuration not calling for it: what is wrong — and,
+   * where the plugin row's own entry is what cannot run, what to do with that entry.
    */
   readonly headline: string;
-  constructor(message: string, readonly cli: VendorCli, headline: string = firstClause(message)) {
+  /**
+   * What readiness says of it where it is no fault either, but the whole way is to be said (demo mode's lark-cli): the message without a
+   * lead-in such as "needs the one the official plugin provides: ".
+   */
+  readonly whole: string;
+  constructor(message: string, readonly cli: VendorCli, said: { headline: string; whole?: string }) {
     super(message);
     this.name = 'CliUnavailableError';
-    this.headline = headline;
+    this.headline = said.headline;
+    this.whole = said.whole ?? message;
   }
 }
 
@@ -151,13 +157,13 @@ export class VendorClis {
     if (!this.settings.officialConnectors) {
       // A host line without the official connectors: the row's bare name or relative path, which the process resolves when it starts.
       if (configured) return { cli, path: configured, source: 'path' };
-      return new CliUnavailableError(`未设置 ${BARE[cli]}：请在24私助插件行设置 ${OPTION[cli]}。`, cli);
+      return new CliUnavailableError(`未设置 ${BARE[cli]}：请在24私助插件行设置 ${OPTION[cli]}。`, cli, { headline: `未设置 ${BARE[cli]}` });
     }
     // Beside the official connectors anything short of an absolute path could run another installation: a bare name
     // picks whatever PATH holds, a relative one depends on where the process started. So an override must name a file.
     if (configured) {
       return new CliUnavailableError(`插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）：提供官方连接器的宿主上，${OPTION[cli]} 只接受可执行文件的绝对路径；要用官方插件托管的 ${BARE[cli]}，请删除这一项。`, cli,
-        `插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）；要用官方插件托管的 ${BARE[cli]}，请删除这一项`);
+        { headline: `插件行配置的 ${BARE[cli]} 不是绝对路径（${configured}）；要用官方插件托管的 ${BARE[cli]}，请删除这一项` });
     }
     let found = this.installed.get(cli);
     if (!found) this.installed.set(cli, found = this.fromConnector(cli));
@@ -185,7 +191,9 @@ export class VendorClis {
     const official = OFFICIAL[cli], name = BARE[cli];
     const missing = (problem: string): CliUnavailableError => {
       const install = this.settings.profile ? `dsh plugin --profile ${this.settings.profile} add ${official.connector}` : `dsh plugin --profile <实例名> add ${official.connector}`;
-      return new CliUnavailableError(`需要官方${official.label}插件提供的 ${name}：${problem}。请安装官方${official.label}插件后重启宿主：在宿主「插件」页安装，或执行 ${install}；也可在24私助插件行显式设置 ${OPTION[cli]}。`, cli, problem);
+      const how = `请安装官方${official.label}插件后重启宿主：在宿主「插件」页安装，或执行 ${install}；也可在24私助插件行显式设置 ${OPTION[cli]}。`;
+      // The lead-in names the CLI the official plugin provides; what is wrong, and the whole way, are said without it.
+      return new CliUnavailableError(`需要官方${official.label}插件提供的 ${name}：${problem}。${how}`, cli, { headline: problem, whole: `${problem}。${how}` });
     };
     // Packages installed into the profile resolve from the profile itself, wherever this plugin's own files live.
     const connector = this.resolvePackage(official.connector);

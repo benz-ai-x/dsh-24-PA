@@ -31,7 +31,7 @@ import { createRequire } from 'node:module';
 import { mkdir, realpath, stat, readFile, writeFile, rename, rm } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry, ProfileContextService } from './host.js';
-import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
+import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, firstClause, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
 import type { ChannelCli } from './channel-deps.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
@@ -1645,7 +1645,9 @@ export class PaRuntime {
     const supplied = this.vendorClis.describe(cli);
     if (supplied instanceof CliUnavailableError) return supplied;
     const problem = this.cliProblem(supplied);
-    return problem ? new CliUnavailableError(problem, cli) : supplied;
+    // The plugin row's own entry is what cannot run: what is wrong is said with what to do about that entry. A name the process was
+    // to resolve on its own is told by what is wrong.
+    return problem ? new CliUnavailableError(problem, cli, { headline: supplied.source === 'config' ? problem : firstClause(problem) }) : supplied;
   }
   /** Where a vendor CLI is. Throws {@link CliUnavailableError}, with the answer {@link findCli} gives, so a call that would run an unusable CLI is refused before a process starts. */
   private located(cli: VendorCli): CliLocation {
@@ -4783,10 +4785,9 @@ export class PaRuntime {
         // where that is what cannot run — not the whole way to supply it.
         if (cli !== 'lark') { lines.push(`${name}：当前配置不会调用它；${refused.headline}`); return; }
         // Demo mode reaches no platform through lark-cli either, but it is the CLI switching to Feishu would need first, so the whole
-        // way is said; as information, not a fault. It is said from where the message says what is wrong, without a lead-in such as
-        // "needs the one the official plugin provides".
+        // way is said, without a lead-in; as information, not a fault.
         if (state === 'ok') state = 'info';
-        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${refused.message.slice(Math.max(0, refused.message.indexOf(refused.headline)))}`);
+        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${refused.whole}`);
       };
       if (found instanceof CliUnavailableError) { report(found); continue; }
       lines.push(`${name}：${CLI_SOURCE_LABELS[found.source]}（${found.connector ? `${found.connector}，` : ''}${found.path}）`);

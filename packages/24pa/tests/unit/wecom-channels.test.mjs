@@ -31,8 +31,8 @@ describe('#306：没有 wecom-cli 时的说法', () => {
       + `while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 50));\nprocess.exit(1);\n`, { mode: 0o755 });
     await chmod(hanging, 0o755);
     try {
-      let cli = { bin: hanging, timeoutMs: 10_000 };
-      const channels = new WecomChannels(makeDeps({ cli: () => { if (typeof cli === 'string') throw new CliUnavailableError(cli, 'wecom'); return cli; } }));
+      let cli = { bin: hanging, timeoutMs: 10_000, source: 'config' };
+      const channels = new WecomChannels(makeDeps({ cli: () => { if (typeof cli === 'string') throw new CliUnavailableError(cli, 'wecom', { headline: cli }); return cli; } }));
       const checking = channels.wecomCheck();
       await new Promise(resolve => setTimeout(resolve, 300));
       // Meanwhile the CLI is gone, as when the plugin row changes or the connector is removed.

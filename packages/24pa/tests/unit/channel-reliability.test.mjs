@@ -516,7 +516,7 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     const row = (await enqueue('reminder:wecom-1', 'wecom')).row;
     const said = '需要官方企业微信插件提供的 wecom-cli：当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）。请安装官方企业微信插件后重启宿主。';
     let sends = 0;
-    const send = async () => { sends++; throw new CliUnavailableError(said, 'wecom'); };
+    const send = async () => { sends++; throw new CliUnavailableError(said, 'wecom', { headline: said, whole: said }); };
     const worker = delivery(send, () => repos.messageRoutes, { wecom: { available: () => true, supports: () => true, send } });
     await worker.drain();
     expect((await repos.outbox.recent())[0]).toMatchObject({ status: 'pending', last_error: said });

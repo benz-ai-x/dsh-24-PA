@@ -201,6 +201,15 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     expect(item.message).toContain('wecom-cli：当前配置不会调用它；插件行配置的 wecom-cli 不是绝对路径（wecom-cli）；要用官方插件托管的 wecom-cli，请删除这一项');
   });
 
+  it('配置不调用企微而插件行给的路径上没有可执行文件：readiness 不算故障，仍说怎么处理这一项', async () => {
+    const { make, path, options, root } = await connectorLine();
+    options.wecomCliBin = join(root, 'no-such-wecom-cli');
+    const rt = make(); await rt.bind(path);
+    const item = readinessItem(rt, 'vendor-cli');
+    expect(item.state).toBe('ok');
+    expect(item.message).toContain(`wecom-cli：当前配置不会调用它；插件行配置的 wecom-cli 不可执行（${join(root, 'no-such-wecom-cli')}）；请核对24私助插件行的 wecomCliBin；要用官方插件托管的，请删除插件行的这一项`);
+  });
+
   it('显式登记了来源、旧式渠道又选了企微：没有 wecom-cli 时 readiness 仍报错', async () => {
     // Reminders without a bound target and the projections still follow the legacy selectors.
     const sources = { version: 1, entries: [source('personal-calendar', 'calendar', 'feishu'), source('personal-todo', 'todo', 'feishu')],
@@ -238,7 +247,11 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     const refused = await connectorLine({ config: { mode: 'demo' } });
     refused.options.larkCliBin = 'lark-cli';
     const second = refused.make(); await second.bind(refused.path);
-    expect(readinessItem(second, 'vendor-cli').message).toContain('需处理：插件行配置的 lark-cli 不是绝对路径（lark-cli）');
+    const bare = readinessItem(second, 'vendor-cli');
+    expect(bare.state).toBe('info');
+    // The whole sentence, the delete hint included, and no install command.
+    expect(bare.message).toContain('lark-cli：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：插件行配置的 lark-cli 不是绝对路径（lark-cli）：提供官方连接器的宿主上，larkCliBin 只接受可执行文件的绝对路径；要用官方插件托管的 lark-cli，请删除这一项。');
+    expect(bare.message).not.toContain('dsh plugin');
     // A path with nothing runnable there.
     const unusable = await connectorLine({ config: { mode: 'demo' } });
     unusable.options.larkCliBin = join(unusable.root, 'no-such-lark-cli');

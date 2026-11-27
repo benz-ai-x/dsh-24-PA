@@ -144,6 +144,8 @@ describe('VendorClis：提供官方连接器的宿主线', () => {
       expect(answer.message).toContain(anchor);
     }
     expect(answer.headline).toBe('当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）');
+    // The whole way without the lead-in that names the CLI the official plugin provides.
+    expect(answer.whole).toBe('当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）。请安装官方企业微信插件后重启宿主：在宿主「插件」页安装，或执行 dsh plugin --profile off add @deepseek-ai/dsh-wecom；也可在24私助插件行显式设置 wecomCliBin。');
   });
 
   it('不知道实例名时，安装命令用占位符', async () => {
@@ -227,6 +229,7 @@ describe('VendorClis：没有官方连接器的宿主线', () => {
     expect(answer).toBeInstanceOf(CliUnavailableError);
     expect(answer.message).toBe('未设置 lark-cli：请在24私助插件行设置 larkCliBin。');
     expect(answer.headline).toBe('未设置 lark-cli');
+    expect(answer.whole).toBe(answer.message);
     // No process started, so the platform did nothing: the external-write stages may let the same call be retried once the CLI is there.
     expect(answer.outcome).toBe('failed');
   });
