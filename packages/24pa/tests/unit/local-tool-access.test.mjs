@@ -3,7 +3,7 @@ import { apply } from '../../lib/tools.js';
 
 afterEach(() => vi.useRealTimers());
 
-function plugin({ role = 'local-robot', businessRole = role, extras = ['mcp__qwennote__*'], codingTools = null, states = {} } = {}) {
+function plugin({ role = 'local-robot', businessRole = role, extras = ['mcp__qwennote__*'], codingTools = null, states = {}, manager = true } = {}) {
   let mounted = [], created;
   const disposals = [], allowed = [], records = [], guards = [];
   const runtime = { skillRuns: { codingTools: async () => codingTools }, businessToolPolicy: () => null, roleFor: () => businessRole, roleForToolMount: () => role, configFor: () => ({ extraLocalTools: extras }), providerAvailable: () => false, noteExtraToolResolution: r => records.push(r), workspaceRulesSection: () => '' };
@@ -12,8 +12,8 @@ function plugin({ role = 'local-robot', businessRole = role, extras = ['mcp__qwe
     effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') disposals.push(cleanup); },
     on: (name, fn) => { if (name === 'agent/created') created = fn; },
     tools: { schemas: () => mounted.map(name => ({ name })), register: () => () => {} },
-    // The host's MCP manager, as far as these tests read it: each server's state.
-    mcpManager: { list: () => Object.entries(states).map(([name, state]) => ({ name, status: { state } })) },
+    // The host's MCP manager, as far as these tests read it: each server's state; absent where `manager` is false.
+    ...(manager ? { mcpManager: { list: () => Object.entries(states).map(([name, state]) => ({ name, status: { state } })) } } : {}),
     systemPrompt: { section: () => () => {} },
   };
   apply(ctx);
@@ -74,6 +74,31 @@ describe('本地工具扩展：真实插件 agent/created 生命周期', () => {
       expect(vi.getTimerCount()).toBe(0);
       host.dispose();
     });
+  it('腾讯文档一直在连接、直到有界时间用完：会话照常建立，条目记为被过滤', async () => {
+    vi.useFakeTimers();
+    const host = plugin({ extras: ['mcp__tencent-docs__*'], states: { 'tencent-docs': 'connecting' } });
+    const pending = host.create();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await pending;
+    expect(host.allowed).toHaveLength(1);
+    expect(host.allowed[0]).toContain('pa24_workspace');
+    expect(host.allowed[0].some(n => n.startsWith('mcp__tencent-docs__'))).toBe(false);
+    expect(host.records[0].filtered).toEqual(['mcp__tencent-docs__*']);
+    host.dispose();
+  });
+
+  it('宿主没有 MCP 管理器时，腾讯文档不等、听记照旧等满有界时间', async () => {
+    // Such a host cannot load the official Tencent Docs plugin either, which needs the manager.
+    vi.useFakeTimers();
+    const noManager = plugin({ extras: ['mcp__tencent-docs__*', 'mcp__qwennote__*'], manager: false });
+    const pending = noManager.create();
+    await vi.advanceTimersByTimeAsync(60_000);
+    await pending;
+    expect(noManager.allowed[0]).toContain('pa24_workspace');
+    expect(vi.getTimerCount()).toBe(0);
+    noManager.dispose();
+  });
+
   it('超过有界等待仅开放本地基本工具并记录过滤原因', async () => {
     vi.useFakeTimers();
     const host = plugin();
@@ -119,7 +144,7 @@ describe('本地工具扩展：真实插件 agent/created 生命周期', () => {
     expect(guard({ name: 'mcp__qwennote__list_minutes', agent: { id: 'other' } })).toBeUndefined();
     host.dispose();
   });
-  it.each(['feishu-access', 'worker'])('%s 名下没有已放行的加载器，按需 MCP 工具执行时被门禁拒绝（#308）', async role => {
+  it.each(['feishu-access', 'weixin-access', 'worker'])('%s 名下没有已放行的加载器，按需 MCP 工具执行时被门禁拒绝（#308）', async role => {
     const host = plugin({ role, extras: ['mcp__tencent-docs__*'] });
     host.mount(['mcp__tencent-docs__load_tools']); await host.create();
     expect(host.allowed[0].some(name => name.startsWith('mcp__'))).toBe(false);

@@ -3,9 +3,8 @@ import z from '@deepseek-ai/schemastery';
 import type { DshContext, ToolRunContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
 import { LEAD_SECTIONS } from './prompts.js';
-import { LocalToolAccess, hostGlobalToolNames, mcpServerState, mcpToolOutside } from './local-tool-access.js';
+import { LocalToolAccess, admittedMcpToolOutside, hostGlobalToolNames, mcpServerState } from './local-tool-access.js';
 import { mountBusinessToolScope } from './business-tool-scope.js';
-export { resolveExtraLocalTools, mcpToolOutside, qwennoteChannelState, hostGlobalToolNames } from './local-tool-access.js';
 
 // Agent-half plugin mounted inside the 24私助 preset. Tools are registered
 // once, then restricted per role at agent creation: the same preset never
@@ -15,6 +14,16 @@ export const name = 'pa24-agent';
 export const inject = ['tools', 'systemPrompt', 'pa24'];
 
 export const Config = z.object({});
+
+/**
+ * Restrict the agent to `listed`, and check again when a tool runs: tools the model loads on demand register on the agent itself,
+ * where restrict() does not reach (#308). The host's gate is a hard prerequisite — without it the agent is not opened at all.
+ */
+function restrictWithGate(child: DshContext, agentId: string, listed: readonly string[], refusal: string): void {
+  if (!child.tools.guard) throw new Error('当前宿主缺少工具执行门禁，未开放会话工具。');
+  child.tools.restrict({ allow: [...listed] });
+  child.tools.guard(exec => exec.agent?.id !== agentId || !admittedMcpToolOutside(listed, exec.name) ? undefined : refusal);
+}
 
 export function apply(ctx: DshContext) {
   const runtime = ctx.get('pa24') as PaRuntime;
@@ -30,10 +39,7 @@ export function apply(ctx: DshContext) {
     const delegated = policy ? null : await runtime.skillRuns.codingTools(agent);
     if (delegated) {
       await agent.ctx!.plugin({ name: 'pa24-skill-delegate-tools', inject: ['tools'], apply(child: DshContext) {
-        if (!child.tools.guard) throw new Error('当前宿主缺少工具执行门禁，未开放 Skill 运行的工具。');
-        child.tools.restrict({ allow: delegated });
-        // #308: tools the model loads on demand register on the agent itself, where restrict() does not reach.
-        child.tools.guard(exec => exec.agent?.id !== agent.id || !mcpToolOutside(delegated, exec.name) ? undefined : '该 MCP 工具不在本次 Skill 授权范围内。');
+        restrictWithGate(child, agent.id, delegated, '该 MCP 工具不在本次 Skill 授权范围内。');
       } }).await();
       return;
     }
@@ -42,12 +48,9 @@ export function apply(ctx: DshContext) {
       await agent.ctx!.plugin({
         name: 'pa24-role-tools', inject: ['tools'],
         apply(child: DshContext) {
-          if (!child.tools.guard) throw new Error('当前宿主缺少工具执行门禁，未开放会话工具。');
+          // Entry sessions and workers list no loader, so a tool such a session loads on demand is refused when it runs.
           const listed = runtime.roleForToolMount(agent) === role ? allow : [];
-          if (!signal.aborted) child.tools.restrict({ allow: listed });
-          // #308: an MCP tool the model loads on demand is checked against the
-          // same list when it runs; entry sessions and workers list no loader.
-          child.tools.guard(exec => exec.agent?.id !== agent.id || !mcpToolOutside(listed, exec.name) ? undefined : '该 MCP 工具不在当前会话的放行范围内。');
+          if (!signal.aborted) restrictWithGate(child, agent.id, listed, '该 MCP 工具不在当前会话的放行范围内。');
         },
       } as any).await();
     });

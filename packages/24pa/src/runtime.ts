@@ -51,7 +51,7 @@ import { WorkCompletionHistory, workExecutionContent } from './work-completion.j
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { template, ConfigError, validateConfig, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
-import { qwennoteChannelState } from './tools.js';
+import { qwennoteChannelState } from './local-tool-access.js';
 import { DEFAULT_LARK_PROFILE, runLarkCli, sendLarkAudioMessage } from './lark.js';
 import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
 import { writeSecretStore, secretStatus, resolveSecret, secretRefs, secretEnvironment, SECRET_KEYS, type SecretKey, type SecretStore, type SecretStatus } from './secrets.js';

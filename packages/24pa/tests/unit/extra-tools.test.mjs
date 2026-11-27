@@ -1,7 +1,7 @@
 // F18: extraLocalTools 存在性过滤——配置点名的工具在并入 restrict() 白名单前，
 // 必须按活挂载信号解析；未挂载项被过滤并保序可观测，绝不让 restrict() 抛错。
 import { describe, expect, it } from 'vitest';
-import { mcpToolOutside, resolveExtraLocalTools, qwennoteChannelState } from '../../lib/tools.js';
+import { admittedMcpToolOutside, qwennoteChannelState, resolveExtraLocalTools } from '../../lib/local-tool-access.js';
 
 const signals = ({ globalToolNames = [], providers = [] } = {}) => ({
   globalToolNames: new Set(globalToolNames),
@@ -57,15 +57,15 @@ describe('extraLocalTools 解析（F18）', () => {
     });
   });
 
-  it('mcpToolOutside：放行范围外的 MCP 工具，经同一服务器已放行的加载器载入的除外（#308）', () => {
+  it('admittedMcpToolOutside：放行范围外的 MCP 工具，经同一服务器已放行的加载器载入的除外（#308）', () => {
     const listed = ['read', 'mcp__tencent-docs__load_tools'];
-    expect(mcpToolOutside(listed, 'mcp__tencent-docs__echo')).toBe(false);
-    expect(mcpToolOutside(listed, 'mcp__tencent-docs__load_tools')).toBe(false);
-    expect(mcpToolOutside(listed, 'mcp__qwennote__list_minutes')).toBe(true);
-    expect(mcpToolOutside(listed, 'mcp__linear__search')).toBe(false);
-    expect(mcpToolOutside(['read'], 'mcp__tencent-docs__echo')).toBe(true);
-    expect(mcpToolOutside(['read', 'mcp__tencent-docs__load_tools', 'mcp__qwennote__get_transcript'], 'mcp__qwennote__list_minutes')).toBe(true);
-    expect(mcpToolOutside(listed, 'read')).toBe(false);
+    expect(admittedMcpToolOutside(listed, 'mcp__tencent-docs__echo')).toBe(false);
+    expect(admittedMcpToolOutside(listed, 'mcp__tencent-docs__load_tools')).toBe(false);
+    expect(admittedMcpToolOutside(listed, 'mcp__qwennote__list_minutes')).toBe(true);
+    expect(admittedMcpToolOutside(listed, 'mcp__linear__search')).toBe(false);
+    expect(admittedMcpToolOutside(['read'], 'mcp__tencent-docs__echo')).toBe(true);
+    expect(admittedMcpToolOutside(['read', 'mcp__tencent-docs__load_tools', 'mcp__qwennote__get_transcript'], 'mcp__qwennote__list_minutes')).toBe(true);
+    expect(admittedMcpToolOutside(listed, 'read')).toBe(false);
   });
 
   it('精确工具名按宿主面存在性过滤', () => {

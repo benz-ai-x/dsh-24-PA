@@ -116,28 +116,38 @@ export const DELEGATION_TOOL_PROVIDER: Record<(typeof DELEGATION_EXTRA_TOOLS)[nu
   subagent_codex: 'codex',
   subagent_claude_code: 'claude-code',
 };
-/** MCP servers whose tools `extraLocalTools` may admit in the local session: QwenNote minutes, and the official Tencent Docs plugin (#308). */
-export const EXTRA_MCP_SERVERS = ['qwennote', 'tencent-docs'] as const;
-export type ExtraMcpServer = (typeof EXTRA_MCP_SERVERS)[number];
+/**
+ * MCP servers whose tools `extraLocalTools` may admit in the local session, and how each brings them to a session: QwenNote minutes,
+ * whose tools are all on the host plane once it is mounted; and the official Tencent Docs plugin (#308), which is on demand — one
+ * loader first, the rest when the model asks for them.
+ */
+export const EXTRA_MCP_SERVERS = [
+  { name: 'qwennote', loading: 'mounted' },
+  { name: 'tencent-docs', loading: 'on-demand' },
+] as const;
+export type ExtraMcpServer = (typeof EXTRA_MCP_SERVERS)[number]['name'];
+/** How a server's tools reach a session. */
+export type McpToolLoading = (typeof EXTRA_MCP_SERVERS)[number]['loading'];
 /** The host namespace of one MCP server's tools. */
-export const mcpToolPrefix = (server: string): string => `mcp__${server}__`;
-/** Wildcard entry: allow every currently mounted tool of that server. */
-export const mcpToolWildcard = (server: string): string => `${mcpToolPrefix(server)}*`;
+export const mcpToolPrefixOf = (server: string): string => `mcp__${server}__`;
+/** Wildcard entry: every tool the server has on the host plane. */
+export const mcpToolWildcardOf = (server: string): string => `${mcpToolPrefixOf(server)}*`;
 /** The tool an on-demand server offers first; the model loads the server's other tools through it. */
 export const MCP_LOADER_TOOL = 'load_tools';
 /** QwenNote minutes tools register as host-plane globals under this prefix. */
-export const QWENNOTE_TOOL_PREFIX = mcpToolPrefix('qwennote');
-export const QWENNOTE_TOOL_WILDCARD = mcpToolWildcard('qwennote');
-/** The official Tencent Docs plugin (`@deepseek-ai/dsh-tencent-docs`) offers its tools on demand under this prefix. */
-export const TENCENT_DOCS_TOOL_PREFIX = mcpToolPrefix('tencent-docs');
-export const TENCENT_DOCS_TOOL_WILDCARD = mcpToolWildcard('tencent-docs');
-const EXTRA_MCP_WILDCARDS: readonly string[] = EXTRA_MCP_SERVERS.map(mcpToolWildcard);
+export const QWENNOTE_TOOL_PREFIX = mcpToolPrefixOf('qwennote');
+export const QWENNOTE_TOOL_WILDCARD = mcpToolWildcardOf('qwennote');
+const EXTRA_MCP_WILDCARDS: readonly string[] = EXTRA_MCP_SERVERS.map(server => mcpToolWildcardOf(server.name));
 // Precise names match the harness MCP tool-name charset; a raw name long
 // enough to need the 12-hex normalization suffix can exceed the cap here —
 // those stay reachable through the wildcard entry instead.
-const EXTRA_MCP_TOOL_NAME = new RegExp(`^(?:${EXTRA_MCP_SERVERS.map(server => mcpToolPrefix(server)).join('|')})[A-Za-z0-9_-]{1,48}$`);
+const EXTRA_MCP_TOOL_NAME = new RegExp(`^(?:${EXTRA_MCP_SERVERS.map(server => mcpToolPrefixOf(server.name)).join('|')})[A-Za-z0-9_-]{1,48}$`);
 
-/** Whether one extraLocalTools entry is acceptable: a delegation tool, an admitted MCP server's wildcard, or a precise tool name of one. */
+/**
+ * Whether one extraLocalTools entry is acceptable: a delegation tool, an admitted MCP server's wildcard, or a precise tool name of
+ * one. A precise name counts only when the tool is on the host plane when the session is built, so for the on-demand server it is the
+ * wildcard that admits its tools.
+ */
 export function isExtraLocalToolEntry(value: string): boolean {
   return (
     (DELEGATION_EXTRA_TOOLS as readonly string[]).includes(value) ||
@@ -319,7 +329,7 @@ export function validateConfig(raw: unknown): PaConfig {
     extraLocalTools.some(x => typeof x !== 'string' || !isExtraLocalToolEntry(x)) ||
     new Set(extraLocalTools).size !== extraLocalTools.length
   ) {
-    throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${EXTRA_MCP_WILDCARDS.join('、')} 或 ${EXTRA_MCP_SERVERS.map(server => `${mcpToolPrefix(server)}<工具名>`).join('、')}。`);
+    throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${EXTRA_MCP_WILDCARDS.join('、')} 或 ${EXTRA_MCP_SERVERS.map(server => `${mcpToolPrefixOf(server.name)}<工具名>`).join('、')}。`);
   }
   const tts = validateTts(input.tts);
   let sources: SourceConfiguration | null;

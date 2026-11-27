@@ -54,6 +54,9 @@ export interface SessionTitleService {
 /** Text in each shipped language, or one string for all of them; `en` is required. */
 export type LocalizedText = string | { readonly en: string; readonly [locale: string]: string };
 
+/** The states the host's MCP manager reports for a server: the MCP client's connection states, and the manager's own. */
+export type McpServerState = 'closed' | 'waiting-credentials' | 'waiting-authorization' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disabled';
+
 /** One button of an account block on the host's Plugins page. */
 export interface ConnectorAccountButton {
   label: LocalizedText;
@@ -311,6 +314,6 @@ export interface DshContext {
   /** The host's Plugins page account registry; a host that loads no web application has none. */
   connectorAccounts?: ConnectorAccountsService;
   /** The host's MCP manager (the web profile loads one): says of each server how its connection stands. */
-  mcpManager?: { list(): { name: string; status: { state: string } }[] };
+  mcpManager?: { list(): { name: string; status: { state: McpServerState } }[] };
   get(service: string): any;
 }
