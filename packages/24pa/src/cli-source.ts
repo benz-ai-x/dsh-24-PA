@@ -41,6 +41,9 @@ export class CliUnavailableError extends Error {
     super(message);
     this.name = 'CliUnavailableError';
   }
+
+  /** What is wrong, without what to do about it: the message up to its first clause. */
+  get headline(): string { return this.message.split(/[：；。]/)[0] ?? this.message; }
 }
 
 const OFFICIAL = {

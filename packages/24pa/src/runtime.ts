@@ -401,8 +401,8 @@ export class PaRuntime {
       && Date.parse(evidence.checkedAt) >= Math.max(new Date(this.wecomIdentity.accepted_at).getTime(), new Date(this.wecomIdentity.observed_at).getTime()),
     probe: source => {
       if (this.config!.mode !== 'feishu') throw new Error('体验模式不核验真实平台来源；切换真实接入后由本人发起检查。');
-      // A platform whose CLI nothing supplies is refused before any platform call; the evidence keeps the message.
-      this.platformCli(source.platform);
+      // A platform whose CLI cannot run as given is refused before any platform call; the evidence keeps the sentence.
+      this.located(source.platform === 'feishu' ? 'lark' : 'wecom');
       return this.sourceAccess.check(source);
     }, gate: (key, work) => this.gate(key, work),
   });
@@ -1628,28 +1628,34 @@ export class PaRuntime {
   private channelCli(cli: VendorCli): () => { bin: string; timeoutMs: number; source: CliSource } {
     return () => { const located = this.located(cli); return { bin: located.path, timeoutMs: this.options.cliTimeoutMs, source: located.source }; };
   }
-  /** A CLI's path for identity comparisons; an unsupplied CLI reads as one fixed word instead of throwing. */
-  private cliPath(cli: VendorCli): string {
-    const answer = this.vendorClis.describe(cli);
-    return answer instanceof CliUnavailableError ? 'unavailable' : answer.path;
-  }
-  /** The CLI a platform's business actions run with; throws {@link CliUnavailableError} when it is missing or not executable where it is said to be. */
-  private platformCli(platform: SourcePlatform): CliLocation { return this.located(platform === 'feishu' ? 'lark' : 'wecom'); }
   /**
-   * Where a vendor CLI is. Throws {@link CliUnavailableError}, which says what to do, when the CLI is missing or not executable where it is
-   * said to be: a call that would run it is refused before a process starts, and readiness, the access checks and the channel's start
-   * report the same sentence.
+   * A CLI's path for identity comparisons; an unsupplied CLI reads as one fixed word instead of throwing. The path as supplied, whether or not
+   * it can run: the identity is which executable, not whether it starts, so evidence kept for it stays its own.
    */
-  private located(cli: VendorCli): CliLocation {
-    const answer = this.vendorClis.describe(cli);
-    if (answer instanceof CliUnavailableError) throw answer;
-    const problem = this.cliProblem(answer);
-    if (problem) throw new CliUnavailableError(problem, answer.cli);
-    return answer;
+  private cliPath(cli: VendorCli): string {
+    const supplied = this.vendorClis.describe(cli);
+    return supplied instanceof CliUnavailableError ? 'unavailable' : supplied.path;
   }
-  /** Why no Feishu channel can run on the lark-cli as located, or null when one can. */
+  /**
+   * Where a vendor CLI is, or — saying what to do — why it cannot run as given: missing, or not executable where it is said to be. Never
+   * throws; every report of a vendor CLI shows this one answer.
+   */
+  private findCli(cli: VendorCli): CliLocation | CliUnavailableError {
+    const supplied = this.vendorClis.describe(cli);
+    if (supplied instanceof CliUnavailableError) return supplied;
+    const problem = this.cliProblem(supplied);
+    return problem ? new CliUnavailableError(problem, cli) : supplied;
+  }
+  /** Where a vendor CLI is. Throws {@link CliUnavailableError}, with the answer {@link findCli} gives, so a call that would run an unusable CLI is refused before a process starts. */
+  private located(cli: VendorCli): CliLocation {
+    const found = this.findCli(cli);
+    if (found instanceof CliUnavailableError) throw found;
+    return found;
+  }
+  /** Why no Feishu channel can run on the lark-cli, or null when one can. */
   private larkProblem(): string | null {
-    try { this.located('lark'); return null; } catch (error) { return (error as Error).message; }
+    const found = this.findCli('lark');
+    return found instanceof CliUnavailableError ? found.message : null;
   }
   /**
    * Why a located CLI cannot run as given, or null when it can; said the same way wherever the plugin reports it.
@@ -4668,9 +4674,8 @@ export class PaRuntime {
       if (!this.workspace || !this.config) throw new Error('尚未绑定工作区。');
       const workspace = this.workspace;
       const config = this.config;
-      // The check starts from the same sentence as readiness when the lark-cli cannot run, the way back to the connector included.
-      let cli: CliLocation | CliUnavailableError;
-      try { cli = this.located('lark'); } catch (error) { cli = error as CliUnavailableError; }
+      // The check starts from the lookup's own answer: the same sentence as readiness when the lark-cli cannot run.
+      const cli: CliLocation | CliUnavailableError = this.findCli('lark');
       // F36: 报错脱敏覆盖密钥库来源的真实值（env 值 safeError 自行读）。
       const extraSecrets = [this.secretValue('feishuAppId'), this.secretValue('feishuAppSecret')].filter(Boolean);
       const run = (this.checking = inspectAccess(config, cli, { path: workspace.statePath, sourceHash: this.sourceHash }, extraSecrets, this.secretValue('feishuAppId'))
@@ -4769,21 +4774,18 @@ export class PaRuntime {
     const lines: string[] = [];
     let state: ReadinessItem['state'] = 'ok';
     for (const cli of ['lark', 'wecom'] as const) {
-      const name = `${cli}-cli`, located = this.vendorClis.describe(cli);
-      // A CLI the configuration calls for, but that cannot run, is an error that says why; one it does not call for is no fault.
-      // The sentence is the lookup's own, so it says what to do whichever way the CLI is unavailable: install, set the row, or drop a refused entry.
-      const report = (problem: string) => {
-        if (called[cli]) { state = 'error'; lines.push(problem); return; }
-        if (cli !== 'lark') { lines.push(`${name}：当前配置不会调用它；${problem}`); return; }
+      const name = `${cli}-cli`, found = this.findCli(cli);
+      // A CLI the configuration calls for, but that cannot run, is an error that says what to do: install, set the row, or drop a refused entry.
+      const report = (refused: CliUnavailableError) => {
+        if (called[cli]) { state = 'error'; lines.push(refused.message); return; }
+        // One it does not call for is no fault: said is what is wrong, not the whole way to supply it.
+        if (cli !== 'lark') { lines.push(`${name}：当前配置不会调用它；${refused.headline}`); return; }
         // Demo mode reaches no platform through lark-cli: what keeps it from running is then information, not a fault.
         if (state === 'ok') state = 'info';
-        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${problem}`);
+        lines.push(`${name}：体验模式未启用飞书接入；登记飞书来源或切换到飞书模式前，需处理：${refused.message}`);
       };
-      // It is missing, or not executable where it is said to be; null when it can run.
-      if (located instanceof CliUnavailableError) { report(located.message); continue; }
-      const problem = this.cliProblem(located);
-      if (problem === null) lines.push(`${name}：${CLI_SOURCE_LABELS[located.source]}（${located.connector ? `${located.connector}，` : ''}${located.path}）`);
-      else report(problem);
+      if (found instanceof CliUnavailableError) { report(found); continue; }
+      lines.push(`${name}：${CLI_SOURCE_LABELS[found.source]}（${found.connector ? `${found.connector}，` : ''}${found.path}）`);
     }
     return { id: 'vendor-cli', state, message: lines.join('；') };
   }

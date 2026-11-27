@@ -81,8 +81,9 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     // The message names its own CLI; the readiness does not say the name twice.
     expect(item.message).toContain('需要官方飞书插件提供的 lark-cli');
     expect(item.message).not.toContain('lark-cli：需要官方飞书插件');
-    // Not called for: still the lookup's own sentence, which says what to do.
+    // Not called for: what is wrong, without the whole way to supply it — no fault, so no install command on this line.
     expect(item.message).toContain('wecom-cli：当前配置不会调用它；需要官方企业微信插件提供的 wecom-cli');
+    expect(item.message).not.toMatch(/wecom-cli：当前配置不会调用它；[^;]*dsh plugin/);
     expect(readinessItem(rt, 'host').message).toContain('官方连接器 未安装');
     // The access check reports the cause without starting a process, and the cause is its only next step.
     const access = await rt.checkAccess();
@@ -175,6 +176,19 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     expect(listed.entries.find(row => row.id === 'legacy-todo-wecom').evidence).toMatchObject({ state: 'failed', message: said });
   });
 
+  it('登记了飞书来源或企微来源：没有对应 CLI 时来源检查不通过，证据里带着安装命令', async () => {
+    const sources = { version: 1, entries: [source('personal-calendar', 'calendar', 'feishu'), source('wecom-todo', 'todo', 'wecom')],
+      defaults: { calendar: 'personal-calendar', todo: 'wecom-todo' }, mappings: [], meetingDurationMinutes: 30 };
+    const { make, path } = await connectorLine({ connect: false, config: { sources } });
+    const rt = make(); await rt.bind(path);
+    for (const [id, connector] of [['personal-calendar', 'dsh-feishu'], ['wecom-todo', 'dsh-wecom']]) {
+      const listed = await rt.checkSource({ sourceId: id, workspaceBinding: rt.workspaceBinding });
+      const evidence = listed.entries.find(row => row.id === id).evidence;
+      expect(evidence.state).toBe('failed');
+      expect(evidence.message).toContain(`dsh plugin --profile pa24-test add @deepseek-ai/${connector}`);
+    }
+  });
+
   it('显式登记了来源、旧式渠道又选了企微：没有 wecom-cli 时 readiness 仍报错', async () => {
     // Reminders without a bound target and the projections still follow the legacy selectors.
     const sources = { version: 1, entries: [source('personal-calendar', 'calendar', 'feishu'), source('personal-todo', 'todo', 'feishu')],
@@ -239,7 +253,10 @@ describe('没有官方连接器的宿主线', () => {
     const rt = f.make(); await rt.bind(await feishu());
     expect(rt.transport).toBeNull();
     expect(rt.snapshot().transport.message).toBe('飞书接入未启动：未设置 lark-cli：请在24私助插件行设置 larkCliBin。');
-    expect(readinessItem(rt, 'vendor-cli').state).toBe('error');
+    const item = readinessItem(rt, 'vendor-cli');
+    expect(item.state).toBe('error');
+    // The same words for wecom-cli, which this workspace does not call for.
+    expect(item.message).toContain('wecom-cli：当前配置不会调用它；未设置 wecom-cli');
   });
 
   it('插件行的裸名由 PATH 解析：PATH 上是替身，跑的就是替身', async () => {
@@ -253,7 +270,7 @@ describe('没有官方连接器的宿主线', () => {
       const item = readinessItem(rt, 'vendor-cli');
       expect(item.state).toBe('ok');
       expect(item.message).toContain('lark-cli：PATH 上的可执行文件（lark-cli）');
-      expect(item.message).toContain('wecom-cli：当前配置不会调用它；PATH 上找不到 wecom-cli；请安装 wecom-cli 并加入启动进程的 PATH');
+      expect(item.message).toContain('wecom-cli：当前配置不会调用它；PATH 上找不到 wecom-cli');
       const access = await rt.checkAccess();
       expect(access.cli).toMatchObject({ state: 'ok', source: 'path', path: 'lark-cli' });
       expect(access.auth.state).toBe('ok');

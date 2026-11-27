@@ -511,10 +511,13 @@ describe('渠道可靠性：真实账本与模块 interface', () => {
     expect(sends).toBe(3);
   });
 
-  it('CLI 被拒、进程没有启动时按明确未发送处理：说出原因、留待重试，不记成结果未知', async () => {
-    const row = (await enqueue()).row, said = '插件行配置的 lark-cli 不可执行（/opt/vendor/lark-cli）；请核对24私助插件行的 larkCliBin';
+  it('企微推送在 CLI 被拒、进程没有启动时按明确未发处理：说出原因、留待重试，不记成结果未知', async () => {
+    // A Feishu channel that is not started makes its adapter unavailable, and delivery holds the row before send; a WeCom push reaches send.
+    const row = (await enqueue('reminder:wecom-1', 'wecom')).row;
+    const said = '需要官方企业微信插件提供的 wecom-cli：当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）。请安装官方企业微信插件后重启宿主。';
     let sends = 0;
-    const worker = delivery(async () => { sends++; throw new CliUnavailableError(said, 'lark'); });
+    const send = async () => { sends++; throw new CliUnavailableError(said, 'wecom'); };
+    const worker = delivery(send, () => repos.messageRoutes, { wecom: { available: () => true, supports: () => true, send } });
     await worker.drain();
     expect((await repos.outbox.recent())[0]).toMatchObject({ status: 'pending', last_error: said });
     for (let attempt = 0; attempt < 2; attempt++) { await repos.outbox.mark(row.id, { status: 'pending', retryInMs: 0 }); await worker.drain(); }
