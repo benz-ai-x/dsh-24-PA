@@ -26,7 +26,8 @@ export const Config = z.object({
 
 export function apply(ctx: DshContext, config: any) {
   // A host line without the official connectors (the rc line) has none to
-  // supply the CLIs: there the row names the bare executables, which PATH resolves.
+  // supply the CLIs: there the entry names the bare executables in the
+  // settings, and PATH resolves them when a process starts.
   // Read once, here: the CLI account service is a row of the host's base
   // bundle, there before any plugin row applies. The official-connector e2e
   // boots that host with no CLI in the plugin row and sees the connectors'

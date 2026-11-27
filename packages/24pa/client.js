@@ -188,6 +188,13 @@ window.__ModuleLoader__.load({
         // #306: how the lark-cli is supplied, as the access check reports it.
         const CLI_SOURCE = { official: ['官方连接器提供', 'From the official connector'], config: ['插件行显式配置', 'Set in the plugin row'], path: ['PATH 上的可执行文件', 'Executable on PATH'] };
         const cliSourceText = cli => [cli.source && CLI_SOURCE[cli.source] ? L(...CLI_SOURCE[cli.source]) : null, cli.message].filter(Boolean).join(' · ');
+        // Where a CLI came from, for the note under an access card. Said only when the access check reported a source: before a check, or when the CLI is missing, there is none to name (#306).
+        const cliOriginText = (cli, program, [plugin, en]) => {
+          if (cli?.source === 'official') return L(`${program} 由官方${plugin}插件提供；`, `${program} comes from the official ${en} plugin; `);
+          if (cli?.source === 'config') return L(`${program} 由24私助插件行给出；`, `${program} is named in the 24PA plugin row; `);
+          if (cli?.source === 'path') return L(`${program} 来自宿主的 PATH；`, `${program} is found on the host's PATH; `);
+          return null;
+        };
         const statusBadge = (tier, label) => { const item = STATUS[tier] || STATUS.unchecked; return badge(label || t(item[0]), item[1], item[2]); };
         const technicalText = value => {
           const text = String(value ?? '');
@@ -1138,10 +1145,8 @@ window.__ModuleLoader__.load({
                 [L('用户令牌', 'User token'), auth ? auth.tokenStatus : L('尚未确认', 'Unconfirmed')],
               ]),
               // #307: linking the app and signing in are the official Feishu plugin's operations, done by the owner on the host's Plugins page.
-              h('p', { className: 'pa24-helper' }, (cli && cli.source === 'official'
-                ? L('lark-cli 由官方飞书插件提供；', 'lark-cli comes from the official Feishu plugin; ')
-                : L('lark-cli 由24私助插件行给出；', 'lark-cli is named in the 24PA plugin row; '))
-                + L('关联应用与登录由本人在宿主「插件」页的「飞书插件」里完成，这里只显示只读检查的结果。', 'link the app and sign in on that plugin\'s block of the host\'s Plugins page. What shows here is the read-only check.')),
+              h('p', { className: 'pa24-helper' }, [cliOriginText(cli, 'lark-cli', ['飞书', 'Feishu']),
+                L('关联应用与登录由本人在宿主「插件」页的「飞书插件」里完成，这里只显示只读检查的结果。', 'link the app and sign in on that plugin\'s block of the host\'s Plugins page. What shows here is the read-only check.')].filter(Boolean).join('')),
               h('details', null, h('summary', null, L('路径与身份明细', 'Path & identity details')),
                 fields([
                   [L('CLI 路径', 'CLI path'), cli ? h('span', { className: 'pa24-ellip', title: cli.path }, cli.path) : L('尚未检查', 'Not checked')],
@@ -4027,10 +4032,8 @@ window.__ModuleLoader__.load({
                 [L('推送目标', 'Push target'), wecom.identity.userid ? h('span', { className: 'pa24-ellip', title: wecom.identity.userid }, wecom.identity.userid) : L('未解析', 'Unresolved')],
               ]),
               // Connecting WeCom is the official WeCom plugin's operation, done by the owner on the host's Plugins page.
-              h('p', { className: 'pa24-helper' }, (wecom.cli.source === 'official'
-                ? L('wecom-cli 由官方企业微信插件提供；', 'wecom-cli comes from the official WeCom plugin; ')
-                : L('wecom-cli 由24私助插件行给出；', 'wecom-cli is named in the 24PA plugin row; '))
-                + L('连接企业微信由本人在宿主「插件」页的「企业微信插件」里完成。', 'connect WeCom on that plugin\'s block of the host\'s Plugins page.'))),
+              h('p', { className: 'pa24-helper' }, [cliOriginText(wecom.cli, 'wecom-cli', ['企业微信', 'WeCom']),
+                L('连接企业微信由本人在宿主「插件」页的「企业微信插件」里完成。', 'connect WeCom on that plugin\'s block of the host\'s Plugins page.')].filter(Boolean).join(''))),
             wecom && h('section', { className: 'pa24-card' },
               sectionHead('shield', L('服务级授权', 'Service-level authorization'), L('按启用渠道只读探测；服务级授权会过期（报 850003 时按指引续期），链接需在企微 App 内打开。', 'Read-only probes per enabled channel; service-level grants expire (follow the renewal guide on 850003), and links must open inside the WeCom app.')),
               (wecom.services ?? []).length === 0

@@ -1,11 +1,11 @@
-import { runCliProcess } from './cli-gateway.js';
+import { cliVersion } from './cli-gateway.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PaConfig } from './config.js';
 import { runLarkCli, type LarkCliOptions } from './lark.js';
 import { redactDiagnostic } from './diagnostic-redaction.js';
-import { CliUnavailableError, unusableCli, type CliLocation } from './cli-source.js';
+import { CliUnavailableError, type CliLocation } from './cli-source.js';
 
 // Feishu transport seam: production uses the official SDK long connection;
 // tests inject events through the same inbound path without a network. The
@@ -354,22 +354,13 @@ async function collectAccess(
   return result;
 }
 
-/** Whether the lark-cli runs, and where it came from; the message of a failure is the next step. */
+/** Whether the lark-cli answers, and where it came from; the message of a failure is the next step. */
 async function probeCli(cli: CliLocation, config: PaConfig, extraSecrets: string[]): Promise<Record<string, unknown>> {
-  // Said as readiness says it when the executable cannot run as given.
-  const unusable = unusableCli(cli);
-  if (unusable) return status('error', unusable);
-  try {
-    const { stdout, exitCode } = await runCliProcess({ bin: cli.path, argv: ['--version'],
-      timeoutMs: 5000, stdoutLimitBytes: 16384,
-      fail: (kind, cause) => new Error(kind === 'spawn' ? `无法启动 ${cli.path}（${cause?.message ?? '未知原因'}）` : `版本检查未完成（${kind}）`),
-      env: { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
-    });
-    if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
-    return status('ok', 'CLI 可执行', { path: cli.path, version: stdout.trim().slice(0, 100), source: cli.source, ...(cli.connector ? { connector: cli.connector } : {}) });
-  } catch (error) {
-    return status('error', safeError(error, config, extraSecrets));
-  }
+  // Only the two switches: the rest of the environment is what the process starts with.
+  const probe = await cliVersion(cli, { timeoutMs: 5000, env: { LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' } });
+  return probe.ok
+    ? status('ok', 'CLI 可执行', { path: cli.path, version: probe.version, source: cli.source, ...(cli.connector ? { connector: cli.connector } : {}) })
+    : status('error', safeError(new Error(probe.problem), config, extraSecrets));
 }
 
 /** In-process fake used by tests and demo mode to exercise the real pipeline. */

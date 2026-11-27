@@ -2,6 +2,8 @@
 // seam, no Host involved. Deep coverage stays in the f16 e2e (stub-wecom-cli);
 // these pin the contract edges cheapest to assert here.
 import { describe, expect, it } from 'vitest';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { WecomChannels } from '../../lib/wecom-channels.js';
 import { makeBaseDeps } from '../helpers/channel-deps.mjs';
 
@@ -19,16 +21,27 @@ const makeDeps = (over = {}) => ({
 });
 
 describe('#306：没有 wecom-cli 时的说法', () => {
-  it('有检查在进行、或刚解析失败时，推送目标的解析仍直接说出缺的是哪个插件', async () => {
+  it('检查进行中、以及刚失败之后的退避期里，推送目标的解析都直接说出缺的是哪个插件', async () => {
     const { CliUnavailableError } = await import('../../lib/cli-source.js');
+    const { chmod, mkdtemp, writeFile, rm } = await import('node:fs/promises');
     const message = '需要官方企业微信插件提供的 wecom-cli：当前实例未安装官方企业微信插件（@deepseek-ai/dsh-wecom）';
-    const channels = new WecomChannels(makeDeps({ cli: () => { throw new CliUnavailableError(message, 'wecom'); } }));
-    // A check that never settles, then the minute after a failed lookup: neither may replace the cause.
-    channels.checking = new Promise(() => {});
-    await expect(channels.wecomOwnerUserid()).rejects.toThrow(message);
-    channels.checking = null;
-    channels.wecomIdentityFailedAt = Date.now();
-    await expect(channels.wecomOwnerUserid()).rejects.toThrow(message);
+    // A wecom-cli that answers nothing until released, so that the check started with it stays in progress.
+    const dir = await mkdtemp(join(tmpdir(), 'pa24-wecom-hanging-')), release = join(dir, 'release'), hanging = join(dir, 'wecom-cli');
+    await writeFile(hanging, '#!/usr/bin/env node\nimport { existsSync } from "node:fs";\n'
+      + `while (!existsSync(${JSON.stringify(release)})) await new Promise(resolve => setTimeout(resolve, 50));\nprocess.exit(1);\n`, { mode: 0o755 });
+    await chmod(hanging, 0o755);
+    try {
+      let cli = { bin: hanging, timeoutMs: 10_000 };
+      const channels = new WecomChannels(makeDeps({ cli: () => { if (typeof cli === 'string') throw new CliUnavailableError(cli, 'wecom'); return cli; } }));
+      const checking = channels.wecomCheck();
+      await new Promise(resolve => setTimeout(resolve, 300));
+      // Meanwhile the CLI is gone, as when the plugin row changes or the connector is removed.
+      cli = message;
+      await expect(channels.wecomOwnerUserid()).rejects.toThrow(message);
+      await writeFile(release, ''); await checking;
+      // That check failed, which starts its minute of not looking the target up again.
+      await expect(channels.wecomOwnerUserid()).rejects.toThrow(message);
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });
 

@@ -222,6 +222,8 @@ describe('VendorClis：没有官方连接器的宿主线', () => {
     expect(answer).toBeInstanceOf(CliUnavailableError);
     expect(answer.message).toBe('未设置 lark-cli：请在24私助插件行设置 larkCliBin。');
     expect(() => clis.get('lark')).toThrow(/未设置 lark-cli/);
+    // No process started, so the platform did nothing: the external-write stages may let the same call be retried once the CLI is there.
+    expect(answer.outcome).toBe('failed');
   });
 
   it('插件行给了裸名或相对路径就原样交给进程启动去解析', () => {

@@ -3,7 +3,7 @@
 // /api/24pa endpoint over the authenticated loopback connection.
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, delimiter, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,8 +98,18 @@ export async function bootHost({ env: extraEnv = {}, root: reuseRoot, bin: reque
   // A boot that leaves the row without a file path — `vendorClis: false`, or a
   // bare name a test gives — must not let a child process resolve that name on
   // this machine's PATH, whatever the host line does with it. Those boots run
-  // with PATH holding only Node's own directory, which the stand-ins need.
-  if (vendorClis === false || Object.values(cli).some(path => !path.includes(sep))) env.PATH = dirname(process.execPath);
+  // with PATH holding a directory with nothing but node in it, which the
+  // stand-ins need; where a link cannot be made, Node's own directory stands in.
+  if (vendorClis === false || Object.values(cli).some(path => !path.includes(sep))) {
+    const onlyNode = join(root, 'only-node');
+    await mkdir(onlyNode, { recursive: true });
+    try {
+      await symlink(process.execPath, join(onlyNode, process.platform === 'win32' ? 'node.exe' : 'node'));
+      env.PATH = onlyNode;
+    } catch {
+      env.PATH = dirname(process.execPath);
+    }
+  }
   // Runs once the profile's packages are in place and before the Host reads
   // them: a test stands in for what an ignored install script would have
   // downloaded, or adds an entry to the patch layer through `addPatch`.

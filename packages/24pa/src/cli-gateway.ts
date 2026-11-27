@@ -31,6 +31,8 @@ export interface CliProcessResult {
 }
 
 const STDOUT_LIMIT_BYTES = 16 * 1024 * 1024;
+/** What a version probe keeps of the answer. */
+const VERSION_MAX_CHARS = 100;
 const STDERR_KEEP_CHARS = 65536;
 
 /** Run one CLI child under the shared safety skeleton; envelope judgment is
@@ -95,4 +97,22 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
     child.stdin.on('error', () => {});
     child.stdin.end(stdinContent);
   });
+}
+
+/** What asking a CLI for its version told. */
+export type CliVersionProbe = { ok: true; version: string } | { ok: false; problem: string };
+
+/**
+ * Whether a CLI answers `--version`, the one harmless start of it: what an access check runs before it reads anything
+ * through the CLI. A failure is said so that the message is the next step.
+ */
+export async function cliVersion(cli: { path: string }, options: { timeoutMs: number; env?: Record<string, string | undefined> }): Promise<CliVersionProbe> {
+  try {
+    const { stdout, exitCode } = await runCliProcess({ bin: cli.path, argv: ['--version'], timeoutMs: options.timeoutMs, stdoutLimitBytes: 16384, env: options.env,
+      fail: (kind, cause) => new Error(kind === 'spawn' ? `无法启动 ${cli.path}（${cause?.message ?? '未知原因'}）` : `版本检查未完成（${kind}）`) });
+    if (exitCode !== 0) return { ok: false, problem: `版本检查退出码 ${exitCode}` };
+    return { ok: true, version: stdout.trim().slice(0, VERSION_MAX_CHARS) };
+  } catch (error) {
+    return { ok: false, problem: (error as Error).message };
+  }
 }

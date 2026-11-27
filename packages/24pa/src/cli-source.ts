@@ -31,8 +31,12 @@ export interface CliLocation {
 /** Whether this host line ships the official connectors: it provides the CLI account service they register with. */
 export const hasOfficialConnectors = (host: { get(name: string): unknown }): boolean => !!host.get('cliAccounts');
 
-/** Neither the plugin row nor an official connector supplies the CLI. */
+/**
+ * The CLI cannot run as located: nothing supplies it, or the executable is not where it is said to be. A call refused with it starts no
+ * process, so for the durable external-write stages and deliveries it is a failure — the platform did nothing, and a retry is safe — never an unknown outcome.
+ */
 export class CliUnavailableError extends Error {
+  readonly outcome = 'failed' as const;
   constructor(message: string, readonly cli: VendorCli) {
     super(message);
     this.name = 'CliUnavailableError';
@@ -49,7 +53,10 @@ const OPTION = { lark: 'larkCliBin', wecom: 'wecomCliBin' } as const;
 /** Resolves a package's `package.json` from `from` (by default this package), or null when it is not installed there. */
 export type PackageResolver = (name: string, from?: string) => string | null;
 
-/** Read on every lookup, so a row edited after the runtime was built is honoured. */
+/**
+ * Read on each lookup from these settings, so a test that edits them after the runtime was built is honoured. The plugin entry copies the
+ * row's values into them once when it loads: a row edited on disk takes effect when the Host restarts.
+ */
 export interface VendorCliSettings {
   readonly lark?: string;
   readonly wecom?: string;
@@ -190,7 +197,7 @@ export class VendorClis {
       binDir = join(dirname(platformPackage), 'bin');
     }
     const path = join(binDir, (this.deps.platform ?? process.platform) === 'win32' ? `${name}.exe` : name);
-    // The connector's own row can point its CLI elsewhere (the Feishu row's `binDir`); this lookup reads the package as installed.
+    // The connector's own row can point its CLI elsewhere (its `binDir`); this lookup reads the package as installed.
     if (!(this.deps.executable ?? isExecutable)(path)) return missing(`官方${official.label}插件托管的 ${name} 不可执行（${path}）；请重新安装该插件${cli === 'lark' ? '，并批准 @larksuite/cli 的安装脚本' : ''}；若该插件行另设了 CLI 目录，24私助不读取它，请在24私助插件行用 ${OPTION[cli]} 指向那里的 ${name}`);
     const version = packageVersion(connector);
     return { cli, path, source: 'official', connector: version ? `${official.connector}@${version}` : official.connector };

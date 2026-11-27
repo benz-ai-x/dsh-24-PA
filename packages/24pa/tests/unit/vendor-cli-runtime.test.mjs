@@ -96,7 +96,7 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     expect(() => rt.vendorClis.get('wecom')).toThrow(/未安装官方企业微信插件/);
   });
 
-  it('插件行显式给出的路径优先于连接器，运行时建立后再设也生效', async () => {
+  it('插件行显式给出的路径优先于连接器；运行时建立后再改这项设置也生效', async () => {
     const { make, path, options, root } = await connectorLine({ connect: false });
     const rt = make();
     const standalone = join(root, 'standalone-lark');
@@ -140,8 +140,26 @@ describe('官方连接器宿主线上的 CLI 供给', () => {
     // The channel's own readiness item calls it the fault it is, as it does a missing connector CLI.
     expect(readinessItem(rt, 'feishu').state).toBe('error');
     // The access check says the same, minus the way back to the connector, which only the host line knows.
+    // The access check says the same sentence, the way back to the connector included.
     const access = await rt.checkAccess();
-    expect(access.cli).toMatchObject({ state: 'error', message: `${why}；请核对24私助插件行的 larkCliBin` });
+    expect(access.cli).toMatchObject({ state: 'error', message: said });
+    expect(access.nextSteps).toEqual([said]);
+  });
+
+  it('企微这边说法相同：插件行的 wecom-cli 路径不可执行时，wecom_check、企微推送与来源检查说出 readiness 的那句', async () => {
+    const { make, path, options, root, executables } = await connectorLine({ config: { notifyChannel: 'wecom', todoChannel: 'wecom' } });
+    options.wecomCliBin = join(root, 'no-such-wecom-cli');
+    const rt = make(); await rt.bind(path);
+    const why = `插件行配置的 wecom-cli 不可执行（${join(root, 'no-such-wecom-cli')}）；请核对24私助插件行的 wecomCliBin`;
+    const said = `${why}；要用官方插件托管的，请删除插件行的这一项`;
+    const item = readinessItem(rt, 'vendor-cli');
+    expect(item.state).toBe('error');
+    expect(item.message).toBe(`lark-cli：官方连接器提供（@deepseek-ai/dsh-feishu@0.2.3-alpha.2，${executables.lark}）；${said}`);
+    expect((await rt.wecomCheck()).cli).toEqual({ state: 'error', message: said });
+    await expect(rt.wecomChannels.wecomOwnerUserid()).rejects.toThrow(said);
+    // A source on a platform whose CLI cannot run is refused before any platform call, with the same sentence.
+    const listed = await rt.checkSource({ sourceId: 'legacy-todo-wecom', workspaceBinding: rt.workspaceBinding });
+    expect(listed.entries.find(row => row.id === 'legacy-todo-wecom').evidence).toMatchObject({ state: 'failed', message: said });
   });
 
   it('体验模式下插件行路径跑不起来不启动任何接入，也只是说明', async () => {

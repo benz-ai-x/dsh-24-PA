@@ -26,8 +26,9 @@ describe('R3 Runtime 渠道边界', () => {
     const f = await setup(); expect(f.rt.getTransport()).toBeNull();
     const task = await f.rt.delegate({ worker: 'memo', title: '保存备忘', instruction: '记下材料' }, f.local);
     const child = { id: task.workId }, args = { action: 'memo_save', topic: '材料', content: '已核对的内容' };
+    // Said before any process starts, as readiness says it (#306).
     f.options.larkCliBin = join(f.root, 'missing');
-    await expect(f.rt.work(args, child)).rejects.toThrow(/无法启动/);
+    await expect(f.rt.work(args, child)).rejects.toThrow(/插件行配置的 lark-cli 不可执行/);
     f.options.larkCliBin = f.bin;
     expect(await f.rt.work(args, child)).toMatchObject({ demo: false, docUrl: expect.stringContaining('feishu') });
     expect(await f.rt.work(args, child)).toMatchObject({ reused: true });

@@ -1,4 +1,4 @@
-import { runCliProcess } from './cli-gateway.js';
+import { cliVersion } from './cli-gateway.js';
 import { observeCalendar } from './calendar-observation.js';
 // WeCom channel module (F30): the calendar/todo/notify operations plus the
 // diagnostic probes behind one deep module. Channel selection (calendarChannel /
@@ -86,7 +86,7 @@ export class WecomChannels {
   private identityChecking: Promise<{ userid: string; name: string }> | null = null;
   private identityEpoch = 0;
   async wecomOwnerUserid(refresh = false): Promise<{ userid: string; name: string }> {
-    // Said on every call, ahead of any check in progress or backoff: when nothing supplies wecom-cli (#306), its message is the answer.
+    // Asked on every call: when the wecom-cli is missing or cannot run as given (#306), what the runtime says of it is the answer.
     this.deps.cli();
     if (!refresh && this.checking) {
       await this.checking;
@@ -478,21 +478,11 @@ export class WecomChannels {
       this.wecomDiagnostics = this.safe(result);
       return this.wecomDiagnostics;
     };
-    let bin: string, source: CliSource | undefined;
-    try { ({ bin, source } = this.deps.cli()); } catch (error) { return failed(error instanceof CliUnavailableError ? error.message : `无法运行 wecom-cli：${(error as Error).message}`); }
-    // A spawn failure names the executable itself; any other failure is said after it.
-    let didNotStart = false;
-    try {
-      const { stdout, exitCode } = await runCliProcess({ bin, argv: ['--version'],
-        timeoutMs: Math.min(this.deps.cli().timeoutMs, 10_000), fail: (kind, cause) => {
-          didNotStart = kind === 'spawn';
-          return new Error(kind === 'spawn' ? `无法启动 ${bin}（${cause?.message ?? '未知原因'}）` : `版本检查未完成（${kind}）`);
-        } });
-      if (exitCode !== 0) throw new Error(`版本检查退出码 ${exitCode}`);
-      cli = { state: 'ok', message: `wecom-cli ${String(stdout).trim() || '已安装'}`, ...(source ? { source } : {}) };
-    } catch (error) {
-      return failed(didNotStart ? (error as Error).message : `无法运行 ${bin}：${(error as Error).message}`);
-    }
+    let bin: string, source: CliSource | undefined, timeoutMs: number;
+    try { ({ bin, source, timeoutMs } = this.deps.cli()); } catch (error) { return failed(error instanceof CliUnavailableError ? error.message : `无法运行 wecom-cli：${(error as Error).message}`); }
+    const probe = await cliVersion({ path: bin }, { timeoutMs: Math.min(timeoutMs, 10_000) });
+    if (!probe.ok) return failed(probe.problem);
+    cli = { state: 'ok', message: `wecom-cli ${probe.version || '已安装'}`, ...(source ? { source } : {}) };
     // 2. Identity (whoami covers bot binding + authorized human in one call).
     let identity: WecomDiagnostics['identity'];
     let userid: string | null = null;
