@@ -1,4 +1,4 @@
-// 24私助's block on the host's Plugins page (#309), end to end on a real
+// 24PA's block on the host's Plugins page (#309), end to end on a real
 // Host: the block is registered under the plugin's package name, registering
 // it reads no platform, and the one operation the page can start is the
 // owner's read-only check, which reaches the switched-on channel through the
@@ -6,14 +6,16 @@
 // from this block is covered by the block's unit tests and a screenshot
 // walk-through, not here.
 import { afterAll, describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
+import { writeStandIn } from '../helpers/stub-cli.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { PA24_PACKAGE_NAME } from '../../lib/connector-account.js';
 
-const key = '@benz-ai-x/dsh-24pa';
+const key = PA24_PACKAGE_NAME;
 let root, host, llm, larkState;
 
 afterAll(async () => { await host?.stop(); await llm?.close(); if (root) await rm(root, { recursive: true, force: true }); });
@@ -32,8 +34,7 @@ describe('接入状态进宿主插件页', () => {
     larkState = join(root, 'lark.json'); await writeFile(larkState, JSON.stringify({ ownerOpenId: 'ou_page_owner', appId: 'cli_page_app' }));
     // The stand-in is on PATH, so the fixture names it in the plugin row.
     const bin = join(root, 'bin'); await mkdir(bin);
-    await writeFile(join(bin, 'lark-cli'), '#!/usr/bin/env node\nprocess.env.PA24_LARK_STUB_STATE=' + JSON.stringify(larkState) + ';\nawait import(' + JSON.stringify(resolve('tests/helpers/stub-lark-cli.mjs')) + ');\n', { mode: 0o755 });
-    await chmod(join(bin, 'lark-cli'), 0o755);
+    await writeStandIn(bin, 'lark', larkState);
     host = await bootHost({ env: { PA24_WORKSPACE: workspace, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_page_app', PA24_FEISHU_APP_SECRET: 'page-secret',
       DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: llm.url, PATH: `${bin}${delimiter}${process.env.PATH}` } });
     await host.waitUntil(row => row.transport?.connected === true && !!row.workspace?.localSessionId, { label: '工作区就绪' });
@@ -41,7 +42,8 @@ describe('接入状态进宿主插件页', () => {
     expect(await calls()).toEqual([]);
     expect((await host.api('snapshot')).diagnostics?.checkedAt ?? null).toBeNull();
     // The registry refuses for this block any operation but the read-only check.
-    await expect(host.remote('connectorAccounts/start', { key, operation: 'sign-out' })).rejects.toThrow(/has no page operation/);
+    // (The refusal's wording is the host's own, and is not pinned here.)
+    await expect(host.remote('connectorAccounts/start', { key, operation: 'sign-out' })).rejects.toThrow();
     // The page's check is the owner's: it reaches the Feishu channel through the CLI the plugin runs.
     const started = await host.remote('connectorAccounts/start', { key, operation: 'inspect' });
     expect(started).toMatch(/^[0-9a-f-]{36}$/);

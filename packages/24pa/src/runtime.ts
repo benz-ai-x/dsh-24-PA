@@ -25,6 +25,9 @@ import type { HealthState, HealthIdentity, HealthIdentityRow } from './repo/heal
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
+/** Whether a configuration switches the Feishu channel on: sources are verified and used in Feishu mode only. */
+const feishuSwitchedOn = (config: PaConfig | null | undefined): boolean => config?.mode === 'feishu';
+
 /** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
 const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任务 skill（worker-persona-*）在会话启动时装载；此处仅注册占位。';
 import { createRequire } from 'node:module';
@@ -412,7 +415,7 @@ export class PaRuntime {
     const row = await this.repos!.health.observeIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
     this.wecomIdentity = row;
     if (row.changed) {
-      this.wecomChannels.invalidate();
+      this.forgetWecomAccess();
       throw new Error('企微真人或机器人绑定已改变；旧身份成功证据失效。请在接入卡核对原交办、待发与新身份后确认，未自动接受新绑定。');
     }
   }
@@ -1552,7 +1555,7 @@ export class PaRuntime {
   }
 
   private applyWorkspaceConfiguration(parsed: WorkspaceConfiguration): void {
-    if (this.sourceHash !== parsed.sourceHash) { this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null; }
+    if (this.sourceHash !== parsed.sourceHash) { this.forgetAccessResults(); this.ttsProbeCache = null; }
     this.config = parsed.config;
     this.secretStore = parsed.secrets;
     this.instructions = parsed.instructions;
@@ -1702,7 +1705,7 @@ export class PaRuntime {
         const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next);
         const connection = reconnect || (this.config?.mode === 'feishu' && !this.transport) ? await this.prepareTransport(this.config!, next) : null;
         this.secretStore = next;
-        this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null;
+        this.forgetAccessResults(); this.ttsProbeCache = null;
         if (connection) await this.activateTransport(connection);
       } catch (error) {
         throw Object.assign(new Error(`密钥已保存但尚未生效，当前连接保持原状：${this.sanitizeDiagnostic(redactDiagnostic((error as Error).message, Object.values(next)))}`), {
@@ -2118,20 +2121,34 @@ export class PaRuntime {
     return this.wecomChannels.wecomDiagnosticsSnapshot();
   }
 
+  // ---- access account on the host's Plugins page (#309) ---------------------
+
   /** Whether the configuration switches the WeCom channel on: a WeCom source, WeCom push, or a legacy selector set to WeCom. */
   private wecomInUse(): boolean {
     return !!this.config && this.vendorCliCalled(this.config).wecom;
   }
 
-  /** The read-only check the Plugins page starts: the switched-on channels, and nothing else. */
-  async accessCheck(): Promise<void> {
-    if (this.config?.mode === 'feishu') await this.checkAccess();
+  /** The read-only check the Plugins page starts: each switched-on channel, one after the other, and nothing else. */
+  async checkSwitchedOnAccess(): Promise<void> {
+    if (this.feishuInUse()) await this.checkAccess();
     if (this.wecomInUse()) await this.wecomCheck();
   }
 
-  // ---- access account on the host's Plugins page (#309) ---------------------
+  private feishuInUse(): boolean { return feishuSwitchedOn(this.config); }
 
   private readonly accessAccountListeners = new Set<() => void>();
+
+  /** The WeCom access result is no longer current: drop it and tell the Plugins page, which shows the stored results. */
+  private forgetWecomAccess(): void {
+    this.wecomChannels.invalidate();
+    this.accessAccountChanged();
+  }
+
+  /** Neither channel's access result is current any more, the configuration or its secrets having changed. */
+  private forgetAccessResults(): void {
+    this.diagnostics = null;
+    this.forgetWecomAccess();
+  }
 
   /** Call `listener` after each change the plugin makes to the stored access results; returns a disposer. */
   onAccessAccount(listener: () => void): () => void {
@@ -2145,7 +2162,7 @@ export class PaRuntime {
     if (!this.workspace || !config) return { state: 'unbound' };
     return {
       state: 'reported', mode: config.mode, timeZone: config.timeZone,
-      feishu: config.mode === 'feishu' ? feishuAccessReport(this.diagnostics) : null,
+      feishu: feishuSwitchedOn(config) ? feishuAccessReport(this.diagnostics) : null,
       wecom: this.wecomInUse() ? wecomAccessReport(this.wecomChannels.wecomDiagnosticsSnapshot()) : null,
     };
   }
@@ -4644,7 +4661,7 @@ export class PaRuntime {
       if (!identity || typeof identity.ownerId !== 'string' || typeof identity.authority !== 'string') throw new Error('缺少核验得到的真人与机器人标识。');
       const row = await this.repos!.health.acceptIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
       this.wecomIdentity = row;
-      this.wecomChannels.invalidate();
+      this.forgetWecomAccess();
       return { identity: row, message: '已确认新的企微绑定；旧来源和计划未迁移，请按原归属逐项重新登记与核验。' };
     });
   }
@@ -4795,7 +4812,7 @@ export class PaRuntime {
     const sources = effectiveSources(config).entries.filter(row => row.enabled);
     return {
       // Demo mode reaches no platform through lark-cli; sources are verified and used in Feishu mode only.
-      lark: config.mode === 'feishu',
+      lark: feishuSwitchedOn(config),
       // Beside registered sources, the legacy channel selectors still route reminders without a bound target and projections.
       wecom: sources.some(row => row.platform === 'wecom') || [config.calendarChannel, config.todoChannel, config.notifyChannel].includes('wecom'),
     };

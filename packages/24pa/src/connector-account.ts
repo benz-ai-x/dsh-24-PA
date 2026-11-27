@@ -1,4 +1,4 @@
-// 24私助's own account block on the host's Plugins page (#309). The vendor CLIs
+// 24PA's own account block on the host's Plugins page (#309). The vendor CLIs
 // and their sign-ins belong to the official Feishu and WeCom plugins, which
 // carry their own blocks; this one reports what is the plugin's own to judge:
 // the owner binding, the readability of the configured Feishu resources, and
@@ -14,16 +14,26 @@ import type {
 import type { AccessDiagnostics } from './feishu.js';
 import type { WecomDiagnostics } from './wecom-channels.js';
 import type { PaRuntime } from './runtime.js';
+import { WECOM_SERVICE_NAMES } from './wecom.js';
 
 /** The account's key on the page, and the package whose bundle page carries the block. */
-export const PACKAGE = '@benz-ai-x/dsh-24pa';
+export const PA24_PACKAGE_NAME = '@benz-ai-x/dsh-24pa';
+
+/** One thing a check found wrong with a channel: what it is about, in each language, and what the check said of it. */
+export interface AccessIssue {
+  readonly label: LocalizedText;
+  /** The runtime's own diagnostic, in its own wording. */
+  readonly message: string;
+}
 
 /** One channel's stored result. */
 export interface AccessReport {
   /** When the channel was last checked; null until then. */
   readonly checkedAt: string | null;
-  /** What keeps the channel from being ready; empty when it is. */
-  readonly issues: readonly string[];
+  /** What the check found wrong; empty when the channel is ready. */
+  readonly issues: readonly AccessIssue[];
+  /** Whether the check reached every item; it stops at what it finds wrong first, leaving the rest unchecked. */
+  readonly complete: boolean;
 }
 
 /** The account the page shows: no workspace yet, or each switched-on channel's last result. */
@@ -36,14 +46,18 @@ export type AccessOperation = 'inspect';
 type View = ConnectorAccountView<AccessAccount, AccessOperation>;
 type TextKey =
   | 'title' | 'hint' | 'action.inspect' | 'status.checking' | 'status.failed' | 'status.unbound' | 'status.demo' | 'status.unchecked'
-  | 'status.attention' | 'status.ready' | 'badge.attention' | 'badge.ready' | 'detail.unchecked' | 'detail.unbound'
-  | 'activation.title' | 'activation.body' | 'notice.inspected' | 'failure.inspect';
+  | 'status.attention' | 'status.ready' | 'badge.attention' | 'badge.ready' | 'detail.unchecked' | 'detail.unbound' | 'detail.incomplete'
+  | 'activation.title' | 'activation.body' | 'notice.inspected' | 'failure.inspect'
+  | 'label.signin' | 'label.identity' | 'label.folder' | 'label.wiki' | 'label.tasklist' | 'label.calendar';
 type Text = (key: TextKey, params?: Readonly<Record<string, string>>) => LocalizedText;
 
-/** The block's text by language; English is what a language without a dictionary falls back to. */
+/**
+ * The block's text by language; English is what a language without a dictionary falls back to. What a check said of an item is
+ * the runtime's diagnostic and keeps its wording.
+ */
 const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { readonly [language: string]: Readonly<Record<TextKey, string>> } = {
   en: {
-    title: '24私助 access',
+    title: '24PA access',
     hint: 'Reports the owner binding, the readability of the configured Feishu resources and the WeCom service grants. Apps are linked and accounts signed in on the official plugins’ pages.',
     'action.inspect': 'Run read-only check',
     'status.checking': 'Checking',
@@ -56,11 +70,18 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
     'badge.attention': 'Needs attention',
     'badge.ready': 'Ready',
     'detail.unchecked': 'The check only reads: it sends no message and creates no object.',
-    'detail.unbound': 'Bind a workspace in the 24私助 panel first.',
-    'activation.title': 'Check 24私助 access',
+    'detail.unbound': 'Bind a workspace in the 24PA panel first.',
+    'detail.incomplete': 'The check stops at what it finds wrong first; the remaining items were not checked.',
+    'activation.title': 'Check 24PA access',
     'activation.body': 'Run a read-only check to confirm that the owner, the resources and the channels are ready.',
     'notice.inspected': 'The read-only check finished.',
-    'failure.inspect': 'Run the check again from the 24私助 panel and read the diagnostics there.',
+    'failure.inspect': 'Run the check again from the 24PA panel and read the diagnostics there.',
+    'label.signin': 'Account sign-in',
+    'label.identity': 'Bot binding & authorized user',
+    'label.folder': 'Docs folder',
+    'label.wiki': 'Wiki node',
+    'label.tasklist': 'Task list',
+    'label.calendar': 'Own calendar',
   },
   zh: {
     title: '24私助接入',
@@ -77,10 +98,17 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
     'badge.ready': '已就绪',
     'detail.unchecked': '检查只读取，不发送消息，也不创建任何对象。',
     'detail.unbound': '请先在24私助面板绑定工作区。',
+    'detail.incomplete': '检查在第一个不通过处停下，其余项没有检查。',
     'activation.title': '检查24私助接入',
     'activation.body': '执行一次只读检查，确认主人、资源与渠道已就绪。',
     'notice.inspected': '只读检查已完成。',
     'failure.inspect': '请到24私助面板重新执行检查，并在那里查看诊断。',
+    'label.signin': '账号登录',
+    'label.identity': '机器人绑定与授权真人',
+    'label.folder': '文档目录',
+    'label.wiki': '知识库',
+    'label.tasklist': '任务清单',
+    'label.calendar': '本人日历',
   },
 };
 
@@ -92,45 +120,73 @@ const text: Text = (key, params = {}) => {
   return { ...entry, en: fill(DICTIONARIES.en[key]) };
 };
 
-const stateOf = (block: { state?: unknown } | null | undefined): string => block == null ? '' : String(block.state ?? '');
-const messageOf = (block: { message?: unknown } | null | undefined): string => block == null ? '' : String(block.message ?? '');
+type Block = { state?: unknown; message?: unknown } | null | undefined;
+const stateOf = (block: Block): string => block == null ? '' : String(block.state ?? '');
+const messageOf = (block: Block): string => block == null ? '' : String(block.message ?? '');
+const isIn = (block: Block, ...states: string[]): boolean => states.includes(stateOf(block));
+
+/** A channel that was never checked. */
+const neverChecked = (): AccessReport => ({ checkedAt: null, issues: [], complete: true });
+
+/** What a check reported of one item, as the page lists each on its own. */
+const issue = (label: LocalizedText, block: Block): AccessIssue => ({ label, message: messageOf(block) });
+
+const FEISHU_RESOURCE_LABELS: Readonly<Record<string, TextKey>> = { folder: 'label.folder', wiki: 'label.wiki', tasklist: 'label.tasklist', calendar: 'label.calendar' };
+const resourceName = (resource: { id?: unknown; label?: unknown }): LocalizedText => {
+  const key = FEISHU_RESOURCE_LABELS[String(resource.id)];
+  return key ? text(key) : String(resource.label ?? resource.id);
+};
+const serviceName = (id: string): LocalizedText => {
+  const name = WECOM_SERVICE_NAMES[id];
+  return name ? { zh: name.zh, en: name.en } : id;
+};
 
 /** What keeps the Feishu channel from being ready, from its stored access check. */
 export function feishuAccessReport(result: AccessDiagnostics | null): AccessReport {
-  if (!result) return { checkedAt: null, issues: [] };
-  // Each issue names what it is about, as the page lists them on their own.
-  const issues: string[] = [];
-  if (stateOf(result.cli) === 'error') issues.push(`lark-cli：${messageOf(result.cli)}`);
-  if (stateOf(result.source) === 'error') issues.push(`AGENTS.md：${messageOf(result.source)}`);
-  if (stateOf(result.auth) !== 'ok') issues.push(`账号登录：${messageOf(result.auth)}`);
+  if (!result) return neverChecked();
+  // Without a runnable lark-cli nothing below was checked.
+  if (isIn(result.cli, 'error')) return { checkedAt: result.checkedAt, issues: [issue('lark-cli', result.cli)], complete: false };
+  const issues: AccessIssue[] = [];
+  if (isIn(result.source, 'error')) issues.push(issue('AGENTS.md', result.source));
+  if (!isIn(result.auth, 'ok', 'unchecked')) issues.push(issue(text('label.signin'), result.auth));
+  // An item the check did not reach is no finding: the account sign-in failed, and the resources were not read.
+  let complete = !isIn(result.auth, 'unchecked');
   for (const resource of result.resources) {
+    if (isIn(resource, 'unchecked')) complete = false;
     // The wiki node is optional: an unset one is the documented fallback, not a gap.
-    if (stateOf(resource) !== 'ok' && !(resource.id === 'wiki' && stateOf(resource) === 'missing')) issues.push(`${String(resource.label)}：${messageOf(resource)}`);
+    else if (!isIn(resource, 'ok') && !(resource.id === 'wiki' && isIn(resource, 'missing'))) issues.push(issue(resourceName(resource), resource));
   }
-  return { checkedAt: result.checkedAt, issues };
+  return { checkedAt: result.checkedAt, issues, complete };
 }
 
 /** What keeps the WeCom channel from being ready, from its stored check. */
 export function wecomAccessReport(result: WecomDiagnostics | null): AccessReport {
-  if (!result) return { checkedAt: null, issues: [] };
-  // Each issue names what it is about, as the page lists them on their own.
-  const issues: string[] = [];
-  if (result.cli.state !== 'ok') issues.push(`wecom-cli：${result.cli.message}`);
-  if (result.identity.state !== 'ok') issues.push(`机器人绑定与授权真人：${result.identity.message}`);
-  const labels: Record<string, string> = { calendar: '日程', todo: '待办', push: '推送' };
+  if (!result) return neverChecked();
+  // Without a runnable wecom-cli nothing below was checked.
+  if (result.cli.state !== 'ok') return { checkedAt: result.checkedAt, issues: [issue('wecom-cli', result.cli)], complete: false };
+  const issues: AccessIssue[] = [];
+  if (result.identity.state !== 'ok') issues.push(issue(text('label.identity'), result.identity));
+  // Skipped services are off, and push has no read-only probe: neither is a gap.
   for (const service of result.services) {
-    // Skipped services are off, and push has no read-only probe: neither is a gap.
-    if (!['ok', 'skipped', 'unverified'].includes(service.state)) issues.push(`${labels[service.id] ?? service.id}：${service.message}`);
+    if (!['ok', 'skipped', 'unverified'].includes(service.state)) issues.push(issue(serviceName(service.id), service));
   }
-  return { checkedAt: result.checkedAt, issues };
+  return { checkedAt: result.checkedAt, issues, complete: true };
 }
 
+const CHANNEL_NAMES = { feishu: { zh: '飞书', en: 'Feishu' }, wecom: { zh: '企业微信', en: 'WeCom' } } as const;
+type Channel = keyof typeof CHANNEL_NAMES;
+
 /** When a channel was checked, in the workspace's time zone and in each language. */
-export function checkedAtNote(channel: 'feishu' | 'wecom', checkedAt: string, timeZone: string): LocalizedText {
+export function checkedAtNote(channel: Channel, checkedAt: string, timeZone: string): LocalizedText {
   const at = (locale: string): string => new Intl.DateTimeFormat(locale, { timeZone, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: false })
     .format(new Date(checkedAt));
-  return channel === 'feishu' ? { en: `Feishu: checked at ${at('en-US')}`, zh: `飞书：检查于 ${at('zh-CN')}` } : { en: `WeCom: checked at ${at('en-US')}`, zh: `企业微信：检查于 ${at('zh-CN')}` };
+  const name = CHANNEL_NAMES[channel];
+  return { en: `${name.en}: checked at ${at('en-US')}`, zh: `${name.zh}：检查于 ${at('zh-CN')}` };
 }
+
+/** An issue as one line: what it is about in the page's language, then what the check said in its own wording. */
+const said = ({ label, message }: AccessIssue): LocalizedText =>
+  typeof label === 'string' ? { zh: `${label}：${message}`, en: `${label}: ${message}` } : { zh: `${label.zh}：${message}`, en: `${label.en}: ${message}` };
 
 /** Map the view to what the block shows. */
 export function presentAccess(view: View): ConnectorAccountDisplay {
@@ -140,15 +196,23 @@ export function presentAccess(view: View): ConnectorAccountDisplay {
   if (view.result?.outcome === 'failed') return { phase: 'unavailable', status: text('status.failed'), buttons: [inspect], notes: [], failure: { text: text('failure.inspect') } };
   const account = view.account;
   if (account.state === 'unbound') return { phase: 'unavailable', status: text('status.unbound'), buttons: [], notes: [], detail: text('detail.unbound') };
-  const channels = ([[account.feishu, 'feishu'], [account.wecom, 'wecom']] as const).filter(([report]) => report !== null);
+  const channels = ([[account.feishu, 'feishu'], [account.wecom, 'wecom']] as const).filter((entry): entry is readonly [AccessReport, Channel] => entry[0] !== null);
   // Nothing is switched on, so there is nothing a check could read.
   if (!channels.length) return { phase: 'disconnected', status: text('status.demo'), buttons: [], notes: [], detail: text('detail.unchecked') };
-  const issues = channels.flatMap(([report]) => report!.issues);
-  if (issues.length) return { phase: 'disconnected', badge: text('badge.attention'), status: text('status.attention', { count: String(issues.length) }), buttons: [inspect], notes: issues.map(issue => ({ text: issue })) };
-  if (channels.some(([report]) => report!.checkedAt === null)) return { phase: 'disconnected', status: text('status.unchecked'), buttons: [inspect], notes: [], detail: text('detail.unchecked') };
+  const reports = channels.map(([report]) => report);
+  const issues = reports.flatMap(report => report.issues);
+  const incomplete = reports.some(report => !report.complete);
+  if (issues.length) return {
+    phase: 'disconnected', badge: text('badge.attention'), status: text('status.attention', { count: String(issues.length) }), buttons: [inspect],
+    ...(incomplete ? { detail: text('detail.incomplete') } : {}),
+    notes: issues.map(item => ({ text: said(item) })),
+  };
+  if (incomplete || reports.some(report => report.checkedAt === null)) {
+    return { phase: 'disconnected', status: text('status.unchecked'), buttons: [inspect], notes: [], detail: incomplete ? text('detail.incomplete') : text('detail.unchecked') };
+  }
   return {
     phase: 'connected', badge: text('badge.ready'), status: text('status.ready'), buttons: [inspect],
-    notes: channels.map(([report, channel]) => ({ text: checkedAtNote(channel, report!.checkedAt!, account.timeZone) })),
+    notes: channels.map(([report, channel]) => ({ text: checkedAtNote(channel, report.checkedAt!, account.timeZone) })),
   };
 }
 
@@ -160,6 +224,7 @@ export function presentAccess(view: View): ConnectorAccountDisplay {
 export class AccessAccountSource implements ConnectorAccountSource<AccessAccount, AccessOperation> {
   private operation: ConnectorOperation<AccessOperation> | undefined;
   private result: ConnectorOperationResult<AccessOperation> | undefined;
+  private inflight: Promise<void> | null = null;
   private readonly listeners = new Set<() => void>();
   private readonly stopListening: () => void;
 
@@ -186,9 +251,14 @@ export class AccessAccountSource implements ConnectorAccountSource<AccessAccount
     const id = randomUUID();
     this.operation = { id, kind, phase: 'checking', cancellable: false };
     this.result = undefined;
-    void this.execute(id);
+    this.inflight = this.execute(id);
     this.changed();
     return id;
+  }
+
+  /** Resolves once no check of this source is running. */
+  settled(): Promise<void> {
+    return this.inflight ?? Promise.resolve();
   }
 
   /** The check only reads, and is not long; it is not cancelled. */
@@ -203,12 +273,13 @@ export class AccessAccountSource implements ConnectorAccountSource<AccessAccount
   private async execute(id: string): Promise<void> {
     let outcome: ConnectorOperationResult<AccessOperation>['outcome'] = 'succeeded';
     try {
-      await this.runtime.accessCheck();
+      await this.runtime.checkSwitchedOnAccess();
     } catch {
       outcome = 'failed';
     } finally {
       this.operation = undefined;
       this.result = { id, kind: 'inspect', outcome };
+      this.inflight = null;
       this.changed();
     }
   }
@@ -221,11 +292,17 @@ export class AccessAccountSource implements ConnectorAccountSource<AccessAccount
 /** Put the block on the host's Plugins page; the returned function withdraws it. */
 export function registerAccessAccount(registry: ConnectorAccountsService, runtime: PaRuntime): () => void {
   const source = new AccessAccountSource(runtime);
-  const operations: readonly ConnectorAccountOperation<AccessOperation>[] = [{ kind: 'inspect', notice: text('notice.inspected') }];
-  const copy: ConnectorAccountCopy = {
-    title: text('title'), hint: text('hint'),
-    activation: { title: text('activation.title'), body: text('activation.body'), connect: text('action.inspect') },
-  };
-  const withdraw = registry.register({ key: PACKAGE, packageName: PACKAGE, source, operations, copy, present: presentAccess });
-  return () => { withdraw(); source.dispose(); };
+  try {
+    const operations: readonly ConnectorAccountOperation<AccessOperation>[] = [{ kind: 'inspect', notice: text('notice.inspected') }];
+    const copy: ConnectorAccountCopy = {
+      title: text('title'), hint: text('hint'),
+      activation: { title: text('activation.title'), body: text('activation.body'), connect: text('action.inspect') },
+    };
+    const withdraw = registry.register({ key: PA24_PACKAGE_NAME, packageName: PA24_PACKAGE_NAME, source, operations, copy, present: presentAccess });
+    return () => { withdraw(); source.dispose(); };
+  } catch (error) {
+    // The key or the package is taken: nothing was registered, so nothing follows the plugin's results.
+    source.dispose();
+    throw error;
+  }
 }

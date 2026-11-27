@@ -19,21 +19,24 @@ const config = {
 const setup = (start = Promise.resolve(), stop = Promise.resolve(), { host = {}, row = config } = {}) => {
   const runtime = {
     skillPackages: { register: vi.fn(async () => {}) }, start: vi.fn(() => start), stop: vi.fn(() => stop),
-    onAccessAccount: vi.fn(() => () => {}), accessAccountState: vi.fn(() => ({ state: 'unbound' })), accessCheck: vi.fn(async () => {}),
+    onAccessAccount: vi.fn(() => () => {}), accessAccountState: vi.fn(() => ({ state: 'unbound' })), checkSwitchedOnAccess: vi.fn(async () => {}),
   };
   PaRuntime.mockImplementation(() => runtime);
   let disposer;
   const scopeDisposers = [];
+  // As the host does: the callback runs in its own scope once each named service is there, and not at all otherwise.
+  let scopesRun = 0;
   const ctx = { reflect: { provide: vi.fn() }, on: vi.fn(), get: name => host[name], effect: vi.fn(fn => {
     const cleanup = fn();
     if (typeof cleanup === 'function') disposer = cleanup;
   }),
-  // As the host does: the callback runs in its own scope once each named service is there, and not at all otherwise.
   inject: vi.fn((deps, callback) => {
-    if (deps.every(name => name in host)) callback({ connectorAccounts: host.connectorAccounts, effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') scopeDisposers.push(cleanup); } });
+    if (!deps.every(name => name in host)) return;
+    scopesRun++;
+    callback({ connectorAccounts: host.connectorAccounts, effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') scopeDisposers.push(cleanup); } });
   }) };
   apply(ctx, row);
-  return { runtime, ctx, disposeScope: () => { for (const cleanup of scopeDisposers.splice(0)) cleanup(); }, dispose: () => disposer() };
+  return { runtime, ctx, scopesRun: () => scopesRun, disposeScope: () => { for (const cleanup of scopeDisposers.splice(0)) cleanup(); }, dispose: () => disposer() };
 };
 
 beforeEach(() => { vi.clearAllMocks(); });
@@ -87,19 +90,21 @@ describe('插件停止生命周期', () => {
 });
 
 describe('接入状态进宿主插件页（#309）', () => {
-  it('向宿主要求插件页的账号注册表；宿主没有它时什么都不登记', () => {
-    const { ctx } = setup();
+  it('向宿主要求插件页的账号注册表；宿主没有它时，那个作用域不运行，什么都不登记', () => {
+    const { ctx, scopesRun } = setup(Promise.resolve(), Promise.resolve(), { host: { tools: {} } });
     expect(ctx.inject).toHaveBeenCalledWith(['connectorAccounts'], expect.any(Function));
+    expect(scopesRun()).toBe(0);
   });
 
   it('宿主有注册表时登记一个区块：键是24私助的包名，视图取自运行时；作用域结束时撤下', () => {
     const withdraw = vi.fn(), register = vi.fn(() => withdraw);
-    const { runtime, disposeScope } = setup(Promise.resolve(), Promise.resolve(), { host: { connectorAccounts: { register } } });
+    const { runtime, scopesRun, disposeScope } = setup(Promise.resolve(), Promise.resolve(), { host: { connectorAccounts: { register } } });
+    expect(scopesRun()).toBe(1);
     expect(register).toHaveBeenCalledTimes(1);
     const registration = register.mock.calls[0][0];
     expect(registration.key).toBe('@benz-ai-x/dsh-24pa');
     expect(registration.source.snapshot().account).toEqual({ state: 'unbound' });
-    expect(runtime.accessCheck).not.toHaveBeenCalled();
+    expect(runtime.checkSwitchedOnAccess).not.toHaveBeenCalled();
     disposeScope();
     expect(withdraw).toHaveBeenCalledTimes(1);
   });
