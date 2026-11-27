@@ -310,5 +310,7 @@ export interface DshContext {
   inject(deps: readonly string[], callback: (scope: DshContext) => void): unknown;
   /** The host's Plugins page account registry; a host that loads no web application has none. */
   connectorAccounts?: ConnectorAccountsService;
+  /** The host's MCP manager (the web profile loads one): says of each server how its connection stands. */
+  mcpManager?: { list(): { name: string; status: { state: string } }[] };
   get(service: string): any;
 }

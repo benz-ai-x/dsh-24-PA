@@ -3,7 +3,7 @@ import z from '@deepseek-ai/schemastery';
 import type { DshContext, ToolRunContext } from './host.js';
 import type { PaRuntime } from './runtime.js';
 import { LEAD_SECTIONS } from './prompts.js';
-import { LocalToolAccess, hostGlobalToolNames, mcpToolOutside } from './local-tool-access.js';
+import { LocalToolAccess, hostGlobalToolNames, mcpServerState, mcpToolOutside } from './local-tool-access.js';
 import { mountBusinessToolScope } from './business-tool-scope.js';
 export { resolveExtraLocalTools, mcpToolOutside, qwennoteChannelState, hostGlobalToolNames } from './local-tool-access.js';
 
@@ -21,6 +21,7 @@ export function apply(ctx: DshContext) {
   const access = new LocalToolAccess({
     globalToolNames: () => hostGlobalToolNames(ctx),
     providerAvailable: name => runtime.providerAvailable(name),
+    serverState: server => mcpServerState(ctx, server),
     record: resolution => runtime.noteExtraToolResolution(resolution),
   });
   ctx.effect(() => () => access.dispose());

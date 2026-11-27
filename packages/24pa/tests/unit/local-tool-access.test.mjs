@@ -3,7 +3,7 @@ import { apply } from '../../lib/tools.js';
 
 afterEach(() => vi.useRealTimers());
 
-function plugin({ role = 'local-robot', businessRole = role, extras = ['mcp__qwennote__*'], codingTools = null } = {}) {
+function plugin({ role = 'local-robot', businessRole = role, extras = ['mcp__qwennote__*'], codingTools = null, states = {} } = {}) {
   let mounted = [], created;
   const disposals = [], allowed = [], records = [], guards = [];
   const runtime = { skillRuns: { codingTools: async () => codingTools }, businessToolPolicy: () => null, roleFor: () => businessRole, roleForToolMount: () => role, configFor: () => ({ extraLocalTools: extras }), providerAvailable: () => false, noteExtraToolResolution: r => records.push(r), workspaceRulesSection: () => '' };
@@ -12,11 +12,13 @@ function plugin({ role = 'local-robot', businessRole = role, extras = ['mcp__qwe
     effect: fn => { const cleanup = fn(); if (typeof cleanup === 'function') disposals.push(cleanup); },
     on: (name, fn) => { if (name === 'agent/created') created = fn; },
     tools: { schemas: () => mounted.map(name => ({ name })), register: () => () => {} },
+    // The host's MCP manager, as far as these tests read it: each server's state.
+    mcpManager: { list: () => Object.entries(states).map(([name, state]) => ({ name, status: { state } })) },
     systemPrompt: { section: () => () => {} },
   };
   apply(ctx);
   return {
-    mount: names => { mounted = names; }, allowed, records, guards,
+    mount: names => { mounted = names; }, states, allowed, records, guards,
     create: () => created({ agent: { id: 'agent', ctx: { plugin: spec => ({ await: async () => { spec.apply({ tools: { restrict: ({ allow }) => allowed.push(allow), guard: check => guards.push(check) } }); } }) } } }),
     dispose: () => disposals.forEach(fn => fn()),
   };
@@ -44,6 +46,34 @@ describe('本地工具扩展：真实插件 agent/created 生命周期', () => {
     expect(host.records[0].filtered).toEqual([]);
     host.dispose();
   });
+  it('腾讯文档还在连接时等它挂载，加载器随本地基本工具一起应用一次（#308）', async () => {
+    // The server starts with the host and can connect after the first local session is created.
+    vi.useFakeTimers();
+    const host = plugin({ extras: ['mcp__tencent-docs__*'], states: { 'tencent-docs': 'connecting' } });
+    const pending = host.create();
+    expect(host.allowed).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2000);
+    host.states['tencent-docs'] = 'connected'; host.mount(['mcp__tencent-docs__load_tools']);
+    await vi.advanceTimersByTimeAsync(2000);
+    await pending;
+    expect(host.allowed).toHaveLength(1);
+    expect(host.allowed[0]).toContain('mcp__tencent-docs__load_tools');
+    expect(host.allowed[0]).toContain('pa24_workspace');
+    expect(host.records[0].filtered).toEqual([]);
+    host.dispose();
+  });
+
+  it.each([['不在管理器里', undefined], ['等主人授权', 'waiting-authorization'], ['等凭据', 'waiting-credentials'], ['已关闭', 'closed']])(
+    '腾讯文档%s时建立会话不等它：立刻建立，条目记为被过滤（#308）', async (_label, state) => {
+      vi.useFakeTimers();
+      const host = plugin({ extras: ['mcp__tencent-docs__*'], ...(state ? { states: { 'tencent-docs': state } } : {}) });
+      await host.create();
+      expect(host.allowed[0]).toContain('pa24_workspace');
+      expect(host.allowed[0].some(n => n.startsWith('mcp__tencent-docs__'))).toBe(false);
+      expect(host.records[0].filtered).toEqual(['mcp__tencent-docs__*']);
+      expect(vi.getTimerCount()).toBe(0);
+      host.dispose();
+    });
   it('超过有界等待仅开放本地基本工具并记录过滤原因', async () => {
     vi.useFakeTimers();
     const host = plugin();

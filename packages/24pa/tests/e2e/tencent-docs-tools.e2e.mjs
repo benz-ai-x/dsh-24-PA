@@ -1,8 +1,10 @@
 // Tencent Docs tools in the local session (#308), with a stand-in for the
-// official plugin's on-demand MCP server: the host's MCP client is pointed at
-// a local stdio server under the same server name, so its loader and its
-// loaded tool behave as the hosted server's do. Real Loader and Host, SQLite;
-// the model and Feishu are stand-ins too.
+// official plugin's on-demand MCP server. The official plugin registers its
+// server with the host's MCP manager; the stand-in is one entry of the
+// manager's own row — a local stdio server under the same server name, so its
+// loader and its loaded tool behave as the hosted server's do once it is
+// authorized (which the stand-in does not ask for). Real Loader and Host,
+// SQLite; the model and Feishu are stand-ins too.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -35,7 +37,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { for (const host of hosts.reverse()) await host.stop(); await llm?.close(); for (const root of roots) await rm(root, { recursive: true, force: true }); });
 
-/** A fresh profile with Feishu stand-ins; `mcpServer` adds the stand-in MCP server named tencent-docs. */
+/** A fresh profile with Feishu stand-ins; `mcpServer` adds the stand-in MCP server named tencent-docs to the MCP manager's row. */
 async function instance({ mcpServer }) {
   const root = await mkdtemp(join(tmpdir(), 'pa24-tencent-docs-host-')); roots.push(root);
   const workspace = join(root, 'workspace'); await mkdir(workspace);
@@ -50,12 +52,13 @@ async function instance({ mcpServer }) {
     await writeFile(join(bin, `${name}-cli`), '#!/usr/bin/env node\nawait import(' + JSON.stringify(resolve(`tests/helpers/stub-${name}-cli.mjs`)) + ');\n', { mode: 0o755 });
     await chmod(join(bin, `${name}-cli`), 0o755);
   }
-  const patch = mcpServer ? [
-    '- insert:', '    - id: pa24-test-tencent-docs', "      name: '@deepseek-ai/dsh-mcp-client'", '      config:', '        serverName: tencent-docs',
-    '        transport: stdio', `        command: ${JSON.stringify(process.execPath)}`, `        args: [${JSON.stringify(resolve('tests/helpers/mcp-stand-in.mjs'))}]`,
+  // The host's MCP manager owns the server entries of its row; the row has none by default.
+  const beforeBoot = mcpServer ? ({ addPatch }) => addPatch([
+    '- id: mcp-manager', '  config:', '    servers:', '      tencent-docs:', '        transport: stdio',
+    `        command: ${JSON.stringify(process.execPath)}`, `        args: [${JSON.stringify(resolve('tests/helpers/mcp-stand-in.mjs'))}]`,
     '        toolLoading: on-demand',
-  ].join('\n') : undefined;
-  const host = await bootHost({ env, patch });
+  ].join('\n')) : undefined;
+  const host = await bootHost({ env, beforeBoot });
   hosts.push(host);
   const binding = (await host.waitUntil(row => !!row.workspaceBinding && row.transport?.connected === true && !!row.workspace?.localSessionId, { label: '工作区就绪' })).workspaceBinding;
   return { host, binding, localSessionId: (await host.api('snapshot')).workspace.localSessionId };

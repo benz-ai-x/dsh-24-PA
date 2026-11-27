@@ -93,6 +93,15 @@ export function hostGlobalToolNames(ctx: DshContext): string[] {
   }
 }
 
+/** The state the host's MCP manager reports for the server named `server`, or null when no manager is loaded or none lists it. */
+export function mcpServerState(ctx: DshContext, server: string): string | null {
+  try {
+    return ctx.mcpManager?.list().find(view => view.name === server)?.status.state ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve configured extraLocalTools entries against live mounts before they
  * join the restrict() allow list (F18): restrict() rejects names that are not
@@ -159,6 +168,8 @@ export class LocalToolAccess {
     globalToolNames(): string[];
     providerAvailable(name: string): boolean;
     record(resolution: { requested: string[]; active: string[]; filtered: string[] }): void;
+    /** How the host's MCP manager sees an admitted server (`mcpServerState`); absent where no manager is loaded. */
+    serverState?(server: ExtraMcpServer): string | null;
     waitMs?: number;
     pollMs?: number;
   }) {}
@@ -169,8 +180,20 @@ export class LocalToolAccess {
     const signal = this.lifetime.signal;
     const extras = role === 'local-robot' ? [...configured] : [];
     const wantsQwennote = extras.some(name => name.startsWith(QWENNOTE_TOOL_PREFIX));
+    const qwennoteMounted = () => this.deps.globalToolNames().some(name => name.startsWith(QWENNOTE_TOOL_PREFIX));
+    // An on-demand server lists its loader once it is connected, and its tools are read when the agent is created. The host's
+    // MCP manager says whether the connection is still to come: a server it is connecting, or has just connected without its
+    // tools in view yet, is waited for within the bound. One that is absent, or waits for the owner to authorize or to supply
+    // a credential, would not mount meanwhile, so the session is not held back for it.
+    const onDemand = extras.map(extraMcpServerOf).find((server): server is ExtraMcpServer => server !== undefined && server !== 'qwennote');
+    const loaderPending = () => {
+      if (onDemand === undefined) return false;
+      const state = this.deps.serverState?.(onDemand) ?? null;
+      return state !== null && !this.deps.globalToolNames().some(name => extraMcpServerOf(name) === onDemand)
+        && (state === 'connecting' || state === 'reconnecting' || state === 'connected');
+    };
     const deadline = Date.now() + (this.deps.waitMs ?? 60_000);
-    while (wantsQwennote && !signal.aborted && !this.deps.globalToolNames().some(name => name.startsWith(QWENNOTE_TOOL_PREFIX)) && Date.now() < deadline) {
+    while (!signal.aborted && Date.now() < deadline && (wantsQwennote && !qwennoteMounted() || loaderPending())) {
       await this.wait(Math.min(this.deps.pollMs ?? 2_000, deadline - Date.now()));
     }
     if (signal.aborted) return;
