@@ -162,6 +162,8 @@ export interface SubprocessService {
     readonly done: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
     /** Begin the provider's termination; idempotent. */
     terminate(): void;
+    /** Resolves once nothing of the process range it manages is left to observe; false when the signal aborted first. */
+    waitForExit(signal?: AbortSignal): Promise<boolean>;
   };
 }
 

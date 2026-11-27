@@ -2,16 +2,15 @@
 // wecom suites exercise full envelopes through it end-to-end; these pin the
 // skeleton's own contract edges.
 import { afterEach, describe, expect, it } from 'vitest';
-import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCliProcess, startChildrenThrough } from '../../lib/cli-gateway.js';
+import { installedSubprocess, subprocessDouble } from '../helpers/subprocess.mjs';
 
-// The cases above run against this plugin's own processes; the #310 cases below
-// run the same calls through a stand-in for the host's subprocess service.
-afterEach(() => startChildrenThrough(undefined));
-
+// Every case runs through a stand-in for the host's subprocess service, the
+// one vitest installs for each test file (#310); the last group says what the
+// gateway asks of that service.
 const fail = kind => new Error(`fail:${kind}`);
 
 describe('F33：runCliProcess 骨架直测', () => {
@@ -39,6 +38,9 @@ describe('F33：runCliProcess 骨架直测', () => {
 });
 
 
+// Ending a process is the service's; what these pin is that a call ends within
+// the bound with its reason, and leaves no process behind, through the
+// service's contract.
 describe('R3 CLI 有界终止', () => {
   it('真实子进程忽略 TERM 后强制退出，调用有限结束且进程消失', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pa24-cli-kill-')), pidPath = join(dir, 'pid');
@@ -73,33 +75,11 @@ describe('R3 CLI 有界终止', () => {
   });
 });
 
-/** The host service's contract, on top of node: a spec in, a handle whose `done` settles once, a managed range that terminate() ends. */
-function fakeSubprocess({ terminateEnds = true } = {}) {
-  const specs = [];
-  return {
-    specs,
-    spawn(spec) {
-      specs.push(spec);
-      const [program, ...args] = spec.argv;
-      const grouped = process.platform !== 'win32';
-      const child = spawn(program, args, { cwd: spec.cwd, detached: grouped, env: { PATH: process.env.PATH, HOME: process.env.HOME, ...spec.env },
-        stdio: [spec.stdio.stdin === 'pipe' ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
-      const kill = name => { try { if (grouped && child.pid) process.kill(-child.pid, name); else child.kill(name); } catch { /* Already exited. */ } };
-      return {
-        get stdin() { return child.stdin ?? undefined; }, stdout: child.stdout, stderr: child.stderr,
-        done: new Promise((resolve, reject) => {
-          child.on('error', error => reject(error));
-          child.on('close', (code, signal) => resolve({ exitCode: code, signal }));
-        }),
-        terminate() { if (!terminateEnds) return; kill('SIGTERM'); setTimeout(() => kill('SIGKILL'), 500).unref?.(); },
-      };
-    },
-  };
-}
+afterEach(() => startChildrenThrough(installedSubprocess));
 
 describe('#310：经宿主子进程服务起进程', () => {
   it('请求按服务的规格写：程序在 argv 首位、缺省目录是当前目录、无 stdin 载荷则不开管道、环境覆盖原样转交', async () => {
-    const service = fakeSubprocess(); startChildrenThrough(service);
+    const service = subprocessDouble(); startChildrenThrough(service);
     await runCliProcess({ bin: process.execPath, argv: ['-e', 'process.stdout.write("a")'], timeoutMs: 5000, fail, env: { PA24_GATEWAY_PROBE: 'x', PA24_GATEWAY_GONE: undefined } });
     await runCliProcess({ bin: process.execPath, argv: ['-e', 'process.stdin.once("data", d => process.stdout.write(d))'], timeoutMs: 5000, fail, stdinContent: 'in', cwd: tmpdir() });
     expect(service.specs).toHaveLength(2);
@@ -109,7 +89,7 @@ describe('#310：经宿主子进程服务起进程', () => {
   });
 
   it('调用方看到的与自家起进程时一样：输出、退出码、stdin、启动失败的原因', async () => {
-    startChildrenThrough(fakeSubprocess());
+    startChildrenThrough(subprocessDouble());
     const result = await runCliProcess({ bin: process.execPath, argv: ['-e', "process.stdout.write(Buffer.from([0xe9,0x00,0xff,0x41])); process.stderr.write('err'); process.exitCode = 3"], timeoutMs: 5000, fail });
     expect(result.stdoutBytes.toString('hex')).toBe('e900ff41');
     expect(result.stderr).toBe('err');
@@ -124,7 +104,7 @@ describe('#310：经宿主子进程服务起进程', () => {
   });
 
   it('超时与输出上限仍由网关判定：服务只负责结束进程，原因经 fail(timeout)／fail(limit) 带回', async () => {
-    const service = fakeSubprocess(); startChildrenThrough(service);
+    const service = subprocessDouble(); startChildrenThrough(service);
     const dir = await mkdtemp(join(tmpdir(), 'pa24-gateway-host-')), pidPath = join(dir, 'pid');
     try {
       const started = Date.now();
@@ -138,7 +118,7 @@ describe('#310：经宿主子进程服务起进程', () => {
   });
 
   it('服务迟迟不报告进程结束时，等待也有界地以原因结束', async () => {
-    const service = fakeSubprocess({ terminateEnds: false }); startChildrenThrough(service);
+    const service = subprocessDouble({ endsTerminated: false }); startChildrenThrough(service);
     const dir = await mkdtemp(join(tmpdir(), 'pa24-gateway-stuck-')), pidPath = join(dir, 'pid');
     try {
       const started = Date.now();
@@ -152,13 +132,9 @@ describe('#310：经宿主子进程服务起进程', () => {
     }
   });
 
-  it('不再经服务时回到自家起进程', async () => {
-    const service = fakeSubprocess(); startChildrenThrough(service);
-    await runCliProcess({ bin: process.execPath, argv: ['-e', ''], timeoutMs: 5000, fail });
+  it('没有安装服务时调用以启动失败结束，不起任何进程', async () => {
     startChildrenThrough(undefined);
-    const result = await runCliProcess({ bin: process.execPath, argv: ['-e', 'process.stdout.write("own")'], timeoutMs: 5000, fail });
-    expect(result.stdout).toBe('own');
-    expect(service.specs).toHaveLength(1);
+    await expect(runCliProcess({ bin: process.execPath, argv: ['-e', 'process.stdout.write("ran")'], timeoutMs: 2000, fail }))
+      .rejects.toThrow('fail:spawn');
   });
 });
-

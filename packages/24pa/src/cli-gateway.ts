@@ -2,12 +2,12 @@
 // skeleton that lark.ts and wecom.ts previously duplicated verbatim (8
 // segments). Envelope semantics stay in each domain — they pass a fail()
 // factory so the shared failures reject as their own error classes.
-// Where the host provides its subprocess service, the processes start through
-// it (#310): in the service's scrubbed environment and inside its managed
-// process range, so that stopping the plugin stops what the CLIs started.
-// What the callers see is the same either way.
+// Every process starts through the host's subprocess service (#310): in the
+// environment the host hands its children and inside the process range it
+// manages, so that stopping the plugin stops what the CLIs started. The
+// service owns how a process is ended; this gateway owns why — the deadline,
+// the output limit and the execution's abort — and says the reason.
 
-import { spawn } from 'node:child_process';
 import type { Readable, Writable } from 'node:stream';
 import { executionSignal } from './execution-cancellation.js';
 import type { SubprocessService } from './host.js';
@@ -20,7 +20,7 @@ export interface CliProcessOptions {
   argv: readonly string[];
   timeoutMs: number;
   stdoutLimitBytes?: number;
-  /** Entries the child sees on top of the environment it starts in; undefined removes one. */
+  /** Entries the child sees on top of the environment the host hands it (#310); undefined removes one. */
   env?: Record<string, string | undefined>;
   cwd?: string;
   /** Optional stdin payload; omitted closes stdin immediately. */
@@ -77,8 +77,8 @@ function onceSettle() {
 
 let subprocess: SubprocessService | undefined;
 
-/** Start every child through the host's subprocess service from now on (#310); given none, children start as this plugin's own. */
-export function startChildrenThrough(service: SubprocessService | undefined): void {
+/** Start every child through this subprocess service from now on (#310): the plugin entry names the host's when it loads; a test names a stand-in for it. */
+export function startChildrenThrough(service: SubprocessService): void {
   subprocess = service;
 }
 
@@ -91,9 +91,10 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
   return new Promise((resolve, reject) => {
     if (abort?.aborted) { reject(abort.reason); return; }
     if (argv.some(a => typeof a !== 'string')) { reject(fail('argv')); return; }
+    if (!subprocess) { reject(fail('spawn', new Error('没有为这个运行时安装子进程服务。'))); return; }
     let started: Started;
     try {
-      started = subprocess ? throughHost(subprocess, options) : asOwnProcess(options);
+      started = throughHost(subprocess, options);
     } catch (error) {
       // The service refuses an invalid request before starting anything.
       reject(fail('spawn', error as Error));
@@ -132,48 +133,6 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
   });
 }
 
-/** The process as this plugin's own: a child of this process, its group on POSIX, signalled and escalated here. */
-function asOwnProcess(options: CliProcessOptions): Started {
-  const { bin, argv, env, cwd, stdinContent, fail } = options;
-  const grouped = process.platform !== 'win32';
-  const child = spawn(bin, argv, { cwd, shell: false, detached: grouped, stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } });
-  const done = onceSettle();
-  let killTimer: NodeJS.Timeout | undefined, settleTimer: NodeJS.Timeout | undefined;
-  let reason: Error | null = null, childClosed = false;
-  // A process that was terminated ends with the reason it was, whatever else is observed of its end.
-  const end = (error?: Error, code: number | null = null) => {
-    clearTimeout(killTimer); clearTimeout(settleTimer);
-    done.settle(reason ?? error, error || reason ? undefined : { exitCode: code, signal: null });
-  };
-  const signal = (name: NodeJS.Signals) => {
-    try { if (grouped && child.pid) process.kill(-child.pid, name); else child.kill(name); } catch { /* Already exited. */ }
-  };
-  child.on('error', error => end(fail('spawn', error)));
-  child.on('close', code => {
-    childClosed = true;
-    // The group can outlive its leader (for example a detached-stdio child).
-    // Complete escalation even when the leader accepts TERM immediately.
-    if (reason && grouped && killTimer) return;
-    end(undefined, code);
-  });
-  child.stdin.on('error', () => {});
-  child.stdin.end(stdinContent);
-  return {
-    stdin: child.stdin, stdout: child.stdout, stderr: child.stderr, exited: done.promise,
-    terminate(why: Error) {
-      if (done.state.settled || reason) return;
-      reason = why;
-      signal('SIGTERM');
-      killTimer = setTimeout(() => {
-        killTimer = undefined;
-        signal('SIGKILL');
-        if (childClosed) end();
-      }, 500);
-      settleTimer = setTimeout(() => { signal('SIGKILL'); child.unref(); end(); }, 1000);
-    },
-  };
-}
-
 /** The process in the host's managed range: the service scrubs the environment, resolves the executable and escalates the termination. */
 function throughHost(service: SubprocessService, options: CliProcessOptions): Started {
   const { bin, argv, env, cwd, stdinContent, fail } = options;
@@ -186,14 +145,18 @@ function throughHost(service: SubprocessService, options: CliProcessOptions): St
   const done = onceSettle();
   let reason: Error | null = null, lastResort: NodeJS.Timeout | undefined;
   const end = (error?: Error, facts?: ExitFacts) => { clearTimeout(lastResort); done.settle(reason ?? error, reason ? undefined : facts); };
-  void handle.done.then(facts => end(undefined, facts), error => end(fail('spawn', error as Error)));
+  // A process that was terminated ends when nothing of it is left to observe, not when its leader alone reports: the service's
+  // range covers what the process started. From the termination a bound is set, and only ends the wait should the service never report.
+  void handle.done.then(
+    facts => { if (reason) void handle.waitForExit().then(() => end(), () => end()); else end(undefined, facts); },
+    error => { if (reason) void handle.waitForExit().then(() => end(), () => end()); else end(fail('spawn', error as Error)); },
+  );
   return {
     stdin: handle.stdin, stdout: handle.stdout, stderr: handle.stderr, exited: done.promise,
     terminate(why: Error) {
       if (done.state.settled || reason) return;
       reason = why;
       handle.terminate();
-      // The service escalates within its grace period; this only ends the wait should it never report the end.
       lastResort = setTimeout(() => end(), TERMINATE_GRACE_MS + 1000);
     },
   };
