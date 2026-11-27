@@ -115,20 +115,21 @@ export function runnableAsGiven(executable: string): boolean {
 /**
  * The refusal for a located CLI that cannot run as given, or null when it can, said the same way wherever the plugin reports it. The
  * official connector's CLI was checked where it was found; the plugin row's or PATH's is checked here. Nothing is started.
- * `advice` ends the sentence where the caller has more for the owner to do about it.
+ * `more` is a clause that starts with its own "；", ending the sentence where the caller has more for the owner to do; it is read for
+ * the plugin row's entry only.
  */
-export function unusableCli(location: CliLocation, advice = ''): CliUnavailableError | null {
+export function unusableCli(location: CliLocation, more = ''): CliUnavailableError | null {
   if (location.source === 'official' || runnableAsGiven(location.path)) return null;
   const name = BARE[location.cli];
   // The plugin row's own entry is what cannot run: what is said of it is the sentence, with what to do about that entry.
   if (location.source === 'config') {
-    const said = `插件行配置的 ${name} 不可执行（${location.path}）；请核对24私助插件行的 ${OPTION[location.cli]}${advice}`;
+    const said = `插件行配置的 ${name} 不可执行（${location.path}）；请核对24私助插件行的 ${OPTION[location.cli]}${more}`;
     return new CliUnavailableError(said, location.cli, { headline: said });
   }
   // A name the process was to resolve on its own is told by what is wrong.
   const what = isBareName(location.path) ? `PATH 上找不到 ${name}` : `${location.path} 下没有可执行的 ${name}（相对路径按宿主的当前目录解析）`;
   const how = isBareName(location.path) ? `请安装 ${name} 并加入启动进程的 PATH` : '请改用绝对路径';
-  return new CliUnavailableError(`${what}；${how}${advice}`, location.cli, { headline: what });
+  return new CliUnavailableError(`${what}；${how}`, location.cli, { headline: what });
 }
 
 /** The version in a package's manifest, when it has a readable one. */

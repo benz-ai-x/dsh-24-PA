@@ -762,7 +762,7 @@ window.__ModuleLoader__.load({
           return 'ok';
         };
         // 全应用健康聚合（用户 2026-10-11 裁决：一键检查含主动平台探测）：
-        // readiness 六项＋health capabilities＋消息通道，任一 error→需处理。
+        // readiness 各项＋health capabilities＋消息通道，任一 error→需处理。
         const healthAggregate = ({ state, extra }) => {
           const rows = [];
           for (const item of (state.readiness?.items || [])) rows.push(item.state);
