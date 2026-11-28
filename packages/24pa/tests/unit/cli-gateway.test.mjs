@@ -53,15 +53,19 @@ describe('R3 CLI 有界终止', () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
   it('主进程响应 TERM 先退出后，忽略 TERM 的独立 stdio 后代仍被 KILL 回收：调用等范围清空才返回', async () => {
-    // The leader answers TERM at once and leaves a descendant that ignores it. The call may only come back once that descendant is gone
-    // too: this is what pins the gateway's wait for the range to be empty, and the descendant is dead the moment the call returns.
-    const dir = await mkdtemp(join(tmpdir(), 'pa24-cli-tree-')), pidPath = join(dir, 'descendant-pid'); let pid;
+    // The leader answers TERM at once and leaves a descendant that ignores it and beats a file. The call may only come back once that
+    // descendant has stopped: this is what pins the gateway's wait for the range to be empty. A process that has just been killed can
+    // still be seen for a moment, so what is checked is that it no longer runs, not that its pid is gone.
+    const dir = await mkdtemp(join(tmpdir(), 'pa24-cli-tree-')), paths = join(dir, 'descendant'); let pid;
     try {
-      const descendant = `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => {}, 100);`;
+      const descendant = `require('node:fs').writeFileSync(process.argv[1] + '.pid', String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => require('node:fs').writeFileSync(process.argv[1] + '.beat', String(Date.now())), 20);`;
       const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}, process.argv[1]], { stdio: 'ignore' }); setInterval(() => {}, 100);`;
-      await expect(runCliProcess({ bin: process.execPath, argv: ['-e', parent, pidPath], timeoutMs: 400, fail })).rejects.toThrow('fail:timeout');
-      pid = Number(await readFile(pidPath, 'utf8'));
-      expect(() => process.kill(pid, 0)).toThrow();
+      await expect(runCliProcess({ bin: process.execPath, argv: ['-e', parent, paths], timeoutMs: 400, fail })).rejects.toThrow('fail:timeout');
+      const returnedAt = Date.now();
+      pid = Number(await readFile(`${paths}.pid`, 'utf8'));
+      // Had the call come back with the descendant still running, it would have gone on beating after the return.
+      await new Promise(resolve => setTimeout(resolve, 200));
+      expect(Number(await readFile(`${paths}.beat`, 'utf8'))).toBeLessThan(returnedAt + 40);
     } finally { if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} } await rm(dir, { recursive: true, force: true }); }
   });
   it('无限 stdout 在上限终止，连续 stderr 只保留定额字节', async () => {

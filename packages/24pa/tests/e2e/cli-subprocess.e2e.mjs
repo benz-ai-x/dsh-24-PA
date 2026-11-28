@@ -60,10 +60,10 @@ describe('CLI 子进程经宿主子进程服务启动', () => {
 
   it('一直不应答的 lark-cli 连同它起的后代，由宿主在检查超时后一并结束', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pa24-cli-subprocess-hang-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
-    // The stand-in starts a child that ignores TERM, notes both pids, never answers, and answers TERM itself at once.
+    // The stand-in starts a child that ignores TERM and beats a file, notes both pids, never answers, and answers TERM itself at once.
     const bin = join(root, 'bin'); await mkdir(bin);
     const pids = join(root, 'pids.json');
-    const child = 'process.on("SIGTERM", () => {}); setInterval(() => {}, 100);';
+    const child = 'process.on("SIGTERM", () => {}); const { appendFileSync } = require("node:fs"); setInterval(() => appendFileSync(process.env.PA24_PIDS + ".beat", Date.now() + "\\n"), 50);';
     await writeFile(join(bin, 'lark-cli'), '#!/usr/bin/env node\n'
       + 'const { spawn } = require("node:child_process"); const { writeFileSync } = require("node:fs");\n'
       + `const descendant = spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: 'ignore' });\n`
@@ -79,11 +79,17 @@ describe('CLI 子进程经宿主子进程服务启动', () => {
     expect(access.cli.state).toBe('error');
     expect(access.cli.message).toContain('版本检查未完成（timeout）');
     expect(Date.now() - started).toBeLessThan(20000);
-    const [leader, descendant] = JSON.parse(await readFile(pids, 'utf8'));
-    // The leader answered TERM at once; the descendant ignored it. The call came back with the descendant gone: the service's range
-    // covered it, and the call waited for the range to be empty instead of returning when its leader alone had exited.
+    const [leader] = JSON.parse(await readFile(pids, 'utf8'));
+    const returnedAt = Date.now();
+    // The leader answered TERM at once; the descendant ignored it. The call came back with the descendant no longer running: the service's
+    // range covered it, and the call waited for the range to be empty instead of returning when its leader alone had exited. (A process
+    // that has just been killed can still be seen for a moment, so what is checked is that it stopped, not that its pid is gone.)
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const beats = (await readFile(`${pids}.beat`, 'utf8')).trim().split('\n');
+    expect(beats.length).toBeGreaterThan(0);
+    expect(Number(beats.at(-1))).toBeLessThan(returnedAt + 80);
+    for (let index = 0; index < 30 && alive(leader); index++) await new Promise(resolve => setTimeout(resolve, 100));
     expect(alive(leader)).toBe(false);
-    expect(alive(descendant)).toBe(false);
   }, 300000);
 
   // Each tool's own way of printing its version; the case is skipped where either tool is not on this machine's PATH.
