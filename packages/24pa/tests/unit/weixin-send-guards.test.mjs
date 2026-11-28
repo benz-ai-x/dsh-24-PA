@@ -140,7 +140,8 @@ it('运行前的核验：业务恒核；投递身份飞书、企微核，微信�
   const authorization = channel => ({ checkedAt: 'now', targets: [{ target: { domain: 'todo', platform: 'feishu', identityKey: 'owner', resource: { kind: 'tasklist', id: 'list' } }, capability: 'read' }],
     skill: { id: 'skill', name: 'skill', versionId: 'v', contract: { actions: ['task_list'], mode: 'template' } },
     delivery: { channel, target: 'owner', identityKey: 'owner', connectionHash: 'connection' } });
-  const verify = vi.fn(), verifyDelivery = vi.fn(), access = new TaskPlanAccess({ sources: { verify }, owner: async () => { throw new Error('不应解析投递身份'); } });
+  // `verifyDelivery` is replaced below, so no identity is ever resolved here and `owner` is never asked.
+  const verify = vi.fn(), verifyDelivery = vi.fn(), access = new TaskPlanAccess({ sources: { verify }, owner: vi.fn() });
   access.verifyDelivery = verifyDelivery;
   for (const channel of ['feishu', 'wecom', 'weixin']) {
     await access.verifyForRun(authorization(channel));

@@ -88,7 +88,7 @@ for (const backend of ['sqlite', 'postgres']) describe(`投递评审边界 (${ba
     let sends = 0; await dispatcher(async () => ({ messageId: `unexpected-${++sends}` })).drain();
     expect(sends).toBe(0);
     const [notice] = await notices(); expect(notice.deliveryStatus).toBe('expired'); expect(notice.deliveries[0].outbox.attempts).toBe(0);
-    expect(await repos.skillRuns.get(run.id)).toMatchObject({ progress: '现在只需补充新要求' });
+    expect(await repos.skillRuns.get(run.id)).toMatchObject({ status: 'waiting', progress: '现在只需补充新要求' });
   });
   it('语音准备跨过期限后在实际 CLI 派发前停止，完整文本与业务结果保持成功', async () => {
     await saved(); const expiry = new Date((await notices())[0].deliveries[0].expires_at).getTime();
