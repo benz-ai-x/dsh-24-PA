@@ -2127,17 +2127,15 @@ export class PaRuntime {
   // ---- access account on the host's Plugins page (#309) ---------------------
 
   /** Whether the configuration switches the WeCom channel on: a WeCom source, WeCom push, or a legacy selector set to WeCom. */
-  private wecomInUse(): boolean {
+  private wecomSwitchedOn(): boolean {
     return !!this.config && this.vendorCliCalled(this.config).wecom;
   }
 
   /** The read-only check the Plugins page starts: each switched-on channel, one after the other, and nothing else. */
   async checkSwitchedOnAccess(): Promise<void> {
-    if (this.feishuInUse()) await this.checkAccess();
-    if (this.wecomInUse()) await this.wecomCheck();
+    if (feishuSwitchedOn(this.config)) await this.checkAccess();
+    if (this.wecomSwitchedOn()) await this.wecomCheck();
   }
-
-  private feishuInUse(): boolean { return feishuSwitchedOn(this.config); }
 
   private readonly accessAccountListeners = new Set<() => void>();
 
@@ -2166,7 +2164,7 @@ export class PaRuntime {
     return {
       state: 'reported', mode: config.mode, timeZone: config.timeZone,
       feishu: feishuSwitchedOn(config) ? feishuAccessReport(this.diagnostics) : null,
-      wecom: this.wecomInUse() ? wecomAccessReport(this.wecomChannels.wecomDiagnosticsSnapshot()) : null,
+      wecom: this.wecomSwitchedOn() ? wecomAccessReport(this.wecomChannels.wecomDiagnosticsSnapshot()) : null,
     };
   }
 

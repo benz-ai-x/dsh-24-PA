@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
-import { find, said } from '../helpers/recorded-request.mjs';
+import { find, requestText } from '../helpers/recorded-request.mjs';
 import { writeStandIn } from '../helpers/stub-cli.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 
@@ -83,7 +83,7 @@ describe('腾讯文档官方工具在24私助里的放行（真实 Loader）', (
         { text: '完成。' },
       ]);
       const { marker, turn } = await promptLocal(current.host, current.localSessionId, '读取腾讯文档替身');
-      const first = await until(() => turn().find(row => said(row).includes(marker)), '本地会话的模型请求', current.host);
+      const first = await until(() => turn().find(row => requestText(row).includes(marker)), '本地会话的模型请求', current.host);
       expect(first.tools).toContain(LOADER);
       expect(first.tools.filter(name => name.startsWith('mcp__tencent-docs__'))).toEqual([LOADER]);
       const answered = await until(() => turn().find(row => row.toolResults.join('').includes('来自24私助的调用')), '替身工具的回执', current.host);
@@ -97,7 +97,7 @@ describe('腾讯文档官方工具在24私助里的放行（真实 Loader）', (
       await current.host.api('action', { type: 'test.inject', event: { eventId: `docs-${randomUUID()}`, senderOpenId: 'ou_docs_owner', appId: 'cli_docs_app', text: title } });
       await current.host.waitUntil(snapshot => snapshot.work.some(row => row.title === title && ['completed', 'needs_reconciliation'].includes(row.status)), { timeoutMs: 30000, label: title });
       const turn = llm.log.slice(before);
-      const entry = turn.find(row => row.tools.includes('pa24_delegate') && said(row).includes(title));
+      const entry = turn.find(row => row.tools.includes('pa24_delegate') && requestText(row).includes(title));
       const worker = turn.find(row => row.tools.includes('pa24_work'));
       expect(entry).toBeTruthy(); expect(worker).toBeTruthy();
       for (const request of [entry, worker]) expect(request.tools).not.toContain(LOADER);
@@ -119,7 +119,7 @@ describe('腾讯文档官方工具在24私助里的放行（真实 Loader）', (
     it('通配条目被过滤，本地会话照常建立，全应用健康提示未挂载', async () => {
       await script([{ text: '已收到。' }]);
       const { marker, turn } = await promptLocal(current.host, current.localSessionId, '问候');
-      const request = await until(() => turn().find(row => said(row).includes(marker)), '本地会话的模型请求', current.host);
+      const request = await until(() => turn().find(row => requestText(row).includes(marker)), '本地会话的模型请求', current.host);
       expect(request.tools).toContain('bash');
       expect(request.tools.some(name => name.startsWith('mcp__tencent-docs__'))).toBe(false);
       const report = await current.host.api('health');

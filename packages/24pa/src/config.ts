@@ -66,10 +66,12 @@ export interface PaConfig {
   workerModels: Partial<Record<string, WorkerModelRoute>>;
   /**
    * Extra tools the local role may also use: the provider-gated delegation
-   * tools, plus QwenNote minutes tools mounted by a profile-level
-   * dsh-mcp-client entry (serverName `qwennote`, F18). Naming an unmounted
-   * tool is tolerated — the agent-side resolution filters it out — so opting
-   * in stays a workspace decision recorded here, never a startup crash.
+   * tools, and the tools of the admitted MCP servers (`EXTRA_MCP_SERVERS`):
+   * QwenNote minutes (F18) and the official Tencent Docs plugin (#308), each
+   * by its wildcard or by a precise tool name that is on the host plane when
+   * the session is built. Naming a tool that is not there is tolerated — the
+   * agent-side resolution filters it out — so opting in stays a workspace
+   * decision recorded here, never a startup crash.
    */
   extraLocalTools: string[];
   /**
@@ -126,8 +128,6 @@ export const EXTRA_MCP_SERVERS = [
   { name: 'tencent-docs', loading: 'on-demand' },
 ] as const;
 export type ExtraMcpServer = (typeof EXTRA_MCP_SERVERS)[number]['name'];
-/** How a server's tools reach a session. */
-export type McpToolLoading = (typeof EXTRA_MCP_SERVERS)[number]['loading'];
 /** The host namespace of one MCP server's tools. */
 export const mcpToolPrefixOf = (server: string): string => `mcp__${server}__`;
 /** Wildcard entry: every tool the server has on the host plane. */
@@ -138,6 +138,8 @@ export const MCP_LOADER_TOOL = 'load_tools';
 export const QWENNOTE_TOOL_PREFIX = mcpToolPrefixOf('qwennote');
 export const QWENNOTE_TOOL_WILDCARD = mcpToolWildcardOf('qwennote');
 const EXTRA_MCP_WILDCARDS: readonly string[] = EXTRA_MCP_SERVERS.map(server => mcpToolWildcardOf(server.name));
+/** The entries the parameter form offers as checkboxes: each delegation tool, and each admitted MCP server's wildcard. */
+export const KNOWN_EXTRA_TOOLS: readonly string[] = [...DELEGATION_EXTRA_TOOLS, ...EXTRA_MCP_WILDCARDS];
 // Precise names match the harness MCP tool-name charset; a raw name long
 // enough to need the 12-hex normalization suffix can exceed the cap here —
 // those stay reachable through the wildcard entry instead.
@@ -413,7 +415,7 @@ export interface ConfigFieldDescriptor {
   group: 'identity' | 'channels' | 'resources' | 'runtime' | 'storage' | 'tts';
   label: string;
   kind: 'string' | 'number' | 'enum' | 'boolean' | 'list';
-  /** enum 选项（如音色表——client 不再持有第二份）。 */
+  /** 选项：enum 字段的取值，或 list 字段里可勾选的已知项（如音色表与本地额外工具）。面板经 configMeta 读这里，不留第二份。 */
   options?: readonly { value: string; label: string }[];
   /** 表单可更新（CONFIG_UPDATE_ALLOWED 的派生源）。 */
   formAllowed: boolean;
@@ -439,7 +441,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldDescriptor[] = [
   { name: 'enabledWorkers', group: 'runtime', label: '启用角色（enabledWorkers）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.enabledWorkers },
   { name: 'budget', group: 'runtime', label: '模型预算（budget）', kind: 'string', formAllowed: true, default: DEFAULT_BUDGET },
   { name: 'workerModels', group: 'runtime', label: '模型路由（workerModels）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.workerModels },
-  { name: 'extraLocalTools', group: 'runtime', label: '本地额外工具（extraLocalTools）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraLocalTools },
+  { name: 'extraLocalTools', group: 'runtime', label: '本地额外工具（extraLocalTools）', kind: 'list', options: KNOWN_EXTRA_TOOLS.map(value => ({ value, label: value })), formAllowed: true, default: DEFAULT_CONFIG.extraLocalTools },
   { name: 'extraBusinessSkills', group: 'runtime', label: '业务 skill 放行面（extraBusinessSkills）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraBusinessSkills },
   { name: 'tts', group: 'tts', label: '语音 TTS（tts）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.tts },
   { name: 'tts.engine', group: 'tts', label: 'TTS 引擎（tts.engine）', kind: 'enum', options: [{ value: 'none', label: '关闭' }, { value: 'melo', label: 'Melo 本地' }, { value: 'volcengine', label: '豆包云' }], formAllowed: false, default: DEFAULT_CONFIG.tts.engine }, // dotted tts.* fields describe structure; updatability rides the top-level 'tts' entry

@@ -195,7 +195,7 @@ export function checkedAtNote(channel: Channel, checkedAt: string, timeZone: str
 const attention = (count: number): LocalizedText => text(count === 1 ? 'status.attention.one' : 'status.attention', { count: String(count) });
 
 /** An issue as one line: what it is about in the page's language, then what the check said in its own wording. */
-const said = ({ label, message }: AccessIssue): LocalizedText =>
+const issueLine = ({ label, message }: AccessIssue): LocalizedText =>
   typeof label === 'string' ? { zh: `${label}：${message}`, en: `${label}: ${message}` } : { zh: `${label.zh}：${message}`, en: `${label.en}: ${message}` };
 
 /** Map the view to what the block shows. */
@@ -215,7 +215,7 @@ export function presentAccess(view: View): ConnectorAccountDisplay {
   if (issues.length) return {
     phase: 'disconnected', badge: text('badge.attention'), status: attention(issues.length), buttons: [inspect],
     ...(incomplete ? { detail: text('detail.incomplete') } : {}),
-    notes: issues.map(item => ({ text: said(item) })),
+    notes: issues.map(item => ({ text: issueLine(item) })),
   };
   if (incomplete || reports.some(report => report.checkedAt === null)) {
     return { phase: 'disconnected', status: text('status.unchecked'), buttons: [inspect], notes: [], detail: incomplete ? text('detail.incomplete') : text('detail.unchecked') };

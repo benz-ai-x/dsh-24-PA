@@ -3,7 +3,7 @@
 export const strings = value => typeof value === 'string' ? [value]
   : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [];
 /** All the text of one recorded request. */
-export const said = request => strings(request.inputs).join('\n');
+export const requestText = request => strings(request.inputs).join('\n');
 /** The first value in a nested structure that satisfies `predicate`, or undefined. */
 export const find = (value, predicate) => {
   if (!value || typeof value !== 'object') return undefined;

@@ -3340,11 +3340,11 @@ window.__ModuleLoader__.load({
 
         function ConfigFormDetail({ helpers, maintenance = false, onDirtyChange }) {
           const { config, state } = helpers;
-          // arch-4: the voice list rides the snapshot's configMeta (single
-          // source in config.ts) — client.js no longer carries a second copy.
-          const VOICES = (state.configMeta && state.configMeta.fields ? state.configMeta.fields : [])
-            .find(f => f.name === 'tts.voice')?.options ?? [];
-          const KNOWN_EXTRA = ['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*', 'mcp__tencent-docs__*'];
+          // arch-4: the voice list and the known extra tools ride the snapshot's
+          // configMeta (single source in config.ts) — client.js carries no second copy.
+          const configFields = state.configMeta && state.configMeta.fields ? state.configMeta.fields : [];
+          const VOICES = configFields.find(f => f.name === 'tts.voice')?.options ?? [];
+          const KNOWN_EXTRA = (configFields.find(f => f.name === 'extraLocalTools')?.options ?? []).map(option => option.value);
           const makeForm = (config = helpers.config) => ({
             mode: config?.mode ?? 'demo',
             larkProfile: config?.larkProfile ?? '',

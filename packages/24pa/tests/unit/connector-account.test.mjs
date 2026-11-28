@@ -97,9 +97,15 @@ describe('已存结果里哪些是问题', () => {
     expect(checkedAtNote('wecom', AT, 'Asia/Shanghai').zh).toBe('企业微信：检查于 2026/11/26 15:40');
   });
 
-  it('区块里的企业微信服务名与运行时用的是同一张表', () => {
+  it('区块里的企业微信服务名与运行时用的是同一张表；面板留自己的一份，内容与它相等', async () => {
     expect(wecomAccessReport(wecom({ services: [{ id: 'push', state: 'error', message: '以实际推送为准' }] })).issues)
       .toEqual([issue({ zh: WECOM_SERVICE_NAMES.push.zh, en: WECOM_SERVICE_NAMES.push.en }, '以实际推送为准')]);
+    // The panel runs in the browser and cannot import the server's table: read its source text instead, where the panel writes
+    // `serviceMeta = { calendar: L('日程', 'Calendar'), … }`.
+    const client = await readFile(new URL('../../client.js', import.meta.url), 'utf8');
+    const panel = client.match(/const serviceMeta = \{([^}]*)\}/);
+    expect(panel).toBeTruthy();
+    expect(Object.fromEntries([...panel[1].matchAll(/(\w+): L\('([^']+)', '([^']+)'\)/g)].map(([, id, zh, en]) => [id, { zh, en }]))).toEqual(WECOM_SERVICE_NAMES);
   });
 });
 

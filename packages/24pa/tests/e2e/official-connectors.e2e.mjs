@@ -19,13 +19,10 @@ import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startWeixinServer } from '../helpers/weixin-server.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { requestText } from '../helpers/recorded-request.mjs';
 
 const version = process.env.PA24_E2E_OFFICIAL_CONNECTORS;
 const larkStub = resolve('tests/helpers/stub-lark-cli.mjs'), wecomStub = resolve('tests/helpers/stub-wecom-cli.mjs');
-// Every string a recorded request carries, whatever block shape the Host used.
-const strings = value => typeof value === 'string' ? [value]
-  : Array.isArray(value) ? value.flatMap(strings) : value && typeof value === 'object' ? Object.values(value).flatMap(strings) : [];
-const said = request => strings(request.inputs).join('\n');
 
 let root, host, llm, wx, workspace, scriptPath, binding, larkState, larkPath, wecomPath, tmeetPath, localSessionId;
 // The mock records a tool result as JSON, so its quotes arrive escaped.
@@ -64,7 +61,7 @@ async function loadSkill(skill, index) {
   await host.remote('session/prompt', { request: { requestId: `connectors-local-${index}-${randomUUID()}`, sessionId: localSessionId, mode: 'queue',
     content: [{ type: 'text', text: marker }], clientTimeZone: 'Asia/Shanghai' } });
   const turn = () => llm.log.slice(before);
-  const call = await until(() => turn().find(row => said(row).includes(marker)), `${skill} 技能请求`);
+  const call = await until(() => turn().find(row => requestText(row).includes(marker)), `${skill} 技能请求`);
   const answer = await until(() => turn().slice(turn().indexOf(call) + 1).find(row => row.toolResults.length > 0), `${skill} 技能加载`);
   return { call, result: answer.toolResults.join('') };
 }
@@ -143,8 +140,8 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
   it('本地会话拿到官方 CLI 的绝对路径与业务动作优先级规则，并能加载官方 feishu 与 wecom 技能', async () => {
     const feishu = await loadSkill('feishu', 1);
     expect(feishu.call.tools).toEqual(expect.arrayContaining(['bash', 'skill', 'pa24_delegate']));
-    expect(said(feishu.call)).toContain(`Feishu CLI: run \`lark-cli\` by its absolute path "${larkPath}"`);
-    expect(said(feishu.call)).toContain(`WeCom CLI: run \`wecom-cli\` by its absolute path "${wecomPath}"`);
+    expect(requestText(feishu.call)).toContain(`Feishu CLI: run \`lark-cli\` by its absolute path "${larkPath}"`);
+    expect(requestText(feishu.call)).toContain(`WeCom CLI: run \`wecom-cli\` by its absolute path "${wecomPath}"`);
     // #304 and #307 reach the local session's system prompt, not only the prompt module's text.
     expect(feishu.call.system).toContain('日程、待办、备忘、提醒仍一律经 pa24 工具办理');
     expect(feishu.call.system).toContain('不指导本人在终端运行 lark-cli 登录');
@@ -155,7 +152,7 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
 
   it('#305 腾讯会议连接器同样共载：本地会话拿到 tmeet 的绝对路径，并能加载官方技能', async () => {
     const meeting = await loadSkill('tencent-meeting', 3);
-    expect(said(meeting.call)).toContain(`Tencent Meeting CLI: run \`tmeet\` by its absolute path "${tmeetPath}"`);
+    expect(requestText(meeting.call)).toContain(`Tencent Meeting CLI: run \`tmeet\` by its absolute path "${tmeetPath}"`);
     expect(unescaped(meeting.result)).toContain('<skill_content name="tencent-meeting">');
   });
 
@@ -185,7 +182,7 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
     await writeFile(scriptPath, JSON.stringify({ steps: [{ text: '已收到。' }] }));
     const marker = `记一下：官方连接器共载验收 ${randomUUID()}`, before = llm.log.length;
     await host.api('action', { type: 'test.inject', event: { eventId: `connectors-feishu-${randomUUID()}`, senderOpenId: 'ou_connectors_owner', appId: 'cli_connectors_app', text: marker } });
-    const request = await until(() => llm.log.slice(before).find(row => row.tools.includes('pa24_delegate') && said(row).includes(marker)), '飞书接入会话的模型请求');
+    const request = await until(() => llm.log.slice(before).find(row => row.tools.includes('pa24_delegate') && requestText(row).includes(marker)), '飞书接入会话的模型请求');
     expect(request.tools).toContain('pa24_connection');
     for (const absent of ['bash', 'pwsh', 'skill', 'read', 'write', 'pa24_work']) expect(request.tools).not.toContain(absent);
   });
@@ -208,7 +205,7 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
     await writeFile(scriptPath, JSON.stringify({ steps: [{ text: '已收到本人文字。' }] }));
     const marker = `你好 ${randomUUID()}`, before = llm.log.length;
     wx.input(marker);
-    const request = await until(() => llm.log.slice(before).find(row => row.tools.includes('pa24_delegate') && said(row).includes(marker)), '微信接入会话的模型请求');
+    const request = await until(() => llm.log.slice(before).find(row => row.tools.includes('pa24_delegate') && requestText(row).includes(marker)), '微信接入会话的模型请求');
     expect(request.tools).not.toContain('pa24_connection');
     for (const absent of ['bash', 'pwsh', 'skill', 'read', 'write', 'pa24_work']) expect(request.tools).not.toContain(absent);
   });
