@@ -85,7 +85,7 @@ v1 后续功能（规格 1.3–2.1）：F13＝[#60](https://github.com/benz-ai-x
 | 业务动作优先级（Lead 规则） | [#304](https://github.com/benz-ai-x/dsh-24-PA/issues/304) | 167 | PR #311；提示词锚点测试＋真实宿主 e2e 断言规则到达本地会话系统提示 |
 | CLI 供给与硬依赖 | [#306](https://github.com/benz-ai-x/dsh-24-PA/issues/306) | 166 | PR #311；真实宿主 e2e（`official-connectors`、`cli-source`）与单测 |
 | 授权走插件页、`larkProfile` 缺省不带 `--profile` | [#307](https://github.com/benz-ai-x/dsh-24-PA/issues/307) | 166 | PR #311；指南与 nextSteps 锚点测试、面板文案 |
-| 腾讯文档工具放行与工具门禁 | [#308](https://github.com/benz-ai-x/dsh-24-PA/issues/308) | 167 | PR #312（叠在 #311 上）；替身 MCP 服务器的真实宿主 e2e，真实读写随 #303 |
+| 腾讯文档工具放行与工具门禁 | [#308](https://github.com/benz-ai-x/dsh-24-PA/issues/308) | 167 | PR #312（#311 合并后 base 改为 main）；替身 MCP 服务器的真实宿主 e2e，真实读写随 #303 |
 | 腾讯会议连接器隔离验证 | [#305](https://github.com/benz-ai-x/dsh-24-PA/issues/305) | 167 | PR #312；共载 e2e 不跑连接器安装脚本（它会退出登录），没有真实的 tmeet 运行 |
 | 接入状态进宿主插件页 | [#309](https://github.com/benz-ai-x/dsh-24-PA/issues/309) | 168 | PR #312；区块显示已存结果，平台调用只由本人点「检查」发起 |
 | CLI 子进程迁宿主子进程服务 | [#310](https://github.com/benz-ai-x/dsh-24-PA/issues/310) | 166 的运行保障 | 第三个 PR |

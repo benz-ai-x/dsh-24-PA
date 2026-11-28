@@ -335,11 +335,11 @@ Eight `pa24_*` schemas with fixed JSON parameters, plus the role restriction app
 
 #### Token effect
 
-Fixed catalog per role for the session lifetime; `extraLocalTools` extends the local allow list only, and host-plane additions from other bundles (for example `schedule_*`) are outside this bundle's allow list.
+Fixed catalog per role for the session lifetime — unless the workspace admits Tencent Docs' tools, which the model loads on demand and which then join the local session; `extraLocalTools` extends the local allow list only, and host-plane additions from other bundles (for example `schedule_*`) are outside this bundle's allow list.
 
 #### KV Cache effect
 
-Append-only: the catalog is constant across one session's requests, so conversation growth never rewrites the prefix; changing the workspace `extraLocalTools`, the preset composition, or upgrading the package invalidates reuse.
+Append-only: the catalog is constant across one session's requests (Tencent Docs' on-demand tools aside, which join when the model loads them), so conversation growth never rewrites the prefix; changing the workspace `extraLocalTools`, the preset composition, or upgrading the package invalidates reuse.
 
 Indirectly, through the preset rows this bundle composes, each inserted standard package owns its own tool descriptions and prompt contributions.
 
