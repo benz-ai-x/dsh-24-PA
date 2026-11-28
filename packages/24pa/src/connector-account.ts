@@ -47,9 +47,10 @@ type View = ConnectorAccountView<AccessAccount, AccessOperation>;
 type TextKey =
   | 'title' | 'hint' | 'action.inspect' | 'status.checking' | 'status.failed' | 'status.unbound' | 'status.demo' | 'status.unchecked'
   | 'status.attention' | 'status.attention.one' | 'status.ready' | 'badge.attention' | 'badge.ready' | 'detail.unchecked' | 'detail.unbound' | 'detail.incomplete'
+  | 'note.checkedAt' | 'note.unchecked'
   | 'activation.title' | 'activation.body' | 'notice.inspected' | 'failure.inspect'
   | 'label.signin' | 'label.owner' | 'label.identity' | 'label.folder' | 'label.wiki' | 'label.tasklist' | 'label.calendar';
-type Text = (key: TextKey, params?: Readonly<Record<string, string>>) => LocalizedText;
+type Text = (key: TextKey, params?: Readonly<Record<string, string | LocalizedText>>) => LocalizedText;
 
 /**
  * The block's text by language; English is what a language without a dictionary falls back to. What a check said of an item is
@@ -68,6 +69,8 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
     'status.attention': '{count} items need attention',
     'status.attention.one': '1 item needs attention',
     'status.ready': 'Owner, resources and channels are ready',
+    'note.checkedAt': '{channel}: checked at {at}',
+    'note.unchecked': '{channel}: not checked yet',
     'badge.attention': 'Needs attention',
     'badge.ready': 'Ready',
     'detail.unchecked': 'The check only reads: it sends no message and creates no object.',
@@ -97,6 +100,8 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
     'status.attention': '{count} 项需要处理',
     'status.attention.one': '1 项需要处理',
     'status.ready': '主人、资源与渠道检查通过',
+    'note.checkedAt': '{channel}：检查于 {at}',
+    'note.unchecked': '{channel}：尚未检查',
     'badge.attention': '需要处理',
     'badge.ready': '已就绪',
     'detail.unchecked': '检查只读取，不发送消息，也不创建任何对象。',
@@ -116,12 +121,19 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
   },
 };
 
-/** One dictionary key in every language, each `{name}` replaced with its parameter. */
+/**
+ * One dictionary key in every language, each `{name}` replaced with its parameter: a string as it is, a localized text in that
+ * language (English for a language it has no form in).
+ */
 const text: Text = (key, params = {}) => {
-  const fill = (template: string): string => template.replace(/\{(\w+)\}/g, (placeholder, name: string) => params[name] ?? placeholder);
+  const fill = (template: string, language: string): string => template.replace(/\{(\w+)\}/g, (placeholder, name: string) => {
+    const value = params[name];
+    if (value === undefined) return placeholder;
+    return typeof value === 'string' ? value : value[language] ?? value.en;
+  });
   const entry: Record<string, string> = {};
-  for (const [language, dictionary] of Object.entries(DICTIONARIES)) entry[language] = fill(dictionary[key]);
-  return { ...entry, en: fill(DICTIONARIES.en[key]) };
+  for (const [language, dictionary] of Object.entries(DICTIONARIES)) entry[language] = fill(dictionary[key], language);
+  return { ...entry, en: fill(DICTIONARIES.en[key], 'en') };
 };
 
 type Block = { state?: unknown; message?: unknown } | null | undefined;
@@ -187,9 +199,12 @@ type Channel = keyof typeof CHANNEL_NAMES;
 export function checkedAtNote(channel: Channel, checkedAt: string, timeZone: string): LocalizedText {
   const at = (locale: string): string => new Intl.DateTimeFormat(locale, { timeZone, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: false })
     .format(new Date(checkedAt));
-  const name = CHANNEL_NAMES[channel];
-  return { en: `${name.en}: checked at ${at('en-US')}`, zh: `${name.zh}：检查于 ${at('zh-CN')}` };
+  return text('note.checkedAt', { channel: CHANNEL_NAMES[channel], at: { en: at('en-US'), zh: at('zh-CN') } });
 }
+
+/** A line for each channel that has not been checked yet. */
+const uncheckedNotes = (channels: ReadonlyArray<readonly [AccessReport, Channel]>): { readonly text: LocalizedText }[] =>
+  channels.filter(([report]) => report.checkedAt === null).map(([, channel]) => ({ text: text('note.unchecked', { channel: CHANNEL_NAMES[channel] }) }));
 
 /** How many items a check found wrong, in each language; English has a form for one. */
 const attention = (count: number): LocalizedText => text(count === 1 ? 'status.attention.one' : 'status.attention', { count: String(count) });
@@ -215,7 +230,8 @@ export function presentAccess(view: View): ConnectorAccountDisplay {
   if (issues.length) return {
     phase: 'disconnected', badge: text('badge.attention'), status: attention(issues.length), buttons: [inspect],
     ...(incomplete ? { detail: text('detail.incomplete') } : {}),
-    notes: issues.map(item => ({ text: issueLine(item) })),
+    // A channel that was never checked is no finding; it is said of all the same, so that it is not taken for checked.
+    notes: [...issues.map(item => ({ text: issueLine(item) })), ...uncheckedNotes(channels)],
   };
   if (incomplete || reports.some(report => report.checkedAt === null)) {
     return { phase: 'disconnected', status: text('status.unchecked'), buttons: [inspect], notes: [], detail: incomplete ? text('detail.incomplete') : text('detail.unchecked') };

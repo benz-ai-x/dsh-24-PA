@@ -12,10 +12,10 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { writeStandIn } from '../helpers/stub-cli.mjs';
+import { until } from '../helpers/until.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { PA24_PACKAGE_NAME } from '../../lib/connector-account.js';
 
@@ -29,16 +29,6 @@ afterAll(async () => {
     if (instance.root) await rm(instance.root, { recursive: true, force: true });
   }
 });
-
-/** Poll `read` until it returns a value; a Host that is reloading its plugins answers nothing, which is not a failure here. */
-async function until(read, label, host) {
-  for (let index = 0; index < 240; index++) {
-    const found = await read().catch(() => undefined);
-    if (found !== undefined) return found;
-    await delay(250);
-  }
-  throw new Error(`等待${label}超时\n${JSON.stringify(host.logs()).slice(-3000)}`);
-}
 
 /** A workspace in Feishu mode, a model script and the stand-in's state; the instance's Host is booted by the test. */
 async function fixture(prefix) {
@@ -54,6 +44,15 @@ async function fixture(prefix) {
   await writeFile(instance.larkState, JSON.stringify({ ownerOpenId: 'ou_page_owner', appId: 'cli_page_app' }));
   return instance;
 }
+/** Boot the instance's Host with the lark-cli stand-in on PATH, so the fixture names it in the plugin row. */
+async function bootedOnStandIn(instance) {
+  const bin = join(instance.root, 'bin'); await mkdir(bin);
+  await writeStandIn(bin, 'lark', instance.larkState);
+  const host = instance.host = await bootHost({ env: { PA24_WORKSPACE: instance.workspace, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_page_app', PA24_FEISHU_APP_SECRET: 'page-secret',
+    DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: instance.llm.url, PATH: `${bin}${delimiter}${process.env.PATH}` } });
+  await host.waitUntil(row => row.transport?.connected === true && !!row.workspace?.localSessionId, { label: '工作区就绪' });
+  return host;
+}
 /** Every run of the lark-cli stand-in. */
 const calls = async instance => (await readFile(`${instance.larkState}.calls.jsonl`, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(JSON.parse);
 /** The page's check, started as the page starts it, through to the stored result. */
@@ -65,12 +64,7 @@ const inspected = async instance => {
 describe('接入状态进宿主插件页', () => {
   it('区块按24私助的包名登记，登记本身不读平台；页面能发起的只有只读检查，它读到的是已启用的渠道', async () => {
     const instance = await fixture('pa24-access-account-');
-    // The stand-in is on PATH, so the fixture names it in the plugin row.
-    const bin = join(instance.root, 'bin'); await mkdir(bin);
-    await writeStandIn(bin, 'lark', instance.larkState);
-    const host = instance.host = await bootHost({ env: { PA24_WORKSPACE: instance.workspace, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_page_app', PA24_FEISHU_APP_SECRET: 'page-secret',
-      DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: instance.llm.url, PATH: `${bin}${delimiter}${process.env.PATH}` } });
-    await host.waitUntil(row => row.transport?.connected === true && !!row.workspace?.localSessionId, { label: '工作区就绪' });
+    const host = await bootedOnStandIn(instance);
     // Starting the Host and registering the block read no platform.
     expect(await calls(instance)).toEqual([]);
     expect((await host.api('snapshot')).diagnostics?.checkedAt ?? null).toBeNull();
@@ -86,14 +80,11 @@ describe('接入状态进宿主插件页', () => {
 
   it('主人停用24私助后区块随之撤下，页面的检查被拒；重新启用后区块回来，检查又能发起', async () => {
     const instance = await fixture('pa24-access-account-toggle-');
-    const bin = join(instance.root, 'bin'); await mkdir(bin);
-    await writeStandIn(bin, 'lark', instance.larkState);
-    const host = instance.host = await bootHost({ env: { PA24_WORKSPACE: instance.workspace, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_page_app', PA24_FEISHU_APP_SECRET: 'page-secret',
-      DEEPSEEK_API_KEY: 'test-key', DEEPSEEK_BASE_URL: instance.llm.url, PATH: `${bin}${delimiter}${process.env.PATH}` } });
-    await host.waitUntil(row => row.transport?.connected === true && !!row.workspace?.localSessionId, { label: '工作区就绪' });
+    const host = await bootedOnStandIn(instance);
     await host.remote('pluginManager/setBundleEnabled', { name: key, enabled: false });
-    // The operation the page could start a moment ago is now refused: the block is no longer registered.
-    // (The refusal's wording is the host's own, and is not pinned here.)
+    // The operation the page could start a moment ago is now refused. The registry refuses an account that is not registered, an
+    // operation the account did not list, and a second operation while one runs; only the first holds here, so the block is no longer
+    // registered. (The refusal's wording is the host's own, and is not pinned here.)
     await expect(host.remote('connectorAccounts/start', { key, operation: 'inspect' })).rejects.toThrow();
     await host.remote('pluginManager/setBundleEnabled', { name: key, enabled: true });
     await until(() => host.api('snapshot').then(row => row.transport?.connected === true && !!row.workspace?.localSessionId ? true : undefined), '重新启用后的工作区', host);
@@ -122,10 +113,12 @@ describe.skipIf(!connectors)('装了官方飞书连接器的 profile', () => {
     await host.waitUntil(row => row.transport?.connected === true && !!row.workspace?.localSessionId, { label: '工作区就绪', timeoutMs: 180000 });
     const { stdout, stderr } = host.logs();
     expect(stdout + stderr).not.toMatch(/did not activate/);
-    // Registering the block read no platform; the page's check reaches Feishu through the connector's CLI.
+    // Registering the block read no platform; the page's check reaches Feishu through the connector's CLI, and reads the owner and
+    // the configured resources: the folder, the task list and the own calendar were read.
     expect(await calls(instance)).toEqual([]);
     const { diagnostics } = await inspected(instance);
     expect(diagnostics.cli).toMatchObject({ state: 'ok', source: 'official', connector: `@deepseek-ai/dsh-feishu@${connectors}` });
     expect(diagnostics.auth.state).toBe('ok');
+    expect(diagnostics.resources.map(({ id, state }) => [id, state])).toEqual([['folder', 'ok'], ['wiki', 'missing'], ['tasklist', 'ok'], ['calendar', 'ok']]);
   }, 600000);
 });
