@@ -81,7 +81,7 @@ kind: "package-bundle"
 
 ## 快速开始
 
-前置要求：Node.js `^24.22.3 || >=26.13.1`、dsh `0.2.3-alpha.2`；默认 SQLite demo 无需独立数据库服务。飞书接入与企微渠道的 CLI 由宿主的官方插件提供（`@deepseek-ai/dsh-feishu`，用到企微时另装 `@deepseek-ai/dsh-wecom`），不再要求服务器上装有 `lark-cli`／`wecom-cli`；从 `0.2.3-alpha.2.1` 及更早版本升级的实例请先装官方插件，24私助插件行若还留着 `larkCliBin: lark-cli` 这样的裸名，删除该项即可改用官方插件提供的 CLI。
+前置要求：Node.js `^24.22.3 || >=26.13.1`、dsh `0.2.3-alpha.2`、PATH 上有 pnpm（`dsh plugin` 调用它，官方 CLI 不内嵌）；默认 SQLite demo 无需独立数据库服务。飞书接入与企微渠道的 CLI 由宿主的官方插件提供（`@deepseek-ai/dsh-feishu`，用到企微时另装 `@deepseek-ai/dsh-wecom`），不再要求服务器上装有 `lark-cli`／`wecom-cli`；从 `0.2.3-alpha.2.1` 及更早版本升级的实例请先装官方插件，24私助插件行若还留着 `larkCliBin: lark-cli` 这样的裸名，删除该项即可改用官方插件提供的 CLI。
 
 <a id="安装-bundle"></a>
 ### 安装当前版本
@@ -89,9 +89,10 @@ kind: "package-bundle"
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 
+# 全新自定义名字的 <name>：先按初始化指南阶段 3 的三步（从 web 模板建 profile、批准 protobufjs 构建、再 add）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.3-alpha.2.1 --registry=https://registry.npmjs.org
 
-# 接通飞书前安装官方飞书插件；它会再次触发 pnpm 构建审批，处置见初始化指南阶段 3
+# 接通飞书前安装官方飞书插件；它也有一次 pnpm 构建审批，处置见初始化指南阶段 3
 dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://registry.npmjs.org
 ```
 
@@ -161,7 +162,7 @@ schema 20 为两种账本增加来源登记、访问证据、平台对象、来�
 
 ### 失败与恢复
 
-未安装的外部 CLI provider 使工具缺席而非报错。同一 `$DSH_HOME/24pa` 上的第二个 pa24 宿主会因锁拒绝启动。全新 Profile 对 `protobufjs`（飞书 SDK 的传递依赖）自带未决的 `allowBuilds` 占位符，首次安装会以非零码结束，需在 Profile 的 `pnpm-workspace.yaml` 里把它设为 `true`；无论哪种结果包都已完整加入。 lark-cli 超时归类为结果未知——先核对飞书实际对象再决定是否重试；绝不盲目重放外部写入。
+未安装的外部 CLI provider 使工具缺席而非报错。同一 `$DSH_HOME/24pa` 上的第二个 pa24 宿主会因锁拒绝启动。全新 Profile 没有预先批准 `protobufjs`（飞书 SDK 的传递依赖）的构建：不先在 Profile 的 `pnpm-workspace.yaml` 里写上 `allowBuilds` 下的 `protobufjs: true`，首次安装就以非零码结束；包虽已写入依赖，但要先 remove 再重新 add 才会把插件层登记进 `dsh.profile.bundles`。已验证的完整顺序见[初始化指南](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md)。 lark-cli 超时归类为结果未知——先核对飞书实际对象再决定是否重试；绝不盲目重放外部写入。
 
 -----
 
