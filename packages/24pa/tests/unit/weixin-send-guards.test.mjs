@@ -14,11 +14,12 @@ import { TaskPlanAccess } from '../../lib/task-plan-access.js';
 import { makeSkillPackage, parseSkillMarkdown } from '../../lib/skill-package.js';
 import { taskPlanDraft } from '../../lib/task-plan.js';
 import { MemoryStore } from '../../lib/memory.js';
+import { fixture, unstartableCli } from '../helpers/runtime.mjs';
 
 // Supplemental transport contract checks. Persistence and credentials are real;
 // only the Host Session service and the external iLink endpoint are replaced.
 // The real Loader integration remains covered by weixin-plan-delivery.e2e.mjs.
-let root, db, repos, access, row, sent;
+let root, db, repos, access, row, sent, weixinDeps;
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'pa24-wx-send-'));
   db = new SqliteDb(':memory:'); await db.migrate(); repos = createRepos(db); sent = [];
@@ -28,14 +29,16 @@ beforeEach(async () => {
   await new WeixinCredentialVault(root).save({ ...identity, base: 'https://ilinkai.weixin.qq.com', token: 'test-private-token', context: 'test-private-context' });
   const agent = { session: { id: binding.session_id, header: { cwd: root, agentPreset: 'pa24' }, ownEvents: () => [] } };
   const agents = { get: () => agent, create: async () => { throw new Error('Unexpected new Session'); }, resume: async () => { throw new Error('Unexpected resume'); } };
-  access = new WeixinAccess({ host: { get: name => name === 'agents' ? agents : null },
+  // WeChat as a notification target is a stand-in here too, as the endpoint is: the capability itself is the subject of the last case.
+  weixinDeps = extra => ({ host: { get: name => name === 'agents' ? agents : null },
     context: () => ({ workspaceId: 'workspace', hostWorkspaceId: 'host-workspace', workspacePath: root, binding: 'workspace-binding', repo: repos.weixin, outbox: repos.outbox }),
     available: () => true, execute: work => work(), received: () => {},
     request: async (endpoint, options) => {
       if (endpoint.endsWith('getupdates')) return { http: 200, data: { ret: 0, msgs: [], get_updates_buf: '' } };
       if (endpoint.endsWith('sendmessage')) { sent.push(options.body.msg); return { http: 200, data: { ret: 0 } }; }
       throw new Error('Unexpected external endpoint');
-    } });
+    }, ...extra });
+  access = new WeixinAccess(weixinDeps({ notificationSupported: () => true }));
   await access.start();
   row = (await repos.outbox.enqueue({ dedupKey: 'test-result', channel: 'weixin', target: 'owner', kind: 'text', content: { text: '原结果' },
     deliveryTarget: identity, association: { inboxEventId: 'original-input' } })).row;
@@ -98,4 +101,30 @@ it.each(['preference', 'expiry'])('最外层异步返回期间 %s 改变，在�
     return prepared;
   })).rejects.toMatchObject({ hold: { status: kind === 'preference' ? 'pending' : 'expired' } });
   expect(sent).toEqual([]);
+});
+
+it('能力没有成立时，服务端拒绝把微信作为通知目标，页面读到的是同一个结论', async () => {
+  // The binding, the polling and the reply context are all in place; what is missing is the capability itself (#281).
+  const gated = new WeixinAccess(weixinDeps());
+  try {
+    await gated.start();
+    await vi.waitFor(async () => expect((await gated.snapshot()).phase).toBe('polling'));
+    await expect(gated.notificationTarget()).rejects.toThrow('还没有通过真实平台验证');
+    expect((await gated.snapshot()).notificationSupported).toBe(false);
+    expect((await access.snapshot()).notificationSupported).toBe(true);
+  } finally { await gated.close(); }
+});
+
+it('真实 runtime 只在 fake 通道的宿主上把这项能力读成成立', async () => {
+  // The wiring in runtime.ts: the page reads the answer off the transport this Host was started with (#281).
+  const runtimes = [];
+  try {
+    const fake = await fixture({ env: { PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'app', PA24_FEISHU_APP_SECRET: 'secret' } }); runtimes.push(fake);
+    fake.options.larkCliBin = await unstartableCli(fake);
+    await fake.rt.bind(await fake.workspace('a', { mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }));
+    expect((await fake.rt.weixin.snapshot()).notificationSupported).toBe(true);
+    const real = await fixture({ env: {} }); runtimes.push(real);
+    await real.rt.bind(await real.workspace('a'));
+    expect((await real.rt.weixin.snapshot()).notificationSupported).toBe(false);
+  } finally { for (const runtime of runtimes) await runtime.cleanup(); }
 });

@@ -716,7 +716,7 @@ export class PaRuntime {
       // Packages installed into the profile resolve from the profile, wherever this plugin's own files live.
       anchor: profile?.dir ? join(profile.dir, 'package.json') : undefined,
     });
-    this.weixin = new WeixinAccess({ host: ctx, request: options.weixinRequest,
+    this.weixin = new WeixinAccess({ host: ctx, request: options.weixinRequest, notificationSupported: () => this.fakeTransport,
       context: () => this.workspace && this.workspaceBinding && this.backupWorkspaceId && this.repos
         ? { workspaceId: this.backupWorkspaceId, hostWorkspaceId: this.workspace.id, workspacePath: this.workspace.statePath,
           binding: this.workspaceBinding, repo: this.repos.weixin, outbox: this.repos.outbox } : null,
@@ -1785,7 +1785,7 @@ export class PaRuntime {
     if (!appId || !appSecret) {
       return inactive(`feishu 模式缺少凭据（${config.appIdEnv}/${config.appSecretEnv}）：在面板「接入与设置 → 参数配置 → 密钥」填写，或设置同名环境变量；机器人未启动。`);
     }
-    const transport = (this.env.PA24_TRANSPORT || '').trim() === 'fake' ? new FakeFeishuTransport(appId) : new SdkFeishuTransport(appId, appSecret);
+    const transport = this.fakeTransport ? new FakeFeishuTransport(appId) : new SdkFeishuTransport(appId, appSecret);
     let settle!: (active: boolean) => void;
     const activated = new Promise<boolean>(resolve => { settle = resolve; });
     try {
@@ -2154,6 +2154,13 @@ export class PaRuntime {
   }
 
   private readonly accessAccountListeners = new Set<() => void>();
+
+  /**
+   * Whether the Feishu channel is the fake one (`PA24_TRANSPORT=fake`): a test Host, never a production link. WeChat as a plan's
+   * notification target is admitted only there, until the capability is verified on the real platform (#281); the page reads the
+   * same answer through the WeChat access snapshot.
+   */
+  private get fakeTransport(): boolean { return (this.env.PA24_TRANSPORT ?? '').trim() === 'fake'; }
 
   /** The WeCom access result is no longer current: drop it and tell the Plugins page, which shows the stored results. */
   private forgetWecomAccess(): void {

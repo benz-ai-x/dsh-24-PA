@@ -35,9 +35,13 @@ export class WeixinAccess {
   private error: string | null = null;
   private quiescing = true;
   private sendEpoch = 0;
+  private readonly notificationSupported: () => boolean;
   constructor(private readonly deps: { host: DshContext; context(): AccessContext | null; available(): boolean;
-    execute<T>(work: () => Promise<T>): Promise<T>; received(): void; request?: WeixinRequestFn }) {
+    execute<T>(work: () => Promise<T>): Promise<T>; received(): void; request?: WeixinRequestFn;
+    /** Whether plan results may be sent to WeChat at all; absent, they may not (#281). */
+    notificationSupported?: () => boolean }) {
     this.request = deps.request ?? createWeixinRequest();
+    this.notificationSupported = deps.notificationSupported ?? (() => false);
     this.sessions = new WeixinSessions(deps.host, row => this.identities.get(row.session_id)?.generation === row.generation && this.identities.get(row.session_id)?.state !== 'retired');
   }
   register(rows: WeixinBindingRow[]): void { for (const row of rows) this.identities.set(row.session_id, row); }
@@ -52,8 +56,10 @@ export class WeixinAccess {
     return row;
   }
   /** Captures only the fixed identity, never credentials or a reply token.
-   * Platform notification conditions still require separate real-account acceptance. */
+   * Platform notification conditions still require separate real-account acceptance (#281): until the capability is
+   * established, the server refuses WeChat as a plan's target exactly as the page hides the option. */
   async notificationTarget(): Promise<TaskPlanDestination> {
+    if (!this.notificationSupported()) throw new Error('微信结果通知还没有通过真实平台验证，暂不能作为计划的通知目标；请保留原来的通知渠道。');
     const ctx = this.context(), row = await ctx.repo.active(ctx.workspaceId);
     if (!row || !row.enabled || !row.session_ready || this.quiescing || !this.current(ctx) || this.phase !== 'polling') throw new Error('微信未连接到可用的本人绑定，请先在电脑端核对接入。');
     const identity = weixinIdentity(row), credentials = await new WeixinCredentialVault(ctx.workspacePath).get(identity);
@@ -65,7 +71,7 @@ export class WeixinAccess {
     const ctx = this.context(), active = await ctx.repo.active(ctx.workspaceId);
     return { binding: active ? { ...active, cursor: undefined } : null, phase: this.phase, error: this.error,
       loginPhase: this.loginPhase, candidate: this.candidate?.workspaceBinding === ctx.binding ? { id: this.candidate.id, accountId: this.candidate.accountId, ownerId: this.candidate.ownerId } : null,
-      verified: Boolean(active?.last_received_at && active?.last_sent_at), notificationSupported: false,
+      verified: Boolean(active?.last_received_at && active?.last_sent_at), notificationSupported: this.notificationSupported(),
       impact: active ? await ctx.repo.impact(active.generation) : null };
   }
   async loginState() {
