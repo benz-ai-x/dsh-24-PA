@@ -10,10 +10,11 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { setTimeout as delay } from 'node:timers/promises';
 import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
+import { promptLocal } from '../helpers/local-prompt.mjs';
 import { find, requestText } from '../helpers/recorded-request.mjs';
+import { until } from '../helpers/until.mjs';
 import { writeStandIn } from '../helpers/stub-cli.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 
@@ -54,22 +55,8 @@ async function instance({ mcpServer }) {
   return { host, binding, localSessionId: (await host.api('snapshot')).workspace.localSessionId };
 }
 
-async function until(check, label, host) {
-  for (let index = 0; index < 160; index++) {
-    const found = check();
-    if (found) return found;
-    await delay(250);
-  }
-  throw new Error(`等待${label}超时\n${JSON.stringify(host.logs()).slice(-3000)}`);
-}
-
+/** What the scripted model answers next. */
 async function script(steps) { await writeFile(scriptPath, JSON.stringify({ steps })); }
-
-async function promptLocal(host, sessionId, text) {
-  const marker = `${text} ${randomUUID()}`, before = llm.log.length;
-  await host.remote('session/prompt', { request: { requestId: `docs-${randomUUID()}`, sessionId, mode: 'queue', content: [{ type: 'text', text: marker }], clientTimeZone: 'Asia/Shanghai' } });
-  return { marker, turn: () => llm.log.slice(before) };
-}
 
 describe('腾讯文档官方工具在24私助里的放行（真实 Loader）', () => {
   describe('宿主挂着腾讯文档服务器时', () => {
@@ -82,7 +69,7 @@ describe('腾讯文档官方工具在24私助里的放行（真实 Loader）', (
         { tool: { name: ECHO, input: { text: '来自24私助的调用' } } },
         { text: '完成。' },
       ]);
-      const { marker, turn } = await promptLocal(current.host, current.localSessionId, '读取腾讯文档替身');
+      const { marker, turn } = await promptLocal(current.host, llm, current.localSessionId, '读取腾讯文档替身', 'docs');
       const first = await until(() => turn().find(row => requestText(row).includes(marker)), '本地会话的模型请求', current.host);
       expect(first.tools).toContain(LOADER);
       expect(first.tools.filter(name => name.startsWith('mcp__tencent-docs__'))).toEqual([LOADER]);
@@ -118,7 +105,7 @@ describe('腾讯文档官方工具在24私助里的放行（真实 Loader）', (
 
     it('通配条目被过滤，本地会话照常建立，全应用健康提示未挂载', async () => {
       await script([{ text: '已收到。' }]);
-      const { marker, turn } = await promptLocal(current.host, current.localSessionId, '问候');
+      const { marker, turn } = await promptLocal(current.host, llm, current.localSessionId, '问候', 'docs');
       const request = await until(() => turn().find(row => requestText(row).includes(marker)), '本地会话的模型请求', current.host);
       expect(request.tools).toContain('bash');
       expect(request.tools.some(name => name.startsWith('mcp__tencent-docs__'))).toBe(false);

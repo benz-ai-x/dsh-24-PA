@@ -96,7 +96,7 @@ export function hostGlobalToolNames(ctx: DshContext): string[] {
 /**
  * The states in which a wanted on-demand server's tools are still to come, so that a session is waited for them, within the bound.
  */
-export const MCP_SERVER_PENDING: ReadonlySet<McpServerState> = new Set<McpServerState>(['connecting', 'reconnecting', 'connected']);
+const MCP_SERVER_PENDING: ReadonlySet<McpServerState> = new Set<McpServerState>(['connecting', 'reconnecting', 'connected']);
 
 /** The state the host's MCP manager reports for the server, or null when no manager is loaded or none lists it. */
 export function mcpServerState(ctx: DshContext, server: ExtraMcpServer): McpServerState | null {
@@ -146,7 +146,7 @@ export function resolveExtraLocalTools(extras: readonly string[], signals: Extra
 }
 
 /** The admitted MCP server whose tool namespace a name belongs to. */
-export function extraMcpServerOf(name: string): ExtraMcpServer | undefined {
+function extraMcpServerOf(name: string): ExtraMcpServer | undefined {
   return EXTRA_MCP_SERVERS.find(server => name.startsWith(mcpToolPrefixOf(server.name)))?.name;
 }
 

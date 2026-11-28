@@ -20,6 +20,7 @@ import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startWeixinServer } from '../helpers/weixin-server.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
 import { requestText } from '../helpers/recorded-request.mjs';
+import { until } from '../helpers/until.mjs';
 
 const version = process.env.PA24_E2E_OFFICIAL_CONNECTORS;
 const larkStub = resolve('tests/helpers/stub-lark-cli.mjs'), wecomStub = resolve('tests/helpers/stub-wecom-cli.mjs');
@@ -32,15 +33,6 @@ const sources = { version: 1, entries: [
   { id: 'personal-calendar', domain: 'calendar', platform: 'feishu', name: '个人日历', purpose: 'personal', ownerId: 'ou_connectors_owner', resourceKind: 'calendar', resourceId: 'personal-cal', filter: 'all', access: 'readwrite', enabled: true },
   { id: 'personal-todo', domain: 'todo', platform: 'feishu', name: '个人待办', purpose: 'personal', ownerId: 'ou_connectors_owner', resourceKind: 'tasklist', resourceId: 'personal-list', filter: 'all', access: 'readwrite', enabled: true },
 ], defaults: { calendar: 'personal-calendar', todo: 'personal-todo' }, mappings: [], meetingDurationMinutes: 30 };
-
-async function until(check, label) {
-  for (let index = 0; index < 160; index++) {
-    const found = check();
-    if (found) return found;
-    await delay(250);
-  }
-  throw new Error(`等待${label}超时\n${JSON.stringify(host.logs()).slice(-3000)}`);
-}
 
 // One owner request from the Feishu entry, delegated to a worker by the
 // scripted model; the work item's final status says whether the tool ran.
@@ -61,8 +53,8 @@ async function loadSkill(skill, index) {
   await host.remote('session/prompt', { request: { requestId: `connectors-local-${index}-${randomUUID()}`, sessionId: localSessionId, mode: 'queue',
     content: [{ type: 'text', text: marker }], clientTimeZone: 'Asia/Shanghai' } });
   const turn = () => llm.log.slice(before);
-  const call = await until(() => turn().find(row => requestText(row).includes(marker)), `${skill} 技能请求`);
-  const answer = await until(() => turn().slice(turn().indexOf(call) + 1).find(row => row.toolResults.length > 0), `${skill} 技能加载`);
+  const call = await until(() => turn().find(row => requestText(row).includes(marker)), `${skill} 技能请求`, host);
+  const answer = await until(() => turn().slice(turn().indexOf(call) + 1).find(row => row.toolResults.length > 0), `${skill} 技能加载`, host);
   return { call, result: answer.toolResults.join('') };
 }
 
@@ -182,7 +174,7 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
     await writeFile(scriptPath, JSON.stringify({ steps: [{ text: '已收到。' }] }));
     const marker = `记一下：官方连接器共载验收 ${randomUUID()}`, before = llm.log.length;
     await host.api('action', { type: 'test.inject', event: { eventId: `connectors-feishu-${randomUUID()}`, senderOpenId: 'ou_connectors_owner', appId: 'cli_connectors_app', text: marker } });
-    const request = await until(() => llm.log.slice(before).find(row => row.tools.includes('pa24_delegate') && requestText(row).includes(marker)), '飞书接入会话的模型请求');
+    const request = await until(() => llm.log.slice(before).find(row => row.tools.includes('pa24_delegate') && requestText(row).includes(marker)), '飞书接入会话的模型请求', host);
     expect(request.tools).toContain('pa24_connection');
     for (const absent of ['bash', 'pwsh', 'skill', 'read', 'write', 'pa24_work']) expect(request.tools).not.toContain(absent);
   });
@@ -205,7 +197,7 @@ describe.skipIf(!version)('官方连接器共载（真实 Loader，0.2.3-alpha �
     await writeFile(scriptPath, JSON.stringify({ steps: [{ text: '已收到本人文字。' }] }));
     const marker = `你好 ${randomUUID()}`, before = llm.log.length;
     wx.input(marker);
-    const request = await until(() => llm.log.slice(before).find(row => row.tools.includes('pa24_delegate') && requestText(row).includes(marker)), '微信接入会话的模型请求');
+    const request = await until(() => llm.log.slice(before).find(row => row.tools.includes('pa24_delegate') && requestText(row).includes(marker)), '微信接入会话的模型请求', host);
     expect(request.tools).not.toContain('pa24_connection');
     for (const absent of ['bash', 'pwsh', 'skill', 'read', 'write', 'pa24_work']) expect(request.tools).not.toContain(absent);
   });
