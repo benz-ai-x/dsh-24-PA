@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCliProcess, startChildrenThrough } from '../../lib/cli-gateway.js';
+import { withExecutionSignal } from '../../lib/execution-cancellation.js';
 import { installedSubprocess, subprocessDouble } from '../helpers/subprocess.mjs';
 
 // Every case runs through a stand-in for the host's subprocess service, the
@@ -51,15 +52,16 @@ describe('R3 CLI 有界终止', () => {
       const pid = Number(await readFile(pidPath, 'utf8')); expect(() => process.kill(pid, 0)).toThrow();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
-  it('主进程响应 TERM 先退出后，忽略 TERM 的独立 stdio 后代仍被 KILL 回收', async () => {
+  it('主进程响应 TERM 先退出后，忽略 TERM 的独立 stdio 后代仍被 KILL 回收：调用等范围清空才返回', async () => {
+    // The leader answers TERM at once and leaves a descendant that ignores it. The call may only come back once that descendant is gone
+    // too: this is what pins the gateway's wait for the range to be empty, and the descendant is dead the moment the call returns.
     const dir = await mkdtemp(join(tmpdir(), 'pa24-cli-tree-')), pidPath = join(dir, 'descendant-pid'); let pid;
     try {
       const descendant = `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => {}, 100);`;
       const parent = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}, process.argv[1]], { stdio: 'ignore' }); setInterval(() => {}, 100);`;
       await expect(runCliProcess({ bin: process.execPath, argv: ['-e', parent, pidPath], timeoutMs: 400, fail })).rejects.toThrow('fail:timeout');
       pid = Number(await readFile(pidPath, 'utf8'));
-      for (let n = 0; n < 20; n++) { try { process.kill(pid, 0); } catch { return; } await new Promise(r => setTimeout(r, 25)); }
-      throw new Error('CLI descendant survived the termination deadline');
+      expect(() => process.kill(pid, 0)).toThrow();
     } finally { if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} } await rm(dir, { recursive: true, force: true }); }
   });
   it('无限 stdout 在上限终止，连续 stderr 只保留定额字节', async () => {
@@ -103,17 +105,37 @@ describe('#310：经宿主子进程服务起进程', () => {
     expect(String(caught.cause?.message ?? '')).toContain('ENOENT');
   });
 
-  it('超时与输出上限仍由网关判定：服务只负责结束进程，原因经 fail(timeout)／fail(limit) 带回', async () => {
+  it('网关把宽限交给服务；服务报告的结算（被信号结束）不被当成成功，调用以原因结束', async () => {
     const service = subprocessDouble(); startChildrenThrough(service);
     const dir = await mkdtemp(join(tmpdir(), 'pa24-gateway-host-')), pidPath = join(dir, 'pid');
     try {
-      const started = Date.now();
-      await expect(runCliProcess({ bin: process.execPath, argv: ['-e', `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => {}, 100);`, pidPath], timeoutMs: 300, fail }))
-        .rejects.toThrow('fail:timeout');
-      expect(Date.now() - started).toBeLessThan(2500);
+      const caught = await runCliProcess({ bin: process.execPath, argv: ['-e', `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => {}, 100);`, pidPath], timeoutMs: 300, fail }).catch(error => error);
+      expect(String(caught)).toBe('Error: fail:timeout');
+      expect(service.specs).toHaveLength(1);
+      expect(service.specs[0].graceMs).toBe(1500);
       const pid = Number(await readFile(pidPath, 'utf8')); expect(() => process.kill(pid, 0)).toThrow();
-      await expect(runCliProcess({ bin: process.execPath, argv: ['-e', "process.on('SIGTERM', () => {}); setInterval(() => process.stdout.write('x'.repeat(65536)), 1);"], timeoutMs: 5000, stdoutLimitBytes: 1024, fail }))
-        .rejects.toThrow('fail:limit');
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it('执行中止：进程被结束，调用以 fail(timeout, 中止原因) 带回原因；执行已中止时不再启动任何进程', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pa24-cli-abort-')), pidPath = join(dir, 'pid');
+    const withCause = (kind, cause) => new Error(`fail:${kind}`, { cause });
+    const unresponsive = ['-e', `require('node:fs').writeFileSync(process.argv[1], String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => {}, 100);`, pidPath];
+    try {
+      const over = new AbortController(); over.abort(new Error('执行已中止'));
+      await expect(withExecutionSignal(over.signal, () => runCliProcess({ bin: process.execPath, argv: ['-e', 'process.stdout.write("ran")'], timeoutMs: 5000, fail: withCause })))
+        .rejects.toThrow('执行已中止');
+      const live = new AbortController(), started = Date.now();
+      const call = withExecutionSignal(live.signal, () => runCliProcess({ bin: process.execPath, argv: unresponsive, timeoutMs: 20_000, fail: withCause }));
+      // The process is up and will not answer; the execution is aborted.
+      for (let n = 0; n < 250 && !(await readFile(pidPath, 'utf8').catch(() => '')); n++) await new Promise(resolve => setTimeout(resolve, 20));
+      live.abort(new Error('执行已中止'));
+      const caught = await call.catch(error => error);
+      expect(caught).toBeInstanceOf(Error);
+      expect(caught.message).toBe('fail:timeout');
+      expect(caught.cause?.message).toBe('执行已中止');
+      expect(Date.now() - started).toBeLessThan(5000);
+      const pid = Number(await readFile(pidPath, 'utf8')); expect(() => process.kill(pid, 0)).toThrow();
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 

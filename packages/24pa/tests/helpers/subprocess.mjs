@@ -3,7 +3,9 @@
 // entry never names the real one; this is installed for every test file
 // (vitest setupFiles). Unlike the host, it hands a child this process's whole
 // environment, since tests pass stand-ins what they need under ordinary
-// names; it ends a process the way the local provider does.
+// names; it ends a process the way the local provider does on POSIX, where
+// its range is a process group (the host's own range on Windows is not
+// modelled here).
 import { spawn } from 'node:child_process';
 
 /** `endsTerminated: false` makes a service that never ends a process it was told to, to try the gateway's own bound. */

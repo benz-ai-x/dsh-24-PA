@@ -1,4 +1,4 @@
-// 24私助's CLI child processes start through the host's subprocess service
+// 24PA's CLI child processes start through the host's subprocess service
 // (#310), end to end on a real Host. A stand-in for lark-cli writes down what
 // its process sees of the environment: through the service it gets the
 // environment the host hands its children, which carries no credential-shaped
@@ -6,7 +6,7 @@
 // passes under an ordinary name. A process of the plugin's own would have
 // inherited both. A stand-in that never answers is ended by the service,
 // with what it started; and the speech readiness probe starts the machine's
-// real python and ffmpeg.
+// real python and ffmpeg — a smoke test of that path, not proof of who started them.
 import { afterAll, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -60,7 +60,7 @@ describe('CLI 子进程经宿主子进程服务启动', () => {
 
   it('一直不应答的 lark-cli 连同它起的后代，由宿主在检查超时后一并结束', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pa24-cli-subprocess-hang-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
-    // The stand-in starts a child that ignores TERM like its parent, notes both pids, and never answers.
+    // The stand-in starts a child that ignores TERM, notes both pids, never answers, and answers TERM itself at once.
     const bin = join(root, 'bin'); await mkdir(bin);
     const pids = join(root, 'pids.json');
     const child = 'process.on("SIGTERM", () => {}); setInterval(() => {}, 100);';
@@ -68,11 +68,11 @@ describe('CLI 子进程经宿主子进程服务启动', () => {
       + 'const { spawn } = require("node:child_process"); const { writeFileSync } = require("node:fs");\n'
       + `const descendant = spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: 'ignore' });\n`
       + 'descendant.on("spawn", () => writeFileSync(process.env.PA24_PIDS, JSON.stringify([process.pid, descendant.pid])));\n'
-      + 'process.on("SIGTERM", () => {}); setInterval(() => {}, 100);\n', { mode: 0o755 });
+      + 'setInterval(() => {}, 100);\n', { mode: 0o755 });
     await chmod(join(bin, 'lark-cli'), 0o755);
     // No stand-in for the plugin row this time: the fixture names the one on PATH, and nothing else is needed before the probe.
     const host = await feishuHost(root, { env: { PA24_PIDS: pids, PATH: `${bin}${delimiter}${process.env.PATH}` } });
-    const binding = (await host.waitUntil(row => !!row.workspace?.localSessionId, { label: '工作区就绪' })).workspaceBinding;
+    await host.waitUntil(row => !!row.workspace?.localSessionId, { label: '工作区就绪' });
     const started = Date.now();
     const access = await host.api('action', { type: 'connection.check' });
     // The version probe gives the CLI five seconds; the call comes back with its reason.
@@ -80,15 +80,14 @@ describe('CLI 子进程经宿主子进程服务启动', () => {
     expect(access.cli.message).toContain('版本检查未完成（timeout）');
     expect(Date.now() - started).toBeLessThan(20000);
     const [leader, descendant] = JSON.parse(await readFile(pids, 'utf8'));
-    // What the call left behind is nothing: the service's range covered the descendant, and the call waited for the range to be empty.
-    for (let index = 0; index < 100 && (alive(leader) || alive(descendant)); index++) await new Promise(resolve => setTimeout(resolve, 100));
+    // The leader answered TERM at once; the descendant ignored it. The call came back with the descendant gone: the service's range
+    // covered it, and the call waited for the range to be empty instead of returning when its leader alone had exited.
     expect(alive(leader)).toBe(false);
     expect(alive(descendant)).toBe(false);
-    void binding;
   }, 300000);
 
   // Each tool's own way of printing its version; the case is skipped where either tool is not on this machine's PATH.
-  it.skipIf(![[ 'python3', '--version' ], ['ffmpeg', '-version']].every(([name, flag]) => spawnSync(name, [flag]).status === 0))('语音就绪预检经宿主起本机真实的 python 与 ffmpeg', async () => {
+  it.skipIf(![[ 'python3', '--version' ], ['ffmpeg', '-version']].every(([name, flag]) => spawnSync(name, [flag]).status === 0))('语音就绪预检仍可用：本机真实的 python 与 ffmpeg 都答得上版本', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pa24-cli-subprocess-tts-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
     const meloDir = join(root, 'melo'); await mkdir(meloDir);
     const host = await feishuHost(root, { config: { tts: { engine: 'melo', voice: '', volcKeyEnv: '', meloDir } } });
