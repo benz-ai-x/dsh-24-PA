@@ -151,7 +151,7 @@ schema 20 为两种账本增加来源登记、访问证据、平台对象、来�
 
 ### 暴露工具
 
-外部 CLI 委派行已随包启用但保持休眠：`subagent_codex` 与 `subagent_claude_code` 仅在对应 provider 包（`@deepseek-ai/dsh-subagent-codex` / `-claude-code`）安装进 Profile 后挂载，且工作区须再经 `extraLocalTools` 显式开启——点名了未挂载工具的条目会在 `tools.restrict()` 之前被过滤并进入维护健康提示，provider 或通道缺失不再导致会话创建失败。QwenNote 听记工具经宿主面过同一道门：在 Profile patch 添加 `serverName: qwennote` 的 `dsh-mcp-client` 条目（stdio＋`mcp-remote` OAuth 桥，锁版本），由本人浏览器完成一次授权，再经 `mcp__qwennote__*` 放行。官方腾讯文档插件的工具按需加载、过同一道门：安装 `@deepseek-ai/dsh-tencent-docs`，在它的插件页连接账号，再经 `mcp__tencent-docs__*` 放行；它的工具经一个加载器载入，所以用通配放行，插件连接之前已经打开的本地会话要新开一个才有加载器。`ralph` 对本地会话可用，遵循其工具契约：仅在本人明确要求时使用。
+外部 CLI 委派行已随包启用但保持休眠：`subagent_codex` 与 `subagent_claude_code` 仅在对应 provider 包（`@deepseek-ai/dsh-subagent-codex` / `-claude-code`）安装进 Profile 后挂载，且工作区须再经 `extraLocalTools` 显式开启——点名了未挂载工具的条目会在 `tools.restrict()` 之前被过滤并进入全应用健康提示，provider 或通道缺失不再导致会话创建失败。QwenNote 听记工具经宿主面过同一道门：在 Profile patch 添加 `serverName: qwennote` 的 `dsh-mcp-client` 条目（stdio＋`mcp-remote` OAuth 桥，锁版本），由本人浏览器完成一次授权，再经 `mcp__qwennote__*` 放行。官方腾讯文档插件的工具按需加载、过同一道门：安装 `@deepseek-ai/dsh-tencent-docs`，在它的插件页连接账号，再经 `mcp__tencent-docs__*` 放行；它的工具经一个加载器载入，所以用通配放行，插件连接之前已经打开的本地会话要新开一个才有加载器。`ralph` 对本地会话可用，遵循其工具契约：仅在本人明确要求时使用。
 
 ### 你会得到什么
 
