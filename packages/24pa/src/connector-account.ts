@@ -20,14 +20,14 @@ import { WECOM_SERVICE_NAMES } from './wecom.js';
 export const PA24_PACKAGE_NAME = '@benz-ai-x/dsh-24pa';
 
 /** One thing a check found wrong with a channel: what it is about, in each language, and what the check said of it. */
-export interface AccessIssue {
+interface AccessIssue {
   readonly label: LocalizedText;
   /** The runtime's own diagnostic, in its own wording. */
   readonly message: string;
 }
 
 /** One channel's stored result. */
-export interface AccessReport {
+interface AccessReport {
   /** When the channel was last checked; null until then. */
   readonly checkedAt: string | null;
   /** What the check found wrong; empty when the channel is ready. */
@@ -42,7 +42,7 @@ export type AccessAccount =
   | { readonly state: 'reported'; readonly mode: 'demo' | 'feishu'; readonly timeZone: string; readonly feishu: AccessReport | null; readonly wecom: AccessReport | null };
 
 /** The one operation a page button starts: the read-only check. */
-export type AccessOperation = 'inspect';
+type AccessOperation = 'inspect';
 type View = ConnectorAccountView<AccessAccount, AccessOperation>;
 type TextKey =
   | 'title' | 'hint' | 'action.inspect' | 'status.checking' | 'status.failed' | 'status.unbound' | 'status.demo' | 'status.unchecked'

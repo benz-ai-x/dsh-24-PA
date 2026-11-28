@@ -19,6 +19,7 @@ import { bootHost } from '../helpers/host.mjs';
 import { startMockLlm } from '../helpers/mock-llm.mjs';
 import { startWeixinServer } from '../helpers/weixin-server.mjs';
 import { DEFAULT_CONFIG } from '../../lib/config.js';
+import { promptLocal } from '../helpers/local-prompt.mjs';
 import { requestText } from '../helpers/recorded-request.mjs';
 import { until } from '../helpers/until.mjs';
 
@@ -43,16 +44,10 @@ async function perform(worker, workerAction, title) {
   return (await host.api('snapshot')).work.find(row => row.title === title);
 }
 
-// One local prompt whose reply must come back through the `skill` tool. Requests
-// are matched by the prompt's own marker anywhere in the recorded input (the
-// Host appends context blocks after the prompt): a turn can still be settling
-// when the next one starts, and its later requests carry earlier tool results.
+// One local prompt whose reply must come back through the `skill` tool.
 async function loadSkill(skill, index) {
   await writeFile(scriptPath, JSON.stringify({ steps: [{ tool: { name: 'skill', input: { name: skill } } }, { text: `已加载 ${skill} 技能。` }] }));
-  const marker = `加载 ${skill} 技能 ${randomUUID()}`, before = llm.log.length;
-  await host.remote('session/prompt', { request: { requestId: `connectors-local-${index}-${randomUUID()}`, sessionId: localSessionId, mode: 'queue',
-    content: [{ type: 'text', text: marker }], clientTimeZone: 'Asia/Shanghai' } });
-  const turn = () => llm.log.slice(before);
+  const { marker, turn } = await promptLocal(host, llm, localSessionId, `加载 ${skill} 技能`, `connectors-local-${index}`);
   const call = await until(() => turn().find(row => requestText(row).includes(marker)), `${skill} 技能请求`, host);
   const answer = await until(() => turn().slice(turn().indexOf(call) + 1).find(row => row.toolResults.length > 0), `${skill} 技能加载`, host);
   return { call, result: answer.toolResults.join('') };

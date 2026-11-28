@@ -82,18 +82,20 @@ describe('接入状态进宿主插件页', () => {
     const instance = await fixture('pa24-access-account-toggle-');
     const host = await bootedOnStandIn(instance);
     await host.remote('pluginManager/setBundleEnabled', { name: key, enabled: false });
-    // The operation the page could start a moment ago is now refused. The registry refuses an account that is not registered, an
-    // operation the account did not list, and a second operation while one runs; only the first holds here, so the block is no longer
-    // registered. (The refusal's wording is the host's own, and is not pinned here.)
+    // The operation the page could start a moment ago is now refused. A start is refused in three ways: the registry refuses an account
+    // that is not registered and an operation the account did not list, and the block's own source refuses a second operation while one
+    // runs. The operation is listed and none is running, so the block is no longer registered. (The refusal's wording is the host's own,
+    // and is not pinned here.)
     await expect(host.remote('connectorAccounts/start', { key, operation: 'inspect' })).rejects.toThrow();
     await host.remote('pluginManager/setBundleEnabled', { name: key, enabled: true });
-    await until(() => host.api('snapshot').then(row => row.transport?.connected === true && !!row.workspace?.localSessionId ? true : undefined), '重新启用后的工作区', host);
+    // Sixty seconds, as long as the Host's own readiness wait: the plugin loads again and binds the workspace anew.
+    await until(() => host.api('snapshot').then(row => row.transport?.connected === true && !!row.workspace?.localSessionId ? true : undefined), '重新启用后的工作区', host, 240);
     expect((await inspected(instance)).diagnostics.auth.state).toBe('ok');
   }, 300000);
 });
 
 describe.skipIf(!connectors)('装了官方飞书连接器的 profile', () => {
-  it('24私助的行不写 CLI：区块照常登记，页面发起的检查经连接器供给的 lark-cli 读到飞书', async () => {
+  it('24私助的行不写 CLI：区块照常登记，页面发起的检查经连接器供给的 lark-cli 读到主人与资源', async () => {
     const instance = await fixture('pa24-access-account-connectors-');
     // The connector's executable comes from an install script the fixture ignores: a stand-in takes its place where the
     // connector's row looks for it. A rename replaces the hard-linked file rather than the store's copy.
