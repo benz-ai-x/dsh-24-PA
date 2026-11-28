@@ -177,12 +177,13 @@ const proofSources = calendar => ({ version: 1, mappings: [], meetingDurationMin
       { id: calendar, domain: 'calendar', platform: 'feishu', name: calendar, purpose: 'personal', ownerId: 'wx-fixture-feishu-owner', resourceKind: 'calendar', resourceId: calendar, filter: 'all', access: 'readwrite', enabled: true },
       { id: 'wx-proof-todo', domain: 'todo', platform: 'feishu', name: '本人待办', purpose: 'personal', ownerId: 'wx-fixture-feishu-owner', resourceKind: 'tasklist', resourceId: 'fixture-list', filter: 'all', access: 'readwrite', enabled: true },
     ] });
-const configChange = () => async (type, values) => host.api('action', { type, requestId: randomUUID(), workspaceBinding: binding,
+// A workspace configuration change or a plan change, bound to the Host's current workspace (it is re-read after a restart).
+const change = async (type, values) => host.api('action', { type, requestId: randomUUID(), workspaceBinding: binding,
   ...(type === 'workspace.config-update' ? { expectedSourcesHash: (await host.api('sources', { workspaceBinding: binding })).configHash } : {}), ...values });
 
 it.each(['template', 'business'])('WX-13 历史计划结果按原读取来源授权，移除原来源后不能借新默认披露（%s）', async mode => {
   const prior = (await host.api('snapshot')).workspace.config.sources;
-  const change = configChange(), sensitive = '仅原来源可读-' + randomUUID(), eventsPath = join(root, 'lark.json.events.jsonl');
+  const sensitive = '仅原来源可读-' + randomUUID(), eventsPath = join(root, 'lark.json.events.jsonl');
   const larkStatePath = join(root, 'lark.json'), originalLarkState = JSON.parse(await readFile(larkStatePath, 'utf8'));
   const setRole = async role => writeFile(larkStatePath, JSON.stringify({ ...JSON.parse(await readFile(larkStatePath, 'utf8')), calendarRole: role }));
   const originalEvents = await readFile(eventsPath, 'utf8').catch(() => '');
@@ -234,15 +235,17 @@ it.each(['template', 'business'])('WX-13 历史计划结果按原读取来源授
   }
 }, 180000);
 
-it('WX-13 模板计划读过一条没有来源回执的待办时，结果不在微信披露，电脑端正文不变', async () => {
-  const prior = (await host.api('snapshot')).workspace.config.sources, change = configChange();
+// The legacy row is written straight into the SQLite ledger the Host reads; the PostgreSQL variant does not open that file.
+it.skipIf(process.env.PA24_E2E_STORAGE === 'postgres')('WX-13 模板计划读过一条没有来源回执的待办时，结果不在微信披露，电脑端正文不变', async () => {
+  const prior = (await host.api('snapshot')).workspace.config.sources;
   const calendar = 'wx-legacy-a', sensitive = '无回执待办同批-' + randomUUID(), eventsPath = join(root, 'lark.json.events.jsonl');
   const originalEvents = await readFile(eventsPath, 'utf8').catch(() => ''), day = new Date().toISOString().slice(0, 10);
   const legacy = 'legacy-task-' + randomUUID();
+  let db;
   await writeFile(eventsPath, originalEvents + JSON.stringify({ event_id: 'wx-legacy-event', calendar_id: calendar, summary: sensitive,
     start: day + 'T09:00:00+08:00', end: day + 'T09:30:00+08:00' }) + '\n');
-  const db = new SqliteDb(join(workspace, 'data', 'pa24.db'));
   try {
+    db = new SqliteDb(join(workspace, 'data', 'pa24.db'));
     await change('workspace.config-update', { config: { sources: proofSources(calendar) } });
     let plan = (await change('plan.change', { op: 'save', title: '无回执待办的模板结果', skillId: 'builtin:digest-morning',
       timing: { type: 'daily', time: '09:00:00' }, delivery: { channel: 'none' } })).plan;
@@ -261,8 +264,8 @@ it('WX-13 模板计划读过一条没有来源回执的待办时，结果不在�
     expect(answer.text).toContain('"result":null'); expect(answer.text).toContain('没有完整的业务读取来源依据');
     expect((await host.api('skills.run', { runId: run.id, workspaceBinding: binding })).run.result).toBe(local.run.result);
   } finally {
-    await db.query("delete from pa24.task where id = $1", [legacy]).catch(() => {});
-    await db.close();
+    await db?.query("delete from pa24.task where id = $1", [legacy]).catch(() => {});
+    await db?.close();
     await change('workspace.config-update', { config: { sources: prior } });
     await writeFile(eventsPath, originalEvents);
   }

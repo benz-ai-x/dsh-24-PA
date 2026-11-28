@@ -6,7 +6,9 @@ import type { SourceTarget } from './source-registry.js';
 export interface BusinessReadScope { version: 1; complete: boolean; targets: SourceTarget[] }
 /** A result whose evidence of what it read is missing or incomplete: not a matter of today's authorization, so handling
  * authorization again will not change the answer. */
-export class IncompleteReadScope extends Error {}
+export class IncompleteReadScope extends Error {
+  constructor() { super('原结果没有完整的业务读取来源依据，不能在微信披露，请在电脑端查看。'); this.name = 'IncompleteReadScope'; }
+}
 const active = new AsyncLocalStorage<BusinessReadScope>();
 export const emptyBusinessReadScope = (): BusinessReadScope => ({ version: 1, complete: true, targets: [] });
 

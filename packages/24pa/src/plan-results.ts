@@ -2,7 +2,11 @@ import type { Repos, OutboxRow } from './repo.js';
 import type { TaskPlanAccess } from './task-plan-access.js';
 import { finishDeliveryCheck, type DeliveryHold, type PreparedDeliveryCheck } from './outbox-delivery.js';
 import { taskPlanFingerprint } from './task-plan-access.js';
-import { sameWeixinIdentity } from './weixin-protocol.js';
+import type { TaskPlanDestination } from './task-plan.js';
+import { sameWeixinIdentity, type WeixinIdentity } from './weixin-protocol.js';
+
+/** The destination is an intersection with a union, so the discriminant alone does not narrow it. */
+const isWeixinTarget = (destination: TaskPlanDestination): destination is TaskPlanDestination & WeixinIdentity => destination.channel === 'weixin';
 
 /** Delivery uses the saved recipient and current identity. Business target
  * revocation may cause an error notice, so it cannot forbid that notice. */
@@ -36,8 +40,10 @@ export class PlanResults {
       || row.kind === 'audio' && (notice.kind !== 'result' || row.channel !== 'feishu' || !plan.configuration.delivery.voice)) {
       return { status: 'failed', error: '投递与原计划、运行、通知或格式的关联不符，未发送。' };
     }
-    if (notice.destination.channel === 'weixin' && (!row.delivery_target || !sameWeixinIdentity(notice.destination, row.delivery_target)
-      || row.target !== notice.destination.ownerId || row.binding_generation !== notice.destination.generation
+    // Narrowed once: the fields only a WeChat target carries are read below.
+    const weixinTarget = isWeixinTarget(notice.destination) ? notice.destination : null, toWeixin = weixinTarget !== null;
+    if (weixinTarget && (!row.delivery_target || !sameWeixinIdentity(weixinTarget, row.delivery_target)
+      || row.target !== weixinTarget.ownerId || row.binding_generation !== weixinTarget.generation
       || row.association?.planId !== plan.id || row.association?.skillRunId !== run.id || row.association?.noticeId !== notice.id
       || row.association.inboxEventId || row.association.workItemId || row.association.workerRunId || row.segment_group !== notice.id)) {
       return { status: 'failed', error: '微信投递与原计划结果及固定身份的关联不符，未发送。' };
@@ -47,12 +53,11 @@ export class PlanResults {
     // The channels that came before WeChat ask first whether it is quiet, as they always did: a pause comes before any
     // identity check, and a preference that cannot be read is a warning, not a hold. WeChat may not take that reading as
     // permission (WX-18), so it verifies its identity first and reads the preference failing closed.
-    const weixin = row.channel === 'weixin';
-    const asked = weixin || delivery.override_quiet ? null : await this.deps.silence.silentUntil();
-    if (asked && asked.getTime() > Date.now()) return this.held(asked, delivery);
+    const quietUntil = toWeixin || delivery.override_quiet ? null : await this.deps.silence.silentUntil();
+    if (quietUntil && quietUntil.getTime() > Date.now()) return this.held(quietUntil, delivery);
     try { await this.deps.access.verifyDelivery(notice.destination); }
-    catch (error) { return { status: weixin ? 'limited' : 'failed', error: `固定投递目标核验失败：${(error as Error).message}` }; }
-    const quiet = weixin && !delivery.override_quiet ? await this.deps.silence.prepare() : null;
+    catch (error) { return { status: toWeixin ? 'limited' : 'failed', error: `固定投递目标核验失败：${(error as Error).message}` }; }
+    const quiet = toWeixin && !delivery.override_quiet ? await this.deps.silence.prepare() : null;
     // The original request may have been resolved while identity or quiet
     // preferences were being read. Recheck the saved intent after preparation.
     const latest = await this.deps.repos().planResults.delivery(Number(row.id));
@@ -64,7 +69,7 @@ export class PlanResults {
     // Keep this check until the transport has finished every async step.
     // A successful preflight must not discard the authority version or clock.
     return () => {
-      const until = quiet ? quiet() : asked, now = Date.now();
+      const until = quiet ? quiet() : quietUntil, now = Date.now();
       if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= now) return { status: 'expired', error: '投递准备完成时已超过有效期，结果仍保留。' };
       if (until && until.getTime() > now) return this.held(until, delivery);
       return null;

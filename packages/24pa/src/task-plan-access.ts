@@ -50,10 +50,7 @@ export class TaskPlanAccess {
         || skill.resources.some(resource => !old.resources.includes(resource))) throw new Error('Skill 新版本增加了工具、业务动作或资源范围，请显式重新配置并确认。');
       if (config.delivery.channel !== (previous.delivery?.channel ?? 'none')) throw new Error('投递方式已改变，请显式重新配置授权。');
       if (taskPlanFingerprint(config.selectors) !== taskPlanFingerprint(previous.selectors ?? {})) throw new Error('业务目标选择已改变，请显式重新配置授权。');
-      // WeChat being offline keeps the authorized delivery target and lets the business run (WX-19). The other channels
-      // still stop here when their identity cannot be resolved, as they did before WeChat became a target.
-      await this.verifyBusiness(previous);
-      if (previous.delivery?.channel !== 'weixin') await this.verifyDelivery(previous.delivery);
+      await this.verifyForRun(previous);
       return { ...previous, skill, checkedAt: new Date().toISOString() };
     }
     const targets: TaskPlanAuthorization['targets'] = [];
@@ -71,12 +68,19 @@ export class TaskPlanAccess {
     await this.verifyBusiness(authorization);
     await this.verifyDelivery(authorization.delivery);
   }
+  /** What a run asks before it starts: business authority always, and for every channel but WeChat the delivery
+   * identity too, as before WeChat became a target. WeChat being offline keeps the authorized target and lets the
+   * business run (WX-19). */
+  async verifyForRun(authorization: TaskPlanAuthorization): Promise<void> {
+    await this.verifyBusiness(authorization);
+    if (authorization.delivery?.channel !== 'weixin') await this.verifyDelivery(authorization.delivery);
+  }
   async verifyBusiness(authorization: TaskPlanAuthorization): Promise<void> {
     for (const action of authorization.skill.contract?.actions ?? []) this.checkAction(action);
     for (const row of authorization.targets) await this.deps.sources.verify(row.target, scopeCapability(row.target.domain, row.capability), true);
   }
   async verifyReadScope(scope: BusinessReadScope | null | undefined): Promise<void> {
-    if (scope?.version !== 1 || scope.complete !== true || !Array.isArray(scope.targets)) throw new IncompleteReadScope('原结果缺少完整的业务读取来源依据，请在电脑端查看。');
+    if (scope?.version !== 1 || scope.complete !== true || !Array.isArray(scope.targets)) throw new IncompleteReadScope();
     for (const target of scope.targets) await this.deps.sources.verify(target, 'read', false);
   }
   async verifyDelivery(delivery: TaskPlanAuthorization['delivery']): Promise<void> {

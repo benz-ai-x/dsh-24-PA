@@ -801,12 +801,7 @@ export class PaRuntime {
       authorizePlan: (configuration, skill, previous) => this.taskPlanAccess.authorize(configuration, skill, previous),
       verifyPlan: async run => {
         const authorization = run.snapshot.plan!.authorization;
-        try {
-          // WeChat being offline must not stop authorized business (WX-19); the other channels still stop at an identity
-          // that cannot be resolved, as they did before WeChat became a target.
-          await this.taskPlanAccess.verifyBusiness(authorization);
-          if (authorization.delivery?.channel !== 'weixin') await this.taskPlanAccess.verifyDelivery(authorization.delivery);
-        } catch (error) {
+        try { await this.taskPlanAccess.verifyForRun(authorization); } catch (error) {
           const plan = await this.repos!.taskPlans.get(run.snapshot.plan!.id);
           const old = planAuthorizationScope(run.snapshot.plan!.authorization), current = plan?.task_authorization && planAuthorizationScope(plan.task_authorization);
           if (plan && current && taskPlanFingerprint([current.targets, current.delivery]) === taskPlanFingerprint([old.targets, old.delivery])) {
@@ -2062,7 +2057,8 @@ export class PaRuntime {
       try { return (await this.prepareSilence())(); } catch (error) {
         // Fail open, but visibly: a broken preference must not silently
         // garble reminders without a trace.
-        console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${(error as Error).message}`);
+        const cause = (error as Error).cause;
+        console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${cause instanceof Error ? cause.message : (error as Error).message}`);
         return null;
       }
     },
@@ -2096,7 +2092,7 @@ export class PaRuntime {
         return null;
       };
     } catch (error) {
-      // The caller decides between a warning and a hold; the reason must survive to the log and the delivery record.
+      // The caller decides between a warning and a hold; the reason stays on the error for the one that logs it.
       throw new Error('读取免打扰偏好失败。', { cause: error });
     }
   }
@@ -2439,8 +2435,7 @@ export class PaRuntime {
     } catch (error) {
       // The two refusals lead to different next steps: an identity or authorization that changed is handled on the
       // desktop and then re-read; evidence that a result never had is not brought back by handling anything.
-      return { ...meta, result: null, message: error instanceof IncompleteReadScope
-        ? '原结果没有完整的业务读取来源依据，不能在微信披露，请在电脑端查看。'
+      return { ...meta, result: null, message: error instanceof IncompleteReadScope ? error.message
         : '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' };
     }
     return { ...meta, result: run.result, message: run.result ? '业务结果已保存；投递状态单独列出，不代表已读。' : '本次还没有可披露的结果正文。' };

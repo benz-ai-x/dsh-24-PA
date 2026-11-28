@@ -129,5 +129,28 @@ it('真实 runtime 只在 fake 通道的宿主上把这项能力读成成立', a
     const real = await fixture({ env: {} }); runtimes.push(real);
     await real.rt.bind(await real.workspace('a'));
     expect((await real.rt.weixin.snapshot()).notificationSupported).toBe(false);
+    // The same wiring behind saving or copying a plan: refused there, admitted on the fake transport.
+    await expect(real.rt.taskPlanAccess.admitDelivery({ channel: 'weixin' })).rejects.toThrow('还没有通过真实平台验证');
+    await expect(real.rt.taskPlanAccess.admitDelivery({ channel: 'feishu' })).resolves.toBeUndefined();
+    await expect(fake.rt.taskPlanAccess.admitDelivery({ channel: 'weixin' })).resolves.toBeUndefined();
   } finally { for (const runtime of runtimes) await runtime.cleanup(); }
+});
+
+it('运行前的核验：业务恒核；投递身份飞书、企微核，微信不核', async () => {
+  const authorization = channel => ({ checkedAt: 'now', targets: [{ target: { domain: 'todo', platform: 'feishu', identityKey: 'owner', resource: { kind: 'tasklist', id: 'list' } }, capability: 'read' }],
+    skill: { id: 'skill', name: 'skill', versionId: 'v', contract: { actions: ['task_list'], mode: 'template' } },
+    delivery: { channel, target: 'owner', identityKey: 'owner', connectionHash: 'connection' } });
+  const verify = vi.fn(), verifyDelivery = vi.fn(), access = new TaskPlanAccess({ sources: { verify }, owner: async () => { throw new Error('不应解析投递身份'); } });
+  access.verifyDelivery = verifyDelivery;
+  for (const channel of ['feishu', 'wecom', 'weixin']) {
+    await access.verifyForRun(authorization(channel));
+    expect(verify.mock.calls.at(-1)[0]).toMatchObject({ resource: { id: 'list' } });
+  }
+  // Business authority was asked three times, once per channel; the delivery identity only for the two that always did.
+  expect(verify).toHaveBeenCalledTimes(3);
+  expect(verifyDelivery.mock.calls.map(call => call[0].channel)).toEqual(['feishu', 'wecom']);
+  // Enabling still asks the delivery identity of every channel: management has never depended on a target being offline.
+  verifyDelivery.mockClear();
+  for (const channel of ['feishu', 'wecom', 'weixin']) await access.verify(authorization(channel));
+  expect(verifyDelivery.mock.calls.map(call => call[0].channel)).toEqual(['feishu', 'wecom', 'weixin']);
 });
