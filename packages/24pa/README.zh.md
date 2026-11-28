@@ -81,7 +81,7 @@ kind: "package-bundle"
 
 ## 快速开始
 
-前置要求：Node.js `^24.22.3 || >=26.13.1`、dsh `0.2.3-alpha.2`；默认 SQLite demo 无需独立数据库服务。飞书接入与企微渠道的 CLI 由宿主的官方插件提供（`@deepseek-ai/dsh-feishu`，用到企微时另装 `@deepseek-ai/dsh-wecom`），不再要求服务器上装有 `lark-cli`／`wecom-cli`；从 `0.2.3-alpha.2.1` 及更早版本升级的实例请先装官方插件，24私助插件行若还留着 `larkCliBin: lark-cli` 这样的裸名，删除该项即可改用官方插件提供的 CLI。
+前置要求：Node.js `^24.22.3 || >=26.13.1`、dsh `0.2.3-alpha.2`、PATH 上有 pnpm（`dsh plugin` 调用它，官方 CLI 不内嵌）；默认 SQLite demo 无需独立数据库服务。飞书接入与企微渠道的 CLI 由宿主的官方插件提供（`@deepseek-ai/dsh-feishu`，用到企微时另装 `@deepseek-ai/dsh-wecom`），不再要求服务器上装有 `lark-cli`／`wecom-cli`；从 `0.2.3-alpha.2.1` 及更早版本升级的实例请先装官方插件，24私助插件行若还留着 `larkCliBin: lark-cli` 这样的裸名，删除该项即可改用官方插件提供的 CLI。
 
 <a id="安装-bundle"></a>
 ### 安装当前版本
