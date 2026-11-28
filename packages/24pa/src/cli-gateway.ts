@@ -4,9 +4,12 @@
 // factory so the shared failures reject as their own error classes.
 // Every process starts through the host's subprocess service (#310): in the
 // environment the host hands its children and inside the process range it
-// manages, so that stopping the plugin stops what the CLIs started. The
-// service owns how a process is ended; this gateway owns why — the deadline,
-// the output limit and the execution's abort — and says the reason.
+// manages. The service owns how a process is ended; this gateway owns why —
+// the deadline, the output limit and the execution's abort — and says the
+// reason. What outlives a call is the host's to end: the service ends what
+// it manages when it is disposed or the Host exits, not when this plugin is
+// stopped or reloaded. Stopping or reloading the plugin ends the calls that
+// an execution's abort covers, as it always did.
 
 import type { Readable, Writable } from 'node:stream';
 import { executionSignal } from './execution-cancellation.js';
@@ -41,8 +44,13 @@ const STDOUT_LIMIT_BYTES = 16 * 1024 * 1024;
 /** What a version probe keeps of the answer. */
 const VERSION_MAX_CHARS = 100;
 const STDERR_KEEP_CHARS = 65536;
-/** How long a starter may take to end a process it was told to terminate. */
+/**
+ * What the service may take to end a process it was told to terminate — and, once the process has exited, to drain its pipes: a
+ * positive number up to the host's own cap. It was 500 ms while this plugin ended processes itself.
+ */
 const TERMINATE_GRACE_MS = 1500;
+/** Beyond the grace, how long a terminated call still waits for the service to report that nothing of the range is left. */
+const EXIT_WAIT_SLACK_MS = 1000;
 
 interface ExitFacts {
   exitCode: number | null;
@@ -83,8 +91,9 @@ export function startChildrenThrough(service: SubprocessService): void {
 }
 
 /** Run one CLI child under the shared safety skeleton; envelope judgment is
- *  the caller's domain. Settles exactly once: spawn error, timeout
- *  (SIGTERM, outcome unknown to the caller), output-limit breach, or close. */
+ *  the caller's domain. Settles exactly once: it could not start; the
+ *  deadline, the output limit or the execution's abort ended it (what the
+ *  process did by then is not known to the caller); or it exited. */
 export function runCliProcess(options: CliProcessOptions): Promise<CliProcessResult> {
   const { bin, argv, timeoutMs, env, cwd, stdinContent, fail } = options;
   const abort = executionSignal();
@@ -102,7 +111,9 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
     }
     const { stdin, stdout, stderr, exited } = started;
     const stdoutParts: Buffer[] = [], stderrParts: Buffer[] = [];
-    let bytes = 0, stderrBytes = 0, settled = false;
+    let bytes = 0, stderrBytes = 0, settled = false, ending = false;
+    // Output that arrives after the call is on its way out is not kept: the limit no longer has a say, and the call ends with its reason.
+    const terminate = (why: Error) => { ending = true; started.terminate(why); };
     const finish = (error?: Error, code: number | null = null) => {
       if (settled) return;
       settled = true;
@@ -115,12 +126,13 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
         resolve({ stdout: stdoutBytes.toString('utf8'), stdoutBytes, stderr: Buffer.concat(stderrParts).toString('utf8'), exitCode: code });
       }
     };
-    const timer = setTimeout(() => started.terminate(fail('timeout')), timeoutMs);
-    const cancel = () => started.terminate(fail('timeout', abort?.reason));
+    const timer = setTimeout(() => terminate(fail('timeout')), timeoutMs);
+    const cancel = () => terminate(fail('timeout', abort?.reason));
     abort?.addEventListener('abort', cancel, { once: true });
     stdout?.on('data', (chunk: Buffer) => {
+      if (ending) return;
       bytes += chunk.length;
-      if (bytes > (options.stdoutLimitBytes ?? STDOUT_LIMIT_BYTES)) started.terminate(fail('limit'));
+      if (bytes > (options.stdoutLimitBytes ?? STDOUT_LIMIT_BYTES)) terminate(fail('limit'));
       else stdoutParts.push(chunk);
     });
     stderr?.on('data', (chunk: Buffer) => {
@@ -157,7 +169,7 @@ function throughHost(service: SubprocessService, options: CliProcessOptions): St
       if (done.state.settled || reason) return;
       reason = why;
       handle.terminate();
-      lastResort = setTimeout(() => end(), TERMINATE_GRACE_MS + 1000);
+      lastResort = setTimeout(() => end(), TERMINATE_GRACE_MS + EXIT_WAIT_SLACK_MS);
     },
   };
 }
