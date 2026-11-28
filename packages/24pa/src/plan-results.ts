@@ -8,7 +8,7 @@ import { sameWeixinIdentity } from './weixin-protocol.js';
  * revocation may cause an error notice, so it cannot forbid that notice. */
 export class PlanResults {
   constructor(private readonly deps: { repos(): Repos; access: TaskPlanAccess;
-    silence: { prepare(): Promise<() => Date | null> }; binding?(): string | null }) {}
+    silence: { prepare(): Promise<() => Date | null>; silentUntil(): Promise<Date | null> }; binding?(): string | null }) {}
   reconcile(): Promise<void> { return this.deps.repos().planResults.reconcile(); }
   async change(input: Record<string, unknown>) {
     if (typeof input.workspaceBinding !== 'string' || input.workspaceBinding !== this.deps.binding?.()) throw new Error('工作区已切换，请刷新运行记录。');
@@ -44,9 +44,15 @@ export class PlanResults {
     }
     if (obsolete) return { status: 'expired', error: '原处理要求已经结束或更新，旧通知保留而不再推送。' };
     if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= Date.now()) return { status: 'expired', error: '普通结果超过本次触发的投递有效期，结果仍保留。' };
+    // The channels that came before WeChat ask first whether it is quiet, as they always did: a pause comes before any
+    // identity check, and a preference that cannot be read is a warning, not a hold. WeChat may not take that reading as
+    // permission (WX-18), so it verifies its identity first and reads the preference failing closed.
+    const weixin = row.channel === 'weixin';
+    const asked = weixin || delivery.override_quiet ? null : await this.deps.silence.silentUntil();
+    if (asked && asked.getTime() > Date.now()) return this.held(asked, delivery);
     try { await this.deps.access.verifyDelivery(notice.destination); }
-    catch (error) { return { status: row.channel === 'weixin' ? 'limited' : 'failed', error: `固定投递目标核验失败：${(error as Error).message}` }; }
-    const quiet = delivery.override_quiet ? null : await this.deps.silence.prepare();
+    catch (error) { return { status: weixin ? 'limited' : 'failed', error: `固定投递目标核验失败：${(error as Error).message}` }; }
+    const quiet = weixin && !delivery.override_quiet ? await this.deps.silence.prepare() : null;
     // The original request may have been resolved while identity or quiet
     // preferences were being read. Recheck the saved intent after preparation.
     const latest = await this.deps.repos().planResults.delivery(Number(row.id));
@@ -58,12 +64,15 @@ export class PlanResults {
     // Keep this check until the transport has finished every async step.
     // A successful preflight must not discard the authority version or clock.
     return () => {
-      const until = quiet?.() ?? null, now = Date.now();
+      const until = quiet ? quiet() : asked, now = Date.now();
       if (delivery.expires_at && new Date(delivery.expires_at).getTime() <= now) return { status: 'expired', error: '投递准备完成时已超过有效期，结果仍保留。' };
-      if (until && until.getTime() > now) return { status: 'pending', error: '免打扰期间暂缓投递。',
-        retryInMs: Math.max(1, Math.min(until.getTime(), delivery.expires_at ? new Date(delivery.expires_at).getTime() : Infinity) - now) };
+      if (until && until.getTime() > now) return this.held(until, delivery);
       return null;
     };
+  }
+  private held(silentUntil: Date, delivery: { expires_at: Date | null }): DeliveryHold {
+    return { status: 'pending', error: '免打扰期间暂缓投递。',
+      retryInMs: Math.max(1, Math.min(silentUntil.getTime(), delivery.expires_at?.getTime() ?? Infinity) - Date.now()) };
   }
   async updated(row: OutboxRow): Promise<void> {
     const repos = this.deps.repos(), record = await repos.planResults.delivery(Number(row.id));

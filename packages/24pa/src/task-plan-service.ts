@@ -198,6 +198,8 @@ export class TaskPlanService {
       if (op === 'save' || op === 'copy') {
         if (row && !row.task_config) throw new Error('旧计划不能通过保存配置隐式迁移；请使用时间与语音调整，或主动选择迁移。');
         const draft = taskPlanDraft(op === 'copy' && row ? { ...taskPlanForm(row), title: `${row.title} 副本`.slice(0, 120), ...(input.form as Record<string, unknown> ?? {}) } : input, context.timeZone);
+        // A plan is not even saved with a target this Host refuses; enabling and sending ask again.
+        await this.deps.access.admitDelivery(draft.configuration.delivery);
         const skill = await this.deps.management.inspect(draft.configuration.skillId, context.binding);
         result = await repo.save({ ...identity(), ...(op === 'save' && row ? { id: row.id, expectedRevision: row.revision } : {}),
           title: draft.title, kind: draft.kind, skill: 'internalName' in skill ? skill.internalName : skill.name,

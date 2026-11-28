@@ -52,7 +52,7 @@ import { WorkerRuns } from './worker-runs.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox, type SkillRunRow } from './repo.js';
-import { captureBusinessReads, unverifiedBusinessRead } from './business-read-scope.js';
+import { captureBusinessReads, IncompleteReadScope, unverifiedBusinessRead } from './business-read-scope.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { template, ConfigError, validateConfig, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './local-tool-access.js';
@@ -234,6 +234,13 @@ export class PaRuntime {
   private accessSessionId: string | null = null;
   private localSessionId: string | null = null;
   readonly weixin: WeixinAccess;
+  /**
+   * Whether WeChat may be a plan's notification target on this Host. Until the sending conditions are established on the
+   * real platform (#281), only a Host already marked as a test Host answers yes: the one that runs the Feishu channel on its
+   * fake transport (`PA24_TRANSPORT=fake`), the same mark that lets tests inject events. Opening it for working instances
+   * is a change for after that, with the conditions it establishes; the page reads this answer through the WeChat snapshot.
+   */
+  private get weixinNotificationAdmitted(): boolean { return this.fakeTransport; }
   private preparingWorkspace: { workspace: WorkspaceInfo & { statePath: string }; config: PaConfig; accessSessionId: string; localSessionId: string; sessionNotices: { dedupKey: string; text: string }[]; extraToolResolution?: { requested: string[]; active: string[]; filtered: string[] } } | null = null;
   workspaceChanging = false;
 
@@ -425,8 +432,9 @@ export class PaRuntime {
       ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.cliPath('lark'), this.transportIdentity(this.config, this.secretStore)]
       : [this.config!.mode, this.cliPath('wecom')]));
   }
-  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry, owner: async channel => {
-    if (this.config?.mode !== 'feishu') throw new Error('体验模式不能绑定真实主人投递身份。');
+  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry,
+    admit: channel => { if (channel === 'weixin') this.weixin.assertNotificationAdmitted(); }, owner: async channel => {
+    if (this.config?.mode !== 'feishu') throw new Error('体验模式不能把飞书、企微或微信的主人设为投递身份。');
     if (channel === 'weixin') return this.weixin.notificationTarget();
     const identity = await this.sourceAccess.identity(channel);
     return { channel, target: identity.ownerId, identityKey: hash(JSON.stringify(identity)), connectionHash: this.sourceConnectionHash(channel) };
@@ -716,7 +724,7 @@ export class PaRuntime {
       // Packages installed into the profile resolve from the profile, wherever this plugin's own files live.
       anchor: profile?.dir ? join(profile.dir, 'package.json') : undefined,
     });
-    this.weixin = new WeixinAccess({ host: ctx, request: options.weixinRequest, notificationSupported: () => this.fakeTransport,
+    this.weixin = new WeixinAccess({ host: ctx, request: options.weixinRequest, notificationSupported: () => this.weixinNotificationAdmitted,
       context: () => this.workspace && this.workspaceBinding && this.backupWorkspaceId && this.repos
         ? { workspaceId: this.backupWorkspaceId, hostWorkspaceId: this.workspace.id, workspacePath: this.workspace.statePath,
           binding: this.workspaceBinding, repo: this.repos.weixin, outbox: this.repos.outbox } : null,
@@ -792,8 +800,13 @@ export class PaRuntime {
       permissionHash: authorization => this.skillPermissionHash(authorization),
       authorizePlan: (configuration, skill, previous) => this.taskPlanAccess.authorize(configuration, skill, previous),
       verifyPlan: async run => {
-        try { await this.taskPlanAccess.verifyBusiness(run.snapshot.plan!.authorization); }
-        catch (error) {
+        const authorization = run.snapshot.plan!.authorization;
+        try {
+          // WeChat being offline must not stop authorized business (WX-19); the other channels still stop at an identity
+          // that cannot be resolved, as they did before WeChat became a target.
+          await this.taskPlanAccess.verifyBusiness(authorization);
+          if (authorization.delivery?.channel !== 'weixin') await this.taskPlanAccess.verifyDelivery(authorization.delivery);
+        } catch (error) {
           const plan = await this.repos!.taskPlans.get(run.snapshot.plan!.id);
           const old = planAuthorizationScope(run.snapshot.plan!.authorization), current = plan?.task_authorization && planAuthorizationScope(plan.task_authorization);
           if (plan && current && taskPlanFingerprint([current.targets, current.delivery]) === taskPlanFingerprint([old.targets, old.delivery])) {
@@ -848,7 +861,7 @@ export class PaRuntime {
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });
     this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess,
-      silence: { prepare: () => this.prepareSilence() }, binding: () => this.workspaceBinding });
+      silence: { prepare: () => this.prepareSilence(), silentUntil: () => this.silencePolicy.silentUntil() }, binding: () => this.workspaceBinding });
     this.runHistory = new RunHistory({ context: planContext, skills: this.skillRuns,
       secretValues: () => [
         ...SECRET_KEYS.map(key => resolveSecret(secretRefs(this.config)[key], this.env, this.secretStore, key)),
@@ -2082,8 +2095,9 @@ export class PaRuntime {
         }
         return null;
       };
-    } catch {
-      throw new Error('读取免打扰偏好失败。');
+    } catch (error) {
+      // The caller decides between a warning and a hold; the reason must survive to the log and the delivery record.
+      throw new Error('读取免打扰偏好失败。', { cause: error });
     }
   }
 
@@ -2155,11 +2169,7 @@ export class PaRuntime {
 
   private readonly accessAccountListeners = new Set<() => void>();
 
-  /**
-   * Whether the Feishu channel is the fake one (`PA24_TRANSPORT=fake`): a test Host, never a production link. WeChat as a plan's
-   * notification target is admitted only there, until the capability is verified on the real platform (#281); the page reads the
-   * same answer through the WeChat access snapshot.
-   */
+  /** Whether the Feishu channel is the fake one (`PA24_TRANSPORT=fake`): a test Host, never a working link. */
   private get fakeTransport(): boolean { return (this.env.PA24_TRANSPORT ?? '').trim() === 'fake'; }
 
   /** The WeCom access result is no longer current: drop it and tell the Plugins page, which shows the stored results. */
@@ -2426,7 +2436,13 @@ export class PaRuntime {
       if (this.skillPermissionHash(plan.authorization) !== run.snapshot.permissionHash) throw new Error('原业务身份或权限已改变。');
       await this.taskPlanAccess.verifyBusiness(plan.authorization);
       await this.taskPlanAccess.verifyReadScope(run.read_scope);
-    } catch { return { ...meta, result: null, message: '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' }; }
+    } catch (error) {
+      // The two refusals lead to different next steps: an identity or authorization that changed is handled on the
+      // desktop and then re-read; evidence that a result never had is not brought back by handling anything.
+      return { ...meta, result: null, message: error instanceof IncompleteReadScope
+        ? '原结果没有完整的业务读取来源依据，不能在微信披露，请在电脑端查看。'
+        : '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' };
+    }
     return { ...meta, result: run.result, message: run.result ? '业务结果已保存；投递状态单独列出，不代表已读。' : '本次还没有可披露的结果正文。' };
   }
 

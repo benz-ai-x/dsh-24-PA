@@ -93,12 +93,12 @@ async function planResult() {
 }
 
 it.each(['preference', 'expiry'])('最外层异步返回期间 %s 改变，在真实请求紧前仍阻止发送', async kind => {
-  const fixture = await planResult();
-  const clock = vi.spyOn(Date, 'now').mockReturnValue(fixture.expires - 1);
-  await expect(access.send(fixture.row, async () => {
-    const prepared = await fixture.results.prepareSend(fixture.row);
-    queueMicrotask(() => queueMicrotask(() => kind === 'preference' ? fixture.change() : clock.mockReturnValue(fixture.expires + 1)));
-    return prepared;
+  const prepared = await planResult();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(prepared.expires - 1);
+  await expect(access.send(prepared.row, async () => {
+    const check = await prepared.results.prepareSend(prepared.row);
+    queueMicrotask(() => queueMicrotask(() => kind === 'preference' ? prepared.change() : clock.mockReturnValue(prepared.expires + 1)));
+    return check;
   })).rejects.toMatchObject({ hold: { status: kind === 'preference' ? 'pending' : 'expired' } });
   expect(sent).toEqual([]);
 });
@@ -110,6 +110,9 @@ it('能力没有成立时，服务端拒绝把微信作为通知目标，页面�
     await gated.start();
     await vi.waitFor(async () => expect((await gated.snapshot()).phase).toBe('polling'));
     await expect(gated.notificationTarget()).rejects.toThrow('还没有通过真实平台验证');
+    // The same refusal is what saving or copying a plan asks for.
+    expect(() => gated.assertNotificationAdmitted()).toThrow('还没有通过真实平台验证');
+    expect(() => access.assertNotificationAdmitted()).not.toThrow();
     expect((await gated.snapshot()).notificationSupported).toBe(false);
     expect((await access.snapshot()).notificationSupported).toBe(true);
   } finally { await gated.close(); }

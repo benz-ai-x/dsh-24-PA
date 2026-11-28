@@ -55,11 +55,15 @@ export class WeixinAccess {
     if (!this.current(ctx) || row.state !== 'active' || !row.enabled) throw new Error('微信绑定已停止或退休；不能从旧入口办理业务。');
     return row;
   }
+  /** The one refusal behind every path that would name WeChat as a plan's target: saving a plan, enabling it, sending to it. */
+  assertNotificationAdmitted(): void {
+    if (!this.notificationSupported()) throw new Error('微信结果通知还没有通过真实平台验证，暂不能作为计划的通知目标；请保留原来的通知渠道。');
+  }
   /** Captures only the fixed identity, never credentials or a reply token.
    * Platform notification conditions still require separate real-account acceptance (#281): until the capability is
    * established, the server refuses WeChat as a plan's target exactly as the page hides the option. */
   async notificationTarget(): Promise<TaskPlanDestination> {
-    if (!this.notificationSupported()) throw new Error('微信结果通知还没有通过真实平台验证，暂不能作为计划的通知目标；请保留原来的通知渠道。');
+    this.assertNotificationAdmitted();
     const ctx = this.context(), row = await ctx.repo.active(ctx.workspaceId);
     if (!row || !row.enabled || !row.session_ready || this.quiescing || !this.current(ctx) || this.phase !== 'polling') throw new Error('微信未连接到可用的本人绑定，请先在电脑端核对接入。');
     const identity = weixinIdentity(row), credentials = await new WeixinCredentialVault(ctx.workspacePath).get(identity);

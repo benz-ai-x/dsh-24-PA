@@ -59,8 +59,9 @@ export class SourceTodo {
   async recordLocalReadScope(tasks: TaskRow[]): Promise<void> {
     for (const task of tasks) {
       const reference = await this.localReference(task);
-      if (reference?.target) recordBusinessSource(reference.target);
-      else unverifiedBusinessRead();
+      // One task without a receipt makes the whole scope unverifiable, whatever the others prove: stop reading there.
+      if (!reference?.target) { unverifiedBusinessRead(); return; }
+      recordBusinessSource(reference.target);
     }
   }
 

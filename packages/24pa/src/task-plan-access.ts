@@ -2,7 +2,7 @@ import type { SourceRegistry, SourceCapability } from './source-registry.js';
 import type { SourceDomain } from './source-config.js';
 import type { TaskPlanAuthorization, TaskPlanConfiguration } from './task-plan.js';
 import { skillHash } from './skill-package.js';
-import type { BusinessReadScope } from './business-read-scope.js';
+import { IncompleteReadScope, type BusinessReadScope } from './business-read-scope.js';
 
 const writes: Record<string, { domain: SourceDomain; capability: SourceCapability }> = {
   calendar_create: { domain: 'calendar', capability: 'create' }, calendar_update: { domain: 'calendar', capability: 'update' },
@@ -32,8 +32,14 @@ export class TaskPlanAccess {
   constructor(private readonly deps: {
     sources: SourceRegistry;
     owner(channel: 'feishu' | 'wecom' | 'weixin'): Promise<NonNullable<TaskPlanAuthorization['delivery']>>;
+    /** Refuses a channel that may not be a plan's target at all on this Host, before any identity is resolved (#281). */
+    admit?(channel: 'feishu' | 'wecom' | 'weixin'): void;
     checkAction?(action: string): void;
   }) {}
+  /** Whether a plan may name this delivery target; asked as soon as a plan is saved or copied. */
+  async admitDelivery(delivery: TaskPlanConfiguration['delivery']): Promise<void> {
+    if (delivery.channel !== 'none') await this.deps.admit?.(delivery.channel);
+  }
   async authorize(config: TaskPlanConfiguration, skill: TaskPlanAuthorization['skill'], previous: TaskPlanAuthorization | null): Promise<TaskPlanAuthorization> {
     for (const action of skill.contract?.actions ?? []) this.checkAction(action);
     if (previous) {
@@ -44,9 +50,10 @@ export class TaskPlanAccess {
         || skill.resources.some(resource => !old.resources.includes(resource))) throw new Error('Skill 新版本增加了工具、业务动作或资源范围，请显式重新配置并确认。');
       if (config.delivery.channel !== (previous.delivery?.channel ?? 'none')) throw new Error('投递方式已改变，请显式重新配置授权。');
       if (taskPlanFingerprint(config.selectors) !== taskPlanFingerprint(previous.selectors ?? {})) throw new Error('业务目标选择已改变，请显式重新配置授权。');
-      // An existing authorization keeps its delivery target even while that
-      // destination is offline. Only business authority governs execution.
+      // WeChat being offline keeps the authorized delivery target and lets the business run (WX-19). The other channels
+      // still stop here when their identity cannot be resolved, as they did before WeChat became a target.
       await this.verifyBusiness(previous);
+      if (previous.delivery?.channel !== 'weixin') await this.verifyDelivery(previous.delivery);
       return { ...previous, skill, checkedAt: new Date().toISOString() };
     }
     const targets: TaskPlanAuthorization['targets'] = [];
@@ -69,7 +76,7 @@ export class TaskPlanAccess {
     for (const row of authorization.targets) await this.deps.sources.verify(row.target, scopeCapability(row.target.domain, row.capability), true);
   }
   async verifyReadScope(scope: BusinessReadScope | null | undefined): Promise<void> {
-    if (scope?.version !== 1 || scope.complete !== true || !Array.isArray(scope.targets)) throw new Error('原结果缺少完整的业务读取来源依据，请在电脑端查看。');
+    if (scope?.version !== 1 || scope.complete !== true || !Array.isArray(scope.targets)) throw new IncompleteReadScope('原结果缺少完整的业务读取来源依据，请在电脑端查看。');
     for (const target of scope.targets) await this.deps.sources.verify(target, 'read', false);
   }
   async verifyDelivery(delivery: TaskPlanAuthorization['delivery']): Promise<void> {
