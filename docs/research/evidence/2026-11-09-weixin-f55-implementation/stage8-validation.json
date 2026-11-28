@@ -1,5 +1,5 @@
 {
- "recordedAt": "2026-11-28T22:30:41+08:00",
+ "recordedAt": "2026-11-29T00:02:33+08:00",
  "testedCommit": "ae271fe",
  "stage": 8,
  "issue": 281,
@@ -36,7 +36,7 @@
    "tests": "2231 passed | 1 skipped (2232)",
    "durationSeconds": 1792.29,
    "upgradeFixture": "published 0.2.3-alpha.2.1",
-   "log": "stage8-full.log"
+   "log": "not kept: stage8-full.log now holds the 1d0795b run; these numbers were recorded when it ran"
   },
   {
    "commit": "1d0795b",
@@ -57,6 +57,14 @@
    "files": "119 passed (119)",
    "tests": "1978 passed | 1 skipped (1979)",
    "durationSeconds": 408.0,
+   "log": "not kept: stage8-unit.log now holds the 1d0795b and ae271fe runs"
+  },
+  {
+   "commit": "1d0795b",
+   "kind": "unit suite",
+   "files": "119 passed (119)",
+   "tests": "1983 passed | 1 skipped (1984)",
+   "durationSeconds": 400.1,
    "log": "stage8-unit.log"
   },
   {
@@ -81,7 +89,7 @@
   "head": "ae271fe",
   "log": "stage8-verify-all.log",
   "ok": 23,
-  "note": "1d0795b: 23 of 23; ae271fe: see the count"
+  "note": "f78cfac..ae271fe: 23 commits, all passed; the same list was built once more up to 1d0795b (22 of 22)"
  },
  "commands": {
   "export": "git archive <sha> | tar -x -C <empty dir>; cd packages/24pa; npm install; npm run build; npm run preset:check; npm pack",
@@ -145,7 +153,7 @@
   },
   {
    "commit": "67f184d",
-   "what": "the WeChat card's delivery records on the final code",
+   "what": "the WeChat card's delivery records on 67f184d (client.js unchanged since)",
    "passes": 6,
    "pageErrors": 0,
    "failures": 0,
@@ -164,9 +172,9 @@
  ],
  "walkThroughNotes": [
   "页面文字逐屏读回核对；页面错误与横向溢出都为零。",
-  "投递有效期一小时：第一个宿主上的「投递受限」在走查后半段如实变成「过期未投递」，1920x1080 用新宿主重拍。",
-  "键盘：Tab 能到达语音选择的两个按钮与核对表单的下拉、依据输入框，焦点环 3px，回车能选；原生下拉用键盘改值在无头浏览器里没有核到。",
-  "空／加载／错误／离线状态由 DOM 用例覆盖（weixin-panel.test.mjs），没有在真实页面上重走。"
+  "投递有效期一小时：第一个宿主上的「投递受限」在走查后半段如实变成「过期未投递」，1920x1080 用新宿主重拍。走查与键盘都在 67f184d 上做，其后页面文件没有改。",
+  "键盘：Tab 能到达语音选择的两个按钮与核对表单的下拉、依据输入框，回车能选；按钮与依据输入框记到 3px 焦点环，核对表单的下拉只记到 Tab 可达、它的焦点环没有记录；原生下拉用键盘改值在无头浏览器里没有核到。",
+  "空（未绑定）、错误（读取失败）、离线三种状态由 DOM 用例覆盖（weixin-panel.test.mjs），没有在真实页面上重走；加载状态没有用例、也没有走。"
  ],
  "closedCapability": {
   "commit": "632bb20",

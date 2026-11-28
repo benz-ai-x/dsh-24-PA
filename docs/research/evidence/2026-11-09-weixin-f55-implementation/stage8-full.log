@@ -165,4 +165,6 @@
  ✓ tests/unit/wecom-setup.test.mjs (1 test) 1ms
  ✓ tests/unit/delegated-input-source.test.mjs (2 tests) 1ms
  ✓ tests/unit/reminder-readback.test.mjs (1 test) 1ms
+ Test Files  165 passed (165)
       Tests  2236 passed | 1 skipped (2237)
+   Duration  1446.30s (transform 722ms, setup 354ms, collect 11.69s, tests 1421.19s, environment 9ms, prepare 2.70s)

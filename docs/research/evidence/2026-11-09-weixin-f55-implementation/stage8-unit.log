@@ -1,5 +1,11 @@
-# unit suite from a clean export of the final head
+# unit suite from a clean export of 1d0795b
+ Test Files  119 passed (119)
+      Tests  1983 passed | 1 skipped (1984)
+   Duration  400.10s (transform 457ms, setup 274ms, collect 9.82s, tests 380.55s, environment 6ms, prepare 1.93s)
+# unit suite from a clean export of ae271fe (the final code)
  ❯ tests/unit/worker-run.test.mjs (38 tests | 1 failed) 3222ms
  ❯ tests/unit/worker-run.test.mjs:242:74
+ Test Files  1 failed | 118 passed (119)
       Tests  1 failed | 1982 passed | 1 skipped (1984)
-# earlier: 67f184d 119 files, 1978 passed | 1 skipped; 1d0795b 119 files, 1983 passed | 1 skipped
+   Duration  396.40s (transform 460ms, setup 275ms, collect 9.69s, tests 377.04s, environment 6ms, prepare 1.92s)
+# earlier: 67f184d 119 files, 1978 passed | 1 skipped; its file-level lines were overwritten by the later runs
