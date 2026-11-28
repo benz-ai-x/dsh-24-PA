@@ -1,0 +1,32 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs (7 tests | 1 failed | 6 skipped) 7958ms
+   × WX-17 运行中更改默认通知及换绑微信，原计划和在途结果均不改投 2116ms
+     → expected [ { from_user_id: '', …(6) }, …(1) ] to have a length of 1 but got 2
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin-plan-delivery.e2e.mjs > WX-17 运行中更改默认通知及换绑微信，原计划和在途结果均不改投
+AssertionError: expected [ { from_user_id: '', …(6) }, …(1) ] to have a length of 1 but got 2
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs:260:21
+    258|     expect(result.deliveries[0].deliveries[0].outbox).toMatchObject({ …
+    259|     expect((await inspect(row.id)).plan.task_authorization).toEqual(ro…
+    260|     expect(wx.sent).toHaveLength(before);
+       |                     ^
+    261|   } finally { release(); modelReply = null; await action('workspace.co…
+    262| }, 90000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 skipped (7)
+   Start at  16:23:31
+   Duration  8.12s (transform 38ms, setup 0ms, collect 64ms, tests 7.96s, environment 0ms, prepare 27ms)

@@ -51,7 +51,8 @@ import { ModelBudgets } from './model-budgets.js';
 import { WorkerRuns } from './worker-runs.js';
 import { WorkItemLifecycle } from './work-item-lifecycle.js';
 import { WorkCompletionHistory, workExecutionContent } from './work-completion.js';
-import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox } from './repo.js';
+import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox, type SkillRunRow } from './repo.js';
+import { captureBusinessReads, IncompleteReadScope, unverifiedBusinessRead } from './business-read-scope.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { template, ConfigError, validateConfig, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
 import { qwennoteChannelState } from './local-tool-access.js';
@@ -233,6 +234,13 @@ export class PaRuntime {
   private accessSessionId: string | null = null;
   private localSessionId: string | null = null;
   readonly weixin: WeixinAccess;
+  /**
+   * Whether WeChat may be a plan's notification target on this Host. Until the sending conditions are established on the
+   * real platform (#281), only a Host already marked as a test Host answers yes: the one that runs the Feishu channel on its
+   * fake transport (`PA24_TRANSPORT=fake`), the same mark that lets tests inject events. Opening it for working instances
+   * is a change for after that, with the conditions it establishes; the page reads this answer through the WeChat snapshot.
+   */
+  private get weixinNotificationAdmitted(): boolean { return this.fakeTransport; }
   private preparingWorkspace: { workspace: WorkspaceInfo & { statePath: string }; config: PaConfig; accessSessionId: string; localSessionId: string; sessionNotices: { dedupKey: string; text: string }[]; extraToolResolution?: { requested: string[]; active: string[]; filtered: string[] } } | null = null;
   workspaceChanging = false;
 
@@ -264,10 +272,10 @@ export class PaRuntime {
       await this.recordConnectionEvidence(`${row.channel}.${row.channel === 'wecom' ? 'push' : 'send'}`, '平台已接纳一条出站消息；不代表已读。',
         { target: row.target, outboxId: row.id, deliveryId: messageId, nativeMessageId: row.channel === 'feishu' ? messageId : null });
     },
-    beforeSend: row => row.channel === 'weixin' ? this.weixin.beforeSend(row) : this.planResults.beforeSend(row),
+    beforeSend: async row => await this.planResults.beforeSend(row) ?? await this.weixin.beforeSend(row),
     updated: row => this.planResults.updated(row),
     adapters: {
-      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row) },
+      weixin: { available: () => !this.closed && !!this.workspace, supports: kind => kind === 'text', send: row => this.weixin.send(row, () => this.planResults.prepareSend(row)) },
       local: {
         available: () => !this.closed && !!this.config,
         supports: kind => kind === 'text',
@@ -424,8 +432,10 @@ export class PaRuntime {
       ? [this.config!.mode, this.config!.larkProfile, this.config!.ownerOpenId, this.cliPath('lark'), this.transportIdentity(this.config, this.secretStore)]
       : [this.config!.mode, this.cliPath('wecom')]));
   }
-  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry, owner: async channel => {
-    if (this.config?.mode !== 'feishu') throw new Error('体验模式不能绑定真实主人投递身份。');
+  private readonly taskPlanAccess = new TaskPlanAccess({ sources: this.sourceRegistry,
+    admit: channel => { if (channel === 'weixin') this.weixin.assertNotificationAdmitted(); }, owner: async channel => {
+    if (this.config?.mode !== 'feishu') throw new Error('体验模式不能把飞书、企微或微信的主人设为投递身份。');
+    if (channel === 'weixin') return this.weixin.notificationTarget();
     const identity = await this.sourceAccess.identity(channel);
     return { channel, target: identity.ownerId, identityKey: hash(JSON.stringify(identity)), connectionHash: this.sourceConnectionHash(channel) };
   } });
@@ -640,6 +650,7 @@ export class PaRuntime {
     planChangesAvailable: () => !this.closed && !this.workspaceChanging,
     syncCalendarWindow: (calendarId, from, to) => this.syncCalendarWindow(calendarId, from, to),
     queryCalendar: args => this.sourceCalendar.all(args),
+    recordTaskReadScope: tasks => this.sourceTodo.recordLocalReadScope(tasks),
     bindCalendar: args => this.sourceCalendarWrites.target(args),
     calendarWrite: (item, kind, args, operationId) => this.calendarWrite(item, kind, args, operationId),
     inspectNoteTrust: (noteId, versionId) => this.handwriting.inspectTrust(noteId, versionId),
@@ -713,7 +724,7 @@ export class PaRuntime {
       // Packages installed into the profile resolve from the profile, wherever this plugin's own files live.
       anchor: profile?.dir ? join(profile.dir, 'package.json') : undefined,
     });
-    this.weixin = new WeixinAccess({ host: ctx, request: options.weixinRequest,
+    this.weixin = new WeixinAccess({ host: ctx, request: options.weixinRequest, notificationSupported: () => this.weixinNotificationAdmitted,
       context: () => this.workspace && this.workspaceBinding && this.backupWorkspaceId && this.repos
         ? { workspaceId: this.backupWorkspaceId, hostWorkspaceId: this.workspace.id, workspacePath: this.workspace.statePath,
           binding: this.workspaceBinding, repo: this.repos.weixin, outbox: this.repos.outbox } : null,
@@ -789,8 +800,8 @@ export class PaRuntime {
       permissionHash: authorization => this.skillPermissionHash(authorization),
       authorizePlan: (configuration, skill, previous) => this.taskPlanAccess.authorize(configuration, skill, previous),
       verifyPlan: async run => {
-        try { await this.taskPlanAccess.verify(run.snapshot.plan!.authorization); }
-        catch (error) {
+        const authorization = run.snapshot.plan!.authorization;
+        try { await this.taskPlanAccess.verifyForRun(authorization); } catch (error) {
           const plan = await this.repos!.taskPlans.get(run.snapshot.plan!.id);
           const old = planAuthorizationScope(run.snapshot.plan!.authorization), current = plan?.task_authorization && planAuthorizationScope(plan.task_authorization);
           if (plan && current && taskPlanFingerprint([current.targets, current.delivery]) === taskPlanFingerprint([old.targets, old.delivery])) {
@@ -810,7 +821,7 @@ export class PaRuntime {
         this.trackWorkItem(executing);
         await this.startWorker(executing, content, run.snapshot.plan ? 'caller' : 'parent');
       },
-      template: (def, parameters, run) => this.digest.manualTemplate(def, parameters, run?.snapshot.plan),
+      template: (def, parameters, run) => this.capturePlanReads(run, () => this.digest.manualTemplate(def, parameters, run?.snapshot.plan)),
       checkTemplate: def => this.digest.checkTemplate(def),
       lease: work => this.executions.run(work), control: work => this.executions.control(work), detached: work => this.executions.detached(work),
       diagnostic: (id, phase, error) => this.runHistory.capture(id, phase, error),
@@ -844,7 +855,8 @@ export class PaRuntime {
       ownerInput: item => this.adoptedOwnerInput(item), legacyControl: input => this.digest.digestControl(input), gate: (key, work) => this.gate(key, work) });
     this.planEngine = new TaskPlanEngine({ context: planContext, skills: this.skillRuns, access: this.taskPlanAccess,
       permissionHash: authorization => this.skillPermissionHash(authorization) });
-    this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess, silence: this.silencePolicy, binding: () => this.workspaceBinding });
+    this.planResults = new PlanResults({ repos: () => this.repos!, access: this.taskPlanAccess,
+      silence: { prepare: () => this.prepareSilence(), silentUntil: () => this.silencePolicy.silentUntil() }, binding: () => this.workspaceBinding });
     this.runHistory = new RunHistory({ context: planContext, skills: this.skillRuns,
       secretValues: () => [
         ...SECRET_KEYS.map(key => resolveSecret(secretRefs(this.config)[key], this.env, this.secretStore, key)),
@@ -859,6 +871,11 @@ export class PaRuntime {
     return skillHash(JSON.stringify(this.config ? [this.config.ownerOpenId, this.config.mode, this.config.larkProfile,
       authorization ? [] : this.config.extraLocalTools, this.config.enabledWorkers, this.config.extraBusinessSkills,
       ...(authorization ? [] : [this.config.calendarChannel, this.config.todoChannel])] : null));
+  }
+
+  private capturePlanReads<T>(run: SkillRunRow | undefined, work: () => Promise<T>): Promise<T> {
+    const repos = this.repos!;
+    return run?.snapshot.plan ? captureBusinessReads(work, scope => repos.skillRuns.recordReadScope(run.id, scope)) : work();
   }
 
   async planStep(agent: DshAgent, messages: RunInput[], next: () => Promise<{ kind: 'reject' } | { kind: 'enter'; messages: RunInput[] }>) {
@@ -1001,6 +1018,7 @@ export class PaRuntime {
             to: args.to ? String(args.to) : undefined,
             limit: 20,
           });
+          if (memos.length) unverifiedBusinessRead();
           return {
             count: memos.length,
             memos: memos.map(m => ({
@@ -1775,7 +1793,7 @@ export class PaRuntime {
     if (!appId || !appSecret) {
       return inactive(`feishu 模式缺少凭据（${config.appIdEnv}/${config.appSecretEnv}）：在面板「接入与设置 → 参数配置 → 密钥」填写，或设置同名环境变量；机器人未启动。`);
     }
-    const transport = (this.env.PA24_TRANSPORT || '').trim() === 'fake' ? new FakeFeishuTransport(appId) : new SdkFeishuTransport(appId, appSecret);
+    const transport = this.fakeTransport ? new FakeFeishuTransport(appId) : new SdkFeishuTransport(appId, appSecret);
     let settle!: (active: boolean) => void;
     const activated = new Promise<boolean>(resolve => { settle = resolve; });
     try {
@@ -2036,17 +2054,29 @@ export class PaRuntime {
   /** Quiet hours / vacation read from the memory authority at dispatch time. */
   private readonly silencePolicy: SilencePolicy = {
     silentUntil: async () => {
-      try {
-        const now = new Date();
-        const vacation = await this.memory!.search({ topic: '休假', mode: 'facts', limit: 20 });
+      try { return (await this.prepareSilence())(); } catch (error) {
+        // Fail open, but visibly: a broken preference must not silently
+        // garble reminders without a trace.
+        const cause = (error as Error).cause;
+        console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${cause instanceof Error ? cause.message : (error as Error).message}`);
+        return null;
+      }
+    },
+  };
+
+  private async prepareSilence(): Promise<() => Date | null> {
+    try {
+      const search = await this.memory!.prepareSearch(), binding = this.workspaceBinding, tz = this.config?.timeZone ?? 'Asia/Shanghai';
+      return () => {
+        if (binding !== this.workspaceBinding || tz !== (this.config?.timeZone ?? 'Asia/Shanghai')) throw new Error('工作区或通知时区已变化，请重新核验。');
+        const timestamp = Date.now(), vacation = search({ topic: '休假', mode: 'facts', limit: 20 }, timestamp);
         for (const record of vacation.records) {
           if (record.status !== 'confirmed') continue;
           const end = record.validUntil ? new Date(record.validUntil) : null;
-          if (!end || Number.isNaN(end.getTime())) continue;
-          if (end.getTime() > now.getTime()) return end;
+          if (end && end.getTime() > timestamp) return end;
         }
-        const quiet = await this.memory!.search({ topic: '通知偏好', mode: 'facts', limit: 20 });
-        const tz = this.config?.timeZone ?? 'Asia/Shanghai';
+        const quiet = search({ topic: '通知偏好', mode: 'facts', limit: 20 }, timestamp);
+        const now = new Date(timestamp);
         for (const record of quiet.records) {
           if (record.status !== 'confirmed') continue;
           const match = record.content.match(/安静时段\s*(\d{1,2}):(\d{2})\s*[-–~]\s*(\d{1,2}):(\d{2})/);
@@ -2057,19 +2087,15 @@ export class PaRuntime {
           const start = Number(match[1]) * 60 + Number(match[2]);
           const endMin = Number(match[3]) * 60 + Number(match[4]);
           const inWindow = start <= endMin ? minutesNow >= start && minutesNow < endMin : minutesNow >= start || minutesNow < endMin;
-          if (!inWindow) continue;
-          const end = new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
-          return end;
+          if (inWindow) return new Date(now.getTime() + ((endMin - minutesNow + 1440) % 1440 || 1440) * 60_000);
         }
         return null;
-      } catch (error) {
-        // Fail open, but visibly: a broken preference must not silently
-        // garble reminders without a trace.
-        console.warn(`[pa24] 读取免打扰偏好失败（按不静默处理）：${(error as Error).message}`);
-        return null;
-      }
-    },
-  };
+      };
+    } catch (error) {
+      // The caller decides between a warning and a hold; the reason stays on the error for the one that logs it.
+      throw new Error('读取免打扰偏好失败。', { cause: error });
+    }
+  }
 
   /** One durable owner notification with a stable dedup key. */
   private async notifyOwner(dedupKey: string, text: string): Promise<void> {
@@ -2138,6 +2164,9 @@ export class PaRuntime {
   }
 
   private readonly accessAccountListeners = new Set<() => void>();
+
+  /** Whether the Feishu channel is the fake one (`PA24_TRANSPORT=fake`): a test Host, never a working link. */
+  private get fakeTransport(): boolean { return (this.env.PA24_TRANSPORT ?? '').trim() === 'fake'; }
 
   /** The WeCom access result is no longer current: drop it and tell the Plugins page, which shows the stored results. */
   private forgetWecomAccess(): void {
@@ -2302,7 +2331,7 @@ export class PaRuntime {
         else if (action === 'cancel') this.weixin.cancelLogin();
         else if (action === 'code') this.weixin.submitCode(String(input.code ?? ''));
         else if (action === 'preview') {
-          if (!['activate', 'enable', 'disable', 'retire'].includes(String(input.op))) throw new Error('微信绑定操作无效。');
+          if (typeof input.op !== 'string' || !['activate', 'enable', 'disable', 'retire'].includes(input.op)) throw new Error('微信绑定操作无效。');
           return { ...await this.weixin.preview(input.op as 'activate' | 'enable' | 'disable' | 'retire'), workspaceBinding: this.workspaceBinding };
         } else if (action === 'apply') {
           if (input.confirm !== true) throw new Error('请确认预览中的微信身份与影响。');
@@ -2312,7 +2341,7 @@ export class PaRuntime {
           const evidence = String(input.evidence ?? '').trim(), requestId = String(input.requestId ?? '');
           if (binding.workspace_id !== this.backupWorkspaceId || input.confirm !== true || !evidence || evidence.length > 2000 || !/^[a-zA-Z0-9-]{16,100}$/.test(requestId)) throw new Error('请核对原微信身份，并填写本人核对依据。');
           if (action === 'delivery') {
-            if (!['received', 'retry', 'abandon'].includes(String(input.op)) || !Number.isSafeInteger(input.id) || !Number.isSafeInteger(input.revision)) throw new Error('投递操作或版本无效。');
+            if (typeof input.op !== 'string' || !['received', 'retry', 'abandon'].includes(input.op) || !Number.isSafeInteger(input.id) || !Number.isSafeInteger(input.revision)) throw new Error('投递操作或版本无效。');
             await this.repos!.outbox.review({ id: Number(input.id), revision: Number(input.revision), requestId, actorSessionId: this.localSessionId!,
               generation, action: input.op as 'received' | 'retry' | 'abandon', evidence });
           } else {
@@ -2400,9 +2429,15 @@ export class PaRuntime {
     if (!run || !plan || plan.id !== row.id || run.mode === 'local' || !plan.configuration.skillId.startsWith('builtin:') ||
         plan.configuration.skillId !== row.task_config?.skillId) return { ...meta, result: null, message: '原运行不属于当前可披露的业务计划。' };
     try {
-      await this.taskPlanAccess.verify(plan.authorization);
-      for (const domain of ['calendar', 'todo'] as const) await this.sourceRegistry.bind(domain, plan.configuration.selectors[domain], 'read', true);
-    } catch { return { ...meta, result: null, message: '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' }; }
+      if (this.skillPermissionHash(plan.authorization) !== run.snapshot.permissionHash) throw new Error('原业务身份或权限已改变。');
+      await this.taskPlanAccess.verifyBusiness(plan.authorization);
+      await this.taskPlanAccess.verifyReadScope(run.read_scope);
+    } catch (error) {
+      // The two refusals lead to different next steps: an identity or authorization that changed is handled on the
+      // desktop and then re-read; evidence that a result never had is not brought back by handling anything.
+      return { ...meta, result: null, message: error instanceof IncompleteReadScope ? error.message
+        : '原结果涉及的来源或身份当前无法核验，请在电脑端处理授权后查看。' };
+    }
     return { ...meta, result: run.result, message: run.result ? '业务结果已保存；投递状态单独列出，不代表已读。' : '本次还没有可披露的结果正文。' };
   }
 
@@ -2991,13 +3026,15 @@ export class PaRuntime {
           }
           if (action === 'skill_run') return { skill: run.snapshot.definition.name, content: run.snapshot.definition.content, parameters: run.snapshot.parameters };
           if (!run.snapshot.contract?.actions?.includes(action)) throw new Error('此业务动作不在本次 Skill 的明确操作范围内。');
-          let authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
-          if (run.snapshot.plan && Object.hasOwn(this.planningActions, action)) {
-            const timeZone = run.snapshot.plan.configuration.timeZone;
-            const date = localDay(run.snapshot.plan.triggeredAt, timeZone).date;
-            authorized = fixedPlanningWindow(authorized, date, timeZone);
-          }
-          return await this.skillBusinessAction(action)(authorized, item, this);
+          return await this.capturePlanReads(run, async () => {
+            let authorized = run.snapshot.plan ? await this.taskPlanAccess.action(run.snapshot.plan.authorization, action, args) : args;
+            if (run.snapshot.plan && Object.hasOwn(this.planningActions, action)) {
+              const timeZone = run.snapshot.plan.configuration.timeZone;
+              const date = localDay(run.snapshot.plan.triggeredAt, timeZone).date;
+              authorized = fixedPlanningWindow(authorized, date, timeZone);
+            }
+            return this.skillBusinessAction(action)(authorized, item, this);
+          });
         }
         const role = this.roles.get(item.role);
         const action = String(args.action ?? '');

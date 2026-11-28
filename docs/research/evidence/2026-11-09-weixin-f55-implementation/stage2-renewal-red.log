@@ -1,0 +1,37 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs (5 tests | 1 failed | 4 skipped) 6537ms
+   × WX-17 同身份续期及平台地址变化保留原计划授权与接收目标 919ms
+     → expected { …(29) } to match object { status: 'completed', …(1) }
+(40 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin-plan-delivery.e2e.mjs > WX-17 同身份续期及平台地址变化保留原计划授权与接收目标
+AssertionError: expected { …(29) } to match object { status: 'completed', …(1) }
+(40 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "delivery_status": "sent",
++   "delivery_status": "limited",
+    "status": "completed",
+  }
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs:195:22
+    193|   const run = (await action('plan.change', { op: 'run', id: row.id, co…
+    194|   const result = await until(() => detail(run.id), value => !['not_req…
+    195|   expect(result.run).toMatchObject({ status: 'completed', delivery_sta…
+       |                      ^
+    196|   expect(result.deliveries[0].destination).toEqual(preview.authorizati…
+    197|   expect(wx.sent).toHaveLength(before + 1); expect(wx.sent.at(-1).to_u…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  16:17:10
+   Duration  6.72s (transform 38ms, setup 0ms, collect 75ms, tests 6.54s, environment 0ms, prepare 29ms)

@@ -955,4 +955,8 @@ export const MIGRATIONS: readonly { version: number; statements: readonly string
       )`,
     ],
   },
+  {
+    version: 35,
+    statements: [`alter table pa24.skill_run add column if not exists read_scope jsonb`],
+  },
 ];

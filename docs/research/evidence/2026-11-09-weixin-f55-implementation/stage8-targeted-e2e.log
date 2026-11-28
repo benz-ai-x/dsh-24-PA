@@ -1,0 +1,11 @@
+# the WeChat and Feishu delivery e2e files on the worktree after the first review's clearances
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (20 tests) 61256ms
+ ✓ tests/e2e/weixin.e2e.mjs (14 tests) 49353ms
+   ✓ WX-13 历史计划结果按原读取来源授权，移除原来源后不能借新默认披露（template） 7174ms
+   ✓ WX-13 历史计划结果按原读取来源授权，移除原来源后不能借新默认披露（business） 7130ms
+   ✓ WX-13 模板计划读过一条没有来源回执的待办时，结果不在微信披露，电脑端正文不变 1621ms
+ ✓ tests/e2e/manticore-plan-delivery.e2e.mjs (2 tests) 25734ms
+ ✓ tests/e2e/weixin-source-upgrade.e2e.mjs (1 test) 11934ms
+   ✓ WX-13/21 真实旧版本升级保留计划、绑定和结果，不为缺少来源依据的旧正文补造授权 11933ms
+ Test Files  4 passed (4)
+      Tests  37 passed (37)

@@ -1,0 +1,186 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs (12 tests | 1 failed | 11 skipped) 6944ms
+   × WX-18 核对操作必须是明确名称，数组不能把未知投递改回待发送 1059ms
+     → promise resolved "{ binding: { …(13) }, …(15) }" instead of rejecting
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin-plan-delivery.e2e.mjs > WX-18 核对操作必须是明确名称，数组不能把未知投递改回待发送
+AssertionError: promise resolved "{ binding: { …(13) }, …(15) }" instead of rejecting
+
+- Expected
++ Received
+
+- [Error: rejected promise]
++ Object {
++   "binding": Object {
++     "account_id": "wx-test-bot",
++     "created_at": "2026-11-09T09:01:21.646Z",
++     "enabled": true,
++     "generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++     "last_received_at": "2026-11-09T09:01:22.313Z",
++     "last_sent_at": "2026-11-09T09:01:22.608Z",
++     "owner_id": "wx-test-owner",
++     "session_id": "pa24-weixin-26a87296-52dc-40df-b619-d786e64fcd4d",
++     "session_ready": true,
++     "state": "active",
++     "updated_at": "2026-11-09T09:01:21.690Z",
++     "version": 2,
++     "workspace_id": "52df3122-11c1-472d-a0d1-82be098f2bce",
++   },
++   "bindings": Array [
++     Object {
++       "account_id": "wx-test-bot",
++       "created_at": "2026-11-09T09:01:21.646Z",
++       "enabled": true,
++       "generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++       "last_received_at": "2026-11-09T09:01:22.313Z",
++       "last_sent_at": "2026-11-09T09:01:22.608Z",
++       "owner_id": "wx-test-owner",
++       "session_id": "pa24-weixin-26a87296-52dc-40df-b619-d786e64fcd4d",
++       "session_ready": true,
++       "state": "active",
++       "updated_at": "2026-11-09T09:01:21.690Z",
++       "version": 2,
++       "workspace_id": "52df3122-11c1-472d-a0d1-82be098f2bce",
++     },
++   ],
++   "candidate": null,
++   "deliveries": Array [
++     Object {
++       "acceptance": null,
++       "association": Object {
++         "noticeId": "plan-result-23347092b8b5b44bdd63018c36d65c5ad5b1d1ecede9c0da45d4367889de33e9",
++         "planId": "plan-b5787566-9f15-4b46-92d7-0670ea989beb",
++         "skillRunId": "1a39efd0-c556-4b67-940a-809716d0c606",
++       },
++       "attempts": 0,
++       "binding_generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++       "channel": "weixin",
++       "client_id": "24pa-8b327601-5521-4cff-a263-576bfc2727eb",
++       "content": Object {
++         "text": "24私助 · 微信核对操作验收
++ 执行结果
++ 只用于核对输入格式的结果。
++
++ Skill 版本：2a887d23-c641-4dc7-949f-3c3e954eaa7c
++ 运行：1a39efd0-c556-4b67-940a-809716d0c606",
++       },
++       "created_at": "2026-11-09T09:01:23.210Z",
++       "dedup_key": "plan-result-23347092b8b5b44bdd63018c36d65c5ad5b1d1ecede9c0da45d4367889de33e9:text:segment:0",
++       "delivery_target": Object {
++         "accountId": "wx-test-bot",
++         "generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++         "ownerId": "wx-test-owner",
++         "sessionId": "pa24-weixin-26a87296-52dc-40df-b619-d786e64fcd4d",
++       },
++       "id": 2,
++       "kind": "text",
++       "last_error": "主人已核对原投递，等待补记或明确补投。",
++       "message_id": null,
++       "next_attempt_at": null,
++       "revision": 3,
++       "segment_group": "plan-result-23347092b8b5b44bdd63018c36d65c5ad5b1d1ecede9c0da45d4367889de33e9",
++       "segment_index": 0,
++       "sent_at": null,
++       "status": "pending",
++       "target": "wx-test-owner",
++     },
++     Object {
++       "acceptance": Object {
++         "at": "2026-11-09T09:01:22.607Z",
++         "basis": "native_message_id",
++         "http": 200,
++       },
++       "association": Object {
++         "inboxEventId": "weixin-7544181009705415888661ca8d435de0419046ed4e76547dc704066ca7ee41d6",
++       },
++       "attempts": 1,
++       "binding_generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++       "channel": "weixin",
++       "client_id": "24pa-280e365c-4afe-4ed4-9a55-86755617867c",
++       "content": Object {
++         "text": "24私助已收到你的消息。你可以用文字交办日程、待办、备忘，查看进度，按事项编号补充、停止或继续，也可以管理晨报、复盘等常用计划。配置、资料审核和投递核对请到电脑端。周期结果的微信通知尚未开放。",
++       },
++       "created_at": "2026-11-09T09:01:22.315Z",
++       "dedup_key": "weixin-help:weixin-7544181009705415888661ca8d435de0419046ed4e76547dc704066ca7ee41d6:segment:0",
++       "delivery_target": Object {
++         "accountId": "wx-test-bot",
++         "generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++         "ownerId": "wx-test-owner",
++         "sessionId": "pa24-weixin-26a87296-52dc-40df-b619-d786e64fcd4d",
++       },
++       "id": 1,
++       "kind": "text",
++       "last_error": null,
++       "message_id": "9876543210987654322",
++       "next_attempt_at": null,
++       "revision": 3,
++       "segment_group": "weixin-help:weixin-7544181009705415888661ca8d435de0419046ed4e76547dc704066ca7ee41d6",
++       "segment_index": 0,
++       "sent_at": "2026-11-09T09:01:22.608Z",
++       "status": "sent",
++       "target": "wx-test-owner",
++     },
++   ],
++   "error": null,
++   "expiresAt": null,
++   "generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++   "impact": Object {
++     "deliveries": Array [
++       2,
++     ],
++     "fingerprint": "19965f59d64ede27b6fbee67bd2d35a1ccd652ac21d6aa9e26332bf4240ddb56",
++     "inbox": Array [],
++     "unknown": Array [],
++     "work": Array [],
++   },
++   "inbox": Array [
++     Object {
++       "binding_generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++       "created_at": "2026-11-09T09:01:22.313Z",
++       "error": null,
++       "event_id": "weixin-7544181009705415888661ca8d435de0419046ed4e76547dc704066ca7ee41d6",
++       "kind": "message",
++       "payload": Object {
++         "accountId": "wx-test-bot",
++         "generation": "5827ba5d-96aa-455b-b1ab-4f7b8be81d0a",
++         "nativeId": "18446744073709550000",
++         "ownerId": "wx-test-owner",
++         "rejection": null,
++         "replyTo": null,
++         "sessionId": "pa24-weixin-26a87296-52dc-40df-b619-d786e64fcd4d",
++         "text": "/24pa",
++       },
++       "processed_at": "2026-11-09T09:01:22.315Z",
++       "request_id": null,
++       "source": "weixin",
++       "status": "delivered",
++       "target_session": "pa24-weixin-26a87296-52dc-40df-b619-d786e64fcd4d",
++     },
++   ],
++   "loginPhase": "idle",
++   "notificationSupported": false,
++   "offset": 0,
++   "phase": "polling",
++   "qrImage": null,
++   "verified": true,
++   "workspaceBinding": "0d6dd790-0d8e-4073-bde5-d9cc1d3cdef0",
++ }
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs:422:119
+    420|     evidence: '本人核对隔离测试的原投递，不授权重发。', confirm: true …
+    421|   try {
+    422|     for (const op of [['received'], ['retry'], ['abandon']]) await exp…
+       |                                                                                                                       ^
+    423|     expect((await detail(run.id)).deliveries[0].deliveries[0].outbox).…
+    424|     expect(wx.sent).toHaveLength(before + 1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 skipped (12)
+   Start at  17:01:16
+   Duration  7.12s (transform 40ms, setup 0ms, collect 72ms, tests 6.94s, environment 0ms, prepare 23ms)

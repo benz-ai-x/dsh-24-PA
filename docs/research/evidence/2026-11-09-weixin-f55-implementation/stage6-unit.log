@@ -1,0 +1,13 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/unit/memory-lifecycle.test.mjs (19 tests) 183ms
+ ✓ tests/unit/memory.test.mjs (27 tests) 72ms
+ ✓ tests/unit/plan-results.test.mjs (20 tests) 1528ms
+ ✓ tests/unit/plan-delivery-guards.test.mjs (18 tests) 1123ms
+ ✓ tests/unit/weixin-send-guards.test.mjs (3 tests) 95ms
+
+ Test Files  5 passed (5)
+      Tests  87 passed (87)
+   Start at  18:20:31
+   Duration  4.43s (transform 324ms, setup 0ms, collect 954ms, tests 3.00s, environment 0ms, prepare 104ms)

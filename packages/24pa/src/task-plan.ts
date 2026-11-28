@@ -4,6 +4,10 @@ import type { SkillContract } from './skill-package.js';
 import type { SourceTarget, SourceCapability } from './source-registry.js';
 import type { SourceSelector } from './source-config.js';
 import { Temporal } from '@js-temporal/polyfill';
+import type { WeixinIdentity } from './weixin-protocol.js';
+
+export type TaskPlanDestination = { target: string; identityKey: string; connectionHash: string } &
+  ({ channel: 'feishu' | 'wecom' } | ({ channel: 'weixin' } & WeixinIdentity));
 
 export interface TaskPlanConfiguration {
   version: 1;
@@ -11,7 +15,7 @@ export interface TaskPlanConfiguration {
   parameters: Record<string, unknown>;
   executionLimitMs: number;
   timeZone: string;
-  delivery: { channel: 'none' | 'feishu' | 'wecom'; mode: 'always' | 'changed' | 'errors'; voice: boolean; overrideQuiet: boolean };
+  delivery: { channel: 'none' | 'feishu' | 'wecom' | 'weixin'; mode: 'always' | 'changed' | 'errors'; voice: boolean; overrideQuiet: boolean };
   selectors: { calendar?: SourceSelector; todo?: SourceSelector };
   missedTtlMs: number;
   deliveryTtlMs: number;
@@ -21,7 +25,7 @@ export interface TaskPlanAuthorization {
   selectors?: TaskPlanConfiguration['selectors'];
   skill: { id: string; name: string; versionId: string; packageHash: string; tools: string[]; contract: SkillContract | null; resources: string[] };
   targets: Array<{ target: SourceTarget; capability: SourceCapability }>;
-  delivery: { channel: 'feishu' | 'wecom'; target: string; identityKey: string; connectionHash: string } | null;
+  delivery: TaskPlanDestination | null;
 }
 export type TaskPlanBlockKind = 'skill' | 'dependency' | 'authorization' | 'failures' | 'manual';
 export interface TaskPlanBlock { plan_id: string; key: string; kind: TaskPlanBlockKind; reason: string; created_at: Date }
@@ -101,7 +105,7 @@ export function taskPlanDraft(input: Record<string, unknown>, defaultTimeZone: s
   const preview = previewPlanTimes(spec, now);
   const delivery = object(input.delivery ?? { channel: 'none' }, '结果投递');
   const channel = String(delivery.channel ?? 'none'), mode = String(delivery.mode ?? 'always');
-  if (!['none', 'feishu', 'wecom'].includes(channel) || !['always', 'changed', 'errors'].includes(mode)) throw new Error('结果投递方式无效。');
+  if (!['none', 'feishu', 'wecom', 'weixin'].includes(channel) || !['always', 'changed', 'errors'].includes(mode)) throw new Error('结果投递方式无效。');
   if (delivery.voice === true && channel !== 'feishu') throw new Error('语音版仅适用于飞书，并同时保留完整文本。');
   const selectors = object(input.selectors ?? {}, '业务目标');
   if (Object.keys(selectors).some(key => !['calendar', 'todo'].includes(key))) throw new Error('不支持该业务目标类型。');

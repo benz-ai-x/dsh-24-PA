@@ -5,10 +5,12 @@ import type { OutboxRepo, OutboxRow, DeliveryAssociation } from './repo/outbox.j
 import { weixinIdentity, type WeixinBindingRow, type WeixinRepo } from './repo/weixin.js';
 import { WeixinCredentialVault } from './weixin-credentials.js';
 import { createWeixinRequest, splitWeixinText, sameWeixinIdentity, weixinApiBase, weixinEnvelope, weixinSendReceipt, weixinUpdates,
-  WEIXIN_API_BASE, WeixinProtocolError, type WeixinIdentity, type WeixinRequestFn } from './weixin-protocol.js';
+  WEIXIN_API_BASE, WeixinProtocolError, type WeixinIdentity, type WeixinRequest, type WeixinRequestFn } from './weixin-protocol.js';
 import { WeixinSessions } from './weixin-session.js';
-import { DeliveryHeld, type DeliveryHold } from './outbox-delivery.js';
+import { DeliveryHeld, checkDeliveryHold, finishDeliveryCheck, type DeliveryHold, type PreparedDeliveryCheck } from './outbox-delivery.js';
 import QRCode from 'qrcode';
+import type { TaskPlanDestination } from './task-plan.js';
+import { taskPlanFingerprint } from './task-plan-access.js';
 
 interface AccessContext { workspaceId: string; hostWorkspaceId: string; workspacePath: string; binding: string; repo: WeixinRepo; outbox: OutboxRepo }
 interface Candidate { id: string; accountId: string; ownerId: string; base: string; token: string; workspaceBinding: string }
@@ -33,9 +35,13 @@ export class WeixinAccess {
   private error: string | null = null;
   private quiescing = true;
   private sendEpoch = 0;
+  private readonly notificationSupported: () => boolean;
   constructor(private readonly deps: { host: DshContext; context(): AccessContext | null; available(): boolean;
-    execute<T>(work: () => Promise<T>): Promise<T>; received(): void; request?: WeixinRequestFn }) {
+    execute<T>(work: () => Promise<T>): Promise<T>; received(): void; request?: WeixinRequestFn;
+    /** Whether plan results may be sent to WeChat at all; absent, they may not (#281). */
+    notificationSupported?: () => boolean }) {
     this.request = deps.request ?? createWeixinRequest();
+    this.notificationSupported = deps.notificationSupported ?? (() => false);
     this.sessions = new WeixinSessions(deps.host, row => this.identities.get(row.session_id)?.generation === row.generation && this.identities.get(row.session_id)?.state !== 'retired');
   }
   register(rows: WeixinBindingRow[]): void { for (const row of rows) this.identities.set(row.session_id, row); }
@@ -49,11 +55,27 @@ export class WeixinAccess {
     if (!this.current(ctx) || row.state !== 'active' || !row.enabled) throw new Error('微信绑定已停止或退休；不能从旧入口办理业务。');
     return row;
   }
+  /** The one refusal behind every path that would name WeChat as a plan's target: saving a plan, enabling it, sending to it. */
+  assertNotificationAdmitted(): void {
+    if (!this.notificationSupported()) throw new Error('微信结果通知还没有通过真实平台验证，暂不能作为计划的通知目标；请保留原来的通知渠道。');
+  }
+  /** Captures only the fixed identity, never credentials or a reply token.
+   * Platform notification conditions still require separate real-account acceptance (#281): until the capability is
+   * established, the server refuses WeChat as a plan's target exactly as the page hides the option. */
+  async notificationTarget(): Promise<TaskPlanDestination> {
+    this.assertNotificationAdmitted();
+    const ctx = this.context(), row = await ctx.repo.active(ctx.workspaceId);
+    if (!row || !row.enabled || !row.session_ready || this.quiescing || !this.current(ctx) || this.phase !== 'polling') throw new Error('微信未连接到可用的本人绑定，请先在电脑端核对接入。');
+    const identity = weixinIdentity(row), credentials = await new WeixinCredentialVault(ctx.workspacePath).get(identity);
+    if (!credentials?.context) throw new Error('微信缺少本人会话的回复上下文，请先发来文字再预览通知目标。');
+    return { channel: 'weixin', target: row.owner_id, ...identity, identityKey: taskPlanFingerprint(identity),
+      connectionHash: taskPlanFingerprint([ctx.workspaceId, identity.generation]) };
+  }
   async snapshot() {
     const ctx = this.context(), active = await ctx.repo.active(ctx.workspaceId);
     return { binding: active ? { ...active, cursor: undefined } : null, phase: this.phase, error: this.error,
       loginPhase: this.loginPhase, candidate: this.candidate?.workspaceBinding === ctx.binding ? { id: this.candidate.id, accountId: this.candidate.accountId, ownerId: this.candidate.ownerId } : null,
-      verified: Boolean(active?.last_received_at && active?.last_sent_at), notificationSupported: false,
+      verified: Boolean(active?.last_received_at && active?.last_sent_at), notificationSupported: this.notificationSupported(),
       impact: active ? await ctx.repo.impact(active.generation) : null };
   }
   async loginState() {
@@ -218,16 +240,36 @@ export class WeixinAccess {
     }
     return null;
   }
-  async send(row: OutboxRow) {
-    const epoch = this.sendEpoch, ctx = this.context(), hold = await this.beforeSend(row); if (hold) throw new DeliveryHeld(hold);
-    const credentials = await new WeixinCredentialVault(ctx.workspacePath).get(row.delivery_target!);
-    if (!credentials?.context) throw new DeliveryHeld({ status: 'failed', error: '原微信会话缺少可用回复上下文；结果已保存，请先在微信发来文字再核对补投。' });
-    const again = await this.beforeSend(row); if (again) throw new DeliveryHeld(again);
+  async send(row: OutboxRow, beforeDispatch?: () => Promise<PreparedDeliveryCheck>) {
+    let request: WeixinRequest | undefined;
+    let finalCheck: PreparedDeliveryCheck = null;
+    const epoch = this.sendEpoch;
+    // All reads and checks precede the network dispatch. A preparation error
+    // therefore cannot be mistaken for an unknown platform send.
+    const hold = await checkDeliveryHold(async () => {
+      const ctx = this.context(), initial = await this.beforeSend(row); if (initial) return initial;
+      const credentials = await new WeixinCredentialVault(ctx.workspacePath).get(row.delivery_target!);
+      if (!credentials?.context) return { status: 'failed', error: '原微信会话缺少可用回复上下文；结果已保存，请先在微信发来文字再核对补投。' };
+      const again = await this.beforeSend(row); if (again) return again;
+      finalCheck = await beforeDispatch?.() ?? null;
+      if (finalCheck && typeof finalCheck !== 'function') return finalCheck;
+      if (!row.client_id) return { status: 'failed', error: '微信投递缺少持久客户端请求编号。' };
+      request = { base: credentials.base, token: credentials.token,
+        body: { msg: { from_user_id: '', to_user_id: row.target, client_id: row.client_id, message_type: 2, message_state: 2,
+          context_token: credentials.context, item_list: [{ type: 1, text_item: { text: String(row.content?.text ?? '') } }] } } };
+      return null;
+    });
+    if (hold) throw new DeliveryHeld(hold);
+    // This must remain after the final await, adjacent to the dispatch.
     if (this.quiescing || epoch !== this.sendEpoch) throw new DeliveryHeld({ status: 'pending', error: '微信入口正在停止，保留原投递。', retryInMs: 60_000 });
-    if (!row.client_id) throw new DeliveryHeld({ status: 'failed', error: '微信投递缺少持久客户端请求编号。' });
-    const response = await this.request('ilink/bot/sendmessage', { base: credentials.base, token: credentials.token,
-      body: { msg: { from_user_id: '', to_user_id: row.target, client_id: row.client_id, message_type: 2, message_state: 2,
-        context_token: credentials.context, item_list: [{ type: 1, text_item: { text: String(row.content?.text ?? '') } }] } } });
-    return weixinSendReceipt(response);
+    const finalHold = finishDeliveryCheck(finalCheck);
+    if (finalHold) throw new DeliveryHeld(finalHold);
+    try { return weixinSendReceipt(await this.request('ilink/bot/sendmessage', request)); }
+    catch (error) {
+      if (error instanceof WeixinProtocolError && error.needsLogin && epoch === this.sendEpoch && this.consumer?.generation === row.binding_generation) {
+        this.pause(); this.phase = 'needs_login'; this.error = error.message;
+      }
+      throw error;
+    }
   }
 }

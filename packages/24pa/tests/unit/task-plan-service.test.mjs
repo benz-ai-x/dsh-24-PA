@@ -94,6 +94,17 @@ for (const backend of ['sqlite', 'postgres']) describe(`定时任务配置服务
     const preview = await service.settingsPreview(input);
     return { input: { ...input, fingerprint: preview.fingerprint, confirm: true }, preview };
   };
+  it('保存与复制先过准入：宿主不放行的投递渠道，连暂停计划都存不进去', async () => {
+    const refusal = '微信结果通知还没有通过真实平台验证，暂不能作为计划的通知目标；请保留原来的通知渠道。';
+    const admit = vi.spyOn(access, 'admitDelivery').mockImplementation(async delivery => { if (delivery.channel === 'weixin') throw new Error(refusal); });
+    await expect(create({ delivery: { channel: 'weixin' } })).rejects.toThrow('还没有通过真实平台验证');
+    expect(admit.mock.calls.at(-1)[0]).toMatchObject({ channel: 'weixin' });
+    expect((await service.list({ workspaceBinding: 'binding' })).total).toBe(0);
+    const saved = await create();
+    await expect(service.change(command('copy', saved, { form: { delivery: { channel: 'weixin' } } }))).rejects.toThrow('还没有通过真实平台验证');
+    expect((await service.list({ workspaceBinding: 'binding' })).total).toBe(1);
+    await expect(service.change(command('copy', saved, { form: { delivery: { channel: 'feishu' } } }))).resolves.toMatchObject({ plan: { task_config: { delivery: { channel: 'feishu' } } } });
+  });
   it('PC-01 共用晨报预设，明确模板选择不会被智能默认覆盖；草稿不写账本', async () => {
     const before = await repos.taskPlans.summary();
     const smart = await service.draft({ preset: 'morning', workspaceBinding: 'binding' });

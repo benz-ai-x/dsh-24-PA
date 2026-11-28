@@ -7,7 +7,13 @@ export interface DeliveryAdapter {
   supports(kind: OutboxRow['kind']): boolean;
   send(row: OutboxRow): Promise<{ messageId?: string; acceptance?: WeixinAcceptance }>;
 }
-export interface DeliveryHold { status: 'pending' | 'failed' | 'expired'; error: string; retryInMs?: number }
+export interface DeliveryHold { status: 'pending' | 'limited' | 'failed' | 'expired'; error: string; retryInMs?: number }
+export type PreparedDeliveryCheck = DeliveryHold | (() => DeliveryHold | null) | null;
+/** Finish prepared synchronous checks at the actual dispatch boundary. */
+export function finishDeliveryCheck(prepared: PreparedDeliveryCheck): DeliveryHold | null {
+  try { return typeof prepared === 'function' ? prepared() : prepared; }
+  catch (error) { return { status: 'pending', error: `投递前核验未完成：${redactDiagnostic((error as Error).message)}`, retryInMs: 60000 }; }
+}
 /** Preparation completed, but no platform request has been dispatched. */
 export class DeliveryHeld extends Error {
   constructor(readonly hold: DeliveryHold) { super(hold.error); }
@@ -82,7 +88,8 @@ export class OutboxDelivery {
       } catch (error) {
         if (error instanceof DeliveryHeld) { await repo.mark(row.id, { ...error.hold, releaseAttempt: true }); return; }
         const unknown = (error as { outcome?: string })?.outcome !== 'failed';
-        await repo.mark(row.id, { status: unknown ? 'unknown' : row.attempts >= 3 ? 'failed' : 'pending', error: this.error(error), ...(!unknown && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
+        const limited = !unknown && row.channel === 'weixin' && (error as { needsLogin?: boolean })?.needsLogin === true;
+        await repo.mark(row.id, { status: unknown ? 'unknown' : limited ? 'limited' : row.attempts >= 3 ? 'failed' : 'pending', error: this.error(error), ...(!unknown && !limited && row.attempts < 3 ? { retryInMs: 2000 * row.attempts } : {}) });
         return;
       }
       try {

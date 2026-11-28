@@ -1,0 +1,38 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs (10 tests | 1 failed | 9 skipped) 6610ms
+   × WX-18 免打扰权威暂不可读时保留未发送结果，不把读取失败当作允许推送 2148ms
+     → expected { …(29) } to match object { status: 'completed', …(2) }
+(39 matching properties omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/e2e/weixin-plan-delivery.e2e.mjs > WX-18 免打扰权威暂不可读时保留未发送结果，不把读取失败当作允许推送
+AssertionError: expected { …(29) } to match object { status: 'completed', …(2) }
+(39 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "delivery_status": "pending",
++   "delivery_status": "sent",
+    "result": "偏好读取异常期间保存的结果。",
+    "status": "completed",
+  }
+
+ ❯ tests/e2e/weixin-plan-delivery.e2e.mjs:365:24
+    363|     await writeFile(path, '{incomplete'); release(); modelReply = null;
+    364|     const result = await until(() => detail(run.id), value => value.de…
+    365|     expect(result.run).toMatchObject({ status: 'completed', result: '…
+       |                        ^
+    366|     expect(result.deliveries[0].deliveries[0].outbox).toMatchObject({ …
+    367|     expect(result.deliveries[0].deliveries[0].outbox.last_error).toCon…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 skipped (10)
+   Start at  16:50:34
+   Duration  6.77s (transform 36ms, setup 0ms, collect 66ms, tests 6.61s, environment 0ms, prepare 22ms)

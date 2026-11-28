@@ -3,6 +3,7 @@ import type { SourceRegistry, SourceTarget } from './source-registry.js';
 import type { SourceProjectionRepo, SourceMembershipRow, SourceObservationQuery, SourceObservation, ObservedSourceItem } from './repo/source-projection.js';
 import { parseZonedRange } from './util.js';
 import { checkExecution } from './execution-cancellation.js';
+import { unverifiedBusinessRead } from './business-read-scope.js';
 
 type CalendarRole = 'all' | 'involved' | 'organizer' | 'participant';
 interface SourceCalendarDeps {
@@ -106,6 +107,7 @@ export class SourceCalendar {
           refreshed = true;
         } catch (error) { failure = (error as Error).message; }
       }
+      if (source.enabled && (!refreshed || failure)) unverifiedBusinessRead();
       const cache = await this.deps.projection().cached(scope, query);
       checkExecution();
       const observation = cache.observation;

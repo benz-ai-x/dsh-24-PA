@@ -49,10 +49,32 @@ it('查看未绑定状态不发起登录，候选身份与影响预览后才可�
 it('未知投递只能核对收到或明确补投，保留原身份与修订并要求本人依据', async () => {
   state.deliveries = [{ id: 13, revision: 4, binding_generation: 'original-generation', status: 'unknown', target: 'original-owner', content: { text: '原业务结果' }, association: { workItemId: 'work-original' } }];
   await click(button('刷新状态')); expect(container.textContent).toContain('original-owner'); expect(button('放弃未发送投递')).toBeUndefined();
+  // A reply to an input names that input and its work item, and nothing about a plan.
+  expect(container.textContent).toContain('原消息'); expect(container.textContent).toContain('work-original'); expect(container.textContent).not.toContain('原计划');
   await click(button('我已收到')); expect(button('保存核对').disabled).toBe(true);
   await act(async () => { const input = field('本人核对依据'); Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value').set.call(input, '本人已看到原文'); input.dispatchEvent(new win.Event('input', { bubbles: true })); });
   await click(field('我已核对原记录')); await click(button('保存核对'));
   expect(requests.at(-1).payload).toMatchObject({ action: 'delivery', op: 'received', id: 13, revision: 4, generation: 'original-generation', evidence: '本人已看到原文', confirm: true });
+});
+it('受限计划通知可核对后放弃，显示原计划关联并区分本人确认收到', async () => {
+  state.deliveries = [
+    { id: 21, revision: 3, binding_generation: 'original-generation', status: 'limited', target: 'original-owner',
+      content: { text: '原计划结果' }, last_error: '原微信绑定已停止', association: { planId: 'original-plan', skillRunId: 'original-run', noticeId: 'original-notice' } },
+    { id: 22, revision: 5, binding_generation: 'original-generation', status: 'sent', target: 'original-owner',
+      content: { text: '本人已收到的结果' }, acceptance: { basis: 'owner_visible' } },
+  ];
+  await click(button('刷新状态'));
+  expect(button('核对后补投')).toBeTruthy(); expect(button('放弃未发送投递')).toBeTruthy();
+  expect(container.textContent).toContain('original-plan'); expect(container.textContent).toContain('original-run'); expect(container.textContent).toContain('original-notice');
+  // A plan result has no input or work item to name: those two rows are not shown as "not configured".
+  const limited = [...container.querySelectorAll('article')].find(node => node.textContent.includes('原计划结果'));
+  expect(limited.textContent).toContain('原计划'); expect(limited.textContent).not.toContain('原消息'); expect(limited.textContent).not.toContain('原交办');
+  const received = [...container.querySelectorAll('article')].find(node => node.textContent.includes('本人已收到的结果'));
+  expect(received.textContent).toContain('本人确认收到'); expect(received.textContent).not.toContain('平台已接收'); expect(received.querySelectorAll('button')).toHaveLength(0);
+  await click(button('放弃未发送投递')); expect(button('保存核对').disabled).toBe(true);
+  await act(async () => { const input = field('本人核对依据'); Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value').set.call(input, '本次通知不再需要，保留原结果'); input.dispatchEvent(new win.Event('input', { bubbles: true })); });
+  await click(field('我已核对原记录')); await click(button('保存核对'));
+  expect(requests.at(-1).payload).toMatchObject({ action: 'delivery', op: 'abandon', id: 21, revision: 3, generation: 'original-generation', evidence: '本次通知不再需要，保留原结果', confirm: true });
 });
 it('离线不显示仍在收信，二维码隐藏且写操作停用；刷新恢复', async () => {
   Object.assign(state, { phase: 'polling', qrImage: 'data:image/png;base64,test', loginPhase: 'wait' });

@@ -1,0 +1,15 @@
+# negative controls, on the clean export of 632bb20: the built files changed, the sources not, restored afterwards
+== the runtime admits the capability on every Host
+ ❯ tests/unit/weixin-send-guards.test.mjs (7 tests | 1 failed) 387ms
+   × 真实 runtime 只在 fake 通道的宿主上把这项能力读成成立 70ms
+ ❯ tests/unit/weixin-send-guards.test.mjs:128:69
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+exit=1
+== the server no longer refuses
+ ❯ tests/unit/weixin-send-guards.test.mjs (7 tests | 1 failed) 405ms
+   × 能力没有成立时，服务端拒绝把微信作为通知目标，页面读到的是同一个结论 79ms
+ ❯ tests/unit/weixin-send-guards.test.mjs:112:45
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+exit=1

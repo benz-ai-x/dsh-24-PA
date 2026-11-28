@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /private/tmp/24pa-weixin-f55-impl-20261109/packages/24pa
+
+ ✓ tests/e2e/weixin-plan-delivery.e2e.mjs (19 tests | 18 skipped) 16163ms
+   ✓ WX-18 原生运行在免打扰期间解除等待并完成，恢复通知时只发最终结果 10293ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 18 skipped (19)
+   Start at  18:02:40
+   Duration  16.33s (transform 41ms, setup 0ms, collect 77ms, tests 16.16s, environment 0ms, prepare 20ms)

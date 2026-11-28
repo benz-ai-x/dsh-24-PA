@@ -10,6 +10,7 @@ import type { TaskPlanAuthorization, TaskPlanConfiguration } from '../task-plan.
 import type { TaskPlanRow } from './task-plan.js';
 import { hasExecutionCapacity } from './execution-capacity.js';
 import type { PlanDeliveryStatus } from './plan-result.js';
+import { emptyBusinessReadScope, mergeBusinessReadScopes, type BusinessReadScope } from '../business-read-scope.js';
 
 export type SkillRunStatus = 'pending' | 'running' | 'waiting' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'timed_out' | 'needs_reconciliation';
 export interface SkillRunSnapshot {
@@ -35,6 +36,7 @@ export interface SkillRunRow {
   created_at: Date; updated_at: Date;
   plan_id?: string | null; trigger_kind?: string | null; triggered_at?: Date | null;
   stop_reason?: 'owner' | 'blocked' | null;
+  read_scope?: BusinessReadScope | null;
 }
 export interface SkillRunCall {
   run_id: string; call_id: string; tool: string; arguments: Record<string, unknown>;
@@ -74,6 +76,15 @@ const decodeInput = (row: SkillRunInput): SkillRunInput => {
  * A retry key is not a new run, and a new run cannot bypass an unresolved one. */
 export class SkillRunRepo {
   constructor(private readonly db: PaDb) {}
+  async recordReadScope(id: string, scope: BusinessReadScope): Promise<void> {
+    await this.db.withTransaction(async tx => {
+      const run = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1 for update', [id])).rows[0];
+      // A legacy or resumed run may already have consumed unrecorded data.
+      // A new read must never manufacture complete provenance for its past.
+      if (!run?.read_scope) return;
+      await tx.query('update pa24.skill_run set read_scope = $2 where id = $1', [id, JSON.stringify(mergeBusinessReadScopes(run.read_scope, scope))]);
+    });
+  }
   async evidence(id: string, tx: PaQueryer = this.db) {
     const calls = (await tx.query<SkillRunCall>('select * from pa24.skill_run_call where run_id = $1 order by session_id, call_id', [id])).rows;
     const native = (await tx.query<SkillRunNative>('select * from pa24.skill_run_native where run_id = $1 order by kind, owner_id, native_id', [id])).rows;
@@ -267,11 +278,18 @@ export class SkillRunRepo {
         name, description: input.snapshot.definition.description, source: input.snapshot.provider ? input.skill_id.split(':')[0] : 'pa24-managed', track: input.mode === 'template' ? 'template' : 'agent',
         metadata: input.snapshot.definition.metadata, content: input.snapshot.definition.content,
       }), id]);
+      let readScope = input.snapshot.plan ? emptyBusinessReadScope() : null;
+      if (readScope && input.snapshot.continuation) {
+        for (const previous of input.snapshot.continuation.runs) {
+          const row = (await tx.query<SkillRunRow>('select * from pa24.skill_run where id = $1', [previous.id])).rows[0];
+          readScope = mergeBusinessReadScopes(readScope, row?.read_scope);
+        }
+      }
       const run = (await tx.query<SkillRunRow>(`insert into pa24.skill_run
-        (id, request_id, request_hash, work_item_id, skill_id, version_id, source_session_id, session_id, workspace_path, mode, trial, snapshot, plan_id, trigger_kind, triggered_at)
-        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning *`,
+        (id, request_id, request_hash, work_item_id, skill_id, version_id, source_session_id, session_id, workspace_path, mode, trial, snapshot, plan_id, trigger_kind, triggered_at, read_scope)
+        values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning *`,
       [id, input.request_id, input.request_hash, workId, input.skill_id, input.version_id, input.source_session_id, sessionId,
-        input.workspace_path, input.mode, input.trial, JSON.stringify(input.snapshot), input.plan_id ?? null, input.trigger_kind ?? null, input.triggered_at ?? null])).rows[0]!;
+        input.workspace_path, input.mode, input.trial, JSON.stringify(input.snapshot), input.plan_id ?? null, input.trigger_kind ?? null, input.triggered_at ?? null, readScope ? JSON.stringify(readScope) : null])).rows[0]!;
       await tx.query('insert into pa24.skill_run_session (run_id, session_id, parent_session_id, workspace_path) values ($1,$2,$3,$4)',
         [run.id, sessionId, input.mode === 'business' ? input.source_session_id : null, input.workspace_path]);
       await initializeRunControl(tx, run.id, input.snapshot.executionLimitMs);
