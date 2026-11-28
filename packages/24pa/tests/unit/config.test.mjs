@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateConfig, parseAgentsMd, template, ConfigError, DEFAULT_CONFIG, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, noteParentToken, rawAgentsMdConfig, replaceAgentsMdConfig } from '../../lib/config.js';
+import { validateConfig, parseAgentsMd, template, ConfigError, DEFAULT_CONFIG, VOLC_TTS_VOICES, CONFIG_UPDATE_ALLOWED, noteParentToken, rawAgentsMdConfig, replaceAgentsMdConfig, DELEGATION_EXTRA_TOOLS, EXTRA_MCP_SERVERS, KNOWN_EXTRA_TOOLS, mcpToolWildcardOf } from '../../lib/config.js';
 
 describe('AGENTS.md 配置校验', () => {
   it('接受默认模板并完整往返', () => {
@@ -75,7 +75,11 @@ describe('AGENTS.md 配置校验', () => {
     expect(
       () => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__qwennote__*', 'mcp__qwennote__list_minutes'] }),
     ).not.toThrow();
-    // 其他 mcp 服务前缀与格式非法的名字仍拒绝（v1 只放行 qwennote）。
+    // 未准入的 MCP 服务前缀与格式非法的名字仍拒绝。
+    // #308: the official Tencent Docs plugin's on-demand tools are admitted beside QwenNote's.
+    expect(validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__tencent-docs__*', 'mcp__tencent-docs__load_tools'] }).extraLocalTools).toEqual(['mcp__tencent-docs__*', 'mcp__tencent-docs__load_tools']);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__linear__*'] })).toThrow(/extraLocalTools/);
+    expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__tencent-docs__'] })).toThrow(/extraLocalTools/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__other__*'] })).toThrow(/extraLocalTools/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__qwennote__'] })).toThrow(/extraLocalTools/);
     expect(() => validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: ['mcp__qwennote__bad name!'] })).toThrow(/extraLocalTools/);
@@ -198,5 +202,14 @@ describe('参数配置表单写回（F33/P60）', () => {
     // tts.voice 描述符携带音色选项（client 不再有第二份）
     const voice = CONFIG_FIELDS.find(f => f.name === 'tts.voice');
     expect(voice.options.map(o => o.value)).toEqual(VOLC_TTS_VOICES.map(v => v.id));
+  });
+  it('extraLocalTools 描述符携带可勾选项：委派工具与每个准入 MCP 服务器的通配（#308；面板从这里读，不留第二份）', async () => {
+    const { CONFIG_FIELDS } = await import('../../lib/config.js');
+    const field = CONFIG_FIELDS.find(f => f.name === 'extraLocalTools');
+    expect(field.options).toEqual(KNOWN_EXTRA_TOOLS.map(value => ({ value, label: value })));
+    expect(KNOWN_EXTRA_TOOLS).toEqual([...DELEGATION_EXTRA_TOOLS, ...EXTRA_MCP_SERVERS.map(server => mcpToolWildcardOf(server.name))]);
+    expect(KNOWN_EXTRA_TOOLS).toEqual(['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*', 'mcp__tencent-docs__*']);
+    // Each offered entry is one the configuration accepts.
+    for (const { value } of field.options) expect(validateConfig({ ...DEFAULT_CONFIG, extraLocalTools: [value] }).extraLocalTools).toEqual([value]);
   });
 });

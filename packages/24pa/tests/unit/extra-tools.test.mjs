@@ -1,7 +1,7 @@
 // F18: extraLocalTools 存在性过滤——配置点名的工具在并入 restrict() 白名单前，
 // 必须按活挂载信号解析；未挂载项被过滤并保序可观测，绝不让 restrict() 抛错。
 import { describe, expect, it } from 'vitest';
-import { resolveExtraLocalTools, qwennoteChannelState } from '../../lib/tools.js';
+import { admittedMcpToolOutside, qwennoteChannelState, resolveExtraLocalTools } from '../../lib/local-tool-access.js';
 
 const signals = ({ globalToolNames = [], providers = [] } = {}) => ({
   globalToolNames: new Set(globalToolNames),
@@ -40,6 +40,32 @@ describe('extraLocalTools 解析（F18）', () => {
       allow: [],
       filtered: ['mcp__qwennote__*'],
     });
+  });
+
+  it('腾讯文档通配条目展开为该命名空间下已挂载的工具，未挂载时被过滤（#308）', () => {
+    expect(resolveExtraLocalTools(['mcp__tencent-docs__*'], signals({ globalToolNames: ['mcp__tencent-docs__load_tools', 'mcp__qwennote__x', 'read'] }))).toEqual({
+      allow: ['mcp__tencent-docs__load_tools'],
+      filtered: [],
+    });
+    expect(resolveExtraLocalTools(['mcp__tencent-docs__*'], signals({ globalToolNames: ['mcp__qwennote__x'] }))).toEqual({
+      allow: [],
+      filtered: ['mcp__tencent-docs__*'],
+    });
+    expect(resolveExtraLocalTools(['mcp__tencent-docs__doc_create'], signals({ globalToolNames: ['mcp__tencent-docs__load_tools'] }))).toEqual({
+      allow: [],
+      filtered: ['mcp__tencent-docs__doc_create'],
+    });
+  });
+
+  it('admittedMcpToolOutside：放行范围外的 MCP 工具，经同一服务器已放行的加载器载入的除外（#308）', () => {
+    const listed = ['read', 'mcp__tencent-docs__load_tools'];
+    expect(admittedMcpToolOutside(listed, 'mcp__tencent-docs__echo')).toBe(false);
+    expect(admittedMcpToolOutside(listed, 'mcp__tencent-docs__load_tools')).toBe(false);
+    expect(admittedMcpToolOutside(listed, 'mcp__qwennote__list_minutes')).toBe(true);
+    expect(admittedMcpToolOutside(listed, 'mcp__linear__search')).toBe(false);
+    expect(admittedMcpToolOutside(['read'], 'mcp__tencent-docs__echo')).toBe(true);
+    expect(admittedMcpToolOutside(['read', 'mcp__tencent-docs__load_tools', 'mcp__qwennote__get_transcript'], 'mcp__qwennote__list_minutes')).toBe(true);
+    expect(admittedMcpToolOutside(listed, 'read')).toBe(false);
   });
 
   it('精确工具名按宿主面存在性过滤', () => {

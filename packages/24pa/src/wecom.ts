@@ -22,6 +22,14 @@ import { Temporal } from '@js-temporal/polyfill';
 //   exit 2. Business responses (including errors) arrive on stdout.
 // - timeouts settle as outcome "unknown": verify the real object first.
 
+/**
+ * What each WeCom service is called, in each language the plugin ships. The server side reads it here; the panel keeps its own
+ * copy, since it cannot import this file, and a unit test keeps the two equal.
+ */
+export const WECOM_SERVICE_NAMES: Readonly<Record<string, { readonly zh: string; readonly en: string }>> = {
+  calendar: { zh: '日程', en: 'Calendar' }, todo: { zh: '待办', en: 'Todo' }, push: { zh: '推送', en: 'Push' },
+};
+
 export interface WecomCliOptions {
   bin: string;
   timeoutMs: number;
@@ -201,9 +209,8 @@ export function wecomAuthAlertPlan(
   const renewals = services.filter(s => s.state === 'unauthorized' || s.state === 'expired');
   if (renewals.length === 0) return null;
   const ids = renewals.map(s => s.id).sort().join(',');
-  const SERVICE_LABELS: Record<string, string> = { calendar: '日程', todo: '待办', push: '推送' };
   const lines = renewals.map(s => {
-    const label = SERVICE_LABELS[s.id] ?? s.id;
+    const label = WECOM_SERVICE_NAMES[s.id]?.zh ?? s.id;
     const stateLabel = s.state === 'expired' ? '已过期' : '未授权';
     const guidance = s.helpMessage ? `；续期指引（原文）：${s.helpMessage}` : '';
     return `- ${label}：${stateLabel}${guidance}`;

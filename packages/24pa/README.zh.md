@@ -137,7 +137,7 @@ dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://regis
 | `PA24_WORKSPACE` | 首次启动绑定的绝对工作区目录（也可在面板或设置里选择） |
 | `PA24_FEISHU_APP_ID` / `PA24_FEISHU_APP_SECRET` | 飞书自建应用凭据（feishu 模式） |
 
-`AGENTS.md` 字段：`mode`（demo/feishu）、`storage`（sqlite/postgres，默认 sqlite——账本默认是工作区 `data/pa24.db`，SQLite 用 Node 内建 `node:sqlite`（本包支持的 Node 范围内均免 flag）；显式 `postgres` 时才需要 `pgDsnEnv` 与外部数据库）、`larkProfile`、`ownerOpenId`、`folderToken`、`wikiNodeToken`（可选——已配置时备忘与手写待审文档建到该飞书知识库节点下，留空回退 folderToken）、`tasklistId`、`calendarId`、`calendarChannel`/`todoChannel`/`notifyChannel`（feishu|wecom，默认 feishu——企微作日程/待办第二操作渠道＋提醒单向推送，永不收信）、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraBusinessSkills`（kebab-case 放行名单，把工作区业务 skill 释放给模型执行）、`tts`（`engine` none/melo/volcengine、`voice`、`volcKeyEnv`、`meloDir`——语音简报走火山豆包云端或本地 Melo）、`extraLocalTools`（subagent_codex、subagent_claude_code，以及经 `mcp__qwennote__*` 通配或精确名放行的 QwenNote 听记工具；点名未挂载工具的条目会被过滤并在健康里提示）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
+`AGENTS.md` 字段：`mode`（demo/feishu）、`storage`（sqlite/postgres，默认 sqlite——账本默认是工作区 `data/pa24.db`，SQLite 用 Node 内建 `node:sqlite`（本包支持的 Node 范围内均免 flag）；显式 `postgres` 时才需要 `pgDsnEnv` 与外部数据库）、`larkProfile`、`ownerOpenId`、`folderToken`、`wikiNodeToken`（可选——已配置时备忘与手写待审文档建到该飞书知识库节点下，留空回退 folderToken）、`tasklistId`、`calendarId`、`calendarChannel`/`todoChannel`/`notifyChannel`（feishu|wecom，默认 feishu——企微作日程/待办第二操作渠道＋提醒单向推送，永不收信）、`timeZone`、`appIdEnv`/`appSecretEnv`/`pgDsnEnv`、`maxWorkers`、`enabledWorkers`、`workerModels`、`extraBusinessSkills`（kebab-case 放行名单，把工作区业务 skill 释放给模型执行）、`tts`（`engine` none/melo/volcengine、`voice`、`volcKeyEnv`、`meloDir`——语音简报走火山豆包云端或本地 Melo）、`extraLocalTools`（subagent_codex、subagent_claude_code，经 `mcp__qwennote__*` 通配或精确名放行的 QwenNote 听记工具，以及经 `mcp__tencent-docs__*` 通配放行的官方腾讯文档插件工具；点名未挂载工具的条目会被过滤并在健康里提示）。配置飞书接入时，对本地会话说「帮我接通飞书」，或调用 `pa24_connection` 的 `action=guide`；内置 `feishu-setup.md` 是唯一权威。
 
 ### 已登记的日程与待办来源
 
@@ -151,7 +151,7 @@ schema 20 为两种账本增加来源登记、访问证据、平台对象、来�
 
 ### 暴露工具
 
-外部 CLI 委派行已随包启用但保持休眠：`subagent_codex` 与 `subagent_claude_code` 仅在对应 provider 包（`@deepseek-ai/dsh-subagent-codex` / `-claude-code`）安装进 Profile 后挂载，且工作区须再经 `extraLocalTools` 显式开启——点名了未挂载工具的条目会在 `tools.restrict()` 之前被过滤并进入维护健康提示，provider 或通道缺失不再导致会话创建失败。QwenNote 听记工具经宿主面过同一道门：在 Profile patch 添加 `serverName: qwennote` 的 `dsh-mcp-client` 条目（stdio＋`mcp-remote` OAuth 桥，锁版本），由本人浏览器完成一次授权，再经 `mcp__qwennote__*` 放行。`ralph` 对本地会话可用，遵循其工具契约：仅在本人明确要求时使用。
+外部 CLI 委派行已随包启用但保持休眠：`subagent_codex` 与 `subagent_claude_code` 仅在对应 provider 包（`@deepseek-ai/dsh-subagent-codex` / `-claude-code`）安装进 Profile 后挂载，且工作区须再经 `extraLocalTools` 显式开启——点名了未挂载工具的条目会在 `tools.restrict()` 之前被过滤并进入全应用健康提示，provider 或通道缺失不再导致会话创建失败。QwenNote 听记工具经宿主面过同一道门：在 Profile patch 添加 `serverName: qwennote` 的 `dsh-mcp-client` 条目（stdio＋`mcp-remote` OAuth 桥，锁版本），由本人浏览器完成一次授权，再经 `mcp__qwennote__*` 放行。官方腾讯文档插件的工具按需加载、过同一道门：安装 `@deepseek-ai/dsh-tencent-docs`，在它的插件页连接账号，再经 `mcp__tencent-docs__*` 放行；它的工具经一个加载器载入，所以用通配放行，插件连接之前已经打开的本地会话要新开一个才有加载器。`ralph` 对本地会话可用，遵循其工具契约：仅在本人明确要求时使用。
 
 ### 你会得到什么
 
@@ -243,11 +243,11 @@ schema 20 为两种账本增加来源登记、访问证据、平台对象、来�
 
 #### Token 影响
 
-会话生命周期内按角色固定；`extraLocalTools` 仅扩展本地 allow 名单，其他 bundle 在宿主面新增的工具（如 `schedule_*`）不经过本 bundle 的名单。
+会话生命周期内按角色固定——放行了腾讯文档的工作区除外，它的工具由模型按需载入、会话中途才加进本地会话；`extraLocalTools` 仅扩展本地 allow 名单，其他 bundle 在宿主面新增的工具（如 `schedule_*`）不经过本 bundle 的名单。
 
 #### KV Cache 影响
 
-只追加：同一会话各请求间目录恒定，对话增长不改写前缀；修改工作区 `extraLocalTools`、变更预设组装或升级本包会使复用失效。
+只追加：同一会话各请求间目录恒定——腾讯文档按需载入的工具除外，它们在模型加载后才加进来——对话增长不改写前缀；修改工作区 `extraLocalTools`、变更预设组装或升级本包会使复用失效。
 
 间接地，经本 bundle 组装的预设行，每个被插入的标准包各自持有其工具描述与提示词贡献。
 

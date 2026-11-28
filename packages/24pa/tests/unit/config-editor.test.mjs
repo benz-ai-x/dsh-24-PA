@@ -107,6 +107,20 @@ describe('工作区参数编辑：真实 React DOM 用户操作', () => {
     expect(saved.pgDsnEnv).toBe('NEXT_PG_DSN'); expect(saved.storage).toBe('sqlite');
     expect(requests.find(row => row.payload.type === 'workspace.config-update').payload.config).toEqual({ pgDsnEnv: 'NEXT_PG_DSN' });
   });
+  it('本地扩展工具的勾选项取自配置描述符：委派工具与两个 MCP 通配；说明写明腾讯文档用通配，勾选后随保存写进 extraLocalTools', async () => {
+    const { KNOWN_EXTRA_TOOLS } = await import('../../lib/config.js');
+    const section = container.querySelector('#pa24-extra-tools');
+    expect(section).toBeTruthy();
+    expect([...section.querySelectorAll('label')].map(node => node.textContent)).toEqual(KNOWN_EXTRA_TOOLS);
+    expect(KNOWN_EXTRA_TOOLS).toEqual(['subagent_codex', 'subagent_claude_code', 'mcp__qwennote__*', 'mcp__tencent-docs__*']);
+    expect(section.textContent).toContain('腾讯文档经加载器按需载入，用通配放行');
+    // The panel carries no copy of the list: it comes with the snapshot's configMeta.
+    expect(source).not.toContain("'mcp__tencent-docs__*'");
+    await click([...section.querySelectorAll('input')].at(-1));
+    await click(button('保存并重载'));
+    expect(requests.find(row => row.payload.type === 'workspace.config-update').payload.config).toEqual({ extraLocalTools: ['mcp__tencent-docs__*'] });
+    expect(saved.extraLocalTools).toEqual(['mcp__tencent-docs__*']);
+  });
   it('身份影响必须先读到再允许保存；普通参数不显示统计或增加确认', async () => {
     await change(field('maxWorkers'), '3');
     expect(container.querySelector('[aria-label="本次修改的影响"]')).toBeNull();

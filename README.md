@@ -161,7 +161,7 @@ Read the [package reference](packages/24pa/README.md) for configuration fields, 
 - Model usage, prices, and budget estimates are not vendor bills. Reconcile actual provider usage and billing differences; budgets do not promise an exact invoice cap.
 - Handwriting recognition accuracy is not yet quantified; the visual model route must be configured explicitly.
 - Backup verification and an isolated restore check do not prove production recovery. Credentials, remote objects, pending actions, deliveries, plans, and budgets must be reconciled before a separately authorized cutover.
-- External Codex/Claude Code delegation and QwenNote tools require their providers and explicit workspace opt-in; they are not silently enabled.
+- External Codex/Claude Code delegation, QwenNote tools and the official Tencent Docs plugin's tools require their providers and explicit workspace opt-in; they are not silently enabled.
 
 ## FAQ
 

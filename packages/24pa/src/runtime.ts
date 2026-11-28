@@ -25,6 +25,9 @@ import type { HealthState, HealthIdentity, HealthIdentityRow } from './repo/heal
 import { readFileSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 
+/** Whether a configuration switches the Feishu channel on: sources are verified and used in Feishu mode only. */
+const feishuSwitchedOn = (config: PaConfig | null | undefined): boolean => config?.mode === 'feishu';
+
 /** F42：角色注册占位（≥10 字过校验）；真实 persona 在 Worker 启动时自 skill 目录装载。 */
 const SKILL_SOURCED_PERSONA_PLACEHOLDER = '职责、完成标准与边界经任务 skill（worker-persona-*）在会话启动时装载；此处仅注册占位。';
 import { createRequire } from 'node:module';
@@ -33,6 +36,7 @@ import { basename, isAbsolute, join } from 'node:path';
 import type { DshContext, DshAgent, DshSession, ContentBlock, WorkspaceInfo, ContinuableStartSpec, NativeScheduleService, SessionTitleService, AgentRegistry, ProfileContextService } from './host.js';
 import { VendorClis, CliUnavailableError, CLI_SOURCE_LABELS, hasOfficialConnectors, unusableCli, type CliLocation, type PackageResolver, type VendorCli } from './cli-source.js';
 import type { ChannelCli } from './channel-deps.js';
+import { feishuAccessReport, wecomAccessReport, type AccessAccount } from './connector-account.js';
 import { PaDatabase, resolveDsn } from './pg.js';
 import { SqliteDb } from './sqlite.js';
 import type { PaDb } from './db.js';
@@ -50,7 +54,7 @@ import { WorkCompletionHistory, workExecutionContent } from './work-completion.j
 import { createRepos, type Repos, type WorkItemRow, type ActionOperationRow, type TaskRow, type CalendarEventRow, type NewOutbox } from './repo.js';
 import { acquireHostLock, type HostLock } from './lock.js';
 import { template, ConfigError, validateConfig, QWENNOTE_TOOL_PREFIX, QWENNOTE_TOOL_WILDCARD, VOLC_TTS_VOICES, noteParentToken, type PaConfig } from './config.js';
-import { qwennoteChannelState } from './tools.js';
+import { qwennoteChannelState } from './local-tool-access.js';
 import { DEFAULT_LARK_PROFILE, runLarkCli, sendLarkAudioMessage } from './lark.js';
 import { resolveTtsEngine, probeTts, type TtsReadiness } from './tts.js';
 import { writeSecretStore, secretStatus, resolveSecret, secretRefs, secretEnvironment, SECRET_KEYS, type SecretKey, type SecretStore, type SecretStatus } from './secrets.js';
@@ -411,7 +415,7 @@ export class PaRuntime {
     const row = await this.repos!.health.observeIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
     this.wecomIdentity = row;
     if (row.changed) {
-      this.wecomChannels.invalidate();
+      this.forgetWecomAccess();
       throw new Error('企微真人或机器人绑定已改变；旧身份成功证据失效。请在接入卡核对原交办、待发与新身份后确认，未自动接受新绑定。');
     }
   }
@@ -1445,6 +1449,7 @@ export class PaRuntime {
     connection.activate();
     this.memory = new MemoryStore(real, this.ctx);
     this.diagnostics = null;
+    this.accessAccountChanged();
     this.extraToolResolution = next.extraToolResolution ?? null;
     this.roles.replace(candidateRoles);
     this.workLifecycle.reset();
@@ -1550,13 +1555,16 @@ export class PaRuntime {
   }
 
   private applyWorkspaceConfiguration(parsed: WorkspaceConfiguration): void {
-    if (this.sourceHash !== parsed.sourceHash) { this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null; }
+    // The stored access results were read against the configuration going out, so they go with it. They are dropped once the new
+    // configuration is in: telling the Plugins page makes it read which channels are switched on, and that must be the new answer.
+    const resultsAreStale = this.sourceHash !== parsed.sourceHash;
     this.config = parsed.config;
     this.secretStore = parsed.secrets;
     this.instructions = parsed.instructions;
     this.sourceHash = parsed.sourceHash;
     this.loadedAt = nowIso();
     this.configError = null;
+    if (resultsAreStale) { this.forgetAccessResults(); this.ttsProbeCache = null; }
   }
 
   private transportIdentity(config: PaConfig | null, store: SecretStore): string {
@@ -1700,7 +1708,7 @@ export class PaRuntime {
         const reconnect = this.transportIdentity(this.config, this.secretStore) !== this.transportIdentity(this.config, next);
         const connection = reconnect || (this.config?.mode === 'feishu' && !this.transport) ? await this.prepareTransport(this.config!, next) : null;
         this.secretStore = next;
-        this.diagnostics = null; this.wecomChannels.invalidate(); this.ttsProbeCache = null;
+        this.forgetAccessResults(); this.ttsProbeCache = null;
         if (connection) await this.activateTransport(connection);
       } catch (error) {
         throw Object.assign(new Error(`密钥已保存但尚未生效，当前连接保持原状：${this.sanitizeDiagnostic(redactDiagnostic((error as Error).message, Object.values(next)))}`), {
@@ -2107,12 +2115,61 @@ export class PaRuntime {
     return this.executions.run(async () => {
       const result = await this.wecomChannels.wecomCheck();
       await this.connectionHealth.check(['wecom'], { wecom: result });
+      this.accessAccountChanged();
       return result;
     });
   }
 
   wecomDiagnosticsSnapshot(): WecomDiagnostics | null {
     return this.wecomChannels.wecomDiagnosticsSnapshot();
+  }
+
+  // ---- access account on the host's Plugins page (#309) ---------------------
+
+  /** Whether the configuration switches the WeCom channel on: a WeCom source, WeCom push, or a legacy selector set to WeCom. */
+  private wecomSwitchedOn(): boolean {
+    return !!this.config && this.vendorCliCalled(this.config).wecom;
+  }
+
+  /** The read-only check the Plugins page starts: each switched-on channel, one after the other, and nothing else. */
+  async checkSwitchedOnAccess(): Promise<void> {
+    if (feishuSwitchedOn(this.config)) await this.checkAccess();
+    if (this.wecomSwitchedOn()) await this.wecomCheck();
+  }
+
+  private readonly accessAccountListeners = new Set<() => void>();
+
+  /** The WeCom access result is no longer current: drop it and tell the Plugins page, which shows the stored results. */
+  private forgetWecomAccess(): void {
+    this.wecomChannels.invalidate();
+    this.accessAccountChanged();
+  }
+
+  /** Neither channel's access result is current any more, the configuration or its secrets having changed. */
+  private forgetAccessResults(): void {
+    this.diagnostics = null;
+    this.forgetWecomAccess();
+  }
+
+  /** Call `listener` after each change the plugin makes to the stored access results; returns a disposer. */
+  onAccessAccount(listener: () => void): () => void {
+    this.accessAccountListeners.add(listener);
+    return () => { this.accessAccountListeners.delete(listener); };
+  }
+
+  /** What the Plugins page shows of this workspace's access: the stored results of the switched-on channels, and no probe. */
+  accessAccountState(): AccessAccount {
+    const config = this.config;
+    if (!this.workspace || !config) return { state: 'unbound' };
+    return {
+      state: 'reported', mode: config.mode, timeZone: config.timeZone,
+      feishu: feishuSwitchedOn(config) ? feishuAccessReport(this.diagnostics) : null,
+      wecom: this.wecomSwitchedOn() ? wecomAccessReport(this.wecomChannels.wecomDiagnosticsSnapshot()) : null,
+    };
+  }
+
+  private accessAccountChanged(): void {
+    for (const listener of this.accessAccountListeners) listener();
   }
 
   // ---- inbound: durable inbox before ACK -----------------------------------
@@ -4605,7 +4662,7 @@ export class PaRuntime {
       if (!identity || typeof identity.ownerId !== 'string' || typeof identity.authority !== 'string') throw new Error('缺少核验得到的真人与机器人标识。');
       const row = await this.repos!.health.acceptIdentity('wecom', { ownerId: identity.ownerId, authority: identity.authority });
       this.wecomIdentity = row;
-      this.wecomChannels.invalidate();
+      this.forgetWecomAccess();
       return { identity: row, message: '已确认新的企微绑定；旧来源和计划未迁移，请按原归属逐项重新登记与核验。' };
     });
   }
@@ -4674,6 +4731,7 @@ export class PaRuntime {
         .then(async result => {
           if (this.workspace === workspace) {
             this.diagnostics = result;
+            this.accessAccountChanged();
             if (typeof result.auth.openId === 'string' && typeof result.auth.appId === 'string') {
               const identity = { ownerId: result.auth.openId, authority: `app:${result.auth.appId}:tenant:${result.auth.tenantKey ?? 'unverified'}` };
               const observed = await this.repos!.health.observeIdentity('feishu', identity);
@@ -4750,19 +4808,24 @@ export class PaRuntime {
     return { startedAt: this.startedAt, items };
   }
 
+  /** Which vendor CLIs the configuration can call: lark-cli in Feishu mode; wecom-cli for a WeCom source, WeCom push, or a legacy selector set to WeCom. */
+  private vendorCliCalled(config: PaConfig): Record<VendorCli, boolean> {
+    const sources = effectiveSources(config).entries.filter(row => row.enabled);
+    return {
+      // Demo mode reaches no platform through lark-cli; sources are verified and used in Feishu mode only.
+      lark: feishuSwitchedOn(config),
+      // Beside registered sources, the legacy channel selectors still route reminders without a bound target and projections.
+      wecom: sources.some(row => row.platform === 'wecom') || [config.calendarChannel, config.todoChannel, config.notifyChannel].includes('wecom'),
+    };
+  }
+
   /**
    * How each CLI is supplied (#306). A CLI the configuration calls for is an error when nothing supplies it or it
    * cannot run as given. Demo mode calls for no lark-cli: a missing one is then information, not a fault.
    */
   private cliReadiness(config: PaConfig | null): ReadinessItem | null {
     if (!config) return null;
-    const sources = effectiveSources(config).entries.filter(row => row.enabled);
-    const called: Record<VendorCli, boolean> = {
-      // Demo mode reaches no platform through lark-cli; sources are verified and used in Feishu mode only.
-      lark: config.mode === 'feishu',
-      // Beside registered sources, the legacy channel selectors still route reminders without a bound target and projections.
-      wecom: sources.some(row => row.platform === 'wecom') || [config.calendarChannel, config.todoChannel, config.notifyChannel].includes('wecom'),
-    };
+    const called = this.vendorCliCalled(config);
     const lines: string[] = [];
     let state: ReadinessItem['state'] = 'ok';
     for (const cli of ['lark', 'wecom'] as const) {

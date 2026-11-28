@@ -45,7 +45,7 @@ _Avoid_: 24私助内置连接器、服务器上另装 lark-cli／wecom-cli
 _Avoid_: 面板「参数配置」（那是工作区 AGENTS.md）、服务器环境变量
 
 **本地工具扩展（extraLocalTools）**：
-工作区配置中显式列出本地24私助会话额外放行的已注册工具名的字段：provider 级外部 CLI 委派（subagent_codex、subagent_claude_code）与 QwenNote 听记工具（`mcp__qwennote__*` 通配或精确名，需 profile 配置 dsh-mcp-client 条目）；对应通道挂载后才生效，点名未挂载工具的条目会被过滤并提示。
+工作区配置中显式列出本地24私助会话额外放行的已注册工具名的字段：provider 级外部 CLI 委派（subagent_codex、subagent_claude_code），以及已准入的 MCP 服务器工具——QwenNote 听记（`mcp__qwennote__*`）与官方腾讯文档插件（`mcp__tencent-docs__*`），可写通配或精确名；对应服务器挂载后才生效，点名未挂载工具的条目会被过滤并提示。腾讯文档按需加载，建立会话时宿主面上只有加载器，所以用通配放行；按需加载的 MCP 工具在运行时再按清单核对一次。
 _Avoid_: 默认开启的外部能力、飞书入口工具、开放任意工具名
 
 **听记资料**：

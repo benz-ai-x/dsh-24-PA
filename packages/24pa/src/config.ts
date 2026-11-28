@@ -66,10 +66,12 @@ export interface PaConfig {
   workerModels: Partial<Record<string, WorkerModelRoute>>;
   /**
    * Extra tools the local role may also use: the provider-gated delegation
-   * tools, plus QwenNote minutes tools mounted by a profile-level
-   * dsh-mcp-client entry (serverName `qwennote`, F18). Naming an unmounted
-   * tool is tolerated — the agent-side resolution filters it out — so opting
-   * in stays a workspace decision recorded here, never a startup crash.
+   * tools, and the tools of the admitted MCP servers (`EXTRA_MCP_SERVERS`):
+   * QwenNote minutes (F18) and the official Tencent Docs plugin (#308), each
+   * by its wildcard or by a precise tool name that is on the host plane when
+   * the session is built. Naming a tool that is not there is tolerated — the
+   * agent-side resolution filters it out — so opting in stays a workspace
+   * decision recorded here, never a startup crash.
    */
   extraLocalTools: string[];
   /**
@@ -116,21 +118,43 @@ export const DELEGATION_TOOL_PROVIDER: Record<(typeof DELEGATION_EXTRA_TOOLS)[nu
   subagent_codex: 'codex',
   subagent_claude_code: 'claude-code',
 };
+/**
+ * MCP servers whose tools `extraLocalTools` may admit in the local session, and how each brings them to a session: QwenNote minutes,
+ * whose tools are all on the host plane once it is mounted; and the official Tencent Docs plugin (#308), which is on demand — one
+ * loader first, the rest when the model asks for them.
+ */
+export const EXTRA_MCP_SERVERS = [
+  { name: 'qwennote', loading: 'mounted' },
+  { name: 'tencent-docs', loading: 'on-demand' },
+] as const;
+export type ExtraMcpServer = (typeof EXTRA_MCP_SERVERS)[number]['name'];
+/** The host namespace of one MCP server's tools. */
+export const mcpToolPrefixOf = (server: string): string => `mcp__${server}__`;
+/** Wildcard entry: every tool the server has on the host plane. */
+export const mcpToolWildcardOf = (server: string): string => `${mcpToolPrefixOf(server)}*`;
+/** The tool an on-demand server offers first; the model loads the server's other tools through it. */
+export const MCP_LOADER_TOOL = 'load_tools';
 /** QwenNote minutes tools register as host-plane globals under this prefix. */
-export const QWENNOTE_TOOL_PREFIX = 'mcp__qwennote__';
-/** Wildcard entry: allow every currently mounted qwennote tool. */
-export const QWENNOTE_TOOL_WILDCARD = 'mcp__qwennote__*';
+export const QWENNOTE_TOOL_PREFIX = mcpToolPrefixOf('qwennote');
+export const QWENNOTE_TOOL_WILDCARD = mcpToolWildcardOf('qwennote');
+const EXTRA_MCP_WILDCARDS: readonly string[] = EXTRA_MCP_SERVERS.map(server => mcpToolWildcardOf(server.name));
+/** The entries the parameter form offers as checkboxes: each delegation tool, and each admitted MCP server's wildcard. */
+export const KNOWN_EXTRA_TOOLS: readonly string[] = [...DELEGATION_EXTRA_TOOLS, ...EXTRA_MCP_WILDCARDS];
 // Precise names match the harness MCP tool-name charset; a raw name long
 // enough to need the 12-hex normalization suffix can exceed the cap here —
 // those stay reachable through the wildcard entry instead.
-const QWENNOTE_TOOL_NAME = /^mcp__qwennote__[A-Za-z0-9_-]{1,48}$/;
+const EXTRA_MCP_TOOL_NAME = new RegExp(`^(?:${EXTRA_MCP_SERVERS.map(server => mcpToolPrefixOf(server.name)).join('|')})[A-Za-z0-9_-]{1,48}$`);
 
-/** Whether one extraLocalTools entry is acceptable: a delegation tool, the qwennote wildcard, or a precise qwennote tool name. */
+/**
+ * Whether one extraLocalTools entry is acceptable: a delegation tool, an admitted MCP server's wildcard, or a precise tool name of
+ * one. A precise name counts only when the tool is on the host plane when the session is built, so for the on-demand server it is the
+ * wildcard that admits its tools.
+ */
 export function isExtraLocalToolEntry(value: string): boolean {
   return (
     (DELEGATION_EXTRA_TOOLS as readonly string[]).includes(value) ||
-    value === QWENNOTE_TOOL_WILDCARD ||
-    QWENNOTE_TOOL_NAME.test(value)
+    EXTRA_MCP_WILDCARDS.includes(value) ||
+    EXTRA_MCP_TOOL_NAME.test(value)
   );
 }
 
@@ -307,7 +331,7 @@ export function validateConfig(raw: unknown): PaConfig {
     extraLocalTools.some(x => typeof x !== 'string' || !isExtraLocalToolEntry(x)) ||
     new Set(extraLocalTools).size !== extraLocalTools.length
   ) {
-    throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${QWENNOTE_TOOL_WILDCARD} 或 ${QWENNOTE_TOOL_PREFIX}<工具名>。`);
+    throw new ConfigError(`extraLocalTools 只接受不重复的 ${DELEGATION_EXTRA_TOOLS.join('、')}、${EXTRA_MCP_WILDCARDS.join('、')} 或 ${EXTRA_MCP_SERVERS.map(server => `${mcpToolPrefixOf(server.name)}<工具名>`).join('、')}。`);
   }
   const tts = validateTts(input.tts);
   let sources: SourceConfiguration | null;
@@ -391,7 +415,7 @@ export interface ConfigFieldDescriptor {
   group: 'identity' | 'channels' | 'resources' | 'runtime' | 'storage' | 'tts';
   label: string;
   kind: 'string' | 'number' | 'enum' | 'boolean' | 'list';
-  /** enum 选项（如音色表——client 不再持有第二份）。 */
+  /** 选项：enum 字段的取值，或 list 字段里可勾选的已知项（如音色表与本地额外工具）。面板经 configMeta 读这里，不留第二份。 */
   options?: readonly { value: string; label: string }[];
   /** 表单可更新（CONFIG_UPDATE_ALLOWED 的派生源）。 */
   formAllowed: boolean;
@@ -417,7 +441,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldDescriptor[] = [
   { name: 'enabledWorkers', group: 'runtime', label: '启用角色（enabledWorkers）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.enabledWorkers },
   { name: 'budget', group: 'runtime', label: '模型预算（budget）', kind: 'string', formAllowed: true, default: DEFAULT_BUDGET },
   { name: 'workerModels', group: 'runtime', label: '模型路由（workerModels）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.workerModels },
-  { name: 'extraLocalTools', group: 'runtime', label: '本地额外工具（extraLocalTools）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraLocalTools },
+  { name: 'extraLocalTools', group: 'runtime', label: '本地额外工具（extraLocalTools）', kind: 'list', options: KNOWN_EXTRA_TOOLS.map(value => ({ value, label: value })), formAllowed: true, default: DEFAULT_CONFIG.extraLocalTools },
   { name: 'extraBusinessSkills', group: 'runtime', label: '业务 skill 放行面（extraBusinessSkills）', kind: 'list', formAllowed: true, default: DEFAULT_CONFIG.extraBusinessSkills },
   { name: 'tts', group: 'tts', label: '语音 TTS（tts）', kind: 'string', formAllowed: true, default: DEFAULT_CONFIG.tts },
   { name: 'tts.engine', group: 'tts', label: 'TTS 引擎（tts.engine）', kind: 'enum', options: [{ value: 'none', label: '关闭' }, { value: 'melo', label: 'Melo 本地' }, { value: 'volcengine', label: '豆包云' }], formAllowed: false, default: DEFAULT_CONFIG.tts.engine }, // dotted tts.* fields describe structure; updatability rides the top-level 'tts' entry

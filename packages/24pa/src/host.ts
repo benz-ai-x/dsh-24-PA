@@ -51,6 +51,97 @@ export interface SessionTitleService {
   rename(session: DshSession, title: string): unknown;
 }
 
+/** Text in each shipped language, or one string for all of them; `en` is required. */
+export type LocalizedText = string | { readonly en: string; readonly [locale: string]: string };
+
+/** The states the host's MCP manager reports for a server: the MCP client's connection states, and the manager's own. */
+export type McpServerState = 'closed' | 'waiting-credentials' | 'waiting-authorization' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'disabled';
+
+/** One button of an account block on the host's Plugins page. */
+export interface ConnectorAccountButton {
+  label: LocalizedText;
+  command: { readonly kind: 'start'; readonly operation: string } | { readonly kind: 'cancel' } | { readonly kind: 'open' };
+  variant?: 'primary' | 'ghost';
+}
+
+/** What an account block on the host's Plugins page shows (#309). */
+export interface ConnectorAccountDisplay {
+  phase: 'checking' | 'connecting' | 'connected' | 'disconnected' | 'unavailable';
+  status: LocalizedText;
+  badge?: LocalizedText;
+  buttons: readonly ConnectorAccountButton[];
+  /** What the page's Connect prompt starts; absent, Connect only opens the page. */
+  connect?: { readonly kind: 'start'; readonly operation: string };
+  detail?: LocalizedText;
+  notes: readonly { readonly text: LocalizedText; readonly button?: ConnectorAccountButton }[];
+  failure?: { readonly text: LocalizedText; details?: readonly string[] };
+}
+
+/** The fixed text of an account block on the host's Plugins page. */
+export interface ConnectorAccountCopy {
+  title: LocalizedText;
+  hint: LocalizedText;
+  activation: { readonly title: LocalizedText; readonly body: LocalizedText; readonly connect: LocalizedText };
+}
+
+/** The operation a page button started, which browsers follow while it runs. */
+export interface ConnectorOperation<Kind extends string> {
+  readonly id: string;
+  readonly kind: Kind;
+  readonly phase: 'checking';
+  readonly cancellable: boolean;
+}
+
+/** The most recent finished operation, kept until another one starts. */
+export interface ConnectorOperationResult<Kind extends string> {
+  readonly id: string;
+  readonly kind: Kind;
+  readonly outcome: 'succeeded' | 'cancelled' | 'failed';
+}
+
+/** The account, the operation in progress, and the last result, as a block's presenter reads them. */
+export interface ConnectorAccountView<Account, Kind extends string> {
+  readonly account: Account;
+  readonly operation?: ConnectorOperation<Kind>;
+  readonly result?: ConnectorOperationResult<Kind>;
+}
+
+/** One operation a page button may start, with the notice the page shows after it succeeds. */
+export interface ConnectorAccountOperation<Kind extends string> {
+  readonly kind: Kind;
+  readonly notice?: LocalizedText;
+}
+
+/** The account a block exposes to the page. */
+export interface ConnectorAccountSource<Account, Kind extends string> {
+  snapshot(): ConnectorAccountView<Account, Kind>;
+  /** Call `listener` after each change, without starting anything; returns a disposer. */
+  observe(listener: () => void): () => void;
+  /** Each new page subscriber calls this: start a check unless one runs; a source whose view is always current does nothing. */
+  refresh(): void;
+  start(kind: Kind): string | Promise<string>;
+  cancel(id: string): Promise<void>;
+}
+
+/** One account of the host's Plugins page. */
+export interface ConnectorAccountRegistration<Account, Kind extends string> {
+  /** Stable key, unique among the page's accounts. */
+  readonly key: string;
+  /** The npm package whose bundle page carries the block; at most one account per package. */
+  readonly packageName?: string;
+  readonly source: ConnectorAccountSource<Account, Kind>;
+  /** The operations a page button may start; the registry rejects any other. */
+  readonly operations: readonly ConnectorAccountOperation<Kind>[];
+  readonly copy: ConnectorAccountCopy;
+  present(view: ConnectorAccountView<Account, Kind>): ConnectorAccountDisplay;
+}
+
+/** The host's Plugins page account registry, which the web application loads. */
+export interface ConnectorAccountsService {
+  /** Show the account for as long as the returned disposer has not run; throws when the key or the package is taken. */
+  register<Account, Kind extends string>(registration: ConnectorAccountRegistration<Account, Kind>): () => void;
+}
+
 /** The profile this process runs, as the launcher provides it. */
 export interface ProfileContextService {
   readonly name: string;
@@ -218,5 +309,11 @@ export interface DshContext {
   connection: {
     fetch: { register(route: ConnectionFetchRoute): Promise<void> | void };
   };
+  /** Runs the callback once each named service is available, and again whenever one changes; its scope ends with this plugin. */
+  inject(deps: readonly string[], callback: (scope: DshContext) => void): unknown;
+  /** The host's Plugins page account registry; a host that loads no web application has none. */
+  connectorAccounts?: ConnectorAccountsService;
+  /** The host's MCP manager (the web profile loads one): says of each server how its connection stands. */
+  mcpManager?: { list(): { name: string; status: { state: McpServerState } }[] };
   get(service: string): any;
 }
