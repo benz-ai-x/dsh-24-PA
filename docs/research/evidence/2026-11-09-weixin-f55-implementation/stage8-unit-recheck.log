@@ -1,0 +1,16 @@
+# re-check of the one file that failed in the unit suite on the clean export of ae271fe — the known same-millisecond ordering flake of #298 (worker-run.test.mjs:242)
+== run 1 23:48:52
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+== run 2 23:48:56
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+== run 3 23:49:00
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+== run 4 23:49:04
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+== run 5 23:49:08
+ Test Files  1 passed (1)
+      Tests  38 passed (38)

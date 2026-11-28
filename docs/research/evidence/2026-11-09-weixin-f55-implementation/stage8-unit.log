@@ -1,4 +1,5 @@
-# unit suite from a clean export of 67f184d
- Test Files  119 passed (119)
-      Tests  1978 passed | 1 skipped (1979)
-   Duration  408.00s (transform 662ms, setup 333ms, collect 11.32s, tests 385.84s, environment 7ms, prepare 2.21s)
+# unit suite from a clean export of the final head
+ ❯ tests/unit/worker-run.test.mjs (38 tests | 1 failed) 3222ms
+ ❯ tests/unit/worker-run.test.mjs:242:74
+      Tests  1 failed | 1982 passed | 1 skipped (1984)
+# earlier: 67f184d 119 files, 1978 passed | 1 skipped; 1d0795b 119 files, 1983 passed | 1 skipped

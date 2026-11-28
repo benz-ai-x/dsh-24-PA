@@ -1,6 +1,6 @@
 {
  "recordedAt": "2026-11-28T22:30:41+08:00",
- "testedCommit": "67f184d",
+ "testedCommit": "ae271fe",
  "stage": 8,
  "issue": 281,
  "base": "f78cfacb34ff5306cfa3859058723ab2be32bb75",
@@ -37,6 +37,17 @@
    "durationSeconds": 1792.29,
    "upgradeFixture": "published 0.2.3-alpha.2.1",
    "log": "stage8-full.log"
+  },
+  {
+   "commit": "1d0795b",
+   "kind": "full suite",
+   "storage": "sqlite",
+   "files": "165 passed (165)",
+   "tests": "2236 passed | 1 skipped (2237)",
+   "durationSeconds": 1446.3,
+   "upgradeFixture": "published 0.2.3-alpha.2.1",
+   "log": "stage8-full.log",
+   "note": "the final code; ae271fe differs only in two unit files and documents"
   }
  ],
  "unitRuns": [
@@ -47,6 +58,15 @@
    "tests": "1978 passed | 1 skipped (1979)",
    "durationSeconds": 408.0,
    "log": "stage8-unit.log"
+  },
+  {
+   "commit": "ae271fe",
+   "kind": "unit suite",
+   "files": "1 failed | 118 passed (119)",
+   "tests": "1 failed | 1982 passed | 1 skipped (1984)",
+   "durationSeconds": 396.4,
+   "log": "stage8-unit.log",
+   "note": "the one failure is worker-run.test.mjs:242, the same-millisecond ordering flake recorded in #298; re-run alone five times on the same export, 38 passed each time (stage8-unit-recheck.log). The same code passed the full suite and the unit suite on 1d0795b."
   }
  ],
  "targetedRuns": [
@@ -58,8 +78,10 @@
  ],
  "perCommitBuilds": {
   "base": "f78cfac",
+  "head": "ae271fe",
   "log": "stage8-verify-all.log",
-  "ok": 19
+  "ok": 23,
+  "note": "1d0795b: 23 of 23; ae271fe: see the count"
  },
  "commands": {
   "export": "git archive <sha> | tar -x -C <empty dir>; cd packages/24pa; npm install; npm run build; npm run preset:check; npm pack",

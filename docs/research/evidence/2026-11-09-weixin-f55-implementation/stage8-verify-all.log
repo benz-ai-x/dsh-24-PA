@@ -1,3 +1,4 @@
+# every commit of f78cfac..ae271fe, each from a clean archive: install, build, preset:check, client.js syntax
 b8de95f619196d848b4f91b7343f05895dfc4411 install exit=0 build exit=0 preset exit=0 client exit=0 
 a652af778b03e4dd39b76d8289ea1e7237af4108 install exit=0 build exit=0 preset exit=0 client exit=0 
 dec44d62c4d758f4cea8a35139d16dceff24c890 install exit=0 build exit=0 preset exit=0 client exit=0 
@@ -17,3 +18,7 @@ c8f60cf5a21cd47d44468e54d09b798ba9095af1 install exit=0 build exit=0 preset exit
 c2f81be1b5826b7b62496f8daa585e692cbf7b95 install exit=0 build exit=0 preset exit=0 client exit=0 
 c06df36fd692c8b90a924100abe1a879e001db2f install exit=0 build exit=0 preset exit=0 client exit=0 
 67f184dd12440f055334a20dbc6cd1630a8b54b9 install exit=0 build exit=0 preset exit=0 client exit=0 
+fe0e9e9ff9a371543bddfd6ca2b5935fe464fab0 install exit=0 build exit=0 preset exit=0 client exit=0 
+6961fff9ba84b9da7fb4e2aecbb5f1267e940e89 install exit=0 build exit=0 preset exit=0 client exit=0 
+1d0795b48e14451c309274c4ca358a9a197d727b install exit=0 build exit=0 preset exit=0 client exit=0 
+ae271fea1e32141655839e67ffa7b29171be6399 install exit=0 build exit=0 preset exit=0 client exit=0 
