@@ -91,9 +91,10 @@ Requirements: Node.js `^24.22.3 || >=26.13.1`, dsh `0.2.3-alpha.2`, and no datab
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 
+# A new profile with a custom <name>: do the three steps of stage 3 in the initialization guide first (create the profile from the web template, approve the protobufjs build, then add)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.3-alpha.2.1 --registry=https://registry.npmjs.org
 
-# The official Feishu plugin, needed before Feishu is connected; it raises one more pnpm build approval (stage 3 of the initialization guide)
+# The official Feishu plugin, needed before Feishu is connected; it also has a pnpm build approval (stage 3 of the initialization guide)
 dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://registry.npmjs.org
 ```
 
@@ -165,7 +166,7 @@ External CLI delegation rows ship enabled but stay dormant: `subagent_codex` and
 
 ### Failure and recovery
 
-An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A fresh Profile leaves an unresolved `allowBuilds` placeholder for `protobufjs` (a transitive dependency of the Feishu SDK). Approve it in the Profile `pnpm-workspace.yaml` before installing; otherwise the first install exits nonzero, and while the package is added as a dependency, only a remove followed by a fresh `add` registers the bundle layer in `dsh.profile.bundles`. The [initialization guide](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md) gives the verified sequence. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
+An uninstalled external CLI provider keeps its tool absent rather than erroring. A second active pa24 Host against the same `$DSH_HOME/24pa` refuses startup by lock. A fresh Profile has not approved the build of `protobufjs` (a transitive dependency of the Feishu SDK). Unless the Profile `pnpm-workspace.yaml` approves it first, under `allowBuilds`, the first install exits nonzero; the package is added as a dependency, but only a remove followed by a fresh `add` registers the bundle layer in `dsh.profile.bundles`. The [initialization guide](https://github.com/benz-ai-x/dsh-24-PA/blob/main/docs/24PA-初始化指南.md) gives the verified sequence. A lark-cli timeout settles as result-unknown — verify the real Feishu object before retrying; nothing is blindly re-executed.
 
 The reliability update adds schema migration v14 on both storage backends. It
 stores each digest WorkItem's trusted trigger and occurrence binding without

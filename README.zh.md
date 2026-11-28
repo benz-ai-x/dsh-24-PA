@@ -99,9 +99,10 @@ kind: "package-bundle"
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 
+# 全新自定义名字的 <name>：先按初始化指南阶段 3 的三步（从 web 模板建 profile、批准 protobufjs 构建、再 add）
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.3-alpha.2.1 --registry=https://registry.npmjs.org
 
-# 接通飞书前安装官方飞书插件；它会再次触发 pnpm 构建审批，处置见初始化指南阶段 3
+# 接通飞书前安装官方飞书插件；它也有一次 pnpm 构建审批，处置见初始化指南阶段 3
 dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://registry.npmjs.org
 ```
 

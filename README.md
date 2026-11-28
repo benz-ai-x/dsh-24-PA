@@ -101,9 +101,10 @@ See the [Manticore delivery and acceptance record](docs/planning/24PA-Manticore-
 ```sh
 npm install -g @deepseek-ai/dsh@0.2.3-alpha.2
 
+# A new profile with a custom <name>: do the three steps of stage 3 in the initialization guide first (create the profile from the web template, approve the protobufjs build, then add)
 dsh plugin --profile <name> add @benz-ai-x/dsh-24pa@0.2.3-alpha.2.1 --registry=https://registry.npmjs.org
 
-# The official Feishu plugin, needed before Feishu is connected; it raises one more pnpm build approval (stage 3 of the initialization guide)
+# The official Feishu plugin, needed before Feishu is connected; it also has a pnpm build approval (stage 3 of the initialization guide)
 dsh plugin --profile <name> add @deepseek-ai/dsh-feishu --registry=https://registry.npmjs.org
 ```
 
