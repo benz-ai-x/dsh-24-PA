@@ -46,9 +46,9 @@ export type AccessOperation = 'inspect';
 type View = ConnectorAccountView<AccessAccount, AccessOperation>;
 type TextKey =
   | 'title' | 'hint' | 'action.inspect' | 'status.checking' | 'status.failed' | 'status.unbound' | 'status.demo' | 'status.unchecked'
-  | 'status.attention' | 'status.ready' | 'badge.attention' | 'badge.ready' | 'detail.unchecked' | 'detail.unbound' | 'detail.incomplete'
+  | 'status.attention' | 'status.attention.one' | 'status.ready' | 'badge.attention' | 'badge.ready' | 'detail.unchecked' | 'detail.unbound' | 'detail.incomplete'
   | 'activation.title' | 'activation.body' | 'notice.inspected' | 'failure.inspect'
-  | 'label.signin' | 'label.identity' | 'label.folder' | 'label.wiki' | 'label.tasklist' | 'label.calendar';
+  | 'label.signin' | 'label.owner' | 'label.identity' | 'label.folder' | 'label.wiki' | 'label.tasklist' | 'label.calendar';
 type Text = (key: TextKey, params?: Readonly<Record<string, string>>) => LocalizedText;
 
 /**
@@ -66,6 +66,7 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
     'status.demo': 'Demo mode: neither Feishu access nor the WeCom channel is on',
     'status.unchecked': 'Not checked yet',
     'status.attention': '{count} items need attention',
+    'status.attention.one': '1 item needs attention',
     'status.ready': 'Owner, resources and channels are ready',
     'badge.attention': 'Needs attention',
     'badge.ready': 'Ready',
@@ -77,6 +78,7 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
     'notice.inspected': 'The read-only check finished.',
     'failure.inspect': 'Run the check again from the 24PA panel and read the diagnostics there.',
     'label.signin': 'Account sign-in',
+    'label.owner': 'Owner binding',
     'label.identity': 'Bot binding & authorized user',
     'label.folder': 'Docs folder',
     'label.wiki': 'Wiki node',
@@ -93,6 +95,7 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
     'status.demo': '体验模式：飞书接入与企业微信渠道都未启用',
     'status.unchecked': '尚未检查',
     'status.attention': '{count} 项需要处理',
+    'status.attention.one': '1 项需要处理',
     'status.ready': '主人、资源与渠道检查通过',
     'badge.attention': '需要处理',
     'badge.ready': '已就绪',
@@ -104,6 +107,7 @@ const DICTIONARIES: { readonly en: Readonly<Record<TextKey, string>> } & { reado
     'notice.inspected': '只读检查已完成。',
     'failure.inspect': '请到24私助面板重新执行检查，并在那里查看诊断。',
     'label.signin': '账号登录',
+    'label.owner': '主人绑定',
     'label.identity': '机器人绑定与授权真人',
     'label.folder': '文档目录',
     'label.wiki': '知识库',
@@ -131,6 +135,8 @@ const neverChecked = (): AccessReport => ({ checkedAt: null, issues: [], complet
 /** What a check reported of one item, as the page lists each on its own. */
 const issue = (label: LocalizedText, block: Block): AccessIssue => ({ label, message: messageOf(block) });
 
+/** What a failed account check is about: the sign-in itself, or who it turned out to be against the workspace's owner. */
+const authLabel = (state: string): LocalizedText => text(state === 'unbound' || state === 'mismatch' ? 'label.owner' : 'label.signin');
 const FEISHU_RESOURCE_LABELS: Readonly<Record<string, TextKey>> = { folder: 'label.folder', wiki: 'label.wiki', tasklist: 'label.tasklist', calendar: 'label.calendar' };
 const resourceName = (resource: { id?: unknown; label?: unknown }): LocalizedText => {
   const key = FEISHU_RESOURCE_LABELS[String(resource.id)];
@@ -148,8 +154,8 @@ export function feishuAccessReport(result: AccessDiagnostics | null): AccessRepo
   if (isIn(result.cli, 'error')) return { checkedAt: result.checkedAt, issues: [issue('lark-cli', result.cli)], complete: false };
   const issues: AccessIssue[] = [];
   if (isIn(result.source, 'error')) issues.push(issue('AGENTS.md', result.source));
-  if (!isIn(result.auth, 'ok', 'unchecked')) issues.push(issue(text('label.signin'), result.auth));
-  // An item the check did not reach is no finding: the account sign-in failed, and the resources were not read.
+  if (!isIn(result.auth, 'ok', 'unchecked')) issues.push(issue(authLabel(stateOf(result.auth)), result.auth));
+  // An item the check did not reach is no finding: the account did not come out as the workspace's owner, so the resources were not read.
   let complete = !isIn(result.auth, 'unchecked');
   for (const resource of result.resources) {
     if (isIn(resource, 'unchecked')) complete = false;
@@ -164,8 +170,9 @@ export function wecomAccessReport(result: WecomDiagnostics | null): AccessReport
   if (!result) return neverChecked();
   // Without a runnable wecom-cli nothing below was checked.
   if (result.cli.state !== 'ok') return { checkedAt: result.checkedAt, issues: [issue('wecom-cli', result.cli)], complete: false };
+  // The services are read as the resolved identity only: without it none was read, whatever state the check recorded them with.
+  if (result.identity.state !== 'ok') return { checkedAt: result.checkedAt, issues: [issue(text('label.identity'), result.identity)], complete: false };
   const issues: AccessIssue[] = [];
-  if (result.identity.state !== 'ok') issues.push(issue(text('label.identity'), result.identity));
   // Skipped services are off, and push has no read-only probe: neither is a gap.
   for (const service of result.services) {
     if (!['ok', 'skipped', 'unverified'].includes(service.state)) issues.push(issue(serviceName(service.id), service));
@@ -183,6 +190,9 @@ export function checkedAtNote(channel: Channel, checkedAt: string, timeZone: str
   const name = CHANNEL_NAMES[channel];
   return { en: `${name.en}: checked at ${at('en-US')}`, zh: `${name.zh}：检查于 ${at('zh-CN')}` };
 }
+
+/** How many items a check found wrong, in each language; English has a form for one. */
+const attention = (count: number): LocalizedText => text(count === 1 ? 'status.attention.one' : 'status.attention', { count: String(count) });
 
 /** An issue as one line: what it is about in the page's language, then what the check said in its own wording. */
 const said = ({ label, message }: AccessIssue): LocalizedText =>
@@ -203,7 +213,7 @@ export function presentAccess(view: View): ConnectorAccountDisplay {
   const issues = reports.flatMap(report => report.issues);
   const incomplete = reports.some(report => !report.complete);
   if (issues.length) return {
-    phase: 'disconnected', badge: text('badge.attention'), status: text('status.attention', { count: String(issues.length) }), buttons: [inspect],
+    phase: 'disconnected', badge: text('badge.attention'), status: attention(issues.length), buttons: [inspect],
     ...(incomplete ? { detail: text('detail.incomplete') } : {}),
     notes: issues.map(item => ({ text: said(item) })),
   };

@@ -18,7 +18,7 @@ const AT = '2026-11-26T07:40:06.000Z';
 const never = { checkedAt: null, issues: [], complete: true };
 const clean = { checkedAt: AT, issues: [], complete: true };
 const issue = (label, message) => ({ label, message });
-const SIGNIN = { en: 'Account sign-in', zh: '账号登录' }, IDENTITY = { en: 'Bot binding & authorized user', zh: '机器人绑定与授权真人' };
+const SIGNIN = { en: 'Account sign-in', zh: '账号登录' }, OWNER = { en: 'Owner binding', zh: '主人绑定' }, IDENTITY = { en: 'Bot binding & authorized user', zh: '机器人绑定与授权真人' };
 const TODO = { en: 'Todo', zh: '待办' }, FOLDER = { en: 'Docs folder', zh: '文档目录' };
 const access = (patch = {}) => ({ checkedAt: AT, source: { state: 'ok', message: '一致' }, cli: { state: 'ok', message: 'CLI 可执行' }, auth: { state: 'ok', message: '身份一致' }, resources: [], ...patch });
 const wecom = (patch = {}) => ({ checkedAt: AT, cli: { state: 'ok', message: 'wecom-cli 1.0' }, auth: { state: 'ok', message: 'ok' }, identity: { state: 'ok', message: '机器人已绑定' }, services: [], nextSteps: [], ...patch });
@@ -47,10 +47,17 @@ describe('已存结果里哪些是问题', () => {
   });
 
   it('飞书：账号登录没通过是一项，没读到的资源不算问题；配置文件、资源不通过各算一项，未配的知识库不算', () => {
-    // The sign-in failed, so the resources stay unchecked: one finding, and the check did not get through.
-    const mismatch = { state: 'mismatch', message: '登录用户或应用与当前配置不一致' };
+    // Not signed in, so the resources stay unchecked: one finding, and the check did not get through.
+    const missing = { state: 'missing', message: '飞书插件尚未登录账号' };
+    expect(feishuAccessReport(access({ auth: missing, resources: [{ id: 'folder', label: '文档目录', state: 'unchecked', message: '未检查可读性' }] })))
+      .toEqual({ checkedAt: AT, issues: [issue(SIGNIN, '飞书插件尚未登录账号')], complete: false });
+    // Signed in, but as someone else than the workspace's owner, or into a workspace that has no owner yet: the finding is about the
+    // owner binding, not about the sign-in, and the resources were not read either.
+    const mismatch = { state: 'mismatch', message: '登录用户或应用与当前配置不一致，未读取资源' };
     expect(feishuAccessReport(access({ auth: mismatch, resources: [{ id: 'folder', label: '文档目录', state: 'unchecked', message: '未检查可读性' }] })))
-      .toEqual({ checkedAt: AT, issues: [issue(SIGNIN, '登录用户或应用与当前配置不一致')], complete: false });
+      .toEqual({ checkedAt: AT, issues: [issue(OWNER, '登录用户或应用与当前配置不一致，未读取资源')], complete: false });
+    expect(feishuAccessReport(access({ auth: { state: 'unbound', message: '飞书插件已登录；工作区尚未绑定主人' }, resources: [{ id: 'folder', label: '文档目录', state: 'unchecked', message: '未检查可读性' }] })))
+      .toEqual({ checkedAt: AT, issues: [issue(OWNER, '飞书插件已登录；工作区尚未绑定主人')], complete: false });
     const result = access({
       source: { state: 'error', message: 'AGENTS.md 读取失败' },
       resources: [{ id: 'folder', label: '文档目录', state: 'error', message: '权限不足' }, { id: 'wiki', label: '知识库', state: 'missing', message: '未配置' },
@@ -59,14 +66,20 @@ describe('已存结果里哪些是问题', () => {
     expect(feishuAccessReport(result)).toEqual({ checkedAt: AT, issues: [issue('AGENTS.md', 'AGENTS.md 读取失败'), issue(FOLDER, '权限不足')], complete: true });
   });
 
-  it('企业微信：CLI 不可用时只有它一项；身份与未通过的服务各算一项；未启用与只读探不到的不算', () => {
+  it('企业微信：CLI 不可用时只有它一项；身份没解析时也只有它一项，没读的服务不算问题；未启用与只读探不到的不算', () => {
     expect(wecomAccessReport(null)).toEqual(never);
     expect(wecomAccessReport(wecom({ services: [{ id: 'push', state: 'unverified', message: '以首次真实推送为准' }, { id: 'calendar', state: 'skipped', message: '未启用' }] }))).toEqual(clean);
     // The check returns at the wecom-cli: the identity was not resolved, which is no finding of its own.
     expect(wecomAccessReport(wecom({ cli: { state: 'error', message: '插件行配置的 wecom-cli 不可执行' }, identity: { state: 'missing', message: '未解析' } })))
       .toEqual({ checkedAt: AT, issues: [issue('wecom-cli', '插件行配置的 wecom-cli 不可执行')], complete: false });
-    const result = wecom({ identity: { state: 'missing', message: '未解析' }, services: [{ id: 'todo', state: 'expired', message: '授权已过期' }] });
-    expect(wecomAccessReport(result)).toEqual({ checkedAt: AT, issues: [issue(IDENTITY, '未解析'), issue(TODO, '授权已过期')], complete: true });
+    // Not connected to WeCom: the services are switched on, but they are read as the resolved identity only, so none was read. The
+    // check records each as failed; here that is one finding, the identity, and the rest was not checked.
+    const unread = { state: 'error', message: '当前真人与机器人未核验，未以新身份读取该服务。' };
+    expect(wecomAccessReport(wecom({ identity: { state: 'error', message: '未解析。' }, services: [{ id: 'calendar', ...unread }, { id: 'todo', ...unread }, { id: 'push', state: 'error', message: '推送目标未解析（见身份检查）。' }] })))
+      .toEqual({ checkedAt: AT, issues: [issue(IDENTITY, '未解析。')], complete: false });
+    // Under a resolved identity, a service that did not pass is a finding of its own.
+    expect(wecomAccessReport(wecom({ services: [{ id: 'todo', state: 'expired', message: '授权已过期' }] })))
+      .toEqual({ checkedAt: AT, issues: [issue(TODO, '授权已过期')], complete: true });
   });
 
   it('问题项的标签跟着页面语言：中文用全角冒号，英文用半角；检查原话不翻译', () => {
@@ -124,6 +137,17 @@ describe('区块显示什么', () => {
     expect(display.notes).toEqual([{ text: { zh: 'lark-cli：需要官方飞书插件提供的 lark-cli', en: 'lark-cli: 需要官方飞书插件提供的 lark-cli' } }, { text: { zh: '待办：授权已过期', en: 'Todo: 授权已过期' } }]);
   });
 
+  it('只有一项时英文用单数；企业微信没连接时只报身份一项，并说明其余项没有检查', () => {
+    // The instance a fresh installation is in: the calendar and the push are switched on, WeCom is not connected.
+    const display = presentAccess({ account: reported({ feishu: null, wecom: wecomAccessReport(wecom({
+      identity: { state: 'error', message: '企微真人或机器人未核验。' },
+      services: [{ id: 'calendar', state: 'error', message: '当前真人与机器人未核验，未以新身份读取该服务。' }, { id: 'push', state: 'error', message: '推送目标未解析（见身份检查）。' }],
+    })) }) });
+    expect(display.status).toEqual({ en: '1 item needs attention', zh: '1 项需要处理' });
+    expect(display.detail).toEqual(INCOMPLETE);
+    expect(display.notes).toEqual([{ text: { zh: '机器人绑定与授权真人：企微真人或机器人未核验。', en: 'Bot binding & authorized user: 企微真人或机器人未核验。' } }]);
+  });
+
   it('没有不通过的项、但检查没走到头：算尚未检查，并说明原因', () => {
     expect(presentAccess({ account: reported({ feishu: { checkedAt: AT, issues: [], complete: false } }) })).toMatchObject({ phase: 'disconnected', status: { zh: '尚未检查' }, detail: INCOMPLETE, notes: [] });
   });
@@ -140,14 +164,37 @@ describe('区块显示什么', () => {
     expect(display.notes.map(note => note.text.en)).toEqual(['Feishu: checked at 11/26/2026, 15:40', 'WeCom: checked at 11/26/2026, 15:40']);
   });
 
-  it('英文文案里产品名写 24PA，「24私助」只出现在中文里', () => {
-    const views = [reported(), reported({ mode: 'demo', feishu: null }), { state: 'unbound' }];
+  it('英文文案里产品名写 24PA，「24私助」只出现在中文里：区块的每一句都查到', () => {
+    // Every label the reports give an issue with, from the checks' own states.
+    const labels = [
+      ...feishuAccessReport(access({ auth: { state: 'missing', message: '一' } })).issues,
+      ...feishuAccessReport(access({ auth: { state: 'unbound', message: '一' } })).issues,
+      ...feishuAccessReport(access({ resources: [['folder', 'error'], ['wiki', 'error'], ['tasklist', 'error'], ['calendar', 'error']].map(([id, state]) => ({ id, label: '资源', state, message: '一' })) })).issues,
+      ...wecomAccessReport(wecom({ identity: { state: 'error', message: '一' } })).issues,
+    ].map(item => item.label);
+    const withIssues = (issues, complete = true) => ({ checkedAt: AT, issues: issues.map(label => issue(label, '原话')), complete });
+    // Each branch the block draws, with the sentences it draws them from:
+    // 未绑定 (status.unbound, detail.unbound), 体验模式 (status.demo, detail.unchecked), 尚未检查 (status.unchecked, detail.unchecked),
+    // 没走到头 (detail.incomplete), 一项与多项需要处理 (badge.attention, status.attention.one, status.attention), 就绪 (badge.ready, status.ready),
+    // 检查进行中 (status.checking), 检查没跑完 (status.failed, failure.inspect), 每一个标签 (label.*).
+    const accounts = [
+      { state: 'unbound' }, reported({ mode: 'demo', feishu: null }), reported({ feishu: never }),
+      reported({ feishu: { checkedAt: AT, issues: [], complete: false } }),
+      reported({ feishu: withIssues([labels[0]], false) }), reported({ feishu: withIssues(labels.slice(0, 2)) }),
+      reported({ feishu: withIssues([]), wecom: withIssues([labels.at(-1)]) }),
+      reported({ feishu: { ...clean, issues: labels.map(label => issue(label, '原话')) }, wecom: { ...clean } }),
+    ];
     const texts = [];
+    const views = [
+      ...accounts.map(account => ({ account })),
+      { account: reported(), operation: { id: 'op-1', kind: 'inspect', phase: 'checking', cancellable: false } },
+      { account: reported(), result: { id: 'op-1', kind: 'inspect', outcome: 'failed' } },
+    ];
     for (const view of views) {
-      const display = presentAccess({ account: view });
-      for (const value of [display.status, display.badge, display.detail, ...display.buttons.map(button => button.label), ...display.notes.map(note => note.text)]) if (value) texts.push(value);
+      const display = presentAccess(view);
+      for (const value of [display.status, display.badge, display.detail, display.failure?.text, ...display.buttons.map(button => button.label), ...display.notes.map(note => note.text)]) if (value) texts.push(value);
     }
-    texts.push(presentAccess({ account: reported(), result: { id: 'op-1', kind: 'inspect', outcome: 'failed' } }).failure.text);
+    expect(labels).toHaveLength(7);
     const { register } = { register: vi.fn(() => () => {}) };
     registerAccessAccount({ register }, runtimeDouble());
     const registration = register.mock.calls[0][0];
@@ -229,20 +276,21 @@ describe('页面看到的数据源', () => {
 });
 
 describe('运行时给页面的东西', () => {
-  /** A runtime whose lark-cli is the test stub; `calls` is how many times the stub has run. */
-  async function withLark() {
+  /** A runtime whose lark-cli and wecom-cli are the test stubs; `calls` is how many times the lark stub has run, `state` the wecom stub's state file. */
+  async function withBoth() {
     const f = await fixture(); cleanup.push(() => f.cleanup());
     const root = await mkdtemp(join(tmpdir(), 'pa24-access-account-')); cleanup.push(() => rm(root, { recursive: true, force: true }));
-    const state = join(root, 'lark.json');
-    await writeFile(state, JSON.stringify({ ownerOpenId: 'owner', appId: 'cli_test_app' }));
-    const bin = await writeStandIn(root, 'lark', state);
-    Object.assign(f.options, { larkCliBin: bin, env: { ...f.options.env, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_test_app', PA24_FEISHU_APP_SECRET: 'secret' } });
-    const calls = async () => (await readFile(`${state}.calls.jsonl`, 'utf8').catch(() => '')).split('\n').filter(Boolean).length;
-    return { f, calls };
+    const lark = join(root, 'lark.json'), state = join(root, 'wecom.json');
+    await writeFile(lark, JSON.stringify({ ownerOpenId: 'owner', appId: 'cli_test_app' }));
+    await writeFile(state, JSON.stringify({ ownerUserid: 'wou_owner' }));
+    Object.assign(f.options, { larkCliBin: await writeStandIn(root, 'lark', lark), wecomCliBin: await writeStandIn(root, 'wecom', state),
+      env: { ...f.options.env, PA24_TRANSPORT: 'fake', PA24_FEISHU_APP_ID: 'cli_test_app', PA24_FEISHU_APP_SECRET: 'secret' } });
+    const calls = async () => (await readFile(`${lark}.calls.jsonl`, 'utf8').catch(() => '')).split('\n').filter(Boolean).length;
+    return { f, calls, state };
   }
 
   it('没绑定工作区时是「未绑定」；体验模式的检查不读平台；飞书模式读了飞书并通知页面', async () => {
-    const { f, calls } = await withLark();
+    const { f, calls } = await withBoth();
     expect(f.rt.accessAccountState()).toEqual({ state: 'unbound' });
     const changed = vi.fn();
     f.rt.onAccessAccount(changed);
@@ -253,16 +301,19 @@ describe('运行时给页面的东西', () => {
     expect(await calls()).toBe(0);
     // Feishu mode switches the Feishu channel on: its check reads it, and the page hears of the result.
     const rt = f.make(); await rt.bind(await f.workspace('feishu', { mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }));
+    // The page reads the view each time it is told.
+    const heard = []; rt.onAccessAccount(() => heard.push(rt.accessAccountState()));
     expect(rt.accessAccountState().feishu).toEqual(never);
     await rt.checkSwitchedOnAccess();
     expect(await calls()).toBeGreaterThan(0);
     const state = rt.accessAccountState();
     expect(state.feishu.checkedAt).not.toBeNull();
     expect(state.wecom).toBeNull();
+    expect(heard.at(-1)).toEqual(state);
   });
 
   it('配置重载与保存密钥会清掉已存结果，并告诉页面', async () => {
-    const { f } = await withLark();
+    const { f } = await withBoth();
     const rt = f.make(); await rt.bind(await f.workspace('feishu', { mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }));
     const changed = vi.fn(); rt.onAccessAccount(changed);
     await rt.checkSwitchedOnAccess();
@@ -278,5 +329,40 @@ describe('运行时给页面的东西', () => {
     await rt.updateWorkspaceSecrets({ volcTtsKey: 'voice' }, rt.workspaceBinding);
     expect(rt.accessAccountState().feishu).toEqual(never);
     expect(changed.mock.calls.length).toBeGreaterThan(heard);
+  });
+
+  it('配置换入之后才通知页面：重载打开企业微信渠道时，页面被通知那一刻读到的已是新配置', async () => {
+    const { f } = await withBoth();
+    const rt = f.make(); await rt.bind(await f.workspace('feishu', { mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list' }));
+    expect(rt.accessAccountState().wecom).toBeNull();
+    // The page reads the view each time it is told.
+    const heard = []; rt.onAccessAccount(() => heard.push(rt.accessAccountState()));
+    await rt.updateWorkspaceConfig({ notifyChannel: 'wecom' }, rt.workspaceBinding);
+    // The WeCom channel is on under the configuration that came in, and the page was told of that one, not of the one that went out.
+    expect(heard.length).toBeGreaterThan(0);
+    expect(heard.at(-1)).toEqual({ state: 'reported', mode: 'feishu', timeZone: 'Asia/Shanghai', feishu: never, wecom: never });
+    expect(rt.accessAccountState()).toEqual(heard.at(-1));
+  });
+
+  it('企微身份变了：旧结果作废时告诉页面，主人确认新绑定后也告诉', async () => {
+    const { f, state } = await withBoth();
+    const rt = f.make(); await rt.bind(await f.workspace('feishu', { mode: 'feishu', ownerOpenId: 'owner', folderToken: 'folder', tasklistId: 'list', notifyChannel: 'wecom' }));
+    // The page reads the view each time it is told.
+    const heard = []; rt.onAccessAccount(() => heard.push(rt.accessAccountState().wecom));
+    expect((await rt.wecomCheck()).identity.state).toBe('ok');
+    expect(heard.at(-1).checkedAt).not.toBeNull();
+    let before = heard.length;
+    // Another bot is seen: the stored result was read as the old binding. The page is told it is gone before the check records its own result.
+    await writeFile(state, JSON.stringify({ ownerUserid: 'wou_owner', botId: 'other-bot' }));
+    expect((await rt.wecomCheck()).identity.state).toBe('error');
+    expect(heard.slice(before)).toContainEqual(never);
+    expect(heard.at(-1).checkedAt).not.toBeNull();
+    // The owner has looked at what the old binding left, and confirms the new one.
+    before = heard.length;
+    const observed = (await rt.repos.health.identity('wecom')).observed;
+    await rt.acceptWecomIdentity({ workspaceBinding: rt.workspaceBinding, confirm: true, configVersion: rt.connectionVersion(), identity: observed });
+    expect(heard.length).toBeGreaterThan(before);
+    expect(heard.at(-1)).toEqual(never);
+    expect(rt.accessAccountState().wecom).toEqual(never);
   });
 });

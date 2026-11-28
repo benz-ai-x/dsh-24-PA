@@ -1555,13 +1555,16 @@ export class PaRuntime {
   }
 
   private applyWorkspaceConfiguration(parsed: WorkspaceConfiguration): void {
-    if (this.sourceHash !== parsed.sourceHash) { this.forgetAccessResults(); this.ttsProbeCache = null; }
+    // The stored access results were read against the configuration going out, so they go with it. They are dropped once the new
+    // configuration is in: telling the Plugins page makes it read which channels are switched on, and that must be the new answer.
+    const resultsAreStale = this.sourceHash !== parsed.sourceHash;
     this.config = parsed.config;
     this.secretStore = parsed.secrets;
     this.instructions = parsed.instructions;
     this.sourceHash = parsed.sourceHash;
     this.loadedAt = nowIso();
     this.configError = null;
+    if (resultsAreStale) { this.forgetAccessResults(); this.ttsProbeCache = null; }
   }
 
   private transportIdentity(config: PaConfig | null, store: SecretStore): string {

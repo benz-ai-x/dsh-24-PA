@@ -46,14 +46,19 @@ describe('本地工具扩展：真实插件 agent/created 生命周期', () => {
     expect(host.records[0].filtered).toEqual([]);
     host.dispose();
   });
-  it('腾讯文档还在连接时等它挂载，加载器随本地基本工具一起应用一次（#308）', async () => {
+  it.each([['还在连接', 'connecting'], ['重连中', 'reconnecting']])('腾讯文档%s时等它挂载：连上而加载器还没进视野也等，进视野后随本地基本工具一起应用一次（#308）', async (_label, state) => {
     // The server starts with the host and can connect after the first local session is created.
     vi.useFakeTimers();
-    const host = plugin({ extras: ['mcp__tencent-docs__*'], states: { 'tencent-docs': 'connecting' } });
+    const host = plugin({ extras: ['mcp__tencent-docs__*'], states: { 'tencent-docs': state } });
     const pending = host.create();
     expect(host.allowed).toEqual([]);
     await vi.advanceTimersByTimeAsync(2000);
-    host.states['tencent-docs'] = 'connected'; host.mount(['mcp__tencent-docs__load_tools']);
+    expect(host.allowed).toEqual([]);
+    // Connected, but its loader is not in view yet: the session is still held back.
+    host.states['tencent-docs'] = 'connected';
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(host.allowed).toEqual([]);
+    host.mount(['mcp__tencent-docs__load_tools']);
     await vi.advanceTimersByTimeAsync(2000);
     await pending;
     expect(host.allowed).toHaveLength(1);
@@ -62,8 +67,18 @@ describe('本地工具扩展：真实插件 agent/created 生命周期', () => {
     expect(host.records[0].filtered).toEqual([]);
     host.dispose();
   });
+  it('腾讯文档连上、加载器已在视野：不等，直接应用', async () => {
+    vi.useFakeTimers();
+    const host = plugin({ extras: ['mcp__tencent-docs__*'], states: { 'tencent-docs': 'connected' } });
+    host.mount(['mcp__tencent-docs__load_tools']);
+    await host.create();
+    expect(host.allowed).toHaveLength(1);
+    expect(host.allowed[0]).toContain('mcp__tencent-docs__load_tools');
+    expect(vi.getTimerCount()).toBe(0);
+    host.dispose();
+  });
 
-  it.each([['不在管理器里', undefined], ['等主人授权', 'waiting-authorization'], ['等凭据', 'waiting-credentials'], ['已关闭', 'closed']])(
+  it.each([['不在管理器里', undefined], ['等主人授权', 'waiting-authorization'], ['等凭据', 'waiting-credentials'], ['已关闭', 'closed'], ['连接失败', 'failed'], ['被管理器停用', 'disabled']])(
     '腾讯文档%s时建立会话不等它：立刻建立，条目记为被过滤（#308）', async (_label, state) => {
       vi.useFakeTimers();
       const host = plugin({ extras: ['mcp__tencent-docs__*'], ...(state ? { states: { 'tencent-docs': state } } : {}) });
