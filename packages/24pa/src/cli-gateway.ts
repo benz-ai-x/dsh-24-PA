@@ -13,7 +13,7 @@
 
 import type { Readable, Writable } from 'node:stream';
 import { executionSignal } from './execution-cancellation.js';
-import type { SubprocessService } from './host.js';
+import type { SubprocessExitFacts, SubprocessService } from './host.js';
 
 export type CliFailKind = 'argv' | 'spawn' | 'timeout' | 'limit';
 
@@ -52,27 +52,22 @@ const TERMINATE_GRACE_MS = 1500;
 /** Beyond the grace, how long a terminated call still waits for the service to report that nothing of the range is left. */
 const EXIT_WAIT_SLACK_MS = 1000;
 
-interface ExitFacts {
-  exitCode: number | null;
-  signal: NodeJS.Signals | null;
-}
-
-/** One started child process, whoever started it. */
-interface Started {
+/** What `throughHost` hands back: the process's streams, how it ends, and the way to begin ending it. */
+interface StartedProcess {
   readonly stdin: Writable | undefined;
   readonly stdout: Readable | undefined;
   readonly stderr: Readable | undefined;
   /** Settles once: with the exit facts; with the reason it was terminated; or with the error that it could not start. */
-  readonly exited: Promise<ExitFacts>;
+  readonly outcome: Promise<SubprocessExitFacts>;
   /** Begin terminating the process and whatever it started; further calls change nothing. */
   terminate(reason: Error): void;
 }
 
 /** A promise that settles once, on the first of the ways a started process can end. */
 function onceSettle() {
-  let settle!: (error?: Error, value?: ExitFacts) => void;
+  let settle!: (error?: Error, value?: SubprocessExitFacts) => void;
   const state = { settled: false };
-  const promise = new Promise<ExitFacts>((resolve, reject) => {
+  const promise = new Promise<SubprocessExitFacts>((resolve, reject) => {
     settle = (error, value) => {
       if (state.settled) return;
       state.settled = true;
@@ -80,13 +75,13 @@ function onceSettle() {
       else resolve(value!);
     };
   });
-  return { promise, state, settle: (error?: Error, value?: ExitFacts) => settle(error, value) };
+  return { promise, state, settle };
 }
 
 let subprocess: SubprocessService | undefined;
 
-/** Start every child through this subprocess service from now on (#310): the plugin entry names the host's when it loads; a test names a stand-in for it. */
-export function startChildrenThrough(service: SubprocessService): void {
+/** Start every child through this subprocess service from now on (#310): the plugin entry names the host's when it loads; a test names a stand-in, or none. */
+export function startChildrenThrough(service: SubprocessService | undefined): void {
   subprocess = service;
 }
 
@@ -101,7 +96,7 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
     if (abort?.aborted) { reject(abort.reason); return; }
     if (argv.some(a => typeof a !== 'string')) { reject(fail('argv')); return; }
     if (!subprocess) { reject(fail('spawn', new Error('没有为这个运行时安装子进程服务。'))); return; }
-    let started: Started;
+    let started: StartedProcess;
     try {
       started = throughHost(subprocess, options);
     } catch (error) {
@@ -109,14 +104,13 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
       reject(fail('spawn', error as Error));
       return;
     }
-    const { stdin, stdout, stderr, exited } = started;
+    const { stdin, stdout, stderr, outcome } = started;
     const stdoutParts: Buffer[] = [], stderrParts: Buffer[] = [];
-    let bytes = 0, stderrBytes = 0, settled = false, ending = false;
+    let bytes = 0, stderrBytes = 0, ending = false;
     // Output that arrives after the call is on its way out is not kept: the limit no longer has a say, and the call ends with its reason.
     const terminate = (why: Error) => { ending = true; started.terminate(why); };
+    // Called once, from the outcome's single settlement.
     const finish = (error?: Error, code: number | null = null) => {
-      if (settled) return;
-      settled = true;
       clearTimeout(timer);
       abort?.removeEventListener('abort', cancel);
       stdin?.destroy(); stdout?.destroy(); stderr?.destroy();
@@ -141,12 +135,12 @@ export function runCliProcess(options: CliProcessOptions): Promise<CliProcessRes
     });
     stdin?.on('error', () => {});
     stdin?.end(stdinContent);
-    exited.then(facts => finish(undefined, facts.exitCode), error => finish(error));
+    outcome.then(facts => finish(undefined, facts.exitCode), error => finish(error));
   });
 }
 
 /** The process in the host's managed range: the service scrubs the environment, resolves the executable and escalates the termination. */
-function throughHost(service: SubprocessService, options: CliProcessOptions): Started {
+function throughHost(service: SubprocessService, options: CliProcessOptions): StartedProcess {
   const { bin, argv, env, cwd, stdinContent, fail } = options;
   const handle = service.spawn({
     argv: [bin, ...argv], cwd: cwd ?? process.cwd(),
@@ -156,20 +150,22 @@ function throughHost(service: SubprocessService, options: CliProcessOptions): St
   });
   const done = onceSettle();
   let reason: Error | null = null, lastResort: NodeJS.Timeout | undefined;
-  const end = (error?: Error, facts?: ExitFacts) => { clearTimeout(lastResort); done.settle(reason ?? error, reason ? undefined : facts); };
+  const endExited = (error?: Error, facts?: SubprocessExitFacts) => { clearTimeout(lastResort); done.settle(error, facts); };
+  const endTerminated = () => { clearTimeout(lastResort); done.settle(reason ?? undefined); };
   // A process that was terminated ends when nothing of it is left to observe, not when its leader alone reports: the service's
   // range covers what the process started. From the termination a bound is set, and only ends the wait should the service never report.
-  void handle.done.then(
-    facts => { if (reason) void handle.waitForExit().then(() => end(), () => end()); else end(undefined, facts); },
-    error => { if (reason) void handle.waitForExit().then(() => end(), () => end()); else end(fail('spawn', error as Error)); },
-  );
+  const onDone = (error?: Error, facts?: SubprocessExitFacts) => {
+    if (!reason) { endExited(error, facts); return; }
+    void handle.waitForExit().then(endTerminated, endTerminated);
+  };
+  void handle.done.then(facts => onDone(undefined, facts), error => onDone(fail('spawn', error as Error)));
   return {
-    stdin: handle.stdin, stdout: handle.stdout, stderr: handle.stderr, exited: done.promise,
+    stdin: handle.stdin, stdout: handle.stdout, stderr: handle.stderr, outcome: done.promise,
     terminate(why: Error) {
       if (done.state.settled || reason) return;
       reason = why;
       handle.terminate();
-      lastResort = setTimeout(() => end(), TERMINATE_GRACE_MS + EXIT_WAIT_SLACK_MS);
+      lastResort = setTimeout(endTerminated, TERMINATE_GRACE_MS + EXIT_WAIT_SLACK_MS);
     },
   };
 }

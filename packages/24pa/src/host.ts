@@ -144,7 +144,13 @@ export interface ConnectorAccountsService {
   register<Account, Kind extends string>(registration: ConnectorAccountRegistration<Account, Kind>): () => void;
 }
 
-/** The host's subprocess service, where the host loads one. A child starts in its scrubbed environment and inside its managed process range. */
+/** How a process the host's service started ended. */
+export interface SubprocessExitFacts {
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+/** The host's subprocess service, which the host loads wherever this plugin can. A child starts in its scrubbed environment and inside its managed process range. */
 export interface SubprocessService {
   spawn(spec: {
     argv: readonly string[];
@@ -159,7 +165,7 @@ export interface SubprocessService {
     readonly stdout: Readable | undefined;
     readonly stderr: Readable | undefined;
     /** Exit facts; rejects when the process could not start. */
-    readonly done: Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
+    readonly done: Promise<SubprocessExitFacts>;
     /** Begin the provider's termination; idempotent. */
     terminate(): void;
     /** Resolves once nothing of the process range it manages is left to observe; false when the signal aborted first. */
