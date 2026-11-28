@@ -1,0 +1,188 @@
+{
+ "recordedAt": "2026-11-28T22:30:41+08:00",
+ "testedCommit": "67f184d",
+ "stage": 8,
+ "issue": 281,
+ "base": "f78cfacb34ff5306cfa3859058723ab2be32bb75",
+ "scope": "并入主线（#311–#313 之后）后的清偿与新基线上的完整审查：读取范围、服务端能力闸、渠道边界；能力保持关闭，B 未做。",
+ "environment": {
+  "cli": "@deepseek-ai/dsh@0.2.3-alpha.2 (official)",
+  "node": "24.22.3",
+  "storage": "sqlite",
+  "DSH_HOME": "isolated",
+  "model": "stand-in",
+  "platforms": {
+   "weixin": "stand-in server",
+   "feishu": "fake transport and stub lark-cli"
+  },
+  "realAccountsUsed": false
+ },
+ "completeRuns": [
+  {
+   "commit": "632bb20",
+   "kind": "full suite",
+   "storage": "sqlite",
+   "files": "164 passed (164)",
+   "tests": "2228 passed | 1 skipped (2229)",
+   "durationSeconds": 1517.5,
+   "upgradeFixture": "published 0.2.3-alpha.2.1",
+   "log": "prd-export-632bb20/full.log (kept outside the repository; file-level lines and summary not copied)"
+  },
+  {
+   "commit": "67f184d",
+   "kind": "full suite",
+   "storage": "sqlite",
+   "files": "165 passed (165)",
+   "tests": "2231 passed | 1 skipped (2232)",
+   "durationSeconds": 1792.29,
+   "upgradeFixture": "published 0.2.3-alpha.2.1",
+   "log": "stage8-full.log"
+  }
+ ],
+ "unitRuns": [
+  {
+   "commit": "67f184d",
+   "kind": "unit suite",
+   "files": "119 passed (119)",
+   "tests": "1978 passed | 1 skipped (1979)",
+   "durationSeconds": 408.0,
+   "log": "stage8-unit.log"
+  }
+ ],
+ "targetedRuns": [
+  {
+   "kind": "weixin.e2e, weixin-plan-delivery.e2e, weixin-source-upgrade.e2e, manticore-plan-delivery.e2e on the worktree after the clearances",
+   "tests": "37 passed",
+   "log": "stage8-targeted-e2e.log"
+  }
+ ],
+ "perCommitBuilds": {
+  "base": "f78cfac",
+  "log": "stage8-verify-all.log",
+  "ok": 19
+ },
+ "commands": {
+  "export": "git archive <sha> | tar -x -C <empty dir>; cd packages/24pa; npm install; npm run build; npm run preset:check; npm pack",
+  "unit": "env -u DSH_BIN npx vitest run tests/unit",
+  "full": "env -u DSH_BIN PA24_E2E_STORAGE=sqlite DSH_BIN=<alpha.2 bin.js> PA24_E2E_PACKAGE=<tarball of the same export> PA24_E2E_UPGRADE_FROM=<published 0.2.3-alpha.2.1 tarball> PA24_E2E_LEGACY_DSH_BIN=<rc.3 bin.js> PA24_E2E_LEGACY_PACKAGE=<rc.3.1 tarball> PA24_E2E_OFFICIAL_CONNECTORS=0.2.3-alpha.2 npx vitest run",
+  "perCommit": "for each commit of f78cfac..HEAD: clean archive into an empty directory, npm install, npm run build, npm run preset:check, node --check client.js"
+ },
+ "walkThrough": [
+  {
+   "commit": "632bb20",
+   "what": "twelve views at 1280x800, 1440x900 and 1920x1080, light and dark",
+   "passes": 6,
+   "pageErrors": 0,
+   "failures": 0,
+   "views": [
+    "form-voice-choice",
+    "form-weixin",
+    "history-limited",
+    "plan-enable-preview",
+    "plans-list",
+    "plans-list-limited",
+    "run-confirmed",
+    "run-limited",
+    "run-partial",
+    "run-verify",
+    "weixin-card",
+    "weixin-card-details"
+   ],
+   "overflowSeen": 0
+  },
+  {
+   "commit": "632bb20",
+   "what": "the same twelve views at 1920x1080 on a fresh Host (the first Host's limited delivery had expired by then)",
+   "passes": 2,
+   "pageErrors": 0,
+   "failures": 0,
+   "views": [
+    "form-voice-choice",
+    "form-weixin",
+    "history-limited",
+    "plan-enable-preview",
+    "plans-list",
+    "plans-list-limited",
+    "run-confirmed",
+    "run-limited",
+    "run-partial",
+    "run-verify",
+    "weixin-card",
+    "weixin-card-details"
+   ],
+   "overflowSeen": 0
+  },
+  {
+   "commit": "c2f81be",
+   "what": "the WeChat card's delivery records after the reference fix",
+   "passes": 6,
+   "pageErrors": 0,
+   "failures": 0,
+   "views": [],
+   "overflowSeen": 0
+  },
+  {
+   "commit": "67f184d",
+   "what": "the WeChat card's delivery records on the final code",
+   "passes": 6,
+   "pageErrors": 0,
+   "failures": 0,
+   "views": [],
+   "overflowSeen": 0
+  },
+  {
+   "commit": "67f184d",
+   "what": "keyboard",
+   "passes": 2,
+   "pageErrors": 0,
+   "failures": 0,
+   "views": [],
+   "overflowSeen": 0
+  }
+ ],
+ "walkThroughNotes": [
+  "页面文字逐屏读回核对；页面错误与横向溢出都为零。",
+  "投递有效期一小时：第一个宿主上的「投递受限」在走查后半段如实变成「过期未投递」，1920x1080 用新宿主重拍。",
+  "键盘：Tab 能到达语音选择的两个按钮与核对表单的下拉、依据输入框，焦点环 3px，回车能选；原生下拉用键盘改值在无头浏览器里没有核到。",
+  "空／加载／错误／离线状态由 DOM 用例覆盖（weixin-panel.test.mjs），没有在真实页面上重走。"
+ ],
+ "closedCapability": {
+  "commit": "632bb20",
+  "host": "demo mode, no PA24_TRANSPORT",
+  "notificationSupported": false,
+  "deliveryOptions": [
+   "仅保存",
+   "飞书主人",
+   "企微主人"
+  ],
+  "passes": 6
+ },
+ "negativeControls": {
+  "commit": "632bb20",
+  "log": "stage8-negative.log",
+  "cases": [
+   {
+    "change": "the runtime admits the capability on every Host",
+    "failed": "真实 runtime 只在 fake 通道的宿主上把这项能力读成成立",
+    "others": "6 passed"
+   },
+   {
+    "change": "the server no longer refuses",
+    "failed": "能力没有成立时，服务端拒绝把微信作为通知目标，页面读到的是同一个结论",
+    "others": "6 passed"
+   }
+  ]
+ },
+ "review": {
+  "base": "f78cfacb34ff5306cfa3859058723ab2be32bb75",
+  "rounds": "see docs/research/2026-11-09-weixin-f55-review.md and PR #293"
+ },
+ "remaining": [
+  "B 实验、为真实实例开放、本人真实验收",
+  "读取范围对模板晨报的严格度（主人定）",
+  "入口连接中记为受限且不自动重试；四类通知无有效期；空正文零段",
+  "飞书／企微是否一并修微信修掉的竞态",
+  "异味整理项（见 PR 正文「未验证」）",
+  "带一条手工行的端到端重建（属 PR #301）"
+ ]
+}

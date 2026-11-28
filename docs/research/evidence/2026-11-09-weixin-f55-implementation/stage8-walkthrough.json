@@ -1,0 +1,1712 @@
+[
+ {
+  "commit": "632bb20",
+  "what": "twelve views at 1280x800, 1440x900 and 1920x1080, light and dark",
+  "report": [
+   {
+    "tag": "1280x800-light",
+    "errors": [],
+    "views": {
+     "plans-list": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      }
+     },
+     "plans-list-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "投递：投递受限": true,
+       "投递：部分投递": true,
+       "投递：结果已投递": true,
+       "微信离线结果·投递受限": true
+      }
+     },
+     "form-voice-choice": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "微信仅支持文本。此计划已选择语音，请明确选择投递方式。": true,
+       "改用微信文本": true,
+       "保留原渠道和语音": true
+      }
+     },
+     "form-weixin": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "启用前将预览并确认固定微信身份和发送条件。": true,
+       "微信仅支持文本": false
+      }
+     },
+     "plan-enable-preview": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "固定投递给主人：weixin": true,
+       "微信账号：wx-test-bot": true,
+       "接收主人：wx-test-owner": true,
+       "绑定版本：": true,
+       "仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。": true,
+       "确认本计划的工具、资源、目标和此项操作": true,
+       "确认执行此操作": true
+      }
+     },
+     "history-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "高级筛选1": false,
+       "投递受限": true,
+       "微信离线结果·投递受限": true
+      },
+      "rows": 1
+     },
+     "run-partial": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "文本段 3": true,
+       "部分投递": true,
+       "投递待核对": true,
+       "待投递": true
+      }
+     },
+     "run-verify": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "原投递核对": true,
+       "确认已收到": true,
+       "原平台消息标识（选填）": true,
+       "确认并保存投递核对": true
+      }
+     },
+     "run-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "投递受限": true,
+       "明确补投此结果": true
+      }
+     },
+     "run-confirmed": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "本人确认收到": true
+      }
+     },
+     "weixin-card": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "投递受限": true,
+       "结果未知": true,
+       "核对后补投": true,
+       "放弃未发送投递": true,
+       "我已收到": true
+      }
+     },
+     "weixin-card-details": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "未返回": true
+      }
+     }
+    },
+    "deliveryOptions": "仅保存 | 飞书主人 | 企微主人 | 微信本人（文本）",
+    "voiceChoiceBlocks": {
+     "preview": true,
+     "save": true
+    },
+    "channelAfterChoice": "weixin",
+    "formPreviewPassed": true,
+    "confirmDisabledUntilChecked": true,
+    "filterOptions": "全部投递状态 | 仅保存 | 按规则不推送 | 待投递 | 结果已投递 | 部分投递 | 投递受限 | 投递失败 | 投递待核对 | 过期未投递",
+    "verifyBeforeChoosing": {
+     "idField": 0,
+     "save": true
+    },
+    "verifySaveWithEvidenceOnly": true,
+    "deliveryRecordLabels": [
+     "原消息",
+     "原交办",
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ]
+   },
+   {
+    "tag": "1280x800-dark",
+    "errors": [],
+    "views": {
+     "plans-list": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      }
+     },
+     "plans-list-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "投递：投递受限": true,
+       "投递：部分投递": true,
+       "投递：结果已投递": true,
+       "微信离线结果·投递受限": true
+      }
+     },
+     "form-voice-choice": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "微信仅支持文本。此计划已选择语音，请明确选择投递方式。": true,
+       "改用微信文本": true,
+       "保留原渠道和语音": true
+      }
+     },
+     "form-weixin": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "启用前将预览并确认固定微信身份和发送条件。": true,
+       "微信仅支持文本": false
+      }
+     },
+     "plan-enable-preview": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "固定投递给主人：weixin": true,
+       "微信账号：wx-test-bot": true,
+       "接收主人：wx-test-owner": true,
+       "绑定版本：": true,
+       "仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。": true,
+       "确认本计划的工具、资源、目标和此项操作": true,
+       "确认执行此操作": true
+      }
+     },
+     "history-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "高级筛选1": false,
+       "投递受限": true,
+       "微信离线结果·投递受限": true
+      },
+      "rows": 1
+     },
+     "run-partial": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "文本段 3": true,
+       "部分投递": true,
+       "投递待核对": true,
+       "待投递": true
+      }
+     },
+     "run-verify": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "原投递核对": true,
+       "确认已收到": true,
+       "原平台消息标识（选填）": true,
+       "确认并保存投递核对": true
+      }
+     },
+     "run-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "投递受限": true,
+       "明确补投此结果": true
+      }
+     },
+     "run-confirmed": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "本人确认收到": true
+      }
+     },
+     "weixin-card": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "投递受限": true,
+       "结果未知": true,
+       "核对后补投": true,
+       "放弃未发送投递": true,
+       "我已收到": true
+      }
+     },
+     "weixin-card-details": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "未返回": true
+      }
+     }
+    },
+    "deliveryOptions": "仅保存 | 飞书主人 | 企微主人 | 微信本人（文本）",
+    "voiceChoiceBlocks": {
+     "preview": true,
+     "save": true
+    },
+    "channelAfterChoice": "weixin",
+    "formPreviewPassed": true,
+    "confirmDisabledUntilChecked": true,
+    "filterOptions": "全部投递状态 | 仅保存 | 按规则不推送 | 待投递 | 结果已投递 | 部分投递 | 投递受限 | 投递失败 | 投递待核对 | 过期未投递",
+    "verifyBeforeChoosing": {
+     "idField": 0,
+     "save": true
+    },
+    "verifySaveWithEvidenceOnly": true,
+    "deliveryRecordLabels": [
+     "原消息",
+     "原交办",
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ]
+   },
+   {
+    "tag": "1440x900-light",
+    "errors": [],
+    "views": {
+     "plans-list": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      }
+     },
+     "plans-list-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "投递：投递受限": true,
+       "投递：部分投递": true,
+       "投递：结果已投递": true,
+       "微信离线结果·投递受限": true
+      }
+     },
+     "form-voice-choice": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "微信仅支持文本。此计划已选择语音，请明确选择投递方式。": true,
+       "改用微信文本": true,
+       "保留原渠道和语音": true
+      }
+     },
+     "form-weixin": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "启用前将预览并确认固定微信身份和发送条件。": true,
+       "微信仅支持文本": false
+      }
+     },
+     "plan-enable-preview": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "固定投递给主人：weixin": true,
+       "微信账号：wx-test-bot": true,
+       "接收主人：wx-test-owner": true,
+       "绑定版本：": true,
+       "仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。": true,
+       "确认本计划的工具、资源、目标和此项操作": true,
+       "确认执行此操作": true
+      }
+     },
+     "history-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "高级筛选1": false,
+       "投递受限": true,
+       "微信离线结果·投递受限": true
+      },
+      "rows": 1
+     },
+     "run-partial": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "文本段 3": true,
+       "部分投递": true,
+       "投递待核对": true,
+       "待投递": true
+      }
+     },
+     "run-verify": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "原投递核对": true,
+       "确认已收到": true,
+       "原平台消息标识（选填）": true,
+       "确认并保存投递核对": true
+      }
+     },
+     "run-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "投递受限": true,
+       "明确补投此结果": true
+      }
+     },
+     "run-confirmed": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "本人确认收到": true
+      }
+     },
+     "weixin-card": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "投递受限": true,
+       "结果未知": true,
+       "核对后补投": true,
+       "放弃未发送投递": true,
+       "我已收到": true
+      }
+     },
+     "weixin-card-details": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "未返回": true
+      }
+     }
+    },
+    "deliveryOptions": "仅保存 | 飞书主人 | 企微主人 | 微信本人（文本）",
+    "voiceChoiceBlocks": {
+     "preview": true,
+     "save": true
+    },
+    "channelAfterChoice": "weixin",
+    "formPreviewPassed": true,
+    "confirmDisabledUntilChecked": true,
+    "filterOptions": "全部投递状态 | 仅保存 | 按规则不推送 | 待投递 | 结果已投递 | 部分投递 | 投递受限 | 投递失败 | 投递待核对 | 过期未投递",
+    "verifyBeforeChoosing": {
+     "idField": 0,
+     "save": true
+    },
+    "verifySaveWithEvidenceOnly": true,
+    "deliveryRecordLabels": [
+     "原消息",
+     "原交办",
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ]
+   },
+   {
+    "tag": "1440x900-dark",
+    "errors": [],
+    "views": {
+     "plans-list": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      }
+     },
+     "plans-list-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "投递：投递受限": true,
+       "投递：部分投递": true,
+       "投递：结果已投递": true,
+       "微信离线结果·投递受限": true
+      }
+     },
+     "form-voice-choice": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "微信仅支持文本。此计划已选择语音，请明确选择投递方式。": true,
+       "改用微信文本": true,
+       "保留原渠道和语音": true
+      }
+     },
+     "form-weixin": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "启用前将预览并确认固定微信身份和发送条件。": true,
+       "微信仅支持文本": false
+      }
+     },
+     "plan-enable-preview": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "固定投递给主人：weixin": true,
+       "微信账号：wx-test-bot": true,
+       "接收主人：wx-test-owner": true,
+       "绑定版本：": true,
+       "仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。": true,
+       "确认本计划的工具、资源、目标和此项操作": true,
+       "确认执行此操作": true
+      }
+     },
+     "history-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "高级筛选1": false,
+       "投递受限": true,
+       "微信离线结果·投递受限": true
+      },
+      "rows": 1
+     },
+     "run-partial": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "文本段 3": true,
+       "部分投递": true,
+       "投递待核对": true,
+       "待投递": true
+      }
+     },
+     "run-verify": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "原投递核对": true,
+       "确认已收到": true,
+       "原平台消息标识（选填）": true,
+       "确认并保存投递核对": true
+      }
+     },
+     "run-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "投递受限": true,
+       "明确补投此结果": true
+      }
+     },
+     "run-confirmed": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "本人确认收到": true
+      }
+     },
+     "weixin-card": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "投递受限": true,
+       "结果未知": true,
+       "核对后补投": true,
+       "放弃未发送投递": true,
+       "我已收到": true
+      }
+     },
+     "weixin-card-details": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "未返回": true
+      }
+     }
+    },
+    "deliveryOptions": "仅保存 | 飞书主人 | 企微主人 | 微信本人（文本）",
+    "voiceChoiceBlocks": {
+     "preview": true,
+     "save": true
+    },
+    "channelAfterChoice": "weixin",
+    "formPreviewPassed": true,
+    "confirmDisabledUntilChecked": true,
+    "filterOptions": "全部投递状态 | 仅保存 | 按规则不推送 | 待投递 | 结果已投递 | 部分投递 | 投递受限 | 投递失败 | 投递待核对 | 过期未投递",
+    "verifyBeforeChoosing": {
+     "idField": 0,
+     "save": true
+    },
+    "verifySaveWithEvidenceOnly": true,
+    "deliveryRecordLabels": [
+     "原消息",
+     "原交办",
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ]
+   },
+   {
+    "tag": "1920x1080-light",
+    "errors": [],
+    "views": {
+     "plans-list": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      }
+     },
+     "plans-list-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "投递：投递受限": true,
+       "投递：部分投递": true,
+       "投递：结果已投递": true,
+       "微信离线结果·投递受限": true
+      }
+     },
+     "form-voice-choice": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "微信仅支持文本。此计划已选择语音，请明确选择投递方式。": true,
+       "改用微信文本": true,
+       "保留原渠道和语音": true
+      }
+     },
+     "form-weixin": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "启用前将预览并确认固定微信身份和发送条件。": true,
+       "微信仅支持文本": false
+      }
+     },
+     "plan-enable-preview": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "固定投递给主人：weixin": true,
+       "微信账号：wx-test-bot": true,
+       "接收主人：wx-test-owner": true,
+       "绑定版本：": true,
+       "仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。": true,
+       "确认本计划的工具、资源、目标和此项操作": true,
+       "确认执行此操作": true
+      }
+     },
+     "history-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "高级筛选1": false,
+       "投递受限": true,
+       "微信离线结果·投递受限": true
+      },
+      "rows": 1
+     },
+     "run-partial": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "文本段 3": true,
+       "部分投递": true,
+       "投递待核对": true,
+       "待投递": true
+      }
+     },
+     "run-verify": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "原投递核对": true,
+       "确认已收到": true,
+       "原平台消息标识（选填）": true,
+       "确认并保存投递核对": true
+      }
+     },
+     "run-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "投递受限": true,
+       "明确补投此结果": true
+      }
+     },
+     "run-confirmed": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "本人确认收到": true
+      }
+     },
+     "weixin-card": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "投递受限": false,
+       "结果未知": true,
+       "核对后补投": true,
+       "放弃未发送投递": false,
+       "我已收到": true
+      }
+     },
+     "weixin-card-details": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "未返回": true
+      }
+     }
+    },
+    "deliveryOptions": "仅保存 | 飞书主人 | 企微主人 | 微信本人（文本）",
+    "voiceChoiceBlocks": {
+     "preview": true,
+     "save": true
+    },
+    "channelAfterChoice": "weixin",
+    "formPreviewPassed": true,
+    "confirmDisabledUntilChecked": true,
+    "filterOptions": "全部投递状态 | 仅保存 | 按规则不推送 | 待投递 | 结果已投递 | 部分投递 | 投递受限 | 投递失败 | 投递待核对 | 过期未投递",
+    "verifyBeforeChoosing": {
+     "idField": 0,
+     "save": true
+    },
+    "verifySaveWithEvidenceOnly": true,
+    "deliveryRecordLabels": [
+     "原消息",
+     "原交办",
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ]
+   },
+   {
+    "tag": "1920x1080-dark",
+    "errors": [],
+    "views": {
+     "plans-list": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      }
+     },
+     "plans-list-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "投递：投递受限": false,
+       "投递：部分投递": true,
+       "投递：结果已投递": true,
+       "微信离线结果·投递受限": true
+      }
+     },
+     "form-voice-choice": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "微信仅支持文本。此计划已选择语音，请明确选择投递方式。": true,
+       "改用微信文本": true,
+       "保留原渠道和语音": true
+      }
+     },
+     "form-weixin": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "启用前将预览并确认固定微信身份和发送条件。": true,
+       "微信仅支持文本": false
+      }
+     },
+     "plan-enable-preview": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "固定投递给主人：weixin": true,
+       "微信账号：wx-test-bot": true,
+       "接收主人：wx-test-owner": true,
+       "绑定版本：": true,
+       "仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。": true,
+       "确认本计划的工具、资源、目标和此项操作": true,
+       "确认执行此操作": true
+      }
+     },
+     "history-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "高级筛选1": false,
+       "投递受限": true,
+       "微信离线结果·投递受限": false
+      },
+      "rows": 0
+     },
+     "run-partial": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "文本段 3": true,
+       "部分投递": true,
+       "投递待核对": true,
+       "待投递": true
+      }
+     },
+     "run-verify": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "原投递核对": true,
+       "确认已收到": true,
+       "原平台消息标识（选填）": true,
+       "确认并保存投递核对": true
+      }
+     },
+     "run-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "投递受限": true,
+       "明确补投此结果": false
+      }
+     },
+     "run-confirmed": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "本人确认收到": true
+      }
+     },
+     "weixin-card": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "投递受限": false,
+       "结果未知": true,
+       "核对后补投": true,
+       "放弃未发送投递": false,
+       "我已收到": true
+      }
+     },
+     "weixin-card-details": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "未返回": true
+      }
+     }
+    },
+    "deliveryOptions": "仅保存 | 飞书主人 | 企微主人 | 微信本人（文本）",
+    "voiceChoiceBlocks": {
+     "preview": true,
+     "save": true
+    },
+    "channelAfterChoice": "weixin",
+    "formPreviewPassed": true,
+    "confirmDisabledUntilChecked": true,
+    "filterOptions": "全部投递状态 | 仅保存 | 按规则不推送 | 待投递 | 结果已投递 | 部分投递 | 投递受限 | 投递失败 | 投递待核对 | 过期未投递",
+    "verifyBeforeChoosing": {
+     "idField": 0,
+     "save": true
+    },
+    "verifySaveWithEvidenceOnly": true,
+    "deliveryRecordLabels": [
+     "原消息",
+     "原交办",
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ]
+   }
+  ]
+ },
+ {
+  "commit": "632bb20",
+  "what": "the same twelve views at 1920x1080 on a fresh Host (the first Host's limited delivery had expired by then)",
+  "report": [
+   {
+    "tag": "1920x1080-light",
+    "errors": [],
+    "views": {
+     "plans-list": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      }
+     },
+     "plans-list-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "投递：投递受限": true,
+       "投递：部分投递": true,
+       "投递：结果已投递": true,
+       "微信离线结果·投递受限": true
+      }
+     },
+     "form-voice-choice": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "微信仅支持文本。此计划已选择语音，请明确选择投递方式。": true,
+       "改用微信文本": true,
+       "保留原渠道和语音": true
+      }
+     },
+     "form-weixin": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "启用前将预览并确认固定微信身份和发送条件。": true,
+       "微信仅支持文本": false
+      }
+     },
+     "plan-enable-preview": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "固定投递给主人：weixin": true,
+       "微信账号：wx-test-bot": true,
+       "接收主人：wx-test-owner": true,
+       "绑定版本：": true,
+       "仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。": true,
+       "确认本计划的工具、资源、目标和此项操作": true,
+       "确认执行此操作": true
+      }
+     },
+     "history-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "高级筛选1": false,
+       "投递受限": true,
+       "微信离线结果·投递受限": true
+      },
+      "rows": 1
+     },
+     "run-partial": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "文本段 3": true,
+       "部分投递": true,
+       "投递待核对": true,
+       "待投递": true
+      }
+     },
+     "run-verify": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "原投递核对": true,
+       "确认已收到": true,
+       "原平台消息标识（选填）": true,
+       "确认并保存投递核对": true
+      }
+     },
+     "run-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "投递受限": true,
+       "明确补投此结果": true
+      }
+     },
+     "run-confirmed": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "本人确认收到": true
+      }
+     },
+     "weixin-card": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "投递受限": true,
+       "结果未知": true,
+       "核对后补投": true,
+       "放弃未发送投递": true,
+       "我已收到": true
+      }
+     },
+     "weixin-card-details": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "未返回": true
+      }
+     }
+    },
+    "deliveryOptions": "仅保存 | 飞书主人 | 企微主人 | 微信本人（文本）",
+    "voiceChoiceBlocks": {
+     "preview": true,
+     "save": true
+    },
+    "channelAfterChoice": "weixin",
+    "formPreviewPassed": true,
+    "confirmDisabledUntilChecked": true,
+    "filterOptions": "全部投递状态 | 仅保存 | 按规则不推送 | 待投递 | 结果已投递 | 部分投递 | 投递受限 | 投递失败 | 投递待核对 | 过期未投递",
+    "verifyBeforeChoosing": {
+     "idField": 0,
+     "save": true
+    },
+    "verifySaveWithEvidenceOnly": true,
+    "deliveryRecordLabels": [
+     "原消息",
+     "原交办",
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ]
+   },
+   {
+    "tag": "1920x1080-dark",
+    "errors": [],
+    "views": {
+     "plans-list": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      }
+     },
+     "plans-list-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "投递：投递受限": true,
+       "投递：部分投递": true,
+       "投递：结果已投递": true,
+       "微信离线结果·投递受限": true
+      }
+     },
+     "form-voice-choice": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "微信仅支持文本。此计划已选择语音，请明确选择投递方式。": true,
+       "改用微信文本": true,
+       "保留原渠道和语音": true
+      }
+     },
+     "form-weixin": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "启用前将预览并确认固定微信身份和发送条件。": true,
+       "微信仅支持文本": false
+      }
+     },
+     "plan-enable-preview": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "固定投递给主人：weixin": true,
+       "微信账号：wx-test-bot": true,
+       "接收主人：wx-test-owner": true,
+       "绑定版本：": true,
+       "仅文本。发送前仍须核验账号可用性与平台条件；受限时保存结果，不改投其他身份。平台接纳不表示本人已读。": true,
+       "确认本计划的工具、资源、目标和此项操作": true,
+       "确认执行此操作": true
+      }
+     },
+     "history-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "高级筛选1": false,
+       "投递受限": true,
+       "微信离线结果·投递受限": true
+      },
+      "rows": 1
+     },
+     "run-partial": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "文本段 3": true,
+       "部分投递": true,
+       "投递待核对": true,
+       "待投递": true
+      }
+     },
+     "run-verify": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "原投递核对": true,
+       "确认已收到": true,
+       "原平台消息标识（选填）": true,
+       "确认并保存投递核对": true
+      }
+     },
+     "run-limited": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "投递受限": true,
+       "明确补投此结果": true
+      }
+     },
+     "run-confirmed": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "文本段 1": true,
+       "文本段 2": true,
+       "本人确认收到": true
+      }
+     },
+     "weixin-card": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "投递受限": true,
+       "结果未知": true,
+       "核对后补投": true,
+       "放弃未发送投递": true,
+       "我已收到": true
+      }
+     },
+     "weixin-card-details": {
+      "overflow": {
+       "page": 0,
+       "content": 0,
+       "wide": []
+      },
+      "text": {
+       "本人确认收到": true,
+       "未返回": true
+      }
+     }
+    },
+    "deliveryOptions": "仅保存 | 飞书主人 | 企微主人 | 微信本人（文本）",
+    "voiceChoiceBlocks": {
+     "preview": true,
+     "save": true
+    },
+    "channelAfterChoice": "weixin",
+    "formPreviewPassed": true,
+    "confirmDisabledUntilChecked": true,
+    "filterOptions": "全部投递状态 | 仅保存 | 按规则不推送 | 待投递 | 结果已投递 | 部分投递 | 投递受限 | 投递失败 | 投递待核对 | 过期未投递",
+    "verifyBeforeChoosing": {
+     "idField": 0,
+     "save": true
+    },
+    "verifySaveWithEvidenceOnly": true,
+    "deliveryRecordLabels": [
+     "原消息",
+     "原交办",
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ]
+   }
+  ]
+ },
+ {
+  "commit": "c2f81be",
+  "what": "the WeChat card's delivery records after the reference fix",
+  "report": [
+   {
+    "tag": "1280x800-light",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-698a19b9-3b5e-4216-9fa0-d01808385c6",
+     "965986a7-0be3-4442-9149-7e675d999ab2",
+     "plan-result-a7bc617dc9750d8e2291e12a66af",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1280x800-dark",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-698a19b9-3b5e-4216-9fa0-d01808385c6",
+     "965986a7-0be3-4442-9149-7e675d999ab2",
+     "plan-result-a7bc617dc9750d8e2291e12a66af",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1440x900-light",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-698a19b9-3b5e-4216-9fa0-d01808385c6",
+     "965986a7-0be3-4442-9149-7e675d999ab2",
+     "plan-result-a7bc617dc9750d8e2291e12a66af",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1440x900-dark",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-698a19b9-3b5e-4216-9fa0-d01808385c6",
+     "965986a7-0be3-4442-9149-7e675d999ab2",
+     "plan-result-a7bc617dc9750d8e2291e12a66af",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1920x1080-light",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-698a19b9-3b5e-4216-9fa0-d01808385c6",
+     "965986a7-0be3-4442-9149-7e675d999ab2",
+     "plan-result-a7bc617dc9750d8e2291e12a66af",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1920x1080-dark",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-698a19b9-3b5e-4216-9fa0-d01808385c6",
+     "965986a7-0be3-4442-9149-7e675d999ab2",
+     "plan-result-a7bc617dc9750d8e2291e12a66af",
+     "未返回"
+    ]
+   }
+  ]
+ },
+ {
+  "commit": "67f184d",
+  "what": "the WeChat card's delivery records on the final code",
+  "report": [
+   {
+    "tag": "1280x800-light",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-1515f911-4bc6-4eae-9098-6679020404e",
+     "d5b1e64e-ece3-4f0e-b6c0-22ba1853a4c0",
+     "plan-result-a9efb13f182e1eaba8ff3af4709f",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1280x800-dark",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-1515f911-4bc6-4eae-9098-6679020404e",
+     "d5b1e64e-ece3-4f0e-b6c0-22ba1853a4c0",
+     "plan-result-a9efb13f182e1eaba8ff3af4709f",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1440x900-light",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-1515f911-4bc6-4eae-9098-6679020404e",
+     "d5b1e64e-ece3-4f0e-b6c0-22ba1853a4c0",
+     "plan-result-a9efb13f182e1eaba8ff3af4709f",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1440x900-dark",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-1515f911-4bc6-4eae-9098-6679020404e",
+     "d5b1e64e-ece3-4f0e-b6c0-22ba1853a4c0",
+     "plan-result-a9efb13f182e1eaba8ff3af4709f",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1920x1080-light",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-1515f911-4bc6-4eae-9098-6679020404e",
+     "d5b1e64e-ece3-4f0e-b6c0-22ba1853a4c0",
+     "plan-result-a9efb13f182e1eaba8ff3af4709f",
+     "未返回"
+    ]
+   },
+   {
+    "tag": "1920x1080-dark",
+    "errors": [],
+    "labels": [
+     "原计划",
+     "原运行",
+     "原通知",
+     "平台消息号"
+    ],
+    "values": [
+     "plan-1515f911-4bc6-4eae-9098-6679020404e",
+     "d5b1e64e-ece3-4f0e-b6c0-22ba1853a4c0",
+     "plan-result-a9efb13f182e1eaba8ff3af4709f",
+     "未返回"
+    ]
+   }
+  ]
+ },
+ {
+  "commit": "67f184d",
+  "what": "keyboard",
+  "report": [
+   {
+    "tag": "1440x900-light",
+    "errors": [],
+    "choice": {
+     "presses": 50,
+     "text": "改用微信文本",
+     "tag": "BUTTON",
+     "outline": "solid",
+     "width": "3px",
+     "boxShadow": "none"
+    },
+    "channelAfterEnter": "weixin",
+    "noteAfterEnter": true,
+    "verifyAfterArrow": {
+     "value": "not_sent",
+     "idField": 0
+    },
+    "afterSelect": {
+     "text": "",
+     "tag": "TEXTAREA",
+     "outline": "solid",
+     "width": "3px",
+     "boxShadow": "none"
+    },
+    "afterId": {
+     "text": "关闭详情",
+     "tag": "BUTTON",
+     "outline": "solid",
+     "width": "3px",
+     "boxShadow": "none"
+    }
+   },
+   {
+    "tag": "1440x900-dark",
+    "errors": [],
+    "choice": {
+     "presses": 50,
+     "text": "改用微信文本",
+     "tag": "BUTTON",
+     "outline": "solid",
+     "width": "3px",
+     "boxShadow": "none"
+    },
+    "channelAfterEnter": "weixin",
+    "noteAfterEnter": true,
+    "verifyAfterArrow": {
+     "value": "not_sent",
+     "idField": 0
+    },
+    "afterSelect": {
+     "text": "",
+     "tag": "TEXTAREA",
+     "outline": "solid",
+     "width": "3px",
+     "boxShadow": "none"
+    },
+    "afterId": {
+     "text": "关闭详情",
+     "tag": "BUTTON",
+     "outline": "solid",
+     "width": "3px",
+     "boxShadow": "none"
+    }
+   }
+  ]
+ }
+]
