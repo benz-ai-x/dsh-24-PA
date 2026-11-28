@@ -3,6 +3,8 @@
 // the official CLI, so drift fails loudly in tests instead of being papered
 // over here.
 
+import type { Readable, Writable } from 'node:stream';
+
 export interface ContentBlock {
   type: string;
   text?: string;
@@ -140,6 +142,35 @@ export interface ConnectorAccountRegistration<Account, Kind extends string> {
 export interface ConnectorAccountsService {
   /** Show the account for as long as the returned disposer has not run; throws when the key or the package is taken. */
   register<Account, Kind extends string>(registration: ConnectorAccountRegistration<Account, Kind>): () => void;
+}
+
+/** How a process the host's service started ended. */
+export interface SubprocessExitFacts {
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+}
+
+/** The host's subprocess service, which the host loads wherever this plugin can. A child starts in its scrubbed environment and inside its managed process range. */
+export interface SubprocessService {
+  spawn(spec: {
+    argv: readonly string[];
+    cwd: string;
+    stdio: { stdin: 'ignore' | 'pipe'; stdout: 'pipe'; stderr: 'pipe' };
+    /** What the provider gets to end the process and whatever it started. */
+    graceMs: number;
+    /** Entries layered after the provider's scrub of the environment; undefined removes one. */
+    env?: NodeJS.ProcessEnv;
+  }): {
+    readonly stdin: Writable | undefined;
+    readonly stdout: Readable | undefined;
+    readonly stderr: Readable | undefined;
+    /** Exit facts; rejects when the process could not start. */
+    readonly done: Promise<SubprocessExitFacts>;
+    /** Begin the provider's termination; idempotent. */
+    terminate(): void;
+    /** Resolves once nothing of the process range it manages is left to observe; false when the signal aborted first. */
+    waitForExit(signal?: AbortSignal): Promise<boolean>;
+  };
 }
 
 /** The profile this process runs, as the launcher provides it. */
@@ -315,5 +346,7 @@ export interface DshContext {
   connectorAccounts?: ConnectorAccountsService;
   /** The host's MCP manager (the web profile loads one): says of each server how its connection stands. */
   mcpManager?: { list(): { name: string; status: { state: McpServerState } }[] };
+  /** The host's subprocess service, which the plugin requires (#310): every CLI it runs starts through it. */
+  subprocess: SubprocessService;
   get(service: string): any;
 }

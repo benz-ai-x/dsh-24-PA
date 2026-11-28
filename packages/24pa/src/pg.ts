@@ -4,6 +4,9 @@ import { MIGRATIONS } from './db.js';
 import type { BackupPart, PaDb, WorkspaceLedgerIdentity } from './db.js';
 import { assertLedgerOwnership, claimLedgerOwnership } from './repo/ledger.js';
 
+/** What libpq reads from the environment for a password and for a client certificate; the host's scrub of a child's environment removes these names. */
+const PG_SECRETS = ['PGPASSWORD', 'PGSSLKEY', 'PGSSLPASSWORD'] as const;
+
 // Business ledger lives in a dedicated `pa24` schema of the configured
 // PostgreSQL instance. The DSN itself comes from the environment variable
 // named by AGENTS.md (`pgDsnEnv`); credentials never enter workspace files.
@@ -107,6 +110,9 @@ export class PaDatabase implements PaDb {
     const result = await runCliProcess({
       bin: 'pg_dump', argv: ['--schema=pa24', '--no-owner', '--no-privileges', '--dbname', this.dsn],
       timeoutMs: 10 * 60_000, stdoutLimitBytes: 256 * 1024 * 1024,
+      // An instance may keep what libpq needs in the environment rather than in the DSN; pg_dump has always seen it. Their names are ones the host's
+      // scrub of a child's environment removes, so they are passed on explicitly (#310).
+      env: Object.fromEntries(PG_SECRETS.map(name => [name, process.env[name]])),
       fail: kind => new Error(`pg_dump 未完成（${kind}）；备份期限 10 分钟、输出上限 256MiB，请核对后重试。`),
     });
     if (result.exitCode !== 0) throw new Error(`pg_dump 退出码 ${result.exitCode}：${result.stderr.split(this.dsn).join('[已隐藏]').slice(0, 300) || '无诊断输出'}`);

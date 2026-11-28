@@ -4,9 +4,11 @@ import { PaRuntime, HostStartupError } from './runtime.js';
 import { registerAccessAccount } from './connector-account.js';
 import { registerPanel } from './panel.js';
 import { hasOfficialConnectors } from './cli-source.js';
+import { startChildrenThrough } from './cli-gateway.js';
 
 export const name = 'pa24';
-export const inject = ['sessionController', 'sessions', 'connection', 'agentPresets', 'workspaceRegistry', 'subagents', 'fs', 'skills'];
+// `subprocess` is required (#310): every CLI the plugin runs starts through the host's service, which must be there when the plugin loads.
+export const inject = ['sessionController', 'sessions', 'connection', 'agentPresets', 'workspaceRegistry', 'subagents', 'fs', 'skills', 'subprocess'];
 
 export const Config = z.object({
   stateDirectory: z.string().required(),
@@ -50,6 +52,8 @@ export function apply(ctx: DshContext, config: any) {
     noteVerifyTickMs: config.noteVerifyTickMs,
     reviewReminderTickMs: config.reviewReminderTickMs,
   });
+  // #310: every CLI the plugin runs starts through the host's subprocess service, which the entry lists as required.
+  startChildrenThrough(ctx.subprocess);
   ctx.reflect.provide('pa24', runtime);
   // #309: where the host loads the Plugins page's account registry (the web application does), 24PA's own access
   // state gets a block there. The block shows stored results; only the owner's check reads the platforms.
